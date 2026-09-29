@@ -186,6 +186,15 @@ CONTRACT_GROUPS = {
         ("src/draftwright/annotations/_strip_postsolve.py",),
         ("test_gdt_ink_shared.py", "test_strip_layout.py", "test_solve_trace.py"),
     ),
+    "feature_leader_assignment": ContractGroup(
+        ("src/draftwright/annotations/leaders.py",),
+        (
+            "test_feature_leader_candidate_regions.py",
+            "test_issue_740_leader_assignment.py",
+            "test_issue_798_floor_cardinality.py",
+            "test_issue_1166_cross_pass_feature_leaders.py",
+        ),
+    ),
     "hole_locations": ContractGroup(
         ("src/draftwright/annotations/hole_locations.py",),
         (

@@ -45,6 +45,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "dimension_ink_repair": "src/draftwright/annotations/_dimension_ink_repair.py",
         "placement_geometry": "src/draftwright/annotations/_placement_geometry.py",
         "strip_postsolve": "src/draftwright/annotations/_strip_postsolve.py",
+        "feature_leader_assignment": "src/draftwright/annotations/leaders.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
         "ir_foundation": "src/draftwright/model/ir_foundation.py",
@@ -278,6 +279,16 @@ def test_placement_geometry_runs_footprint_and_occupancy_contracts():
 def test_strip_postsolve_runs_required_ink_and_trace_contracts():
     selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_strip_postsolve.py"]))
     assert {"test_gdt_ink_shared.py", "test_strip_layout.py", "test_solve_trace.py"} <= selected
+
+
+def test_feature_leader_owner_runs_greedy_floor_and_joint_assignment_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/leaders.py"]))
+    assert {
+        "test_feature_leader_candidate_regions.py",
+        "test_issue_740_leader_assignment.py",
+        "test_issue_798_floor_cardinality.py",
+        "test_issue_1166_cross_pass_feature_leaders.py",
+    } <= selected
 
 
 def test_nonproduction_changes_do_not_expand_the_core():

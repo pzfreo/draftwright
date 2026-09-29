@@ -1771,6 +1771,338 @@ def _pair_conflicts(jobs, viable_by_job) -> _LeaderPairConflicts:
     return _LeaderPairConflicts(conflicts, pair_probes, False)
 
 
+def _greedy_boundary_blockers(candidate, job, page, title_block) -> tuple[str, ...]:
+    blockers = []
+    label = candidate.label_box
+    if candidate.failure_reason is not None:
+        blockers.append(candidate.failure_reason)
+    elif label is None:
+        blockers.append("unmeasurable_label")
+    else:
+        if label[0] < page[0] or label[1] < page[1] or label[2] > page[2] or label[3] > page[3]:
+            blockers.append("page")
+        if view_blocker := _view_region_blocker(candidate, job):
+            blockers.append(view_blocker)
+    if _ink_hits_box(candidate, title_block):
+        blockers.append("title_block:reserved")
+    return tuple(blockers)
+
+
+def _greedy_terminal_reason(rejected) -> str:
+    return (
+        "geometry_validation"
+        if rejected
+        and all(
+            "geometry_validation" in entry["blockers"]
+            and set(entry["blockers"]) <= {"geometry_validation", "fixed_probe_budget"}
+            for entry in rejected
+        )
+        else "no_clear_room"
+    )
+
+
+@dataclass(frozen=True)
+class _GreedyFloorStart:
+    fixed: Any
+    fixed_verified: bool
+    legacy_boxes: dict[str, Any]
+
+
+def _start_greedy_floor(dwg, jobs, views, bounded_fixed_obstacles) -> _GreedyFloorStart:
+    fixed_result = bounded_fixed_obstacles()
+    fixed_verified = fixed_result is not _FIXED_INVENTORY_EXHAUSTED
+    fixed = fixed_result if fixed_verified else {view: () for view in views}
+    legacy_boxes = {
+        # Producer fallback replays the pre-#1166 acceptance floor; exact
+        # blockers below still persist any retained crossing. Optional
+        # future section furniture cannot become a resource-cap veto.
+        view: _legacy_fallback_obstacles(dwg, view)
+        for view in dict.fromkeys(job.view for job in jobs)
+    }
+    return _GreedyFloorStart(fixed, fixed_verified, legacy_boxes)
+
+
+@dataclass(frozen=True)
+class _GreedyRecoveryCallbacks:
+    recovery_for: Callable[..., Any]
+    place: Callable[..., Any]
+    drop: Callable[..., Any]
+    record_item: Callable[..., Any]
+    recovery_cost: Callable[..., float]
+
+
+def _finish_greedy_recoveries(
+    pending_recoveries,
+    jobs: list[FeatureLeaderJob],
+    callbacks: _GreedyRecoveryCallbacks,
+    totals: tuple[int, float, float],
+) -> tuple[int, float, float]:
+    recovery_for = callbacks.recovery_for
+    place = callbacks.place
+    drop = callbacks.drop
+    record_item = callbacks.record_item
+    recovery_cost = callbacks.recovery_cost
+    placed_count, total_priority, total_cost = totals
+    # Recovery runs after every ordinary winner is committed, so its exact sheet-space
+    # predicate sees the complete greedy result rather than depending on producer order.
+    for (
+        job_index,
+        recorded_raw_count,
+        recorded_rejected,
+        obstacle_count,
+        recorded_inventory,
+        producer_fallback,
+        drop_reason,
+    ) in pending_recoveries:
+        recovered = recovery_for(job_index)()
+        if recovered is not None:
+            annotation, feature = recovered
+            place(job_index, feature, annotation, recovered=True)
+            placed_count += 1
+            total_priority += jobs[job_index].priority
+            total_cost += recovery_cost(annotation)
+        else:
+            drop(job_index, reason=drop_reason)
+        record_item(
+            job_index,
+            None,
+            recorded_raw_count,
+            recorded_rejected,
+            obstacle_count=obstacle_count,
+            candidate_inventory=recorded_inventory,
+            producer_fallback=producer_fallback,
+            reason=drop_reason,
+            recovered=annotation if recovered is not None else None,
+        )
+    return placed_count, total_priority, total_cost
+
+
+@dataclass(frozen=True)
+class _GreedySelectionInput:
+    dwg: Any
+    job: FeatureLeaderJob
+    fallback_source: Iterable[Any]
+    fixed_components: tuple[_FixedInkComponent, ...]
+    fixed_verified: bool
+    fixed_probes: int
+    page: tuple[float, float, float, float]
+    title_block: tuple[float, float, float, float]
+    legacy_boxes: tuple[Any, ...]
+    field: Any
+    reason: str
+    prefer_clear: bool
+    candidate_entry: Callable[..., dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class _GreedySelection:
+    blockers_by_raw: list[tuple[int, tuple[str, ...]]]
+    fallback_rejected: list[dict[str, Any]]
+    raw_count: int
+    selected: _MeasuredLeaderCandidate | None
+    selected_policy_b: tuple[str, ...]
+    annotation: Any
+    inventory: list[dict[str, Any]]
+    fixed_verified: bool
+    fixed_probes: int
+
+
+def _select_greedy_job(request: _GreedySelectionInput) -> _GreedySelection:
+    """Select a job from its lazy producer stream without changing the fallback floor."""
+
+    dwg = request.dwg
+    job = request.job
+    fallback_source = request.fallback_source
+    fixed_components = request.fixed_components
+    fixed_verified = request.fixed_verified
+    actual_fixed_probes = request.fixed_probes
+    page = request.page
+    title_block = request.title_block
+    legacy_boxes = request.legacy_boxes
+    field = request.field
+    reason = request.reason
+    prefer_clear = request.prefer_clear
+    candidate_entry = request.candidate_entry
+    blockers_by_raw = []
+    fallback_rejected = []
+    raw_count = 0
+    selected = None
+    selected_policy_b: tuple[str, ...] = ()
+    annotation = None
+    inventory = []
+    # Accepted-but-cutting alternatives, held back while a bounded lookahead
+    # searches for one that does not cut. Empty in the common case: the first
+    # acceptable route usually clears the body, and then this loop breaks exactly
+    # where the pre-#798 one did.
+    held: list[tuple[int, int, int, Any, tuple[str, ...]]] = []
+    examined_since_accept = None
+    source = (
+        _measure(raw_index, raw, job, dwg.draft) for raw_index, raw in enumerate(fallback_source)
+    )
+    for candidate in source:
+        raw_count = max(raw_count, candidate.raw_index + 1)
+        if examined_since_accept is not None:
+            examined_since_accept += 1
+            if examined_since_accept > _GREEDY_MATERIAL_LOOKAHEAD:
+                break
+        fixed_components = fixed_components
+        if fixed_verified and (
+            actual_fixed_probes + len(fixed_components) <= _FEATURE_LEADER_MAX_FIXED_WORK
+        ):
+            blockers = _fixed_blockers(candidate, job, page, fixed_components)
+            actual_fixed_probes += len(fixed_components)
+        else:
+            fixed_verified = False
+            # Replay preserves the producer floor when exact
+            # classification exceeds its work budget. Boundary/title
+            # constraints remain hard and the uncertainty is explicit.
+            blockers = (
+                *_greedy_boundary_blockers(candidate, job, page, title_block),
+                "fixed_probe_budget",
+            )
+            if candidate.region is LeaderCandidateRegion.INTERIOR:
+                blockers = (
+                    *blockers,
+                    f"view:{job.view}:interior_annotation_ink_unverified",
+                )
+        hard_blockers = _hard_fixed_blockers(blockers)
+        accepted = not hard_blockers and (
+            job.fallback_accept(candidate, legacy_boxes, page)
+            if job.fallback_accept is not None
+            else not tuple(blocker for blocker in blockers if blocker != "fixed_probe_budget")
+        )
+        if not accepted:
+            blockers_by_raw.append((candidate.raw_index, blockers))
+            fallback_rejected.append(
+                {
+                    "candidate": candidate.raw_index,
+                    "blockers": list(blockers or ("legacy_occupancy",)),
+                }
+            )
+            inventory.append(candidate_entry(candidate, "fixed_rejected", blockers))
+            continue
+        units = _material_units(candidate, field) if prefer_clear else 0
+        soft = (
+            tuple(blocker for blocker in blockers if blocker != "fixed_probe_budget")
+            if job.allow_policy_b_fixed
+            and reason in {"greedy_fixed_probe_budget", "greedy_pair_budget"}
+            else ()
+        )
+        if units or soft:
+            # Keep a feasible Policy-B route while looking a bounded
+            # distance for one that clears both the body and fixed ink.
+            # Retain the least-conflicting route if none clears; a routing
+            # preference must never drop a required callout.
+            held.append((len(soft), units, candidate.raw_index, candidate, blockers))
+            if examined_since_accept is None:
+                examined_since_accept = 0
+            continue
+        annotation = _materialize(dwg, job, candidate)
+        if annotation is None:
+            blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
+            inventory.append(
+                candidate_entry(candidate, "geometry_validation", ("geometry_validation",))
+            )
+            fallback_rejected.append(
+                {
+                    "candidate": candidate.raw_index,
+                    "blockers": ["geometry_validation"],
+                }
+            )
+            continue
+        selected = candidate
+        selected_policy_b = blockers
+        inventory.append(candidate_entry(candidate, "selected", blockers))
+        break
+    if selected is None:
+        # No clear route inside the lookahead. Keep the least-conflicting
+        # feasible candidate; original order breaks equal-cost ties.
+        for _soft, _units, _raw_index, candidate, blockers in sorted(held, key=lambda h: h[:3]):
+            annotation = _materialize(dwg, job, candidate)
+            if annotation is None:
+                blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
+                inventory.append(
+                    candidate_entry(candidate, "geometry_validation", ("geometry_validation",))
+                )
+                fallback_rejected.append(
+                    {
+                        "candidate": candidate.raw_index,
+                        "blockers": ["geometry_validation"],
+                    }
+                )
+                continue
+            selected = candidate
+            selected_policy_b = blockers
+            inventory.append(candidate_entry(candidate, "selected", blockers))
+            break
+    if selected is None:
+        # Nothing clear inside the lookahead, and every held candidate failed to
+        # render. RESUME the producer stream in pure first-clear order.
+        #
+        # Without this the lookahead is not a preference but a truncation: the
+        # pre-#798 loop scanned the whole stream, so a job whose early candidates
+        # all cut AND all fail geometry validation would be dropped here purely
+        # because it was searched for a better route. That is the one way a
+        # callout could be lost for a routing reason, which Policy B forbids and
+        # which the rest of this design is built to prevent.
+        for candidate in source:
+            raw_count = max(raw_count, candidate.raw_index + 1)
+            fixed_components = fixed_components
+            if fixed_verified and (
+                actual_fixed_probes + len(fixed_components) <= _FEATURE_LEADER_MAX_FIXED_WORK
+            ):
+                blockers = _fixed_blockers(candidate, job, page, fixed_components)
+                actual_fixed_probes += len(fixed_components)
+            else:
+                fixed_verified = False
+                blockers = (
+                    *_greedy_boundary_blockers(candidate, job, page, title_block),
+                    "fixed_probe_budget",
+                )
+            if _hard_fixed_blockers(blockers) or not (
+                job.fallback_accept(candidate, legacy_boxes, page)
+                if job.fallback_accept is not None
+                else not tuple(blocker for blocker in blockers if blocker != "fixed_probe_budget")
+            ):
+                blockers_by_raw.append((candidate.raw_index, blockers))
+                fallback_rejected.append(
+                    {
+                        "candidate": candidate.raw_index,
+                        "blockers": list(blockers or ("legacy_occupancy",)),
+                    }
+                )
+                inventory.append(candidate_entry(candidate, "fixed_rejected", blockers))
+                continue
+            annotation = _materialize(dwg, job, candidate)
+            if annotation is None:
+                blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
+                inventory.append(
+                    candidate_entry(candidate, "geometry_validation", ("geometry_validation",))
+                )
+                fallback_rejected.append(
+                    {
+                        "candidate": candidate.raw_index,
+                        "blockers": ["geometry_validation"],
+                    }
+                )
+                continue
+            selected = candidate
+            selected_policy_b = blockers
+            inventory.append(candidate_entry(candidate, "selected", blockers))
+            break
+    return _GreedySelection(
+        blockers_by_raw,
+        fallback_rejected,
+        raw_count,
+        selected,
+        selected_policy_b,
+        annotation,
+        inventory,
+        fixed_verified,
+        actual_fixed_probes,
+    )
+
+
 @dataclass(frozen=True)
 class _ProvisionalRefinementInput:
     jobs: list[FeatureLeaderJob]
@@ -2308,236 +2640,45 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         total_penalty = 0
         total_cost = 0.0
         actual_fixed_probes = fixed_probes
-        fixed_result = bounded_fixed_obstacles()
-        fixed_verified = fixed_result is not _FIXED_INVENTORY_EXHAUSTED
-        fixed = fixed_result if fixed_verified else {view: () for view in views}
+        start = _start_greedy_floor(dwg, jobs, views, bounded_fixed_obstacles)
+        fixed_verified = start.fixed_verified
+        fixed = start.fixed
         pending_recoveries = []
-        legacy_boxes = {
-            # Producer fallback replays the pre-#1166 acceptance floor; exact
-            # blockers below still persist any retained crossing.  Optional
-            # future section furniture cannot become a resource-cap veto.
-            view: _legacy_fallback_obstacles(dwg, view)
-            for view in dict.fromkeys(job.view for job in jobs)
-        }
-
-        def boundary_blockers(candidate, job):
-            blockers = []
-            label = candidate.label_box
-            if candidate.failure_reason is not None:
-                blockers.append(candidate.failure_reason)
-            elif label is None:
-                blockers.append("unmeasurable_label")
-            else:
-                if (
-                    label[0] < page[0]
-                    or label[1] < page[1]
-                    or label[2] > page[2]
-                    or label[3] > page[3]
-                ):
-                    blockers.append("page")
-                if view_blocker := _view_region_blocker(candidate, job):
-                    blockers.append(view_blocker)
-            if _ink_hits_box(candidate, title_block):
-                blockers.append("title_block:reserved")
-            return tuple(blockers)
-
-        def terminal_reason(rejected):
-            return (
-                "geometry_validation"
-                if rejected
-                and all(
-                    "geometry_validation" in entry["blockers"]
-                    and set(entry["blockers"])
-                    <= {
-                        "geometry_validation",
-                        "fixed_probe_budget",
-                    }
-                    for entry in rejected
-                )
-                else "no_clear_room"
-            )
+        legacy_boxes = start.legacy_boxes
 
         for job_index, job in enumerate(jobs):
             obstacle_count = len(fixed[job.view])
-            blockers_by_raw = []
-            fallback_rejected = []
-            raw_count = 0
-            selected = None
-            selected_policy_b: tuple[str, ...] = ()
-            annotation = None
-            inventory = []
-            field = material_by_view.get(job.view)
-            # Accepted-but-cutting alternatives, held back while a bounded lookahead
-            # searches for one that does not cut. Empty in the common case: the first
-            # acceptable route usually clears the body, and then this loop breaks exactly
-            # where the pre-#798 one did.
-            held: list[tuple[int, int, int, Any, tuple[str, ...]]] = []
-            examined_since_accept = None
             fallback_source = (
                 candidate_budget_fallback_jobs[job_index]
                 if reason == "greedy_candidate_budget"
                 else fallback_jobs[job_index]
             )
-            source = (
-                _measure(raw_index, raw, job, dwg.draft)
-                for raw_index, raw in enumerate(fallback_source)
+            selection = _select_greedy_job(
+                _GreedySelectionInput(
+                    dwg,
+                    job,
+                    fallback_source,
+                    fixed[job.view],
+                    fixed_verified,
+                    actual_fixed_probes,
+                    page,
+                    title_block,
+                    legacy_boxes[job.view],
+                    material_by_view.get(job.view),
+                    reason,
+                    prefer_clear,
+                    candidate_entry,
+                )
             )
-            for candidate in source:
-                raw_count = max(raw_count, candidate.raw_index + 1)
-                if examined_since_accept is not None:
-                    examined_since_accept += 1
-                    if examined_since_accept > _GREEDY_MATERIAL_LOOKAHEAD:
-                        break
-                fixed_components = fixed[job.view]
-                if fixed_verified and (
-                    actual_fixed_probes + len(fixed_components) <= _FEATURE_LEADER_MAX_FIXED_WORK
-                ):
-                    blockers = _fixed_blockers(candidate, job, page, fixed_components)
-                    actual_fixed_probes += len(fixed_components)
-                else:
-                    fixed_verified = False
-                    # Replay preserves the producer floor when exact
-                    # classification exceeds its work budget. Boundary/title
-                    # constraints remain hard and the uncertainty is explicit.
-                    blockers = (*boundary_blockers(candidate, job), "fixed_probe_budget")
-                    if candidate.region is LeaderCandidateRegion.INTERIOR:
-                        blockers = (
-                            *blockers,
-                            f"view:{job.view}:interior_annotation_ink_unverified",
-                        )
-                hard_blockers = _hard_fixed_blockers(blockers)
-                accepted = not hard_blockers and (
-                    job.fallback_accept(candidate, legacy_boxes[job.view], page)
-                    if job.fallback_accept is not None
-                    else not tuple(
-                        blocker for blocker in blockers if blocker != "fixed_probe_budget"
-                    )
-                )
-                if not accepted:
-                    blockers_by_raw.append((candidate.raw_index, blockers))
-                    fallback_rejected.append(
-                        {
-                            "candidate": candidate.raw_index,
-                            "blockers": list(blockers or ("legacy_occupancy",)),
-                        }
-                    )
-                    inventory.append(candidate_entry(candidate, "fixed_rejected", blockers))
-                    continue
-                units = _material_units(candidate, field) if prefer_clear else 0
-                soft = (
-                    tuple(blocker for blocker in blockers if blocker != "fixed_probe_budget")
-                    if job.allow_policy_b_fixed
-                    and reason in {"greedy_fixed_probe_budget", "greedy_pair_budget"}
-                    else ()
-                )
-                if units or soft:
-                    # Keep a feasible Policy-B route while looking a bounded
-                    # distance for one that clears both the body and fixed ink.
-                    # Retain the least-conflicting route if none clears; a routing
-                    # preference must never drop a required callout.
-                    held.append((len(soft), units, candidate.raw_index, candidate, blockers))
-                    if examined_since_accept is None:
-                        examined_since_accept = 0
-                    continue
-                annotation = _materialize(dwg, job, candidate)
-                if annotation is None:
-                    blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
-                    inventory.append(
-                        candidate_entry(candidate, "geometry_validation", ("geometry_validation",))
-                    )
-                    fallback_rejected.append(
-                        {
-                            "candidate": candidate.raw_index,
-                            "blockers": ["geometry_validation"],
-                        }
-                    )
-                    continue
-                selected = candidate
-                selected_policy_b = blockers
-                inventory.append(candidate_entry(candidate, "selected", blockers))
-                break
-            if selected is None:
-                # No clear route inside the lookahead. Keep the least-conflicting
-                # feasible candidate; original order breaks equal-cost ties.
-                for _soft, _units, _raw_index, candidate, blockers in sorted(
-                    held, key=lambda h: h[:3]
-                ):
-                    annotation = _materialize(dwg, job, candidate)
-                    if annotation is None:
-                        blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
-                        inventory.append(
-                            candidate_entry(
-                                candidate, "geometry_validation", ("geometry_validation",)
-                            )
-                        )
-                        fallback_rejected.append(
-                            {
-                                "candidate": candidate.raw_index,
-                                "blockers": ["geometry_validation"],
-                            }
-                        )
-                        continue
-                    selected = candidate
-                    selected_policy_b = blockers
-                    inventory.append(candidate_entry(candidate, "selected", blockers))
-                    break
-            if selected is None:
-                # Nothing clear inside the lookahead, and every held candidate failed to
-                # render. RESUME the producer stream in pure first-clear order.
-                #
-                # Without this the lookahead is not a preference but a truncation: the
-                # pre-#798 loop scanned the whole stream, so a job whose early candidates
-                # all cut AND all fail geometry validation would be dropped here purely
-                # because it was searched for a better route. That is the one way a
-                # callout could be lost for a routing reason, which Policy B forbids and
-                # which the rest of this design is built to prevent.
-                for candidate in source:
-                    raw_count = max(raw_count, candidate.raw_index + 1)
-                    fixed_components = fixed[job.view]
-                    if fixed_verified and (
-                        actual_fixed_probes + len(fixed_components)
-                        <= _FEATURE_LEADER_MAX_FIXED_WORK
-                    ):
-                        blockers = _fixed_blockers(candidate, job, page, fixed_components)
-                        actual_fixed_probes += len(fixed_components)
-                    else:
-                        fixed_verified = False
-                        blockers = (*boundary_blockers(candidate, job), "fixed_probe_budget")
-                    if _hard_fixed_blockers(blockers) or not (
-                        job.fallback_accept(candidate, legacy_boxes[job.view], page)
-                        if job.fallback_accept is not None
-                        else not tuple(
-                            blocker for blocker in blockers if blocker != "fixed_probe_budget"
-                        )
-                    ):
-                        blockers_by_raw.append((candidate.raw_index, blockers))
-                        fallback_rejected.append(
-                            {
-                                "candidate": candidate.raw_index,
-                                "blockers": list(blockers or ("legacy_occupancy",)),
-                            }
-                        )
-                        inventory.append(candidate_entry(candidate, "fixed_rejected", blockers))
-                        continue
-                    annotation = _materialize(dwg, job, candidate)
-                    if annotation is None:
-                        blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
-                        inventory.append(
-                            candidate_entry(
-                                candidate, "geometry_validation", ("geometry_validation",)
-                            )
-                        )
-                        fallback_rejected.append(
-                            {
-                                "candidate": candidate.raw_index,
-                                "blockers": ["geometry_validation"],
-                            }
-                        )
-                        continue
-                    selected = candidate
-                    selected_policy_b = blockers
-                    inventory.append(candidate_entry(candidate, "selected", blockers))
-                    break
+            blockers_by_raw = selection.blockers_by_raw
+            fallback_rejected = selection.fallback_rejected
+            raw_count = selection.raw_count
+            selected = selection.selected
+            selected_policy_b = selection.selected_policy_b
+            annotation = selection.annotation
+            inventory = selection.inventory
+            fixed_verified = selection.fixed_verified
+            actual_fixed_probes = selection.fixed_probes
             producer_fallback = {
                 "candidates_tried": raw_count,
                 "selected": (
@@ -2561,7 +2702,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 abandoned_raw_counts[job_index] if abandoned_raw_counts is not None else raw_count
             )
             if selected is None:
-                drop_reason = terminal_reason(fallback_rejected)
+                drop_reason = _greedy_terminal_reason(fallback_rejected)
                 if recovery_for(job_index) is not None:
                     pending_recoveries.append(
                         (
@@ -2630,37 +2771,12 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 selected, material_by_view.get(job.view)
             )
             total_cost += selected.cost
-        # Recovery runs after every ordinary winner is committed, so its exact sheet-space
-        # predicate sees the complete greedy result rather than depending on producer order.
-        for (
-            job_index,
-            recorded_raw_count,
-            recorded_rejected,
-            obstacle_count,
-            recorded_inventory,
-            producer_fallback,
-            drop_reason,
-        ) in pending_recoveries:
-            recovered = recovery_for(job_index)()
-            if recovered is not None:
-                annotation, feature = recovered
-                place(job_index, feature, annotation, recovered=True)
-                placed_count += 1
-                total_priority += jobs[job_index].priority
-                total_cost += recovery_cost(annotation)
-            else:
-                drop(job_index, reason=drop_reason)
-            record_item(
-                job_index,
-                None,
-                recorded_raw_count,
-                recorded_rejected,
-                obstacle_count=obstacle_count,
-                candidate_inventory=recorded_inventory,
-                producer_fallback=producer_fallback,
-                reason=drop_reason,
-                recovered=annotation if recovered is not None else None,
-            )
+        placed_count, total_priority, total_cost = _finish_greedy_recoveries(
+            pending_recoveries,
+            jobs,
+            _GreedyRecoveryCallbacks(recovery_for, place, drop, record_item, recovery_cost),
+            (placed_count, total_priority, total_cost),
+        )
         set_assignment(
             reason,
             optimal=False,
