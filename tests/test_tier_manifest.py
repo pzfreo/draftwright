@@ -46,6 +46,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "placement_geometry": "src/draftwright/annotations/_placement_geometry.py",
         "strip_postsolve": "src/draftwright/annotations/_strip_postsolve.py",
         "feature_leader_assignment": "src/draftwright/annotations/leaders.py",
+        "leader_fixed_ink": "src/draftwright/annotations/_leader_fixed_ink.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
         "ir_foundation": "src/draftwright/model/ir_foundation.py",
@@ -72,6 +73,15 @@ def test_each_named_contract_group_resolves_to_existing_modules():
 def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/evaluation/_double_d_evidence.py"])
     assert "test_issue_1370_double_d_completeness_evidence.py" in selected
+
+
+def test_leader_fixed_ink_change_runs_its_exact_ink_and_cancellation_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_leader_fixed_ink.py"]))
+    assert {
+        "test_issue_1166_cross_pass_feature_leaders.py",
+        "test_issue_1534_build_progress.py",
+        "test_issue_798_silhouette_lint.py",
+    } <= selected
 
 
 def test_edge_profile_evidence_change_runs_both_physical_correspondence_contracts():
