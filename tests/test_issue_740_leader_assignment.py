@@ -22,15 +22,12 @@ from draftwright.model import FilletFeature, Frame, GrooveFeature, PartModel, po
 def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
     root = Path(__file__).parents[1] / "src" / "draftwright" / "annotations"
 
-    def call_sites(filename):
+    def call_sites(filename, callee="place_machined_leader_jobs"):
         tree = ast.parse((root / filename).read_text(encoding="utf-8"), filename=filename)
         sites = set()
         for function in (node for node in tree.body if isinstance(node, ast.FunctionDef)):
             for call in (node for node in ast.walk(function) if isinstance(node, ast.Call)):
-                if (
-                    not isinstance(call.func, ast.Name)
-                    or call.func.id != "place_machined_leader_jobs"
-                ):
+                if not isinstance(call.func, ast.Name) or call.func.id != callee:
                     continue
                 keyword = next((kw.value for kw in call.keywords if kw.arg == "joint"), None)
                 sites.add(
@@ -42,9 +39,13 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
                 )
         return sites
 
-    assert call_sites("from_model.py") | call_sites("holes.py") == {
-        ("from_model.py", "render_diameters", False),
-        ("from_model.py", "_render_diameter_leaders", True),
+    assert (
+        call_sites("from_model.py")
+        | call_sites("holes.py")
+        | call_sites("_diameters.py", "place_jobs")
+    ) == {
+        ("_diameters.py", "render_diameters", False),
+        ("_diameters.py", "_render_diameter_leaders", True),
         ("from_model.py", "render_chamfers", True),
         ("from_model.py", "_render_radius_callouts", True),
         ("from_model.py", "_render_circular_recesses", True),
@@ -66,6 +67,33 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
         ("holes.py", "render_slot_patterns", False),
         ("holes.py", "render_slot_patterns", True),
     }
+
+    # The public facade must supply its live joint-placement binding to both moved
+    # diameter producers. Counting only calls in the owner would miss a stale or
+    # unrelated callback wired at the stable entry points.
+    tree = ast.parse((root / "from_model.py").read_text(encoding="utf-8"))
+    owner_by_wrapper = {
+        "render_diameters": "_render_diameters_owner",
+        "_render_diameter_leaders": "_render_diameter_leaders_owner",
+    }
+    seen = set()
+    for function in (node for node in tree.body if isinstance(node, ast.FunctionDef)):
+        if function.name not in owner_by_wrapper:
+            continue
+        seen.add(function.name)
+        calls = [
+            call
+            for call in ast.walk(function)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == owner_by_wrapper[function.name]
+        ]
+        assert len(calls) == 1
+        bindings = [kw.value for kw in calls[0].keywords if kw.arg == "place_jobs"]
+        assert len(bindings) == 1
+        assert isinstance(bindings[0], ast.Name)
+        assert bindings[0].id == "place_machined_leader_jobs"
+    assert seen == set(owner_by_wrapper)
 
 
 def test_pre_drain_pattern_keeps_legacy_greedy_semantics(monkeypatch):

@@ -69,7 +69,7 @@ def test_y_axis_diameter_leaders_keep_owners_and_clear_the_bore():
 
 
 def test_end_on_diameter_rays_rank_clearance_along_the_whole_shaft():
-    from draftwright.annotations.from_model import _leader_hole_clearance
+    from draftwright.annotations._diameters import _leader_hole_clearance
 
     circle = [(5.0, 0.0, 1.0)]
     crossing = ((0.0, 0.0), (10.0, 0.0, 0.0), None)
