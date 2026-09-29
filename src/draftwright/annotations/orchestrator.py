@@ -1300,36 +1300,27 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
         raise
 
 
-def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
-    """Escalate to a per-instance hole table + balloons when the plan view is too
-    dense to dimension every hole individually (#93); a dropped ISO pattern
-    callout gets one grouped balloon of its own (#351 PR-3, ADR 2 (was 0009 Amdt 1)
-    decision 1 — the #348 fix).
+@dataclass
+class _HoleTableRun:
+    """Prepared hole-table inputs for one escalation attempt."""
 
-    When callouts or location references had to be dropped, the individual
-    plan-view callouts and X/Y location dims are removed and replaced by a
-    complete **hole chart** — one row per hole (``TAG | ⌀ | DEPTH | X | Y``, X/Y
-    from the min-corner datum) and a uniquely-tagged balloon at each hole. The table
-    carries ``covers_diameters`` so the coverage lint still counts the holes.
-    Sparse parts drop nothing, so this is a no-op for them — unchanged.
+    model: Any
+    holes: list
+    pattern_feats: list
+    tabulate_scattered: bool
+    scattered_tags: Any
+    pattern_tags: Any
+    pattern_specs: list
 
-    If the table itself will not fit, nothing is removed and the drop lint is
-    kept — the sheet is never left with neither.
 
-    Independent of that density gate: a recognised pattern (bolt circle / linear
-    array / grid) whose own grouped ``n×`` callout could not be placed inline
-    gets **one balloon tagging the whole pattern**, not one balloon per member —
-    a dropped pattern is a real coverage gap on any part, not just a dense one.
-    Both kinds of balloon share one strip-solved band per side (one
-    ``_add_balloons`` call) so they never overlap each other.
-    """
+def _prepare_hole_table_run(ctx) -> _HoleTableRun | None:
     # Trigger on the first-class Escalation objects the hole placers collect (ADR 2 (was 0009)
     # Amdt 1, #351 PR-2), not by grepping the `*_dropped` lint strings. Byte-identical:
     # a "callout"/"location" Escalation is emitted 1:1 with each callout_dropped/
     # location_ref_dropped code. The lint codes stay as the coverage surface.
     escalations = ctx.escalations
     if not any(e.kind in ("callout", "location") for e in escalations):
-        return
+        return None
 
     # A "callout" escalation's feature is the dropped group's PatternFeature only when
     # it is a fully-surviving recognised pattern (_annotate_holes's `pat`, holes.py) —
@@ -1365,7 +1356,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     # legibility gate already handled it). #93.
     tabulate_scattered = len(holes) >= _TABULATE_MIN_HOLES
     if not tabulate_scattered and not pattern_feats:
-        return
+        return None
 
     n_scattered = len(holes) if tabulate_scattered else 0
     tags = _tag_sequence(n_scattered + len(pattern_feats))
@@ -1391,17 +1382,25 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         for tag, feat in zip(pattern_tags, pattern_feats, strict=True)
     ]
 
-    scattered_specs: list = []
-    table_placed = False
-    table = None
-    table_features: tuple = ()
-    replaceable_callout_features: set = set()
-    table_callout_replacement_features: set = set()
-    table_location_replacement_features: set = set()
-    replaced = {}
-    table_transaction_snap = None
-    table_failure_reason = None
+    return _HoleTableRun(
+        model=_model,
+        holes=holes,
+        pattern_feats=pattern_feats,
+        tabulate_scattered=tabulate_scattered,
+        scattered_tags=scattered_tags,
+        pattern_tags=pattern_tags,
+        pattern_specs=pattern_specs,
+    )
 
+
+def _reserve_hole_table_attempt_names(dwg, ctx, run: _HoleTableRun) -> bool:
+    """Reject a speculative name that already belongs to a placed annotation."""
+    scattered_tags, pattern_tags, pattern_feats = (
+        run.scattered_tags,
+        run.pattern_tags,
+        run.pattern_feats,
+    )
+    tabulate_scattered = run.tabulate_scattered
     # Automatic/finalize escalation uses deterministic internal names. A sanctioned
     # public edit may already own one of them; replacing that object would destroy user
     # state and a pre-existing name is not evidence from this placement attempt. Fail
@@ -1428,7 +1427,50 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
                 "balloon_dropped",
                 f"hole balloon reserved annotation name(s) already exist: {names}",
             )
+        return False
+    return True
+
+
+def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
+    """Escalate to a per-instance hole table + balloons when the plan view is too
+    dense to dimension every hole individually (#93); a dropped ISO pattern
+    callout gets one grouped balloon of its own (#351 PR-3, ADR 2 (was 0009 Amdt 1)
+    decision 1 — the #348 fix).
+
+    When callouts or location references had to be dropped, the individual
+    plan-view callouts and X/Y location dims are removed and replaced by a
+    complete **hole chart** — one row per hole (``TAG | ⌀ | DEPTH | X | Y``, X/Y
+    from the min-corner datum) and a uniquely-tagged balloon at each hole. The table
+    carries ``covers_diameters`` so the coverage lint still counts the holes.
+    Sparse parts drop nothing, so this is a no-op for them — unchanged.
+
+    If the table itself will not fit, nothing is removed and the drop lint is
+    kept — the sheet is never left with neither.
+
+    Independent of that density gate: a recognised pattern (bolt circle / linear
+    array / grid) whose own grouped ``n×`` callout could not be placed inline
+    gets **one balloon tagging the whole pattern**, not one balloon per member —
+    a dropped pattern is a real coverage gap on any part, not just a dense one.
+    Both kinds of balloon share one strip-solved band per side (one
+    ``_add_balloons`` call) so they never overlap each other.
+    """
+    run = _prepare_hole_table_run(ctx)
+    if run is None or not _reserve_hole_table_attempt_names(dwg, ctx, run):
         return
+    _model, holes, escalations = run.model, run.holes, ctx.escalations
+    tabulate_scattered = run.tabulate_scattered
+    scattered_tags, pattern_specs = run.scattered_tags, run.pattern_specs
+
+    scattered_specs: list = []
+    table_placed = False
+    table = None
+    table_features: tuple = ()
+    replaceable_callout_features: set = set()
+    table_callout_replacement_features: set = set()
+    table_location_replacement_features: set = set()
+    replaced = {}
+    table_transaction_snap = None
+    table_failure_reason = None
 
     if tabulate_scattered:
         compiled = plan if plan is not None else compile_dimensions(_model)
