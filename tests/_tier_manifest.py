@@ -147,6 +147,14 @@ CONTRACT_GROUPS = {
             "test_issue_1601_flat_precision.py",
         ),
     ),
+    "dimension_ink_repair": ContractGroup(
+        ("src/draftwright/annotations/_dimension_ink_repair.py",),
+        (
+            "test_issue_1334_prevent_ink.py",
+            "test_issue_1333_bounded_ink_repair.py",
+            "test_remaining_ink_overlaps.py",
+        ),
+    ),
     "hole_locations": ContractGroup(
         ("src/draftwright/annotations/hole_locations.py",),
         (

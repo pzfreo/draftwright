@@ -40,6 +40,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "solve_trace": "src/draftwright/annotations/solve_trace.py",
         "dimension_ink": "src/draftwright/annotations/_dimension_ink.py",
+        "dimension_ink_repair": "src/draftwright/annotations/_dimension_ink_repair.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
         "ir_foundation": "src/draftwright/model/ir_foundation.py",

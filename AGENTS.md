@@ -43,6 +43,7 @@ foundational record owner, dimension-intent and oriented-slot geometry validatio
 `linting/`, `reporting`, `drawing_evidence` and peers → **3** `analysis` → **4**
 `annotations/` (the render passes, including feature-family `_slots` and
 `_step_lengths` owners, analytical dimension ink in `_dimension_ink`,
+bounded same-batch label repair in `_dimension_ink_repair`,
 plus the optional `solve_trace` recorder;
 `orchestrator._PASS_SEQUENCE` is the one stage order)
 → **5** `drawing`, `drawing_edits`, `drawing_diagnostics`, and
