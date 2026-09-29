@@ -83,14 +83,14 @@ ALLOWED_STANDALONE_CALLS = {
     ): "public standalone lint fallback",
     (
         "linting/coverage.py",
-        "lint_prismatic_coverage",
+        "_lint_prismatic_pads",
         "recognise_rectangular_pads",
     ): "public standalone lint fallback",
     (
         "linting/coverage.py",
         "lint_prismatic_coverage",
         "build_raw_recognition_result",
-    ): "public standalone lint fallback (two completeness ledgers)",
+    ): "public standalone prismatic completeness fallback",
     (
         "linting/coverage.py",
         "lint_axial_coverage",
@@ -197,7 +197,6 @@ ALLOWED_CALL_COUNTS = Counter({call: 1 for call in ALLOWED_STANDALONE_CALLS})
 ALLOWED_CALL_COUNTS.update(
     {
         ("linting/coverage.py", "lint_location_coverage", "recognise_holes"): 1,
-        ("linting/coverage.py", "lint_prismatic_coverage", "build_raw_recognition_result"): 1,
         ("model/detect.py", "build_part_model", "recognise_plates"): 1,
     }
 )

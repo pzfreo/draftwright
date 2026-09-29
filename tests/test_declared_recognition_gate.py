@@ -428,6 +428,18 @@ def test_the_critique_rejects_an_assembled_shoulder_inventory():
     )
 
 
+def test_standalone_prismatic_coverage_acquires_one_shared_aggregate():
+    part = Box(20, 20, 10)
+    drawing = SimpleNamespace(views={}, registry=None)
+    assert len(part.solids()) == 1
+
+    with counting_calls({"build_raw_recognition_result": build_raw_recognition_result}) as counts:
+        issues = lint_prismatic_coverage(part, drawing, pads=(), features=(), recognition=None)
+
+    assert isinstance(issues, list)
+    assert counts == {"build_raw_recognition_result": 1}
+
+
 def test_the_two_consumers_project_the_same_evidence_differently():
     """The split's whole point: one scan, two answers.
 
