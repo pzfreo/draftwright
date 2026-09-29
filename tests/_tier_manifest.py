@@ -228,6 +228,16 @@ CONTRACT_GROUPS = {
             "test_issue_1142_hole_leader_labels.py",
         ),
     ),
+    "machined_leader_lowering": ContractGroup(
+        ("src/draftwright/annotations/_machined_leaders.py",),
+        (
+            "test_feature_leader_candidate_regions.py",
+            "test_issue_740_leader_assignment.py",
+            "test_issue_1308_machined_leader_analytics.py",
+            "test_issue_1166_cross_pass_feature_leaders.py",
+            "test_refactor_golden.py",
+        ),
+    ),
     "leader_fixed_ink": ContractGroup(
         ("src/draftwright/annotations/_leader_fixed_ink.py",),
         (

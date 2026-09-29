@@ -51,6 +51,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "strip_postsolve": "src/draftwright/annotations/_strip_postsolve.py",
         "feature_leader_assignment": "src/draftwright/annotations/leaders.py",
         "hole_leader_placement": "src/draftwright/annotations/_hole_leader_placement.py",
+        "machined_leader_lowering": "src/draftwright/annotations/_machined_leaders.py",
         "leader_fixed_ink": "src/draftwright/annotations/_leader_fixed_ink.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
@@ -221,6 +222,18 @@ def test_edge_callout_change_runs_joint_leader_contracts():
     assert {
         "test_issue_1308_machined_leader_analytics.py",
         "test_interior_label_placement.py",
+    } <= selected
+
+
+def test_machined_leader_owner_runs_shared_placement_contracts():
+    source = "src/draftwright/annotations/_machined_leaders.py"
+    assert selected_groups([source]) == {"machined_leader_lowering", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_feature_leader_candidate_regions.py",
+        "test_issue_740_leader_assignment.py",
+        "test_issue_1308_machined_leader_analytics.py",
+        "test_issue_1166_cross_pass_feature_leaders.py",
     } <= selected
 
 

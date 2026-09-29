@@ -158,7 +158,8 @@ _LAYERS: dict[str, int] = {
     # 3 — analysis (feature/geometry analysis over the model + core-consumers)
     "analysis": 3,
     # 4 — the annotation render layer (+ the thin annotate re-export facade).
-    # Family (including imported authored PMI), analytical ink/repair, placement geometry, strip postsolve, solve trace,
+    # Family (including imported authored PMI), machined leader lowering,
+    # analytical ink/repair, placement geometry, strip postsolve, solve trace,
     # and corridor owners
     # share the annotation rank.
     "annotations": 4,
