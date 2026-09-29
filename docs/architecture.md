@@ -473,7 +473,8 @@ and re-exports the existing private helper names.
   `dimension_intent.py` holds the authored
   measurement selector vocabulary and semantic view/strip validation, with stable
   forwarding functions in `ir.py`; `detect.py` (detectors →
-  `Feature` objects, adapting `quiddity` records), `planner.py`
+  `Feature` objects, adapting `quiddity` records) and its
+  `detect_ownership.py` aggregate radius ownership validation, `planner.py`
   (`plan_dimensions` —
   one rule set → a `DimensionGroup` per feature, + `plan_sections`; and, since #1154,
   the one cross-feature reconciliation: two features measuring between the same two

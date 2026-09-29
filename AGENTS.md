@@ -36,7 +36,7 @@ In outline, by `_LAYERS` rank: **0** leaves and transitional shared helpers — 
 geometry maths, registry, measurement support with pocket/pad location predicates,
 recognition-boundary contracts and ownership, and the `model/` IR waist with its
 foundational record owner, dimension-intent and oriented-slot geometry validation
-(ADR 1) → **1**
+plus aggregate radius ownership validation in `detect_ownership` (ADR 1) → **1**
 `_core` / `document_input` / the stable `location_contract` import path → **2**
 `projection`, `compose`, `export`, `pdf_text`, `repair`, `_pmi_schema`,
 `_pmi_linear_geometry`, `_pmi_support_blockers`, `pmi`,

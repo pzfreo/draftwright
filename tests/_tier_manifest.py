@@ -394,6 +394,7 @@ CONTRACT_GROUPS = {
         (
             "src/draftwright/recogn*",
             "src/draftwright/model/detect.py",
+            "src/draftwright/model/detect_ownership.py",
             "src/draftwright/*_contract.py",
         ),
         (
@@ -402,6 +403,7 @@ CONTRACT_GROUPS = {
             "test_external_recognition_boundary.py",
             "test_gusset_rib_semantics.py",
             "test_issue_1357_plural_turned_profiles.py",
+            "test_issue_1433_blend_semantics.py",
             "test_issue_1596_bolt_circle_corroboration.py",
             "test_issue_1612_frame_sergio_coverage.py",
             "test_nested_recognition_ownership.py",
