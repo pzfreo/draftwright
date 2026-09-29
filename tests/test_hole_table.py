@@ -589,6 +589,39 @@ class TestPatternGroupBalloon:
             members=members,
         )
 
+    def test_pattern_only_reserved_balloon_name_is_preserved(self):
+        from dataclasses import replace
+
+        from draftwright.annotations._common import Escalation, PlacementContext
+        from draftwright.annotations.orchestrator import _maybe_tabulate_holes
+
+        drawing = build_drawing(_multi_hole_plate())
+        pattern = self._fake_pattern(count=6, diameter=5.0)
+        model = replace(drawing.model(), features=(pattern,))
+        ctx = PlacementContext(
+            registry=drawing.registry,
+            coverage=drawing.coverage,
+            items=drawing.items,
+            part_model=model,
+            escalations=[Escalation("callout", "plan", pattern, "strip_full")],
+        )
+        name = "balloon_plan_6×A_0"
+        assert all(feature.kind != "hole" for feature in model.features)
+        assert name not in drawing.annotations()
+        drawing.note("USER KEEP", at=(5.0, 5.0), view="plan", name=name)
+        reserved = drawing.get_annotation(name)
+        before = set(drawing.annotations())
+        prior_issues = len(drawing.registry.issues)
+
+        _maybe_tabulate_holes(drawing, drawing._analysis, ctx=ctx)
+
+        assert drawing.get_annotation(name) is reserved
+        assert set(drawing.annotations()) == before
+        issues = drawing.registry.issues[prior_issues:]
+        assert len(issues) == 1
+        assert issues[0].code == "balloon_dropped"
+        assert name in issues[0].message
+
     def test_dropped_pattern_gets_one_grouped_balloon(self, monkeypatch):
         from dataclasses import replace
 
