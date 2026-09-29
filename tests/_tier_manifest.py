@@ -282,7 +282,7 @@ CONTRACT_GROUPS = {
         (
             "test_feature_edit_corridors.py",
             "test_issue_885_prismatic_coverage.py",
-            "test_issue_1599_duplicate_slot_widths.py",
+            "test_requirement_dimension_sharing.py",
             "test_layout_override_lane_issue_1757.py",
             "test_pad_rendering.py",
             "test_pattern_contract.py",
