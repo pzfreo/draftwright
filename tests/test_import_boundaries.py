@@ -1,7 +1,8 @@
 """Import-boundary guards — the whole-package DAG, machine-enforced (#640 / ADR 1 (was 0005/0008)).
 
 docs/architecture.md declares a layered DAG: leaf modules →
-``_core`` → the core-consumers (``linting``/``pmi``/``export``/``repair``/``projection``/
+the ``model`` waist and ``_core`` (with a stricter model import allowlist) →
+the core-consumers (``linting``/``pmi``/``export``/``repair``/``projection``/
 ``compose``) → ``analysis`` → the ``annotations`` render layer → ``drawing`` → ``builder``
 → the user-facing facades/``cli``. No lower layer may import an upper one. Before #640 this
 was asserted in prose but machine-enforced only for the ``model/`` IR waist; a real
@@ -128,8 +129,10 @@ _LAYERS: dict[str, int] = {
     # construction — it imports nothing from the engine, so the thing it measures can never
     # come to depend on it.
     "audit": 0,
-    "model": 0,  # IR waist, foundational records and private validation leaves
-    # 1 — the shared drawing/layout primitives
+    # 1 — the IR waist and shared drawing/layout primitives
+    # The IR waist consumes lower leaves but has a stricter allowlist below: even at the
+    # same numerical rank, it cannot import _core or other drawing/layout owners.
+    "model": 1,
     "_core": 1,
     "build_options": 1,
     "document_input": 1,
@@ -363,22 +366,11 @@ def _all_sources() -> list[Path]:
     return [p for p in sorted(_SRC.rglob("*.py")) if "__pycache__" not in p.parts]
 
 
-# Rank 0 still includes the IR waist and other shared helpers whose imports must be
-# untangled before the strict-leaf exit. Keep the exception set exact: a new rank-0
+# Rank 0 still includes shared helpers whose imports must be untangled before the
+# strict-leaf exit. Keep the exception set exact: a new rank-0
 # importer cannot appear silently, and removing one requires shrinking this set.
 _RANK_ZERO_TRANSITIONAL_IMPORTERS = frozenset(
     {
-        "model/__init__.py",
-        "model/callout.py",
-        "model/compiled.py",
-        "model/declare.py",
-        "model/detect.py",
-        "model/dimension_intent.py",
-        "model/ir.py",
-        "model/ir_foundation.py",
-        "model/manufacturing_schedule.py",
-        "model/planner.py",
-        "model/pmi_lowering.py",
         "oriented_slot_contract.py",
         "plate_correspondence.py",
         "profile_angles.py",
@@ -650,7 +642,7 @@ def _draftwright_imports(path: Path) -> tuple[set[str], list[str]]:
 
 
 def test_model_imports_only_allowed_leaves():
-    """No file under ``model/`` imports outside the leaf allowlist (fail-closed)."""
+    """The IR waist imports only approved lower leaves or its own sibling modules."""
     offenders: dict[str, set[str]] = {}
     relatives: dict[str, list[str]] = {}
     for path in sorted(_MODEL_DIR.glob("*.py")):
@@ -661,7 +653,7 @@ def test_model_imports_only_allowed_leaves():
         if relative:
             relatives[path.name] = relative
     assert not offenders, (
-        "model/ (the IR waist) may only import leaf modules "
+        "model/ (the IR waist) may only import lower leaves and its own siblings "
         f"{sorted(_MODEL_MAY_IMPORT)} (ADR 1 (was 0008); #584 WP2). Disallowed: {offenders}"
     )
     assert not relatives, (

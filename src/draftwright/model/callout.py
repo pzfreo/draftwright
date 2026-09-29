@@ -9,7 +9,7 @@ the renderer to honour it. A callout could therefore be reserved 33 mm of strip 
 at 14 mm.
 
 So the reading lives here, in the IR waist, below both consumers (`compose` ranks 2,
-`annotations` ranks 4, `model` ranks 0). The renderer turns the spec into a `HoleCallout`; the
+`annotations` ranks 4, `model` ranks 1). The renderer turns the spec into a `HoleCallout`; the
 estimator turns the same spec into token widths. Neither re-derives it.
 
 The governing rule (ADR 4 (was 0016)): **no renderer may infer an engineering fact from the presence or
