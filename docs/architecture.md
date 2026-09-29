@@ -8,16 +8,16 @@ document in step. The *why* behind every shape here lives in `docs/adr/`.
 ## The module map
 
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
-top: rank-0 modules (not yet all independent): `progress.py`, `layout.py` (including
-semantic survival order), `layout_scheme.py` (typed render-free annotation
-topology and corridor demand planning), `registry.py`, `fonts/`,
+top: strict rank-0 package leaves: `progress.py`, `layout.py` (including
+semantic survival order), `registry.py`, `fonts/`,
 `_geometry.py`,
 `fits.py`,
-`plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
-`recognition_frame.py`, `feature_identity.py`, and the strict
+`contract_values.py`, `measurement_support.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
+`feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary →
 the rank-1 `model/` IR waist, `recognition_ownership.py`, `profile_angles.py`,
-`oriented_slot_contract.py`, and `_core.py` (beside rank-1
+`oriented_slot_contract.py`, `plate_correspondence.py`, `recognition_frame.py`,
+and `_core.py` (beside rank-1
 `annotation_layout_profile.py` and the stable
 `obligations.py` and `leader_policy.py` import paths) → stage modules
 (`export.py`, `drawing_export.py`, `pdf_text.py`,
@@ -47,13 +47,10 @@ own placement decisions or a recognition inventory. (All surfaces are front door
 corridor demand from approved model groups, and compose consumes that topology.
 `recognition_cache.py` sits beside `analysis.py` at rank 3: both consume bottom-layer
 recognition contracts, while `drawing_state.py` and `builder.py` consume the cache.
-The remaining rank-0 files that import within the package are enumerated by
-`test_rank_zero_leaf_exceptions_only_shrink`; every other rank-0 file is a strict
-package leaf across runtime, type-only and lazy imports. `model/` shares a numerical
+`test_rank_zero_modules_are_package_leaves` enforces that every rank-0 file has no
+package import across runtime, type-only and lazy paths. `model/` shares a numerical
 rank with `_core` but its separate fail-closed import allowlist still prohibits any
-model-to-core edge while permitting these three shared rank-1 recognition modules.
-The exception set must shrink before rank 0 as a whole can mean
-an independent leaf.
+model-to-core edge while permitting approved shared rank-1 modules.
 
 This DAG is **machine-enforced** by `tests/test_import_boundaries.py` (#640): the
 `_LAYERS` table there is the precise, ranked form of this section — a module-level
@@ -382,7 +379,7 @@ and re-exports the existing private helper names.
   physical-support evidence),
   `gear_coverage.py` (declared gear table/profile reconciliation), and `suggest.py`
   (`_suggest_fix`, #29 snippets). Depends only on `_core`, the pure
-  `plate_correspondence` leaf,
+  `plate_correspondence` module,
   `quiddity` (typed hole records in `coverage.py`) + build123d_drafting.
   `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
@@ -454,7 +451,7 @@ and re-exports the existing private helper names.
   provider preparation seam, classifies the exact normalized solid from its already-scanned
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
   conservative FULL/ORTHOGONAL/AXIAL semantic policy. Analysis calls it only for the explicit
-  `framed_recognition=True` rollout path and owns any visible raw fallback above this leaf.
+  `framed_recognition=True` rollout path and owns any visible raw fallback above this module.
 - **`blend_contract.py`** — the strict leaf boundary for released schema-v3 straight/circular
   `Blend` path records.
   It rejects widened, mutable, non-finite, non-canonical, and unreleased values and owns the

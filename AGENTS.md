@@ -32,13 +32,14 @@ ranked map (an upward module-level import or a cycle fails CI), and
 [`docs/architecture.md`](docs/architecture.md) is the module-by-module map. Keep the two
 in step; do not restate the module list here.
 
-In outline, by `_LAYERS` rank: **0** leaves and transitional shared helpers — placement solvers,
+In outline, by `_LAYERS` rank: **0** strict package leaves — placement solvers,
 geometry maths, registry, measurement support with pocket/pad location predicates,
-and recognition-boundary helpers → **1**
+and recognition-boundary contracts → **1**
 the `model/` IR waist with its foundational record owner, dimension-intent and
 oriented-slot geometry validation, `detect_inventory` aggregate projection and
 `detect_ownership` stages, shared profile-angle requirements, the oriented-slot
-contract and recognition ownership (ADR 1), plus `_core` / `document_input` /
+contract, plate correspondence, the prepared recognition-frame boundary and
+recognition ownership (ADR 1), plus `_core` / `document_input` /
 the stable `location_contract` import path; the model's separate import allowlist
 keeps it below `_core` → **2**
 `projection`, `compose`, `export`, `pdf_text`, `repair`, `_pmi_schema`,
