@@ -12,16 +12,18 @@ top: rank-0 modules (not yet all independent): `progress.py`, `layout.py` (inclu
 semantic survival order), `layout_scheme.py` (typed render-free annotation
 topology and corridor demand planning), `registry.py`, `fonts/`,
 `_geometry.py`,
-`fits.py`, `recognition_cache.py`, `recognition_ownership.py`,
+`fits.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
-`blend_contract.py` provider-record boundary →
+`blend_contract.py` provider-record boundary, with the `model/` IR waist →
 `_core.py` (beside rank-1 `annotation_layout_profile.py` and the stable
 `obligations.py` and `leader_policy.py` import paths) → stage modules
 (`export.py`, `drawing_export.py`, `pdf_text.py`,
-`repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `intent_drain.py`,
+`repair.py`, `projection.py`, `compose.py`, `layout_scheme.py`, `analysis.py`,
+`recognition_cache.py`,
+`drawing.py`, `intent_drain.py`,
 `intent_routing.py`, `intents.py` (stable import path), `reporting.py`,
-the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
+the `linting/` subpackage and the `annotations/` subpackage) →
 `builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
 fluent `Sheet` facade (`sheet.py`), the Sheet-script emitter
@@ -38,6 +40,15 @@ holds a context-scoped observer and cooperative cancellation; stage
 modules publish activity at their existing seams, while the CLI alone renders it. It does not
 own placement decisions or a recognition inventory. (All surfaces are front doors onto the one engine,
 `build_drawing` → `_auto_annotate` — there is no second engine.)
+
+`layout_scheme.py` sits beside `compose.py` at rank 2: it derives typed, render-free
+corridor demand from approved model groups, and compose consumes that topology.
+`recognition_cache.py` sits beside `analysis.py` at rank 3: both consume bottom-layer
+recognition contracts, while `drawing_state.py` and `builder.py` consume the cache.
+The remaining rank-0 files that import within the package are enumerated by
+`test_rank_zero_leaf_exceptions_only_shrink`; every other rank-0 file is a strict
+package leaf across runtime, type-only and lazy imports. The exception set must shrink
+before rank 0 as a whole can mean an independent leaf.
 
 This DAG is **machine-enforced** by `tests/test_import_boundaries.py` (#640): the
 `_LAYERS` table there is the precise, ranked form of this section — a module-level
@@ -369,7 +380,7 @@ and re-exports the existing private helper names.
   `quiddity` (typed hole records in `coverage.py`) + build123d_drafting.
   `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
-- **`recognition_cache.py`** — Draftwright's ADR 3 (was 0017) one-result lifecycle owner. Raw automatic
+- **`recognition_cache.py`** — rank-3 Draftwright ADR 3 (was 0017) one-result lifecycle owner. Raw automatic
   analysis seeds it with one external `build_recognition_evidence(part)` acquisition; on a lazy
   declared critique the empty cache makes that call itself. It retains the exact
   `RecognitionResult` projection and evidence authority together. The package owns recognition,

@@ -40,7 +40,9 @@ plus `detect_inventory` aggregate projection and `detect_ownership` stages (ADR 
 `_core` / `document_input` / the stable `location_contract` import path → **2**
 `projection`, `compose`, `export`, `pdf_text`, `repair`, `_pmi_schema`,
 `_pmi_linear_geometry`, `_pmi_support_blockers`, `pmi`,
-`linting/`, `reporting`, `drawing_evidence` and peers → **3** `analysis` → **4**
+`linting/`, `reporting`, `drawing_evidence`, render-free corridor demand planning,
+and peers → **3** `analysis` and
+recognition lifecycle state → **4**
 `annotations/` (the render passes, including axial and rotational `_axial_render`, feature-family `_slots`,
 `_pocket_pad`, `_edge_callouts`, `_thin_profiles`, `_diameters`, `_locations`, `_gdt`,
 `_pmi_dimensions`, `_step_lengths`, and `_height_ladder` owners, shared machined

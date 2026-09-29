@@ -1,8 +1,8 @@
 """Draftwright-owned lifecycle state for immutable recognition results.
 
-The recognition algorithms and values live in :mod:`quiddity`.  This cache does not:
-it implements Draftwright's build-versus-lazy-critique policy (ADRs 0015/0017), so it remains
-consumer state at the bottom of Draftwright's dependency graph.
+The recognition algorithms and values live in :mod:`quiddity`. This cache implements
+Draftwright's build-versus-lazy-critique policy (ADR 1 (was 0015) and ADR 3 (was 0017)).
+Its progress observer dependency and analysis/build consumers place it above the leaf band.
 """
 
 from __future__ import annotations
