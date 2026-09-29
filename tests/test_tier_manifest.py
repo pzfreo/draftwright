@@ -55,6 +55,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "drawing_diagnostics": "src/draftwright/drawing_diagnostics.py",
         "pocket_pad_leaders": "src/draftwright/annotations/_pocket_pad.py",
         "edge_callouts": "src/draftwright/annotations/_edge_callouts.py",
+        "thin_profiles": "src/draftwright/annotations/_thin_profiles.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
@@ -170,6 +171,15 @@ def test_prismatic_evidence_change_runs_both_occurrence_contracts():
 def test_step_observer_change_runs_every_family_contract():
     selected = set(pr_modules(_TESTS, ["src/draftwright/evaluation/step_analysis.py"]))
     assert set(CONTRACT_GROUPS["step_observers"].test_patterns) <= selected
+
+
+def test_thin_profile_change_runs_plate_and_channel_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_thin_profiles.py"]))
+    assert {
+        "test_prismatic_dimensions.py",
+        "test_issue_917_open_channel.py",
+        "test_tolerances.py",
+    } <= selected
 
 
 def test_from_model_change_runs_through_step_placement_contract():

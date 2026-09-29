@@ -256,6 +256,16 @@ CONTRACT_GROUPS = {
             "test_script_detail_parity.py",
         ),
     ),
+    "thin_profiles": ContractGroup(
+        ("src/draftwright/annotations/_thin_profiles.py",),
+        (
+            "test_prismatic_dimensions.py",
+            "test_issue_917_open_channel.py",
+            "test_tolerances.py",
+            "test_refactor_golden.py",
+            "test_script_detail_parity.py",
+        ),
+    ),
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (
