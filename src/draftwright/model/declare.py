@@ -3,13 +3,13 @@
 The normal path detects features from the finished solid's silhouettes
 (``recognition/`` → ``build_part_model``). When you *built* the part you already
 know its features, so re-detecting them is redundant — and, on nested/exotic
-geometry, unreliable (cf. #298). These constructors turn a known build123d object
+geometry, unreliable. These constructors turn a known build123d object
 (or explicit values) into the same IR ``Feature`` the detector would emit, so you
 can hand a ``model=[...]`` to :func:`draftwright.build_drawing` (or a
 :class:`draftwright.Sheet`) and skip detection.
 
 Every constructor has two flavours, with two deliberate explicit-only exceptions:
-:func:`rotational` (see its docstring and #950) and :func:`polygonal_boss` (a detached prism
+:func:`rotational` (see its docstring) and :func:`polygonal_boss` (a detached prism
 cannot prove attached-boss semantics):
 
 - **reference an object** — ``hole(tool_cylinder)`` reads the geometry (⌀ from the
@@ -1070,14 +1070,7 @@ def _read_plate(obj) -> tuple[str, float, float, float, float]:
 
 def rotational(*, od, bores=(), at=None, axis=None) -> RotationalFeature:
     """A turned body's axial furniture — its outer diameter, rotation axis and concentric
-    bores (#945). **Explicit values only:** ``rotational(od=30, bores=(16,), axis="z")``.
-
-    The last recognised kind with no declarative surface, which made it the last ADR 4 (was 0011)
-    round-trip gap (epic #574). Its absence was load-bearing rather than cosmetic: a
-    `RotationalFeature` carries planned dimensions (`od`, each `bore`), so a generated script
-    could not name them, and the dimension mirror fell back to `auto_dimensions()` for the
-    whole part — one unsupported feature turning every other declaration in that script from
-    explicit back to implicit (#938).
+    bores. **Explicit values only:** ``rotational(od=30, bores=(16,), axis="z")``.
 
     **There is deliberately no object form**, unlike every sibling verb — the signature is
     keyword-only so `rotational(shaft)` is rejected by Python rather than accepted and then
@@ -1085,16 +1078,15 @@ def rotational(*, od, bores=(), at=None, axis=None) -> RotationalFeature:
     bores from geometry, and detection does not read those off the solid: they come from the
     part CLASSIFICATION (`analysis._classify_geometry` / `_sizing_bores`), which also decides
     which concentric bores are sizing bores. A declare-side reimplementation would be a second
-    inference path for one fact, and the first cut proved the point — it silently dropped
-    every bore and picked the wrong axis for a cylinder as long as it is wide (#949).
+    inference path for one fact and could silently drop bores or choose the wrong axis.
     A convenient object form that quietly changes the drawing is worse than an explicit one.
-    Restoring it needs the classification factored into something both sides call — #950.
+    An object form needs classification shared by detection and declaration (#950).
 
     ``bores`` are concentric bore diameters in display order, each placed as a centred leader,
     and are **Z-axis only** — a rule :class:`~draftwright.model.ir.RotationalFeature` owns and
     states, since every route into the IR needs it. ``at`` is a point on the rotation axis
     (default the origin); it is carried for round-trip identity and does not itself position
-    the furniture, which the renderer places from the part's projected centre (#952).
+    the furniture, which the renderer places from the part's projected centre.
     """
     _positive("rotational() od=", od)
     bores = tuple(bores)  # materialise once: a generator would validate empty and store empty
@@ -1102,7 +1094,7 @@ def rotational(*, od, bores=(), at=None, axis=None) -> RotationalFeature:
         _positive("rotational() bores=", b)
     axis = _norm_axis(axis if axis is not None else "z")
     # Bores-are-Z-only is NOT restated here: `RotationalFeature.__post_init__` owns it, so the
-    # raw-IR route through `Sheet.add`/`build_drawing(model=…)` gets the same answer (#949).
+    # raw-IR route through `Sheet.add`/`build_drawing(model=…)` gets the same answer.
     origin = (0.0, 0.0, 0.0) if at is None else at
     _require_point("at", origin)
     return RotationalFeature(
@@ -2219,20 +2211,11 @@ def envelope(obj) -> EnvelopeFeature:
 
     Measured on the SOLIDS, not on *obj* as handed in. An AP242 STEP import is a compound of
     the part plus its PMI presentation geometry — annotation planes, leader curves — and
-    measuring the whole thing declared CTC01 as 1170 × 650 where the part is 800 × 450: an
-    envelope 370 mm too wide, silently, in anything a user declared by hand (#977).
+    measuring the compound would include presentation geometry in the envelope.
 
-    The frame origin is the bbox CENTRE, matching `detect.py` — it was `bb.min.Z`, so a
-    hand-declared envelope sat a half-height below a detected one on the same part. Invisible
-    through the emitter, which bakes the detected frame explicitly, and therefore only ever
-    wrong for someone writing `sheet.envelope()` themselves — which is what the README shows.
-    The same shape of defect as the measurement above: this verb claimed to match the detector
-    and did not (#977).
-
-    `_solids_body` is the engine's existing answer to that, already used by `_analyse` and
-    `Sheet.model` so a caller inspects the body the engine draws (#453). Sharing it is what
-    makes the docstring's "matching the detector's" claim true rather than aspirational; the
-    detected path was always right, and it is this declared verb that was measuring the file.
+    The frame origin is the bbox centre, matching detection. `_solids_body` also
+    supplies the body inspected by `_analyse` and `Sheet.model`, so declaration
+    measures the same physical solid.
     """
     return _envelope_from_bbox(_solids_body(obj).bounding_box())
 
@@ -2240,11 +2223,9 @@ def envelope(obj) -> EnvelopeFeature:
 def _envelope_from_bbox(bb) -> EnvelopeFeature:
     """An :class:`EnvelopeFeature` for an already-measured bounding box.
 
-    The construction, split from the measurement so the two callers cannot drift: `envelope()`
-    measures a build123d object, and `sheet_emit.mirror_model` has only a `PartModel` and its
-    bbox. The emitter used to hand-roll this and hardcoded the frame origin to (0, 0, 0), which
-    is the bbox centre only for a part centred on the origin — on the corpus flange it was 6 mm
-    out in Y, disagreeing with both the detector and this verb (#976).
+    `envelope()` measures a build123d object, while `sheet_emit.mirror_model`
+    has only a `PartModel` and its bbox. Both use this construction so frame
+    origins agree for parts away from the coordinate origin.
     """
     c = bb.center()
     return EnvelopeFeature(
