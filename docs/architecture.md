@@ -43,6 +43,12 @@ modules publish activity at their existing seams, while the CLI alone renders it
 own placement decisions or a recognition inventory. (All surfaces are front doors onto the one engine,
 `build_drawing` → `_auto_annotate` — there is no second engine.)
 
+A leading underscore on an engine name means **package-internal**, not local to one
+file. Sibling modules may import it along the ranked DAG; callers should use the
+published surfaces instead. The package root publishes exactly the non-underscored
+names in `__all__` through its lazy binding map. A module with a separate published
+contract, such as `reporting.py`, states and guards that contract at its own seam.
+
 `layout_scheme.py` sits beside `compose.py` at rank 2: it derives typed, render-free
 corridor demand from approved model groups, and compose consumes that topology.
 `recognition_cache.py` sits beside `analysis.py` at rank 3: both consume bottom-layer

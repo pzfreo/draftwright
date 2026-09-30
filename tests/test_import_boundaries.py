@@ -55,6 +55,7 @@ import quiddity
 import quiddity.evidence as recogniser_evidence
 import quiddity.inspection as recogniser_inspection
 
+import draftwright
 from draftwright import reporting
 
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright"
@@ -236,8 +237,8 @@ _TC_UPWARD_ALLOW: dict[tuple[str, str], str] = {
     ),
 }
 
-# Lazy (in-function) imports that point UP the DAG — the sanctioned cycle-breakers. Recorded so
-# a NEW upward lazy import (a would-be hidden cycle) forces a documented decision, not silence.
+# Lazy (in-function) imports that point UP the DAG require explicit review. An exemption records
+# the reason for the edge; the separate cycle guard still rejects any resulting import cycle.
 _LAZY_UPWARD_EXEMPT: dict[tuple[str, str], str] = {
     # Empty (#523): the last exempt edge, builder→cli, is gone — the `_cli` compat shim
     # moved to `cli.py` (beside the Typer `app`), so `builder` no longer imports `cli`
@@ -393,6 +394,13 @@ def test_lazy_package_import_budget():
     assert count <= _LAZY_IMPORT_STATEMENT_BUDGET, (
         f"In-function package imports grew to {count}; budget is {_LAZY_IMPORT_STATEMENT_BUDGET}"
     )
+
+
+def test_root_public_api_is_exactly_nonprivate_lazy_names():
+    published = draftwright.__all__
+    assert len(published) == len(set(published))
+    assert set(published) == set(draftwright._LAZY)
+    assert all(name and not name.startswith("_") for name in published)
 
 
 def test_rank_zero_modules_are_package_leaves():
@@ -637,8 +645,10 @@ def test_type_checking_upward_refs_are_allowlisted():
 
 
 def test_lazy_upward_imports_are_documented():
-    """An upward LAZY (in-function) import — a would-be cycle-breaker — must be a documented
-    _LAZY_UPWARD_EXEMPT entry, not an invisible edge."""
+    """An upward LAZY (in-function) import needs a documented exemption, not an invisible edge.
+
+    An exemption does not permit a cycle; the cycle guard checks that separately.
+    """
     offenders: list[str] = []
     for path in _all_sources():
         sm = _submodule(_module_full(path))
@@ -647,7 +657,7 @@ def test_lazy_upward_imports_are_documented():
             if tsm != sm and _LAYERS[tsm] > _LAYERS[sm] and (sm, tsm) not in _LAZY_UPWARD_EXEMPT:
                 offenders.append(f"{sm} → {tsm} (lazy, upward)")
     assert not offenders, (
-        "Undocumented upward lazy import(s) — a lazy cycle-breaker must be recorded in "
+        "Undocumented upward lazy import(s) — a reviewed edge must be recorded in "
         f"_LAZY_UPWARD_EXEMPT with a reason (ADR 1 (was 0005); #640): {offenders}"
     )
 
