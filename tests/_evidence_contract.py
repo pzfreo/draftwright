@@ -279,6 +279,55 @@ def assert_removing_the_placed_callout_loses_drawing_credit(
         assert states("drawing_consumer") == {"unsupported"}
 
 
+def assert_missing_ir_feature_loses_adapter_credit(
+    monkeypatch,
+    feature_kind: str,
+    states: Callable[[str], Any],
+) -> None:
+    """Removing an observed feature from the built IR must lose adapter credit."""
+    from dataclasses import replace
+
+    from draftwright.drawing import Drawing
+
+    original = Drawing.model
+
+    def without_feature(self):
+        model = original(self)
+        assert any(feature.kind == feature_kind for feature in model.features)
+        return replace(
+            model,
+            features=[feature for feature in model.features if feature.kind != feature_kind],
+        )
+
+    monkeypatch.setattr(Drawing, "model", without_feature)
+    assert states("ir_adapter") == {"unknown"}
+
+
+def assert_deleted_generated_line_loses_code_credit(
+    monkeypatch,
+    line_fragment: str,
+    states: Callable[[str], Any],
+) -> None:
+    """Commenting out the family's emitted call must lose generated-code credit."""
+    import draftwright.sheet_emit as sheet_emit
+
+    original = sheet_emit.emit_sheet_script
+
+    def without_call(*args, **kwargs):
+        source = original(*args, **kwargs)
+        lines = source.splitlines()
+        assert any(line_fragment in line for line in lines)
+        return "\n".join(
+            f"# deleted by boundary mutation: {line}" if line_fragment in line else line
+            for line in lines
+        )
+
+    monkeypatch.setattr(sheet_emit, "emit_sheet_script", without_call)
+    assert states("ir_adapter") == {"supported"}
+    assert states("dsl_declaration") == {"supported"}
+    assert states("generated_code") == {"unknown"}
+
+
 def assert_quality_summary_counts_audited_requirements(
     part: Any,
     family: str,

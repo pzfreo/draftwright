@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from _evidence_contract import (
+    assert_deleted_generated_line_loses_code_credit,
     assert_missing_build_owned_recognition_fails_closed,
     assert_missing_model_outcomes_fail_closed,
     assert_observer_failure_cannot_pass_the_negative_case,
@@ -476,21 +477,7 @@ def test_corrupting_public_pad_declaration_loses_declaration_credit(monkeypatch)
 
 
 def test_deleting_generated_pad_lines_loses_generated_code_credit(monkeypatch) -> None:
-    import draftwright.sheet_emit as sheet_emit
-
-    original = sheet_emit.emit_sheet_script
-
-    def without_pad_lines(*args, **kwargs):
-        source = original(*args, **kwargs)
-        return "\n".join(
-            f"# deleted by boundary mutation: {line}" if "sheet.pad(" in line else line
-            for line in source.splitlines()
-        )
-
-    monkeypatch.setattr(sheet_emit, "emit_sheet_script", without_pad_lines)
-    assert _states("ir_adapter") == {"supported"}
-    assert _states("dsl_declaration") == {"supported"}
-    assert _states("generated_code") == {"unknown"}
+    assert_deleted_generated_line_loses_code_credit(monkeypatch, "sheet.pad(", _states)
 
 
 def _annotation_for_parameter(drawing, parameter: str):

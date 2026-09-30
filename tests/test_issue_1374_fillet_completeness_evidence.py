@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from _evidence_contract import (
+    assert_deleted_generated_line_loses_code_credit,
     assert_every_boundary_is_supported,
     assert_missing_build_owned_recognition_fails_closed,
     assert_missing_model_outcomes_fail_closed,
@@ -311,21 +312,7 @@ def test_corrupting_public_fillet_declaration_loses_declaration_credit(monkeypat
 
 
 def test_deleting_generated_fillet_lines_loses_generated_code_credit(monkeypatch) -> None:
-    import draftwright.sheet_emit as sheet_emit
-
-    original = sheet_emit.emit_sheet_script
-
-    def without_fillet_lines(*args, **kwargs):
-        source = original(*args, **kwargs)
-        return "\n".join(
-            f"# deleted by boundary mutation: {line}" if "sheet.fillet(" in line else line
-            for line in source.splitlines()
-        )
-
-    monkeypatch.setattr(sheet_emit, "emit_sheet_script", without_fillet_lines)
-    assert _states("ir_adapter") == {"supported"}
-    assert _states("dsl_declaration") == {"supported"}
-    assert _states("generated_code") == {"unknown"}
+    assert_deleted_generated_line_loses_code_credit(monkeypatch, "sheet.fillet(", _states)
 
 
 def test_removing_placed_fillet_callout_loses_drawing_credit(monkeypatch) -> None:
