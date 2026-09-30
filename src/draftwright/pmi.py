@@ -155,6 +155,8 @@ class PmiRecord:
         gtol_modifiers: Stable names for source geometric-tolerance qualifiers and modifiers.
         lowering_blockers: Missing/unrepresented facts that make concept lowering unsafe.
         rendering_blockers: Source-geometry facts that make a typed dimension unsafe to draw.
+        source_value_blockers: Unreadable authored values that make rendering unsafe even if
+                        Part21 later supplies complete reference geometry.
         source_ids:     All source occurrences represented by one projected definition.
         datum_contexts: Tolerance semantic names in which a datum definition is referenced.
         reference_item_ids: Exact Part21 representation items bound to a datum feature.
@@ -210,6 +212,7 @@ class PmiRecord:
     reference_item_groups: tuple[tuple[str, ...], ...] = ()
     circular_refs: tuple[CircularReference, ...] = ()
     angular_references: tuple[AngularReference, ...] = ()
+    source_value_blockers: tuple[str, ...] = ()
 
 
 PmiExtractionOutcome = Literal[
@@ -1411,19 +1414,32 @@ def _dimension_record(
 
     upper_tol: float | None = None
     lower_tol: float | None = None
+    tolerance_read_reasons: list[str] = []
     try:
-        candidate = float(obj.GetUpperTolValue())
-        if abs(candidate) > 1e-9:
-            upper_tol = candidate
-    except Exception:
-        pass
+        has_plus_minus_tolerance = bool(obj.IsDimWithPlusMinusTolerance())
+    except Exception as exc:
+        reason = f"plus/minus tolerance status is unavailable ({_failure_reason(exc)})"
+        partial_reasons.append(reason)
+        tolerance_read_reasons.append(reason)
+    else:
+        if has_plus_minus_tolerance:
+            try:
+                candidate = float(obj.GetUpperTolValue())
+                if abs(candidate) > 1e-9:
+                    upper_tol = candidate
+            except Exception as exc:
+                reason = f"upper tolerance is unavailable ({_failure_reason(exc)})"
+                partial_reasons.append(reason)
+                tolerance_read_reasons.append(reason)
 
-    try:
-        candidate = float(obj.GetLowerTolValue())
-        if abs(candidate) > 1e-9:
-            lower_tol = candidate
-    except Exception:
-        pass
+            try:
+                candidate = float(obj.GetLowerTolValue())
+                if abs(candidate) > 1e-9:
+                    lower_tol = candidate
+            except Exception as exc:
+                reason = f"lower tolerance is unavailable ({_failure_reason(exc)})"
+                partial_reasons.append(reason)
+                tolerance_read_reasons.append(reason)
 
     lower_bound: float | None = None
     upper_bound: float | None = None
@@ -1431,11 +1447,15 @@ def _dimension_record(
         try:
             lower_bound = float(obj.GetLowerBound())
         except Exception as exc:
-            partial_reasons.append(f"lower range bound is unavailable ({_failure_reason(exc)})")
+            reason = f"lower range bound is unavailable ({_failure_reason(exc)})"
+            partial_reasons.append(reason)
+            tolerance_read_reasons.append(reason)
         try:
             upper_bound = float(obj.GetUpperBound())
         except Exception as exc:
-            partial_reasons.append(f"upper range bound is unavailable ({_failure_reason(exc)})")
+            reason = f"upper range bound is unavailable ({_failure_reason(exc)})"
+            partial_reasons.append(reason)
+            tolerance_read_reasons.append(reason)
 
     kind = _DIM_TYPE.get(type_code, f"type{type_code}")
     authored_value = value
@@ -1575,6 +1595,7 @@ def _dimension_record(
                 association_fact.shape_aspect_ids if association_fact is not None else ()
             ),
             rendering_blockers=rendering_blockers,
+            source_value_blockers=tuple(dict.fromkeys(tolerance_read_reasons)),
             cylindrical_refs=cylindrical_refs,
             angular_reference=angular_reference,
         ),

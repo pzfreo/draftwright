@@ -380,7 +380,9 @@ def build_pmi_features(
                     source_kind=r.kind,
                     source_id=r.source_id,
                     lowering_blockers=r.lowering_blockers,
-                    rendering_blockers=r.rendering_blockers,
+                    rendering_blockers=tuple(
+                        dict.fromkeys((*r.rendering_blockers, *r.source_value_blockers))
+                    ),
                     cylindrical_refs=r.cylindrical_refs,
                     angular_reference=r.angular_reference,
                     circular_refs=r.circular_refs,
