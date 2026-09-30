@@ -88,8 +88,9 @@ proves nothing about a guard that was never mutated.
     and read once; recognition, PMI and any correction build consume a private copy; A→B→A
     replacement or symlink retargeting cannot split provenance from the generated model.
     `test_sheet_generation_snapshot.py`.
-13. **A clear result names its bound.** `bounded-clear` and `no_unrepresented_accepted_occurrences`
-    are the literals; nothing is called complete or ready. `test_report_projection.py`,
+13. **A clear result names its bound.** A report with no assessed status predicate requiring
+    attention uses `bounded-clear`; otherwise it uses `needs-attention`. Neither status claims
+    manufacturing readiness or complete recognition. `test_report_projection.py`,
     `test_sheet_generation_snapshot.py`.
 
 14. **Read-only evidence is a projection, never a build.** `inspect_step(path)` returns what

@@ -581,10 +581,15 @@ def test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption(
     )
 
     assert drain_feature_leaders(drawing, analysis, ctx) == 1
-    assert any(
-        issue.code == "feature_leader_crossing" and "section_line:segment:0" in issue.message
+    crossings = [
+        issue
         for issue in drawing.lint()
-    )
+        if issue.code == "feature_leader_crossing" and "section_line:segment:0" in issue.message
+    ]
+    assert len(crossings) == 1
+    assert crossings[0].annotation_name == "m_fillet0"
+    assert crossings[0].view == "front"
+    assert crossings[0].related_annotation_names == ("section_line",)
     assert feature_leader_fixed_conflicts(drawing, ("section_line",)) == (
         ("m_fillet0", "section_line:segment:0"),
     )
@@ -2569,10 +2574,15 @@ def test_immediate_producer_floor_records_a_retained_fixed_crossing_issue_2112(f
     assert ("m_fillet0", "section_line:segment:0") in feature_leader_fixed_conflicts(
         drawing, ("section_line",)
     ), "the fixture must retain the crossing being diagnosed"
-    assert any(
-        issue.code == "feature_leader_crossing" and "section_line:segment:0" in issue.message
+    crossings = [
+        issue
         for issue in drawing.registry.issues
-    )
+        if issue.code == "feature_leader_crossing" and "section_line:segment:0" in issue.message
+    ]
+    assert len(crossings) == 1
+    assert crossings[0].annotation_name == "m_fillet0"
+    assert crossings[0].view == "front"
+    assert crossings[0].related_annotation_names == ("section_line",)
 
 
 def test_final_section_geometry_stays_clear_of_shared_feature_leaders():
