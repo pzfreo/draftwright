@@ -405,8 +405,8 @@ def build_once(
             turned part and is wrong for prismatic geometry. Views, scale,
             page, and sheet furniture (title block, and the "ISO VIEW (NTS)"
             note when the iso is rescaled off sheet scale) are still produced;
-            add your own annotations before export. (Annotations added by the default can
-            also be removed wholesale with :meth:`Drawing.clear_annotations`.)
+            add your own annotations before export. Feature annotations can be
+            removed with :meth:`Drawing.drop`.
         detail_view: automatically recover crowded prismatic step dimensions in an
             enlarged detail view. Default ``True``; pass ``False`` to leave them on the
             parent view only and report ``step_dim_dropped`` when they do not fit.

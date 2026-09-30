@@ -628,9 +628,9 @@ and re-exports the existing private helper names.
   svglib + reportlab (`_render_pdf`, #288), PNG via **pypdfium2 + Pillow**
   (`_render_png`) — both pure-wheel, **no native cairo** and permissively
   licensed (BSD/Apache/HPND, dual-license-clean). The unified
-  `Drawing.export(out, *, formats=("pdf",)) → {format: path}` is the front door
-  (the legacy `svg=`/`dxf=` tuple form + `export_pdf` are back-compat/deprecated
-  wrappers). Sits below `make_drawing.py`, above `_core.py`.
+  `Drawing.export(out, *, formats) → {format: path}` is the front door;
+  the legacy `svg=`/`dxf=` tuple form and `export_pdf` were removed in 0.5.0.
+  This module sits below `make_drawing.py`, above `_core.py`.
 
   **`reproducible=` — byte-identical exports, opt-in.** On, two exports of one
   drawing are identical, so a checked-in drawing diffs cleanly and a caller can

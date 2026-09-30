@@ -7,7 +7,7 @@ back-channel. Two habits are now fail-closed by AST-walking every module under
 ``src/draftwright/annotations/``:
 
 - **No private WRITES.** An ``annotations/`` module must never assign ``dwg._<name> = ...`` —
-  build state flows in through parameters or a named method (e.g. ``dwg.attach_part_model``),
+  build state flows in through parameters or a named private method (e.g. ``dwg._attach_part_model``),
   never a poke at a private field (:func:`test_no_dwg_private_attribute_writes`).
 - **No model/analysis PROBING.** The build model and analysis are threaded as parameters, so
   ``getattr(dwg, "_analysis"/"_part_model", ...)`` probes are gone
@@ -36,7 +36,7 @@ _ANNO_DIR = _SRC / "annotations"
 # the annotations layer still relies on. #639 drove this to ZERO: the annotation render layer no
 # longer reads any Drawing private — the model/model-declared flag/hole-feature index ride the
 # per-run PlacementContext, the balloon render + view-coordinate mutations go through public
-# Drawing methods (``add_balloons``/``set_view_coordinates``/``drop_view_coordinates``), and the
+# Drawing methods (``add_balloons`` and private view-coordinate methods), and the
 # name→annotation index is read through ``ctx.registry`` (``__contains__``/``names()``). The
 # allowlist may only SHRINK; it is now empty and must stay so.
 _DWG_PRIVATE_READ_ALLOW: frozenset[str] = frozenset()
@@ -425,7 +425,7 @@ def test_build_state_has_a_single_construction_and_fill_site():
     every write whose target attribute is ``_build``, ``_build.<field>``, or one of
     the four legacy names. The sanctioned inventory: Drawing.__init__ constructs;
     builder._assemble fills analysis+part_model once; the ``_analysis`` compat
-    setter and ``attach_part_model`` route through BuildState (drawing.py). The
+    setter and ``_attach_part_model`` route through BuildState (drawing.py). The
     three cache/model legacy attrs are GETTER-ONLY by design — a wholesale
     replacement must go through BuildState, so an accidental one fails loudly
     rather than silently forking the single-writer story. (Aliasing —
@@ -531,8 +531,7 @@ def test_build_state_has_a_single_construction_and_fill_site():
         # so this list staying at one entry is what stops a second writer appearing.
         # The lint orchestrator owns the lazy #1058 principal-profile critique cache;
         # Drawing supplies BuildState explicitly and linting never reaches its private state.
-        # drawing.py still writes _build.trace via the deprecated attach_solve_trace
-        # shim/primitive (kept until 0.5.0) — no engine caller reaches it now. The
+        # drawing.py still owns a private _attach_solve_trace primitive. The
         # recorder also participates in finalize()'s #647 transaction: finalize
         # snapshots it beside the registry/coverage snapshots and restores it on
         # rollback, so a failed drain leaves no trace records for placements that no

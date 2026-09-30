@@ -1,7 +1,9 @@
 """Cost-aware tier manifests remain complete and conservative."""
 
+import ast
 import os
 import runpy
+from fnmatch import fnmatch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,10 +15,12 @@ except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.10 C
     import tomli as tomllib
 
 from _tier_manifest import (
+    ADDITIONAL_SOURCE_CONTRACTS,
     BROAD_SOURCE_PATTERNS,
     CONTRACT_GROUPS,
     CRITICAL_CONTRACT_MODULES,
     FULL_EXPRESSION,
+    NONFAST_ONLY_MODULES,
     PR_CORE_MODULES,
     PR_POLICY_MODULES,
     pr_modules,
@@ -25,6 +29,80 @@ from _tier_manifest import (
 from _unit_manifest import UNIT_MODULES
 
 _TESTS = Path(__file__).resolve().parent
+
+# Independent owner probes: the full roster guard cannot tell whether a test is
+# routed from the source whose behavior it checks.
+SOURCE_OWNER_ROUTES = (
+    ("src/draftwright/layout_scheme.py", "test_layout_scheme.py"),
+    ("src/draftwright/fits.py", "test_fits.py"),
+    ("src/draftwright/builder.py", "test_repack_geometry_seam.py"),
+    ("src/draftwright/builder.py", "test_scale_policy.py"),
+    ("src/draftwright/repair.py", "test_repair.py"),
+    ("src/draftwright/intent_routing.py", "test_canonical_angles.py"),
+    ("src/draftwright/model/manufacturing_schedule.py", "test_manufacturing_schedule.py"),
+    ("src/draftwright/linting/paired_ramp_step_coverage.py", "test_paired_ramp_semantics.py"),
+)
+
+
+@pytest.mark.parametrize(("source", "module"), SOURCE_OWNER_ROUTES)
+def test_source_owner_routes_its_behavior_contract(source, module):
+    assert (_TESTS.parent / source).is_file()
+    assert (_TESTS / module).is_file()
+    if source != "src/draftwright/intent_routing.py":
+        imported_modules = set()
+        for node in ast.walk(ast.parse((_TESTS / module).read_text())):
+            if isinstance(node, ast.ImportFrom):
+                imported_modules.add(node.module)
+            elif isinstance(node, ast.Import):
+                imported_modules.update(alias.name for alias in node.names)
+        assert (
+            source.removeprefix("src/").removesuffix(".py").replace("/", ".") in imported_modules
+        )
+    assert module in pr_modules(_TESTS, [source])
+
+
+def test_every_fast_module_has_a_pr_route():
+    available = {path.name for path in _TESTS.glob("test_*.py")}
+    routed = set(PR_CORE_MODULES) | set(PR_POLICY_MODULES) | set(UNIT_MODULES)
+    for group in CONTRACT_GROUPS.values():
+        routed.update(
+            module
+            for module in available
+            if any(fnmatch(module, pattern) for pattern in group.test_patterns)
+        )
+    for source, modules in ADDITIONAL_SOURCE_CONTRACTS.items():
+        assert (_TESTS.parent / source).is_file(), source
+        assert set(modules) <= set(pr_modules(_TESTS, [source])), source
+        routed.update(modules)
+
+    assert routed <= available
+    assert available - routed == set(NONFAST_ONLY_MODULES)
+
+
+def test_post_merge_only_modules_have_no_fast_test_functions():
+    for module in NONFAST_ONLY_MODULES:
+        path = _TESTS / module
+        tree = ast.parse(path.read_text())
+        module_marked_slow = any(
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "pytestmark"
+                for target in node.targets
+            )
+            and "pytest.mark.slow" in ast.unparse(node.value)
+            for node in tree.body
+        )
+        tests = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test_")
+        ]
+        assert tests, module
+        assert module_marked_slow or all(
+            any("pytest.mark.slow" in ast.unparse(marker) for marker in test.decorator_list)
+            for test in tests
+        ), module
 
 
 def test_each_named_contract_group_resolves_to_existing_modules():

@@ -1936,11 +1936,8 @@ def emit_sheet_script(
     # rewriting the tail or paying for a second build. `Sheet.export` stays as shorthand for
     # handwritten programs; it is this GENERATED tail that has an editor to serve.
     #
-    # `formats` is always spelled out, unlike the constructor's non-default-only aspects.
-    # `Drawing.export` treats a missing `formats` as the legacy svg=/dxf= call and writes SVG +
-    # DXF, where `Sheet.export` defaults to PDF — so the bare call is not the default, it is a
-    # different one, and suppressing the argument here would quietly turn every generated
-    # script's PDF into a pair of vector files.
+    # `formats` is always spelled out because `Drawing.export` requires it and
+    # generated scripts should state their requested output explicitly.
     lines += [
         "",
         "# ── Build ─────────────────────────────────────────────────────────────────────",

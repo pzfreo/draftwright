@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import os
 import tempfile
-import warnings
 
 from build123d import Color, ExportSVG, LineType
 
@@ -85,9 +84,7 @@ def export_drawing(
     drawing,
     out=None,
     *,
-    formats=None,
-    svg=None,
-    dxf=None,
+    formats,
     dpi: int = 150,
     reproducible: bool | None = None,
     supported_formats,
@@ -95,27 +92,14 @@ def export_drawing(
     write_svg,
     write_dxf,
     pdf_text_runs,
-) -> dict[str, str] | tuple[str | None, str | None]:
+) -> dict[str, str]:
     """Lint, then write the requested output *formats*; return ``{format: path}``.
 
     *formats* is a format name or an iterable from ``("svg", "dxf", "pdf", "png")``. PDF
     renders from the SVG and PNG from the PDF, so the SVG/PDF are written as intermediates
     and removed when not themselves requested. *dpi* sets the PNG raster resolution.
 
-    Omitting *formats* — or passing ``None``, which is indistinguishable from omitting it
-    — does **not** default to ``("pdf",)``; that is :meth:`Sheet.export`'s default. Here it
-    selects the deprecated legacy path below, which writes SVG + DXF and returns a tuple.
-
-    Legacy (deprecated in 0.3.1, **removed in 0.5.0**): the boolean ``svg=``/``dxf=``
-    keywords — and calling ``export()`` with no ``formats`` — select those two vector
-    formats and return the old ``(svg_path, dxf_path)`` tuple. Prefer ``formats=[...]``
-    (the dict API); ``export_pdf`` is likewise superseded by ``export(formats=("pdf",))``.
-
-    Both legacy shapes now **warn** (#987). They were listed under "Deprecated" in the
-    v0.3.1 changelog and then said nothing at runtime for four minor releases, which made
-    the planned 0.5.0 removal a silent break — and invisible to
-    ``tests/test_deprecation_dates.py``, which can only scan things that warn. A
-    deprecation nobody is warned about is documentation, not a deprecation.
+    *formats* must be explicit on ``Drawing``; :meth:`Sheet.export` defaults to PDF.
 
     *reproducible* makes two exports of one drawing byte-identical — the element
     order is settled and the metadata the exporters take from the clock is pinned,
@@ -136,86 +120,17 @@ def export_drawing(
         if out.endswith("." + _ext):
             out = out[: -(len(_ext) + 1)]
             break
-    # Normalise ONCE, here, before anything reads it. `formats` may be a one-shot iterable,
-    # and the mixed-API warning below used to build its message with `tuple(formats)` —
-    # which consumed a generator, leaving the export loop nothing to iterate: it warned
-    # that it would write SVG+DXF and then wrote nothing. Normalising early
-    # also makes the message say `('svg',)` rather than `('s', 'v', 'g')` for `formats="svg"`.
-    want: list[str] | None = None
-    if formats is not None:
-        want = [formats.lower()] if isinstance(formats, str) else [f.lower() for f in formats]
-        # Validate BEFORE the deprecation warning below. A caller who mistyped a format has
-        # a broken call, not a deprecated one — and under `-W error` a warning raised first
-        # would surface the deprecation instead of the typo that actually stopped the
-        # export. Report the fault that matters.
-        unknown = [f for f in want if f not in supported_formats]
-        if unknown:
-            raise ValueError(
-                f"unknown export format(s) {unknown}; choose from {supported_formats}"
-            )
-        # Beside the format check, not down at the PNG render: EVERY reason this call
-        # cannot succeed belongs before the work, or the "validate first" rule holds for
-        # whichever argument was validated first.
-        if "png" in want and dpi <= 0:
-            raise ValueError(f"png export needs dpi > 0, got {dpi}")
+    # Normalise once: formats may be a one-shot iterable.
+    want = [formats.lower()] if isinstance(formats, str) else [f.lower() for f in formats]
+    unknown = [f for f in want if f not in supported_formats]
+    if unknown:
+        raise ValueError(f"unknown export format(s) {unknown}; choose from {supported_formats}")
+    if "png" in want and dpi <= 0:
+        raise ValueError(f"png export needs dpi > 0, got {dpi}")
 
-    # AFTER validation, for the same reason validation precedes the deprecation warning
-    # above: a call that is about to raise should not first do the work. On a declared
-    # drawing this critique builds the recognition aggregate (#1022), so a mistyped format
-    # used to scan the whole solid and only then report the typo.
+    # Validate before lint: declared-drawing critique may build recognition evidence.
     lint_and_log()
 
-    # `formats=` wins over the legacy booleans, which means `export(out, formats=("svg",),
-    # svg=False)` writes the SVG the caller just switched off — silently, since the legacy
-    # branch below never runs. A caller passing both has a stale mental model, and a
-    # deprecated argument that is ignored WITHOUT a word is the exact failure this change
-    # exists to fix (#987). Say so; `formats` still wins.
-    if want is not None and (svg is not None or dxf is not None):
-        _ignored = [f"{k}=" for k, v in (("svg", svg), ("dxf", dxf)) if v is not None]
-        warnings.warn(
-            f"Drawing.export(): {', '.join(_ignored)} is deprecated and is IGNORED when "
-            f"formats= is given — this call writes formats={tuple(want)!r}. Drop it, or "
-            "put the format in formats=. Removed in 0.5.0.",
-            DeprecationWarning,
-            stacklevel=4,  # Include Drawing.export and its observer wrapper.
-        )
-
-    # --- legacy path: svg=/dxf= keywords → the old (svg, dxf) tuple (back-compat) ---
-    if formats is None:
-        # Two distinct legacy shapes, warned separately because the fix differs (#987):
-        # the booleans SELECT formats, while bare export() is the old DEFAULT whose return
-        # type is a tuple. Callers of the first want `formats=[...]`; callers of the second
-        # additionally have to stop unpacking two values.
-        if svg is not None or dxf is not None:
-            # Name the formats THIS call selected, not a fixed ('svg', 'dxf') pair: the
-            # booleans can deselect, so `export(out, svg=False, dxf=True)` writes DXF only
-            # and a canned suggestion would tell the caller to start writing an SVG they
-            # had switched off — advice that changes behaviour.
-            _wanted = tuple(
-                f for f, on in (("svg", svg is None or svg), ("dxf", dxf is None or dxf)) if on
-            )
-            warnings.warn(
-                f"Drawing.export(svg=…, dxf=…) is deprecated; pass formats={_wanted!r} and "
-                "read the {format: path} dict. Removed in 0.5.0.",
-                DeprecationWarning,
-                stacklevel=4,  # Include Drawing.export and its observer wrapper.
-            )
-        else:
-            warnings.warn(
-                "Drawing.export() with formats= omitted or None returns the legacy "
-                "(svg, dxf) tuple and is deprecated; pass formats=(...) and read the "
-                "{format: path} dict — e.g. export(out, formats=('svg', 'dxf')). "
-                "Removed in 0.5.0.",
-                DeprecationWarning,
-                stacklevel=4,  # Include Drawing.export and its observer wrapper.
-            )
-        svg_path = write_svg(out, reproducible=reproducible) if (svg is None or svg) else None
-        dxf_path = write_dxf(out, reproducible=reproducible) if (dxf is None or dxf) else None
-        drawing.svg_path, drawing.dxf_path = svg_path, dxf_path
-        return svg_path, dxf_path
-
-    # --- formats=... → {format: path} (requested order); normalised + validated above ---
-    assert want is not None  # formats is not None on this branch
     want_set = set(want)
     paths: dict[str, str] = {}
     # Intermediates — the SVG behind a PDF/PNG, the PDF behind a PNG — go to a temp dir when

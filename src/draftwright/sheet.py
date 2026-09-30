@@ -2907,11 +2907,8 @@ class Sheet(_SheetViewMethods):
         CLI); return ``{format: path}``. *dpi* sets the PNG raster resolution.
         *stem* defaults to the drawing number, lower-cased.
 
-        ``formats=None`` means "unspecified", so it takes this method's default rather than
-        being forwarded. On :meth:`Drawing.export` a ``None`` selects the deprecated legacy
-        path, which would have returned a *tuple* — breaking the dict return documented above —
-        and raised its warning against this line instead of the caller's (#987). Same
-        attribution problem that moved ``make_drawing`` off that path.
+        ``formats=None`` means "unspecified", so it takes this method's PDF default.
+        :meth:`Drawing.export` requires an explicit format selection.
         """
         stem = stem or self._opts["out"] or self._opts["number"].lower()
         return self.build().export(stem, formats=("pdf",) if formats is None else formats, dpi=dpi)

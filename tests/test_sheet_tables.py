@@ -9,6 +9,7 @@ import pytest
 from build123d import Box, Cylinder, Location, Pos, Rectangle
 
 from draftwright import Drawing, Sheet, build_drawing
+from draftwright.annotations._common import PlacementContext
 
 
 def _sheet():
@@ -137,11 +138,12 @@ def test_table_keeps_external_clearance_from_existing_annotation():
     assert table_box.min.Y - blocker_box.max.Y >= drawing.draft.pad_around_text - 1e-6
 
 
-def test_table_still_avoids_anonymous_drawing_add_compatibility_object():
+def test_table_still_avoids_anonymous_internal_annotation():
     drawing = build_drawing(Box(40, 30, 10), page="A4", auto_dims=False, frame=True)
     blocker = Rectangle(60, 40).locate(Location((46, 36, 0)))
-    with pytest.warns(DeprecationWarning, match="Drawing.add"):
-        drawing.add(blocker)
+    PlacementContext(
+        registry=drawing.registry, coverage=drawing.coverage, items=drawing.items
+    ).place(blocker)
 
     table = drawing.add_table([("H",), ("x",)], prefer="bl", name="compat_table")
 

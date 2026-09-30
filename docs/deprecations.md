@@ -73,43 +73,17 @@ inventoried for removal in 0.6.0 (#1936); this change does not alter their behav
 
 | Surface | Use instead | Deprecated in | Removed in |
 |---|---|---|---|
-| `Drawing.add()` | the placement verbs (`callout` / `dimension` / `note` / `add_table`) | 0.3.8 (#817) | 0.5.0 |
-| `Drawing.add_view()` | `Sheet.section_view()` / `detail_view()` (or their `add_` forms); the raw projector is private | 0.3.8 (#817) | 0.5.0 |
-| `Drawing.clear_annotations()` | the feature-scoped verbs (`drop` / `remove`) | 0.3.8 (#817) | 0.5.0 |
-| `Drawing.set_view_coordinates()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
-| `Drawing.drop_view_coordinates()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
-| `Drawing.attach_part_model()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
-| `Drawing.attach_solve_trace()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
-| `Drawing.export_pdf()` | `export(out, formats=("pdf",))["pdf"]` | 0.3.1 | 0.5.0 |
-| `Drawing.export(svg=, dxf=)` keywords | `export(out, formats=[...])` → `{format: path}` | 0.3.1 (warns since 0.4.0) | 0.5.0 |
-| `Drawing.export()` with `formats` omitted **or `None`** → `(svg, dxf)` tuple | `export(out, formats=[...])` → `{format: path}` | 0.3.1 (warns since 0.4.0) | 0.5.0 — **see below** |
 | `Drawing.place_dim()` | `dimension(feature, param, pin=True)` / `locate(…, pin=True)` | **0.2.12** (0.3.8 added the PEP 702 shim) | gated on #707, target 0.6.0 |
 | `Sheet.section()` | `add_section_view("A", through=feature)` or `add_section_view("A", at=y)` | 0.4.10 (#1260) | 0.6.0 |
 | `Sheet.detail()` | `add_detail_view("A", around=feature)` | 0.4.10 (#1260) | 0.6.0 |
 
-### The legacy `export` shapes warn from 0.4.0 — and why that needed `make_drawing` moved first
+### Drawing API removals in 0.5.0
 
-Both sat under v0.3.1's **"### Deprecated"** heading and then said nothing at runtime for four
-minor releases. That made the planned 0.5.0 removal a silent break, and made them invisible to
-`tests/test_deprecation_dates.py` *by construction* — that guard can only scan things that
-warn. A deprecation nobody is warned about is documentation, not a deprecation.
-
-They warn now. The reason it was not a one-line change: **`make_drawing()` itself called
-`.export()` with no `formats`**, so a naive warning would have fired for every caller of the
-headline API, blaming draftwright's own line for a call they never made — the #965 `stacklevel`
-lesson. `make_drawing` now passes `formats=("svg", "dxf")` and builds its documented
-`(svg_path, dxf_path)` return from the dict, which leaves the legacy path with no internal
-callers and lets it warn honestly.
-
-The two shapes warn **separately**, because the fix differs. `export(svg=…, dxf=…)` callers
-need `formats=(...)`; bare `export(out)` callers need that *and* to stop unpacking two values,
-since the return type changes from tuple to dict.
-
-**What removing the bare form at 0.5.0 entails.** It is dated like everything else on this
-page — the date is the commitment, and "we'll see" is how a surface ends up permanent. But it
-is not merely dropping a keyword: `export(out)` currently *returns* a tuple, so the removal
-changes a return type rather than rejecting an argument. Callers who never passed `svg=`/`dxf=`
-are still affected. Flagged so 0.5.0 confirms that is intended, rather than discovering it.
+The seven raw `Drawing` wrappers, `export_pdf()`, and the two legacy `export()`
+call shapes listed under **Removed** below ended at their published 0.5.0 target
+(#2113). Use the private engine methods only inside the engine; user code should
+use the feature-scoped verbs and explicit `export(out, formats=(...))`. The
+`make_drawing()` SVG/DXF tuple and `Sheet.export()` PDF default remain supported.
 
 ### ⚠ The two #963 removals broke without a warning release — deliberately
 
@@ -168,6 +142,11 @@ checkable.
 
 | Surface | Removed in | Notes |
 |---|---|---|
+| `Drawing.add()` / `add_view()` / `clear_annotations()` | 0.5.0 (#2113) | use the placement and feature-scoped verbs; view projection is private |
+| `Drawing.set_view_coordinates()` / `drop_view_coordinates()` | 0.5.0 (#2113) | engine plumbing is private |
+| `Drawing.attach_part_model()` / `attach_solve_trace()` | 0.5.0 (#2113) | build state is engine-owned |
+| `Drawing.export_pdf()` | 0.5.0 (#2113) | use `export(out, formats=("pdf",))["pdf"]` |
+| `Drawing.export(svg=, dxf=)` / omitted or `None` `formats` tuple | 0.5.0 (#2113) | pass explicit `formats`; `Drawing.export` returns a dict |
 | `Drawing._named` / `_anno_view` / `_pinned` / `_build_issues` | 0.4.0 (#720) | private; use `dwg.registry` |
 | `Drawing._pattern_callouts` / `_patterned_holes` / `_dropped_callout_diams` | 0.4.0 (#720) | private; use `dwg.coverage` |
 | `draftwright.sheet_dsl` | 0.4.0 (#720) | import from `draftwright.sheet` (renamed #640) |
@@ -180,6 +159,6 @@ The last two raise with the replacement named, rather than resolving or `TypeErr
 argument counts, because that message is the only notice this break gets — see the section
 above on why the warning period is deliberately absent.
 
-Absence is asserted by `test_the_expired_compat_aliases_stay_deleted` and
-`test_the_deleted_modules_and_stubs_stay_deleted` — a deletion nobody asserts is a deletion
-that comes back.
+Absence is asserted by `test_expired_drawing_wrappers_are_absent_issue_2113`,
+`test_the_expired_compat_aliases_stay_deleted`, and
+`test_the_deleted_modules_and_stubs_stay_deleted`.
