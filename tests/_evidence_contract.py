@@ -341,6 +341,7 @@ def assert_edge_callout_mutation_loses_drawing_credit(
     """A damaged chamfer/fillet callout must lose physical drawing credit."""
     import draftwright.builder as builder
 
+    assert states("drawing_consumer", part) == {"supported"}
     original = builder.build_drawing
 
     def damaged(*args, **kwargs):
