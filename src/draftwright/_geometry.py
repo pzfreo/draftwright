@@ -541,28 +541,6 @@ def _canonical_axis_span(axis: str, direction, span) -> tuple[float, float]:
     return (round(lo, 3), round(hi, 3))
 
 
-def _axis_line_coordinates(axis: str, point, direction=None) -> tuple[float, float]:
-    """Canonical in-plane coordinates of a 3-D axis line.
-
-    The perpendicular foot from the origin makes the result invariant to which point on the
-    line a geometry kernel reports. The named dominant coordinate is omitted; together with
-    the direction it is recoverable from the foot's perpendicularity, so two numbers retain
-    the aligned-stock representation while remaining sufficient for slanted stock.
-    """
-    px, py, pz = (float(component) for component in point)
-    # Use the unrounded unit vector here. Rounding before projection amplifies angular error
-    # into millimetres when the reported axis point is tens of metres from the origin.
-    vector = _normalised_axis_direction(axis, direction)
-    along = px * vector[0] + py * vector[1] + pz * vector[2]
-    foot = tuple(component - along * delta for component, delta in zip((px, py, pz), vector))
-    keep = [i for i, letter in enumerate("xyz") if letter != axis]
-    coordinates = tuple(round(foot[i], 3) for i in keep)
-    return (
-        0.0 if coordinates[0] == 0 else coordinates[0],
-        0.0 if coordinates[1] == 0 else coordinates[1],
-    )
-
-
 def _axis_direction_is_aligned(axis: str, direction, *, tol: float = 1e-3) -> bool:
     """Whether a canonical direction follows the principal axis named by ``axis``."""
     vector = _canonical_axis_direction(axis, direction)

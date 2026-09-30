@@ -179,7 +179,6 @@ from draftwright.recognition_ownership import (
     RecognitionOwnershipBuilder,
     bolt_circle_is_corroborated,
     boss_blend_owner_pairs,
-    boss_fills_footprint,
     envelope_is_emittable,
 )
 from draftwright.section_recess_contract import (
@@ -280,13 +279,6 @@ def _groups_by_diameter(bosses, tol: float = 0.15):
         key = next((k for k in out if abs(k - b.diameter) <= tol), b.diameter)
         out.setdefault(key, []).append(b)
     return list(out.values())
-
-
-def _boss_is_groove_floor(b, grooves) -> bool:
-    """A recognised boss coinciding with a groove floor — same turning axis and (floor) ø — is
-    that floor. The groove callout already dimensions it, so it must not also get a boss ø
-    (applies whether or not the part read as a turned profile)."""
-    return bool(_boss_groove_floor_candidates(b, grooves))
 
 
 def _boss_groove_floor_candidates(b, grooves):
@@ -1759,7 +1751,7 @@ def _append_turned_and_boss_features(
         # render_diameters still gives it a ø callout — aligning the callout inventory
         # with the feature_diameters inventory the coverage lint checks against. A groove
         # floor is likewise a narrow reduced band, but the groove callout already carries its
-        # ø, so it is suppressed here (_boss_is_groove_floor) to avoid a duplicate boss ø.
+        # ø, so groove-floor ownership suppresses a duplicate boss ø here.
         boss_step_candidates: list[tuple[object, tuple[object, ...]]] = []
         boss_groove_candidates: list[tuple[object, tuple[object, ...]]] = []
         for b in bosses:
@@ -2822,13 +2814,3 @@ def build_part_model(
         if lower_pmi
         else model
     )
-
-
-def _is_round(bbox, bosses, tol: float = 0.5) -> bool:
-    """True when a boss's OD fills the part footprint — a round body of revolution,
-    dimensioned by its OD rather than a width×depth box.
-
-    Delegates so that `linting.coverage`, which cannot import `model`, shares this exact
-    predicate rather than keeping a second copy of its body and its tolerance.
-    """
-    return boss_fills_footprint(bbox, bosses, tol)

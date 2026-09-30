@@ -70,17 +70,6 @@ def _select_top_lane(lane_options, target, fallback_line):
     return fallback_line, [], 0
 
 
-def _guarded_top_lane_probe_bound(obstacle_count):
-    """Conservative work bound for perimeter lane candidates.
-
-    At most one candidate is derived from each obstacle plus the initial lane;
-    each candidate filters the complete obstacle inventory before carving. The
-    optional automatic replacement must reject an oversized inventory before
-    entering that quadratic scan.
-    """
-    return obstacle_count * (obstacle_count + 1)
-
-
 def render_balloons(
     dwg,
     a,
