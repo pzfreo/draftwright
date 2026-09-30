@@ -122,7 +122,7 @@
     "pdf_text.py:_TextRotation.angle": 44,
     "pdf_text.py:pdf_text_runs": 27,
     "pmi.py:_angular_reference_from_shapes": 18,
-    "pmi.py:_dimension_record": 26,
+    "pmi.py:_dimension_record": 29,
     "pmi.py:_dimension_support_topology": 19,
     "pmi.py:_extract_xcaf_datums": 22,
     "pmi.py:_extract_xcaf_dimensions": 23,
