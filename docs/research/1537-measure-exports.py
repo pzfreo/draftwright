@@ -42,7 +42,7 @@ for path in sorted(
         sections = Counter()
         layer_bytes = Counter()
         spline_degrees = Counter()
-        for left, right in zip(starts, starts[1:]):
+        for left, right in zip(starts, starts[1:], strict=False):
             chunk = pairs[left:right]
             kind = chunk[0][1].decode("ascii")
             n = sum(p[2] for p in chunk)

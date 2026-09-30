@@ -53,7 +53,6 @@
     "compose.py:_place_orthographic_layout": 17,
     "compose.py:_reserve_measured_anno_corridors": 46,
     "compose.py:choose_scale": 26,
-    "drawing_export.py:export_drawing": 17,
     "evaluation/_flat_polygonal_evidence.py:_polygonal_stock_drawing_outcomes": 16,
     "evaluation/_hole_family_evidence.py:_pattern_drawing_outcomes": 21,
     "evaluation/_pocket_evidence.py:_pocket_drawing_outcomes": 20,

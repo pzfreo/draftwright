@@ -1425,8 +1425,10 @@ class Drawing:
         tier = self.draft.font_size + 2 * self.draft.pad_around_text
         p_lo, p_hi = sorted((p1[1 - ax], p2[1 - ax]))
 
-        def _placed(nm, _pin=it.kwargs.get("pin", False)):
-            if _pin:
+        pin = it.kwargs.get("pin", False)
+
+        def _placed(nm):
+            if pin:
                 self.pin(nm)
 
         def _drop(nm):
