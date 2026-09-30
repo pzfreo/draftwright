@@ -54,15 +54,18 @@ model-to-core edge while permitting approved shared rank-1 modules.
 
 This DAG is **machine-enforced** by `tests/test_import_boundaries.py` (#640): the
 `_LAYERS` table there is the precise, ranked form of this section — a module-level
-import that points up a layer fails CI, as does an import cycle. The precise
+import that points up a layer fails CI, as does an explicit import cycle through
+files or package initializers even when one edge is inside a function. Implicit
+parent-package initialization edges are checked across top-level submodules. The precise
 placement refines the coarse grouping above (e.g. `linting`/`pmi`/`export`/`repair`/
 `projection`/`compose` sit *above* `_core` since they depend on it; `model/` is the
 IR waist with a stricter import allowlist than its numerical rank). The
-`_LAZY_UPWARD_EXEMPT` sanctioned-cycle-breaker
-mechanism is now empty (#523 removed its last occupant, the `builder→cli` edge — see
-below); a new upward lazy import must earn an entry with a rationale. The remaining
-lazy in-function imports (`cli`→`builder`/`sheet_emit`, for the #313 build123d
-lazy-load) are *downward*, not cycle-breakers. Two type-only upward references
+`_LAZY_UPWARD_EXEMPT` mechanism is empty (#523 removed its last occupant, the
+`builder→cli` edge — see below); a new upward lazy import must earn an entry with
+a rationale and cannot close a cycle. In-function imports remain in several layers,
+including the `cli`→`builder`/`sheet_emit` imports that preserve the #313
+build123d lazy-load. Their statement count has a shrinking test budget. Two
+type-only upward references
 (`_core`→`compose.StripDepths` and `annotation_layout_profile`→`compose.StripDepths`,
 both under `TYPE_CHECKING`) are explicit allowlist entries. Rank-0 modules cannot
 use this exemption. Keep `_LAYERS` and this section in step.

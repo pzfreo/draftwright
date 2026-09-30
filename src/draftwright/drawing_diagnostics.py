@@ -135,18 +135,23 @@ _SCOPED_LINT: ContextVar[tuple[object, tuple, object] | None] = ContextVar(
 _BUILD_LINT: ContextVar[dict[object, tuple[tuple, _IssueAggregation]] | None] = ContextVar(
     "draftwright_build_lint", default=None
 )
+_BUILD_LINT_DRAWING_TYPE: ContextVar[type | None] = ContextVar(
+    "draftwright_build_lint_drawing_type", default=None
+)
 
 
 @contextlib.contextmanager
-def reuse_finished_build_lint():
+def reuse_finished_build_lint(drawing_type: type):
     """Share physical critique across one build and its nested layout trials."""
     if _BUILD_LINT.get() is not None:
         yield
         return
     token = _BUILD_LINT.set({})
+    type_token = _BUILD_LINT_DRAWING_TYPE.set(drawing_type)
     try:
         yield
     finally:
+        _BUILD_LINT_DRAWING_TYPE.reset(type_token)
         _BUILD_LINT.reset(token)
 
 
@@ -157,16 +162,16 @@ def suspend_finished_build_lint():
         yield
         return
     token = _BUILD_LINT.set(None)
+    type_token = _BUILD_LINT_DRAWING_TYPE.set(None)
     try:
         yield
     finally:
+        _BUILD_LINT_DRAWING_TYPE.reset(type_token)
         _BUILD_LINT.reset(token)
 
 
 def _captured_lint(drawing):
-    from draftwright.drawing import Drawing
-
-    cache = _BUILD_LINT.get() if type(drawing) is Drawing else None
+    cache = _BUILD_LINT.get() if type(drawing) is _BUILD_LINT_DRAWING_TYPE.get() else None
     if cache is not None and drawing in cache:
         return cache[drawing]
     with _collect_issue_aggregation() as aggregation:

@@ -11,6 +11,11 @@ from draftwright.annotation_layout_profile import (
     AnnotationLayoutProfile,
     candidate_profile,
 )
+from draftwright.build_policy import (
+    _arrangement_quality,
+    _blocker_identity,
+    _scale_blockers_from_issues,
+)
 from draftwright.drawing import lint_snapshot
 
 if TYPE_CHECKING:
@@ -313,12 +318,6 @@ def _lint_witnesses(issues) -> list[dict]:
 
 
 def _manifest(drawing) -> dict:
-    from draftwright.builder import (
-        _arrangement_quality,
-        _blocker_identity,
-        _scale_blockers_from_issues,
-    )
-
     model = drawing.model()
     feature_indices = {id(feature): index for index, feature in enumerate(model.features)}
 

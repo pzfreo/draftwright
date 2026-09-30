@@ -153,12 +153,12 @@ def test_finished_lint_scope_skips_default_and_spans_compare_issue_1945(monkeypa
     depth = 0
 
     @contextmanager
-    def tracked_scope():
+    def tracked_scope(drawing_type):
         nonlocal depth
         depth += 1
         entered.append(depth)
         try:
-            with original_scope():
+            with original_scope(drawing_type):
                 yield
         finally:
             depth -= 1

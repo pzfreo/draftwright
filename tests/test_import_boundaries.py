@@ -17,12 +17,14 @@ with a false-negative is worse than none, because it grants false confidence:
 - Imports are classified by the context that actually executes them: **module-level runtime**
   (top level, incl. inside a module-scope ``try``/``if``/``with``/``for``/class body),
   **TYPE_CHECKING** (inside ``if TYPE_CHECKING:`` only — ``if not TYPE_CHECKING:`` is runtime),
-  and **lazy** (inside a function/method body — the sanctioned cycle-breakers).
-- The cycle detector runs at FULL-MODULE granularity (``draftwright.annotations.holes``), so
-  an intra-package cycle can't hide behind a collapsed ``annotations → annotations`` self-edge.
+  and **lazy** (inside a function/method body).
+- The cycle detector runs at FULL-MODULE granularity (``draftwright.annotations.holes``).
+  Explicit imports must form a DAG, including imports through a package ``__init__``.
+  Implicit parent-package initialization edges are checked across top-level submodules.
 
-Guards: no upward runtime import (:func:`test_no_upward_runtime_imports`), no runtime import
-cycle (:func:`test_no_module_level_import_cycles`), upward TYPE_CHECKING refs allowlisted
+Guards: no upward runtime import (:func:`test_no_upward_runtime_imports`), no explicit or
+cross-submodule runtime import cycle including lazy edges (:func:`test_no_module_level_import_cycles`),
+upward TYPE_CHECKING refs allowlisted
 (:data:`_TC_UPWARD_ALLOW`), upward lazy imports documented (:data:`_LAZY_UPWARD_EXEMPT`),
 fail-closed ranking (:func:`test_every_module_is_ranked`). The ``model/`` waist checks (the
 original #584 WP2) are kept for their relative-import rejection.
@@ -37,15 +39,14 @@ DAG violation today, so they are accepted rather than chased):
   future dynamic import of an internal
   module from a lower layer would not be seen — prefer a static import there.
 - **A function called during module init.** Imports inside a ``def`` are treated as lazy
-  (cycle-breakers). If a module defined such a function *and called it at module scope*, the
-  import would run at init but be excluded from the cycle graph. No module does this; if one
-  is added, hoist the import to module scope so the guard sees it.
+  for upward-rank checks, but still participate in the cycle graph.
 """
 
 from __future__ import annotations
 
 import ast
 import re
+import sys
 from functools import cache
 from pathlib import Path
 
@@ -245,6 +246,7 @@ _LAZY_UPWARD_EXEMPT: dict[tuple[str, str], str] = {
 }
 
 _RUN, _TC, _LAZY = 0, 1, 2
+_LAZY_IMPORT_STATEMENT_BUDGET = 291
 
 
 def _module_full(path: Path) -> tuple[str, ...]:
@@ -368,6 +370,31 @@ def _all_sources() -> list[Path]:
     return [p for p in sorted(_SRC.rglob("*.py")) if "__pycache__" not in p.parts]
 
 
+def _lazy_import_lines(path: Path) -> set[int]:
+    """Source lines with an in-function package import, counting each statement once."""
+    lines: set[int] = set()
+    pkg = _package_parts(path)
+
+    def walk(node: ast.AST, in_function: bool = False) -> None:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            in_function = True
+        if in_function and isinstance(node, ast.Import | ast.ImportFrom) and _resolve(node, pkg):
+            lines.add(node.lineno)
+        for child in ast.iter_child_nodes(node):
+            walk(child, in_function)
+
+    walk(_tree(path))
+    return lines
+
+
+def test_lazy_package_import_budget():
+    """New in-function package imports need to replace or remove existing ones."""
+    count = sum(len(_lazy_import_lines(path)) for path in _all_sources())
+    assert count <= _LAZY_IMPORT_STATEMENT_BUDGET, (
+        f"In-function package imports grew to {count}; budget is {_LAZY_IMPORT_STATEMENT_BUDGET}"
+    )
+
+
 def test_rank_zero_modules_are_package_leaves():
     """Rank-0 files import no package module, including in type-only and lazy paths."""
     importers = {
@@ -425,28 +452,13 @@ def test_no_upward_runtime_imports():
                 )
     assert not offenders, (
         "Upward cross-layer import(s) break the declared DAG (docs/architecture.md / ADR "
-        "0005). Move the dependency down, defer it to a lazy in-function import (a documented "
-        "cycle-breaker), or re-layer with a reason:\n  " + "\n  ".join(offenders)
+        "1). Move the dependency down or re-layer with a reason; lazy imports must also "
+        "respect the DAG and cycle guards:\n  " + "\n  ".join(offenders)
     )
 
 
-def test_no_module_level_import_cycles():
-    """The runtime import graph is acyclic at FULL-MODULE granularity (so an intra-package cycle
-    can't hide). Lazy in-function imports are excluded — the sanctioned cycle-breakers."""
-    graph: dict[str, set[str]] = {}
-    for path in _all_sources():
-        src = ".".join(_module_full(path))
-        graph.setdefault(src, set())
-        for target in _classify(path)[_RUN]:
-            # Importing draftwright.a.b.c first runs a's and a.b's __init__, so those parent
-            # packages are real init-time edges too — record them so a cycle passing through a
-            # package initializer can't hide (the bare `draftwright` root has no runtime
-            # out-edges, so it can't close a cycle; skip it as noise).
-            for k in range(2, len(target) + 1):
-                dst = ".".join(target[:k])
-                if dst != src:
-                    graph[src].add(dst)
-
+def _import_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
+    """Return back-edge cycles in a deterministic walk of an import graph."""
     WHITE, GREY, BLACK = 0, 1, 2
     colour: dict[str, int] = {}
     cycles: list[list[str]] = []
@@ -465,15 +477,145 @@ def test_no_module_level_import_cycles():
     for node in sorted(graph):
         if colour.get(node, WHITE) == WHITE:
             visit(node, [])
-    # Report only cycles that span ≥2 distinct top-level submodules — the ARCHITECTURAL ones
-    # (a real cross-layer cycle, possibly mediated by a package __init__). A cycle contained
-    # in one submodule (a package ↔ its own submodule, the normal re-export/init-order pattern
-    # Python resolves by partial initialization) is not what the DAG guard is about.
-    cross = [c for c in cycles if len({_submodule(tuple(m.split("."))) for m in c}) > 1]
-    assert not cross, (
-        "Cross-submodule import cycle(s) — break with a lazy in-function import at one edge "
-        f"(the documented pattern): {cross}"
+    return cycles
+
+
+def test_no_module_level_import_cycles():
+    """No explicit or cross-submodule runtime cycle, including lazy imports."""
+    sources = _all_sources()
+    direct_graph: dict[str, set[str]] = {".".join(_module_full(path)): set() for path in sources}
+    graph: dict[str, set[str]] = {}
+    for path in sources:
+        src = ".".join(_module_full(path))
+        graph.setdefault(src, set())
+        for target in _classify(path)[_RUN] | _classify(path)[_LAZY]:
+            direct_dst = ".".join(target)
+            if direct_dst in direct_graph and direct_dst != src:
+                direct_graph[src].add(direct_dst)
+            # Importing draftwright.a.b.c first runs a's and a.b's __init__, so those parent
+            # packages are real init-time edges too — record them so a cycle passing through a
+            # package initializer can't hide (the bare `draftwright` root has no runtime
+            # out-edges, so it can't close a cycle; skip it as noise).
+            for k in range(2, len(target) + 1):
+                dst = ".".join(target[:k])
+                if dst != src:
+                    graph[src].add(dst)
+
+    direct_cycles = _import_cycles(direct_graph)
+    assert not direct_cycles, (
+        f"Direct file/package import cycle(s), including lazy edges: {direct_cycles}"
     )
+
+    # Implicit parent-package initialization edges make ordinary sibling imports appear
+    # cyclic within one package. Explicit edges were checked above; only a cycle crossing
+    # the top-level submodule boundary is architectural debt in this expanded graph.
+    cross = [
+        c for c in _import_cycles(graph) if len({_submodule(tuple(m.split("."))) for m in c}) > 1
+    ]
+    assert not cross, f"Cross-submodule import cycle(s), including lazy edges: {cross}"
+
+
+def test_cycle_guard_detects_a_lazy_back_edge(monkeypatch):
+    """An in-function import that closes a real graph path must fail the cycle guard."""
+    original = _classify
+    target_path = _SRC / "layout_selection.py"
+    injected = ("draftwright", "builder")
+    applied = False
+
+    def classify(path):
+        nonlocal applied
+        imports = original(path)
+        if path == target_path:
+            applied = True
+            return {**imports, _LAZY: imports[_LAZY] | {injected}}
+        return imports
+
+    monkeypatch.setattr(sys.modules[__name__], "_classify", classify)
+    with pytest.raises(AssertionError, match="including lazy edges"):
+        test_no_module_level_import_cycles()
+    assert applied
+
+
+def test_cycle_guard_detects_a_lazy_cycle_within_annotations(monkeypatch):
+    """Two sibling render files cannot evade the guard through their common package."""
+    original = _classify
+    injected = {
+        _SRC / "annotations" / "sections.py": ("draftwright", "annotations", "gears"),
+        _SRC / "annotations" / "gears.py": ("draftwright", "annotations", "sections"),
+    }
+    applied: set[Path] = set()
+
+    def classify(path):
+        imports = original(path)
+        if path in injected:
+            applied.add(path)
+            return {**imports, _LAZY: imports[_LAZY] | {injected[path]}}
+        return imports
+
+    monkeypatch.setattr(sys.modules[__name__], "_classify", classify)
+    with pytest.raises(AssertionError, match="Direct file/package import cycle"):
+        test_no_module_level_import_cycles()
+    assert applied == set(injected)
+
+
+def test_cycle_guard_detects_a_runtime_initializer_cycle(monkeypatch):
+    """Package re-exports cannot hide a cycle through two concrete render files."""
+    original = _classify
+    injected = {
+        _SRC / "annotations" / "__init__.py": ("draftwright", "annotations", "sections"),
+        _SRC / "annotations" / "sections.py": ("draftwright", "annotations", "gears"),
+        _SRC / "annotations" / "gears.py": ("draftwright", "annotations"),
+    }
+    assert all(
+        target not in original(path)[_RUN] | original(path)[_LAZY]
+        for path, target in injected.items()
+    ), "the probe must add every edge of the initializer cycle"
+    applied: set[Path] = set()
+
+    def classify(path):
+        imports = original(path)
+        if path in injected:
+            applied.add(path)
+            return {**imports, _RUN: imports[_RUN] | {injected[path]}}
+        return imports
+
+    monkeypatch.setattr(sys.modules[__name__], "_classify", classify)
+    with pytest.raises(AssertionError, match="Direct file/package import cycle"):
+        test_no_module_level_import_cycles()
+    assert applied == set(injected)
+
+
+def test_cycle_guard_expands_lazy_imports_through_parent_initializer(monkeypatch):
+    """A lazy package-to-facade edge closes a cycle through implicit package init."""
+    original = _classify
+    package_init = _SRC / "annotations" / "__init__.py"
+    facade = _SRC / "annotate.py"
+    injected = ("draftwright", "annotate")
+    assert injected not in original(package_init)[_RUN] | original(package_init)[_LAZY]
+    assert ("draftwright", "annotations", "orchestrator") in original(facade)[_RUN]
+    applied = False
+
+    def classify(path):
+        nonlocal applied
+        imports = original(path)
+        if path == package_init:
+            applied = True
+            return {**imports, _LAZY: imports[_LAZY] | {injected}}
+        return imports
+
+    monkeypatch.setattr(sys.modules[__name__], "_classify", classify)
+    sources = _all_sources()
+    direct_graph = {".".join(_module_full(path)): set() for path in sources}
+    for path in sources:
+        src = ".".join(_module_full(path))
+        for target in classify(path)[_RUN] | classify(path)[_LAZY]:
+            dst = ".".join(target)
+            if dst in direct_graph and dst != src:
+                direct_graph[src].add(dst)
+    assert applied
+    assert not _import_cycles(direct_graph), "the probe must need implicit parent expansion"
+    with pytest.raises(AssertionError, match="Cross-submodule import cycle"):
+        test_no_module_level_import_cycles()
 
 
 def test_type_checking_upward_refs_are_allowlisted():

@@ -505,7 +505,6 @@ class EditOperations:
         if self.defer_intents:  # #426: record, don't place — finalize() drains it
             self.intents.append(Intent("callout", feature, {"view": view, "name": name}))
             return ""
-        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
         ctx = PlacementContext(
@@ -718,7 +717,6 @@ class EditOperations:
         if self.defer_intents:  # #426: record, don't place — finalize() drains it
             self.intents.append(Intent("furniture", feature, {"view": view}))
             return []
-        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_furniture
 
         ctx = PlacementContext(
@@ -748,7 +746,6 @@ class EditOperations:
         if self.defer_intents:  # #426: record, don't place — finalize() drains it
             self.intents.append(Intent("rotational", feature, {}))
             return []
-        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.from_model import render_rotational
         from draftwright.model.compiled import compile_dimensions
 
@@ -823,7 +820,6 @@ class EditOperations:
         if self.defer_intents:  # #426: record, don't place — finalize() drains it
             self.intents.append(Intent("locate", feature, {"axes": axes, "pin": pin}))
             return []
-        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_location
 
         ctx = PlacementContext(
