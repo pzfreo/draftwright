@@ -614,7 +614,7 @@ def _leader_route_is_readable(route, owner_bounds) -> bool:
         return False
     diagonal = math.hypot(owner_bounds[2] - owner_bounds[0], owner_bounds[3] - owner_bounds[1])
     max_leg = max(30.0, diagonal)
-    legs = tuple(zip(route, route[1:]))
+    legs = tuple(zip(route, route[1:], strict=False))
     if any(math.hypot(b[0] - a[0], b[1] - a[1]) > max_leg for a, b in legs):
         return False
     if sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in legs) > 2 * max_leg:
@@ -718,7 +718,7 @@ def _sheet_leader_fallback(
     )[:128]
 
     def _route_blocked(route):
-        route_segments = tuple(zip(route, route[1:]))
+        route_segments = tuple(zip(route, route[1:], strict=False))
         return (
             not _leader_route_is_readable(route, owner_bounds)
             or any(
@@ -779,13 +779,13 @@ def _sheet_leader_fallback(
             routed = []
             for bends in bend_routes:
                 route = (tip, *bends, elbow)
-                if any(left == right for left, right in zip(route, route[1:])):
+                if any(left == right for left, right in zip(route, route[1:], strict=False)):
                     continue
                 if _route_blocked(route):
                     continue
                 length = sum(
                     math.hypot(right[0] - left[0], right[1] - left[1])
-                    for left, right in zip(route, route[1:])
+                    for left, right in zip(route, route[1:], strict=False)
                 )
                 routed.append((length, bends, route, routed_build))
             routes.extend(item[1:] for item in sorted(routed, key=lambda item: item[0])[:96])

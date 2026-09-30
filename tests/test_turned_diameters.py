@@ -536,7 +536,7 @@ class TestTurnedDiameters:
         labels = sorted((o.label_bbox for o in detail.values()), key=lambda bb: bb[0])
         assert all(
             left[2] + dwg.draft.pad_around_text <= right[0] + 1e-6
-            for left, right in zip(labels, labels[1:])
+            for left, right in zip(labels, labels[1:], strict=False)
         )
         marker = dwg.get_annotation("detail_marker_A").bounding_box()
         axis_page_y = dwg.at("side", 0, 0, axis_z)[1]
@@ -579,7 +579,7 @@ class TestTurnedDiameters:
         )
         assert all(
             left[2] + dwg.draft.pad_around_text <= right[0] + 1e-6
-            for left, right in zip(labels, labels[1:])
+            for left, right in zip(labels, labels[1:], strict=False)
         )
 
     def test_issue_892_clear_labels_but_tight_arrows_still_request_detail(self):
@@ -655,7 +655,7 @@ class TestTurnedDiameters:
         leaders = [o for n, o in dwg.iter_annotations() if n.startswith("m_dia")]
         assert len(leaders) >= 2
         xs = sorted(ldr.elbow[0] for ldr in leaders)
-        assert all(b - a > 1.0 for a, b in zip(xs, xs[1:]))  # spread, not stacked
+        assert all(b - a > 1.0 for a, b in zip(xs, xs[1:], strict=False))  # spread, not stacked
 
     def test_z_rotational_part_is_untouched(self):
         # A plain Z disc's OD is covered by dim_od (rotational), so render_diameters

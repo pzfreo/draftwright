@@ -53,10 +53,14 @@ class RoutedLeader(Leader):
         bend_vs = tuple(Vector(bend[0], bend[1], 0.0) for bend in bends)
         elbow_v = Vector(elbow[0], elbow[1], 0.0)
         route = (tip_v, *bend_vs, elbow_v)
-        if not bend_vs or any(left == right for left, right in zip(route, route[1:])):
+        if not bend_vs or any(
+            left == right for left, right in zip(route, route[1:], strict=False)
+        ):
             raise ValueError("a routed leader needs bends and non-zero shaft segments")
 
-        shaft_edges = tuple(Edge.make_line(left, right) for left, right in zip(route, route[1:]))
+        shaft_edges = tuple(
+            Edge.make_line(left, right) for left, right in zip(route, route[1:], strict=False)
+        )
         shaft_path = Wire(list(shaft_edges))
         # Arrow() fuses and cleans the whole bent shaft for every trial route. Dense
         # fallback searches can exhaust a CI runner before one route is accepted.

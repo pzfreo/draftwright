@@ -582,7 +582,7 @@ class _SheetViewMethods:
         if len(names) < 2:
             raise ValueError("row() needs at least two views")
         source = _constraint_source()
-        for left, right in zip(names, names[1:]):
+        for left, right in zip(names, names[1:], strict=False):
             self._view_relations.append(
                 ViewRelation(right, "right_of", left, None if gap is None else float(gap), source)
             )
@@ -594,7 +594,7 @@ class _SheetViewMethods:
         if len(names) < 2:
             raise ValueError("column() needs at least two views")
         source = _constraint_source()
-        for below, above in zip(names, names[1:]):
+        for below, above in zip(names, names[1:], strict=False):
             self._view_relations.append(
                 ViewRelation(above, "above", below, None if gap is None else float(gap), source)
             )

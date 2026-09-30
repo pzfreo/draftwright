@@ -71,11 +71,11 @@ def test_different_size_pockets_do_not_group():
 
 def _stepped_pocket_row(floors):
     part = Pos(0, 0, -10) * Box(30, 120, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
-    for cy, floor in zip((-30, 0, 30), floors):
+    for cy, floor in zip((-30, 0, 30), floors, strict=False):
         part += Pos(0, cy, 0) * Box(
             30, 30, floor + 6, align=(Align.CENTER, Align.CENTER, Align.MIN)
         )
-    for cy, floor in zip((-30, 0, 30), floors):
+    for cy, floor in zip((-30, 0, 30), floors, strict=False):
         part -= Pos(0, cy, floor + 3) * Box(10, 12, 6)
     assert len(part.solids()) == 1
     return part
@@ -97,7 +97,7 @@ def test_non_coplanar_aligned_pockets_do_not_merge():
 def _opposed_pocket_row(signs):
     pieces = [
         Pos(0, cy, 3 if sign > 0 else 13) * Box(30, 30, 16)
-        for cy, sign in zip((-30, 0, 30), signs)
+        for cy, sign in zip((-30, 0, 30), signs, strict=False)
     ]
     part = pieces[0] + pieces[1] + pieces[2]
     for cy in (-30, 0, 30):
@@ -144,7 +144,9 @@ def test_injected_value_equal_inventory_resolves_its_own_pattern_members():
     result = build_raw_recognition_result(part)
     copied = tuple(dataclasses.replace(source) for source in result.section_recesses)
     patterns = tuple(dataclasses.replace(pattern) for pattern in result.section_recess_patterns)
-    assert all(a == b and a is not b for a, b in zip(copied, result.section_recesses))
+    assert all(
+        a == b and a is not b for a, b in zip(copied, result.section_recesses, strict=False)
+    )
     model = build_part_model(part, section_recesses=copied, section_recess_patterns=patterns)
     kinds = [feature.kind for feature in model.features]
     assert kinds.count("pocket_pattern") == 1

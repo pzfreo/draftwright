@@ -10,13 +10,15 @@ from draftwright.linting.issues import LintIssue
 
 def _near_point(left, right, *, tol: float = 1e-6) -> bool:
     return len(left) == len(right) == 3 and all(
-        isclose(float(a), float(b), abs_tol=tol, rel_tol=0) for a, b in zip(left, right)
+        isclose(float(a), float(b), abs_tol=tol, rel_tol=0)
+        for a, b in zip(left, right, strict=True)
     )
 
 
 def _near_span(left, right, *, tol: float = 1e-6) -> bool:
     return len(left) == len(right) == 2 and all(
-        isclose(float(a), float(b), abs_tol=tol, rel_tol=0) for a, b in zip(left, right)
+        isclose(float(a), float(b), abs_tol=tol, rel_tol=0)
+        for a, b in zip(left, right, strict=True)
     )
 
 

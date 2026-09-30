@@ -44,7 +44,9 @@ def _fcf_height():
 
 def _leader_path_length(leader):
     points = (leader.tip, *getattr(leader, "bends", ()), leader.elbow)
-    return sum(math.dist(left[:2], right[:2]) for left, right in zip(points, points[1:]))
+    return sum(
+        math.dist(left[:2], right[:2]) for left, right in zip(points, points[1:], strict=False)
+    )
 
 
 def test_control_frame_places_first_class():

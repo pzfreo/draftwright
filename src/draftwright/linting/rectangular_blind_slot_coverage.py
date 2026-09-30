@@ -134,7 +134,9 @@ def _parameter_ids(feature, source) -> tuple[str, ...] | None:
             _span(source_at, data["axis"], expected_values[1]),
             _span(source_at, data["depth_axis"], expected_values[2]),
         )
-        expected = dict(zip(_PARAMETERS, zip(expected_values, expected_spans), strict=True))
+        expected = dict(
+            zip(_PARAMETERS, zip(expected_values, expected_spans, strict=True), strict=True)
+        )
     except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
         return None
     if observed != expected:

@@ -159,7 +159,7 @@ class TestTheCompilerOwnsContent:
                 if rung.span is None:
                     continue
                 lo, hi = rung.span
-                measured = max(abs(b - a) for a, b in zip(lo, hi))
+                measured = max(abs(b - a) for a, b in zip(lo, hi, strict=False))
                 assert measured == pytest.approx(rung.value, rel=0.1), (
                     f"{ladder.kind} {rung.final_label!r} spans {measured} but claims {rung.value}"
                 )

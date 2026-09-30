@@ -506,7 +506,7 @@ def _guarded_free_segments(
         for point in points:
             if not hits(point):
                 result.append((point, point))
-        for lo, hi in zip(points, points[1:]):
+        for lo, hi in zip(points, points[1:], strict=False):
             if hi <= lo:
                 continue
             midpoint = (lo + hi) / 2
@@ -1057,7 +1057,7 @@ def _place_band(
             or _greedy_strip_1d(naturals, gap, lo, hi)
             or _greedy_strip_1d(naturals, gap, lo, hi, prefix=True)
         )
-    for (tag, j, hole, cx, cy), c in zip(members, coords):
+    for (tag, j, hole, cx, cy), c in zip(members, coords, strict=False):
         bx, by = (line, c) if axis == "y" else (c, line)
         _render_balloon(
             dwg,

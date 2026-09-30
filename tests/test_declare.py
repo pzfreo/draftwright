@@ -2205,7 +2205,9 @@ def test_the_synthesised_envelope_is_centred_like_a_detected_one():
 
     bb = model.bbox
     centre = (bb.center().X, bb.center().Y, bb.center().Z)
-    assert all(abs(a - b) < 1e-6 for a, b in zip(synthesised.frame.origin, centre)), (
+    assert all(
+        abs(a - b) < 1e-6 for a, b in zip(synthesised.frame.origin, centre, strict=False)
+    ), (
         f"synthesised frame {synthesised.frame.origin} is not the bbox centre {centre} — it is "
         "hardcoded rather than measured, so it only matches for a part centred on the origin"
     )

@@ -173,7 +173,7 @@ def _diameter_row_below(
         return out
 
     def _collides(ivals):
-        pairs = zip(sorted(ivals), sorted(ivals)[1:])
+        pairs = zip(sorted(ivals), sorted(ivals)[1:], strict=False)
         return any(a1 > b0 for (_a0, a1), (b0, _b1) in pairs)
 
     while len(survivors) > 1 and _collides(_label_ivals(survivors, xs)):

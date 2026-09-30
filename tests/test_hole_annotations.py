@@ -180,7 +180,7 @@ class TestAutoHoleAnnotations:
         assert len(result) == 4
         for y in result:
             assert 0.0 <= y <= 100.0
-        for a, b in zip(result, result[1:]):
+        for a, b in zip(result, result[1:], strict=False):
             assert b - a >= 8.0 - 1e-9
 
     @pytest.mark.timeout(60)

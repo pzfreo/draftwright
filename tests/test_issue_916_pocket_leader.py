@@ -22,8 +22,12 @@ def _tip_is_on_rim(dwg, view, pocket, tip):
     long_v = (long_page[0] - centre[0], long_page[1] - centre[1])
     width_v = (width_page[0] - centre[0], width_page[1] - centre[1])
     tip_v = (tip[0] - centre[0], tip[1] - centre[1])
-    long_fraction = sum(a * b for a, b in zip(tip_v, long_v)) / sum(v * v for v in long_v)
-    width_fraction = sum(a * b for a, b in zip(tip_v, width_v)) / sum(v * v for v in width_v)
+    long_fraction = sum(a * b for a, b in zip(tip_v, long_v, strict=False)) / sum(
+        v * v for v in long_v
+    )
+    width_fraction = sum(a * b for a, b in zip(tip_v, width_v, strict=False)) / sum(
+        v * v for v in width_v
+    )
     return (abs(abs(long_fraction) - 1) < 1e-6 and abs(width_fraction) <= 1 + 1e-6) or (
         abs(abs(width_fraction) - 1) < 1e-6 and abs(long_fraction) <= 1 + 1e-6
     )

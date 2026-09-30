@@ -621,7 +621,9 @@ def lint_location_coverage(
             no_mark += 1
         # A hole coaxial with the part centre (the turning axis / a symmetry axis)
         # is located by centrelines, not a position dim — exempt from location.
-        perp = [(ax, c, q) for ax, c, q in zip("xyz", (x, y, z), centre) if ax != axis]
+        perp = [
+            (ax, c, q) for ax, c, q in zip("xyz", (x, y, z), centre, strict=False) if ax != axis
+        ]
         ref = _location_ref(h, h.location)
         required_axes = [ax for ax, c, q in perp if abs(c - q) > _LOCATION_AXIS_TOL]
         if ref in patterned or not required_axes:
@@ -872,7 +874,8 @@ def _double_d_bore_matches_principal_wire(
         solid_ends = sorted((coord(bbox.min, axis), coord(bbox.max, axis)))
         span_tol = max(8 * tol, depth * 1e-5, 1e-4)
         if any(
-            abs(actual - expected) > span_tol for actual, expected in zip(record_ends, solid_ends)
+            abs(actual - expected) > span_tol
+            for actual, expected in zip(record_ends, solid_ends, strict=True)
         ):
             return False
         matching_ends = [
@@ -1148,7 +1151,7 @@ def _supported_inner_profile(
 
     def arcs_match(expected: list[tuple[float, float]], expected_length: float) -> bool:
         lengths = [0.0] * len(expected)
-        for edge, centre in zip(arcs, arc_centres):
+        for edge, centre in zip(arcs, arc_centres, strict=False):
             matches = [
                 i
                 for i, point in enumerate(expected)
@@ -1518,7 +1521,7 @@ def _lint_prismatic_pockets(
                 and any(
                     all(
                         abs(actual - expected) <= tol
-                        for actual, expected in zip(at, source_location)
+                        for actual, expected in zip(at, source_location, strict=False)
                     )
                     for at in locations
                 )

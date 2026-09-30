@@ -687,8 +687,12 @@ def _emitted_codes(sources=None):
                 args = node.args
                 positional = [*args.posonlyargs, *args.args]
                 pairs = [
-                    *zip(positional[len(positional) - len(args.defaults) :], args.defaults),
-                    *zip(args.kwonlyargs, args.kw_defaults),
+                    *zip(
+                        positional[len(positional) - len(args.defaults) :],
+                        args.defaults,
+                        strict=False,
+                    ),
+                    *zip(args.kwonlyargs, args.kw_defaults, strict=False),
                 ]
                 for arg, default in pairs:
                     if arg.arg != "drop_code" or default is None:

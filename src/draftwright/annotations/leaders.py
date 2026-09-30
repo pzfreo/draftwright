@@ -437,14 +437,17 @@ def _geometry_matches(candidate: _MeasuredLeaderCandidate, annotation, *, tol=1e
     if candidate.label_box is None or actual_label is None:
         if candidate.label_box != actual_label:
             return False
-    elif any(abs(left - right) > tol for left, right in zip(candidate.label_box, actual_label)):
+    elif any(
+        abs(left - right) > tol
+        for left, right in zip(candidate.label_box, actual_label, strict=False)
+    ):
         return False
     if len(candidate.segments) != len(actual_segments):
         return False
     return all(
         all(
             abs(left - right) <= tol
-            for left, right in zip(first + second, actual_first + actual_second)
+            for left, right in zip(first + second, actual_first + actual_second, strict=False)
         )
         for (first, second), (actual_first, actual_second) in zip(
             candidate.segments, actual_segments, strict=True

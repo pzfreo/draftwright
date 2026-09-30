@@ -1786,7 +1786,7 @@ class ThroughStepFeature:
         points = self.section_points
         axes = self.transverse_axes
         parameters = []
-        for start, end in zip(points, points[1:]):
+        for start, end in zip(points, points[1:], strict=False):
             changed = next(
                 axis for axis in axes if start["xyz".index(axis)] != end["xyz".index(axis)]
             )

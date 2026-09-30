@@ -138,7 +138,7 @@ def turned_profile_fills_footprint(
         return False
     return all(
         abs(left[1] - right[0]) <= _PROFILE_AXIAL_SPAN_TOL
-        for left, right in zip(intervals, intervals[1:])
+        for left, right in zip(intervals, intervals[1:], strict=False)
     )
 
 

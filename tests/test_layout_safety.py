@@ -392,7 +392,9 @@ def test_occurrence_link_requires_unique_nonempty_occurrence_ids(identities):
         total=len(identities),
         requirements=({"state": "placed", "occurrence_ids": ["hole:1"]},),
     )
-    for occurrence, identity in zip(report["recognition"]["occurrences"], identities):
+    for occurrence, identity in zip(
+        report["recognition"]["occurrences"], identities, strict=False
+    ):
         occurrence["id"] = identity
 
     assert (

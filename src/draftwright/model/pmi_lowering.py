@@ -1268,7 +1268,7 @@ def _datum_scheme_represented_by_symbols(model: PartModel, text: str) -> tuple[s
                 )
                 and (left.profile == right.profile)
                 and _verified_transition(left, right)
-                for left, right in zip(ordered, ordered[1:])
+                for left, right in zip(ordered, ordered[1:], strict=False)
             ):
                 return ()
         represented.extend(datum.source_ids)

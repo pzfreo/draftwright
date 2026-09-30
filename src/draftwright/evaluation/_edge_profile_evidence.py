@@ -131,7 +131,9 @@ def _edge_leader_targets(drawing, recognition, name: str, feature) -> bool:
                 radius = float(cylinder["diameter"]) / 2.0
                 surface_gap = abs(radial_distance - radius)
                 direction = tuple(float(value) for value in cylinder["dir_xyz"])
-                station = sum(value * component for value, component in zip(origin, direction))
+                station = sum(
+                    value * component for value, component in zip(origin, direction, strict=False)
+                )
                 s_lo = float(cylinder["s_lo"])
                 s_hi = float(cylinder["s_hi"])
                 axial_gap = max(s_lo - station, 0.0, station - s_hi)

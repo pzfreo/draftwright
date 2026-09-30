@@ -1418,7 +1418,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     pad = 0.08 * (z1 - z0) + 1.0
     band_lo, band_hi = max(a.bb.min.Z, z0 - pad), min(a.bb.max.Z, z1 + pad)
     s_zs = sorted(approved_levels)
-    min_gap = min(b - aa for aa, b in zip(s_zs, s_zs[1:]))
+    min_gap = min(b - aa for aa, b in zip(s_zs, s_zs[1:], strict=False))
     # World→page scale that renders the closest gap at the legibility floor — no sheet
     # factor (detail_scale is itself an absolute world→page scale). (#307)
     scale_needed = _MIN_STEP_SEP_MM / min_gap if min_gap > 0 else float("inf")

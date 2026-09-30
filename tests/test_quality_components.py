@@ -344,7 +344,10 @@ def test_0410_blind_slot_families_keep_independent_completeness_dispositions():
     ):
         profile = OpenSectionProfile(
             "open",
-            tuple(PassageSectionVertex(point, bulge) for point, bulge in zip(points, bulges)),
+            tuple(
+                PassageSectionVertex(point, bulge)
+                for point, bulge in zip(points, bulges, strict=False)
+            ),
             (points[-1], points[0]),
         )
         records.append(

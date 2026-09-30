@@ -234,7 +234,7 @@ def test_sealed_members_reject_physical_mutation_before_changing_anything(source
         with pytest.raises(ValueError, match="document|sealed"):
             mutation()
         assert len(sheet.features) == len(initial)
-        assert all(a is b for a, b in zip(initial, sheet.features))
+        assert all(a is b for a, b in zip(initial, sheet.features, strict=False))
     sheet.dimension(handle, "bore.diameter")
     handle.tolerance(0.02).note("REVIEW")
     with_note = tuple(sheet.features)
@@ -242,7 +242,7 @@ def test_sealed_members_reject_physical_mutation_before_changing_anything(source
     with pytest.raises(ValueError, match="sealed"):
         sheet.features.clear()
     assert len(sheet.features) == len(with_note)
-    assert all(a is b for a, b in zip(with_note, sheet.features))
+    assert all(a is b for a, b in zip(with_note, sheet.features, strict=False))
     built = sheet.build()
     assert built.recognition_ownership() is not None
     assert hole in built.model().features

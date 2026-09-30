@@ -651,7 +651,7 @@ def test_machined_jobs_keep_each_rows_deferred_leader_identity(monkeypatch, fres
     tips = ((bounds[0] + 5.0, bounds[1] + 5.0), (bounds[2] - 5.0, bounds[3] - 5.0))
     rows = tuple(
         (f"row-{i}", "front", bounds, f"R{i}", ((tip, (tip[0] + 20.0, tip[1], 0.0), feature),), ())
-        for i, (tip, feature) in enumerate(zip(tips, features))
+        for i, (tip, feature) in enumerate(zip(tips, features, strict=False))
     )
     from_model.place_machined_leader_jobs(
         drawing,

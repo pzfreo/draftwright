@@ -400,7 +400,9 @@ def _pocket_pattern_pitch_gaps(feature, parameter: str, nominal: float) -> tuple
             return ()
         direction = tuple(value / norm for value in direction)
         ordered = sorted(members, key=lambda point: sum(point[i] * direction[i] for i in range(3)))
-        return tuple(math.dist(first, second) for first, second in zip(ordered, ordered[1:]))
+        return tuple(
+            math.dist(first, second) for first, second in zip(ordered, ordered[1:], strict=False)
+        )
 
     u, v = plane_axes(feature.member.depth_axis)
     angle = math.radians(float(feature.angle or 0.0))

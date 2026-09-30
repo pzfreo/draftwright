@@ -315,7 +315,9 @@ def _turned_profile_site(site, axis: str, view: str, cylinders) -> tuple[float, 
         )
         surface_gap = abs(radial_distance - float(cylinder["diameter"]) / 2)
         direction = tuple(float(value) for value in cylinder["dir_xyz"])
-        axial_station = sum(value * component for value, component in zip(values, direction))
+        axial_station = sum(
+            value * component for value, component in zip(values, direction, strict=False)
+        )
         s_lo = float(cylinder["s_lo"])
         s_hi = float(cylinder["s_hi"])
         axial_gap = max(s_lo - axial_station, 0.0, axial_station - s_hi)

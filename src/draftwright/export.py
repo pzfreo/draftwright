@@ -244,7 +244,7 @@ def canonicalize_svg(svg_path: str) -> None:
         # there and two runs that agree on the order still differ in bytes.
         tails = [child.tail for child in children]
         children.sort(key=_leaf_key)
-        for child, tail in zip(children, tails):
+        for child, tail in zip(children, tails, strict=True):
             child.tail = tail
         group[:] = children
     # Strip the SVG namespace from in-memory tag spellings, then declare it as

@@ -1259,7 +1259,7 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
             # Keep positional object/member pairs adjacent, so a string replacement is not
             # mistaken for another member. Explicit member keywords may combine with a
             # positional provider in bound or unbound patch calls.
-            for provider_node, member_node in zip(node.args, node.args[1:]):
+            for provider_node, member_node in zip(node.args, node.args[1:], strict=False):
                 provider = resolve_expr(provider_node)
                 member = literal(member_node)
                 if provider in _PROVIDER_PUBLIC_MODULES and member is not None:

@@ -660,7 +660,7 @@ def _within(expectation: ParameterExpectation, observed: Value) -> bool:
             return False
         return all(
             abs(float(actual) - wanted) <= expectation.absolute_tolerance
-            for wanted, actual in zip(expected, observed)
+            for wanted, actual in zip(expected, observed, strict=True)
         )
     if isinstance(expected, (int, float)) and not isinstance(expected, bool):
         if not isinstance(observed, (int, float)) or isinstance(observed, bool):
@@ -688,7 +688,7 @@ def _expectations_disjoint(first: ParameterExpectation, second: ParameterExpecta
         return any(
             abs(left_component - right_component)
             > first.absolute_tolerance + second.absolute_tolerance
-            for left_component, right_component in zip(left, right)
+            for left_component, right_component in zip(left, right, strict=True)
         )
     if (
         isinstance(left, (int, float))

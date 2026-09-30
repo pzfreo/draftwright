@@ -221,7 +221,7 @@ def _draw_step_chain(
             def _clear(items):
                 return all(
                     c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
-                    for (c1, w1), (c2, w2) in zip(items, items[1:])
+                    for (c1, w1), (c2, w2) in zip(items, items[1:], strict=False)
                 )
 
             if _clear(cw):

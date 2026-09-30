@@ -22,7 +22,11 @@ from draftwright.layout import ObligationClass, StripCandidate, obligation_rank,
 
 
 def _same(a, b, tol=1e-6):
-    return a is not None and b is not None and all(abs(x - y) <= tol for x, y in zip(a, b))
+    return (
+        a is not None
+        and b is not None
+        and all(abs(x - y) <= tol for x, y in zip(a, b, strict=False))
+    )
 
 
 def _drive_screw_x():
@@ -348,7 +352,7 @@ def test_plan_strip_places_in_site_order_spaced_and_in_bounds():
     p = res.placed
     assert p["a"] <= p["b"] <= p["c"], "site order (crossing-free) not preserved"
     ys = sorted(p.values())
-    assert all(b - a >= 5 - 1e-9 for a, b in zip(ys, ys[1:])), "min_gap violated"
+    assert all(b - a >= 5 - 1e-9 for a, b in zip(ys, ys[1:], strict=False)), "min_gap violated"
     assert all(0 <= v <= 100 for v in p.values()), "out of bounds"
 
 

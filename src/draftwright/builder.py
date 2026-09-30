@@ -1327,7 +1327,10 @@ class _PlacementCritique:
             or len(cached) < len(before)
             or len(after) != len(expected)
             or any(left is not right for left, right in zip(after, expected, strict=True))
-            or any(left is not right for left, right in zip(cached[-len(before) :], before))
+            or any(
+                left is not right
+                for left, right in zip(cached[-len(before) :], before, strict=True)
+            )
         ):
             self.discard(drawing)
             return
