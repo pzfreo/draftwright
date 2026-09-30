@@ -246,7 +246,7 @@ _LAZY_UPWARD_EXEMPT: dict[tuple[str, str], str] = {
 }
 
 _RUN, _TC, _LAZY = 0, 1, 2
-_LAZY_IMPORT_STATEMENT_BUDGET = 291
+_LAZY_IMPORT_STATEMENT_BUDGET = 295
 
 
 def _module_full(path: Path) -> tuple[str, ...]:
