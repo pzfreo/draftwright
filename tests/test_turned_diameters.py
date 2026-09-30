@@ -37,14 +37,33 @@ class TestTurnedDiameters:
             annotation_name="diameter",
             view="front",
         )
-        assert _replay_structural_issues((original,), (("bolt_circle", "plan"),)) == ()
-        assert _replay_structural_issues((original, new), (("bolt_circle", "plan"),)) == (new,)
-        assert _replay_structural_issues((original, original), (("bolt_circle", "plan"),)) == (
-            original,
-        )
+        allowed = (("leader_crosses_silhouette", "bolt_circle", "plan", ()),)
+        assert _replay_structural_issues((original,), allowed) == ()
+        assert _replay_structural_issues((original, new), allowed) == (new,)
+        assert _replay_structural_issues((original, original), allowed) == (original,)
         assert _replay_structural_issues(
-            (replace(new, annotation_name=None),), (("diameter", "front"),)
+            (replace(new, annotation_name=None),),
+            (("leader_crosses_silhouette", "diameter", "front", ()),),
         )
+
+    def test_replay_rejects_new_or_extra_policy_b_crossing(self):
+        original = LintIssue(
+            severity="info",
+            message="retained crossing",
+            code="feature_leader_crossing",
+            annotation_name="diameter",
+            view="front",
+            related_annotation_names=("bolt_circle",),
+        )
+        allowed = (("feature_leader_crossing", "diameter", "front", ("bolt_circle",)),)
+        assert _replay_structural_issues((original,), allowed) == ()
+        assert _replay_structural_issues((original, original), allowed) == (original,)
+        assert _replay_structural_issues(
+            (replace(original, annotation_name="other"),), allowed
+        ) == (replace(original, annotation_name="other"),)
+        assert _replay_structural_issues(
+            (replace(original, related_annotation_names=("centerline",)),), allowed
+        ) == (replace(original, related_annotation_names=("centerline",)),)
 
     @staticmethod
     def _issue_881_y_step_flange():
@@ -453,9 +472,8 @@ class TestTurnedDiameters:
         # The `leader_crosses_silhouette` entry is the #798 bolt-circle cut described in
         # test_issue_881_...; it appears on BOTH paths, which is what this test is
         # actually about — the replay reproduces the same critique, defects included.
-        # Candidate prevention (#1334) removes the same-batch step-chain crossings, and
-        # measured block clearance now clears the former cross-producer ink crossing. The
-        # remaining critique is reproduced on both paths.
+        # Candidate prevention (#1334) removes the same-batch step-chain crossings.
+        # Four producer-floor Policy B crossings are reported on both paths.
         # Quiddity refuses four recess proposals at the solid mounting lugs. The
         # material-volume checks above prohibit reviving the old false pocket claims.
         assert (
@@ -464,6 +482,7 @@ class TestTurnedDiameters:
             == {
                 "hole_requirement_missing": 2,
                 "leader_crosses_silhouette": 1,
+                "feature_leader_crossing": 4,
                 "section_recess_recognition_refused": 4,
             }
         )

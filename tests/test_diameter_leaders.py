@@ -3,12 +3,96 @@
 import json
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from _parts import x_stepped_shaft as _x_stepped_shaft
-from build123d import Box, Cylinder, Pos, Rotation
+from build123d import Box, Cylinder, Draft, Pos, Rotation
 
 from draftwright import build_drawing
+
+
+def test_x_diameter_row_withholds_when_obstacle_box_is_unreadable_issue_2112():
+    from draftwright.annotations._diameters import _diameter_row_below
+
+    def run(obstacle):
+        placed = []
+        issues = []
+        event = {"items": []}
+        drawing = SimpleNamespace(
+            draft=Draft(font_size=2.5),
+            items=[obstacle],
+            view_bounds=lambda _view: (0.0, 50.0, 100.0, 80.0),
+            drawable_bounds=(0.0, 0.0, 100.0, 100.0),
+            at=lambda _view, *_point: (50.0, 50.0, 0.0),
+        )
+        ctx = SimpleNamespace(
+            place=lambda obj, *_args, **_kwargs: placed.append(obj),
+            record_issue=lambda *args, **kwargs: issues.append((args, kwargs)),
+        )
+        trace = SimpleNamespace(pass_event=lambda *_args, **_kwargs: event)
+        count = _diameter_row_below(
+            drawing,
+            [((0.0, 0.0, 0.0), 10.0, "10", None, None, None, ())],
+            ctx=ctx,
+            trace=trace,
+        )
+        return count, placed, issues, event
+
+    box = SimpleNamespace(
+        min=SimpleNamespace(X=0.0, Y=20.0),
+        max=SimpleNamespace(X=100.0, Y=30.0),
+    )
+    readable = SimpleNamespace(bounding_box=lambda: box)
+    count, placed, _, _ = run(readable)
+    assert count == 1 and placed, "the row must be placeable below a readable obstacle"
+    assert placed[0].elbow[1] < box.min.Y
+
+    def unreadable_box():
+        raise RuntimeError("obstacle box unavailable")
+
+    count, placed, issues, event = run(SimpleNamespace(bounding_box=unreadable_box))
+    assert count == 0 and not placed
+    assert any(
+        args[1] == "diameter_row_obstacle_unverified" and "obstacle" in args[2]
+        for args, _ in issues
+    )
+    assert any(
+        item["outcome"] == "dropped" and item["reason"] == "obstacle_unverified"
+        for item in event["items"]
+    )
+
+
+def test_unreadable_row_obstacle_does_not_claim_recovered_diameters_dropped_issue_2112(
+    monkeypatch,
+):
+    import draftwright.annotations._diameters as diameters
+
+    original = diameters._diameter_row_below
+    calls = []
+
+    def unreadable_row(drawing, *args, **kwargs):
+        def unreadable_box():
+            raise RuntimeError("obstacle box unavailable")
+
+        obstacle = SimpleNamespace(bounding_box=unreadable_box)
+        drawing.items.append(obstacle)
+        try:
+            calls.append(True)
+            return original(drawing, *args, **kwargs)
+        finally:
+            drawing.items.remove(obstacle)
+
+    monkeypatch.setattr(diameters, "_diameter_row_below", unreadable_row)
+    drawing = build_drawing(_x_stepped_shaft(), scale=1.0, scale_policy="permissive")
+    assert calls, "the fixture must exercise the row with the unreadable obstacle"
+    labels = {
+        item.label for name, item in drawing.iter_annotations() if name.startswith("m_dia_x")
+    }
+    assert {"ø30", "ø16"} <= labels, "the fallback must recover both row measurements"
+    issues = drawing.lint()
+    assert any(issue.code == "diameter_row_obstacle_unverified" for issue in issues)
+    assert not any(issue.code == "diameter_dropped" for issue in issues)
 
 
 def _ctx_for(dwg):

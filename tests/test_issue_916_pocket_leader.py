@@ -107,4 +107,8 @@ def test_approved_pocket_sizes_map_to_the_matching_rim_axis(axis):
         assert callout.tip[1] == pytest.approx(centre[1])
     else:
         assert callout.tip[0] == pytest.approx(centre[0])
-    assert dwg.lint() == []
+    # The added note blocks leave one measured shaft crossing for the width-axis
+    # manual edit. Policy B keeps the required callout and reports that crossing.
+    assert [
+        (issue.code, issue.severity, issue.annotation_name, issue.view) for issue in dwg.lint()
+    ] == ([("feature_leader_crossing", "info", callout_name, "plan")] if axis == "width" else [])

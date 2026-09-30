@@ -94,6 +94,7 @@ _EVIDENCE_UNAVAILABLE_CODES = frozenset(
         "authored_dim_source_unresolved",
         "claimed_representation_no_expected_value",
         "claimed_representation_unreadable",
+        "diameter_row_obstacle_unverified",
         "gear_correspondence_unverifiable",
         "pad_footprint_not_defined",
     }

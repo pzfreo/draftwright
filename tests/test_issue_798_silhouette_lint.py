@@ -94,6 +94,50 @@ class TestTheCheckNeedsTheField:
         probe = _probe(dwg, offset=4.0)
         assert _silhouette_issues(dwg, [*dwg.items, probe], with_field=False) == []
 
+    @pytest.mark.parametrize("broken_attr", ["tip", "elbow"])
+    def test_unreadable_shaft_does_not_pass_cleanly_issue_2112(
+        self, thin_neck_drawing, broken_attr
+    ):
+        dwg = thin_neck_drawing
+        readable = _probe(dwg, offset=4.0)
+        assert _silhouette_issues(dwg, [*dwg.items, readable]), (
+            "the fixture must have a shaft whose material re-entry is measurable"
+        )
+
+        class UnreadableShaft(SimpleNamespace):
+            def __getattribute__(self, name):
+                if name == broken_attr:
+                    raise RuntimeError(f"{name} unavailable")
+                return super().__getattribute__(name)
+
+        broken = UnreadableShaft(
+            tip=readable.tip,
+            elbow=readable.elbow,
+            label=readable.label,
+            label_bbox=readable.label_bbox,
+        )
+        kwargs = dict(
+            view_shapes=[shape for shape, _ in dwg.views.values()],
+            view_material_fields=dwg.material_fields(),
+            view_names=list(dwg.views),
+            annotation_names={id(broken): "unreadable_probe"},
+            annotation_views={id(broken): "front"},
+        )
+        if broken_attr == "elbow":
+            with pytest.raises(RuntimeError, match="elbow unavailable"):
+                lint_drawing([*dwg.items, broken], **kwargs)
+            return
+        issues = lint_drawing([*dwg.items, broken], **kwargs)
+        uncertain = [i for i in issues if i.code == "leader_shaft_unverified"]
+        assert len(uncertain) == 1
+        assert any(
+            i.annotation_name == "unreadable_probe" and i.view == "front" for i in uncertain
+        )
+        without_field = lint_drawing(
+            [*dwg.items, broken], **{**kwargs, "view_material_fields": None}
+        )
+        assert not any(i.code == "leader_shaft_unverified" for i in without_field)
+
     def test_the_message_carries_the_measured_depth(self, thin_neck_drawing):
         # The notice is a magnitude, not a flag, so a reader can rank two of them. The
         # probe crosses two 10 mm flanges, so the second traversal is the 10 mm one.

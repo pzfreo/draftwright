@@ -27,6 +27,7 @@ from draftwright._geometry import (
     _stroke_polygon,
 )
 from draftwright.annotations._common import PlacementContext, SolveTrace
+from draftwright.annotations._placement_geometry import analytical_leader_lands_clear
 from draftwright.annotations.leaders import (
     _FIXED_INVENTORY_EXHAUSTED,
     FeatureLeaderJob,
@@ -46,6 +47,7 @@ from draftwright.annotations.leaders import (
     collect_feature_leader,
     drain_feature_leaders,
     feature_leader_fixed_conflicts,
+    place_feature_leader_jobs,
 )
 from draftwright.annotations.orchestrator import _PASS_SEQUENCE
 from draftwright.builder import _is_required_scale_drop, detect_part_model
@@ -2517,6 +2519,58 @@ def test_non_provisional_section_prefixed_annotation_is_classified_immediately(f
     assert not hasattr(required, "_dw_provisional_feature_leader_policy")
     assert any(
         issue.code == "feature_leader_crossing" and "section_user_note:label" in issue.message
+        for issue in drawing.registry.issues
+    )
+
+
+def test_immediate_producer_floor_records_a_retained_fixed_crossing_issue_2112(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2)
+    elbow = (tip[0] + 20, tip[1], 0)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+    ctx.place(
+        Centerline((tip[0], tip[1] - 6, 0), (tip[0], tip[1] + 6, 0)),
+        "section_line",
+        view="front",
+    )
+    job = FeatureLeaderJob(
+        name="m_fillet0",
+        view="front",
+        silhouette=bounds,
+        label="R1",
+        candidates=((tip, elbow, object()),),
+        build=lambda tip, elbow, _: Leader(
+            tip=(*tip, 0), elbow=elbow, label="R1", draft=drawing.draft
+        ),
+        measurement=(),
+        noun="fillet",
+        drop_code="fillet_dropped",
+        fallback_accept=lambda candidate, obstacles, page: analytical_leader_lands_clear(
+            candidate, obstacles, bounds, page, label="R1"
+        ),
+        allow_policy_b_fixed=True,
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert place_feature_leader_jobs(drawing, analysis, ctx, [job], producer_floor=True) == 1
+    assert ("m_fillet0", "section_line:segment:0") in feature_leader_fixed_conflicts(
+        drawing, ("section_line",)
+    ), "the fixture must retain the crossing being diagnosed"
+    assert any(
+        issue.code == "feature_leader_crossing" and "section_line:segment:0" in issue.message
         for issue in drawing.registry.issues
     )
 
