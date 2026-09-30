@@ -136,7 +136,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
         "ir_foundation": "src/draftwright/model/ir_foundation.py",
         "slot_rendering": "src/draftwright/annotations/_slots.py",
-        "drawing_edits": "src/draftwright/drawing_edits.py",
+        "drawing_edits": "src/draftwright/drawing.py",
         "drawing_diagnostics": "src/draftwright/drawing_diagnostics.py",
         "pocket_pad_leaders": "src/draftwright/annotations/_pocket_pad.py",
         "edge_callouts": "src/draftwright/annotations/_edge_callouts.py",
@@ -385,8 +385,8 @@ def test_height_ladder_owner_runs_compiler_and_corridor_contracts():
 
 
 def test_drawing_edit_owner_runs_live_and_deferred_contracts():
-    source = "src/draftwright/drawing_edits.py"
-    assert selected_groups([source]) == {"drawing_edits"}
+    source = "src/draftwright/drawing.py"
+    assert "drawing_edits" in selected_groups([source])
     selected = set(pr_modules(_TESTS, [source]))
     assert {
         "test_add_dimension.py",
@@ -529,7 +529,7 @@ def test_sheet_feature_view_changes_run_the_sheet_identity_contract():
         ("src/draftwright/annotations/_slots.py", "slot_rendering"),
         ("src/draftwright/annotations/_pocket_pad.py", "pocket_pad_leaders"),
         ("src/draftwright/intent_drain.py", "intent_drain"),
-        ("src/draftwright/drawing_edits.py", "drawing_edits"),
+        ("src/draftwright/drawing.py", "drawing_edits"),
         ("src/draftwright/intent_routing.py", "drawing_edits"),
         ("src/draftwright/model/declare.py", "compilation"),
         ("src/draftwright/sheet_features.py", "compilation"),

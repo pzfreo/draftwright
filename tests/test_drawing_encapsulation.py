@@ -417,6 +417,81 @@ def test_no_engine_module_touches_drawing_privates():
     )
 
 
+# These existing constructors receive Drawing state for a bounded operation. PlacementContext
+# holds per-run render scratch; IntentDrainState receives callbacks; the table and diagnostic
+# owners retain their established explicit handoffs. An edit port is deliberately absent:
+# Drawing now executes edit verbs itself, so a new constructor cannot quietly regain the
+# private mutable registry, coverage, or intent list (#2116).
+_DRAWING_STATE_CONSTRUCTOR_ALLOW = {
+    "PlacementContext": frozenset(
+        {"_registry", "_coverage", "_document_member", "_document_source_annotation_ids"}
+    ),
+    "IntentDrainState": frozenset(
+        {"_replay_intent", "_queue_dimension_intent", "_record_build_issue"}
+    ),
+    "DrawingTableState": frozenset(
+        {
+            "_registry",
+            "_analysis",
+            "_part_model",
+            "_coords",
+            "_coverage",
+            "_document_member",
+            "_document_source_annotation_ids",
+            "_add",
+            "_hole_spec_groups",
+        }
+    ),
+    "DiagnosticOperations": frozenset(
+        {
+            "_analysis",
+            "_part_model",
+            "_build",
+            "_registry",
+            "_coverage",
+            "_working_part",
+            "_model_declared",
+            "_view_edge_cache",
+            "_ann_box_cache",
+            "_cyl_cache",
+        }
+    ),
+}
+
+
+def _drawing_state_constructor_handoffs(tree: ast.AST) -> list[tuple[int, str, frozenset[str]]]:
+    handoffs = []
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
+            continue
+        if not call.func.id[:1].isupper():
+            continue
+        values = (*call.args, *(keyword.value for keyword in call.keywords))
+        private = frozenset(
+            value.attr
+            for value in values
+            if isinstance(value, ast.Attribute)
+            and isinstance(value.value, ast.Name)
+            and value.value.id == "self"
+            and value.attr.startswith("_")
+        )
+        if private:
+            handoffs.append((call.lineno, call.func.id, private))
+    return handoffs
+
+
+def test_drawing_private_state_constructor_handoffs_are_audited():
+    """A new operation object cannot receive Drawing's raw private state unseen (#2116)."""
+    path = _SRC / "drawing.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    unexpected = [
+        (line, constructor, sorted(private))
+        for line, constructor, private in _drawing_state_constructor_handoffs(tree)
+        if _DRAWING_STATE_CONSTRUCTOR_ALLOW.get(constructor) != private
+    ]
+    assert not unexpected, f"Unaudited Drawing private-state constructor handoff: {unexpected}"
+
+
 def test_build_state_has_a_single_construction_and_fill_site():
     """#639: the writer inventory for the build context, fail-closed and AST-based
     (#691 review — a regex missed augmented assignment / setattr / tuple targets).

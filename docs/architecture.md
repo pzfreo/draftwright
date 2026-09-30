@@ -135,8 +135,9 @@ and re-exports the existing private helper names.
     is imported **lazily inside the command body** so completion/`--help`/
     `--version` stay sub-second (#313). Entry point: `draftwright.cli:app`.
   - **`drawing.py`** — the `Drawing` result object (`.lint()`/`.add()`/`.place_dim()`/
-    `.repair()`/`.export*()`; delegates identity to `registry`, ordered lint critique to
-    `linting/orchestration.py`)
+    `.repair()`/`.export*()`; owns feature edit decisions and solver-bound intent
+    preparation with its private mutable state, and delegates identity to `registry`
+    and ordered lint critique to `linting/orchestration.py`)
     plus `FeatureInfo` (`_build_table` moved beside `_table_metrics` in `_core`, #699).
     Sits below `builder` (which constructs it).
     *(The build context lives in ONE typed `BuildState` on `Drawing` (`_build`:
@@ -148,7 +149,6 @@ and re-exports the existing private helper names.
     `drawing.py` touches `dwg._*` (rationale-carrying allowlist, builder's
     fill site only).)*
   - **`drawing_evidence.py`** — rank-2 read-only suppression, measurement-claim, page-use and lint-summary projections. `Drawing` supplies explicit model, registry, annotation and build evidence; this module neither owns build state nor reaches into private drawing fields.
-  - **`drawing_edits.py`** — rank-5 feature edit decisions and solver-bound intent preparation. `Drawing` keeps the public verbs and owns their mutable state; each operation receives the needed state and callbacks explicitly.
   - **`drawing_diagnostics.py`** — rank-5 finished-drawing lint and report coordination. `Drawing` supplies explicit build state and public dispatch callbacks; task-local scopes retain pair and requirement evidence without a persistent result cache.
   - **`drawing_export.py`** — rank-2 export orchestration and shape serialization. `Drawing` retains the observed public operation and supplies explicit writer, lint and text callbacks; the export owner reads only public result state.
   - **`drawing_state.py`** — rank-5 typed `BuildState` owner; `drawing.py` re-exports the type and remains its sole construction site.

@@ -29,7 +29,7 @@ CONTRACT_GROUPS = {
         ),
     ),
     "drawing_edits": ContractGroup(
-        ("src/draftwright/drawing_edits.py", "src/draftwright/intent_routing.py"),
+        ("src/draftwright/drawing.py", "src/draftwright/intent_routing.py"),
         (
             "test_add_dimension.py",
             "test_canonical_angles.py",
@@ -638,14 +638,12 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_requirement_carriers.py",
     ),
     "src/draftwright/drawing.py": (
+        "test_drawing_operations.py",
         "test_feature_queries.py",
         "test_issue_1154_one_owner_per_measurement.py",
         "test_issue_909_sloped_profile.py",
-        "test_title_block_units_format.py",
-    ),
-    "src/draftwright/drawing_edits.py": (
-        "test_drawing_operations.py",
         "test_note_verb.py",
+        "test_title_block_units_format.py",
     ),
     "src/draftwright/explicit_scale.py": ("test_issue_1338_scale_before_page_escalation.py",),
     "src/draftwright/fits.py": ("test_fits.py",),

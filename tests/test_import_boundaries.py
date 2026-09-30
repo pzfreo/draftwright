@@ -178,7 +178,6 @@ _LAYERS: dict[str, int] = {
     # 5 — the Drawing result object
     "intent_drain": 5,
     "intent_routing": 5,
-    "drawing_edits": 5,
     "drawing_diagnostics": 5,
     "drawing_state": 5,
     "drawing_tables": 5,
