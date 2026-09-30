@@ -19,6 +19,7 @@ from PIL import Image, ImageChops
 
 from draftwright import Sheet, build_drawing
 from draftwright._core import _dim, _text_line_spacing_em
+from draftwright.annotations._common import PlacementContext
 from draftwright.drawing import Drawing
 from draftwright.export import _PDFTextRun, _render_pdf, _resolved_semantic_font_path
 from draftwright.fonts import PLEX_MONO, PLEX_SANS_CONDENSED
@@ -473,12 +474,13 @@ def test_committed_dimension_pdf_uses_registry_spec_issue_1931():
             name="registered",
             label="REGISTERED",
         )
-    with pytest.warns(DeprecationWarning):
-        drawing.add(
-            _dim((20, 40, 0), (57.5, 40, 0), "above", 8.0, drawing.draft),
-            "valued",
-            view="front",
-        )
+    PlacementContext(
+        registry=drawing.registry, coverage=drawing.coverage, items=drawing.items
+    ).place(
+        _dim((20, 40, 0), (57.5, 40, 0), "above", 8.0, drawing.draft),
+        "valued",
+        view="front",
+    )
     before = [run for run in _registered_pdf_runs(drawing) if run.text == "REGISTERED"]
     assert before and before[0].rotation == pytest.approx(0)
     valued_spec = drawing.registry.dimension_spec_of("valued")

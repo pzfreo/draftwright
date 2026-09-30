@@ -154,8 +154,8 @@ _ALLOW: dict[str, int] = {
     # The low-level placement primitive (#817): `_add(obj, name, view, feature)` places a raw
     # `Dimension`/`Leader`/`CenterMark` by name — the only way to seed a specific annotation for a
     # white-box test of overlap detection, repair/replacement, tag displacement, or a render helper.
-    # Its public form (`Drawing.add`) is DEPRECATED (#817); no other public verb places an arbitrary
-    # annotation object by name (`dimension`/`callout`/`note` compute their own), so these unit tests
+    # No public verb places an arbitrary annotation object by name (`dimension`/
+    # `callout`/`note` compute their own), so these unit tests
     # legitimately hold the primitive. A count, not a TODO — like the `_analysis` white-box entry.
     "_add": 26,
     # The raw page-coordinate dimension primitive (#817): a single white-box helper wraps
@@ -164,10 +164,9 @@ _ALLOW: dict[str, int] = {
     # DEPRECATED (#817); the deprecated shim's warning is asserted separately via the public name, so
     # this one read is genuinely internal.
     "_place_dim": 1,
-    # View/annotation plumbing privatized in #817 PR4 (public forms deprecated). The functional
-    # behaviour tests drive the primitives directly (wholesale clear keeps the title block;
-    # add_view projects + refits silhouettes); the deprecated shims' warnings are asserted
-    # separately via the public names. The other four plumbing privates
+    # View/annotation plumbing privatized in #817 PR4. The functional behaviour
+    # tests drive the primitives directly (wholesale clear keeps the title block;
+    # add_view projects + refits silhouettes). The other four plumbing privates
     # (_set_view_coordinates/_drop_view_coordinates/_attach_part_model/_attach_solve_trace) have
     # no direct test read — the engine build path exercises them.
     "_clear_annotations": 3,

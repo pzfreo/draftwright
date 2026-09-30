@@ -1693,15 +1693,8 @@ class TestSheet:
         assert set(paths) == {"svg", "dxf"}
         assert (tmp_path / "dwg702b.svg").exists() and (tmp_path / "dwg702b.dxf").exists()
 
-    def test_sheet_export_none_takes_the_default_not_the_legacy_path(self, tmp_path):
-        """#987 (Codex r5): `formats=None` means "unspecified", so it must take Sheet's own
-        default rather than being forwarded.
-
-        Forwarded, a `None` selects `Drawing.export`'s deprecated legacy path — which returns a
-        TUPLE, breaking the `{format: path}` return this facade documents, and raises its
-        deprecation against `sheet.py`'s forwarding line rather than the caller's. That is the
-        same attribution problem that moved `make_drawing` off the legacy path, one layer up.
-        """
+    def test_sheet_export_none_takes_the_default(self, tmp_path):
+        """`formats=None` takes Sheet's PDF default and returns the documented dict."""
         import warnings
 
         sheet = Sheet(Box(40, 40, 10), title="EXPORT", number="DWG-987").auto_dimensions()

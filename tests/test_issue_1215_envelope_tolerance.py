@@ -123,7 +123,7 @@ class TestTheToleranceReachesTheInk:
             drawing = _built(axis) if tolerance else _built(axis=None)
             annotation = drawing.registry.named(_ANNOTATION[axis])
             out = tmp_path / f"{axis}{int(bool(tolerance))}.svg"
-            drawing.export(str(out))
+            drawing.export(str(out), formats=("svg",))
             paths = len(re.findall(r"<path", out.read_text()))
             return len(annotation.faces()), paths
 

@@ -114,6 +114,37 @@ def test_every_deprecation_names_its_removal() -> None:
     )
 
 
+def _expired_removals(
+    announcements: tuple[tuple[str, str | None], ...], version: str
+) -> list[str]:
+    """Live warnings whose target is at or before a final release."""
+    current = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
+    if current is None:  # dev and release candidates are not the final release
+        return []
+    released = tuple(map(int, current.groups()))
+    expired = []
+    for where, message in announcements:
+        match = _REMOVAL.search(message or "")
+        if match is None:
+            continue  # the separate removal-statement guard diagnoses this
+        target = re.search(r"\d+\.\d+(?:\.\d+)?", match.group())
+        assert target is not None
+        parts = tuple(map(int, target.group().split(".")))
+        if parts + (0,) * (3 - len(parts)) <= released:
+            expired.append(where)
+    return expired
+
+
+def test_final_release_has_no_expired_deprecations() -> None:
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    match = re.search(r'^version = "([^"]+)"$', pyproject.read_text(), re.M)
+    assert match is not None
+    expired = _expired_removals(_scan(), match.group(1))
+    assert not expired, f"live deprecations past their removal target: {expired}"
+    assert _expired_removals((("fixture", "Removed in 0.5.0"),), "0.5.0") == ["fixture"]
+    assert not _expired_removals((("fixture", "Removed in 0.5.0"),), "0.5.0.dev0")
+
+
 def test_only_shim_contract_tests_import_compatibility_modules() -> None:
     """Keep ordinary suite imports on the canonical owners (#1936)."""
     allowed = {
@@ -194,7 +225,9 @@ def test_only_shim_contract_tests_import_compatibility_modules() -> None:
 #: warnings they had lacked since 0.3.1 — which is also what brought them into this check's
 #: scope, since it can only see things that warn.
 #: 11 → 15 when #1936 added import warnings to the four compatibility shims.
-_EXPECTED_DEPRECATIONS = 15
+#: 15 → 5 when #2113 removed seven Drawing wrappers, export_pdf, and two legacy
+#: export warning branches for 0.5.0.
+_EXPECTED_DEPRECATIONS = 5
 
 
 def test_the_scanner_actually_matches_something() -> None:

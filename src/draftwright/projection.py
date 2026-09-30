@@ -4,8 +4,8 @@ Two concerns, both *below* `make_drawing` in the DAG (it imports these, never th
 reverse): silhouette recovery (`_exactify_silhouettes`/`_raw_view_projector` —
 replace HLR's faceted silhouette splines with exact circles/arcs for turned
 features, #67) and the isometric view (`_project_iso`/`_fit_iso_view` — (re-)project
-and fit the orientation iso into its page zone). `dwg` is duck-typed
-(views/draft/add/add_view/_coords), so this module imports only `_core` + build123d.
+and fit the orientation iso into its page zone). `dwg` is duck-typed, so this
+module imports only `_core` + build123d.
 """
 
 from __future__ import annotations
@@ -425,12 +425,12 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None, *, bounds_cache=None):
         scaled=True,
         bounds_cache=bounds_cache,
     )
-    # add_view builds ViewCoordinates from a collapsed view_axes() mapping, which
+    # _add_view builds ViewCoordinates from a collapsed view_axes() mapping, which
     # helpers (>=0.11) cannot project for the oblique iso (pp() needs the full
     # foreshortening basis). Rebuild from the raw viewport so dwg.at("iso", ...)
     # maps world points correctly — also covers an iso re-projected at a
-    # different scale than the sheet. Through the public override verb, not a
-    # direct _coords poke (#699 slice d).
+    # different scale than the sheet. Use Drawing's private coordinate method
+    # to avoid a direct _coords poke (#699 slice d).
     dwg._set_view_coordinates(
         "iso",
         ViewCoordinates.from_viewport(
