@@ -12,6 +12,7 @@ from draftwright.linting._registry import (
     satisfaction_of,
 )
 from draftwright.linting.issues import is_placement_drop
+from draftwright.section_recess_contract import section_recess_fields
 
 # Stable coverage import path; the registry evidence has one implementation owner.
 index_evidence = measurement_outcome_index
@@ -87,6 +88,29 @@ def recess_point(value) -> tuple[float, float, float]:
     ):
         raise ValueError
     return (recess_rounded(value[0]), recess_rounded(value[1]), recess_rounded(value[2]))
+
+
+def recess_source_at(source) -> tuple[float, float, float]:
+    try:
+        return recess_point(section_recess_fields(source)[1]["origin"])
+    except (AttributeError, OverflowError, TypeError, ValueError):
+        return (float("nan"), float("nan"), float("nan"))
+
+
+def recess_span(at, axis: str, value: float) -> tuple[tuple[float, float, float], ...]:
+    lo = list(at)
+    hi = list(at)
+    index = "xyz".index(axis)
+    lo[index] -= value / 2
+    hi[index] += value / 2
+    return (recess_point(tuple(lo)), recess_point(tuple(hi)))
+
+
+def measurement_matches(measurement, feature, parameter: str) -> bool:
+    return (
+        getattr(measurement, "feature", None) == feature
+        and getattr(measurement, "parameter", None) == parameter
+    )
 
 
 def state(

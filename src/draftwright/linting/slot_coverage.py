@@ -15,6 +15,7 @@ from typing import Literal
 from quiddity import RecognitionResult
 
 from draftwright.contract_values import rounded as _rounded
+from draftwright.linting._coverage_common import measurement_matches as _matches
 from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._registry import (
     RequirementCarrier,
@@ -186,13 +187,6 @@ def _parameter_ids(feature, *, pattern: bool) -> tuple[str, ...] | None:
     else:
         ids.append(f"{feature.LOCATION_STEM}.length")
     return tuple(ids)
-
-
-def _matches(measurement, feature, parameter: str) -> bool:
-    return (
-        getattr(measurement, "feature", None) == feature
-        and getattr(measurement, "parameter", None) == parameter
-    )
 
 
 def _physical_requirement_count(kind: SlotSourceKind, source) -> int:

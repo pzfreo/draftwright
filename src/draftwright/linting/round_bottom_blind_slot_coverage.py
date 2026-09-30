@@ -18,6 +18,8 @@ from quiddity import RecognitionResult, SectionRecess
 from draftwright.linting._coverage_common import index_evidence as _index_evidence
 from draftwright.linting._coverage_common import recess_point as _point
 from draftwright.linting._coverage_common import recess_positive as _positive
+from draftwright.linting._coverage_common import recess_source_at as _source_at
+from draftwright.linting._coverage_common import recess_span as _span
 from draftwright.linting._coverage_common import state as _state
 from draftwright.linting._registry import (
     RequirementCarrier,
@@ -104,22 +106,6 @@ def round_bottom_blind_slot_key(slot, *, require_frame: bool = False) -> tuple:
         _positive(slot.flat_width),
         at,
     )
-
-
-def _source_at(source) -> tuple[float, float, float]:
-    try:
-        return _point(section_recess_fields(source)[1]["origin"])
-    except (AttributeError, OverflowError, TypeError, ValueError):
-        return (float("nan"), float("nan"), float("nan"))
-
-
-def _span(at, axis: str, value: float) -> tuple[tuple[float, float, float], ...]:
-    lo = list(at)
-    hi = list(at)
-    index = "xyz".index(axis)
-    lo[index] -= value / 2
-    hi[index] += value / 2
-    return (_point(tuple(lo)), _point(tuple(hi)))
 
 
 def _floor_span(source_at, data) -> tuple[tuple[float, float, float], ...]:

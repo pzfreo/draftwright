@@ -8,6 +8,7 @@ from typing import Literal, cast
 from quiddity import RecognitionResult, SectionRecess, has_multi_axis_plates
 
 from draftwright.contract_values import rounded as _rounded
+from draftwright.linting._coverage_common import measurement_matches as _matches
 from draftwright.linting._coverage_common import rounded_point as _point
 from draftwright.linting._registry import (
     RequirementCarrier,
@@ -61,13 +62,6 @@ def _key(channel) -> tuple:
         _rounded(channel.d_lo),
         _rounded(channel.d_hi),
         int(channel.open_sign),
-    )
-
-
-def _matches(measurement, feature, parameter: str) -> bool:
-    return (
-        getattr(measurement, "feature", None) == feature
-        and getattr(measurement, "parameter", None) == parameter
     )
 
 
