@@ -17,6 +17,7 @@ UNIT_MODULES = frozenset(
         "test_issue_1332_overlap_remedy.py",
         "test_derived_view_planning.py",
         "test_recognition_evidence_schema.py",
+        "test_lint_coverage_common.py",
         "test_lint_ink_overlap.py",
         "test_linting.py",
         "test_pmi_part21.py",

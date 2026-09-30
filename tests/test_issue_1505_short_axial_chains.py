@@ -295,7 +295,7 @@ def test_naturally_off_page_z_shoulders_are_recovered_and_read_from_details(monk
     # An end-on projection must not certify every shoulder from one coincident
     # endpoint. Preserve the drawn geometry while corrupting only that projection.
     project = recovered.at
-    witness = recovered.get_annotation("detail_b_steplen0")._dw_spec
+    witness = recovered.get_annotation("detail_b_steplen0").placement_spec
     assert witness.p1[0] == witness.p2[0]
     with monkeypatch.context() as patch:
         patch.setattr(

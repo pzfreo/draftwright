@@ -15,19 +15,16 @@ from typing import Literal
 
 from quiddity import RecognitionResult, SectionRecess
 
-from draftwright._core import _decode_hole_location_fact
 from draftwright.contract_values import rounded as _rounded
-from draftwright.linting._coverage_common import location_state
+from draftwright.linting._coverage_common import index_pad_pocket_evidence, location_state
 from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._registry import (
     RequirementCarrier,
     RequirementCarrierEvidence,
-    satisfaction_ids,
 )
 from draftwright.linting.issues import (
     UNJOINED_PARAMETER_ID,
     LintIssue,
-    is_placement_drop,
     requirement_subject,
 )
 from draftwright.measurement_support import RequirementExclusion, datum_location_exclusion
@@ -137,46 +134,7 @@ def _is_location(parameter: str) -> bool:
 
 
 def _index_evidence(registry, *, carriers=None):
-    placed = {
-        (measurement.feature, measurement.parameter)
-        for name in registry.names()
-        for measurement in registry.measurement_of(name)
-    }
-    locations: dict[tuple[object, str], set[tuple[float, float, float]]] = defaultdict(set)
-    for name in registry.names():
-        annotation = registry.named(name)
-        for fact in getattr(annotation, "covers_hole_locations", ()):
-            decoded = _decode_hole_location_fact(fact)
-            if decoded is None:
-                continue
-            feature, parameter, point = decoded
-            if getattr(feature, "kind", None) == "pocket":
-                locations[(feature, parameter)].add(_point(point))
-                if carriers is not None:
-                    carriers.locations[(feature, parameter, _point(point))].append(
-                        RequirementCarrier(name, "physical_location")
-                    )
-    satisfied = {
-        (identity.feature, identity.parameter)
-        for identity in satisfaction_ids(registry)
-        if identity.feature is not None and isinstance(identity.parameter, str)
-    }
-    dropped = {
-        (measurement.feature, measurement.parameter)
-        for issue in registry.issues
-        if is_placement_drop(issue)
-        for measurement in getattr(issue, "measurement_ids", ())
-        if getattr(measurement, "feature", None) is not None
-        and isinstance(getattr(measurement, "parameter", None), str)
-    }
-    dropped.update(
-        (feature, parameter)
-        for issue in registry.issues
-        if is_placement_drop(issue)
-        for feature, parameter in getattr(issue, "hole_requirement_ids", ())
-        if getattr(feature, "kind", None) == "pocket"
-    )
-    return placed, locations, satisfied, dropped
+    return index_pad_pocket_evidence(registry, family="pocket", carriers=carriers)
 
 
 _state = partial(location_state, location_prefix="location_pocket")

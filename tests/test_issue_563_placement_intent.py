@@ -214,7 +214,7 @@ def test_measured_dimension_uses_requested_corridor_and_round_trips():
     sheet = _measured_sheet(view="front", side="left")
     drawing = sheet.build()
     annotation = drawing.get_annotation("pmi_z_0")
-    assert annotation._dw_spec.side == "left"
+    assert annotation.placement_spec.side == "left"
     assert not [issue for issue in drawing.lint() if issue.severity != "info"]
 
     source = emit_sheet_script(sheet.model(), "part", "measured", title="P", number="N")
@@ -234,7 +234,7 @@ def test_measured_dimension_uses_requested_corridor_and_round_trips():
 
 def test_no_measured_override_keeps_existing_geometric_derivation():
     annotation = _measured_sheet().build().get_annotation("pmi_z_0")
-    assert annotation._dw_spec.side == "right"
+    assert annotation.placement_spec.side == "right"
 
 
 @pytest.mark.parametrize(
@@ -269,7 +269,7 @@ def test_view_only_measured_override_preserves_the_derived_side():
             ref_pts=[(-20, 0, 0), (-20, 0, 10)],
             view=view,
         )
-        return sheet.build().get_annotation("pmi_z_0")._dw_spec.side
+        return sheet.build().get_annotation("pmi_z_0").placement_spec.side
 
     assert build(None) == build("front") == "left"
 
@@ -296,7 +296,7 @@ def test_y_view_only_override_preserves_its_geometry_derived_side(view, ref_bbox
     )
 
     drawing = sheet.build()
-    assert drawing.get_annotation("pmi_y_0")._dw_spec.side == expected_side
+    assert drawing.get_annotation("pmi_y_0").placement_spec.side == expected_side
     assert not [issue for issue in drawing.lint() if issue.severity != "info"]
 
 
@@ -333,7 +333,7 @@ def test_front_above_measured_intent_participates_in_view_composition():
             side="above",
         )
         drawing = sheet.build()
-        assert drawing.get_annotation("pmi_x_0")._dw_spec.side == "above"
+        assert drawing.get_annotation("pmi_x_0").placement_spec.side == "above"
         assert not [issue for issue in drawing.lint() if issue.severity != "info"]
 
 
@@ -350,7 +350,7 @@ def test_y_and_diameter_measured_intents_use_their_supported_exact_corridors():
         side="above",
     )
     y_drawing = y_sheet.build()
-    assert y_drawing.get_annotation("pmi_y_0")._dw_spec.side == "above"
+    assert y_drawing.get_annotation("pmi_y_0").placement_spec.side == "above"
     assert not [issue for issue in y_drawing.lint() if issue.severity != "info"]
 
     diameter_sheet = Sheet(Box(40, 40, 10), page="A3").authored_dimensions()
@@ -365,7 +365,7 @@ def test_y_and_diameter_measured_intents_use_their_supported_exact_corridors():
         side="above",
     )
     diameter_drawing = diameter_sheet.build()
-    assert diameter_drawing.get_annotation("pmi_d_0")._dw_spec.side == "above"
+    assert diameter_drawing.get_annotation("pmi_d_0").placement_spec.side == "above"
     assert not [issue for issue in diameter_drawing.lint() if issue.severity != "info"]
 
 
@@ -383,7 +383,7 @@ def test_y_plan_measured_intents_participate_in_horizontal_composition(side):
         side=side,
     )
     drawing = sheet.build()
-    assert drawing.get_annotation("pmi_y_0")._dw_spec.side == side
+    assert drawing.get_annotation("pmi_y_0").placement_spec.side == side
     assert not [issue for issue in drawing.lint() if issue.severity != "info"]
 
 

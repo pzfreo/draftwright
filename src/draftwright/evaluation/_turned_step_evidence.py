@@ -174,7 +174,7 @@ def _turned_step_drawing_outcomes(
             if getattr(measurement.feature, "kind", None) == "step"
             and measurement.parameter == "step.length"
         )
-        spec = getattr(annotation, "_dw_spec", None)
+        spec = drawing.registry.dimension_spec_of(name)
         if spec is None:
             return False
         try:
@@ -299,7 +299,7 @@ def _turned_step_drawing_outcomes(
             # The largest band OD is represented by the whole rotational profile's linear
             # diameter. Its witness pair must span the exact OD, transverse to and centred on
             # the projected turning axis.
-            spec = getattr(annotation, "_dw_spec", None)
+            spec = drawing.registry.dimension_spec_of(name)
             if spec is None:
                 return False
             first, second = xy(spec.p1), xy(spec.p2)

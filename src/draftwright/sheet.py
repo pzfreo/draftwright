@@ -2885,7 +2885,7 @@ class Sheet(_SheetViewMethods):
                 ),
                 requested=self._requested_dimensions(),
                 authored=self._authored_set(),
-                _post_build=place_declared_tables,
+                _post_build=place_declared_tables if self._tables else None,
                 _required_tables=required_tables,
                 _views=principal_views,
                 _include_iso=include_iso,

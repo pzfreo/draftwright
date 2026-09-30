@@ -43,7 +43,7 @@ def test_short_datum_locations_keep_their_text_clear_of_both_terminators_issue_1
     dwg = flat_precision_drawing
     for name in ("m_locx0", "m_locy0"):
         dim = dwg.get_annotation(name)
-        spec = dim._dw_spec
+        spec = dim.placement_spec
         assert dim.label == "3.5"
         assert dim.label_bbox[0] > spec.p2[0] + spec.draft.arrow_length
         estimate = dim_footprint(

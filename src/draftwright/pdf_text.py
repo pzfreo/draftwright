@@ -15,6 +15,7 @@ from build123d_drafting.helpers import DEFAULT_FONT_PATH
 from draftwright._core import _font_safe_text, _table_metrics, _text_line_spacing_em, _text_size
 from draftwright.export import _PDFTextRun
 from draftwright.fonts import PLEX_MONO
+from draftwright.registry import DimensionPlacementSpec, PlacedDimension, RegisteredDimensionSpec
 
 
 def _exact_vertex_rotation(source_vertices, target_vertices) -> float | None:
@@ -158,6 +159,7 @@ class _TextRotation:
         self.raw_basic_matches: dict[int, tuple[str, float]] = {}
         self.raw_basic_exact_matches: set[int] = set()
         self.raw_basic_unresolved: set[int] = set()
+        self.dimension_specs: dict[int, DimensionPlacementSpec | RegisteredDimensionSpec] = {}
 
     def angle(self, annotation) -> float:
         def upright(angle: float) -> float:
@@ -170,7 +172,7 @@ class _TextRotation:
         explicit = getattr(annotation, "pdf_text_rotation", None)
         if explicit is not None:
             return float(explicit) + live_rotation
-        spec = getattr(annotation, "_dw_spec", None)
+        spec = self.dimension_specs.get(id(annotation))
         if spec is not None and hasattr(annotation, "measured_length"):
             dx, dy = spec.p2[0] - spec.p1[0], spec.p2[1] - spec.p1[1]
             if math.hypot(dx, dy) > 1e-9:
@@ -179,7 +181,11 @@ class _TextRotation:
                 # upright-normalise again after those transforms: 120° must remain 120°.
                 return (
                     upright(math.degrees(math.atan2(dy, dx)))
-                    + float(spec.kwargs.get("rotation", 0.0))
+                    + (
+                        spec.rotation
+                        if isinstance(spec, RegisteredDimensionSpec)
+                        else float(spec.kwargs.get("rotation", 0.0))
+                    )
                     + live_rotation
                 )
         if getattr(annotation, "is_basic", False):
@@ -444,7 +450,7 @@ class _TextRotation:
         return live_rotation
 
 
-def pdf_text_runs(draft, annotations):
+def pdf_text_runs(draft, annotations, *, dimension_spec_of=None):
     """Return semantic text overlaid on path-rendered PDF glyphs.
 
     The visible glyphs remain paths.  Dimensions, leaders and notes expose
@@ -461,7 +467,16 @@ def pdf_text_runs(draft, annotations):
     drawing_font_style = getattr(getattr(draft, "font_style", None), "name", "REGULAR")
     _angles = _TextRotation(draft, fs, drawing_font_path, drawing_font_name)
 
-    for ordinal, (_name, annotation) in enumerate(annotations):
+    for ordinal, (name, annotation) in enumerate(annotations):
+        spec = (
+            dimension_spec_of(name)
+            if dimension_spec_of is not None
+            else annotation.placement_spec
+            if isinstance(annotation, PlacedDimension)
+            else None
+        )
+        if spec is not None:
+            _angles.dimension_specs[id(annotation)] = spec
         box = annotation.bounding_box()
         rows = getattr(annotation, "table_rows", None)
         runs = []
@@ -523,8 +538,13 @@ def pdf_text_runs(draft, annotations):
                 run_font_style = drawing_font_style
                 run_font_style_enum = draft.font_style
                 if hasattr(annotation, "measured_length"):
-                    spec = getattr(annotation, "_dw_spec", None)
-                    dimension_draft = spec.draft if spec is not None else draft
+                    dimension_draft = (
+                        spec.live_draft
+                        if isinstance(spec, RegisteredDimensionSpec)
+                        else spec.draft
+                        if spec is not None
+                        else draft
+                    )
                     run_font_size = dimension_draft.font_size
                     run_font_path = getattr(dimension_draft, "font_path", DEFAULT_FONT_PATH)
                     run_font_name = getattr(dimension_draft, "font", "Arial")
@@ -534,7 +554,7 @@ def pdf_text_runs(draft, annotations):
                         # The engine owns this construction spec, including tolerance;
                         # reproduce the exact helper-rendered label rather than its
                         # intentionally unitless compatibility metadata.
-                        value = spec.draft._number_with_units(
+                        value = dimension_draft._number_with_units(
                             annotation.measured_length,
                             spec.kwargs.get("tolerance"),
                         )

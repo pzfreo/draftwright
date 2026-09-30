@@ -1077,6 +1077,7 @@ class Drawing:
         slot=8.0,
         feature=None,
         measurement=None,
+        measurement_span=None,
         **kwargs,
     ):
         """Raw page-coordinate dimension placement **primitive** (#817).
@@ -1132,10 +1133,21 @@ class Drawing:
             view=view,
             feature=feature,
             measurement=measurement,
+            measurement_span=measurement_span,
         )
 
     # -- annotations ----------------------------------------------------------
-    def _add(self, obj, name=None, view=None, feature=None, measurement=None, *, cells=()):
+    def _add(
+        self,
+        obj,
+        name=None,
+        view=None,
+        feature=None,
+        measurement=None,
+        *,
+        cells=(),
+        measurement_span=None,
+    ):
         """Register an annotation so lint and export include it; returns ``obj``. The
         annotation-placement **primitive** (#817) — private, because the public door is the
         placement verbs (:meth:`callout`/:meth:`dimension`/:meth:`note`/:meth:`add_table`/…) and
@@ -1157,6 +1169,7 @@ class Drawing:
             feature,
             measurement,
             cells=cells,
+            measurement_span=measurement_span,
         )
 
     @deprecated(
@@ -1756,7 +1769,7 @@ class Drawing:
           survive; every lint-code/severity component must stay the same or improve,
           and at least one must improve. An infeasible candidate leaves the findings.
 
-        Only engine-built dimensions (carrying ``_dw_spec``) are re-placeable;
+        Only engine-built dimensions (carrying ``placement_spec``) are re-placeable;
         leaders, callouts and standards-judgement issues (e.g.
         ``missing_principal_dimension``) are left for the caller. Each side flip
         is attempted at most once; a clean drawing is returned unchanged.
@@ -1861,7 +1874,11 @@ class Drawing:
 
     def _pdf_text_runs(self):
         """Return semantic PDF text runs in page reading order."""
-        return pdf_text_runs(self.draft, self._registry.iter_named())
+        return pdf_text_runs(
+            self.draft,
+            self._registry.iter_named(),
+            dimension_spec_of=self._registry.dimension_spec_of,
+        )
 
     @observed_stage("export")
     def export(

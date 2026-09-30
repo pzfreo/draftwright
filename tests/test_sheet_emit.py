@@ -2163,7 +2163,7 @@ def _annotation_signature(dwg):
 
     rows = []
     for name, obj in dwg.iter_annotations():
-        spec = getattr(obj, "_dw_spec", None)
+        spec = getattr(obj, "placement_spec", None)
         if spec is not None:
             detail = (
                 tuple(_r(x) for x in spec.p1[:2]),
@@ -3764,13 +3764,13 @@ class TestTheScriptAccountsForEveryAnnotation:
         ns: dict = {"part": part}
         body = blanked.replace("\npart\n", "\n", 1)
         exec(compile(body[: body.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
-        survivors = {n for n, _ in ns["sheet"].build().iter_annotations()}
+        annotations = dict(ns["sheet"].build().iter_annotations())
+        survivors = set(annotations)
 
         # Two independent checks, because a name is not a classification. First: does the
         # thing print a measurement — the claim each furniture entry's ARGUMENT makes.
         # `_is_value_bearing` was introduced for exactly this and then never called; the list
         # was validated only by the length of its prose (#947 review).
-        annotations = dict(ns["sheet"].build().iter_annotations())
         smuggled = sorted(
             n
             for n in survivors

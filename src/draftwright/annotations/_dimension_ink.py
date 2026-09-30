@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
 
 from build123d import FontStyle
 from build123d_drafting.helpers import DEFAULT_FONT_PATH
 
 from draftwright._core import _dimension_head_bounds, _text_size
+from draftwright.registry import DimensionPlacementSpec
 
 
 def short_dimension_label_offset(p1, p2, draft, label):
@@ -157,7 +157,7 @@ class _DimensionInkProbe:
     label_bbox: tuple[float, float, float, float]
     segments: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
     box: tuple[float, float, float, float]
-    _dw_spec: Any
+    spec: DimensionPlacementSpec
 
 
 def _subtract_probe_span(spans, lo, hi):

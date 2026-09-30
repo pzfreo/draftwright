@@ -63,6 +63,7 @@ from draftwright.linting.section_recess_coverage import (
     lint_hex_pocket_coverage,
     lint_section_recess_coverage,
 )
+from draftwright.registry import PlacedDimension
 
 
 @dataclass
@@ -134,6 +135,18 @@ def _lint_structure(ctx: LintContext, aggregation: Any, display_decimals: Any) -
     # to every group emitted their findings once PER GROUP and made `by_code`, the
     # error/warning counts and the quality score a function of how annotations happened to be
     # grouped. With a single call there are no groups to double-count.
+    named_specs = {
+        id(obj): ctx.registry.dimension_spec_of(name)
+        for name, obj in ctx.registry.iter_named()
+        if isinstance(obj, PlacedDimension)
+    }
+    # The raw unnamed placement verb has no registry identity. Its owned construction
+    # spec is the only source for the same label/precision critique.
+    unnamed_specs = {
+        id(obj): obj.placement_spec
+        for obj in ctx.items
+        if isinstance(obj, PlacedDimension) and id(obj) not in named_specs
+    }
     issues = lint_drawing(
         ctx.items,
         page_bbox=ctx.page_bbox,
@@ -155,6 +168,7 @@ def _lint_structure(ctx: LintContext, aggregation: Any, display_decimals: Any) -
             for name, obj in ctx.registry.iter_named()
             if (scale := ctx.registry.scale_of(name)) is not None
         },
+        annotation_specs=named_specs | unnamed_specs,
     )
     return issues
 

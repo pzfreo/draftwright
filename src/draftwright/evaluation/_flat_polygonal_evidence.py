@@ -544,7 +544,9 @@ def _polygonal_stock_drawing_outcomes(stocks, drawing) -> list[Outcome]:
         if view is None or drawing.registry.view_of(name) != view:
             return False
         try:
-            observed = _dim_vertices(drawing.registry.named(name))
+            observed = _dim_vertices(
+                drawing.registry.named(name), drawing.registry.dimension_spec_of(name)
+            )
             expected = [drawing.at(view, *point) for point in feature.span]
             if len(observed) != 2:
                 return False

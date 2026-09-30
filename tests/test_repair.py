@@ -29,8 +29,8 @@ def test_same_batch_rebuild_preserves_dimension_producer_riders_issue_1931(monke
         ),
     ]
     for value, (_name, dim) in zip((0.5, 2.0), natural, strict=True):
-        dim._dw_spec.label_value = value
-        dim._dw_spec.authored_side = "above"
+        dim.placement_spec.label_value = value
+        dim.placement_spec.authored_side = "above"
 
     def crossings(batch):
         left, right = (dim for _name, dim in batch)
@@ -51,8 +51,8 @@ def test_same_batch_rebuild_preserves_dimension_producer_riders_issue_1931(monke
     assert not crossings(placed)
     for (_name, before), (_placed_name, after) in zip(natural, placed, strict=True):
         assert after is not before, "the fixture must exercise a rebuilt dimension"
-        assert after._dw_spec.label_value == before._dw_spec.label_value
-        assert after._dw_spec.authored_side == before._dw_spec.authored_side
+        assert after.placement_spec.label_value == before.placement_spec.label_value
+        assert after.placement_spec.authored_side == before.placement_spec.authored_side
 
 
 class TestRepair:
@@ -71,8 +71,8 @@ class TestRepair:
         assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
         dwg.repair()
-        assert dwg.get_annotation("ov1")._dw_spec.distance == 8
-        assert dwg.get_annotation("ov2")._dw_spec.distance == 8
+        assert dwg.get_annotation("ov1").placement_spec.distance == 8
+        assert dwg.get_annotation("ov2").placement_spec.distance == 8
         assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
     def test_repair_dim_inside_part_flips_side(self, fresh_drawing):
@@ -84,7 +84,7 @@ class TestRepair:
 
         dwg = fresh_drawing("box_60x40x20")
         dim = dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="INSIDE"), "x")
-        assert dim._dw_spec.side == "above"
+        assert dim.placement_spec.side == "above"
 
         issue = LintIssue(
             severity="warning",
@@ -94,8 +94,30 @@ class TestRepair:
         assert _repair_dim_inside_part(dwg, issue) is True
         new = dwg.get_annotation("x")
         assert new is not dim
-        assert new._dw_spec.side == "below"
+        assert new.placement_spec.side == "below"
         assert new in dwg.items and dim not in dwg.items
+
+    def test_unnamed_place_dim_can_flip_its_side(self, fresh_drawing):
+        from draftwright.repair import _repair_dim_inside_part
+
+        dwg = fresh_drawing("box_60x40x20", auto_dims=False)
+        with pytest.warns(DeprecationWarning, match="place_dim"):
+            dim = dwg.place_dim(
+                (0, 0, 0), (40, 0, 0), "above", "front", dwg.draft, label="UNNAMED"
+            )
+        assert dim in dwg.items
+        assert all(obj is not dim for _name, obj in dwg.iter_annotations())
+        issue = LintIssue(
+            severity="warning",
+            message="Dim 'UNNAMED': annotation bbox overlaps part outline by 40%",
+            code="dim_inside_part",
+        )
+        assert _repair_dim_inside_part(dwg, issue) is True
+        replacement = next(
+            obj for obj in dwg.items if obj is not dim and getattr(obj, "label", None) == "UNNAMED"
+        )
+        assert replacement.placement_spec.side == "below"
+        assert dim not in dwg.items
 
     def test_repair_inside_part_attempted_once_no_oscillation(self, fresh_drawing):
         # A side flip that does not help must not be re-flipped (oscillation).
@@ -115,7 +137,7 @@ class TestRepair:
         dwg.lint = lambda **kw: [issue]
         dwg.repair(max_iter=5)
         # Flipped exactly once → ends on "below", not back to "above".
-        assert dwg.get_annotation("x")._dw_spec.side == "below"
+        assert dwg.get_annotation("x").placement_spec.side == "below"
 
     def test_repair_idempotent_on_clean_drawing(self, fresh_drawing):
         # build_drawing already repairs by default, so a second pass is a no-op:
@@ -155,13 +177,13 @@ class TestRepair:
         assert before.unknown == (("sheet_frame", "measurement_identity_unavailable"),)
         target = drawing.get_annotation("m_env_width")
         assert any(claim.annotation == "m_env_width" for claim in before.claims)
-        assert target._dw_spec.distance == 8.0
+        assert target.placement_spec.distance == 8.0
 
         drawing.repair()
 
         repaired = drawing.get_annotation("m_env_width")
         assert repaired is not target
-        assert repaired._dw_spec.distance == 15.0
+        assert repaired.placement_spec.distance == 15.0
         assert drawing.lint(physical=False) == []
         after = drawing.measurement_snapshot()
         assert after.unknown == before.unknown
@@ -196,7 +218,7 @@ class TestRepair:
         dwg.lint = fake_lint
         dwg.repair(max_iter=3)
         assert dwg.get_annotation("x") is orig
-        assert dwg.get_annotation("x")._dw_spec.distance == 8
+        assert dwg.get_annotation("x").placement_spec.distance == 8
         assert calls["n"] == 1
 
     def test_build_drawing_repair_flag_is_respected(self, fresh_drawing):
@@ -211,4 +233,4 @@ class TestRepair:
         ]
         # The factory tags engine dims so repair can re-place them.
         d = _dim((0, 0, 0), (40, 0, 0), "above", 8, a.draft, label="Z")
-        assert d._dw_spec.side == "above"
+        assert d.placement_spec.side == "above"

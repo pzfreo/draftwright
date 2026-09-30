@@ -80,10 +80,11 @@ exemption, supplying that live binding to the pattern owner.
 Shared three-decimal correspondence rounding, exact built-in finite-real validation, and
 common profile/frame vector arithmetic live in
 the rank-0 `contract_values` leaf;
-shared registry evidence, outcome checks, exact three-coordinate point rounding, and blind-slot value validation live inside
-rank-2 `linting/_coverage_common`; `linting/_registry` owns the named physical-requirement
-carrier record. Rank-0 `measurement_support` keeps the shared witness and location predicates
-without a package import.
+shared outcome checks, exact three-coordinate point rounding, and blind-slot value
+validation live inside rank-2 `linting/_coverage_common`; `linting/_registry` owns the
+exact measurement-outcome index and named physical-requirement carrier record.
+Rank-0 `measurement_support` keeps the shared witness and location predicates without
+a package import.
 Within rank-7 `evaluation/`, `_turned_step_evidence.py` owns turned-step IR and drawing
 evidence, and `_pocket_evidence.py` owns lone-pocket and pocket-pattern evidence;
 `_groove_evidence.py` owns groove correspondence, declaration, and drawing evidence;

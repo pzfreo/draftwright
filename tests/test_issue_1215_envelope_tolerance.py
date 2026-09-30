@@ -11,7 +11,7 @@ and `_compile_overall_height` built the ladder rung with no tolerance, so the he
 to render even once its renderer asked.
 
 **These tests assert the LABEL, and that is the whole point.** The first version of this fix
-passed `Dimension(tolerance=...)` and asserted on the constructor argument via `_dw_spec`. That
+passed `Dimension(tolerance=...)` and asserted on the constructor argument via `placement_spec`. That
 renders nothing — helpers do
 `rendered = label if label is not None else draft._number_with_units(measured, tolerance)`, so an
 explicit label DISCARDS the tolerance, and every dimension here passes one because the compiler

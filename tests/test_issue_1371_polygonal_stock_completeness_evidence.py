@@ -61,6 +61,15 @@ def _annotation_for_parameter(drawing, parameter: str) -> str:
     )
 
 
+def _builder_with_sheet_bound():
+    import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
+
+    # A lazy Sheet import during the monkeypatch would retain the patched builder.
+    assert sheet_module.build_drawing is builder.build_drawing
+    return builder
+
+
 def test_versioned_polygonal_stock_corpus_covers_every_required_case_class() -> None:
     corpus = load_corpus(CORPUS)
 
@@ -952,8 +961,7 @@ def test_deleting_generated_polygonal_stock_lines_loses_generated_code_credit(
 
 @pytest.mark.parametrize("parameter", ("polygon_across_flats.length", "stock_length.length"))
 def test_wrong_polygonal_stock_ink_loses_drawing_credit(monkeypatch, parameter) -> None:
-    import draftwright.builder as builder
-
+    builder = _builder_with_sheet_bound()
     original = builder.build_drawing
 
     def with_wrong_ink(*args, **kwargs):
@@ -967,8 +975,7 @@ def test_wrong_polygonal_stock_ink_loses_drawing_credit(monkeypatch, parameter) 
 
 
 def test_moving_polygonal_stock_leader_off_its_flat_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
+    builder = _builder_with_sheet_bound()
     original = builder.build_drawing
 
     def with_moved_tip(*args, **kwargs):
@@ -985,16 +992,22 @@ def test_moving_polygonal_stock_leader_off_its_flat_loses_drawing_credit(monkeyp
 def test_moving_stock_length_witness_off_its_cap_span_loses_drawing_credit(
     monkeypatch,
 ) -> None:
-    import draftwright.builder as builder
-
+    builder = _builder_with_sheet_bound()
     original = builder.build_drawing
 
     def with_shifted_witness(*args, **kwargs):
         drawing = original(*args, **kwargs)
         name = _annotation_for_parameter(drawing, "stock_length.length")
-        spec = drawing.registry.named(name)._dw_spec
-        spec.p1 = (spec.p1[0] + 7.0, spec.p1[1] + 9.0)
-        spec.p2 = (spec.p2[0] + 7.0, spec.p2[1] + 9.0)
+        from dataclasses import replace
+
+        identity = drawing.registry.identity_of(name)
+        spec = identity["dimension_spec"]
+        identity["dimension_spec"] = replace(
+            spec,
+            p1=(spec.p1[0] + 7.0, spec.p1[1] + 9.0),
+            p2=(spec.p2[0] + 7.0, spec.p2[1] + 9.0),
+        )
+        drawing.registry.reapply(name, identity)
         return drawing
 
     monkeypatch.setattr(builder, "build_drawing", with_shifted_witness)
@@ -1027,7 +1040,9 @@ def test_finished_polygonal_stock_ink_fails_closed_on_malformed_evidence(
     elif corruption == "af_geometry":
         drawing.registry.named(af_name)._tip_local = None
     else:
-        drawing.registry.named(length_name)._dw_spec = None
+        identity = drawing.registry.identity_of(length_name)
+        identity["dimension_spec"] = None
+        drawing.registry.reapply(length_name, identity)
 
     assert _polygonal_stock_drawing_outcomes(tuple(recognition.polygonal_stock), drawing) == [
         "unsupported"

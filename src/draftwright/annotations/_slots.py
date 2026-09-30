@@ -53,7 +53,7 @@ class _SlotDimensionBuilder:
         )
         if self.shared_value is not None:
             # A shared width counts slots; its witness spans one width.
-            dim._dw_spec.label_value = self.shared_value
+            dim.placement_spec.label_value = self.shared_value
         return dim
 
 

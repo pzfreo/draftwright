@@ -597,7 +597,7 @@ def crossable_region(
     Exact ``label_polygon`` metadata wins. Axis-aligned labels use their AABB.
     A diagonal dimension with no exact polygon is excluded because clipping its
     inflated AABB produces known false positives; the public dimension-line
-    segments classify it, never the optional private ``_dw_spec``.
+    segments classify it, never the optional private ``placement_spec``.
     """
     if not _is_box(label_box) or shorter_side(label_box) <= 0.0:
         if report and not _is_box(label_box):

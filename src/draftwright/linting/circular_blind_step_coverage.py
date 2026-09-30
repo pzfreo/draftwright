@@ -17,10 +17,10 @@ from quiddity import CircularBlindStep, RecognitionResult
 
 from draftwright._geometry import quantised_radius_agrees, quantised_span_agrees
 from draftwright.linting._coverage_common import rounded_point as _point
+from draftwright.linting._coverage_common import state as _state
 from draftwright.linting._registry import (
     RequirementCarrier,
     measurement_outcome_index,
-    satisfaction_of,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import LintIssue
@@ -264,25 +264,15 @@ def circular_blind_step_requirement_outcomes(
             )
             continue
         for parameter in parameters:
-            identity = (feature, parameter)
-            if identity in placed:
-                state: CircularBlindStepRequirementState = "placed"
-            elif identity in satisfied:
-                state = "satisfied_by_structured_note"
-            elif identity in suppressed:
-                state = "suppressed"
-            elif identity in dropped:
-                state = "dropped"
-            else:
-                associated = registry.names_for_feature(feature)
-                state = (
-                    "unverifiable"
-                    if any(
-                        not registry.measurement_of(name) and not satisfaction_of(registry, name)
-                        for name in associated
-                    )
-                    else "missing"
-                )
+            state: CircularBlindStepRequirementState = _state(
+                feature,
+                parameter,
+                placed=placed,
+                satisfied=satisfied,
+                suppressed=suppressed,
+                dropped=dropped,
+                registry=registry,
+            )
             outcomes.append(
                 CircularBlindStepRequirementOutcome(
                     _source_at(source),

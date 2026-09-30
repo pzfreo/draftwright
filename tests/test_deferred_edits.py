@@ -363,8 +363,8 @@ class TestDeferredEdits:
 
         assert "user_width" in dwg.annotations_of(env)
         assert dwg.registry.is_pinned("user_width")
-        assert dwg.get_annotation("user_width")._dw_spec.side == "below"
-        assert dwg.get_annotation("user_width")._dw_spec.distance == 12
+        assert dwg.get_annotation("user_width").placement_spec.side == "below"
+        assert dwg.get_annotation("user_width").placement_spec.distance == 12
         assert dwg._intents == []
 
     def test_finalize_resolves_an_implicit_side_before_corridor_routing(self, tmp_path):
@@ -389,7 +389,7 @@ class TestDeferredEdits:
             )
 
         assert dwg.registry.is_pinned("implicit_side_width")
-        assert dwg.get_annotation("implicit_side_width")._dw_spec.side == "above"
+        assert dwg.get_annotation("implicit_side_width").placement_spec.side == "above"
         candidate = next(
             candidate
             for solve in dwg.solve_trace.solves

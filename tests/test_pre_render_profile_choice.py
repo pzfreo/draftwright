@@ -96,7 +96,7 @@ def test_default_sparse_authored_measurement_keeps_its_requested_corridor():
 
     assert drawing.annotation_scheme_decision["pre_render_choice"]["profile"] == "iso-growth"
     mark = drawing.get_annotation("pmi_z_0")
-    assert mark is not None and mark._dw_spec.side == "left"
+    assert mark is not None and mark.placement_spec.side == "left"
     assert not [issue for issue in drawing.lint() if issue.code == "pmi_dropped"]
 
 

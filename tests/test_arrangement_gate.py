@@ -7,30 +7,21 @@ choice is made once and carried, and a candidate that fits geometrically is stil
 compiling it loses a requirement.
 
 `stacked-iso` puts the isometric in the title block's column instead of giving it a column of
-its own, which wins back that column's width. The engine will take it only when it costs
-nothing — three things measured during #1130 say why every part of that sentence is load
-bearing, and each has a test below:
+its own, which wins back that column's width. The checks below pin three current rules:
 
-* it must not change the SCALE. Left to compete freely the alternative reaches 2:1 on the
-  dense plate where `columns` reaches 1:1, and the enlarged views leave the location dims
-  nowhere to go. Packing is not allowed to bid up legibility.
-* it must not be re-derived per stage. `_layout_geometry` is one shared authority, but scale
-  selection passes it ESTIMATED strip depths and placement MEASURED ones, so resolving there
-  lets the stages disagree about the same sheet.
-* fitting is not preserving. Even at the same scale a smaller sheet has less free area, and
-  `centered_rebate` and `scattered_plate` lose dimensions on one. Only a real compile can
-  tell, so the gate measures rather than predicts (ADR 2 (was 0014 Amdt 3)).
+* Packing may select a smaller sheet, but may not bid up the chosen scale.
+* Placement and a forced repack use the selected arrangement.
+* A geometrically fitting alternative is rejected when its finished drawing loses a
+  requirement. The gate measures this rather than predicting it (ADR 2).
 """
 
-import itertools
 from types import SimpleNamespace
 
 import pytest
-from build123d import Axis, Box, Cylinder, Pos, chamfer
+from build123d import Axis, Box, Pos, chamfer
 
 import draftwright.analysis as analysis_mod
 import draftwright.builder as builder_mod
-import draftwright.compose as compose_mod
 from draftwright import build_drawing
 from draftwright.compose import _layout_geometry, choose_scale
 from draftwright.view_plan import ARRANGEMENTS, AUTOMATIC_ARRANGEMENTS, ScalePick, arrangement_of
@@ -45,14 +36,6 @@ def _chamfered():
     plate = Box(90, 60, 20)
     edge = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)[-1]
     return chamfer(edge, 12)
-
-
-def _dense_plate():
-    """`test_make_drawing`'s crowded plate: 24 Z-holes in 5 diameter groups."""
-    part = Box(70, 50, 12)
-    for i, (gx, gy) in enumerate(itertools.product([-25, -15, -5, 5, 15, 25], [-15, -5, 5, 15])):
-        part -= Pos(gx, gy, 0) * Cylinder(1.0 + (i % 5) * 0.4, 20)
-    return part
 
 
 def _centered_rebate():
@@ -155,48 +138,6 @@ class TestTheDecisionIsMadeOnceAndCarried:
         assert drawing.arrangement_decision["chosen"] == "stacked-iso"
         assert (drawing.page_w, drawing.page_h) == A4[:2]
         assert choose_scale(90.0, 60.0, 20.0, arrangements=ONLY_PREFERRED)[1:3] == A3[:2]
-
-    @pytest.mark.xfail(
-        reason=(
-            "The DEMONSTRATION no longer demonstrates, though the decision it argues "
-            "for is untouched. `_dense_plate` on the four-row ISO 7200 sheet re-derives "
-            "to the same lint set, so the difference this asserts is empty. The PAGE is "
-            "the same 420x297, but the scale is not: the perturbed build picks 2.0 on "
-            "main and 1.0 here, so the usable area did shrink and that is exactly why "
-            "the demonstration stopped working — an earlier version of this reason "
-            "claimed the opposite. Needs a fixture that still shows the loss, not an "
-            "inverted assertion: 'they happen to agree here' argues nothing."
-        ),
-        strict=True,
-    )
-    def test_re_deriving_per_stage_instead_loses_requirements_on_an_unchanged_sheet(
-        self, monkeypatch
-    ):
-        # Why the decision is carried rather than recomputed. `_layout_geometry` is a single
-        # shared authority, but sharing a function is not sharing an INPUT: selection resolves
-        # against estimated strip depths and placement against measured ones. Resolving at
-        # each call site costs the dense plate location requirements on a sheet whose size
-        # does not change at all — so this is not a smaller-sheet effect. The physical
-        # The semantic critique and compiler outcome both report this real loss.  The two
-        # codes are intentionally retained: one is physical coverage, the other is the exact
-        # failed compiler requirement.
-        baseline = build_drawing(_dense_plate())
-
-        original = compose_mod._layout_geometry
-
-        def resolving(*args, **kwargs):
-            kwargs["arrangement"] = "auto"
-            return original(*args, **kwargs)
-
-        for module in (compose_mod, analysis_mod, builder_mod):
-            monkeypatch.setattr(module, "_layout_geometry", resolving)
-
-        drawing = build_drawing(_dense_plate())
-        assert (drawing.page_w, drawing.page_h) == (baseline.page_w, baseline.page_h)
-        assert _lint_codes(drawing) - _lint_codes(baseline) == {
-            "feature_not_located",
-            "location_ref_dropped",
-        }
 
 
 class TestTheRepackLoopComposesUnderTheCarriedArrangement:

@@ -8,7 +8,7 @@ clear of the views + title block at build, and lint-checked.
 import pytest
 from build123d import Box, Cylinder, Location, Pos, Rectangle
 
-from draftwright import Sheet, build_drawing
+from draftwright import Drawing, Sheet, build_drawing
 
 
 def _sheet():
@@ -18,6 +18,21 @@ def _sheet():
     s.envelope()
     s.hole(Pos(0, 0, 0) * Cylinder(4, 20))
     return s
+
+
+def test_sheet_without_tables_reuses_build_placement_lint_issue_1945(monkeypatch):
+    original_lint = Drawing.lint
+    calls = []
+
+    def counted_lint(self, *, physical=True):
+        calls.append((self, physical))
+        return original_lint(self, physical=physical)
+
+    monkeypatch.setattr(Drawing, "lint", counted_lint)
+    drawing = Sheet(Box(20, 15, 10)).authored_dimensions().build()
+
+    assert [physical for owner, physical in calls if owner is drawing] == [False]
+    assert drawing.recognition() is None
 
 
 def test_notes_block_places_lint_clean():

@@ -803,7 +803,7 @@ def test_exact_optional_detail_failure_still_closes_the_physical_leg_ledger() ->
     assert drawing.scale == 1
     assert name in drawing.annotations(), drawing.annotations()
     (measurement,) = drawing.registry.measurement_of(name)
-    span = drawing.registry.named(name)._dw_measurement_span
+    span = drawing.registry.measurement_span_of(name)
     drawing.remove(name)
     drawing.registry.record_issue(
         LintIssue(
@@ -904,8 +904,8 @@ def test_public_dimension_replacement_preserves_legacy_occurrence_span(deferred)
             name="replacement_width",
         )
 
-    replacement = drawing.registry.named("replacement_width")
-    assert replacement._dw_measurement_span == width.span
+    assert drawing.registry.named("replacement_width") is not None
+    assert drawing.registry.measurement_span_of("replacement_width") == width.span
     plan = compile_dimensions(drawing.model())
     assert [
         outcome.state
@@ -1733,16 +1733,18 @@ def test_malformed_compiler_content_cannot_certify_a_one_mm_legacy_leg(
     position_span = ((5, 0, 0), (20, 0, 0))
     registry = AnnotationRegistry()
     registry.add(
-        SimpleNamespace(label="1", _dw_measurement_span=rendered_height_span),
+        SimpleNamespace(label="1"),
         "height_plate",
         "front",
         measurement=height_id,
+        measurement_span=rendered_height_span,
     )
     registry.add(
-        SimpleNamespace(label="15", _dw_measurement_span=position_span),
+        SimpleNamespace(label="15"),
         "position_plate",
         "front",
         measurement=position_id,
+        measurement_span=position_span,
     )
     plan = RenderableDimensionPlan(
         ladders=(

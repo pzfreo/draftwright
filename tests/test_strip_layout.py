@@ -777,7 +777,7 @@ def test_candidate_reuses_horizontal_tier_only_for_disjoint_dimensions():
                 dwg, strip, "plan", "y", candidates, tier=5.0, force=True, ctx=dwg
             )
         assert left == []
-        return {name: dim._dw_spec.distance for name, dim in dwg.added}
+        return {name: dim.placement_spec.distance for name, dim in dwg.added}
 
     baseline = run(False)
     candidate = run(True)
@@ -1084,7 +1084,7 @@ def test_strip_candidate_avoids_foreign_view_ink_in_its_page_corridor_issue_1781
         return _dim((5.0, 0.0, 0.0), (25.0, 0.0, 0.0), "above", pos, dwg.draft, label="20")
 
     natural = build(8.0)
-    assert natural._dw_spec.distance == 8.0
+    assert natural.placement_spec.distance == 8.0
     assert any(
         min(first[1], second[1]) <= 8.0 <= max(first[1], second[1])
         and max(first[0], second[0]) >= 5.0
@@ -1105,7 +1105,7 @@ def test_strip_candidate_avoids_foreign_view_ink_in_its_page_corridor_issue_1781
 
     assert left == []
     placed = dict(dwg.added)["plan_dimension"]
-    assert placed._dw_spec.distance == 15.0, (
+    assert placed.placement_spec.distance == 15.0, (
         "the bounded emit solve must move the dimension one established tier"
     )
 
@@ -1373,7 +1373,7 @@ def _plan_above_ladder(dwg):
     out = []
     for name in dwg.annotations():
         o = dwg.get_annotation(name)
-        spec = getattr(o, "_dw_spec", None)
+        spec = getattr(o, "placement_spec", None)
         if spec is None or dwg.view_of(name) != "plan":
             continue
         if abs(spec.p1[1] - spec.p2[1]) > 1e-6:
@@ -1391,14 +1391,14 @@ def test_corridor_dedups_coincident_hole_and_slot_span():
     names = {n for n, _ in ladder}
     assert "m_slot0_pos" not in names, "coincident slot position was not deduped away (#345)"
     # No two datum-referenced dims share a measured span (the datum is the leftmost origin).
-    datum_x = min(min(o._dw_spec.p1[0], o._dw_spec.p2[0]) for _, o in ladder)
+    datum_x = min(min(o.placement_spec.p1[0], o.placement_spec.p2[0]) for _, o in ladder)
     spans = [
         (
-            round(min(o._dw_spec.p1[0], o._dw_spec.p2[0]), 1),
-            round(max(o._dw_spec.p1[0], o._dw_spec.p2[0]), 1),
+            round(min(o.placement_spec.p1[0], o.placement_spec.p2[0]), 1),
+            round(max(o.placement_spec.p1[0], o.placement_spec.p2[0]), 1),
         )
         for _, o in ladder
-        if abs(min(o._dw_spec.p1[0], o._dw_spec.p2[0]) - datum_x) < 0.5
+        if abs(min(o.placement_spec.p1[0], o.placement_spec.p2[0]) - datum_x) < 0.5
     ]
     assert len(spans) == len(set(spans)), f"duplicate datum span in the plan-above ladder: {spans}"
 
@@ -1422,7 +1422,7 @@ def test_corridor_orders_location_ladder_monotonically():
         if not name.startswith("m_locx"):
             continue
         o = dwg.get_annotation(name)
-        span = abs(o._dw_spec.p2[0] - o._dw_spec.p1[0])
+        span = abs(o.placement_spec.p2[0] - o.placement_spec.p1[0])
         rungs.append((span, o.bounding_box().max.Y))  # tier proxy: the dim line's page Y
     assert len(rungs) >= 3, f"need >=3 location rungs to test ordering, got {len(rungs)}"
     tiers = [t for _, t in sorted(rungs)]  # ordered by span
@@ -1491,7 +1491,7 @@ def test_front_right_baseline_keeps_sizes_inner_then_orders_datum_heights_issue_
     assert len([name for name in names if name.startswith("dim_loc_front_z")]) == 1
     assert names.count("dim_height") == 1
     assert {drawing.view_of(name) for name in names} == {"front"}
-    assert {drawing.get_annotation(name)._dw_spec.side for name in names} == {"right"}
+    assert {drawing.get_annotation(name).placement_spec.side for name in names} == {"right"}
 
     outward = sorted(names, key=lambda name: drawing.get_annotation(name).bounding_box().max.X)
     assert [drawing.get_annotation(name).label for name in outward] == [
@@ -1550,7 +1550,9 @@ def _pitch_dim_over_centerline(centerline_factory, centerline_name):
     # the test passed its own precondition by accident. A dry placement on a throwaway
     # drawing costs one build and keeps both variants pinned to the real strip (#1130).
     probe = _place(build_drawing(part), None)
-    dim_cy = probe._dw_spec.p1[1] + probe._dw_spec.distance  # label row, not the hole row
+    dim_cy = (
+        probe.placement_spec.p1[1] + probe.placement_spec.distance
+    )  # label row, not the hole row
 
     dwg = build_drawing(part)
     dim = _place(
@@ -1576,7 +1578,7 @@ def test_pitch_dim_label_clears_a_thin_vertical_centerline():
     dim, issues = _pitch_dim_over_centerline(
         lambda cx, cy: Centerline((cx, cy - 75, 0), (cx, cy + 75, 0)), "test_centerline"
     )
-    assert dim._dw_spec.kwargs.get("label_offset_x", 0.0) != 0.0, "label was not shifted"
+    assert dim.placement_spec.kwargs.get("label_offset_x", 0.0) != 0.0, "label was not shifted"
     assert issues == [], f"label still overlaps the centerline: {[i.message for i in issues]}"
 
 
@@ -1589,7 +1591,7 @@ def test_pitch_dim_label_clears_a_bolt_circle_centerline():
     dim, issues = _pitch_dim_over_centerline(
         lambda cx, cy: CenterlineCircle((cx, cy), 30), "test_circle"
     )
-    assert dim._dw_spec.kwargs.get("label_offset_x", 0.0) != 0.0, "label was not shifted"
+    assert dim.placement_spec.kwargs.get("label_offset_x", 0.0) != 0.0, "label was not shifted"
     assert issues == [], f"label still overlaps the bolt circle: {[i.message for i in issues]}"
 
 

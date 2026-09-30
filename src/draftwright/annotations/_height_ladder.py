@@ -71,10 +71,9 @@ class _HeightRungCandidate:
         )
         if self.per_unit is not None:
             # This N× label measures one rise, unlike a hole pitch over a whole run.
-            dim._dw_spec.label_value = self.per_unit
-        dim._dw_measurement_span = self.measurement_span
+            dim.placement_spec.label_value = self.per_unit
         if self.authored_side is not None:
-            dim._dw_spec.authored_side = self.authored_side
+            dim.placement_spec.authored_side = self.authored_side
         return dim
 
     def footprint(self, pos: float):
@@ -215,6 +214,7 @@ def register_height_ladder_candidates(
                 if overall is not None
                 else None,
                 measurement=mid,  # the rung's own compiled id
+                measurement_span=measurement_span,
                 footprint=rung.footprint,
             ),
         )
@@ -249,7 +249,7 @@ def _register_short_rungs(
         # by another route, and it dropped the tolerance.
         label = rung.final_label + _tol_suffix(rung.tolerance, draft)
 
-        def _build_left(pos, zbase=zbase, ztop=ztop, label=label, measurement_span=rung.span):
+        def _build_left(pos, zbase=zbase, ztop=ztop, label=label):
             dim = _dim(
                 (left_edge, zbase, 0),
                 (left_edge, ztop, 0),
@@ -258,7 +258,6 @@ def _register_short_rungs(
                 draft,
                 label=label,
             )
-            dim._dw_measurement_span = measurement_span
             return dim
 
         def _drop_left(nm, measurement=rung.id, measurement_span=rung.span):
@@ -295,6 +294,7 @@ def _register_short_rungs(
                 require_clear_ink=True,
                 feature=step,
                 measurement=rung.id,
+                measurement_span=rung.span,
                 footprint=lambda pos, zbase=zbase, ztop=ztop, label=label: dim_footprint(
                     (left_edge, zbase, 0),
                     (left_edge, ztop, 0),

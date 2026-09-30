@@ -6,10 +6,30 @@ from types import SimpleNamespace
 
 import pytest
 
-from draftwright.registry import AnnotationRegistry, CandidateRegion, SectionMark
+from draftwright.registry import (
+    AnnotationRegistry,
+    CandidateRegion,
+    DimensionPlacementSpec,
+    PlacedDimension,
+    RegisteredDimensionSpec,
+    SectionMark,
+)
 
 # Pure unit tests — no OCC builds — so they join the build-light `smoke` set (#153).
 pytestmark = pytest.mark.smoke
+
+
+def _foreign_helper_metadata_sites(root: Path) -> list[str]:
+    marker = "_" + "dw_"
+    return sorted(str(path) for path in root.rglob("*.py") if marker in path.read_text())
+
+
+def test_no_foreign_helper_metadata_side_channel_issue_1931(tmp_path):
+    source = Path(__file__).resolve().parents[1] / "src"
+    assert _foreign_helper_metadata_sites(source) == []
+    # The guard must reject a newly introduced attribute string.
+    (tmp_path / "foreign.py").write_text('setattr(annotation, "_' + 'dw_next", value)')
+    assert _foreign_helper_metadata_sites(tmp_path) == [str(tmp_path / "foreign.py")]
 
 
 def test_measurement_presence_requires_the_live_exact_owner_and_parameter():
@@ -121,7 +141,9 @@ def test_detail_scale_follows_live_annotation_identity():
     assert r.scale_of("detail") is None
 
 
-@pytest.mark.parametrize("attribute", ["_dw_candidate_region", "_dw_scale"])
+@pytest.mark.parametrize(
+    "attribute", ["_dw_candidate_region", "_dw_scale", "_dw_measurement_span"]
+)
 def test_registry_metadata_never_returns_to_helper_object_attributes(attribute):
     source = Path(__file__).parents[1] / "src" / "draftwright"
     offenders = [
@@ -130,6 +152,40 @@ def test_registry_metadata_never_returns_to_helper_object_attributes(attribute):
         if attribute in path.read_text(encoding="utf-8")
     ]
     assert offenders == []
+
+
+def test_measurement_span_follows_name_across_replacement_and_rollback():
+    registry = AnnotationRegistry()
+    original = SimpleNamespace()
+    span = ((0, 0, 0), (4, 0, 0))
+    registry.add(original, "dimension", "front", measurement_span=span)
+    assert registry.measurement_span_of("dimension") == span
+    assert not hasattr(original, "_dw_measurement_span")
+
+    snapshot = registry.snapshot()
+    identity = registry.identity_of("dimension")
+    registry.replace_object(original, object())
+    assert registry.measurement_span_of("dimension") == span
+    registry.remove("dimension")
+    assert registry.measurement_span_of("dimension") is None
+    with pytest.raises(KeyError):
+        registry.mark_measurement_span("dimension", span)
+
+    registry.add(original, "dimension", "plan")
+    registry.reapply("dimension", identity)
+    assert registry.measurement_span_of("dimension") == span
+    registry.add(object(), "dimension", "front")
+    assert registry.measurement_span_of("dimension") is None
+    registry.restore(snapshot)
+    assert registry.named("dimension") is original
+    assert registry.measurement_span_of("dimension") == span
+
+    registry.add(object(), "other", "plan", measurement_span=span)
+    registry.clear(("dimension",))
+    assert registry.measurement_span_of("dimension") == span
+    assert registry.measurement_span_of("other") is None
+    registry.reapply("dimension", {"measurement_span": None})
+    assert registry.measurement_span_of("dimension") is None
 
 
 def test_remove_forgets_object_view_pin():
@@ -270,8 +326,10 @@ def test_identity_of_reapply_round_trips_every_axis():
         "cells": (),
         "satisfaction": (),
         "section": None,
+        "dimension_spec": None,
         "candidate_region": None,
         "scale": None,
+        "measurement_span": None,
         "pinned": False,
     }
 
@@ -358,6 +416,74 @@ def test_section_mark_lifecycle_issue_1931():
     r.mark_section("line", mark)
     r.clear(("line",))
     assert r.section_of("line") is mark
+
+
+def test_registered_dimension_spec_uses_live_identity_and_survives_transactions_issue_1931():
+    class EqualShape(PlacedDimension):
+        def __init__(self, side):
+            self.placement_spec = DimensionPlacementSpec(
+                [0, 0, 0],
+                [10, 0, 0],
+                side,
+                8.0,
+                SimpleNamespace(
+                    font_size=3.0,
+                    font="Arial",
+                    font_style=SimpleNamespace(name="REGULAR"),
+                ),
+                {"label": "10"},
+            )
+
+        def __eq__(self, other):
+            return isinstance(other, EqualShape)
+
+        def __hash__(self):
+            return 1
+
+    r = AnnotationRegistry()
+    original, replacement, equal_peer = (
+        EqualShape("above"),
+        EqualShape("below"),
+        EqualShape("left"),
+    )
+    r.add(original, "dim", "front")
+    r.add(equal_peer, "peer", "front")
+    spec = r.dimension_spec_of("dim")
+    assert isinstance(spec, RegisteredDimensionSpec)
+    assert spec.side == "above"
+    assert isinstance(original.placement_spec.p1, list)
+    assert spec.p1 == (0.0, 0.0, 0.0)
+    assert spec.p2 == (10.0, 0.0, 0.0)
+    assert spec.live_draft is original.placement_spec.draft
+    assert spec.live_draft.font_size == 3.0
+    original.placement_spec.p1[0] = 7
+    original.placement_spec.p2[0] = 20
+    original.placement_spec.draft.font_size = 8.0
+    assert spec.p1 == (0.0, 0.0, 0.0)
+    assert spec.p2 == (10.0, 0.0, 0.0)
+    assert spec.live_draft.font_size == 8.0
+    original.placement_spec.side = "right"
+    original.placement_spec.kwargs["label"] = "changed"
+    assert spec.side == "above" and spec.kwargs["label"] == "10"
+    with pytest.raises(TypeError):
+        spec.kwargs["label"] = "changed"
+
+    snapshot, identity = r.snapshot(), r.identity_of("dim")
+    r.replace_object(original, replacement)
+    assert r.dimension_spec_of("dim").side == "below"
+    assert r.dimension_spec_of("peer").side == "left"
+    r.restore(snapshot)
+    assert r.named("dim") is original and r.dimension_spec_of("dim") is spec
+    r.remove("dim")
+    assert r.dimension_spec_of("dim") is None
+    r.add(original, "dim", "front")
+    r.reapply("dim", identity)
+    assert r.dimension_spec_of("dim") is spec
+    r.add(object(), "dim", "front")
+    assert r.dimension_spec_of("dim") is None
+    r.add(equal_peer, "peer", "front")
+    r.clear(("dim",))
+    assert r.dimension_spec_of("peer") is None
 
 
 def test_identity_of_covers_every_per_name_axis():

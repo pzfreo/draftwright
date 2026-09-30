@@ -38,6 +38,7 @@ from draftwright._core import (
 from draftwright._geometry import _leader_ink_crosses_box
 from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations import _patterns
+from draftwright.annotations import leaders as _leader_engine
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
     Escalation,
@@ -1885,7 +1886,8 @@ def _place_immediate_queue(
     for s, _elbow_y, leader in sorted(placed, key=lambda p: p[0][4]):
         _locs, dia, callout, feat, _ny, rep = s
         name = _hc_name(only, view, i, hc_used)
-        ctx.place(
+        _leader_engine.commit_feature_leader(
+            ctx,
             leader,
             name,
             view=view,

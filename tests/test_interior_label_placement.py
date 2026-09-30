@@ -12,6 +12,7 @@ import pytest
 from draftwright import build_drawing
 from draftwright.annotations import _common
 from draftwright.linting.quality import is_hard_layout_issue
+from draftwright.registry import DimensionPlacementSpec, PlacedDimension
 
 _CTC01_AP203 = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap203.stp"
 
@@ -97,13 +98,14 @@ def test_ctc01_a3_keeps_required_dimensions_when_exterior_space_is_available(
 def test_interior_dimension_retry_preserves_the_original_honest_drop(monkeypatch, tmp_path):
     """Permission to try the interior does not make an infeasible mark disappear."""
     dropped = []
-    specimen = SimpleNamespace(
-        _dw_spec=SimpleNamespace(
-            p1=(10.0, 10.0),
-            p2=(30.0, 10.0),
-            draft=object(),
-            kwargs={},
-        )
+    specimen = object.__new__(PlacedDimension)
+    specimen.placement_spec = DimensionPlacementSpec(
+        p1=(10.0, 10.0),
+        p2=(30.0, 10.0),
+        side="above",
+        distance=4.0,
+        draft=object(),
+        kwargs={},
     )
     ctx = _common.PlacementContext(
         interior_dimensions=[

@@ -22,17 +22,25 @@ names were reachable as ``Drawing`` properties during the migration; those
 aliases were deleted at their ADR 1 (was 0005 §4) removal date (#720), so this class's
 own surface — ``in reg`` / :meth:`names` / :attr:`issues` — is the only way in.
 
-This module sits at the bottom of the import DAG — it depends on nothing in
-draftwright and carries no behaviour beyond the bookkeeping moved out of
-`Drawing` unchanged.
+This module sits at the bottom of the import DAG. It imports no other
+draftwright module and snapshots committed dimension construction evidence
+alongside annotation identity.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias
+
+from build123d_drafting.helpers import Dimension as _HelperDimension
+
+if TYPE_CHECKING:
+    from build123d_drafting.helpers import Draft
+
+MeasurementSpan: TypeAlias = tuple[tuple[float, float, float], tuple[float, float, float]]
 
 
 class _MeasurementIdentity(Protocol):
@@ -74,6 +82,65 @@ class SectionMark:
 
     cut_y: float
     view: str
+
+
+@dataclass
+class DimensionPlacementSpec:
+    """Mutable construction spec used by dimensions before registration."""
+
+    p1: Any
+    p2: Any
+    side: str
+    distance: float
+    draft: Any
+    kwargs: dict[str, Any]
+    label_value: float | None = None
+    authored_side: str | None = None
+
+
+class Dimension(_HelperDimension):
+    """Engine-owned dimension retaining the renderer's annotation type name."""
+
+    placement_spec: DimensionPlacementSpec
+
+    def __init__(self, p1, p2, side, distance, draft, **kwargs):
+        super().__init__(p1, p2, side, distance, draft, **kwargs)
+        self.placement_spec = DimensionPlacementSpec(
+            p1=p1, p2=p2, side=side, distance=abs(distance), draft=draft, kwargs=kwargs
+        )
+
+
+PlacedDimension = Dimension
+
+
+@dataclass(frozen=True)
+class RegisteredDimensionSpec:
+    """Committed geometry and producer intent, with a live Draft style source."""
+
+    p1: tuple[float, ...]
+    p2: tuple[float, ...]
+    side: str
+    distance: float
+    # Post-build Draft edits still style PDF text; geometry and producer kwargs do not follow them.
+    live_draft: Draft
+    rotation: float
+    kwargs: Mapping[str, Any]
+    label_value: float | None
+    authored_side: str | None
+
+    @classmethod
+    def from_placement(cls, spec: DimensionPlacementSpec) -> RegisteredDimensionSpec:
+        return cls(
+            tuple(float(value) for value in spec.p1),
+            tuple(float(value) for value in spec.p2),
+            spec.side,
+            spec.distance,
+            spec.draft,
+            float(spec.kwargs.get("rotation", 0.0)),
+            MappingProxyType(dict(spec.kwargs)),
+            spec.label_value,
+            spec.authored_side,
+        )
 
 
 class CandidateRegion(str, Enum):
@@ -138,8 +205,10 @@ class AnnotationRegistry:
         # that distinction. Like every identity axis, this is snapshot/restored transactionally.
         self._anno_satisfaction: dict = {}
         self._anno_section: dict[str, SectionMark] = {}
+        self._anno_dimension_spec: dict[str, RegisteredDimensionSpec] = {}
         self._anno_candidate_region: dict[str, CandidateRegion] = {}
         self._anno_scale: dict[str, float] = {}
+        self._anno_measurement_span: dict[str, MeasurementSpan] = {}
         self._pinned: set = set()
         self._build_issues: list = []
 
@@ -209,6 +278,10 @@ class AnnotationRegistry:
         """The section mark on a live named line, if one was registered."""
         return self._anno_section.get(name)
 
+    def dimension_spec_of(self, name) -> RegisteredDimensionSpec | None:
+        """Construction evidence of a live named dimension, when supplied."""
+        return self._anno_dimension_spec.get(name)
+
     def candidate_region_of(self, name) -> CandidateRegion | None:
         """The solved region of a live named annotation, when recorded."""
         return self._anno_candidate_region.get(name)
@@ -216,6 +289,19 @@ class AnnotationRegistry:
     def scale_of(self, name: str) -> float | None:
         """The scale of a live detail dimension, or ``None`` at sheet scale."""
         return self._anno_scale.get(name)
+
+    def measurement_span_of(self, name: str) -> MeasurementSpan | None:
+        """Compiler-owned world span of a live named annotation, when supplied."""
+        return self._anno_measurement_span.get(name)
+
+    def mark_measurement_span(self, name: str, span: MeasurementSpan | None) -> None:
+        """Bind or clear physical span evidence on a registered annotation."""
+        if name not in self._named:
+            raise KeyError(name)
+        if span is None:
+            self._anno_measurement_span.pop(name, None)
+        else:
+            self._anno_measurement_span[name] = span
 
     def mark_scale(self, name: str, scale: float | None) -> None:
         """Bind a detail scale to an already registered annotation."""
@@ -286,6 +372,12 @@ class AnnotationRegistry:
         for name, obj in self._named.items():
             if obj is old:
                 self._named[name] = new
+                if isinstance(new, PlacedDimension):
+                    self._anno_dimension_spec[name] = RegisteredDimensionSpec.from_placement(
+                        new.placement_spec
+                    )
+                else:
+                    self._anno_dimension_spec.pop(name, None)
                 self._anno_section.pop(name, None)
                 # Repair changes the ink after the candidate solve. Its old
                 # interior-clearance proof does not apply to the new object.
@@ -305,8 +397,10 @@ class AnnotationRegistry:
             "anno_cells": dict(self._anno_cells),
             "anno_satisfaction": dict(self._anno_satisfaction),
             "anno_section": dict(self._anno_section),
+            "anno_dimension_spec": dict(self._anno_dimension_spec),
             "anno_candidate_region": dict(self._anno_candidate_region),
             "anno_scale": dict(self._anno_scale),
+            "anno_measurement_span": dict(self._anno_measurement_span),
             "pinned": set(self._pinned),
         }
 
@@ -328,10 +422,14 @@ class AnnotationRegistry:
         self._anno_satisfaction.update(snap.get("anno_satisfaction", {}))
         self._anno_section.clear()
         self._anno_section.update(snap.get("anno_section", {}))
+        self._anno_dimension_spec.clear()
+        self._anno_dimension_spec.update(snap.get("anno_dimension_spec", {}))
         self._anno_candidate_region.clear()
         self._anno_candidate_region.update(snap.get("anno_candidate_region", {}))
         self._anno_scale.clear()
         self._anno_scale.update(snap.get("anno_scale", {}))
+        self._anno_measurement_span.clear()
+        self._anno_measurement_span.update(snap.get("anno_measurement_span", {}))
         self._pinned.clear()
         self._pinned.update(snap["pinned"])
 
@@ -358,8 +456,10 @@ class AnnotationRegistry:
             "cells": self._anno_cells.get(name, ()),
             "satisfaction": self._anno_satisfaction.get(name, ()),
             "section": self._anno_section.get(name),
+            "dimension_spec": self._anno_dimension_spec.get(name),
             "candidate_region": self._anno_candidate_region.get(name),
             "scale": self._anno_scale.get(name),
+            "measurement_span": self._anno_measurement_span.get(name),
             "pinned": name in self._pinned,
         }
 
@@ -411,6 +511,13 @@ class AnnotationRegistry:
             self._anno_section[name] = section
         else:
             self._anno_section.pop(name, None)
+        dimension_spec = identity.get("dimension_spec")
+        if dimension_spec is not None:
+            if not isinstance(dimension_spec, RegisteredDimensionSpec):
+                raise TypeError("dimension spec must be a RegisteredDimensionSpec")
+            self._anno_dimension_spec[name] = dimension_spec
+        else:
+            self._anno_dimension_spec.pop(name, None)
         if normalized_region is not None:
             self._anno_candidate_region[name] = normalized_region
         else:
@@ -420,6 +527,11 @@ class AnnotationRegistry:
             self._anno_scale[name] = scale
         else:
             self._anno_scale.pop(name, None)
+        span = identity.get("measurement_span")
+        if span is not None:
+            self._anno_measurement_span[name] = span
+        else:
+            self._anno_measurement_span.pop(name, None)
         if identity.get("pinned"):
             self._pinned.add(name)
         else:
@@ -437,6 +549,7 @@ class AnnotationRegistry:
         declaration=None,
         candidate_region: CandidateRegion | str | None = None,
         scale: float | None = None,
+        measurement_span: MeasurementSpan | None = None,
     ):
         """Register *obj* under *name* and record its owning *view* (and source *feature*).
 
@@ -488,11 +601,18 @@ class AnnotationRegistry:
             else:
                 self._anno_satisfaction.pop(name, None)
             self._anno_section.pop(name, None)
+            if isinstance(obj, PlacedDimension):
+                self._anno_dimension_spec[name] = RegisteredDimensionSpec.from_placement(
+                    obj.placement_spec
+                )
+            else:
+                self._anno_dimension_spec.pop(name, None)
             if normalized_region is not None:
                 self._anno_candidate_region[name] = normalized_region
             else:
                 self._anno_candidate_region.pop(name, None)
             self.mark_scale(name, scale)
+            self.mark_measurement_span(name, measurement_span)
         return displaced
 
     def remove(self, name):
@@ -507,8 +627,10 @@ class AnnotationRegistry:
             self._anno_cells.pop(name, None)
             self._anno_satisfaction.pop(name, None)
             self._anno_section.pop(name, None)
+            self._anno_dimension_spec.pop(name, None)
             self._anno_candidate_region.pop(name, None)
             self._anno_scale.pop(name, None)
+            self._anno_measurement_span.pop(name, None)
         return obj
 
     def clear(self, keep) -> dict:
@@ -532,7 +654,13 @@ class AnnotationRegistry:
             n: region for n, region in self._anno_candidate_region.items() if n in keep_set
         }
         self._anno_scale = {n: scale for n, scale in self._anno_scale.items() if n in keep_set}
+        self._anno_measurement_span = {
+            n: span for n, span in self._anno_measurement_span.items() if n in keep_set
+        }
         self._anno_section = {n: s for n, s in self._anno_section.items() if n in keep_set}
+        self._anno_dimension_spec = {
+            n: spec for n, spec in self._anno_dimension_spec.items() if n in keep_set
+        }
         return kept_named
 
     # -- pins -----------------------------------------------------------------

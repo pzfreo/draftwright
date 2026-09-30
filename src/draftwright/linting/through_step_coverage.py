@@ -15,6 +15,7 @@ from typing import Literal
 from quiddity import RecognitionResult, ThroughStep
 
 from draftwright._geometry import _fmt
+from draftwright.linting._coverage_common import state as _state
 from draftwright.linting._registry import (
     RequirementCarrier,
     cell_approvals_of,
@@ -421,7 +422,9 @@ def _index_evidence(registry):
                     ].append((value, approved.span))
             continue
         label = str(getattr(annotation, "label", "") or "")
-        primary = _label_reading(annotation, label) if label else None
+        primary = (
+            _label_reading(annotation, label, registry.dimension_spec_of(name)) if label else None
+        )
         for identity in registry.measurement_of(name):
             if getattr(identity, "feature", None) is None or not isinstance(
                 getattr(identity, "parameter", None), str
@@ -429,7 +432,7 @@ def _index_evidence(registry):
                 continue
             if primary is not None:
                 rendered[(identity.feature, identity.parameter)].append(
-                    (primary, getattr(annotation, "_dw_measurement_span", None))
+                    (primary, registry.measurement_span_of(name))
                 )
         # A structured note may legitimately carry several measurements in one compound
         # label, unlike a linear Dimension whose primary reading is singular.
@@ -442,7 +445,7 @@ def _index_evidence(registry):
             ):
                 continue
             rendered[(identity.feature, identity.parameter)].extend(
-                (number, getattr(annotation, "_dw_measurement_span", None)) for number in numbers
+                (number, registry.measurement_span_of(name)) for number in numbers
             )
     return placed, satisfied, dict(dropped), dict(rendered)
 
@@ -590,25 +593,15 @@ def through_step_requirement_outcomes(
             )
             continue
         for parameter in record_parameters:
-            identity = (feature, parameter)
-            if identity in placed:
-                state: ThroughStepRequirementState = "placed"
-            elif identity in satisfied:
-                state = "satisfied_by_structured_note"
-            elif identity in suppressed:
-                state = "suppressed"
-            elif identity in dropped:
-                state = "dropped"
-            else:
-                associated = registry.names_for_feature(feature)
-                state = (
-                    "unverifiable"
-                    if any(
-                        not registry.measurement_of(name) and not satisfaction_of(registry, name)
-                        for name in associated
-                    )
-                    else "missing"
-                )
+            state: ThroughStepRequirementState = _state(
+                feature,
+                parameter,
+                placed=placed,
+                satisfied=satisfied,
+                suppressed=suppressed,
+                dropped=dropped,
+                registry=registry,
+            )
             outcomes.append(
                 ThroughStepRequirementOutcome(
                     _source_at(source),

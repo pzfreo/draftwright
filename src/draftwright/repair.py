@@ -11,6 +11,7 @@ from collections import Counter
 
 from draftwright._core import _QUOTED_RE, _copy_dimension_spec_riders, _dim
 from draftwright.audit import compare_measurements
+from draftwright.registry import PlacedDimension, RegisteredDimensionSpec
 
 # Lint codes the repair loop can mechanically resolve, and the side flip used to
 # move a dimension that landed on the wrong side of its witness points.
@@ -18,10 +19,19 @@ _REPAIRABLE_CODES = frozenset({"dim_inside_part", "annotation_ink_overlap", "ann
 _OPPOSITE_SIDE = {"above": "below", "below": "above", "left": "right", "right": "left"}
 
 
+def _spec_of(dwg, annotation, name=None):
+    """Read committed named evidence or the owned spec of an unnamed raw dimension."""
+    if not isinstance(annotation, PlacedDimension):
+        return None
+    if name is None:
+        name = next((key for key, obj in dwg.registry.iter_named() if obj is annotation), None)
+    return dwg.registry.dimension_spec_of(name) if name is not None else annotation.placement_spec
+
+
 def _find_dim(dwg, label):
     """Return the re-placeable dimension whose label is *label*, or None.
 
-    Only dimensions built by :func:`_dim` (carrying ``_dw_spec``) qualify;
+    Only dimensions built by :func:`_dim` (carrying ``placement_spec``) qualify;
     leaders, callouts and hand-built annotations are left untouched. A pinned
     dimension (#89) is also skipped — a deliberate placement must win over
     automatic repair.
@@ -32,7 +42,11 @@ def _find_dim(dwg, label):
     for o in dwg.items:
         if id(o) in pinned_ids:
             continue
-        if getattr(o, "_dw_spec", None) is not None and getattr(o, "label", None) == label:
+        if (
+            isinstance(o, PlacedDimension)
+            and getattr(o, "label", None) == label
+            and _spec_of(dwg, o) is not None
+        ):
             return o
     return None
 
@@ -52,9 +66,13 @@ def _replace_dim(dwg, old, new):
         if attr.startswith("covers_"):
             setattr(new, attr, value)
     # The same declared meaning and side constraint must follow repaired geometry.
-    _copy_dimension_spec_riders(old, new)
-    if getattr(old, "_dw_measurement_span", None) is not None:
-        new._dw_measurement_span = old._dw_measurement_span
+    name = next((name for name, obj in dwg.registry.iter_named() if obj is old), None)
+    spec = dwg.registry.dimension_spec_of(name) if name is not None else None
+    if spec is not None and isinstance(new, PlacedDimension):
+        new.placement_spec.label_value = spec.label_value
+        new.placement_spec.authored_side = spec.authored_side
+    else:
+        _copy_dimension_spec_riders(old, new)
     _swap_annotation(dwg, old, new)
 
 
@@ -66,13 +84,14 @@ def _repair_dim_inside_part(dwg, issue) -> bool:
         return False
     # A side override is an authored constraint, including after a same-side label
     # reconciliation rebuild. Leave the diagnosis visible instead of flipping it.
-    if getattr(dim._dw_spec, "authored_side", None) is not None:
+    s = _spec_of(dwg, dim)
+    if s is None or s.authored_side is not None:
         return False
-    s = dim._dw_spec
     new_side = _OPPOSITE_SIDE.get(s.side)
     if new_side is None:
         return False
-    _replace_dim(dwg, dim, _dim(s.p1, s.p2, new_side, s.distance, s.draft, **s.kwargs))
+    draft = s.live_draft if isinstance(s, RegisteredDimensionSpec) else s.draft
+    _replace_dim(dwg, dim, _dim(s.p1, s.p2, new_side, s.distance, draft, **s.kwargs))
     return True
 
 
@@ -104,7 +123,8 @@ def _repair_annotation_ink(dwg, choose_candidates, before):
     for (name, old), (_, new) in zip(original, candidates, strict=True):
         if old is new:
             continue
-        a, b = getattr(old, "_dw_spec", None), getattr(new, "_dw_spec", None)
+        a = _spec_of(dwg, old, name)
+        b = new.placement_spec if isinstance(new, PlacedDimension) else None
         if (
             name in pins
             or a is None
@@ -253,13 +273,14 @@ def reconcile_witness_labels(dwg) -> int:
     dims = [
         (name, o)
         for name, o in dwg.iter_annotations()
-        if getattr(o, "_dw_spec", None) is not None
+        if isinstance(o, PlacedDimension)
+        and _spec_of(dwg, o, name) is not None
         and getattr(o, "label_bbox", None) is not None
         and id(o) not in pinned_ids
     ]
     shifted = 0
     for name, dim in dims:
-        s = dim._dw_spec
+        s = _spec_of(dwg, dim, name)
         lb = dim.label_bbox
         dx, dy = s.p2[0] - s.p1[0], s.p2[1] - s.p1[1]
         if min(abs(dx), abs(dy)) > 0.1:
@@ -314,6 +335,7 @@ def reconcile_witness_labels(dwg) -> int:
         off = best - mid
         kwargs = dict(s.kwargs)
         kwargs["label_offset_x"] = kwargs.get("label_offset_x", 0.0) + off
-        _replace_dim(dwg, dim, _dim(s.p1, s.p2, s.side, s.distance, s.draft, **kwargs))
+        draft = s.live_draft if isinstance(s, RegisteredDimensionSpec) else s.draft
+        _replace_dim(dwg, dim, _dim(s.p1, s.p2, s.side, s.distance, draft, **kwargs))
         shifted += 1
     return shifted

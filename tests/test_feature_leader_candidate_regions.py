@@ -366,7 +366,17 @@ def test_resource_floor_rejects_unverified_interior_and_view_blocked_exterior(
     assert drawing.get_annotation("m_fillet0").segments[0][1] == outside[:2]
 
 
-def test_joint_sheet_recovery_runs_after_winners_and_updates_trace(fresh_drawing, tmp_path):
+def test_joint_sheet_recovery_runs_after_winners_and_updates_trace(
+    monkeypatch, fresh_drawing, tmp_path
+):
+    committed = []
+    original_commit = leaders.commit_feature_leader
+
+    def record_commit(ctx, annotation, name, **kwargs):
+        committed.append(name)
+        return original_commit(ctx, annotation, name, **kwargs)
+
+    monkeypatch.setattr(leaders, "commit_feature_leader", record_commit)
     drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
@@ -428,6 +438,7 @@ def test_joint_sheet_recovery_runs_after_winners_and_updates_trace(fresh_drawing
     )
 
     assert place_feature_leader_jobs(drawing, analysis, ctx, (ordinary, recovered)) == 2
+    assert committed == ["ordinary", "recovered"]
     assert {"ordinary", "recovered"} <= set(drawing.annotations())
     assert not [
         issue for issue in drawing.registry.issues if issue.code == "polygonal_boss_dropped"
@@ -1213,6 +1224,15 @@ def test_immediate_hole_queue_reports_each_loss_and_keeps_policy_b_survivors(mon
     contexts = []
     checked_labels = []
     crossing_labels = []
+    committed_labels = []
+    original_commit = leaders.commit_feature_leader
+
+    def record_commit(ctx, annotation, name, **kwargs):
+        if name.startswith("hc_plan"):
+            committed_labels.append(annotation.label)
+        return original_commit(ctx, annotation, name, **kwargs)
+
+    monkeypatch.setattr(leaders, "commit_feature_leader", record_commit)
 
     def immediate(*args, ctx, **kwargs):
         contexts.append(ctx.feature_leaders)
@@ -1248,5 +1268,6 @@ def test_immediate_hole_queue_reports_each_loss_and_keeps_policy_b_survivors(mon
         if name.startswith("hc_plan")
     }
     assert labels == {"⌀6 THRU", "⌀8 THRU", "⌀10 THRU"}
+    assert set(committed_labels) == labels
     (dropped,) = [issue for issue in drawing.lint() if issue.code == "callout_dropped"]
     assert "settled annotation ink crosses the callout text" in dropped.message

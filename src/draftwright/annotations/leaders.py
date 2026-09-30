@@ -2236,6 +2236,30 @@ def _materialize_joint_or_replay(
     return materialized
 
 
+def commit_feature_leader(
+    ctx,
+    annotation,
+    name,
+    *,
+    view,
+    feature,
+    measurement,
+    candidate_region=None,
+    on_place=None,
+) -> None:
+    """Commit one selected leader with its owner and optional producer outcome."""
+    ctx.place(
+        annotation,
+        name,
+        view=view,
+        feature=feature,
+        measurement=measurement,
+        candidate_region=candidate_region,
+    )
+    if on_place is not None:
+        on_place(annotation)
+
+
 def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False) -> int:
     """Solve explicit jobs now through the shared analytical leader machinery.
 
@@ -2267,16 +2291,16 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         # Preserve typed candidate provenance in the registry. Besides trace
         # diagnostics, structural lint uses this to distinguish a solver-proven interior
         # label from an arbitrary annotation that merely happens to lie inside a view.
-        ctx.place(
+        commit_feature_leader(
+            ctx,
             annotation,
             job.name,
             view=job.view,
             feature=resolve_feature(candidate if recovered else candidate.feature),
             measurement=job.measurement,
             candidate_region=None if recovered else candidate.region.value,
+            on_place=job.on_place,
         )
-        if job.on_place is not None:
-            job.on_place(annotation)
 
     def drop(job_index, *, reason="no_clear_room"):
         job = jobs[job_index]

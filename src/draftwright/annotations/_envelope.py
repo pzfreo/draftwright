@@ -96,7 +96,6 @@ class _EnvelopeDropRetry:
                     self.dwg.draft,
                     label=self.label,
                 )
-                dim._dw_measurement_span = self.measurement_span
                 return dim
 
             if self.above is not None:
@@ -109,6 +108,7 @@ class _EnvelopeDropRetry:
                     self.tier,
                     ctx=self.ctx,
                     measurements={name: self.measurement},
+                    measurement_spans={name: self.measurement_span},
                     features={name: self.feature},
                     trace=self.ctx.trace,
                     trace_label=f"{name}_above_fallthrough",
@@ -126,7 +126,6 @@ class _EnvelopeDropRetry:
                         self.dwg.draft,
                         label=self.label,
                     )
-                    dim._dw_measurement_span = self.measurement_span
                     return dim
 
                 interior_jobs.append(
@@ -144,6 +143,7 @@ class _EnvelopeDropRetry:
                         priority=_MANDATORY_OVERALL_PRIORITY,
                         feature=self.feature,
                         measurement=self.measurement,
+                        measurement_span=self.measurement_span,
                         interior_build=_interior_build,
                         analytical_geometry=lambda pos, _l=lift: dimension_candidate_geometry(
                             (self.xs[0], _l, 0),
@@ -198,11 +198,6 @@ def render_envelope(
         measurement=None,
         measurement_span=None,
     ):
-        def _tagged_build(pos, _build=build, _span=measurement_span):
-            dim = _build(pos)
-            dim._dw_measurement_span = _span
-            return dim
-
         state = _EnvelopeDropRetry(
             dwg=dwg,
             ctx=ctx,
@@ -228,7 +223,7 @@ def render_envelope(
             tier,
             CorridorCandidate(
                 name=name,
-                build=_tagged_build,
+                build=build,
                 order=(_OVERALL_SUBCHAIN, distance, name),
                 on_place=lambda _nm: None,
                 on_drop=state.drop,
@@ -236,6 +231,7 @@ def render_envelope(
                 force=True,
                 feature=env.ref,
                 measurement=measurement,  # which envelope extent this is
+                measurement_span=measurement_span,
                 footprint=footprint,  # analytical measure — no probe build
             ),
         )

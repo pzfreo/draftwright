@@ -196,7 +196,7 @@ class TestTurnedLengths:
         assert len(steps) == 5  # every segment dimensioned, none dropped
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
         # Two tiers: the dims sit at (at least) two distinct offset rows.
-        rows = {round(o._dw_spec.distance, 6) for o in steps.values()}
+        rows = {round(o.placement_spec.distance, 6) for o in steps.values()}
         assert len(rows) >= 2, "chain did not stagger into multiple tiers"
 
         # Labels don't overprint each other.

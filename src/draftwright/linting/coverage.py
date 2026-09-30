@@ -65,6 +65,7 @@ from draftwright.recognition_ownership import (
     boss_blend_owner_pairs,
     envelope_is_emittable,
 )
+from draftwright.registry import PlacedDimension
 from draftwright.section_recess_contract import (
     perpendicular_recess_ends,
     recesses_with_kind,
@@ -125,18 +126,19 @@ _RECON_KINDS = tuple(_RECON_EXTERNAL)  # derive to keep the kind list and polari
 EXAMINABLE_DECLARED_KINDS = (*_RECON_KINDS, "external_spur_gear")
 
 
-def _dim_vertices(ann) -> list[tuple[float, float]]:
+def _dim_vertices(ann, spec=_UNSET) -> list[tuple[float, float]]:
     """A ``Dimension``'s witness endpoints as ``(x, y)`` page points; ``[]`` if they
     won't evaluate. The shared, error-tolerant harvest both drawing-derived coverage
     checks use to read placed dimensions back off the drawing.
 
-    Prefers the recorded ``_dw_spec`` endpoints (the two points the dimension was
+    Prefers the recorded ``placement_spec`` endpoints (the two points the dimension was
     built from — the shoulder/feature positions) over ``ann.vertices()``: the latter
     returns *every* geometry vertex, including the text-glyph outline, whose points
     scatter across the span and can falsely satisfy a shoulder match for a wide dim
     (e.g. a head-block dim whose centred label sits over interior shoulders, #304/#307).
     The endpoints may be tuples or build123d ``Vector``s, so both are read safely."""
-    spec = getattr(ann, "_dw_spec", None)
+    if spec is _UNSET:
+        spec = ann.placement_spec if isinstance(ann, PlacedDimension) else None
     if spec is not None:
         try:
             return [_pt(spec.p1), _pt(spec.p2)]
@@ -150,7 +152,7 @@ def _dim_vertices(ann) -> list[tuple[float, float]]:
 
 def _pt(p) -> tuple[float, float]:
     """A 2-D page point from either a ``(x, y, ...)`` tuple/sequence or a build123d
-    ``Vector`` (``.X``/``.Y``). Lets coverage read ``_dw_spec`` endpoints regardless of
+    ``Vector`` (``.X``/``.Y``). Lets coverage read ``placement_spec`` endpoints regardless of
     how the caller constructed the dimension (the public ``place_dim`` DSL may pass
     ``Vector``s, which are not subscriptable — #307)."""
     try:
@@ -550,6 +552,7 @@ def lint_location_coverage(
     dim_verts: dict[str, list] = {}
     structured_locations: set[tuple[object, str, HoleRef]] = set()
     registry = registry if registry is not None else getattr(dwg, "registry", None)
+    dimension_spec_of = getattr(registry, "dimension_spec_of", None)
     satisfied_locations = {
         identity.feature
         for identity in satisfaction_ids(registry)
@@ -573,7 +576,8 @@ def lint_location_coverage(
         # Structured evidence is authoritative: a wrong feature/axis tag must not
         # self-certify through an accidentally coincident geometric witness.
         if view is not None and isinstance(ann, Dimension) and not decoded:
-            dim_verts.setdefault(view, []).extend(_dim_vertices(ann))
+            spec = dimension_spec_of(name) if callable(dimension_spec_of) else _UNSET
+            dim_verts.setdefault(view, []).extend(_dim_vertices(ann, spec))
         for feature, parameter, point in decoded:
             if getattr(feature, "kind", None) == "hole":
                 structured_locations.add((feature, str(parameter), _location_ref(feature, point)))
@@ -667,7 +671,7 @@ def _dimension_endpoint_pairs(dwg, view: str) -> list:
     for _name, ann in dwg.annotations_in_view(view):
         if not isinstance(ann, Dimension):
             continue
-        pts = _dim_vertices(ann)
+        pts = _dim_vertices(ann, dwg.registry.dimension_spec_of(_name))
         if len(pts) >= 2:
             pairs.append((pts[0], pts[1], dwg.registry.feature_of(_name)))
     return pairs
@@ -1937,8 +1941,14 @@ def _axial_covered_from_drawing(
             (
                 name,
                 str(getattr(ann, "label", "") or ""),
-                {(x if horizontal else y) for x, y in _dim_vertices(ann)},
-                {(y if horizontal else x) for x, y in _dim_vertices(ann)},
+                {
+                    (x if horizontal else y)
+                    for x, y in _dim_vertices(ann, dwg.registry.dimension_spec_of(name))
+                },
+                {
+                    (y if horizontal else x)
+                    for x, y in _dim_vertices(ann, dwg.registry.dimension_spec_of(name))
+                },
                 _step_length_owners(dwg, name),
             )
             for name, ann in dwg.annotations_in_view(view)
@@ -2024,7 +2034,7 @@ def _overall_axial_extent_is_dimensioned(
         for name, annotation in dwg.annotations_in_view(view):
             if not isinstance(annotation, Dimension):
                 continue
-            vertices = _dim_vertices(annotation)
+            vertices = _dim_vertices(annotation, dwg.registry.dimension_spec_of(name))
             coords = {(x if horizontal else y) for x, y in vertices}
             cross_coords = {(y if horizontal else x) for x, y in vertices}
             owners = _step_length_owners(dwg, name)

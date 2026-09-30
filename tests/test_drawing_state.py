@@ -33,15 +33,15 @@ class TestPin:
         dwg = self._two_overlapping(fresh_drawing)
         dwg.pin("a")
         dwg.repair()
-        assert dwg.get_annotation("a")._dw_spec.distance == 8
-        assert dwg.get_annotation("b")._dw_spec.distance == 8
+        assert dwg.get_annotation("a").placement_spec.distance == 8
+        assert dwg.get_annotation("b").placement_spec.distance == 8
 
     def test_unpin_lets_repair_move_it_again(self, fresh_drawing):
         dwg = self._two_overlapping(fresh_drawing)
         dwg.pin("a").unpin("a")
         dwg.repair()
-        assert dwg.get_annotation("a")._dw_spec.distance == 8
-        assert dwg.get_annotation("b")._dw_spec.distance == 8
+        assert dwg.get_annotation("a").placement_spec.distance == 8
+        assert dwg.get_annotation("b").placement_spec.distance == 8
         assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
     def test_pin_unknown_name_raises(self, fresh_drawing):
@@ -59,8 +59,8 @@ class TestPin:
         dwg = self._two_overlapping(fresh_drawing)
         dwg.pin("a").pin("b")
         dwg.repair()
-        assert dwg.get_annotation("a")._dw_spec.distance == 8
-        assert dwg.get_annotation("b")._dw_spec.distance == 8
+        assert dwg.get_annotation("a").placement_spec.distance == 8
+        assert dwg.get_annotation("b").placement_spec.distance == 8
 
     def test_pinning_a_non_dim_then_repair_does_not_crash(self, fresh_drawing):
         # _find_dim builds an id-set over pinned objects of any type; pinning a
@@ -84,7 +84,7 @@ class TestPin:
         )
         assert not dwg.registry.is_pinned("a")
         dwg.repair()
-        assert dwg.get_annotation("a")._dw_spec.distance == 8
+        assert dwg.get_annotation("a").placement_spec.distance == 8
 
 
 class TestAnnotationsQuery:

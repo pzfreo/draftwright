@@ -183,7 +183,7 @@ def test_feature_pair_must_reference_the_exact_snapshot_inventory(declared_pair)
 
 def _replace_with_provenance(drawing, old, new, provenance):
     for attr, value in vars(provenance).items():
-        if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
+        if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "placement_spec"):
             setattr(new, attr, value)
     drawing.items[next(i for i, item in enumerate(drawing.items) if item is old)] = new
     drawing.registry.replace_object(old, new)
@@ -220,7 +220,7 @@ def test_swapping_labels_between_coarse_claims_changes_the_measurements(fixture,
     # Rebuild real dimension geometry with exchanged labels while retaining its
     # recorded ownership and spans. The two labels still form the same multiset.
     for index, old in enumerate(original):
-        spec = old._dw_spec
+        spec = old.placement_spec
         new = _dim(
             spec.p1,
             spec.p2,
@@ -257,7 +257,7 @@ def test_equal_valued_location_axes_keep_their_recorded_component_identity():
     before = drawing.measurement_snapshot()
     # Substitute another real Y dimension, including its producer-recorded axis,
     # for X. The coarse registry id, label and measured length all remain equal.
-    spec = y._dw_spec
+    spec = y.placement_spec
     duplicate = _dim(spec.p1, spec.p2, spec.side, spec.distance, spec.draft, **spec.kwargs)
     _replace_with_provenance(drawing, x, duplicate, y)
 
@@ -270,7 +270,7 @@ def test_a_changed_dimension_path_cannot_keep_its_original_claim():
     drawing = build_drawing(Box(60, 40, 10), scale=2)
     old = drawing.get_annotation("dim_height")
     before = drawing.measurement_snapshot()
-    spec = old._dw_spec
+    spec = old.placement_spec
     end = (spec.p2[0], spec.p2[1] + drawing.scale, spec.p2[2])
     new = _dim(spec.p1, end, spec.side, spec.distance, spec.draft, **spec.kwargs)
     assert new.label == old.label

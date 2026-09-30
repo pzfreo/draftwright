@@ -25,10 +25,11 @@ def _label_crossings(dwg):
     dims = [
         (n, o)
         for n, o in dwg.iter_annotations()
-        if getattr(o, "_dw_spec", None) is not None and getattr(o, "label_bbox", None) is not None
+        if getattr(o, "placement_spec", None) is not None
+        and getattr(o, "label_bbox", None) is not None
     ]
     for name, dim in dims:
-        s = dim._dw_spec
+        s = dim.placement_spec
         lb = dim.label_bbox
         vertical = abs(s.p2[1] - s.p1[1]) > abs(s.p2[0] - s.p1[0])
         ax = 1 if vertical else 0

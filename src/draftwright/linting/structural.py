@@ -30,6 +30,7 @@ from draftwright.linting.angular import lint_angular_geometry
 from draftwright.linting.ink_overlap import crossable_region, label_crossings, segments_of
 from draftwright.linting.issues import LintIssue, _IssueAggregation
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
+from draftwright.registry import DimensionPlacementSpec, PlacedDimension, RegisteredDimensionSpec
 from draftwright.view_plan import derived_view_identifier
 
 #: The shared visible-stroke floor. Imported rather than restated so the critique cannot
@@ -195,9 +196,10 @@ def _label_bbox(item, warned=None):
 
 
 _BARE_NUMERIC_LABEL = re.compile(r"^[⌀ØøR\s]*(\d+(?:\.(\d+))?)\s*$")
+_UNSET_SPEC = object()
 
 
-def _displayed_decimals(item, label: str, decimals: int | None = None) -> int:
+def _displayed_decimals(item, label: str, decimals: int | None = None, spec=_UNSET_SPEC) -> int:
     """How many decimal places this dimension's value is actually written to.
 
     NOT simply the places in the string. `_fmt` trims a trailing `.0`, so a sheet at one
@@ -207,7 +209,7 @@ def _displayed_decimals(item, label: str, decimals: int | None = None) -> int:
 
     An explicit compiler-owned precision overrides the default, including zero places.
     Otherwise the sheet's own precision is the floor: an engine-built dimension
-    carries the draft it was made with on `_dw_spec`. A label may only RAISE it, and only when
+    carries the draft it was made with on `placement_spec`. A label may only RAISE it, and only when
     the label is a bare number — `4.45` from `.format(decimals=2)` really does assert two
     places. A compound label (`2× ⌀2.4 THRU`, `12 ±0.05`) is left to the sheet, because the
     first number in such a string is as likely to be a multiplier or a tolerance as the
@@ -215,7 +217,15 @@ def _displayed_decimals(item, label: str, decimals: int | None = None) -> int:
     """
     if decimals is not None:
         return decimals
-    draft = getattr(getattr(item, "_dw_spec", None), "draft", None)
+    if spec is _UNSET_SPEC:
+        spec = item.placement_spec if isinstance(item, PlacedDimension) else None
+    draft = (
+        spec.live_draft
+        if isinstance(spec, RegisteredDimensionSpec)
+        else spec.draft
+        if spec
+        else None
+    )
     sheet = getattr(draft, "decimal_precision", None)
     match = _BARE_NUMERIC_LABEL.match(label)
     bare = len(match.group(2)) if match and match.group(2) else (0 if match else None)
@@ -225,7 +235,12 @@ def _displayed_decimals(item, label: str, decimals: int | None = None) -> int:
 
 
 def _is_correctly_rounded(
-    item, label_val: float, measured: float, label: str, decimals: int | None = None
+    item,
+    label_val: float,
+    measured: float,
+    label: str,
+    decimals: int | None = None,
+    spec=_UNSET_SPEC,
 ) -> bool:
     """Whether the label is the measurement, written to the precision this dimension uses.
 
@@ -241,11 +256,11 @@ def _is_correctly_rounded(
     """
     return (
         abs(label_val - measured)
-        <= 0.5 * 10.0 ** -_displayed_decimals(item, label, decimals) + 1e-9
+        <= 0.5 * 10.0 ** -_displayed_decimals(item, label, decimals, spec) + 1e-9
     )
 
 
-def _label_reading(item, label: str) -> float | None:
+def _label_reading(item, label: str, spec=_UNSET_SPEC) -> float | None:
     """The value *item*'s label asserts about the path it is drawn on, or ``None``.
 
     A bare ``N× v`` is ambiguous, because this codebase draws that label under two
@@ -256,7 +271,7 @@ def _label_reading(item, label: str) -> float | None:
       ``annotations/from_model.py``) spans the whole run at **60**.
 
     So the producer says which. Per-unit step dimensions and shared slot-width dimensions
-    set ``_dw_spec.label_value`` to the approved one-feature value, so lint reads the
+    set ``placement_spec.label_value`` to the approved one-feature value, so lint reads the
     compiler's number rather than inferring a span convention from rendered text
     (ADR 4 (was 0016 Amendment 1)). Everything else means what its label says.
 
@@ -274,7 +289,9 @@ def _label_reading(item, label: str) -> float | None:
         # Repeated angles count corners; they never multiply the displayed
         # degrees into a longer path. Read the actual label, not a value rider.
         return _label_value(re.sub(r"^\s*[1-9]\d*\s*[×x]\s*", "", label))
-    declared = getattr(getattr(item, "_dw_spec", None), "label_value", None)
+    if spec is _UNSET_SPEC:
+        spec = item.placement_spec if isinstance(item, PlacedDimension) else None
+    declared = spec.label_value if spec is not None else None
     return float(declared) if declared is not None else _label_value(label)
 
 
@@ -320,6 +337,8 @@ def lint_drawing(
     annotation_names: dict[int, str] | None = None,
     annotation_regions: dict[int, str] | None = None,
     annotation_scales: dict[int, float] | None = None,
+    annotation_specs: dict[int, DimensionPlacementSpec | RegisteredDimensionSpec | None]
+    | None = None,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
 
@@ -443,6 +462,7 @@ def lint_drawing(
         names,
         display_decimals,
         annotation_scales,
+        annotation_specs,
     )
     _lint_annotation_pairs(
         items,
@@ -483,6 +503,7 @@ def lint_drawing(
         drawing_scale,
         display_decimals=display_decimals,
         annotation_scales=annotation_scales,
+        annotation_specs=annotation_specs,
     )
     return issues
 
@@ -497,6 +518,7 @@ def _lint_annotation_items(
     names,
     display_decimals,
     annotation_scales,
+    annotation_specs,
 ) -> None:
     """Check each annotation's own title, leader, or measurement content."""
     for item in items:
@@ -518,6 +540,9 @@ def _lint_annotation_items(
                 box_cache,
                 decimals=(display_decimals or {}).get(id(item)),
                 item_scale=(annotation_scales or {}).get(id(item)),
+                spec=(
+                    annotation_specs.get(id(item)) if annotation_specs is not None else _UNSET_SPEC
+                ),
             )
 
 
@@ -966,7 +991,13 @@ _NOMINAL_SHIFT_FLOOR = 5e-4
 
 
 def _lint_display_precision(
-    items, issues, drawing_scale: float = 1.0, *, display_decimals=None, annotation_scales=None
+    items,
+    issues,
+    drawing_scale: float = 1.0,
+    *,
+    display_decimals=None,
+    annotation_scales=None,
+    annotation_specs=None,
 ) -> None:
     """Say where the sheet's precision prints a nominal the model does not have (#1600).
 
@@ -997,7 +1028,8 @@ def _lint_display_precision(
     shortfalls = []
     for item in items:
         label = _item_label(item)
-        label_val = _label_reading(item, label)
+        spec = annotation_specs.get(id(item)) if annotation_specs is not None else _UNSET_SPEC
+        label_val = _label_reading(item, label, spec)
         measurement = dimension_path_measurement(
             item, drawing_scale, item_scale=(annotation_scales or {}).get(id(item))
         )
@@ -1015,7 +1047,7 @@ def _lint_display_precision(
         # the "worst case" named — displacing the one thing this exists to surface, and
         # describing an error as ordinary. `label_vs_measured` owns that case.
         if shift > _NOMINAL_SHIFT_FLOOR and _is_correctly_rounded(
-            item, label_val, effective, label, (display_decimals or {}).get(id(item))
+            item, label_val, effective, label, (display_decimals or {}).get(id(item)), spec
         ):
             shortfalls.append((shift, label, effective))
     if not shortfalls:
@@ -1542,18 +1574,19 @@ def _lint_dim(
     *,
     decimals=None,
     item_scale: float | None = None,
+    spec=_UNSET_SPEC,
 ) -> None:
     label = _item_label(item)
     measurement = dimension_path_measurement(item, drawing_scale, item_scale=item_scale)
     # A repeat label is read as its producer declared it (#1153).
-    label_val = _label_reading(item, label)
+    label_val = _label_reading(item, label, spec)
     if getattr(item, "measured_angle", None) is not None:
         issues.extend(lint_angular_geometry(item, label_val))
     if label_val is not None and measurement is not None:
         measured, item_scale = measurement
         effective_measured = measured / item_scale
         if effective_measured > 1e-6 and not _is_correctly_rounded(
-            item, label_val, effective_measured, label, decimals
+            item, label_val, effective_measured, label, decimals, spec
         ):
             ratio = abs(label_val - effective_measured) / effective_measured
             if ratio > 0.005:

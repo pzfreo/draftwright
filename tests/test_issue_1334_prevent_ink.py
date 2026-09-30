@@ -7,9 +7,11 @@ from build123d import Edge
 from build123d_drafting.helpers import Draft
 
 import draftwright.annotations._common as common
+import draftwright.annotations._dimension_ink_repair as ink_repair
 from draftwright._core import _dim
 from draftwright._geometry import _boxes_overlap
 from draftwright.annotations._common import prevent_dimension_label_ink, view_label_clearance
+from draftwright.annotations._dimension_ink import _DimensionInkProbe
 from draftwright.linting.ink_overlap import (
     MIN_CROSSING_MM,
     crossable_region,
@@ -17,6 +19,7 @@ from draftwright.linting.ink_overlap import (
     label_crossings,
     segments_of,
 )
+from draftwright.registry import DimensionPlacementSpec
 
 
 def _short_chain():
@@ -50,8 +53,8 @@ def test_part_edge_through_a_single_short_label_uses_the_far_tier(pin):
     assert name == "short" and selected.label == "3"
     assert clear(selected.label_bbox) is not pin
     assert (selected is natural) is pin
-    assert selected._dw_spec.p1 == natural._dw_spec.p1
-    assert selected._dw_spec.p2 == natural._dw_spec.p2
+    assert selected.placement_spec.p1 == natural.placement_spec.p1
+    assert selected.placement_spec.p2 == natural.placement_spec.p2
 
 
 def _connected_mixed_chain():
@@ -101,7 +104,7 @@ def _foreign_arrow_tips_in_labels(batch):
         for source_name, source in batch:
             if source_name == target_name:
                 continue
-            for point in (source._dw_spec.p1, source._dw_spec.p2):
+            for point in (source.placement_spec.p1, source.placement_spec.p2):
                 if label[0] + 0.25 < point[0] < label[2] - 0.25:
                     found.append((source_name, target_name))
     return found
@@ -119,18 +122,26 @@ def test_same_batch_dimension_ink_selects_clear_label_candidates():
     assert _stage1_crossings(placed) == []
     assert _foreign_arrow_tips_in_labels(placed) == []
     assert placed[1][1].covers_hole_locations == semantic_evidence
-    assert any("label_offset_x" in dim._dw_spec.kwargs for _name, dim in placed)
+    assert any("label_offset_x" in dim.placement_spec.kwargs for _name, dim in placed)
 
     # The bounded solve is deterministic, including its exact selected offsets.
     replay = prevent_dimension_label_ink(_short_chain(), page=(0.0, 0.0, 100.0, 100.0))
-    assert [dim._dw_spec.kwargs for _name, dim in replay] == [
-        dim._dw_spec.kwargs for _name, dim in placed
+    assert [dim.placement_spec.kwargs for _name, dim in replay] == [
+        dim.placement_spec.kwargs for _name, dim in placed
     ]
 
 
 def test_probe_constructs_only_selected_dimension_geometry(monkeypatch):
     natural = _short_chain()
     assert _stage1_crossings(natural)
+    probes = []
+
+    class CapturedProbe(_DimensionInkProbe):
+        def __init__(self, *args):
+            super().__init__(*args)
+            probes.append(self)
+
+    monkeypatch.setattr(ink_repair, "_DimensionInkProbe", CapturedProbe)
     builds = 0
     original = common._dim
 
@@ -143,9 +154,25 @@ def test_probe_constructs_only_selected_dimension_geometry(monkeypatch):
     placed = prevent_dimension_label_ink(natural, page=(0.0, 0.0, 100.0, 100.0))
 
     assert _stage1_crossings(placed) == []
-    assert builds == sum(
-        after is not before for (_, after), (_, before) in zip(placed, natural, strict=True)
-    )
+    changed = [
+        (before, after)
+        for (_, after), (_, before) in zip(placed, natural, strict=True)
+        if after is not before
+    ]
+    assert probes and changed, "the fixture must select a transient probe for rendering"
+    assert all(isinstance(probe.spec, DimensionPlacementSpec) for probe in probes)
+    assert all(not hasattr(probe, "placement_spec") for probe in probes)
+    assert builds == len(changed)
+    for before, after in changed:
+        assert any(
+            probe.spec.p1 == before.placement_spec.p1 == after.placement_spec.p1
+            and probe.spec.p2 == before.placement_spec.p2 == after.placement_spec.p2
+            and probe.spec.distance
+            == before.placement_spec.distance
+            == after.placement_spec.distance
+            and probe.spec.kwargs == after.placement_spec.kwargs
+            for probe in probes
+        ), "the selected render must use its typed probe's witnesses and distance"
 
 
 def test_negative_tier_delta_keeps_the_rendered_candidate_path(monkeypatch):
@@ -165,17 +192,17 @@ def test_negative_tier_delta_keeps_the_rendered_candidate_path(monkeypatch):
     )
 
     assert rendered_negative and set(rendered_negative) == {-9.0}
-    assert placed[1][1]._dw_spec.distance == 9.0
+    assert placed[1][1].placement_spec.distance == 9.0
 
 
 def test_misaligned_side_keeps_the_rendered_candidate_path(monkeypatch):
     draft = Draft(font_size=3.0, arrow_length=2.7, line_width=0.1)
     natural = _dim((20, 30, 0), (25, 30, 0), "left", 11.0, draft, label="0.5")
     approximate = common.dimension_candidate_geometry(
-        natural._dw_spec.p1,
-        natural._dw_spec.p2,
-        natural._dw_spec.side,
-        natural._dw_spec.distance,
+        natural.placement_spec.p1,
+        natural.placement_spec.p2,
+        natural.placement_spec.side,
+        natural.placement_spec.distance,
         draft,
         "0.5",
     )
@@ -183,10 +210,10 @@ def test_misaligned_side_keeps_the_rendered_candidate_path(monkeypatch):
     assert natural.label_bbox[1] < 20.0 < approximate.label_bbox[1]
     assert (
         common._dimension_probe_ink(
-            natural._dw_spec.p1,
-            natural._dw_spec.p2,
-            natural._dw_spec.side,
-            natural._dw_spec.distance,
+            natural.placement_spec.p1,
+            natural.placement_spec.p2,
+            natural.placement_spec.side,
+            natural.placement_spec.distance,
             draft,
             "0.5",
             0.0,
@@ -222,9 +249,9 @@ def test_short_size_label_can_clear_a_position_witness_at_its_midpoint():
     placed = prevent_dimension_label_ink(natural, page=(0.0, 0.0, 100.0, 100.0))
 
     assert _stage1_crossings(placed) == []
-    assert placed[0][1]._dw_spec.p1 == size._dw_spec.p1
-    assert placed[0][1]._dw_spec.p2 == size._dw_spec.p2
-    assert placed[0][1]._dw_spec.kwargs.get("label_offset_x") is not None
+    assert placed[0][1].placement_spec.p1 == size.placement_spec.p1
+    assert placed[0][1].placement_spec.p2 == size.placement_spec.p2
+    assert placed[0][1].placement_spec.kwargs.get("label_offset_x") is not None
 
 
 def test_immutable_label_keeps_deterministic_linted_fallback():
@@ -254,7 +281,7 @@ def test_infeasible_along_line_shift_promotes_one_rung_to_the_existing_far_tier(
     )
 
     assert _stage1_crossings(placed) == []
-    assert [dim._dw_spec.distance for _name, dim in placed] == [11.0, 18.0, 11.0, 11.0]
+    assert [dim.placement_spec.distance for _name, dim in placed] == [11.0, 18.0, 11.0, 11.0]
 
 
 def test_clean_batch_is_a_zero_construction_fast_path():

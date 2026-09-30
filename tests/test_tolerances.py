@@ -366,7 +366,7 @@ class TestSheetTolerance:
     def _steplen_label(self, dwg, name):
         """The step-length dim's rendered LABEL.
 
-        This used to read `_dw_spec.kwargs["tolerance"]` — the constructor argument. helpers do
+        This used to read `placement_spec.kwargs["tolerance"]` — the constructor argument. helpers do
         `rendered = label if label is not None else ...`, so an explicit label DISCARDS
         `tolerance=`, and these dims always pass one. Three tests here read it — two asserting
         a value, one asserting its absence — so a tolerance that never reached the sheet was

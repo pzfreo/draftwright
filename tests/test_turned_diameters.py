@@ -508,7 +508,7 @@ class TestTurnedDiameters:
         detail = {n: o for n, o in dwg.iter_annotations() if n.startswith("dim_detail_a_steplen")}
         assert {o.label for o in detail.values()} == {"3", "5.5", "3.5"}
         assert {dwg.view_of(n) for n in detail} == {"detail_a"}
-        assert len({round(o._dw_spec.distance, 6) for o in detail.values()}) == 1
+        assert len({round(o.placement_spec.distance, 6) for o in detail.values()}) == 1
         assert all(dwg.measurement_keys(name) == [] for name in main), (
             "the aggregate block is not any one approved step measurement"
         )
@@ -550,7 +550,7 @@ class TestTurnedDiameters:
         # Detail placement can fit below its preferred standard factor. The settled
         # scale still has to contain each complete rendered label and both arrowheads.
         for _name, dimension in detail:
-            spec = dimension._dw_spec
+            spec = dimension.placement_spec
             span = math.dist(spec.p1[:2], spec.p2[:2])
             label_width = dimension.label_bbox[2] - dimension.label_bbox[0]
             required = label_width + 2 * (dwg.draft.arrow_length + dwg.draft.pad_around_text)

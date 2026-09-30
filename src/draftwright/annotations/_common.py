@@ -117,6 +117,7 @@ from draftwright.linting.issues import LintIssue
 from draftwright.model.compiled import resolve_feature
 from draftwright.model.ir import HoleFeature, PatternFeature
 from draftwright.model.planner import hole_location_parameter_id
+from draftwright.registry import PlacedDimension
 
 # Shared corridor ordering: feature sizes near the view, datum locations outside.
 _SIZE_SUBCHAIN = 0
@@ -671,6 +672,7 @@ class CorridorCandidate:
     # way at drain, one axis finer: `feature` says which hole, this says which of its
     # measurements. ``None`` for a candidate whose renderer places directly.
     measurement: object | None = None
+    measurement_span: object | None = None
     # Structured-note authority carried by this placed annotation, kept distinct
     # from dimensional ink in the registry.
     satisfaction: object | None = None
@@ -752,6 +754,7 @@ class InteriorDimensionJob:
     priority: float = 0.0
     feature: object | None = None
     measurement: object | None = None
+    measurement_span: object | None = None
     interior_build: object | None = None
     analytical_geometry: object | None = None
     # A declared feature-relative lane can resolve to one exact candidate position.
@@ -969,6 +972,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 priority=candidate.priority,
                 feature=owners[0] if len(owners) == 1 else None,
                 measurement=measurements or candidate.measurement,
+                measurement_span=candidate.measurement_span,
                 interior_build=candidate.interior_build,
                 analytical_geometry=candidate.interior_geometry,
             )
@@ -1016,6 +1020,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
         for measurements in (_group_measurements(candidate),)
         if measurements
     }
+    spans = {c.name: c.measurement_span for c in kept if c.measurement_span is not None}
     satisfactions = {c.name: c.satisfaction for c in kept if c.satisfaction is not None}
     declarations = {c.name: c.declaration for c in kept if c.declaration is not None}
     sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint
@@ -1044,6 +1049,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             ctx=ctx,
             features=feats,
             measurements=meas,
+            measurement_spans=spans,
             satisfactions=satisfactions,
             declarations=declarations,
             sizes=sizes,
@@ -1087,6 +1093,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 corner_reserves=corner_reserves,
                 features=feats,
                 measurements=meas,
+                measurement_spans=spans,
                 satisfactions=satisfactions,
                 sizes=sizes,
                 forbid=forbid,
@@ -1220,6 +1227,7 @@ class PlacementContext:
         declaration=None,
         candidate_region=None,
         scale: float | None = None,
+        measurement_span: object | None = None,
     ):
         """Place an annotation onto the drawing through this context (#817) — the render passes'
         door to the placement primitive, so a pass never reaches into the ``Drawing`` (ADR 1 (was 0005)
@@ -1245,6 +1253,7 @@ class PlacementContext:
             declaration=declaration,
             candidate_region=candidate_region,
             scale=scale,
+            measurement_span=measurement_span,
         )
 
     def feature_of_hole_at(self, location):
@@ -1448,7 +1457,9 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
                     # supplied the analytical intent. Production candidates carry it,
                     # so rejected lanes never construct OCC geometry.
                     specimen = job.build(position)
-                    spec = getattr(specimen, "_dw_spec", None)
+                    spec = (
+                        specimen.placement_spec if isinstance(specimen, PlacedDimension) else None
+                    )
                     if spec is None:
                         continue
                     opposite = {
@@ -1467,9 +1478,7 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
                         **spec.kwargs,
                     )
                     for attr, value in vars(specimen).items():
-                        if attr.startswith("covers_") or (
-                            attr.startswith("_dw_") and attr != "_dw_spec"
-                        ):
+                        if attr.startswith("covers_"):
                             setattr(dimension, attr, value)
                     _copy_dimension_spec_riders(specimen, dimension)
                     label = getattr(dimension, "label_bbox", None)
@@ -1613,6 +1622,7 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
             view=job.view,
             feature=job.feature,
             measurement=job.measurement,
+            measurement_span=job.measurement_span,
             candidate_region=job_candidates[choice].region.value,
         )
         record(job, job_candidates, job_costs, choice, "placed")
@@ -2230,6 +2240,7 @@ def place_strip_candidates(
     force=False,
     features=None,
     measurements=None,
+    measurement_spans=None,
     satisfactions=None,
     declarations=None,
     sizes=None,
@@ -2315,6 +2326,7 @@ def place_strip_candidates(
         force=force,
         features=features,
         measurements=measurements,
+        measurement_spans=measurement_spans,
         satisfactions=satisfactions,
         declarations=declarations,
         sizes=sizes,
