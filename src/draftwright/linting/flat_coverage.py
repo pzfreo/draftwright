@@ -15,6 +15,7 @@ from quiddity import RecognitionResult
 
 from draftwright._geometry import _canonical_axis_direction
 from draftwright.contract_values import rounded as _rounded
+from draftwright.linting._coverage_common import measurement_matches as _matches
 from draftwright.linting._registry import (
     RequirementCarrier,
     satisfaction_ids,
@@ -79,14 +80,6 @@ def _source_point(flat) -> tuple[float, float, float]:
         point = flat.frame.origin
     x, y, z = point
     return (_rounded(x), _rounded(y), _rounded(z))
-
-
-def _matches(measurement, feature, parameter: str) -> bool:
-    """Match a compiler identity without coupling linting to the model package."""
-    return (
-        getattr(measurement, "feature", None) == feature
-        and getattr(measurement, "parameter", None) == parameter
-    )
 
 
 def flat_requirement_outcomes(

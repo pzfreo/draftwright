@@ -10,7 +10,9 @@ from types import SimpleNamespace
 import pytest
 from _corpus_cover import case_coverage_signature, corpus_subset, minimum_coverage_cases
 from _evidence_contract import (
+    assert_deleted_generated_line_loses_code_credit,
     assert_every_boundary_is_supported,
+    assert_missing_ir_feature_loses_adapter_credit,
     assert_missing_model_outcomes_fail_closed,
     assert_observer_fails_closed_without_build_or_recognition,
     assert_observer_uses_one_build_owned_recognition,
@@ -346,19 +348,7 @@ def test_pocket_pattern_observer_uses_one_build_owned_recognition_aggregate(monk
 
 
 def test_removing_patterns_from_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
-    from draftwright.drawing import Drawing
-
-    original = Drawing.model
-
-    def without_patterns(self):
-        model = original(self)
-        return replace(
-            model,
-            features=[feature for feature in model.features if feature.kind != "pocket_pattern"],
-        )
-
-    monkeypatch.setattr(Drawing, "model", without_patterns)
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_ir_feature_loses_adapter_credit(monkeypatch, "pocket_pattern", _states)
 
 
 def test_missing_per_pattern_boundary_outcomes_fail_closed(monkeypatch) -> None:
@@ -389,21 +379,7 @@ def test_corrupting_public_pattern_declaration_loses_declaration_credit(monkeypa
 
 
 def test_deleting_generated_pattern_lines_loses_generated_code_credit(monkeypatch) -> None:
-    import draftwright.sheet_emit as sheet_emit
-
-    original = sheet_emit.emit_sheet_script
-
-    def without_pattern_lines(*args, **kwargs):
-        source = original(*args, **kwargs)
-        return "\n".join(
-            f"# deleted by boundary mutation: {line}" if "sheet.pocket_pattern(" in line else line
-            for line in source.splitlines()
-        )
-
-    monkeypatch.setattr(sheet_emit, "emit_sheet_script", without_pattern_lines)
-    assert _states("ir_adapter") == {"supported"}
-    assert _states("dsl_declaration") == {"supported"}
-    assert _states("generated_code") == {"unknown"}
+    assert_deleted_generated_line_loses_code_credit(monkeypatch, "sheet.pocket_pattern(", _states)
 
 
 def test_removing_grouped_size_callout_loses_drawing_credit(monkeypatch) -> None:

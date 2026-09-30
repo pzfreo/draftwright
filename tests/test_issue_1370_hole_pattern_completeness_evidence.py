@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 from _evidence_contract import (
+    assert_deleted_generated_line_loses_code_credit,
     assert_every_boundary_is_supported,
+    assert_missing_ir_feature_loses_adapter_credit,
     assert_missing_model_outcomes_fail_closed,
     assert_observer_fails_closed_without_build_or_recognition,
 )
@@ -105,19 +107,7 @@ def test_every_pattern_boundary_is_observed_supported_on_the_real_public_path() 
 
 
 def test_removing_patterns_from_the_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
-    from draftwright.drawing import Drawing
-
-    original = Drawing.model
-
-    def without_patterns(self):
-        model = original(self)
-        return replace(
-            model,
-            features=[feature for feature in model.features if feature.kind != "pattern"],
-        )
-
-    monkeypatch.setattr(Drawing, "model", without_patterns)
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_ir_feature_loses_adapter_credit(monkeypatch, "pattern", _states)
 
 
 def test_a_boundary_with_missing_per_pattern_outcomes_fails_closed(monkeypatch) -> None:
@@ -149,21 +139,7 @@ def test_corrupting_public_pattern_declaration_loses_declaration_credit(monkeypa
 
 
 def test_deleting_generated_pattern_lines_loses_generated_code_credit(monkeypatch) -> None:
-    import draftwright.sheet_emit as sheet_emit
-
-    original = sheet_emit.emit_sheet_script
-
-    def without_pattern_lines(*args, **kwargs):
-        source = original(*args, **kwargs)
-        return "\n".join(
-            f"# deleted by boundary mutation: {line}" if " = sheet.pattern(" in line else line
-            for line in source.splitlines()
-        )
-
-    monkeypatch.setattr(sheet_emit, "emit_sheet_script", without_pattern_lines)
-    assert _states("ir_adapter") == {"supported"}
-    assert _states("dsl_declaration") == {"supported"}
-    assert _states("generated_code") == {"unknown"}
+    assert_deleted_generated_line_loses_code_credit(monkeypatch, " = sheet.pattern(", _states)
 
 
 def test_removing_a_placed_grid_pitch_loses_drawing_credit(monkeypatch) -> None:

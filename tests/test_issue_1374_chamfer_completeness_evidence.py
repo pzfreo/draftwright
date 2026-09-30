@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 from _evidence_contract import (
+    assert_deleted_generated_line_loses_code_credit,
+    assert_edge_callout_mutation_loses_drawing_credit,
     assert_every_boundary_is_supported,
     assert_missing_build_owned_recognition_fails_closed,
     assert_missing_model_outcomes_fail_closed,
@@ -339,99 +341,40 @@ def test_corrupting_public_chamfer_declaration_loses_declaration_credit(monkeypa
 
 
 def test_deleting_generated_chamfer_lines_loses_generated_code_credit(monkeypatch) -> None:
-    import draftwright.sheet_emit as sheet_emit
-
-    original = sheet_emit.emit_sheet_script
-
-    def without_chamfer_lines(*args, **kwargs):
-        source = original(*args, **kwargs)
-        return "\n".join(
-            f"# deleted by boundary mutation: {line}" if "sheet.chamfer(" in line else line
-            for line in source.splitlines()
-        )
-
-    monkeypatch.setattr(sheet_emit, "emit_sheet_script", without_chamfer_lines)
-    assert _states("ir_adapter") == {"supported"}
-    assert _states("dsl_declaration") == {"supported"}
-    assert _states("generated_code") == {"unknown"}
+    assert_deleted_generated_line_loses_code_credit(monkeypatch, "sheet.chamfer(", _states)
 
 
 def test_removing_placed_chamfer_callout_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def without_callout(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_chamfer_"))
-        drawing.remove(name)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", without_callout)
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(monkeypatch, _states, "m_chamfer_", "remove")
 
 
 def test_wrong_chamfer_ink_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def with_wrong_ink(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_chamfer_"))
-        drawing.registry.named(name).label = "C7"
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_ink)
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(
+        monkeypatch, _states, "m_chamfer_", "wrong_ink", wrong_label="C7"
+    )
 
 
 def test_wrong_chamfer_view_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def with_wrong_view(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_chamfer_"))
-        identity = drawing.registry.identity_of(name)
-        identity["view"] = "side"
-        drawing.registry.reapply(name, identity)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_view)
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(
+        monkeypatch, _states, "m_chamfer_", "wrong_view"
+    )
 
 
 def test_moving_chamfer_leader_off_the_physical_bevel_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def with_wrong_tip(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_chamfer_"))
-        drawing.registry.named(name).position = (10.0, 0.0, 0.0)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_tip)
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(
+        monkeypatch, _states, "m_chamfer_", "wrong_tip", wrong_tip=(10.0, 0.0, 0.0)
+    )
 
 
 def test_moving_turned_chamfer_leader_off_the_profile_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def with_wrong_radial_tip(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_chamfer_"))
-        drawing.registry.named(name).position = (50.0, 0.0, 0.0)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_radial_tip)
-    part = import_step(CORPUS.parent / "chamfer-turned.step")
-    assert _states("drawing_consumer", part) == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(
+        monkeypatch,
+        _states,
+        "m_chamfer_",
+        "wrong_tip",
+        wrong_tip=(50.0, 0.0, 0.0),
+        part=import_step(CORPUS.parent / "chamfer-turned.step"),
+    )
 
 
 def test_partial_od_turned_chamfers_keep_their_physical_source_target() -> None:
@@ -466,20 +409,9 @@ def test_moving_partial_od_chamfer_leader_off_source_loses_credit(monkeypatch) -
 
 
 def test_severing_chamfer_measurement_provenance_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def without_provenance(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_chamfer_"))
-        identity = drawing.registry.identity_of(name)
-        identity["measurement"] = ()
-        drawing.registry.reapply(name, identity)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", without_provenance)
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(
+        monkeypatch, _states, "m_chamfer_", "sever_provenance"
+    )
 
 
 def test_deleting_provider_chamfers_cannot_shrink_independent_denominator(
