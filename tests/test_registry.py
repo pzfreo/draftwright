@@ -21,14 +21,18 @@ pytestmark = pytest.mark.smoke
 
 def _foreign_helper_metadata_sites(root: Path) -> list[str]:
     marker = "_" + "dw_"
-    return sorted(str(path) for path in root.rglob("*.py") if marker in path.read_text())
+    return sorted(
+        str(path) for path in root.rglob("*.py") if marker in path.read_text(encoding="utf-8")
+    )
 
 
 def test_no_foreign_helper_metadata_side_channel_issue_1931(tmp_path):
     source = Path(__file__).resolve().parents[1] / "src"
     assert _foreign_helper_metadata_sites(source) == []
     # The guard must reject a newly introduced attribute string.
-    (tmp_path / "foreign.py").write_text('setattr(annotation, "_' + 'dw_next", value)')
+    (tmp_path / "foreign.py").write_text(
+        'setattr(annotation, "_' + 'dw_next", value)', encoding="utf-8"
+    )
     assert _foreign_helper_metadata_sites(tmp_path) == [str(tmp_path / "foreign.py")]
 
 
