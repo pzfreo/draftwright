@@ -244,7 +244,7 @@ def _record_blocked_authored_dimension(ctx, rec):
         "error" if source_id else "warning",
         "authored_dim_source_unresolved",
         f"authored dimension {getattr(rec, 'label', '')!r} is not drawn because its source "
-        f"reference geometry is unresolved: {reasons}",
+        f"data is unresolved: {reasons}",
         source=source_id,
         outcome_stage="validation",
     )

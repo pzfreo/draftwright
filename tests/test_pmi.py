@@ -100,6 +100,70 @@ class TestExtractPmi:
         assert labels["dimension:0:1:4:47"] == "0.82 ±0.06 inch"
         assert labels["dimension:0:1:4:48"] == "ø1.065 ±0.003 inch"
 
+    @pytest.mark.parametrize(
+        ("step_file", "source_id", "authored_field", "failed_getter", "reason_name"),
+        [
+            (CTC03, "dimension:0:1:4:44", "upper_tol", "GetUpperTolValue", "upper tolerance"),
+            (CTC01, "dimension:0:1:4:25", "upper_bound", "GetUpperBound", "upper range bound"),
+        ],
+    )
+    def test_unreadable_authored_tolerance_is_not_rendered(
+        self, step_file, source_id, authored_field, failed_getter, reason_name, monkeypatch
+    ):
+        import draftwright.pmi as pmi_module
+
+        baseline = pmi_module.extract_pmi_report(step_file)
+        original = next(record for record in baseline.records if record.source_id == source_id)
+        assert getattr(original, authored_field) is not None
+        from draftwright.annotations._pmi_dimensions import (
+            _blocked_authored_dimension_records,
+            _renderable_pmi_records,
+        )
+        from draftwright.model.detect import build_pmi_features
+
+        bbox = Box(1, 1, 1).bounding_box()
+        assert _renderable_pmi_records(build_pmi_features((original,), bbox))
+        dimension_type = pmi_module.XCAFDoc_Dimension
+
+        class UnreadableAuthoredValue:
+            def __init__(self, obj):
+                self.obj = obj
+
+            def __getattr__(self, name):
+                if name == failed_getter:
+
+                    def fail():
+                        raise RuntimeError("authored value read failed")
+
+                    return fail
+                return getattr(self.obj, name)
+
+        def set_dimension(label):
+            attribute = dimension_type.Set_s(label)
+            if pmi_module._source_id("dimension", label) != source_id:
+                return attribute
+            return SimpleNamespace(
+                GetObject=lambda: UnreadableAuthoredValue(attribute.GetObject())
+            )
+
+        monkeypatch.setattr(pmi_module, "XCAFDoc_Dimension", SimpleNamespace(Set_s=set_dimension))
+        report = pmi_module.extract_pmi_report(step_file)
+        source = next(source for source in report.sources if source.source_id == source_id)
+        record = next(record for record in report.records if record.source_id == source_id)
+
+        assert source.outcome == "partially_extracted"
+        reason = f"{reason_name} is unavailable (RuntimeError: authored value read failed)"
+        assert reason in source.reason
+        assert getattr(record, authored_field) is None
+        assert reason in record.source_value_blockers
+        feature = next(
+            feature
+            for feature in build_pmi_features((record,), bbox)
+            if feature.source_id == source_id
+        )
+        assert feature not in _renderable_pmi_records((feature,))
+        assert feature in _blocked_authored_dimension_records((feature,))
+
     def test_ctc04_angular_source_retains_exact_part21_support_members(
         self, ctc04_extraction_report
     ):
@@ -1160,9 +1224,13 @@ class TestExtractPmi:
                 return 12.0
 
         class FakeObject:
-            def __init__(self, values, *, is_range=False):
+            def __init__(
+                self, values, *, is_range=False, is_plus_minus=False, tolerance_probe_fails=False
+            ):
                 self.values = values
                 self.is_range = is_range
+                self.is_plus_minus = is_plus_minus
+                self.tolerance_probe_fails = tolerance_probe_fails
 
             def GetValue(self):
                 raise RuntimeError("scalar unavailable")
@@ -1177,6 +1245,11 @@ class TestExtractPmi:
 
             def GetLowerTolValue(self):
                 raise RuntimeError("no lower tolerance")
+
+            def IsDimWithPlusMinusTolerance(self):
+                if self.tolerance_probe_fails:
+                    raise RuntimeError("tolerance kind unavailable")
+                return self.is_plus_minus
 
             def IsDimWithRange(self):
                 return self.is_range
@@ -1256,6 +1329,28 @@ class TestExtractPmi:
         assert (
             "upper range bound is unavailable (RuntimeError: upper bound unavailable)" in reasons
         )
+
+        toleranced = FakeObject(FakeArray(), is_plus_minus=True)
+        assert toleranced.IsDimWithPlusMinusTolerance()
+        record, reasons = pmi_module._dimension_record(
+            object(), toleranced, 15, shape_tool, "dimension:unreadable-tolerance"
+        )
+        assert record.upper_tol is record.lower_tol is None
+        assert "upper tolerance is unavailable (RuntimeError: no upper tolerance)" in reasons
+        assert "lower tolerance is unavailable (RuntimeError: no lower tolerance)" in reasons
+
+        record, reasons = pmi_module._dimension_record(
+            object(),
+            FakeObject(FakeArray(), tolerance_probe_fails=True),
+            15,
+            shape_tool,
+            "dimension:unknown-tolerance-kind",
+        )
+        unknown_reason = (
+            "plus/minus tolerance status is unavailable (RuntimeError: tolerance kind unavailable)"
+        )
+        assert unknown_reason in reasons
+        assert unknown_reason in record.source_value_blockers
 
     def test_gtol_field_failures_are_explicit_partial_outcomes(self, monkeypatch):
         import draftwright.pmi as pmi_module
