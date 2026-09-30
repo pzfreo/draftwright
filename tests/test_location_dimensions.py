@@ -335,7 +335,7 @@ class TestLocationDimsAndSection:
         assert "section_aa" in dwg.views
         assert dwg.get_annotation("dim_height").label == "20"  # not the PMI z-extent
         # the views contain no line-work above the solid's top
-        for vis, hid in dwg.views.values():
+        for vis, _hid in dwg.views.values():
             assert vis.bounding_box().size.Y < 200  # sanity: no 160mm phantom
 
     @pytest.mark.timeout(60)

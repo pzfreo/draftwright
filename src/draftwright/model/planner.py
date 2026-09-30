@@ -731,8 +731,9 @@ def _suppression(model: PartModel, feature: Feature, param: DimParameter):
             axis = channel.width_axis
             long_index = "xyz".index(channel.long_axis)
             long_letter = "XYZ"[long_index]
-            bbox_min = getattr(model.bbox, "min")
-            bbox_max = getattr(model.bbox, "max")
+            # The model carries a provider bbox typed as object at this boundary.
+            bbox_min = getattr(model.bbox, "min")  # noqa: B009
+            bbox_max = getattr(model.bbox, "max")  # noqa: B009
             full_span = (
                 abs(channel.lo - getattr(bbox_min, long_letter)) <= 1e-6
                 and abs(channel.hi - getattr(bbox_max, long_letter)) <= 1e-6

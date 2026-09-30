@@ -51,7 +51,7 @@ def _bore_issue(drawing, feature):
 def _counts(drawing):
     return {
         feature.frame.axis: sorted(
-            getattr(drawing.get_annotation(name), "covers_count")
+            drawing.get_annotation(name).covers_count
             for name in drawing.annotations_of(feature)
             if hasattr(drawing.get_annotation(name), "covers_count")
         )

@@ -415,7 +415,7 @@ def test_public_sheet_word_and_generated_program_preserve_double_d_semantics() -
     drawing = build_drawing(part)
     source = emit_sheet_script(drawing.model(), "part", "double_d", title="TEST", number="T-1")
 
-    assert callable(getattr(Sheet, "double_d_bore"))
+    assert callable(Sheet.double_d_bore)
     assert "sheet.double_d_bore(" in source
     assert "major_diameter=10" in source
     assert "across_flats=7.2" in source

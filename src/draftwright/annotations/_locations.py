@@ -722,7 +722,7 @@ def _register_y_locations(
         and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin, _mids, _facts, _entries in y_refs)
     ):
         a.sv_zones.above.outer_limit = min(a.sv_zones.above.outer_limit, iso_y0 - 4)
-    for i, (rx, ry, feat, pin_ref, mids, location_facts, location_entries) in enumerate(
+    for i, (_rx, ry, feat, pin_ref, mids, location_facts, location_entries) in enumerate(
         sorted(y_refs, key=lambda r: abs(r[1] - datum_y))
     ):
         if abs(ry - datum_y) * a.SCALE < 1.0:

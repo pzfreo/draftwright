@@ -196,7 +196,7 @@ def _diameter_row_below(
             for s in specs
             if id(s) not in kept
         )
-    for i, ((tip, dia, label, feat, mids), lx) in enumerate(zip(survivors, xs, strict=True)):
+    for i, ((tip, _dia, label, feat, mids), lx) in enumerate(zip(survivors, xs, strict=True)):
         ctx.place(
             Leader(tip=(tip[0], tip[1], 0), elbow=(lx, label_y, 0), label=label, draft=draft),
             f"m_dia_x{start + i}",
@@ -275,7 +275,7 @@ def _diameter_column_left(
         )
     occupied = strip_obstacles(dwg, view="front", crossable=CROSSABLE_TYPES)
     placed = 0
-    for i, ((tip, dia, label, feat, mids), ly) in enumerate(zip(survivors, ys, strict=True)):
+    for i, ((tip, _dia, label, feat, mids), ly) in enumerate(zip(survivors, ys, strict=True)):
         ldr = Leader(tip=(tip[0], tip[1], 0), elbow=(elbow_x, ly, 0), label=label, draft=draft)
         if _box_hits(_anno_box(ldr), occupied):
             if ev is not None:

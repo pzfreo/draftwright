@@ -656,7 +656,7 @@ def _assign_by_view(
     choices: list[int | None] = [None] * len(costs_by_job)
     optimal = True
     states = 0
-    for view, members in order.items():
+    for _view, members in order.items():
         local = {job_index: position for position, job_index in enumerate(members)}
         local_conflicts = []
         connected: dict[int, set[int]] = {position: set() for position in range(len(members))}

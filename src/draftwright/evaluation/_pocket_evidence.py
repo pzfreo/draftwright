@@ -544,7 +544,7 @@ def _pocket_pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
             location_names.setdefault((feature, parameter, rounded), set()).add(name)
 
     result: list[Outcome] = []
-    for pattern, (exact, features, outcomes) in zip(patterns, correspondence, strict=True):
+    for _pattern, (exact, features, outcomes) in zip(patterns, correspondence, strict=True):
         if not exact or len(features) != 1:
             result.append("unknown")
             continue

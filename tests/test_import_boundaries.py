@@ -1453,8 +1453,7 @@ def test_public_recogniser_member_is_an_immutable_public_snapshot(monkeypatch):
 
     assert not hasattr(contract, "recognition")
     assert getattr(contract.public_recogniser_member, "__closure__", None) is None
-    with pytest.raises(AttributeError):
-        contract.public_recogniser_member._root
+    assert not hasattr(contract.public_recogniser_member, "_root")
     with pytest.raises(AttributeError):
         contract.public_recogniser_member._root = {"profiled_bores": object()}
 

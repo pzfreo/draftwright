@@ -166,6 +166,9 @@ select = ["E", "F", "I", "UP"]
 extend-select = ["B023", "B905"]
 ignore = ["E501"]
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Option"]
+
 [dependency-groups]
 docs = [
     "mkdocs>=1.6,<2",

@@ -299,6 +299,7 @@ def render_envelope(
         p1, p2 = dwg.at(view, *start_pt), dwg.at(view, *end_pt)
         witness = p1[1] - _WITNESS_LIFT_MM
         zones = frame.zones(view)
+        label = _env_label(extent, dwg.draft)
         _queue(
             ann_name,
             zones.below,
@@ -307,8 +308,8 @@ def render_envelope(
             slot,
             abs(end_pt[index] - start_pt[index]),
             (p1[0], p2[0]),
-            _env_label(extent, dwg.draft),
-            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=_env_label(extent, dwg.draft): dim_builder(
+            label,
+            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=label: dim_builder(
                 (_p1[0], _w, 0),
                 (_p2[0], _w, 0),
                 "below",
@@ -319,8 +320,8 @@ def render_envelope(
             # Measure the same rendered label used by the Dimension. The span
             # usually dominates this footprint, but outside arrows can make the
             # label affect its extent.
-            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=_env_label(extent, dwg.draft): (
-                dim_footprint((_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v)
+            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=label: dim_footprint(
+                (_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v
             ),
             measurement=extent.id,
             measurement_span=extent.span,

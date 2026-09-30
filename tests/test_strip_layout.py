@@ -430,7 +430,7 @@ def test_corridor_candidate_cannot_downgrade_approved_measurement():
     measured = CorridorCandidate(**common, measurement=object())
     assert measured.effective_obligation_class == "required"
     with pytest.raises(ValueError, match="cannot be optional"):
-        CorridorCandidate(
+        _ = CorridorCandidate(
             **common, measurement=object(), obligation_class="optional"
         ).effective_obligation_class
 
@@ -1224,7 +1224,8 @@ def _fake_dwg(obstacles, view="side", types=None):
     def _make(name, bb):
         tn = (types or {}).get(name, "_Obst")
         bases = _dim_bases.get(tn, ())
-        body = {"bounding_box": lambda s, _b=_BB(*bb): _b, "__init__": lambda s: None}
+        box = _BB(*bb)
+        body = {"bounding_box": lambda s, _b=box: _b, "__init__": lambda s: None}
         return type(tn, bases, body)()
 
     class _Dwg:

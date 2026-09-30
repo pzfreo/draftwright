@@ -1111,7 +1111,8 @@ def _generated_sheet_model(part, model):
     prefix = source.split("drawing = sheet.build()", 1)[0]
     namespace: dict[str, object] = {"part": part}
     exec(compile(prefix, "<draftwright-evaluation>", "exec"), namespace)  # noqa: S102
-    return getattr(namespace["sheet"], "model")()
+    # The namespace comes from executed script source, so its values are typed as object.
+    return getattr(namespace["sheet"], "model")()  # noqa: B009
 
 
 def _generated_sheet_drawing(part, model):

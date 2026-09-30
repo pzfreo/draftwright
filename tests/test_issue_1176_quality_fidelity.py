@@ -659,7 +659,7 @@ def _emitted_codes(sources=None):
     recorders = set(_STAGED_RECORDERS)
     while True:
         before = len(recorders)
-        for path, tree in trees.items():
+        for _path, tree in trees.items():
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue

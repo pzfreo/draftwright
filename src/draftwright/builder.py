@@ -797,7 +797,8 @@ def _assemble(
         ]
         if len(defaults) == 1:
             general_tolerance_source = defaults[0]
-            a = replace(a, tolerance=getattr(general_tolerance_source, "designation"))
+            # The feature union does not expose this kind-specific attribute.
+            a = replace(a, tolerance=getattr(general_tolerance_source, "designation"))  # noqa: B009
 
     # ADR 1 (was 0005 §2): the one build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.

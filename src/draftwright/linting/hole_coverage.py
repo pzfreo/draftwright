@@ -286,11 +286,7 @@ def _pattern_key(pattern) -> tuple:
         member = recognised[0]
         bcd = getattr(pattern, "diameter", None) if kind == "bolt_circle" else None
         pitch = getattr(pattern, "pitch", None) if kind == "linear" else None
-        grid = (
-            (getattr(pattern, "row_pitch"), getattr(pattern, "col_pitch"))
-            if kind == "grid"
-            else None
-        )
+        grid = (pattern.row_pitch, pattern.col_pitch) if kind == "grid" else None
         direction = getattr(pattern, "direction", None)
         rows = getattr(pattern, "rows", None)
         cols = getattr(pattern, "cols", None)

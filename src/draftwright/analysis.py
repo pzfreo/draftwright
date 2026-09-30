@@ -1065,7 +1065,7 @@ def _validate_explicit_scale(
         if advisories is not None:
             advisories.append(("legibility_floor_breached", message))
         if warn_advisory:
-            warnings.warn(message)
+            warnings.warn(message, stacklevel=1)
 
 
 @dataclass(frozen=True)
