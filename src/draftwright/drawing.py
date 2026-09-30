@@ -1629,7 +1629,6 @@ class Drawing:
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("callout", feature, {"view": view, "name": name}))
             return ""
-        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
         ctx = PlacementContext(
@@ -1842,7 +1841,6 @@ class Drawing:
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("furniture", feature, {"view": view}))
             return []
-        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_furniture
 
         ctx = PlacementContext(
@@ -1872,7 +1870,6 @@ class Drawing:
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("rotational", feature, {}))
             return []
-        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.from_model import render_rotational
         from draftwright.model.compiled import compile_dimensions
 
@@ -1945,7 +1942,6 @@ class Drawing:
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("locate", feature, {"axes": axes, "pin": pin}))
             return []
-        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_location
 
         ctx = PlacementContext(
@@ -2111,7 +2107,6 @@ class Drawing:
         # pending placement work to strand.
         if not self._intents:
             return
-        from draftwright.annotations._common import PlacementContext
 
         # Fresh per-run placement scratch, threaded to the passes rather than hung on the drawing
         # (ADR 1 (was 0005 §2), #639): render_locations/_annotate_holes/drain_corridors register/read here.
