@@ -189,9 +189,10 @@ directory and `--expect-collected N`, where N is today's `uv run pytest --collec
 count (never a number copied from a doc); see the script's `--help`.
 
 Coverage is kept out of the default addopts; CI passes `--cov` in two shards combined for
-the Codecov upload and the `fail_under` gate. PR CI runs the fast tier across supported
-Python versions plus macOS/Windows canaries and the real-part canary; the **full slow tier
-runs post-merge on `main`** (#153, #827). The `full-matrix` PR label runs the wider matrix.
+the Codecov upload and the `fail_under` gate. Ordinary PR CI selects fast modules from
+`tests/_tier_manifest.py` by changed source owner on Linux, with macOS/Windows smoke+unit
+canaries and the real-part canary. The `full-matrix` PR label runs the complete fast tier
+across the wider matrix; the **full slow tier runs post-merge on `main`** (#153, #827).
 
 A PR that only bumps the next-patch development version takes a short metadata-only CI
 path, proved byte-exact by `scripts/check-version-bump`; anything mixed runs normal CI.
