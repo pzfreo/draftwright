@@ -43,6 +43,12 @@ modules publish activity at their existing seams, while the CLI alone renders it
 own placement decisions or a recognition inventory. (All surfaces are front doors onto the one engine,
 `build_drawing` → `_auto_annotate` — there is no second engine.)
 
+A leading underscore on an engine name means **package-internal**, not local to one
+file. Sibling modules may import it along the ranked DAG; callers should use the
+published surfaces instead. The package root publishes exactly the non-underscored
+names in `__all__` through its lazy binding map. A module with a separate published
+contract, such as `reporting.py`, states and guards that contract at its own seam.
+
 `layout_scheme.py` sits beside `compose.py` at rank 2: it derives typed, render-free
 corridor demand from approved model groups, and compose consumes that topology.
 `recognition_cache.py` sits beside `analysis.py` at rank 3: both consume bottom-layer
@@ -54,15 +60,18 @@ model-to-core edge while permitting approved shared rank-1 modules.
 
 This DAG is **machine-enforced** by `tests/test_import_boundaries.py` (#640): the
 `_LAYERS` table there is the precise, ranked form of this section — a module-level
-import that points up a layer fails CI, as does an import cycle. The precise
+import that points up a layer fails CI, as does an explicit import cycle through
+files or package initializers even when one edge is inside a function. Implicit
+parent-package initialization edges are checked across top-level submodules. The precise
 placement refines the coarse grouping above (e.g. `linting`/`pmi`/`export`/`repair`/
 `projection`/`compose` sit *above* `_core` since they depend on it; `model/` is the
 IR waist with a stricter import allowlist than its numerical rank). The
-`_LAZY_UPWARD_EXEMPT` sanctioned-cycle-breaker
-mechanism is now empty (#523 removed its last occupant, the `builder→cli` edge — see
-below); a new upward lazy import must earn an entry with a rationale. The remaining
-lazy in-function imports (`cli`→`builder`/`sheet_emit`, for the #313 build123d
-lazy-load) are *downward*, not cycle-breakers. Two type-only upward references
+`_LAZY_UPWARD_EXEMPT` mechanism is empty (#523 removed its last occupant, the
+`builder→cli` edge — see below); a new upward lazy import must earn an entry with
+a rationale and cannot close a cycle. In-function imports remain in several layers,
+including the `cli`→`builder`/`sheet_emit` imports that preserve the #313
+build123d lazy-load. Their statement count has a shrinking test budget. Two
+type-only upward references
 (`_core`→`compose.StripDepths` and `annotation_layout_profile`→`compose.StripDepths`,
 both under `TYPE_CHECKING`) are explicit allowlist entries. Rank-0 modules cannot
 use this exemption. Keep `_LAYERS` and this section in step.
@@ -126,8 +135,9 @@ and re-exports the existing private helper names.
     is imported **lazily inside the command body** so completion/`--help`/
     `--version` stay sub-second (#313). Entry point: `draftwright.cli:app`.
   - **`drawing.py`** — the `Drawing` result object (`.lint()`/`.add()`/`.place_dim()`/
-    `.repair()`/`.export*()`; delegates identity to `registry`, ordered lint critique to
-    `linting/orchestration.py`)
+    `.repair()`/`.export*()`; owns feature edit decisions and solver-bound intent
+    preparation with its private mutable state, and delegates identity to `registry`
+    and ordered lint critique to `linting/orchestration.py`)
     plus `FeatureInfo` (`_build_table` moved beside `_table_metrics` in `_core`, #699).
     Sits below `builder` (which constructs it).
     *(The build context lives in ONE typed `BuildState` on `Drawing` (`_build`:
@@ -139,7 +149,6 @@ and re-exports the existing private helper names.
     `drawing.py` touches `dwg._*` (rationale-carrying allowlist, builder's
     fill site only).)*
   - **`drawing_evidence.py`** — rank-2 read-only suppression, measurement-claim, page-use and lint-summary projections. `Drawing` supplies explicit model, registry, annotation and build evidence; this module neither owns build state nor reaches into private drawing fields.
-  - **`drawing_edits.py`** — rank-5 feature edit decisions and solver-bound intent preparation. `Drawing` keeps the public verbs and owns their mutable state; each operation receives the needed state and callbacks explicitly.
   - **`drawing_diagnostics.py`** — rank-5 finished-drawing lint and report coordination. `Drawing` supplies explicit build state and public dispatch callbacks; task-local scopes retain pair and requirement evidence without a persistent result cache.
   - **`drawing_export.py`** — rank-2 export orchestration and shape serialization. `Drawing` retains the observed public operation and supplies explicit writer, lint and text callbacks; the export owner reads only public result state.
   - **`drawing_state.py`** — rank-5 typed `BuildState` owner; `drawing.py` re-exports the type and remains its sole construction site.

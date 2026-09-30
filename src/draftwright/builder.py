@@ -2701,14 +2701,14 @@ def build_drawing(
     if annotation_layout == "compare":
         options = locals().copy()
         # The candidate's finished evidence is read again after its nested build returns.
-        with reuse_finished_build_lint():
+        with reuse_finished_build_lint(Drawing):
             return _compare_annotation_layout(options, auto_dims)
     build_options = BuildOptions.from_mapping(locals())
     if scale is None:
         return _build_drawing_policy(
             step_file, build_options, _post_build, _analysis_base, _analysis_sink
         )
-    with reuse_finished_build_lint():
+    with reuse_finished_build_lint(Drawing):
         return _build_drawing_policy(
             step_file, build_options, _post_build, _analysis_base, _analysis_sink
         )

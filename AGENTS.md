@@ -61,7 +61,7 @@ survivor commit in `_strip_postsolve`, exact settled annotation ink lowering in
 `leaders`, final trace inventory and survivor commit in `_leader_commit`,
 plus the optional `solve_trace` recorder;
 `orchestrator._PASS_SEQUENCE` is the one stage order)
-→ **5** `drawing`, `drawing_edits`, `drawing_diagnostics`, and
+→ **5** `drawing` (including feature edit verbs), `drawing_diagnostics`, and
 `intent_drain` and `intent_routing` (the deferred stages; `intent_routing` owns the
 deferred `Intent` record, with `intents` as its stable import path, and transaction
 state owned by `Drawing`) → **6**
