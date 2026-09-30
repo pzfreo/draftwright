@@ -1528,7 +1528,6 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
                         dwg.draft,
                         label=label,
                     )
-                det_dim._dw_scale = detail_scale  # detail scale, for label-vs-measured lint (#42)
                 det_dim._dw_measurement_span = rung.span
                 ctx.place(
                     det_dim,
@@ -1536,6 +1535,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
                     view=view,
                     feature=rung.id.feature if rung.id is not None else None,
                     measurement=rung.id,
+                    scale=detail_scale,
                 )  # view-scoped name (#307)
                 ladder += step_pad
                 placed += 1

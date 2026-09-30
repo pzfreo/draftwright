@@ -14,7 +14,7 @@ from typing import Any
 
 from draftwright._core import _frame_margins, _log
 from draftwright.linting.evidence import compiled_display_precisions
-from draftwright.linting.issues import _collect_issue_aggregation
+from draftwright.linting.issues import _collect_issue_aggregation, _IssueAggregation
 from draftwright.linting.orchestration import LintContext, lint_finished_drawing
 
 # Codes that check standards/geometry correctness rather than pure page
@@ -125,11 +125,78 @@ _REPORT_REQUIREMENTS: ContextVar[tuple[object, Mapping[str, tuple[Any, ...]], ob
 )
 
 # A finished-layout assessment needs the raw issues and their summary together. Keep that
-# result task-local for the duration of the assessment; Drawing exposes mutable annotations,
-# so a persistent generation cache needs a wider mutation contract (follow-on #1945).
+# result task-local for the duration of the assessment; Drawing remains editable after build.
 _SCOPED_LINT: ContextVar[tuple[object, tuple, object] | None] = ContextVar(
     "draftwright_scoped_lint", default=None
 )
+
+# Build policy reads a finished attempt several times before returning the editable Drawing.
+# Keep its physical critique only for that call tree; public lint after return remains live.
+_BUILD_LINT: ContextVar[dict[object, tuple[tuple, _IssueAggregation]] | None] = ContextVar(
+    "draftwright_build_lint", default=None
+)
+
+
+@contextlib.contextmanager
+def reuse_finished_build_lint():
+    """Share physical critique across one build and its nested layout trials."""
+    if _BUILD_LINT.get() is not None:
+        yield
+        return
+    token = _BUILD_LINT.set({})
+    try:
+        yield
+    finally:
+        _BUILD_LINT.reset(token)
+
+
+@contextlib.contextmanager
+def suspend_finished_build_lint():
+    """Keep attempt assembly and caller hooks outside the finished read scope."""
+    if _BUILD_LINT.get() is None:
+        yield
+        return
+    token = _BUILD_LINT.set(None)
+    try:
+        yield
+    finally:
+        _BUILD_LINT.reset(token)
+
+
+def _captured_lint(drawing):
+    from draftwright.drawing import Drawing
+
+    cache = _BUILD_LINT.get() if type(drawing) is Drawing else None
+    if cache is not None and drawing in cache:
+        return cache[drawing]
+    with _collect_issue_aggregation() as aggregation:
+        issues = tuple(drawing.lint())
+    result = (issues, aggregation)
+    if cache is not None:
+        cache[drawing] = result
+    return result
+
+
+def _build_lint_entry(drawing):
+    cache = _BUILD_LINT.get()
+    if cache is None:
+        return None
+    return next((entry for owner, entry in cache.items() if owner is drawing), None)
+
+
+def discard_finished_build_lint(drawing):
+    """Forget a scoped physical critique after a finished attempt changes."""
+    cache = _BUILD_LINT.get()
+    if cache is not None:
+        for owner in tuple(cache):
+            if owner is drawing:
+                del cache[owner]
+                break
+
+
+def finished_build_lint_issues(drawing):
+    """Read a finished attempt's physical issues without persisting a Drawing cache."""
+    return _captured_lint(drawing)[0]
 
 
 def lint_snapshot(drawing):
@@ -138,8 +205,7 @@ def lint_snapshot(drawing):
     # call lint_summary() while the inner public lint method is still running.
     mask = _SCOPED_LINT.set(None)
     try:
-        with _collect_issue_aggregation() as aggregation:
-            issues = tuple(drawing.lint())
+        issues, aggregation = _captured_lint(drawing)
     finally:
         _SCOPED_LINT.reset(mask)
     token = _SCOPED_LINT.set((drawing, issues, aggregation))
@@ -438,9 +504,10 @@ class DiagnosticOperations:
         scoped = _SCOPED_LINT.get()
         if scoped is not None and scoped[0] is self.drawing:
             issues, aggregation = scoped[1], scoped[2]
+        elif (captured := _build_lint_entry(self.drawing)) is not None:
+            issues, aggregation = captured
         else:
-            with _collect_issue_aggregation() as aggregation:
-                issues = self.lint()
+            issues, aggregation = _captured_lint(self.drawing)
         from draftwright.drawing_evidence import lint_summary as project_lint_summary
 
         candidate = _REPORT_REQUIREMENTS.get()

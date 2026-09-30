@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from draftwright.contract_values import rounded as _rounded
+from draftwright.linting._coverage_common import rounded_point
 from draftwright.linting._registry import (
     RequirementCarrier,
     measurement_outcome_index,
@@ -39,7 +40,7 @@ class BossRequirementOutcome:
 
 
 def _point(value) -> tuple[float, float, float]:
-    point = tuple(_rounded(component) for component in value)
+    point = rounded_point(value)
     if len(point) != 3:
         raise ValueError("boss point must have three coordinates")
     return point

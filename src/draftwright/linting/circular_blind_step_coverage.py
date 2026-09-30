@@ -11,12 +11,12 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from math import hypot, isclose, isfinite
-from typing import Literal
+from typing import Literal, cast
 
 from quiddity import CircularBlindStep, RecognitionResult
 
 from draftwright._geometry import quantised_radius_agrees, quantised_span_agrees
-from draftwright.contract_values import rounded as _rounded
+from draftwright.linting._coverage_common import rounded_point as _point
 from draftwright.linting._registry import (
     RequirementCarrier,
     measurement_outcome_index,
@@ -46,10 +46,6 @@ class CircularBlindStepRequirementOutcome:
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _point(value) -> tuple:
-    return tuple(_rounded(component) for component in value)
 
 
 def circular_blind_step_key(step, *, require_frame: bool = False) -> tuple:
@@ -174,7 +170,7 @@ def circular_blind_step_key(step, *, require_frame: bool = False) -> tuple:
 
 def _source_at(source) -> tuple[float, float, float]:
     try:
-        return _point(source.centreline[0])
+        return cast(tuple[float, float, float], _point(source.centreline[0]))
     except (AttributeError, IndexError, TypeError, ValueError, OverflowError):
         return (float("nan"), float("nan"), float("nan"))
 

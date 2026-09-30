@@ -14,8 +14,8 @@ caption are always in different groups *and* spatially adjacent by construction.
 corpus the lone detail-scale annotation sat 12.7 mm from its nearest sheet-scale neighbour, with
 the next nearest 115 mm away.
 
-The fix is the issue's option 1 — per-annotation scale. `_lint_dim` reads each item's own
-`_dw_scale`, so `lint_drawing` runs ONCE over every annotation. Option 2 (keep the split, add a
+The fix is the issue's option 1 — per-annotation scale. `_lint_dim` receives each item's
+registry-owned detail scale, so `lint_drawing` runs ONCE over every annotation. Option 2 (keep the split, add a
 second pairwise pass over the union) was rejected: it needs a second place that decides which
 checks are scale-sensitive, and a split owner in two places is the defect this codebase keeps
 paying for — #1215 alone cost eight sites of it.
@@ -50,7 +50,11 @@ class TestTheFixtureReallyHasTwoScaleGroups:
         # The precondition. Without two groups nothing below can distinguish the fix from the
         # defect — every assertion would hold on unfixed code.
         drawing = build_drawing(_crowded_tiers(), title="T", number="N")
-        scales = {getattr(a, "_dw_scale", drawing.scale) for a in drawing.items}
+        scales = {drawing.scale} | {
+            drawing.registry.scale_of(name)
+            for name in drawing.registry.names()
+            if drawing.registry.scale_of(name) is not None
+        }
         assert len(scales) >= 2, scales
 
 
@@ -69,9 +73,9 @@ class TestPairwiseChecksSeeAcrossGroups:
             Note("HELLO", here, draft=drawing.draft),
             Note("WORLD", here, draft=drawing.draft),
         )
-        first._dw_scale = drawing.scale
-        second._dw_scale = drawing.scale * 2
         drawing.items = [first, second]
+        drawing.registry.add(first, "first", None, scale=drawing.scale)
+        drawing.registry.add(second, "second", None, scale=drawing.scale * 2)
 
         codes = {issue.code for issue in drawing.lint()}
         assert "annotation_overlap" in codes, codes
@@ -103,7 +107,7 @@ class TestTheScaleSensitiveCheckStaysCorrect:
         detail = [
             n
             for n in drawing.registry.names()
-            if getattr(drawing.registry.named(n), "_dw_scale", None) not in (None, drawing.scale)
+            if drawing.registry.scale_of(n) not in (None, drawing.scale)
         ]
         assert detail, "no detail-scale annotation; this asserts nothing"
         assert "label_vs_measured" not in {issue.code for issue in drawing.lint()}
@@ -117,9 +121,8 @@ class TestTheScaleSensitiveCheckStaysCorrect:
         item = SimpleNamespace(
             label="7.5",
             measured_length=7.5 * scale,
-            _dw_scale=scale,
             elbow=None,
             is_dimension=True,
         )
-        issues = lint_drawing([item], drawing_scale=1.0)
+        issues = lint_drawing([item], drawing_scale=1.0, annotation_scales={id(item): scale})
         assert not [i for i in issues if i.code == "label_vs_measured"], (scale, issues)

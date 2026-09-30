@@ -737,8 +737,10 @@ def test_diagonal_dimension_gate_keeps_label_less_table_furniture_conservative()
     assert not annotation_ink_clear(drawing, candidate)
 
 
-def test_diagonal_dimension_gate_keeps_legacy_untight_labels_conservative(monkeypatch) -> None:
+def test_diagonal_dimension_gate_keeps_legacy_untight_labels_conservative() -> None:
+    from draftwright._geometry import _segment_clips_box
     from draftwright.annotations import _common
+    from draftwright.linting.ink_overlap import crossable_region
 
     class LegacyDimension:
         label_bbox = (10.0, 10.0, 20.0, 20.0)
@@ -752,12 +754,15 @@ def test_diagonal_dimension_gate_keeps_legacy_untight_labels_conservative(monkey
         def view_of(self, _name):
             return "plan"
 
-    monkeypatch.setattr(_common, "Dimension", LegacyDimension)
     candidate = SimpleNamespace(
         label_bbox=(30.0, 30.0, 40.0, 34.0),
         segments=(((10.0, 12.0), (11.0, 12.0)),),
     )
 
+    legacy = LegacyDimension()
+    assert crossable_region(legacy.label_bbox, item=legacy, segments=legacy.segments) is None
+    assert _segment_clips_box(*candidate.segments[0], legacy.label_bbox, pad=0.0)
+    assert candidate.label_bbox[0] > legacy.label_bbox[2]
     assert not _common.annotation_ink_clear(Drawing(), candidate, view="plan")
 
 

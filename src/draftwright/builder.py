@@ -114,6 +114,7 @@ from draftwright.compose import (
 )
 from draftwright.document_input import DocumentInput
 from draftwright.drawing import Drawing
+from draftwright.drawing_diagnostics import reuse_finished_build_lint, suspend_finished_build_lint
 from draftwright.explicit_scale import resolve_explicit_scale
 from draftwright.layout_safety import candidate_safety_evidence
 from draftwright.layout_selection import (
@@ -1806,26 +1807,27 @@ class _BuildAttemptContext:
             _views=views,
             _include_iso=self.options._include_iso if include_iso is None else include_iso,
         )
-        built = _build_drawing_once(
-            self.step_file,
-            attempt_options,
-            scale=candidate_scale,
-            page=self.options.page if page_override is None else page_override,
-            _analysis_base=self.analysis_base,
-            _analysis_sink=self.retain_analysis,
-            _critique_recognition_cache=self.critique_recognition_cache,
-            _arrangements=arrangements,
-            _select_automatic_views=select_automatic_views,
-            _candidate_profile_first=self.options.annotation_layout == "demand-guided",
-            _title_block_cache=self.title_block_cache,
-            _placement_critique=self.placement_critique,
-        )
-        _validate_authored_view_layout(built, self.options._view_constraints)
-        if self.options._document_input is not None:
-            cast(DocumentInput, self.options._document_input).validate(
-                built.working_part, built.model().features
+        with suspend_finished_build_lint():
+            built = _build_drawing_once(
+                self.step_file,
+                attempt_options,
+                scale=candidate_scale,
+                page=self.options.page if page_override is None else page_override,
+                _analysis_base=self.analysis_base,
+                _analysis_sink=self.retain_analysis,
+                _critique_recognition_cache=self.critique_recognition_cache,
+                _arrangements=arrangements,
+                _select_automatic_views=select_automatic_views,
+                _candidate_profile_first=self.options.annotation_layout == "demand-guided",
+                _title_block_cache=self.title_block_cache,
+                _placement_critique=self.placement_critique,
             )
-        return self.post_build(built) if self.post_build is not None else built
+            _validate_authored_view_layout(built, self.options._view_constraints)
+            if self.options._document_input is not None:
+                cast(DocumentInput, self.options._document_input).validate(
+                    built.working_part, built.model().features
+                )
+            return self.post_build(built) if self.post_build is not None else built
 
     def scale_blockers_for(
         self, built: Drawing, expected_scale: float
@@ -2682,11 +2684,19 @@ def build_drawing(
     """
     annotation_layout = annotation_layout_policy(annotation_layout)
     if annotation_layout == "compare":
-        return _compare_annotation_layout(locals().copy(), auto_dims)
+        options = locals().copy()
+        # The candidate's finished evidence is read again after its nested build returns.
+        with reuse_finished_build_lint():
+            return _compare_annotation_layout(options, auto_dims)
     build_options = BuildOptions.from_mapping(locals())
-    return _build_drawing_policy(
-        step_file, build_options, _post_build, _analysis_base, _analysis_sink
-    )
+    if scale is None:
+        return _build_drawing_policy(
+            step_file, build_options, _post_build, _analysis_base, _analysis_sink
+        )
+    with reuse_finished_build_lint():
+        return _build_drawing_policy(
+            step_file, build_options, _post_build, _analysis_base, _analysis_sink
+        )
 
 
 # Preserve the established detailed public reference (model/trace/PMI/editing semantics) while

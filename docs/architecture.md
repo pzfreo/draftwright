@@ -166,12 +166,10 @@ and re-exports the existing private helper names.
     `build model → plan/model-routed intents → render`; some inline engine code remains — chiefly
     `_maybe_tabulate_holes` (the hole-table/balloon escalation resolver) and the
     iso right-strip outer-limit tightening — pending the last convergence steps.
-  - **`annotations/from_model.py`** — the **IR render layer** (largest annotations
-    module): turns the planner's `DimensionGroup`/render-intents into placed
-    dimensions/callouts/centre marks/section triggers. This is where the turned,
-    envelope/OD and centre-mark passes converge with feature-family owners here
-    (ADR 1 (was 0015), #200/#208/#237). The old per-feature
-    `annotations/{turned,pmi}.py` modules were deleted as each migrated to the one engine.
+  - **`annotations/from_model.py`** — the IR render facade and remaining feature
+    passes: turns the planner's `DimensionGroup`/render intents into placed
+    dimensions, callouts, centre marks, and section triggers. It keeps the
+    orchestrator's pass bindings while family owners implement extracted passes.
   - **`annotations/_axial_render.py`** — compiled step-chain, height-ladder,
     step-position and rotational rendering. `from_model` re-exports the public
     passes and injects its current chain placer into step-length and authored
@@ -189,6 +187,13 @@ and re-exports the existing private helper names.
     overall-height corridor candidates, including chained witnesses and short-rung
     left-strip escape. `from_model.render_height_ladder` retains view routing and
     compiled-rung selection; candidates enter the shared corridor solve.
+  - **`annotations/_envelope.py`** — owns compiler-approved overall width/depth
+    routing, mandatory corridor candidates, and deferred above/interior retry with
+    measurement-specific refusal evidence. `from_model.render_envelope` retains the
+    public pass and supplies its live placement bindings.
+  - **`annotations/_circular_recesses.py`** — owns compiler-approved blind-step and
+    channel callout grouping and the bounded circular-wall leader candidates.
+    The public passes in `from_model` supply live radial and leader placement bindings.
   - **`annotations/_pocket_pad.py`** — owns compiler-approved pocket and pad-height
     labels, projected rim bounds, direction policy, and leader job construction. The public passes in
     `from_model` submit those jobs to the existing late feature-leader assignment.
@@ -226,8 +231,11 @@ and re-exports the existing private helper names.
     radius jobs to the shared late leader assignment.
   - **`annotations/angular.py`** — angular arc/arrow/extension ink and analytic
     radius-dependent footprints, consumed through the shared corridor solve.
-  - **`annotations/holes.py`** — hole/pattern callouts, balloons, planar location
-    and pitch/grid dimensions, table furniture, and slots.
+  - **`annotations/holes.py`** — hole callouts, balloons, planar location,
+    pitch placement, table furniture transactions, and the pattern pass entry points.
+  - **`annotations/_patterns.py`** — grouped pocket and slot pattern callouts,
+    compiled pitch labels, grid-axis selection, and aligned-pitch coalescing.
+    The hole pass supplies its live strip-placement and furniture bindings.
   - **`annotations/hole_locations.py`** — compiler-approved off-axis hole
     locations (incl. side-drilled #133) placed through the shared corridor solve.
   - **`annotations/hole_leader_candidates.py`** — ordered physical candidates for
@@ -244,11 +252,15 @@ and re-exports the existing private helper names.
   bounded, deterministic interior/exterior expansion of physical anchors before
   the shared late solve. The established `leaders` imports remain available to
   feature renderers.
+  - **`annotations/_leader_commit.py`** — settled joint candidate inventory,
+  trace recording, and survivor commit for the shared late leader solve. It
+  receives typed outcomes and callbacks from `leaders`, without owning the
+  producer streams or assignment policy.
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
   automatic/deferred same-view feature leaders (#1166). Its typed phase handoffs
   keep the producer streams, lazy greedy floor, primary per-view assignment,
-  budget replay, trace inventory, OCC survivor validation, and commit in this
-  rank-four owner; the public placement entry point preserves their order.
+  budget replay, and OCC survivor validation in this rank-four owner; the public
+  placement entry point hands settled outcomes to `_leader_commit` in order.
   Sparse ordinary
   side/plan hole jobs and the five post-drain machined-feature families lower
   exact committed component ink conflicts (including component-local curved
@@ -299,6 +311,10 @@ and re-exports the existing private helper names.
     decomposed occupancy boxes, centerline label clearance, and the shared 1D
     obstacle carve. It owns `_box_hits`; `_common.py` retains the established
     helper import paths.
+  - **`annotations/_placement_occupancy.py`** — placed annotation occupancy,
+    late-furniture obstacles, pending title-block keep-out, and exact ink-clearance
+    predicates. It also places the ISO NTS caption against the finished sheet;
+    `_common.py` keeps the existing imports and supplies its live caption box probe.
   - **`annotations/_strip_postsolve.py`** — required exact-ink resolution after the
     shared strip solve and final survivor commit with provenance and trace closure.
     `_common.py` supplies its live placement helpers at call time and retains
@@ -307,13 +323,11 @@ and re-exports the existing private helper names.
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
     `place_strip_candidates`, `PlacementContext`), at the bottom of the
     annotations DAG. Bbox and segment helpers live in `_core`, `_geometry`, and
-    `_placement_geometry`. It also owns the **post-fit
-    late-furniture** seam (#1197): `late_furniture_obstacles` is the ONE occupancy
-    a placer facing the finished sheet uses — views, decomposed annotation ink,
-    minus the page-spanning riders, plus the title block as one hull — shared by
-    `Drawing.add_table` and by `place_iso_nts_note`, the iso's NTS caption, which
-    lives here rather than in `projection` because rank-2 cannot reach that
-    occupancy and a hand-rolled substitute was wrong twice.
+    `_placement_geometry`. The **post-fit late-furniture** seam (#1197) lives in
+    `_placement_occupancy`: `late_furniture_obstacles` includes views and decomposed
+    annotation ink, excludes page-spanning riders, and includes the title block
+    as one hull. `Drawing.add_table` and the ISO NTS caption share that policy
+    through the stable `_common` imports.
   - **`annotations/solve_trace.py`** — the optional, recording-only corridor and
     pass event recorder. `_common.SolveTrace` remains the same class for existing
     callers and trace pickle identities; its JSON schema and failure isolation stay
@@ -368,8 +382,8 @@ and re-exports the existing private helper names.
   deliberately stringly-typed record feeds the recompose path.
 - **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
   identity/ownership/pins/build-issues (#138 / ADR 1 (was 0005), Step 2). It also
-  owns typed candidate-region provenance and the immutable cut/view mark on each
-  live section cutting-plane line (#1931). `Drawing`
+  owns typed candidate-region provenance, per-annotation detail scale, and the immutable
+  cut/view mark on each live section cutting-plane line (#1931). `Drawing`
   delegates here and keeps the render list. The `_named`/`_anno_view`/`_pinned`/
   `_build_issues` aliases on `Drawing` (and coverage's three) were **deleted** at
   their §4 date (#720): reach the state through `dwg.registry` (`in reg`,

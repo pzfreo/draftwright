@@ -53,6 +53,54 @@ def hole_candidate_rows(
 
 
 @dataclass(frozen=True)
+class HoleStripPlan:
+    """One PAVA queue outcome shared by immediate and deferred hole candidates.
+
+    The target tuples are the final solve's identities; their source mapping
+    preserves the original queue records and therefore their authored owners.
+    """
+
+    targets: tuple[tuple, ...]
+    source_by_target: dict[int, tuple]
+    final_y: dict[int, float]
+    final_dropped: set[int]
+    base_y: dict[int, float]
+    segment_y: dict[int, float]
+    winner_by_source: dict[int, float]
+
+    def outcomes(self) -> Iterator[tuple[tuple, float | None]]:
+        for target in self.targets:
+            target_id = id(target)
+            source = self.source_by_target[target_id]
+            yield (
+                source,
+                (
+                    None
+                    if target_id in self.final_dropped or target_id not in self.final_y
+                    else self.final_y[target_id]
+                ),
+            )
+
+    def rows_for(
+        self,
+        source: tuple,
+        y_min: float,
+        y_max: float,
+        obstacle_intervals: list[tuple[float, float]],
+    ) -> tuple[float | None, tuple[float, ...]]:
+        winner = self.winner_by_source.get(id(source))
+        return winner, hole_candidate_rows(
+            winner,
+            self.base_y.get(id(source)),
+            self.segment_y.get(id(source)),
+            source[4],
+            y_min,
+            y_max,
+            obstacle_intervals,
+        )
+
+
+@dataclass(frozen=True)
 class FrontHoleLeaderCandidateAdapter:
     """Build a front/rear strip candidate from its physical rim and solved row.
 

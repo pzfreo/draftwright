@@ -193,7 +193,7 @@ CONTRACT_GROUPS = {
             "test_pitch_dim_footprint.py",
             "test_issue_1334_prevent_ink.py",
             "test_issue_1516_dimension_text.py",
-            "test_issue_1601_flat_precision.py",
+            "test_flat_callout_precision.py",
         ),
     ),
     "dimension_ink_repair": ContractGroup(

@@ -165,7 +165,9 @@ _LAYERS: dict[str, int] = {
     # the rank-0 progress observer, so it is not itself a bottom leaf.
     "recognition_cache": 3,
     # 4 — the annotation render layer (+ the thin annotate re-export facade).
-    # Family owners (including imported PMI and polygonal-prism jobs), machined leader lowering,
+    # Family owners (including circular recesses, envelope extents, imported PMI,
+    # and polygonal-prism jobs),
+    # machined leader lowering,
     # analytical ink/repair, placement geometry, strip postsolve, solve trace,
     # and corridor owners
     # share the annotation rank.

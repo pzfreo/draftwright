@@ -122,7 +122,7 @@ def measurement_snapshot(model, registry, annotations, scale):
         if type_name in _FURNITURE:
             continue
         annotation = registry.named(name)
-        path = dimension_path_measurement(annotation, scale)
+        path = dimension_path_measurement(annotation, scale, item_scale=registry.scale_of(name))
         # Paper-space arithmetic can introduce sub-nanometre roundoff when
         # a view moves or rescales. Compiled values/spans remain unrounded;
         # this extra observed length only binds the text to its drawn path.

@@ -53,11 +53,13 @@ recognition lifecycle state → **4**
 `_pmi_dimensions`, `_step_lengths`, and `_height_ladder` owners, shared machined
 leader lowering in `_machined_leaders`, analytical dimension ink in `_dimension_ink`,
 bounded same-batch label repair in `_dimension_ink_repair`, shared page-space
-placement geometry in `_placement_geometry`, required strip-ink resolution and
+placement geometry in `_placement_geometry`, placed occupancy and ink clearance in
+`_placement_occupancy`, required strip-ink resolution and
 survivor commit in `_strip_postsolve`, exact settled annotation ink lowering in
 `_leader_fixed_ink`, typed feature-leader region expansion in
-`_leader_candidates`, typed intake, assignment, fallback, and commit phases in
-`leaders`, plus the optional `solve_trace` recorder;
+`_leader_candidates`, typed intake, assignment, and fallback phases in
+`leaders`, final trace inventory and survivor commit in `_leader_commit`,
+plus the optional `solve_trace` recorder;
 `orchestrator._PASS_SEQUENCE` is the one stage order)
 → **5** `drawing`, `drawing_edits`, `drawing_diagnostics`, and
 `intent_drain` and `intent_routing` (the deferred stages; `intent_routing` owns the
@@ -72,6 +74,9 @@ contract joins).
 are thin compat facades; `score` / `recognition/` re-export `quiddity` until 0.6.0.
 `annotation_layout_profile` owns feature-leader region policy at rank 1;
 `leader_policy` remains its stable import path at that rank.
+`annotations/_patterns.py` owns grouped pocket/slot pattern callouts and pitch
+preparation; `holes.py` retains the pitch strip placement and its ADR 2 carve
+exemption, supplying that live binding to the pattern owner.
 Shared three-decimal correspondence rounding, exact built-in finite-real validation, and
 common profile/frame vector arithmetic live in
 the rank-0 `contract_values` leaf;

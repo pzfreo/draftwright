@@ -118,8 +118,8 @@ def _lint_structure(ctx: LintContext, aggregation: Any, display_decimals: Any) -
     for stale in [k for k in ctx.ann_box_cache if k not in live]:
         del ctx.ann_box_cache[stale]
     # ONE call over every annotation. Most annotations are at sheet scale; a non-sheet-scale
-    # view (the enlarged detail view, #42) tags its dims with `_dw_scale`, and
-    # `_lint_dim` reads that tag per item so `label_vs_measured` still compares each
+    # view (the enlarged detail view, #42) records each dimension's scale in the registry,
+    # and `_lint_dim` receives it so `label_vs_measured` still compares each
     # annotation against ITS OWN scale.
     #
     # This used to pre-split the items by scale and call `lint_drawing` once per group. The
@@ -149,6 +149,11 @@ def _lint_structure(ctx: LintContext, aggregation: Any, display_decimals: Any) -
         annotation_regions={
             id(obj): ctx.registry.candidate_region_of(name)
             for name, obj in ctx.registry.iter_named()
+        },
+        annotation_scales={
+            id(obj): scale
+            for name, obj in ctx.registry.iter_named()
+            if (scale := ctx.registry.scale_of(name)) is not None
         },
     )
     return issues

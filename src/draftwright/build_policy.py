@@ -12,6 +12,10 @@ from OCP.Standard import Standard_Failure
 from draftwright._warnings import ScaleCompletenessWarning
 from draftwright.annotations.orchestrator import _WITHHOLDING_CODES
 from draftwright.drawing import Drawing, feature_key
+from draftwright.drawing_diagnostics import (
+    discard_finished_build_lint,
+    finished_build_lint_issues,
+)
 from draftwright.linting import LintIssue
 from draftwright.linting.quality import is_hard_layout_issue, is_unreadable_layout_issue
 from draftwright.view_plan import ARRANGEMENTS
@@ -171,7 +175,8 @@ def _scale_blockers(drawing: Drawing, *, physical: bool = True) -> tuple[dict, .
     ``physical=False`` restricts the critique to the recognition-free components, so a caller
     that must not materialise the ADR 3 (was 0017) aggregate can still read what failed to place.
     """
-    return _scale_blockers_from_issues(drawing.lint(physical=physical))
+    issues = finished_build_lint_issues(drawing) if physical else drawing.lint(physical=False)
+    return _scale_blockers_from_issues(issues)
 
 
 def _hard_layout_issues(issues) -> tuple:
@@ -336,6 +341,7 @@ def _complete_automatic_plan(drawing: Drawing, *, issues=None) -> Drawing:
                 hole_requirement_ids=hole_requirements,
             )
         )
+        discard_finished_build_lint(drawing)
 
     violations = _layout_issue_records(hard_layout)
     final_status = "invalid" if violations else "incomplete"

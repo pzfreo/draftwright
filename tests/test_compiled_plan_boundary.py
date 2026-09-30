@@ -380,8 +380,8 @@ class TestTheRendererCannotSeeContent:
             # from_model wrapper still receives only the compiled plan.
             ("_slots", "_render_slot_dimensions"): 2,
             ("hole_locations", "_approved_off_axis_holes"): 1,
-            ("holes", "_furnish_uncalled_patterns"): 1,
-            ("holes", "_add_grid_pitch_dims"): 1,
+            ("_patterns", "_furnish_uncalled_patterns"): 1,
+            ("_patterns", "_add_grid_pitch_dims"): 1,
             ("holes", "_place_pitch_dim._place"): 1,
             ("leaders", "_candidate_hits_component"): 1,
             ("leaders", "place_feature_leader_jobs.place"): 1,
