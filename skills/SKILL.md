@@ -12,12 +12,13 @@ to be installed in the execution environment.
 **There are two paths — start with the automatic one.**
 
 1. **Automatic (`make_drawing`)** — one call turns a part (or STEP file) into a
-   four-view SVG + DXF with dimensions, centrelines, and an ISO 7200 title
+   multi-view SVG + DXF with dimensions, centrelines, and an ISO 7200 title
    block.
 2. **Builder (`build_drawing`)** — the same pipeline, but it hands back a live
    `Drawing` you can edit before export.
 
-Requires `draftwright >= 0.4.0` and `build123d-drafting-helpers >= 0.14.1`.
+Requires `draftwright >= 0.4.0`; the current package requires
+`build123d-drafting-helpers >= 0.15.5`.
 Install: `pip install draftwright`.
 
 (The old floor said 0.1.9, which cannot run this guide: none of the feature-backed
@@ -63,8 +64,8 @@ svg, dxf = make_drawing(
 )
 ```
 
-`make_drawing` chooses the scale + ISO page size, projects front/plan/side/iso
-views, and annotates automatically — then lints and writes both SVG and DXF.
+`make_drawing` chooses the scale, ISO page size, and views required by the part,
+then annotates, lints, and writes both SVG and DXF.
 
 Automatic annotation covers **prismatic parts in full**: every recognised hole
 gets a grouped callout ("4× ø10 THRU", counterbore/depth symbols), bolt circles
@@ -87,11 +88,10 @@ name a detected *feature* and the measurement you want; the engine decides the
 offset, stacking, and strip slot.** You give *what*, never *where on the page*:
 placement is automatic and constraint-based.
 
-Prefer the feature-backed verbs (`dimension` / `locate` / `callout` / `note` /
-`drop`) over the raw page-coordinate primitives. The low-level API (`place_dim`,
-`add`, `add_view`, the view-coordinate plumbing) is **deprecated** — see
-`docs/deprecations.md` — because a raw coordinate does not route through the
-layout solve, so it cannot be re-flowed when anything around it moves.
+Use the feature-backed verbs (`dimension` / `locate` / `callout` / `note` /
+`drop`) for edits. `Drawing.place_dim` remains a deprecated raw-coordinate
+escape hatch; `Drawing.add`, `Drawing.add_view`, and the public view-coordinate
+plumbing were removed in 0.5.0. See `docs/deprecations.md`.
 
 ```python
 from draftwright import build_drawing
@@ -109,7 +109,7 @@ dwg.annotations()           # {name: type} of every named annotation already on 
 dwg.get_annotation(name)    # the named annotation object, or None
 dwg.view_bounds("front")    # (x_min, y_min, x_max, y_max) page bbox of a view, or None
 dwg.items                   # the ordered, mutable list of annotation objects
-dwg.views                   # {"front","plan","side","iso"} → (visible, hidden) compounds
+dwg.views                   # selected view names → (visible, hidden) compounds
 dwg.draft / dwg.scale / dwg.page_w / dwg.page_h
 ```
 
@@ -179,16 +179,15 @@ paths = dwg.export("drawings/bracket", formats=("svg", "dxf", "pdf"))
 svg, dxf = paths["svg"], paths["dxf"]
 ```
 
-Pass `formats=` and read the `{format: path}` dict. Calling `export()` with no
-`formats` — or with the `svg=`/`dxf=` booleans — takes the legacy path and returns
-a `(svg, dxf)` tuple. Both are deprecated (v0.3.1) and removed in 0.5.0, and both
-warn from 0.4.0. See `docs/deprecations.md`.
+Pass `formats=` and read the `{format: path}` dict. `Drawing.export()` without
+`formats`, with `formats=None`, or with the old `svg=`/`dxf=` booleans was removed
+in 0.5.0. See `docs/deprecations.md`.
 
 `make_drawing(...)` is unaffected and does not warn: it still returns
 `(svg_path, dxf_path)`, and passes `formats=` internally to get them.
 
-`make_drawing(...)` is `build_drawing(...).export(formats=("svg", "dxf"))`, unpacked to a
-tuple — not a bare `.export()`, which is the deprecated shape above.
+`make_drawing(...)` calls `build_drawing(...).export(formats=("svg", "dxf"))`
+and returns the two paths as a tuple.
 
 **Authored section views** use `section_view()` alongside an explicit dimension and
 view set. This complete example declares the bore diameter and overall extents;
@@ -240,14 +239,12 @@ method for your view source above. `Drawing.section()` remains the automatic
 post-build section operation: it may return no section when the geometry does not
 warrant one. It does not replace an explicit authored section request.
 
-Arbitrary **auxiliary** views have no public verb: `add_view()` was the way to
-project one and is deprecated, so a custom viewing direction is not currently part
-of the supported surface.
+Arbitrary **auxiliary** views have no public `Drawing` verb, so a custom viewing
+direction is not currently part of the supported surface.
 
-`add_view()` and the view-coordinate plumbing (`set_view_coordinates`,
-`drop_view_coordinates`, and the `vc.pp(...)` projector) are **deprecated** (#817):
-view projection is engine plumbing, and hand-placed views do not participate in the
-compose-then-pack layout.
+`Drawing.add_view()` and its public view-coordinate plumbing were removed in
+0.5.0 (#2113). `Sheet.add_view()` is a separate supported verb for augmenting an
+automatic view set; view projection itself remains engine plumbing.
 
 ---
 

@@ -2782,7 +2782,7 @@ def make_drawing(
         "estimated-strips", "demand-guided", "compare", "baseline", "candidate-preview", "best"
     ] = "demand-guided",
 ) -> tuple[str, str]:
-    """Generate a 4-view technical drawing from a STEP file or build123d object.
+    """Generate a technical drawing from a STEP file or build123d object.
 
     Args:
         step_file: Path to a STEP/STP file, or a build123d ``Shape`` (e.g. a
@@ -2810,8 +2810,8 @@ def make_drawing(
         detail_view: automatically add an enlarged view for crowded prismatic step
             dimensions. Default ``True``; pass ``False`` to disable that recovery.
         reproducible: make repeated exports from the returned drawing byte-identical
-            on the same Draftwright version. Off by default because canonical DXF
-            ordering has a measurable export-time cost.
+            on the same Draftwright version. On by default; pass ``False`` to skip
+            canonical DXF ordering.
         framed_recognition: opt an automatic build into the provider-owned local recognition
             frame. Raw remains the default rollout path.
         leader_region: feature-leader label region policy. ``"auto"`` keeps the normal

@@ -82,8 +82,8 @@ s.control(hole).position(0.1, to="A").perpendicularity(0.05, to="A")  # chain ch
 dwg = s.build()
 ```
 
-A frame added via `dwg.add(...)` at computed coordinates bypasses the solve and lays out
-badly — this is the most common GD&T-layout mistake.
+A frame inserted at computed page coordinates bypasses the solve and may lay out
+badly. Use the feature-backed `Sheet.control(...)` declaration above.
 
 ## Diagnostics — always check lint
 
@@ -104,19 +104,18 @@ for issue in dwg.lint():
 paths = dwg.export("out", formats=("svg", "dxf", "pdf", "png"))   # -> {format: path}
 ```
 
-`reproducible=True` writes files that do not carry the run that produced them, so two
-exports of the same drawing are byte-identical and a written drawing can be diffed or
-checksummed to see whether its content actually changed. Set it per call, or once for
-the drawing via `build_drawing(..., reproducible=True)`:
+Reproducible export is on by default. It writes files without run-specific metadata,
+so two exports of the same drawing on the same Draftwright version are byte-identical.
+Use the build default or override it per export:
 
 ```python
-dwg = build_drawing(part, reproducible=True)     # every export from this drawing
+dwg = build_drawing(part)                         # reproducible=True by default
 paths = dwg.export("out", formats=("dxf",))
 paths = dwg.export("out", formats=("dxf",), reproducible=False)   # override per call
 ```
 
-Off by default because it is not free: ordering the DXF entities costs roughly a third
-of DXF export time again. Off costs exactly what it did before the option existed.
+Pass `reproducible=False` when stable file bytes are unnecessary and you want to
+skip canonical DXF entity ordering.
 
 ## What NOT to do
 

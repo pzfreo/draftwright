@@ -134,11 +134,11 @@ and re-exports the existing private helper names.
     `--version`, shell completion, `--format`, rich help. The engine (build123d)
     is imported **lazily inside the command body** so completion/`--help`/
     `--version` stay sub-second (#313). Entry point: `draftwright.cli:app`.
-  - **`drawing.py`** — the `Drawing` result object (`.lint()`/`.add()`/`.place_dim()`/
-    `.repair()`/`.export*()`; owns feature edit decisions and solver-bound intent
+  - **`drawing.py`** — the `Drawing` result object (`.lint()`/`.dimension()`/`.place_dim()`/
+    `.repair()`/`.export()`). It owns feature edit decisions and solver-bound intent
     preparation with its private mutable state, and delegates identity to `registry`
-    and ordered lint critique to `linting/orchestration.py`)
-    plus `FeatureInfo` (`_build_table` moved beside `_table_metrics` in `_core`, #699).
+    and ordered lint critique to `linting/orchestration.py`. It also defines `FeatureInfo`
+    (`_build_table` moved beside `_table_metrics` in `_core`, #699).
     Sits below `builder` (which constructs it).
     *(The build context lives in ONE typed `BuildState` on `Drawing` (`_build`:
     analysis, part model, lint's geometry caches) — filled at a single site in
@@ -418,12 +418,18 @@ and re-exports the existing private helper names.
   `_coverage_common.py` (stable import of `_registry`'s exact measurement-outcome index,
   shared outcome checks, exact three-coordinate point rounding, and blind-slot value validation),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
-  `angular.py` (degree claims and actual angular ink, with explicit unavailable
-  physical-support evidence),
-  `gear_coverage.py` (declared gear table/profile reconciliation), and `suggest.py`
-  (`_suggest_fix`, #29 snippets). Depends only on `_core`, the pure
-  `plate_correspondence` module,
-  `quiddity` (typed hole records in `coverage.py`) + build123d_drafting.
+  `angular.py` (degree claims and actual angular ink), `requirements.py` (the physical
+  requirement join), `schedule_evidence.py` (verified table-cell carriers),
+  `ink_overlap.py` (line-work against annotation labels), and `suggest.py`
+  (`_suggest_fix`, #29 snippets). The family owners are the `*_coverage.py` modules:
+  `angled_step`, `blend`, `boss`, `chamfer`, `channel`, `circular_blind_step`,
+  `envelope`, `fillet`, `flat`, `gear`, `groove`, `gusset_rib`, `hole`,
+  `oriented_slot`, `pad`, `paired_ramp_step`, `passage`, `plate`, `pmi`, `pocket`,
+  `pocket_pattern`, `polygonal_boss`, `polygonal_stock`, `prismatic_pocket`,
+  `profiled_bore`, `rectangular_blind_slot`, `round_bottom_blind_slot`,
+  `section_recess`, `slot`, `through_step`, and `turned_step`.
+  Lint reads lower-layer geometry, registry, measurement and recognition contracts,
+  as well as rank-2 projection and PMI helpers; it never imports `draftwright.model`.
   `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
 - **`recognition_cache.py`** — rank-3 Draftwright ADR 3 (was 0017) one-result lifecycle owner. Raw automatic
@@ -551,7 +557,10 @@ and re-exports the existing private helper names.
   one rule set → a `DimensionGroup` per feature, + `plan_sections`; and, since #1154,
   the one cross-feature reconciliation: two features measuring between the same two
   support planes state one fact, so the overall extent keeps it and the feature-local
-  one records where it went), and
+  one records where it went), `pmi_lowering.py` (geometry-correlated AP242
+  dimensional and manufacturing requirement lowering),
+  `manufacturing_schedule.py` (source-owned table presentation for long imported
+  requirements), and
   `declare.py` (ADR 4 (was 0011) object→feature constructors: `hole`/`boss`/`step`/… read
   a feature's size off the build123d object — a second, *declared* front-end into
   the same IR the detectors fill). The narrow middle of the compiler hourglass;
@@ -641,7 +650,7 @@ and re-exports the existing private helper names.
   the legacy `svg=`/`dxf=` tuple form and `export_pdf` were removed in 0.5.0.
   This module sits below `make_drawing.py`, above `_core.py`.
 
-  **`reproducible=` — byte-identical exports, opt-in.** On, two exports of one
+  **`reproducible=` — byte-identical exports by default.** On, two exports of one
   drawing are identical, so a checked-in drawing diffs cleanly and a caller can
   see when its output really changed. Three things are settled to get there: the
   clock and GUIDs an exporter stamps (a per-document fixed metadata updater,
@@ -662,19 +671,14 @@ and re-exports the existing private helper names.
   all-leaf layer group in the written file, so it is handed its shapes unordered
   even when the flag is on.
 
-  **Off by default, because ordering is not free**: about a third of DXF export
-  time again (interleaved, 9 runs, 358-part sheet: 0.45 s → 0.60 s), one
-  `bounding_box()` and one `edges()` per part. Off costs what it did before the
-  option existed (0.45 s vs 0.49 s on `main`); the metadata pinning is the cheap
-  half at ~1 ms. Both hang off the one flag, since a caller wanting a stable file
-  wants both and should not have to know which one costs. Reachable as
-  `build_drawing(..., reproducible=True)` (the default a returned `Drawing` then
-  carries) and per call as `Drawing.export(..., reproducible=True)`. Weigh any
+  Canonical DXF ordering costs work; pass `reproducible=False` at build or export
+  time when stable file bytes are unnecessary. The flag controls both ordering
+  and metadata pinning. Weigh any
   change here against #602, which removed a `zoom.extents` walk from the same path.
 - **`repair.py`** — the deterministic lint→repair loop (#30 / ADR 5 (was 0002)): the
   re-place helpers (`_find_dim`/`_replace_dim`/`_repair_*`/`repair_drawing`) take
   the drawing duck-typed as `dwg`; `Drawing.repair()` stays a thin wrapper.
-  Depends only on `_core`.
+  Imports `_core`, `audit`, and `registry`.
 - **`_pmi_schema.py`** — OCCT dimension and geometric-tolerance type-code tables used by
   the AP242 extractor.
 - **`_pmi_linear_geometry.py`** — proves authored linear reference stations and their

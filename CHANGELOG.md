@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- The agent usage guide moved from `AGENTS.md` to `docs/using-draftwright.md`; `AGENTS.md`
+  now holds the contributor instructions formerly in `CLAUDE.md` (#1938).
+
 ### Removed
 
 - Removed the eight expired `Drawing` methods (`add`, `add_view`, `clear_annotations`,
@@ -10,6 +15,12 @@
   forms at their published 0.5.0 target. Pass `formats=` explicitly; export
   returns a `{format: path}` dict. `Drawing.place_dim`, `Sheet.add_view`,
   `Sheet.export`'s PDF default, and `make_drawing`'s SVG/DXF tuple remain (#2113).
+
+## v0.4.11–v0.5.0-rc1 — cumulative notes since v0.4.10
+
+These entries accumulated across patch releases and were all present by v0.4.31.
+They describe changes included by RC1; they do not assign each change to its first
+released version.
 
 ### Added
 
@@ -94,11 +105,6 @@
 - Opt-in independent sheet margins and exact title-block width on `Sheet`, `build_drawing`,
   `make_drawing`, and the CLI, including generated-script replay (#1612, #1589). Sergio's
   25/10/10/10 mm margins and 175 mm block are explicit options; existing defaults remain.
-
-### Changed
-
-- The agent usage guide moved from `AGENTS.md` to `docs/using-draftwright.md`; `AGENTS.md`
-  now holds the contributor instructions formerly in `CLAUDE.md` (#1938).
 
 ### Fixed
 

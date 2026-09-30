@@ -34,7 +34,7 @@ DAG violation today, so they are accepted rather than chased):
 
 - **Dynamic imports.** ``importlib.import_module(x)`` / ``__import__(x)`` with a non-literal
   argument can't be resolved statically. The current uses (``__init__`` lazy public-API
-  loader, ``sheet_emit``'s emitter, and ``recogniser_contract``'s declaration validator) pass a
+  loader, ``sheet_object_source``'s source loader, and ``recogniser_contract``'s declaration validator) pass a
   variable and live at the top layer (L7/L8), where an upward edge is impossible anyway. A
   future dynamic import of an internal
   module from a lower layer would not be seen — prefer a static import there.
@@ -126,7 +126,7 @@ _LAYERS: dict[str, int] = {
     "blend_contract": 0,
     "oriented_slot_contract": 1,
     "section_recess_contract": 0,
-    "score": 0,  # census over recognition/ only — a leaf beside the recognisers (#704)
+    "score": 0,  # deprecated quiddity.feature_census compatibility shim (#1936)
     # audit: diffs two FINISHED drawings through their public reads (#996). A leaf by
     # construction — it imports nothing from the engine, so the thing it measures can never
     # come to depend on it.

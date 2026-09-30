@@ -381,9 +381,8 @@ class Drawing:
         self.assembly = assembly
         # Default for `export(reproducible=…)`: settle element order and the
         # metadata the exporters take from the clock, so two runs write the same
-        # bytes. Off by default because the ordering costs about a third of DXF
-        # export time again; a caller who wants to diff or checksum its output
-        # turns it on, here or per export call.
+        # bytes. Enabled by default; a caller may disable canonical ordering
+        # here or per export call when stable file bytes are unnecessary.
         self.reproducible = reproducible
         self.page_w = page_w
         self.page_h = page_h
@@ -672,12 +671,11 @@ class Drawing:
         normalise to a solid, are detected once, and produce the *same* feature model
         (``.features`` — holes/slots/steps/patterns, ``.datums``, ``.orientation``,
         ``.bbox``). This is the provenance-agnostic "what is in this drawing and why"
-        — richer than :meth:`features` (grouped holes, per view) and the future target
-        for feature-referenced edits (#398).
+        — richer than :meth:`features` (grouped holes, per view) and the read
+        surface for feature-referenced edits.
 
         **Read-only** — a view of what was built; mutating it does not change the
-        drawing. **Experimental**: exposes the raw IR dataclasses, which may still
-        evolve (a stabilised public projection is deferred to the write surface #398).
+        drawing. **Experimental**: exposes raw IR dataclasses that may still evolve.
 
         Populated for every built drawing, including a manual-mode (``auto_dims=False``)
         build — detection runs in the pipeline, not the annotation pass (#398), so a
