@@ -102,6 +102,7 @@ def _complexity_findings() -> dict[str, int]:
             "--isolated",
             "--select",
             "C901",
+            "--ignore-noqa",
             "--config",
             f"lint.mccabe.max-complexity = {_MAX_COMPLEXITY}",
             "--output-format",
