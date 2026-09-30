@@ -73,9 +73,9 @@ def _diameter_row_below(
     """ø-callout row BELOW the front view for X-turned step/boss diameters (#77).
     *items* is ``[(anchor, dia, value_text, feature, tolerance, thread, mids), ...]``. The row is dropped clear of anything
     already below the profile; labels spread along page-x by the ADR 2 (was 0003) strip
-    solve. Skips (returns 0) if there is no room — the diameters then surface as
-    ``feature_not_dimensioned``. *trace* (#736): one ``pass_events`` record with a
-    placed/dropped item per callout."""
+    solve. Skips (returns 0) if there is no room; the caller may then try radial
+    leaders, and any still-missing diameter reaches coverage lint. *trace* (#736): one
+    ``pass_events`` record with a placed/dropped item per callout."""
     if not items:
         return 0
     ev = trace.pass_event("diameter_row_below", view="front") if trace is not None else None
@@ -86,8 +86,8 @@ def _diameter_row_below(
         # `view_bounds` has always documented `None` for a view it does not have; with a
         # fixed four-view topology that could not happen, so the caller unpacked it directly
         # and a view set without the front crashed here. Skipping is the established
-        # behaviour of this function when there is no room — the diameters then surface as
-        # `feature_not_dimensioned` — and it is what lets the requirement gate WEIGH a view
+        # behaviour of this function when there is no room. Later radial fallback or
+        # coverage lint resolves the outcome, letting the requirement gate WEIGH a view
         # set instead of the build dying inside a pass.
         return 0
     fx0, fy0, fx1, _ = bounds
@@ -95,8 +95,25 @@ def _diameter_row_below(
     for o in dwg.items:
         try:
             ob = o.bounding_box()
-        except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
-            continue
+        except Exception as exc:  # noqa: BLE001 — an unreadable obstacle cannot be ignored
+            for _, _, text, _, _, _, mids in items:
+                ctx.record_issue(
+                    "warning",
+                    "diameter_row_obstacle_unverified",
+                    f"ø{text} shared row withheld: below-front obstacle could not be measured "
+                    f"({type(exc).__name__})",
+                    measurement=mids,
+                    evidence_reason="obstacle_unverified",
+                )
+                if ev is not None:
+                    ev["items"].append(
+                        {
+                            "label": f"ø{text}",
+                            "outcome": "dropped",
+                            "reason": "obstacle_unverified",
+                        }
+                    )
+            return 0
         if ob.min.Y < fy0 and ob.max.X > fx0 and ob.min.X < fx1:
             obstacle_bottom = min(obstacle_bottom, ob.min.Y)
     label_y = obstacle_bottom - (draft.font_size + 4 * draft.pad_around_text)

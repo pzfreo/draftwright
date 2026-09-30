@@ -1286,6 +1286,9 @@ class PlacementContext:
         source=None,
         outcome_stage=None,
         evidence_reason=None,
+        annotation_name=None,
+        view=None,
+        related_annotation_names=(),
     ) -> None:
         """Record a build-time lint issue on the run's registry (#639). Replaces the passes'
         old `dwg._record_build_issue`."""
@@ -1316,6 +1319,9 @@ class PlacementContext:
                 outcome_stage=outcome_stage,
                 measurement_spans=spans,
                 evidence_reason=evidence_reason,
+                annotation_name=annotation_name,
+                view=view,
+                related_annotation_names=tuple(related_annotation_names),
             )
         )
 

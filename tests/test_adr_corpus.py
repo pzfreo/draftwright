@@ -28,6 +28,20 @@ _TOTAL_CAP = 1_000
 _BARE_OLD = re.compile(r"\bADR[ -]?00(?:0[1-9]|1[0-9]|20)\b")
 _TEST_MODULE = re.compile(r"`(test_[a-z0-9_]+\.py)`")
 _TEST_FUNC = re.compile(r"`(test_[a-z0-9_]+)`(?!\.py)")
+_BACKTICK = re.compile(r"`([^`\n]+)`")
+# These are invocation sketches, qualified references, paths, or deliberately deleted
+# surfaces. None asserts that its exact spelling exists in executable code.
+_NOT_CODE_LITERALS = {
+    "--style imperative",  # Retired CLI syntax named by an absence invariant.
+    "generate_script",  # Retired API named by an absence invariant.
+    "build_drawing(trace=…)",  # Invocation sketch with an ellipsis.
+    "builder._ISO_YIELD_TRIGGERS",  # Owner-qualified spelling; source uses the bare name.
+    'status="invalid"',  # Field/value sketch, not one string literal.
+    "src/draftwright/recognition/",  # Directory path.
+    "dimension(..., pin=, priority=)",  # Invocation sketch with omitted arguments.
+    "role.kind[.discriminator]",  # Parameter-ID grammar notation.
+    "inspect_step(path)",  # Invocation sketch with a metavariable.
+}
 
 
 def _prose_lines(text: str) -> int:
@@ -101,6 +115,22 @@ def test_every_numbered_invariant_names_a_guard(record: Path):
     assert numbers == list(range(1, len(numbers) + 1)), (
         f"{record.name} invariants are not numbered contiguously from 1: {numbers}"
     )
+
+
+def test_numbered_invariant_literals_still_occur_in_source():
+    """A cited live literal must still be present in production source."""
+
+    corpus = "\n".join(path.read_text(encoding="utf-8") for path in (_ROOT / "src").rglob("*.py"))
+    missing: list[str] = []
+    for record in _LIVE:
+        section = record.read_text(encoding="utf-8").split("## Invariants", 1)[1]
+        body = section.split("## Boundaries", 1)[0].split("**Unguarded.**", 1)[0]
+        for literal in sorted(set(_BACKTICK.findall(body))):
+            if literal.startswith("test_") or literal in _NOT_CODE_LITERALS:
+                continue
+            if literal not in corpus:
+                missing.append(f"{record.name}: `{literal}`")
+    assert not missing, "invariant literals absent from production source: " + ", ".join(missing)
 
 
 def test_no_live_document_cites_an_archived_record_as_authority():

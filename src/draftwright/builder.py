@@ -1921,9 +1921,14 @@ def _replay_structural_issues(issues, allowed_crossings=()) -> tuple[LintIssue, 
     remaining = collections.Counter(allowed_crossings)
     retained = []
     for issue in _structural_layout_issues(issues):
-        identity = (issue.annotation_name, issue.view)
+        identity = (
+            issue.code,
+            issue.annotation_name,
+            issue.view,
+            issue.related_annotation_names if issue.code == "feature_leader_crossing" else (),
+        )
         if (
-            issue.code == "leader_crosses_silhouette"
+            issue.code in {"leader_crosses_silhouette", "feature_leader_crossing"}
             and issue.severity == "info"
             and None not in identity
             and remaining[identity] > 0
@@ -2469,9 +2474,16 @@ class _AutomaticResolution:
             # scale and must retain that measured history unchanged. Only a final scale drift
             # pays for one bounded rebuild under the already settled topology/arrangement.
             settled_crossings = tuple(
-                (issue.annotation_name, issue.view)
+                (
+                    issue.code,
+                    issue.annotation_name,
+                    issue.view,
+                    issue.related_annotation_names
+                    if issue.code == "feature_leader_crossing"
+                    else (),
+                )
                 for issue in self.context.automatic_assessment(self.drawing)[0]
-                if issue.code == "leader_crosses_silhouette"
+                if issue.code in {"leader_crosses_silhouette", "feature_leader_crossing"}
                 and issue.severity == "info"
                 and issue.annotation_name is not None
                 and issue.view is not None

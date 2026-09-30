@@ -1921,20 +1921,24 @@ def _start_leader_batch(dwg, analysis, ctx, jobs, producer_floor: bool) -> _Lead
     )
 
 
-def _record_policy_b(ctx, jobs, producer_floor, job_index, blockers) -> None:
-    """Persist an intentionally retained fixed-ink crossing.
+def _blocker_owner(blocker: str) -> str:
+    owner, separator, component = blocker.rpartition(":")
+    if separator and component.isdigit():
+        name, separator, kind = owner.rpartition(":")
+        if separator and kind in {"arc", "segment", "ink", "arrow"}:
+            return name
+    if separator and component in {"label", "geometry", "reserved"}:
+        return owner
+    return blocker
+
+
+def _record_policy_b(ctx, jobs, job_index, blockers) -> None:
+    """Persist measured crossings and exhausted fixed-ink probes separately.
 
     Solve tracing is optional; Policy B is not.  A normal drawing must
-    therefore expose the accepted crossing through structured lint rather
-    than looking clean merely because the trace recorder was disabled.
+    therefore expose measured crossings and unverified clearance through
+    structured lint even when the trace recorder is disabled.
     """
-
-    if producer_floor:
-        # Immediate pre-drain consumers retain their historical diagnostic
-        # contract as well as their selection order. Their later semantic
-        # passes already diagnose the resulting drawing; this late-inventory
-        # Policy-B finding was never part of the immediate producer floor.
-        return
 
     unverified = "fixed_probe_budget" in blockers
     crossed = tuple(
@@ -1951,13 +1955,16 @@ def _record_policy_b(ctx, jobs, producer_floor, job_index, blockers) -> None:
             f"{job.noun} callout {job.label} retained under Policy B across: "
             + ", ".join(crossed),
             measurement=job.measurement,
+            annotation_name=job.name,
+            view=job.view,
+            related_annotation_names=sorted(_blocker_owner(blocker) for blocker in crossed),
         )
     if unverified:
         ctx.record_issue(
             "info",
             "feature_leader_fixed_ink_unverified",
-            f"{job.noun} callout {job.label} retained under the producer floor "
-            "without exact fixed-ink classification (probe budget exhausted)",
+            f"{job.noun} callout {job.label} retained without exact fixed-ink "
+            "classification (probe budget exhausted)",
             measurement=job.measurement,
         )
 
@@ -2321,7 +2328,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             )
 
     def record_policy_b(job_index, blockers) -> None:
-        _record_policy_b(ctx, jobs, producer_floor, job_index, blockers)
+        _record_policy_b(ctx, jobs, job_index, blockers)
 
     floor = _GreedyFloorInput(
         dwg,

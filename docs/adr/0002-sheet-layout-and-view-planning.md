@@ -60,9 +60,16 @@ dependency runs one way: requirements determine views.
    material field is built once per build under explicit tessellation control.
    `test_issue_798_material_field.py`, `test_issue_798_silhouette_lint.py`,
    `test_issue_798_floor_cardinality.py`, `test_issue_1187_unroutable_leaders.py`.
-9. **Policy B is inventoried.** Known overlaps are `BENIGN`/`SPACE-CONSTRAINED`/`PENDING`; only
-   `PENDING` is debt; a retained crossing persists a finding with provenance.
-   `test_layout_cleanliness.py`.
+9. **Policy B crossings remain visible.** Both the immediate producer floor and late joint
+   feature-leader assignment record a retained, measured fixed-ink crossing as a
+   `feature_leader_crossing` finding with callout and obstruction provenance. A retained leader
+   whose bounded fixed-ink probe budget is exhausted yields
+   `feature_leader_fixed_ink_unverified`. Representative
+   finished sheets are checked for the selected view and annotation layout defect codes.
+   `test_issue_1166_cross_pass_feature_leaders.py`
+   (`test_immediate_producer_floor_records_a_retained_fixed_crossing_issue_2112`,
+   `test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption`),
+   `test_layout_cleanliness.py` (`test_finished_sheet_has_no_layout_collisions`).
 10. **Same-batch dimension ink is visible before commit**, resolved by a bounded strictly-improving
     local solve inside Emit — not a second placement engine. A GD&T frame then checks its full
     glyph and leader against settled and same-batch ink in that shared corridor: a clear tier

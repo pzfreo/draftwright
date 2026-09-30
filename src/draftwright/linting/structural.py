@@ -339,6 +339,7 @@ def lint_drawing(
     annotation_scales: dict[int, float] | None = None,
     annotation_specs: dict[int, DimensionPlacementSpec | RegisteredDimensionSpec | None]
     | None = None,
+    annotation_views: dict[int, str] | None = None,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
 
@@ -420,6 +421,8 @@ def lint_drawing(
             indexed as a name list.
         annotation_names: optional ``id(annotation) -> registry name`` mapping. It is used only
             to attach exact build-local provenance to findings; it never changes a predicate.
+        annotation_views: optional ``id(annotation) -> owning view`` mapping. An unreadable
+            leader shaft is attributed to its registered view without guessing from geometry.
         annotation_regions: optional ``id(annotation) -> solved region`` mapping from the
             registry. An interior label suppresses the blank-face advisory only after the
             shared placement solve has proved that candidate clear.
@@ -487,6 +490,7 @@ def lint_drawing(
             warned=warned_label_bbox,
             material_fields=view_material_fields,
             annotation_names=names,
+            annotation_views=annotation_views,
             annotation_regions=annotation_regions,
         )
 
@@ -1134,6 +1138,7 @@ def _lint_view_shapes(
     material_fields=None,
     annotation_names=None,
     annotation_regions=None,
+    annotation_views=None,
 ) -> None:
     """Check views against annotations (#159/#76), each other (#160), and the page (#75)."""
     # Build the named bbox list. The name must be DETERMINISTIC: several messages
@@ -1170,6 +1175,8 @@ def _lint_view_shapes(
     # mostly blank face, where placing callouts is a legitimate convention —
     # so a label over a blank region is reported as an info-level notice.
     names = {} if annotation_names is None else annotation_names
+    owners = {} if annotation_views is None else annotation_views
+    unreadable_shafts: set[int] = set()
     regions = {} if annotation_regions is None else annotation_regions
     cache = {} if edge_cache is None else edge_cache
     ann_cache = box_cache if box_cache is not None else {}
@@ -1255,15 +1262,34 @@ def _lint_view_shapes(
             if getattr(ann, "is_centerline", False) or getattr(ann, "is_section_hatch", False):
                 continue
             try:
-                tip, elbow = ann.tip, ann.elbow
-                shaft_bb = (
-                    min(tip[0], elbow[0]),
-                    min(tip[1], elbow[1]),
-                    max(tip[0], elbow[0]),
-                    max(tip[1], elbow[1]),
+                tip = ann.tip
+            except Exception as exc:  # noqa: BLE001 — an unreadable shaft cannot pass lint cleanly
+                owner = owners.get(id(ann))
+                if (owner is not None and owner != vname) or id(ann) in unreadable_shafts:
+                    continue
+                unreadable_shafts.add(id(ann))
+                albl = getattr(ann, "label", None) or getattr(ann, "name", None) or "leader"
+                where = f"view '{owner}'" if owner is not None else "its view"
+                issues.append(
+                    LintIssue(
+                        severity="warning",
+                        code="leader_shaft_unverified",
+                        message=(
+                            f"leader '{albl}' shaft could not be checked against material in "
+                            f"{where} (unreadable tip: {type(exc).__name__})"
+                        ),
+                        annotation_name=names.get(id(ann)),
+                        view=owner,
+                    )
                 )
-            except Exception:
                 continue
+            elbow = ann.elbow
+            shaft_bb = (
+                min(tip[0], elbow[0]),
+                min(tip[1], elbow[1]),
+                max(tip[0], elbow[0]),
+                max(tip[1], elbow[1]),
+            )
             if not _boxes_overlap(vbb, shaft_bb):
                 continue
             cut = material_reentry_span(

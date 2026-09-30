@@ -69,6 +69,7 @@ _LEGIBILITY_CODES = frozenset(
         "feature_leader_fixed_ink_unverified",
         "label_centerline_overlap",
         "leader_crosses_silhouette",
+        "leader_shaft_unverified",
         "leader_line_through_text",
         # The overall extents' own placement failure. Separate from `placement_unsatisfiable`
         # because that code is a required *scale* drop and reporting through it refused to
@@ -335,6 +336,7 @@ _UNSCORED_CODES = frozenset(
         # completeness's ledger, which builds from requirement outcomes rather than from lint.
         "collapsed_tolerance_withheld",
         "dimension_kind_unsupported",
+        "diameter_row_obstacle_unverified",
         "feature_count_mismatch",
         "feature_no_centermark",
         "feature_not_dimensioned",

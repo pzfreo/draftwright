@@ -1053,21 +1053,43 @@ def test_quality_counts_both_requirements_and_family_is_no_longer_unscored() -> 
 def test_live_and_deferred_callout_verbs_reuse_the_same_renderer(
     axis_rotation, quadrant_rotation
 ) -> None:
+    def policy_b_lint(drawing):
+        issues = drawing.lint()
+        assert len(issues) <= 1
+        assert all(
+            issue.code == "feature_leader_crossing"
+            and issue.severity == "info"
+            and issue.annotation_name == "m_circular_blind_step_y0"
+            and issue.view == "front"
+            for issue in issues
+        )
+        return tuple(
+            (issue.code, issue.annotation_name, issue.view, issue.related_annotation_names)
+            for issue in issues
+        )
+
     part = axis_rotation * (quadrant_rotation * _part())
+    expected_crossing = axis_rotation == Rot(0, 0, -90) and quadrant_rotation in (
+        Rot(180, 0, 0),
+        Rot(180, 180, 0),
+    )
     live = build_drawing(part)
-    assert live.lint() == []
+    assert policy_b_lint(live) == ()
     live_feature = _feature(live)
     live.drop(live_feature)
     live_name = live.callout(live_feature)
     assert _assert_owned_callout(live, live_feature, live_name).label == "R4 × 25 DEEP"
-    assert live.lint() == []
+    live_lint = policy_b_lint(live)
+    assert len(live_lint) == int(expected_crossing)
+    if expected_crossing:
+        assert live_lint[0][3] and set(live_lint[0][3]) == {"m_env_width"}
 
     deferred = build_drawing(part)
-    assert deferred.lint() == []
+    assert policy_b_lint(deferred) == ()
     deferred_feature = _feature(deferred)
     deferred.drop(deferred_feature)
     with deferred.deferred():
         deferred.callout(deferred_feature)
     deferred_name, _annotation_object = _annotation(deferred)
     assert _assert_owned_callout(deferred, deferred_feature, deferred_name).label == "R4 × 25 DEEP"
-    assert deferred.lint() == []
+    assert policy_b_lint(deferred) == ()
