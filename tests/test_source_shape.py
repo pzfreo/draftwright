@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import re
 import subprocess
@@ -16,6 +17,9 @@ _MAX_FUNCTION_LINES = 300
 _MAX_COMPLEXITY = 15
 _COMPLEXITY_BASELINE = Path(__file__).with_name("_complexity_baseline.json")
 _COMPLEXITY_MESSAGE = re.compile(r"^`[^`]+` is too complex \((\d+) > 15\)$")
+# First-landing ceiling: the JSON introduced with this guard is not yet on main,
+# so a source+JSON increase must also change this separately reviewed fingerprint.
+_BOOTSTRAP_COMPLEXITY_SHA256 = "43e5cdc8ca05ce055778188f2c6cc5573216168f217978484971a33dfba96df9"
 _MAX_PLACEMENT_MEGA_FUNCTION_LINES = 199
 _PLACEMENT_MEGA_FUNCTIONS = {
     "model/detect.py": "build_part_model",
@@ -128,7 +132,7 @@ def _complexity_findings() -> dict[str, int]:
 
 
 def _committed_complexity_ceiling() -> dict[str, int] | None:
-    """Read the reviewed baseline from main, or the current committed baseline."""
+    """Read the reviewed baseline at the branch point with main, if it exists."""
     repository = _SOURCE.parents[1]
     for main_ref in ("origin/main", "main"):
         merge_base = subprocess.run(
@@ -149,14 +153,7 @@ def _committed_complexity_ceiling() -> dict[str, int] | None:
         )
         if committed.returncode == 0:
             return json.loads(committed.stdout)["functions"]
-    committed = subprocess.run(
-        ["git", "show", "HEAD:tests/_complexity_baseline.json"],
-        cwd=repository,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return json.loads(committed.stdout)["functions"] if committed.returncode == 0 else None
+    return None
 
 
 def test_c901_complexity_budget_only_shrinks():
@@ -180,9 +177,16 @@ def test_c901_complexity_budget_only_shrinks():
     assert not reduced_or_removed, (
         f"Lower the reviewed C901 baseline after complexity shrinks: {reduced_or_removed}"
     )
-    # PR test jobs fetch full history. Shallow canaries still check live source
-    # against JSON above; main's committed budget is the cross-commit ceiling.
-    if (ceiling := _committed_complexity_ceiling()) is not None:
+    # PR test jobs fetch full history. Main's committed budget is the lasting
+    # ceiling; the fingerprint anchors the initial PR and shallow checkouts.
+    if (ceiling := _committed_complexity_ceiling()) is None:
+        fingerprint = hashlib.sha256(
+            json.dumps(budgets, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        assert fingerprint == _BOOTSTRAP_COMPLEXITY_SHA256, (
+            "Initial C901 baseline changed; review its ceiling and fingerprint together"
+        )
+    else:
         increased_budget = {
             name: (ceiling.get(name), value)
             for name, value in budgets.items()
