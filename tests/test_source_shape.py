@@ -19,7 +19,7 @@ _COMPLEXITY_BASELINE = Path(__file__).with_name("_complexity_baseline.json")
 _COMPLEXITY_MESSAGE = re.compile(r"^`[^`]+` is too complex \((\d+) > 15\)$")
 # First-landing ceiling: the JSON introduced with this guard is not yet on main,
 # so a source+JSON increase must also change this separately reviewed fingerprint.
-_BOOTSTRAP_COMPLEXITY_SHA256 = "50c658795b5c9a79ea09931b70756a0b1618626b662b79c309e39b64d254e124"
+_BOOTSTRAP_COMPLEXITY_SHA256 = "10cc5a06f08b2a307466ba90fff5e3e1815bcd515bf760fb6ad66ae2d0005a56"
 _MAX_PLACEMENT_MEGA_FUNCTION_LINES = 199
 _PLACEMENT_MEGA_FUNCTIONS = {
     "model/detect.py": "build_part_model",
