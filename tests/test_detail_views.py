@@ -430,7 +430,7 @@ class TestDetailView:
         assert all(
             detail_y0 - 1e-6 <= point[1] <= detail_y1 + 1e-6
             for dim in detail_dims
-            for point in (dim._dw_spec.p1, dim._dw_spec.p2)
+            for point in (dim.placement_spec.p1, dim.placement_spec.p2)
         )
         # Crop context and source marker are separate: including the base datum
         # must not make the marker claim the whole part as the crowded region.

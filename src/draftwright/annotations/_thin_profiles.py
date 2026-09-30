@@ -62,7 +62,6 @@ class _PlateThicknessCandidate(NamedTuple):
 
     def build(self, pos: float) -> Any:
         dim = _dim(self.pa, self.pb, self.side, pos - self.edge, self.draft, label=self.label)
-        dim._dw_measurement_span = self.dimension.span
         return dim
 
     def footprint(self, pos: float) -> Any:
@@ -211,6 +210,7 @@ def register_plate_thickness(dwg, plan, a, *, ctx, drop_factory) -> int:
                 force=True,
                 feature=g.ref,  # opaque provenance handle
                 measurement=pd.id,
+                measurement_span=pd.span,
                 footprint=candidate_state.footprint,  # analytical measure — no probe build
             ),
         )

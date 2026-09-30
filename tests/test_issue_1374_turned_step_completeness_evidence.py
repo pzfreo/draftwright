@@ -1356,8 +1356,14 @@ def test_moving_step_length_witness_off_physical_span_loses_credit(monkeypatch) 
     def with_wrong_span(*args, **kwargs):
         drawing = original(*args, **kwargs)
         name = next(name for name in drawing.annotations() if name.startswith("m_steplen"))
-        spec = drawing.registry.named(name)._dw_spec
-        spec.p1 = (float(spec.p1[0]) + 3.0, float(spec.p1[1]), 0)
+        from dataclasses import replace
+
+        identity = drawing.registry.identity_of(name)
+        spec = identity["dimension_spec"]
+        identity["dimension_spec"] = replace(
+            spec, p1=(float(spec.p1[0]) + 3.0, float(spec.p1[1]), 0)
+        )
+        drawing.registry.reapply(name, identity)
         return drawing
 
     monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
@@ -1463,6 +1469,8 @@ def test_moving_global_od_witness_off_exact_diameter_loses_credit() -> None:
     import draftwright.builder as builder
     import draftwright.sheet as sheet_module
 
+    assert sheet_module.build_drawing is builder.build_drawing
+
     part = _shaft("turned-step-axis-z.step")
     assert set(_states("ir_adapter", part=part)) == {"supported"}
     assert set(_states("dsl_declaration", part=part)) == {"supported"}
@@ -1472,8 +1480,14 @@ def test_moving_global_od_witness_off_exact_diameter_loses_credit() -> None:
 
     def with_wrong_od_span(*args, **kwargs):
         drawing = original(*args, **kwargs)
-        spec = drawing.registry.named("dim_od")._dw_spec
-        spec.p1 = (float(spec.p1[0]) + 3.0, float(spec.p1[1]), 0)
+        from dataclasses import replace
+
+        identity = drawing.registry.identity_of("dim_od")
+        spec = identity["dimension_spec"]
+        identity["dimension_spec"] = replace(
+            spec, p1=(float(spec.p1[0]) + 3.0, float(spec.p1[1]), 0)
+        )
+        drawing.registry.reapply("dim_od", identity)
         return drawing
 
     with pytest.MonkeyPatch.context() as patch:

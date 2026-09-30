@@ -2253,8 +2253,7 @@ class TestDeclaredModelPmi:
     reproduces on the declared path. (The emitted Sheet-script round-trip is a separate gap —
     import_step strips AP242 PMI.)"""
 
-    def test_declared_model_annotate_matches_auto(self, tmp_path):
-        auto = build_drawing(str(CTC01), out=str(tmp_path / "a"), title="P", pmi="annotate")
+    def test_declared_model_annotate_matches_auto(self, tmp_path, ctc01_annotated):
         declared = build_drawing(
             str(CTC01), out=str(tmp_path / "d"), title="P", model=[], pmi="annotate"
         )
@@ -2282,7 +2281,7 @@ class TestDeclaredModelPmi:
         # With geometry features available the automatic path correlates hole requirements;
         # an empty declared model cannot, so it keeps them materialised. Both still account for
         # every extracted source identity — #472's no-loss invariant.
-        assert source_ids(auto) == source_ids(declared)
+        assert source_ids(ctc01_annotated) == source_ids(declared)
 
     def test_declared_model_pmi_off_stays_clean(self, tmp_path):
         # the synthesis is gated on pmi_mode == 'annotate' — a declared build without PMI stays 0

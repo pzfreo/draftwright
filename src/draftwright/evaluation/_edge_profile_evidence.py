@@ -6,6 +6,7 @@ imports stay inside functions to preserve evaluation's lazy-load seam.
 
 from __future__ import annotations
 
+import math
 from typing import Literal, TypeAlias
 
 from draftwright.evaluation._groove_evidence import _groove_expected_tolerance_suffix
@@ -77,10 +78,132 @@ def _chamfer_model_outcomes(chamfers, recognition, features) -> list[Outcome]:
     ]
 
 
+def _edge_expected_view(drawing, feature) -> str | None:
+    origin = tuple(float(value) for value in feature.frame.origin)
+    displaced = list(origin)
+    displaced["xyz".index(feature.axis)] += 1.0
+    candidates = []
+    for view in ("front", "side", "plan"):
+        try:
+            start = drawing.at(view, *origin)[:2]
+            end = drawing.at(view, *displaced)[:2]
+        except (KeyError, ValueError):
+            continue
+        visible = math.hypot(*(float(b) - float(a) for a, b in zip(start, end, strict=True)))
+        if (feature.turned and visible > 1e-9) or (not feature.turned and visible <= 1e-9):
+            candidates.append(view)
+    if feature.turned:
+        return next((view for view in ("front", "side") if view in candidates), None)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _edge_leader_targets(drawing, recognition, name: str, feature) -> bool:
+    view = _edge_expected_view(drawing, feature)
+    if view is None or drawing.registry.view_of(name) != view:
+        return False
+    try:
+        tip = drawing.registry.named(name).tip
+        origin = tuple(float(value) for value in feature.frame.origin)
+        projected = drawing.at(view, *origin)
+        if not feature.turned:
+            return all(
+                abs(float(tip[index]) - float(projected[index])) <= 1e-6 for index in range(2)
+            )
+
+        # Independently derive the physical profile point from the provider's public
+        # finite-cylinder substrate.  Do not call the production
+        # ``_turned_profile_site`` helper: this observer must be able to catch a broken
+        # placement implementation rather than repeat its answer by construction.
+        from quiddity import full_cylinders
+
+        axis_i = "xyz".index(feature.axis)
+        radial = tuple(index for index in range(3) if index != axis_i)
+        candidates = []
+        for group in recognition.cylinders:
+            for cylinder in full_cylinders(list(group)):
+                if not cylinder.get("external") or cylinder.get("axis") != feature.axis:
+                    continue
+                centre = tuple(float(value) for value in cylinder["axis_xyz"])
+                radial_distance = math.hypot(
+                    origin[radial[0]] - centre[radial[0]],
+                    origin[radial[1]] - centre[radial[1]],
+                )
+                radius = float(cylinder["diameter"]) / 2.0
+                surface_gap = abs(radial_distance - radius)
+                direction = tuple(float(value) for value in cylinder["dir_xyz"])
+                station = sum(value * component for value, component in zip(origin, direction))
+                s_lo = float(cylinder["s_lo"])
+                s_hi = float(cylinder["s_hi"])
+                axial_gap = max(s_lo - station, 0.0, station - s_hi)
+                patch_distance = math.hypot(surface_gap, axial_gap)
+                if patch_distance > radius:
+                    continue
+                candidates.append(
+                    (
+                        (
+                            patch_distance,
+                            axial_gap,
+                            surface_gap,
+                            radial_distance,
+                            int(cylinder["solid_idx"]),
+                            centre[radial[0]],
+                            centre[radial[1]],
+                        ),
+                        centre,
+                    )
+                )
+        if not candidates:
+            # A cone can adjoin a partial OD (for example a D- or half-shaft) that the
+            # public substrate filter correctly declines to call a complete cylinder.
+            # In that case production preserves the recogniser's already-physical site;
+            # independently require the finished leader to preserve that projected point.
+            return all(
+                abs(float(tip[index]) - float(projected[index])) <= 1e-6 for index in range(2)
+            )
+        _score, centre = min(candidates, key=lambda candidate: candidate[0])
+
+        # A profile view projects exactly one of the two radial axes.  Determine that
+        # axis from the drawing transform itself, then rotate the recogniser's arbitrary
+        # circumferential representative onto the visible shaft silhouette while
+        # preserving both its radius and axial station.
+        visible = []
+        for index in radial:
+            displaced = list(origin)
+            displaced[index] += 1.0
+            page = drawing.at(view, *displaced)
+            magnitude = math.hypot(
+                float(page[0]) - float(projected[0]),
+                float(page[1]) - float(projected[1]),
+            )
+            if magnitude > 1e-9:
+                visible.append(index)
+        if len(visible) != 1:
+            return False
+        visible_i = visible[0]
+        hidden_i = next(index for index in radial if index != visible_i)
+        visible_delta = origin[visible_i] - centre[visible_i]
+        hidden_delta = origin[hidden_i] - centre[hidden_i]
+        radius = math.hypot(visible_delta, hidden_delta)
+        sign_source = visible_delta if abs(visible_delta) > 1e-12 else hidden_delta
+        expected_world = list(origin)
+        expected_world[visible_i] = centre[visible_i] + math.copysign(radius, sign_source or 1.0)
+        expected_world[hidden_i] = centre[hidden_i]
+        expected_tip = drawing.at(view, *expected_world)
+        return all(
+            abs(float(tip[index]) - float(expected_tip[index])) <= 1e-6 for index in range(2)
+        )
+    except Exception:  # noqa: BLE001 — malformed finished ink cannot earn credit
+        return False
+
+
+def _edge_rendered_label(drawing, name: str) -> str | None:
+    annotation = drawing.registry.named(name)
+    label = getattr(annotation, "label", None) or getattr(annotation, "_annotate_label", None)
+    return label if isinstance(label, str) else None
+
+
 def _chamfer_drawing_outcomes(chamfers, drawing) -> list[Outcome]:
     """Verify exact callout form, compiler identity, view, and physical arrow station."""
-    import math
-
     from draftwright.linting.evidence import verify_measurement_claims
     from draftwright.model.compiled import compile_dimensions
 
@@ -157,129 +280,6 @@ def _chamfer_drawing_outcomes(chamfers, drawing) -> list[Outcome]:
         for feature in group_features:
             presentations[feature] = (label, group_features)
 
-    def rendered_label(name: str) -> str | None:
-        annotation = drawing.registry.named(name)
-        label = getattr(annotation, "label", None) or getattr(annotation, "_annotate_label", None)
-        return label if isinstance(label, str) else None
-
-    def expected_view(feature) -> str | None:
-        origin = tuple(float(value) for value in feature.frame.origin)
-        displaced = list(origin)
-        displaced["xyz".index(feature.axis)] += 1.0
-        candidates = []
-        for view in ("front", "side", "plan"):
-            try:
-                start = drawing.at(view, *origin)[:2]
-                end = drawing.at(view, *displaced)[:2]
-            except (KeyError, ValueError):
-                continue
-            visible = math.hypot(*(float(b) - float(a) for a, b in zip(start, end, strict=True)))
-            if (feature.turned and visible > 1e-9) or (not feature.turned and visible <= 1e-9):
-                candidates.append(view)
-        if feature.turned:
-            return next((view for view in ("front", "side") if view in candidates), None)
-        return candidates[0] if len(candidates) == 1 else None
-
-    def leader_targets_chamfer(name: str, feature) -> bool:
-        view = expected_view(feature)
-        if view is None or drawing.registry.view_of(name) != view:
-            return False
-        try:
-            tip = drawing.registry.named(name).tip
-            origin = tuple(float(value) for value in feature.frame.origin)
-            projected = drawing.at(view, *origin)
-            if not feature.turned:
-                return all(
-                    abs(float(tip[index]) - float(projected[index])) <= 1e-6 for index in range(2)
-                )
-
-            # Independently derive the physical profile point from the provider's public
-            # finite-cylinder substrate.  Do not call the production
-            # ``_turned_profile_site`` helper: this observer must be able to catch a broken
-            # placement implementation rather than repeat its answer by construction.
-            from quiddity import full_cylinders
-
-            axis_i = "xyz".index(feature.axis)
-            radial = tuple(index for index in range(3) if index != axis_i)
-            candidates = []
-            for group in recognition.cylinders:
-                for cylinder in full_cylinders(list(group)):
-                    if not cylinder.get("external") or cylinder.get("axis") != feature.axis:
-                        continue
-                    centre = tuple(float(value) for value in cylinder["axis_xyz"])
-                    radial_distance = math.hypot(
-                        origin[radial[0]] - centre[radial[0]],
-                        origin[radial[1]] - centre[radial[1]],
-                    )
-                    radius = float(cylinder["diameter"]) / 2.0
-                    surface_gap = abs(radial_distance - radius)
-                    direction = tuple(float(value) for value in cylinder["dir_xyz"])
-                    station = sum(value * component for value, component in zip(origin, direction))
-                    s_lo = float(cylinder["s_lo"])
-                    s_hi = float(cylinder["s_hi"])
-                    axial_gap = max(s_lo - station, 0.0, station - s_hi)
-                    patch_distance = math.hypot(surface_gap, axial_gap)
-                    if patch_distance > radius:
-                        continue
-                    candidates.append(
-                        (
-                            (
-                                patch_distance,
-                                axial_gap,
-                                surface_gap,
-                                radial_distance,
-                                int(cylinder["solid_idx"]),
-                                centre[radial[0]],
-                                centre[radial[1]],
-                            ),
-                            centre,
-                        )
-                    )
-            if not candidates:
-                # A cone can adjoin a partial OD (for example a D- or half-shaft) that the
-                # public substrate filter correctly declines to call a complete cylinder.
-                # In that case production preserves the recogniser's already-physical site;
-                # independently require the finished leader to preserve that projected point.
-                return all(
-                    abs(float(tip[index]) - float(projected[index])) <= 1e-6 for index in range(2)
-                )
-            _score, centre = min(candidates, key=lambda candidate: candidate[0])
-
-            # A profile view projects exactly one of the two radial axes.  Determine that
-            # axis from the drawing transform itself, then rotate the recogniser's arbitrary
-            # circumferential representative onto the visible shaft silhouette while
-            # preserving both its radius and axial station.
-            visible = []
-            for index in radial:
-                displaced = list(origin)
-                displaced[index] += 1.0
-                page = drawing.at(view, *displaced)
-                magnitude = math.hypot(
-                    float(page[0]) - float(projected[0]),
-                    float(page[1]) - float(projected[1]),
-                )
-                if magnitude > 1e-9:
-                    visible.append(index)
-            if len(visible) != 1:
-                return False
-            visible_i = visible[0]
-            hidden_i = next(index for index in radial if index != visible_i)
-            visible_delta = origin[visible_i] - centre[visible_i]
-            hidden_delta = origin[hidden_i] - centre[hidden_i]
-            radius = math.hypot(visible_delta, hidden_delta)
-            sign_source = visible_delta if abs(visible_delta) > 1e-12 else hidden_delta
-            expected_world = list(origin)
-            expected_world[visible_i] = centre[visible_i] + math.copysign(
-                radius, sign_source or 1.0
-            )
-            expected_world[hidden_i] = centre[hidden_i]
-            expected_tip = drawing.at(view, *expected_world)
-            return all(
-                abs(float(tip[index]) - float(expected_tip[index])) <= 1e-6 for index in range(2)
-            )
-        except Exception:  # noqa: BLE001 — malformed finished ink cannot earn credit
-            return False
-
     result: list[Outcome] = []
     for exact, features, outcomes in correspondence:
         if not exact or len(features) != 1:
@@ -293,8 +293,10 @@ def _chamfer_drawing_outcomes(chamfers, drawing) -> list[Outcome]:
             and outcomes[0].state == "placed"
             and any(
                 drawing.registry.feature_of(name) in expected[1]
-                and rendered_label(name) == expected[0]
-                and leader_targets_chamfer(name, drawing.registry.feature_of(name))
+                and _edge_rendered_label(drawing, name) == expected[0]
+                and _edge_leader_targets(
+                    drawing, recognition, name, drawing.registry.feature_of(name)
+                )
                 for name in names
             )
         )
@@ -380,8 +382,6 @@ def _fillet_model_outcomes(fillets, recognition, features) -> list[Outcome]:
 
 def _fillet_drawing_outcomes(fillets, drawing) -> list[Outcome]:
     """Verify exact radius ink, compiler identity, semantic view, and physical arrow station."""
-    import math
-
     from draftwright.linting.evidence import verify_measurement_claims
     from draftwright.model.compiled import compile_dimensions
 
@@ -441,118 +441,6 @@ def _fillet_drawing_outcomes(fillets, drawing) -> list[Outcome]:
         for feature in group_features:
             presentations[feature] = (label, group_features)
 
-    def rendered_label(name: str) -> str | None:
-        annotation = drawing.registry.named(name)
-        label = getattr(annotation, "label", None) or getattr(annotation, "_annotate_label", None)
-        return label if isinstance(label, str) else None
-
-    def expected_view(feature) -> str | None:
-        origin = tuple(float(value) for value in feature.frame.origin)
-        displaced = list(origin)
-        displaced["xyz".index(feature.axis)] += 1.0
-        candidates = []
-        for view in ("front", "side", "plan"):
-            try:
-                start = drawing.at(view, *origin)[:2]
-                end = drawing.at(view, *displaced)[:2]
-            except (KeyError, ValueError):
-                continue
-            visible = math.hypot(*(float(b) - float(a) for a, b in zip(start, end, strict=True)))
-            if (feature.turned and visible > 1e-9) or (not feature.turned and visible <= 1e-9):
-                candidates.append(view)
-        if feature.turned:
-            return next((view for view in ("front", "side") if view in candidates), None)
-        return candidates[0] if len(candidates) == 1 else None
-
-    def leader_targets_fillet(name: str, feature) -> bool:
-        view = expected_view(feature)
-        if view is None or drawing.registry.view_of(name) != view:
-            return False
-        try:
-            tip = drawing.registry.named(name).tip
-            origin = tuple(float(value) for value in feature.frame.origin)
-            projected = drawing.at(view, *origin)
-            if not feature.turned:
-                return all(
-                    abs(float(tip[index]) - float(projected[index])) <= 1e-6 for index in range(2)
-                )
-
-            # Independently derive the visible turned-profile point from the provider's public
-            # finite-cylinder substrate. Do not call the production ``_turned_profile_site``.
-            from quiddity import full_cylinders
-
-            axis_i = "xyz".index(feature.axis)
-            radial = tuple(index for index in range(3) if index != axis_i)
-            candidates = []
-            for group in recognition.cylinders:
-                for cylinder in full_cylinders(list(group)):
-                    if not cylinder.get("external") or cylinder.get("axis") != feature.axis:
-                        continue
-                    centre = tuple(float(value) for value in cylinder["axis_xyz"])
-                    radial_distance = math.hypot(
-                        origin[radial[0]] - centre[radial[0]],
-                        origin[radial[1]] - centre[radial[1]],
-                    )
-                    radius = float(cylinder["diameter"]) / 2.0
-                    surface_gap = abs(radial_distance - radius)
-                    direction = tuple(float(value) for value in cylinder["dir_xyz"])
-                    station = sum(value * component for value, component in zip(origin, direction))
-                    s_lo = float(cylinder["s_lo"])
-                    s_hi = float(cylinder["s_hi"])
-                    axial_gap = max(s_lo - station, 0.0, station - s_hi)
-                    patch_distance = math.hypot(surface_gap, axial_gap)
-                    if patch_distance > radius:
-                        continue
-                    candidates.append(
-                        (
-                            (
-                                patch_distance,
-                                axial_gap,
-                                surface_gap,
-                                radial_distance,
-                                int(cylinder["solid_idx"]),
-                                centre[radial[0]],
-                                centre[radial[1]],
-                            ),
-                            centre,
-                        )
-                    )
-            if not candidates:
-                return all(
-                    abs(float(tip[index]) - float(projected[index])) <= 1e-6 for index in range(2)
-                )
-            _score, centre = min(candidates, key=lambda candidate: candidate[0])
-            visible = []
-            for index in radial:
-                displaced = list(origin)
-                displaced[index] += 1.0
-                page = drawing.at(view, *displaced)
-                magnitude = math.hypot(
-                    float(page[0]) - float(projected[0]),
-                    float(page[1]) - float(projected[1]),
-                )
-                if magnitude > 1e-9:
-                    visible.append(index)
-            if len(visible) != 1:
-                return False
-            visible_i = visible[0]
-            hidden_i = next(index for index in radial if index != visible_i)
-            visible_delta = origin[visible_i] - centre[visible_i]
-            hidden_delta = origin[hidden_i] - centre[hidden_i]
-            radius = math.hypot(visible_delta, hidden_delta)
-            sign_source = visible_delta if abs(visible_delta) > 1e-12 else hidden_delta
-            expected_world = list(origin)
-            expected_world[visible_i] = centre[visible_i] + math.copysign(
-                radius, sign_source or 1.0
-            )
-            expected_world[hidden_i] = centre[hidden_i]
-            expected_tip = drawing.at(view, *expected_world)
-            return all(
-                abs(float(tip[index]) - float(expected_tip[index])) <= 1e-6 for index in range(2)
-            )
-        except Exception:  # noqa: BLE001 — malformed finished ink cannot earn credit
-            return False
-
     result: list[Outcome] = []
     for exact, features, outcomes in correspondence:
         if not exact or len(features) != 1:
@@ -566,8 +454,10 @@ def _fillet_drawing_outcomes(fillets, drawing) -> list[Outcome]:
             and outcomes[0].state == "placed"
             and any(
                 drawing.registry.feature_of(name) in expected[1]
-                and rendered_label(name) == expected[0]
-                and leader_targets_fillet(name, drawing.registry.feature_of(name))
+                and _edge_rendered_label(drawing, name) == expected[0]
+                and _edge_leader_targets(
+                    drawing, recognition, name, drawing.registry.feature_of(name)
+                )
                 for name in names
             )
         )

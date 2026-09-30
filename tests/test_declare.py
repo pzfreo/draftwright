@@ -1465,14 +1465,19 @@ class TestConstructorInvariants:
 
 
 class TestModelSeam:
-    def test_declared_model_skips_detection(self):
+    @pytest.fixture(scope="class")
+    def partial_drawing(self):
         # The plate has TWO holes; declare only ONE. Detection would find both, so a
         # model with exactly one hole proves detection was bypassed.
         plate = Box(80, 50, 8)
         h1 = Pos(20, 10, 0) * Cylinder(3, 8)
         h2 = Pos(-20, 10, 0) * Cylinder(3, 8)
         part = plate - h1 - h2
-        dwg = build_drawing(part, model=[envelope(plate), hole(h1)])
+        assert part.volume == pytest.approx(plate.volume - h1.volume - h2.volume)
+        return build_drawing(part, model=[envelope(plate), hole(h1)])
+
+    def test_declared_model_skips_detection(self, partial_drawing):
+        dwg = partial_drawing
         kinds = [f.kind for f in dwg.model().features]
         assert kinds.count("hole") == 1
 
@@ -1485,13 +1490,9 @@ class TestModelSeam:
         warns = [i for i in dwg.lint() if i.severity in ("warning", "error")]
         assert warns == [], [i.code for i in warns]
 
-    def test_partial_declaration_is_flagged_by_coverage_lint(self):
+    def test_partial_declaration_is_flagged_by_coverage_lint(self, partial_drawing):
         # Physical critique keeps the recognised denominator when a declaration is partial.
-        plate = Box(80, 50, 8)
-        h1 = Pos(20, 10, 0) * Cylinder(3, 8)
-        h2 = Pos(-20, 10, 0) * Cylinder(3, 8)
-        part = plate - h1 - h2
-        dwg = build_drawing(part, model=[envelope(plate), hole(h1)])
+        dwg = partial_drawing
         issues = dwg.lint()
         assert len(dwg.recognition().holes) == 2
         assert len([f for f in dwg.model().features if f.kind == "hole"]) == 1

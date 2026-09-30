@@ -58,7 +58,7 @@ class TestHolePatternCallouts:
         # — not diagonally across the grid; and the two are perpendicular.
         axes = set()
         for n in pitch:
-            sp = named[n]._dw_spec
+            sp = named[n].placement_spec
             dx, dy = abs(sp.p1[0] - sp.p2[0]), abs(sp.p1[1] - sp.p2[1])
             assert dx < 0.5 or dy < 0.5, f"{n} drawn diagonally: p1={sp.p1} p2={sp.p2}"
             axes.add("vertical" if dx < 0.5 else "horizontal")
@@ -86,7 +86,7 @@ class TestHolePatternCallouts:
         assert len(pitch) == 2, f"expected two grid pitch dims, got {pitch}"
         for n in pitch:
             dim = dwg.get_annotation(n)
-            sp = dim._dw_spec
+            sp = dim.placement_spec
             span = math.hypot(sp.p2[0] - sp.p1[0], sp.p2[1] - sp.p1[1]) / scale
             k, p = dim.label.split("× ")
             expected = int(k) * float(p)

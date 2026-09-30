@@ -99,6 +99,7 @@ def _commit_strip_candidate_run(run):
     """Place survivors with provenance, then close the optional solve trace."""
     ctx, view = run.ctx, run.view
     features, measurements = run.features, run.measurements
+    spans = run.measurement_spans
     satisfactions, declarations = run.satisfactions, run.declarations
     solved, todo, tp, trace = run.solved, run.todo, run.tp, run.trace
     for name, dim in solved:
@@ -106,6 +107,10 @@ def _commit_strip_candidate_run(run):
         # dims — `features` maps this batch's names to their source IR feature.
         feature = (features or {}).get(name)
         measurement = (measurements or {}).get(name)
+        measurement_span = (spans or {}).get(name)
+        span_kwargs = (
+            {"measurement_span": measurement_span} if measurement_span is not None else {}
+        )
         # Preserve the established duck-typed ``ctx.place`` contract for callers that do
         # not participate in structured-note authority. Only a candidate carrying the new
         # provenance axis receives the keyword (#1351).
@@ -120,6 +125,7 @@ def _commit_strip_candidate_run(run):
                 measurement=measurement,
                 satisfaction=satisfaction,
                 declaration=declaration,
+                **span_kwargs,
             )
         elif satisfaction is not None:
             ctx.place(
@@ -129,6 +135,7 @@ def _commit_strip_candidate_run(run):
                 feature=feature,
                 measurement=measurement,
                 satisfaction=satisfaction,
+                **span_kwargs,
             )
         elif declaration is not None:
             ctx.place(
@@ -138,6 +145,7 @@ def _commit_strip_candidate_run(run):
                 feature=feature,
                 measurement=measurement,
                 declaration=declaration,
+                **span_kwargs,
             )
         else:
             ctx.place(
@@ -146,6 +154,7 @@ def _commit_strip_candidate_run(run):
                 view=view,
                 feature=feature,
                 measurement=measurement,
+                **span_kwargs,
             )
     if tp is not None:
         tp["unplaced"] = [n for n, _ in todo]

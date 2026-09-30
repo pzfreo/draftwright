@@ -1528,13 +1528,13 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
                         dwg.draft,
                         label=label,
                     )
-                det_dim._dw_measurement_span = rung.span
                 ctx.place(
                     det_dim,
                     f"dim_{view}_step{i}",
                     view=view,
                     feature=rung.id.feature if rung.id is not None else None,
                     measurement=rung.id,
+                    measurement_span=rung.span,
                     scale=detail_scale,
                 )  # view-scoped name (#307)
                 ladder += step_pad

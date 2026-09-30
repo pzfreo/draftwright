@@ -9,12 +9,12 @@ from typing import Any, NamedTuple
 from draftwright._core import (
     _CONCENTRIC_TOL_MM,
     _END_ON,
-    _MIN_LOC_SEP_MM,
     _WITNESS_LIFT_MM,
     Analysis,
     _dim,
     layout_frame,
 )
+from draftwright._core import _legible_locations as _legible_locations
 from draftwright.annotations._common import (
     CorridorCandidate,
     _box_hits,
@@ -28,29 +28,6 @@ from draftwright.annotations._common import (
 )
 from draftwright.model.compiled import resolve_feature, shared_location_text
 from draftwright.model.ir import HoleFeature, PatternFeature
-
-
-def _legible_locations(positions, scale):
-    """Axis positions far enough apart on the page to dimension legibly.
-
-    Given world-coordinate *positions* along one axis, keep a position only if it
-    is at least ``_MIN_LOC_SEP_MM`` page-mm from the previously kept one;
-    consecutive holes closer than that produce baseline witness lines that read
-    as a single busy cluster (#43). Returns ``(kept, n_too_close)``: the
-    positions to dimension and the count dropped for spacing (the caller surfaces
-    these via ``location_ref_dropped`` lint; the full-fidelity answer is a detail
-    view, #42). Mirrors :func:`_legible_steps` for hole locations.
-    """
-    kept: list[float] = []
-    n_too_close = 0
-    last = None
-    for p in sorted(positions):
-        if last is not None and (p - last) * scale < _MIN_LOC_SEP_MM:
-            n_too_close += 1
-            continue
-        kept.append(p)
-        last = p
-    return kept, n_too_close
 
 
 class _OffHole(NamedTuple):

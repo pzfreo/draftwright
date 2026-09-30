@@ -121,7 +121,7 @@ def test_bad_candidates_cannot_bypass_preservation_and_rollback(monkeypatch, fau
         assert drawing.lint(physical=False) == []
         assert compare_measurements(measurements, drawing)["status"] == "preserved"
         if fault == "span":
-            new._dw_measurement_span = ((1, 2, 3), (51, 2, 3))
+            drawing.registry.mark_measurement_span("m_env_width", ((1, 2, 3), (51, 2, 3)))
             assert drawing.lint(physical=False) == []
             assert compare_measurements(measurements, drawing)["status"] == "changed"
     finally:
@@ -133,13 +133,21 @@ def test_bad_candidates_cannot_bypass_preservation_and_rollback(monkeypatch, fau
     elif fault == "membership":
         candidates = [(name, item) for name, item in candidates if name != "m_env_width"]
     elif fault == "authored_side":
-        new._dw_spec.authored_side = "left"
+        new.placement_spec.authored_side = "left"
     elif fault == "witness_points":
-        new._dw_spec.p1 = tuple(value + 1 for value in new._dw_spec.p1)
+        new.placement_spec.p1 = tuple(value + 1 for value in new.placement_spec.p1)
     elif fault == "unknown":
         identity = drawing.registry.identity_of("m_env_width")
         drawing.registry.reapply("m_env_width", dict(identity, measurement=()))
         assert drawing.measurement_snapshot().unknown
+    elif fault == "span":
+        replace_object = drawing.registry.replace_object
+
+        def tamper_after_swap(old, replacement):
+            replace_object(old, replacement)
+            drawing.registry.mark_measurement_span("m_env_width", ((1, 2, 3), (51, 2, 3)))
+
+        monkeypatch.setattr(drawing.registry, "replace_object", tamper_after_swap)
     registry = drawing.registry.snapshot()
     attempts = []
 

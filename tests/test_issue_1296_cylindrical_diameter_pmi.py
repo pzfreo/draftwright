@@ -942,7 +942,7 @@ def test_circular_pattern_uses_one_exact_member_as_its_diameter_witness():
             if getattr(feature, "source_id", "") == "dimension:circle-member"
         )
         name = drawing.registry.names_for_feature(feature)[0]
-        return drawing.registry.named(name)._dw_spec
+        return drawing.registry.named(name).placement_spec
 
     left, right = rendered_spec(-15), rendered_spec(15)
     assert (left.p1, left.p2) == (right.p1, right.p2)

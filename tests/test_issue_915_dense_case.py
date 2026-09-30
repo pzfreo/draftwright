@@ -210,5 +210,5 @@ def test_issue_915_a2_detail_uses_each_levels_supporting_geometry():
     assert list(detail_dims) == ["13", "20", "40", "60", "65"]
     for label, dimension in detail_dims.items():
         expected = dwg.at("detail_a", *rungs[label].span[1])
-        assert dimension._dw_spec.p2[:2] == pytest.approx(expected[:2])
+        assert dimension.placement_spec.p2[:2] == pytest.approx(expected[:2])
     assert _lint_apart_from_the_known_crossings(dwg) == []

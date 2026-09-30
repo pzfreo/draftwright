@@ -18,11 +18,11 @@ from build123d_drafting.helpers import Draft
 from PIL import Image, ImageChops
 
 from draftwright import Sheet, build_drawing
-from draftwright._core import _text_line_spacing_em
+from draftwright._core import _dim, _text_line_spacing_em
 from draftwright.drawing import Drawing
 from draftwright.export import _PDFTextRun, _render_pdf, _resolved_semantic_font_path
 from draftwright.fonts import PLEX_MONO, PLEX_SANS_CONDENSED
-from draftwright.pdf_text import _exact_vertex_rotation
+from draftwright.pdf_text import _exact_vertex_rotation, pdf_text_runs
 
 
 def _manufacturing_drawing():
@@ -58,6 +58,14 @@ def _pdf_text(path: str):
     except Exception:
         pdf.close()
         raise
+
+
+def _registered_pdf_runs(drawing):
+    return pdf_text_runs(
+        drawing.draft,
+        drawing.registry.iter_named(),
+        dimension_spec_of=drawing.registry.dimension_spec_of,
+    )
 
 
 def _assert_first_character_overlaps_annotation(text_page, extracted, text, annotation):
@@ -451,6 +459,97 @@ def test_engine_dimensions_keep_their_construction_draft_and_rotation(tmp_path):
     resolved = _resolved_semantic_font_path(None, "Arial", "BOLD")
     expected_postscript_name = TTFont("ResolvedArialBold", resolved).face.name
     assert expected_postscript_name in Path(pdf_path).read_bytes()
+
+
+def test_committed_dimension_pdf_uses_registry_spec_issue_1931():
+    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
+    with pytest.warns(DeprecationWarning):
+        drawing.place_dim(
+            (20, 20, 0),
+            (60, 20, 0),
+            "above",
+            "front",
+            drawing.draft,
+            name="registered",
+            label="REGISTERED",
+        )
+    with pytest.warns(DeprecationWarning):
+        drawing.add(
+            _dim((20, 40, 0), (57.5, 40, 0), "above", 8.0, drawing.draft),
+            "valued",
+            view="front",
+        )
+    before = [run for run in _registered_pdf_runs(drawing) if run.text == "REGISTERED"]
+    assert before and before[0].rotation == pytest.approx(0)
+    valued_spec = drawing.registry.dimension_spec_of("valued")
+    assert valued_spec is not None and valued_spec.live_draft is drawing.draft
+    valued_annotation = drawing.get_annotation("valued")
+    assert valued_annotation.measured_length == pytest.approx(37.5)
+    value_before_text = drawing.draft._number_with_units(valued_annotation.measured_length)
+    value_before = [run for run in _registered_pdf_runs(drawing) if run.text == value_before_text]
+    assert len(value_before) == 1
+    annotation = drawing.get_annotation("registered")
+    registered_spec = drawing.registry.dimension_spec_of("registered")
+    assert registered_spec is not None and registered_spec.live_draft is drawing.draft
+    assert annotation.placement_spec.draft is drawing.draft
+    assert before[0].font_size == drawing.draft.font_size
+    annotation.placement_spec.p2 = (20, 60, 0)
+    annotation.placement_spec.kwargs["rotation"] = 90
+    drawing.draft.font_size += 4
+    drawing.draft.decimal_precision = 0
+    assert drawing.draft.font_size != before[0].font_size
+    value_after_text = drawing.draft._number_with_units(valued_annotation.measured_length)
+    assert value_after_text != value_before_text
+    after = [run for run in _registered_pdf_runs(drawing) if run.text == "REGISTERED"]
+    assert len(after) == 1
+    assert after[0].rotation == pytest.approx(before[0].rotation)
+    assert after[0].font_size == drawing.draft.font_size
+    assert after[0].text == before[0].text
+    value_after = [run for run in _registered_pdf_runs(drawing) if run.text == value_after_text]
+    assert len(value_after) == 1 and value_after[0].font_size == drawing.draft.font_size
+
+
+def test_cleared_registered_dimension_spec_does_not_recover_transient_rider_issue_1931(
+    tmp_path,
+):
+    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
+    with pytest.warns(DeprecationWarning):
+        drawing.place_dim(
+            (20, 20, 0),
+            (60, 20, 0),
+            "above",
+            "front",
+            drawing.draft,
+            name="registered",
+            label="REGISTERED",
+        )
+    annotation = drawing.get_annotation("registered")
+    before = [run for run in _registered_pdf_runs(drawing) if run.text == "REGISTERED"]
+    assert before and before[0].rotation == pytest.approx(0)
+    identity = drawing.registry.identity_of("registered")
+    assert identity["dimension_spec"] is not None
+    identity["dimension_spec"] = None
+    drawing.registry.reapply("registered", identity)
+    assert drawing.registry.dimension_spec_of("registered") is None
+    assert annotation.placement_spec is not None
+    annotation.placement_spec.p2 = (20, 60, 0)
+    annotation.placement_spec.kwargs["rotation"] = 90
+    after = [run for run in _registered_pdf_runs(drawing) if run.text == "REGISTERED"]
+    assert len(after) == 1 and after[0].rotation == pytest.approx(before[0].rotation)
+    pdf_path = drawing.export(str(tmp_path / "cleared-spec"), formats=("pdf",))["pdf"]
+    pdf, text_page, extracted = _pdf_text(pdf_path)
+    try:
+        assert "REGISTERED" in extracted
+        text_object = next(
+            obj
+            for obj in text_page.parent.get_objects(textpage=text_page)
+            if isinstance(obj, pdfium.PdfTextObj) and obj.extract() == "REGISTERED"
+        )
+        a, b, _c, _d, _e, _f = text_object.get_matrix().get()
+        assert math.degrees(math.atan2(b, a)) == pytest.approx(0, abs=1.0)
+    finally:
+        text_page.close()
+        pdf.close()
 
 
 _RAW_HELPER_LABEL_CASES = (

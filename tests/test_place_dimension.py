@@ -92,6 +92,40 @@ class TestPlaceDim:
         d = _place_dim(dwg, p1, p2, "below", "plan", dwg.draft, label="CUSTOM")
         assert d.label == "CUSTOM"
 
+    def test_unnamed_dimension_uses_its_draft_precision_in_finished_lint(self):
+        from draftwright.linting import lint_drawing
+
+        dwg = build_drawing(Box(40, 25, 12), auto_dims=False, scale=2, repair=False)
+        dwg.draft.decimal_precision = 1
+        dim = _place_dim(dwg, (20, 20, 0), (40.4, 20, 0), "above", "front", dwg.draft, label="10")
+        assert dim in dwg.items
+        assert all(obj is not dim for _name, obj in dwg.iter_annotations())
+        assert dim.placement_spec.draft.decimal_precision == 1
+        assert dim.measured_length / dwg.scale == pytest.approx(10.2)
+        assert any(issue.code == "label_vs_measured" for issue in dwg.lint(physical=False))
+        # With no construction evidence the integer label would allow 0.5 mm of
+        # rounding and miss this discrepancy; the transient spec is load-bearing.
+        assert not any(
+            issue.code == "label_vs_measured"
+            for issue in lint_drawing([dim], drawing_scale=dwg.scale, annotation_specs={})
+        )
+
+    def test_named_dimension_lint_uses_committed_evidence(self):
+        dwg = build_drawing(Box(40, 25, 12), auto_dims=False, repair=False)
+        dim = _place_dim(
+            dwg,
+            (20, 20, 0),
+            (80, 20, 0),
+            "above",
+            "front",
+            dwg.draft,
+            name="repeat",
+            label="3× 10",
+        )
+        assert dwg.registry.dimension_spec_of("repeat").label_value is None
+        dim.placement_spec.label_value = 10.0
+        assert not any(issue.code == "label_vs_measured" for issue in dwg.lint(physical=False))
+
     def test_dimension_does_not_warn_when_using_place_dim_internally(self):
         dwg = build_drawing(Box(80, 50, 20), auto_dims=False)
         env = next(f for f in dwg.model().features if f.kind == "envelope")

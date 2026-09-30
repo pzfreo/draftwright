@@ -2536,8 +2536,11 @@ class _AutomaticResolution:
             # recorder holds the shipped build's records; give it the last write so
             # DRAFTWRIGHT_TRACE describes the drawing the caller receives.
             self.drawing.solve_trace.write()
+        issues = self.settled_issues
+        if issues is None:
+            issues = self.context.placement_issues(self.drawing)
         return self.context.finish_annotation_layout(
-            _complete_automatic_plan(self.drawing, issues=self.settled_issues)
+            _complete_automatic_plan(self.drawing, issues=issues)
         )
 
     def run(self) -> Drawing:

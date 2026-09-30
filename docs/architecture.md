@@ -245,6 +245,18 @@ and re-exports the existing private helper names.
   - **`annotations/_hole_leader_placement.py`** — shared physical hole-leader
     construction, callout claim forwarding, and bounded sheet recovery; the hole
     pass owns the queue and survivor commit.
+    Sparse plan and side holes enter the late feature-leader inventory after a
+    PAVA seed. Front and rear callouts use a below-view vertical strip with a
+    compiled location witness and the shared strip survivor commit. Dense and
+    profiled plan/side callouts retain an immediate, diameter-ranked PAVA row
+    solve with keep-out bands and bounded Policy B relocation; only surviving
+    rows receive their names, measurement owners, and pattern furniture. Dense
+    scattered holes can instead become a table and balloons. Immediate and late
+    jobs share physical leader construction and `leaders.commit_feature_leader`;
+    front/rear callouts use `place_strip_candidates` and the strip commit.
+    #1937 tracks convergence of these placement and transaction paths while
+    preserving authored-side routing, owner and measurement identity, furniture
+    rollback, callout indexing, and trace order.
   - **`annotations/_leader_fixed_ink.py`** — exact fixed-annotation component
   lowering for the shared leader solve: metadata strokes, label boxes, and
   residual rendered faces retain bounded work and stable component identities.
@@ -382,8 +394,10 @@ and re-exports the existing private helper names.
   deliberately stringly-typed record feeds the recompose path.
 - **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
   identity/ownership/pins/build-issues (#138 / ADR 1 (was 0005), Step 2). It also
-  owns typed candidate-region provenance, per-annotation detail scale, and the immutable
-  cut/view mark on each live section cutting-plane line (#1931). `Drawing`
+  owns typed candidate-region provenance, per-annotation detail scale, the immutable
+  cut/view mark on each live section cutting-plane line, and each committed
+  engine dimension's immutable point/spec snapshot with an explicit live Draft
+  style source for PDF text (#1931). `Drawing`
   delegates here and keeps the render list. The `_named`/`_anno_view`/`_pinned`/
   `_build_issues` aliases on `Drawing` (and coverage's three) were **deleted** at
   their §4 date (#720): reach the state through `dwg.registry` (`in reg`,
@@ -392,7 +406,8 @@ and re-exports the existing private helper names.
 - **`linting/`** — the lint subpackage (#138 / ADR 1 (was 0005); ADR 3 (was 0007): draftwright
   owns linting): `orchestration.py` (ordered structural, physical, PMI, and build-issue
   critique over an explicit drawing context), `coverage.py` (`lint_feature_coverage` + `CoverageState`),
-  `_coverage_common.py` (shared registry evidence, outcome checks, exact three-coordinate point rounding, and blind-slot value validation),
+  `_coverage_common.py` (stable import of `_registry`'s exact measurement-outcome index,
+  shared outcome checks, exact three-coordinate point rounding, and blind-slot value validation),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
   `angular.py` (degree claims and actual angular ink, with explicit unavailable
   physical-support evidence),
@@ -604,7 +619,7 @@ and re-exports the existing private helper names.
 - **`fonts/`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 5 (was 0006)).
 - **`pdf_text.py`** — rank-2 PDF semantic text assembly from the drawing's
-  explicitly supplied draft and named annotations. It preserves label recovery,
+  explicitly supplied draft, named annotations, and registry dimension specs. It preserves label recovery,
   text placement, and page reading order; `Drawing._pdf_text_runs()` delegates here,
   and `export.py` renders the returned runs over vector glyph paths.
 - **`export.py`** — SVG/DXF/PDF/PNG export + post-processing (page-size fix,

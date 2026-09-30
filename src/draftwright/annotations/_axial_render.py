@@ -89,7 +89,6 @@ class _StepPositionCandidate(NamedTuple):
             self.draft,
             label=self.label,
         )
-        dim._dw_measurement_span = self.rung.span
         return dim
 
     def drop(self, _name: str) -> None:
@@ -812,6 +811,7 @@ def render_step_positions(dwg, plan, frame, *, ctx) -> int:
                 # The opaque provenance handle, passed straight through.
                 feature=ladder.ref,
                 measurement=rung.id,
+                measurement_span=rung.span,
             ),
         )
         n += 1

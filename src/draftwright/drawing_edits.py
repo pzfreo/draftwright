@@ -27,7 +27,6 @@ class _DimensionBuild:
     side: str
     axis_index: int
     kwargs: dict[str, Any]
-    measurement_span: object
 
     def __call__(self, pos: float) -> Any:
         if self.side in ("right", "above"):
@@ -35,7 +34,6 @@ class _DimensionBuild:
         else:
             dist = min(p[self.axis_index] for p in (self.p1, self.p2)) - pos
         dim = _dim(self.p1, self.p2, self.side, max(dist, 4.0), self.owner.draft, **self.kwargs)
-        dim._dw_measurement_span = self.measurement_span
         return dim
 
 
@@ -328,7 +326,7 @@ class EditOperations:
             tier,
             CorridorCandidate(
                 name=name,
-                build=_DimensionBuild(self, p1, p2, side, ax, dim_kwargs, measurement_span),
+                build=_DimensionBuild(self, p1, p2, side, ax, dim_kwargs),
                 order=(0, natural, name),
                 on_place=_placed,
                 on_drop=_drop,
@@ -339,6 +337,7 @@ class EditOperations:
                 natural=natural,
                 feature=it.feature,
                 measurement=measurement,
+                measurement_span=measurement_span,
             ),
         )
         return True
@@ -446,7 +445,9 @@ class EditOperations:
             i = 0
             while (name := f"dim_{param}{i}") in self.registry:
                 i += 1
-        annotation = self.place_dim(
+        # Correlated ladder members can share one public identity; keep the exact
+        # compiler-owned world span on this placement for occurrence coverage.
+        self.place_dim(
             p1,
             p2,
             side,
@@ -455,12 +456,9 @@ class EditOperations:
             name=name,
             feature=feature,
             measurement=measurement,
+            measurement_span=rec.span or self._derive_span(feature, rec),
             **kwargs,
         )
-        # A correlated ladder intentionally shares one public ``DimensionId`` across its
-        # members. Preserve the compiler-owned world span at the public edit boundary so
-        # completeness can tell which exact occurrence this visible replacement asserts.
-        annotation._dw_measurement_span = rec.span or self._derive_span(feature, rec)
         if pin:
             self.pin(name)
         return name

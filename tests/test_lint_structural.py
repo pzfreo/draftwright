@@ -632,7 +632,7 @@ class TestScaleNotStated:
 def _engine_dim(draft, label, path_mm):
     """A dimension built the way the engine builds one, so it carries its draft.
 
-    `_core._dim` attaches `_dw_spec` — which is how lint reaches the sheet's precision. A raw
+    `_core._dim` attaches `placement_spec` — which is how lint reaches the sheet's precision. A raw
     `Dimension` does not, and a test using one would silently exercise the no-draft fallback
     instead of the path every real sheet takes.
     """
@@ -725,7 +725,7 @@ class TestDisplayedDecimals:
         if sheet_decimals is None:
             return SimpleNamespace()
         return SimpleNamespace(
-            _dw_spec=SimpleNamespace(draft=SimpleNamespace(decimal_precision=sheet_decimals))
+            placement_spec=SimpleNamespace(draft=SimpleNamespace(decimal_precision=sheet_decimals))
         )
 
     @pytest.mark.parametrize(
@@ -750,7 +750,8 @@ class TestDisplayedDecimals:
     def test_the_sheet_is_the_floor_and_a_bare_label_may_raise_it(self, label, expected):
         from draftwright.linting.structural import _displayed_decimals
 
-        assert _displayed_decimals(self._item(1), label) == expected
+        item = self._item(1)
+        assert _displayed_decimals(item, label, spec=item.placement_spec) == expected
 
     def test_without_a_draft_it_falls_back_to_the_label(self):
         from draftwright.linting.structural import _displayed_decimals

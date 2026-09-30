@@ -2291,7 +2291,6 @@ class _PlateDropRetry:
             if pos is not None:
                 # Validate the rendered ink against live obstacles and page bounds.
                 dim = _dim(qa, qb, side2, pos - edge2, self.draft, label=self.label)
-                dim._dw_measurement_span = self.measurement_span
                 real = _geom_box(dim)
                 page = _drawing_bounds(self.dwg)
                 if real is None or (
@@ -2305,7 +2304,12 @@ class _PlateDropRetry:
                 ):
                     continue
                 self.ctx.place(
-                    dim, name, view=view2, feature=self.feature, measurement=self.measurement
+                    dim,
+                    name,
+                    view=view2,
+                    feature=self.feature,
+                    measurement=self.measurement,
+                    measurement_span=self.measurement_span,
                 )
                 return
         self.ctx.record_issue(

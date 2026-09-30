@@ -281,7 +281,7 @@ def test_same_side_label_rebuild_preserves_the_authored_constraint(monkeypatch):
     drawing = _side_sheet("single", "left").build()
     before = _measurements(drawing)
     original = drawing.get_annotation("dim_height")
-    spec = original._dw_spec
+    spec = original.placement_spec
     rebuilt = _dim(
         spec.p1,
         spec.p2,
@@ -316,7 +316,7 @@ def test_height_retry_predicts_the_geometry_it_builds_after_a_predecessor_is_pla
     drawing = build_drawing(part, scale=2)
     strip, candidate = captured["strip"], captured["candidate"]
     inner = strip.anchor + strip.direction * strip.gap
-    predecessor = drawing.get_annotation("dim_step_0")._dw_spec
+    predecessor = drawing.get_annotation("dim_step_0").placement_spec
     assert predecessor.p1[0] + predecessor.distance == pytest.approx(inner)
     # The force pass probes the strip's inner position again after earlier candidates
     # have been built. A valid predicted footprint must not become a zero-offset build.

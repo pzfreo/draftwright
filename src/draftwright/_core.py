@@ -6,7 +6,8 @@ the ADR 1 (was 0005) split): it holds the data structures and small helpers they
 depend on (the :class:`Analysis` namespace and its field types, the
 dimension/format helpers, and the layout constants).  It imports only from the
 leaf tier (:mod:`draftwright.layout`, :mod:`draftwright._geometry`,
-:mod:`draftwright.fits`, :mod:`draftwright.fonts`) and third-party libraries —
+:mod:`draftwright.fits`, :mod:`draftwright.fonts`, :mod:`draftwright.registry`)
+and third-party libraries —
 never upward — so the module graph stays a DAG (machine-enforced by
 ``tests/test_import_boundaries.py``).
 """
@@ -22,7 +23,7 @@ from collections.abc import Callable
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from quiddity import RecognitionResult, TurnedProfile
@@ -45,7 +46,6 @@ from build123d import (
     Vector,
 )
 from build123d_drafting.helpers import (
-    Dimension,
     TitleBlock,
     TitleBlockCell,
     TitleBlockLayout,
@@ -70,6 +70,7 @@ from draftwright._geometry import (  # noqa: F401
 from draftwright.fits import FitClass
 from draftwright.fonts import PLEX_MONO, PLEX_SANS_CONDENSED
 from draftwright.layout import _greedy_strip_1d, _solve_strip_1d
+from draftwright.registry import PlacedDimension
 
 _log = logging.getLogger(__name__)
 
@@ -116,6 +117,7 @@ def place_annotation(
     declaration=None,
     candidate_region=None,
     scale: float | None = None,
+    measurement_span: object | None = None,
 ):
     """The annotation-placement primitive (#817): register *obj* under *name* — replacing any
     prior object of that name (dropped from the render list *items*) so a name maps to one
@@ -143,6 +145,7 @@ def place_annotation(
         declaration=declaration,
         candidate_region=candidate_region,
         scale=scale,
+        measurement_span=measurement_span,
     )
     return obj
 
@@ -657,44 +660,25 @@ def _concentric_with_axis(a, x: float, y: float) -> bool:
     return math.hypot(x - a.cx, y - a.cy) <= _CONCENTRIC_TOL_MM
 
 
-@dataclass
-class DimensionPlacementSpec:
-    """Repairable dimension geometry and producer-declared interpretation."""
-
-    p1: Any
-    p2: Any
-    side: str
-    distance: float
-    draft: Any
-    kwargs: dict[str, Any]
-    label_value: float | None = None
-    authored_side: str | None = None
-
-
 def _copy_dimension_spec_riders(source, target) -> None:
     """Carry producer decisions when repair rebuilds a dimension's geometry."""
-    old = getattr(source, "_dw_spec", None)
-    new = getattr(target, "_dw_spec", None)
-    if old is None or new is None:
+    if not isinstance(source, PlacedDimension) or not isinstance(target, PlacedDimension):
         return
-    new.label_value = getattr(old, "label_value", None)
-    new.authored_side = getattr(old, "authored_side", None)
+    old = source.placement_spec
+    new = target.placement_spec
+    new.label_value = old.label_value
+    new.authored_side = old.authored_side
 
 
 def _dim(p1, p2, side, distance, draft, **kwargs):
-    """Build a :class:`Dimension`, tagged with its placement spec.
+    """Build an engine-owned :class:`Dimension` with a typed placement spec.
 
-    Identical to constructing ``Dimension`` directly, but records ``p1``,
-    ``p2``, ``side``, ``distance`` and the label kwargs on the result as
-    ``_dw_spec`` so the #30 repair loop can re-place the dimension (flip the
-    side, widen the offset) without re-deriving any geometry. Only dimensions
-    built this way are re-placeable by :meth:`Drawing.repair`.
+    The helper constructs the same geometry. The owned subtype retains ``p1``,
+    ``p2``, ``side``, ``distance`` and label kwargs until the registry snapshots
+    them. Repair can then flip the side or widen the offset without re-deriving
+    geometry. Only engine-built dimensions are re-placeable.
     """
-    d = Dimension(p1, p2, side, distance, draft, **kwargs)
-    d._dw_spec = DimensionPlacementSpec(
-        p1=p1, p2=p2, side=side, distance=abs(distance), draft=draft, kwargs=kwargs
-    )
-    return d
+    return PlacedDimension(p1, p2, side, distance, draft, **kwargs)
 
 
 # Dimension-line spacing (page-mm, scale-independent), the single source of truth for

@@ -18,9 +18,9 @@ from quiddity import RecognitionResult, SectionRecess
 from draftwright.linting._coverage_common import index_evidence as _index_evidence
 from draftwright.linting._coverage_common import recess_point as _point
 from draftwright.linting._coverage_common import recess_positive as _positive
+from draftwright.linting._coverage_common import state as _state
 from draftwright.linting._registry import (
     RequirementCarrier,
-    satisfaction_of,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import LintIssue
@@ -230,25 +230,15 @@ def round_bottom_blind_slot_requirement_outcomes(
             )
             continue
         for parameter in parameter_ids:
-            identity = (feature, parameter)
-            if identity in placed:
-                state: RoundBottomBlindSlotRequirementState = "placed"
-            elif identity in satisfied:
-                state = "satisfied_by_structured_note"
-            elif identity in suppressed:
-                state = "suppressed"
-            elif identity in dropped:
-                state = "dropped"
-            else:
-                associated = registry.names_for_feature(feature)
-                state = (
-                    "unverifiable"
-                    if any(
-                        not registry.measurement_of(name) and not satisfaction_of(registry, name)
-                        for name in associated
-                    )
-                    else "missing"
-                )
+            state: RoundBottomBlindSlotRequirementState = _state(
+                feature,
+                parameter,
+                placed=placed,
+                satisfied=satisfied,
+                suppressed=suppressed,
+                dropped=dropped,
+                registry=registry,
+            )
             outcomes.append(
                 RoundBottomBlindSlotRequirementOutcome(
                     _source_at(source),

@@ -313,8 +313,8 @@ def test_oblique_linear_support_renders_its_exact_projected_span():
     assert drawing.registry.view_of(names[0]) == "side"
     annotation = drawing.registry.named(names[0])
     assert annotation.label == "20 ±0.2"
-    assert annotation._dw_spec.p1[0] != pytest.approx(annotation._dw_spec.p2[0])
-    assert annotation._dw_spec.p1[1] != pytest.approx(annotation._dw_spec.p2[1])
+    assert annotation.placement_spec.p1[0] != pytest.approx(annotation.placement_spec.p2[0])
+    assert annotation.placement_spec.p1[1] != pytest.approx(annotation.placement_spec.p2[1])
     assert not [
         issue for issue in drawing.lint() if "dimension:oblique-linear" in issue.source_ids
     ]

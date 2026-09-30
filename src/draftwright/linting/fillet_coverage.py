@@ -17,9 +17,9 @@ from quiddity import RecognitionResult
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import index_evidence as _index_evidence
 from draftwright.linting._coverage_common import point3 as _point
+from draftwright.linting._coverage_common import state as _state
 from draftwright.linting._registry import (
     RequirementCarrier,
-    satisfaction_of,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import LintIssue
@@ -112,25 +112,15 @@ def fillet_requirement_outcomes(
                 FilletRequirementOutcome(key[1], "unverifiable", source_records=(source,))
             )
             continue
-        identity = (feature, parameter)
-        if identity in placed:
-            state: FilletRequirementState = "placed"
-        elif identity in satisfied:
-            state = "satisfied_by_structured_note"
-        elif identity in suppressed:
-            state = "suppressed"
-        elif identity in dropped:
-            state = "dropped"
-        else:
-            associated = registry.names_for_feature(feature)
-            state = (
-                "unverifiable"
-                if any(
-                    not registry.measurement_of(name) and not satisfaction_of(registry, name)
-                    for name in associated
-                )
-                else "missing"
-            )
+        state: FilletRequirementState = _state(
+            feature,
+            parameter,
+            placed=placed,
+            satisfied=satisfied,
+            suppressed=suppressed,
+            dropped=dropped,
+            registry=registry,
+        )
         outcomes.append(
             FilletRequirementOutcome(key[1], state, features=(feature,), source_records=(source,))
         )

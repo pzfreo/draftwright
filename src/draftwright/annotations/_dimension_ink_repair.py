@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import math
-from types import SimpleNamespace
 from typing import Any
 
 from draftwright._core import _anno_box, _copy_dimension_spec_riders
 from draftwright._geometry import _boxes_overlap, _segment_clip_extent
 from draftwright.annotations._dimension_ink import _dimension_probe_ink, _DimensionInkProbe
 from draftwright.linting.ink_overlap import MIN_CROSSING_MM, crossable_region, crossing_length
+from draftwright.registry import DimensionPlacementSpec, PlacedDimension
 
 _LABEL_INK_CLEARANCE_MM = 0.25
+
+
+def _placement_spec(dim):
+    if isinstance(dim, _DimensionInkProbe):
+        return dim.spec
+    return dim.placement_spec if isinstance(dim, PlacedDimension) else None
 
 
 class _InkConflictState:
@@ -147,8 +153,8 @@ class _InkConflictState:
                 else abs((label[info[0]] + label[info[0] + 2]) / 2.0 - natural)
             )
         for (_name, dim), (_original_name, original_dim) in zip(batch, self.original, strict=True):
-            spec = getattr(dim, "_dw_spec", None)
-            original_spec = getattr(original_dim, "_dw_spec", None)
+            spec = _placement_spec(dim)
+            original_spec = _placement_spec(original_dim)
             tier_offsets.append(
                 0.0
                 if spec is None or original_spec is None
@@ -246,7 +252,7 @@ def _prevent_dimension_label_ink(
     the same public ``segments``/exact-label-region arithmetic as the lint backstop.
     A clean batch returns the same objects immediately.  Only a conflicting batch explores
     a bounded set of analytically-derived label centres, rebuilding the selected survivors
-    through their ``_dw_spec``.  No full lint scan and no CAD boolean participates.
+    through their ``placement_spec``.  No full lint scan and no CAD boolean participates.
 
     The label *centre* normally stays within half a millimetre of its measured span
     (rather than requiring the whole label to fit inside it). For a short dimension
@@ -273,7 +279,7 @@ def _prevent_dimension_label_ink(
     obstacles = tuple(obstacles)
 
     def _axis_info(dim):
-        spec = getattr(dim, "_dw_spec", None)
+        spec = _placement_spec(dim)
         label = getattr(dim, "label_bbox", None)
         if spec is None or label is None:
             return None
@@ -423,7 +429,7 @@ def _prevent_dimension_label_ink(
                     ink[0],
                     ink[1],
                     ink[2],
-                    SimpleNamespace(
+                    DimensionPlacementSpec(
                         p1=spec.p1,
                         p2=spec.p2,
                         side=spec.side,
@@ -445,7 +451,7 @@ def _prevent_dimension_label_ink(
         # A cheap probe carries only collision metadata until selection completes.
         if not isinstance(rebuilt, _DimensionInkProbe):
             for attr, value in vars(dim).items():
-                if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
+                if attr.startswith("covers_"):
                     setattr(rebuilt, attr, value)
             _copy_dimension_spec_riders(dim, rebuilt)
         cache[key] = rebuilt
@@ -505,12 +511,12 @@ def _prevent_dimension_label_ink(
     for index, (name, candidate) in enumerate(current):
         if not isinstance(candidate, _DimensionInkProbe):
             continue
-        spec = candidate._dw_spec
+        spec = candidate.spec
         rendered = dimension_builder(
             spec.p1, spec.p2, spec.side, spec.distance, spec.draft, **spec.kwargs
         )
         for attr, value in vars(original[index][1]).items():
-            if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
+            if attr.startswith("covers_"):
                 setattr(rendered, attr, value)
         _copy_dimension_spec_riders(original[index][1], rendered)
         current[index] = (name, rendered)

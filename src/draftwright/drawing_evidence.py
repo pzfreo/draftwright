@@ -198,7 +198,7 @@ def measurement_snapshot(model, registry, annotations, scale):
                         measured_length,
                     ),
                     (
-                        deepcopy(getattr(annotation, "_dw_measurement_span", None)),
+                        deepcopy(registry.measurement_span_of(name)),
                         tuple(
                             (component, deepcopy(at))
                             for feature, component, at in getattr(

@@ -200,15 +200,15 @@ def test_corridor_dim_constructions_bounded(monkeypatch):
     # dim is built once. So total Dimension constructions must stay close to the
     # PLACED count — before the seam this part built 59 for 21 placed (probe per
     # candidate per pass + a rebuild per refill-loop iteration).
-    import draftwright._core as core
+    from draftwright.registry import PlacedDimension
 
     builds = 0
-    real_dimension = core.Dimension
+    real_init = PlacedDimension.__init__
 
-    def counting_dimension(p1, p2, side, distance, draft, **kwargs):
+    def counting_init(self, p1, p2, side, distance, draft, **kwargs):
         nonlocal builds
         builds += 1
-        return real_dimension(p1, p2, side, distance, draft, **kwargs)
+        real_init(self, p1, p2, side, distance, draft, **kwargs)
 
     # Count COMPILES too. A build is no longer one compile: the ADR 2 (was 0018) arrangement gate and
     # the #1250 completeness fallback both prove a candidate by building it, so the bound has
@@ -225,13 +225,14 @@ def test_corridor_dim_constructions_bounded(monkeypatch):
         return real_assemble(*args, **kwargs)
 
     monkeypatch.setattr(builder_mod, "_assemble", counting_assemble)
-    monkeypatch.setattr(core, "Dimension", counting_dimension)
+    monkeypatch.setattr(PlacedDimension, "__init__", counting_init)
     dwg = build_drawing(_scattered_plate())
 
     from build123d_drafting.helpers import Dimension
 
     placed = [name for name, o in dwg.iter_annotations() if isinstance(o, Dimension)]
     assert placed, "fixture no longer places dimensions — the guard lost its subject"
+    assert builds > 0, "constructor counter missed the dimension build seam"
     # Per COMPILE, not per call. This guard is about probing inside one annotation pass, and
     # ADR 2 (was 0018)'s requirement gate can legitimately compile twice — it proves an alternative
     # arrangement preserves every requirement by building it and reading what failed to
@@ -245,20 +246,18 @@ def test_corridor_dim_constructions_bounded(monkeypatch):
 
 
 def test_grid_pitch_dim_constructions_bounded(monkeypatch):
-    # Count at the construction site (_core.Dimension, which every _dim call resolves
-    # at call time) rather than white-box patching annotations/ internals — the
-    # test_private_test_imports ratchet forbids new private imports from holes.
-    import draftwright._core as core
+    # Count at the owned construction site rather than patching annotation internals.
+    from draftwright.registry import PlacedDimension
 
     pitch_builds = 0
     assembling = False
-    real_dimension = core.Dimension
+    real_init = PlacedDimension.__init__
 
-    def counting_dimension(p1, p2, side, distance, draft, **kwargs):
+    def counting_init(self, p1, p2, side, distance, draft, **kwargs):
         nonlocal pitch_builds
         if assembling and "× " in (kwargs.get("label") or ""):
             pitch_builds += 1
-        return real_dimension(p1, p2, side, distance, draft, **kwargs)
+        real_init(self, p1, p2, side, distance, draft, **kwargs)
 
     # Per compile, for the same reason as the corridor guard above.
     import draftwright.builder as builder_mod
@@ -276,13 +275,14 @@ def test_grid_pitch_dim_constructions_bounded(monkeypatch):
             assembling = False
 
     monkeypatch.setattr(builder_mod, "_assemble", counting_assemble)
-    monkeypatch.setattr(core, "Dimension", counting_dimension)
+    monkeypatch.setattr(PlacedDimension, "__init__", counting_init)
     dwg = build_drawing(_grid_plate())
 
     # Count the initial placement phase this performance guard protects. #1333
     # also uses bounded candidate construction during the separate repair pass.
     placed = [name for name, _ in dwg.iter_annotations() if name.startswith("dim_pitch_")]
     assert placed, "fixture no longer places pitch dims — the guard lost its subject"
+    assert pitch_builds > 0, "constructor counter missed the pitch-dimension build seam"
     assert compiles >= 1
     assert pitch_builds <= 3 * len(placed) * compiles, (
         f"{pitch_builds} Dimension builds for {len(placed)} placed pitch dims — the "

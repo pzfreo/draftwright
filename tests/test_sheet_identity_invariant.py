@@ -38,13 +38,14 @@ from __future__ import annotations
 import ast
 import copy
 import pickle
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from build123d import Box, Cylinder, Pos, export_step
+from build123d import Axis, Box, Cylinder, Pos, export_step
 
 from draftwright import Document, Sheet
-from draftwright.model import ControlFrame, Frame, HoleFeature
+from draftwright.model import ChamferFeature, ControlFrame, Frame, HoleFeature, chamfer
 
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright" / "sheet.py"
 _VIEW_SRC = _SRC.with_name("sheet_views.py")
@@ -986,3 +987,56 @@ def test_the_same_path_verbs_really_share_the_route():
             f"Sheet.{name} no longer returns the envelope handle verbatim "
             f"({ast.unparse(returned.value)}) — give it a scenario or restore the route"
         )
+
+
+def test_add_reuses_registration_and_preserves_handle_after_reorder_issue_1390():
+    sheet = Sheet(Box(20, 20, 10)).authored_dimensions()
+    feature = chamfer(leg1=0.5, at=(0, 0, 5), axis="z")
+    first = sheet.add(feature)
+    second = sheet.add(feature)
+    assert len(sheet.features) == 1
+    sheet.add(replace(feature, leg1=1.0))
+    sheet.features.reverse()
+    sheet.dimension(second, "chamfer.length")
+    assert sheet.model().authored_dimensions[0].feature is feature
+    sheet.dimension(first, "chamfer.length")
+    assert len(sheet.features) == 2
+
+
+def test_equal_distinct_features_remain_distinct_registrations_issue_1390():
+    sheet = Sheet(Box(20, 20, 10)).authored_dimensions()
+    feature = chamfer(leg1=0.5, at=(0, 0, 5), axis="z")
+    other = replace(feature)
+    assert other == feature and other is not feature
+    sheet.add(feature)
+    sheet.add(other)
+    assert len(sheet.features) == 2
+    assert sheet.features[0] is feature and sheet.features[1] is other
+
+
+@pytest.mark.parametrize("repeat", [False, True])
+def test_detected_chamfer_keeps_single_rendered_count_issue_1390(repeat):
+    part = Cylinder(5, 10) + Pos(0, 0, 7.5) * Cylinder(2.5, 5)
+    part = part.chamfer(0.5, None, part.edges().group_by(Axis.Z)[0])
+    sheet = Sheet.from_part(part, scale=2, page="A4")
+    features = [f for f in sheet.features if isinstance(f, ChamferFeature)]
+    assert len(features) == 1
+    feature = features[0]
+    sheet.authored_dimensions()
+    target = sheet.add(feature) if repeat else feature
+    sheet.dimension(target, "chamfer.length")
+    drawing = sheet.build()
+    assert sum(isinstance(f, ChamferFeature) for f in drawing.model().features) == 1
+    annotations = drawing.annotations_of(feature)
+    labels = [a.label for a in annotations.values() if hasattr(a, "label")]
+    assert labels == ["C0.5"]
+
+
+@pytest.mark.parametrize("invalid", [None, True, 0, "feature", object()])
+def test_add_refuses_non_features_without_changing_registration_issue_1390(invalid):
+    sheet = Sheet(Box(20, 20, 10)).authored_dimensions()
+    feature = chamfer(leg1=0.5, at=(0, 0, 5), axis="z")
+    sheet.add(feature)
+    with pytest.raises(TypeError, match="requires an IR Feature"):
+        sheet.add(invalid)
+    assert len(sheet.features) == 1 and sheet.features[0] is feature

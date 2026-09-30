@@ -29,8 +29,9 @@ from _unit_manifest import UNIT_MODULES, unit_paths
 
 _TESTS = Path(__file__).resolve().parent
 
-# Measured with `_issue_named_modules()` after folding #1603. MAY ONLY SHRINK.
-_MAX_ISSUE_MODULES = 147
+# Measured with `_issue_named_modules()` after folding the #1421 completeness and semantics modules.
+# MAY ONLY SHRINK.
+_MAX_ISSUE_MODULES = 142
 
 
 def test_unit_manifest_names_existing_test_modules_once():
