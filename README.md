@@ -104,8 +104,8 @@ issues = dwg.lint()                       # list[LintIssue] — coverage, page b
 paths = dwg.export("my_part", formats=("svg", "dxf"))   # {"svg": ..., "dxf": ...}
 ```
 
-`export()` with no `formats=` returns the old `(svg, dxf)` tuple; that shape is deprecated
-and removed in 0.5.0 (see [docs/deprecations.md](docs/deprecations.md)).
+`Drawing.export()` requires `formats=` and returns a `{format: path}` dict. For the
+SVG/DXF pair, pass `formats=("svg", "dxf")` (see [docs/deprecations.md](docs/deprecations.md)).
 
 ### Declarative drawings — reference features, declare intent
 

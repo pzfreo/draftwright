@@ -1,7 +1,7 @@
 """SVG / DXF / PDF export and post-processing (#138 / ADR 1 (was 0005), Step "export").
 
-The free functions the public `Drawing.export()` / `Drawing.export_pdf()` wrappers
-drive: SVG page-size fixing, the attribution hyperlink and metadata, DXF metadata,
+The free functions the public `Drawing.export()` method drives: SVG page-size fixing,
+the attribution hyperlink and metadata, DXF metadata,
 near-degenerate arc sanitisation, the element-wise shape-export degradation, and
 the svglib + reportlab PDF render. Moved out of `make_drawing.py` so the orchestration there
 stays thin; this module mostly *consumes* drawing contents (paths, exporters,

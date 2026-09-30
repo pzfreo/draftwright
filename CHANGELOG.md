@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Removed
+
+- Removed the eight expired `Drawing` methods (`add`, `add_view`, `clear_annotations`,
+  `set_view_coordinates`, `drop_view_coordinates`, `attach_part_model`,
+  `attach_solve_trace`, and `export_pdf`) and the legacy `Drawing.export` tuple
+  forms at their published 0.5.0 target. Pass `formats=` explicitly; export
+  returns a `{format: path}` dict. `Drawing.place_dim`, `Sheet.add_view`,
+  `Sheet.export`'s PDF default, and `make_drawing`'s SVG/DXF tuple remain (#2113).
+
 ### Added
 
 - A hash-pinned AP242 CTC-01 canary now proves the full Pareto-first layout loop against

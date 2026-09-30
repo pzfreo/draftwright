@@ -261,19 +261,28 @@ def test_clear_annotations_keep_custom_and_unnamed_removed():
     assert len(dwg.items) == 2  # unnamed leader removed too
 
 
-def test_plumbing_shims_are_deprecated():
-    # #817 PR4: the 6 view/annotation plumbing methods are now engine-internal; the public
-    # shims warn (and route to the private impl) for one release. Engine calls use the private
-    # names directly (no warning) — covered by the ordinary build path.
-    dwg = build_drawing(Box(60, 40, 20))
-    coords = dwg.coords("front")
-    for call in (
-        lambda: dwg.clear_annotations(),
-        lambda: dwg.drop_view_coordinates("nope"),
-        lambda: dwg.attach_part_model(dwg.model()),
-        lambda: dwg.attach_solve_trace(None),
-        lambda: dwg.set_view_coordinates("front", coords),
-        lambda: dwg.add_view("bottom", Box(10, 10, 10), (0, 0, -80), (0, 1, 0), (250.0, 60.0)),
+def test_expired_drawing_wrappers_are_absent_issue_2113():
+    dwg = build_drawing(Box(30, 20, 10), auto_dims=False)
+    for name in (
+        "add",
+        "add_view",
+        "clear_annotations",
+        "set_view_coordinates",
+        "drop_view_coordinates",
+        "attach_part_model",
+        "attach_solve_trace",
+        "export_pdf",
     ):
-        with pytest.warns(DeprecationWarning):
-            call()
+        assert not hasattr(Drawing, name), name
+        assert not hasattr(dwg, name), name
+    for name in (
+        "_add",
+        "_add_view",
+        "_clear_annotations",
+        "_set_view_coordinates",
+        "_drop_view_coordinates",
+        "_attach_part_model",
+        "_attach_solve_trace",
+        "place_dim",
+    ):
+        assert hasattr(Drawing, name), name

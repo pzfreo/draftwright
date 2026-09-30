@@ -36,7 +36,7 @@ def _find_dim(dwg, label):
     dimension (#89) is also skipped — a deliberate placement must win over
     automatic repair.
     """
-    # Identity-based, matching clear_annotations: "this specific object", not
+    # Identity-based, matching _clear_annotations: "this specific object", not
     # build123d's geometric Shape equality.
     pinned_ids = dwg.registry.pinned_object_ids()
     for o in dwg.items:

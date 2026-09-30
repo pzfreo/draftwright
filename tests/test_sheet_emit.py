@@ -427,10 +427,8 @@ class TestEmit:
         assert src.count("sheet.build()") == 1, "the generated script must build exactly once"
 
     def test_formats_are_always_emitted_into_the_export_call(self):
-        # #709: --format must survive into the generated script. Spelled out even for the
-        # default, unlike the constructor's non-default-only aspects: `Drawing.export` with no
-        # `formats` is the LEGACY svg=/dxf= call, not a PDF, so the bare form would silently
-        # turn every generated script's PDF into a pair of vector files (#968).
+        # --format must survive into the generated script. Drawing.export requires
+        # explicit formats, including for the default PDF output.
         src = _script_for(_plate(), formats=("svg", "dxf"))
         assert src.rstrip().endswith("drawing.export('drawing', formats=('svg', 'dxf'))")
         assert (
@@ -2034,9 +2032,7 @@ class TestCli:
         assert src.count('formats=_replay_options["formats"]') == 2
 
     def test_default_format_is_spelled_out_on_the_export_call(self, tmp_path):
-        # No --format → PDF, and said so explicitly: `Drawing.export` with no `formats` is the
-        # legacy svg=/dxf= call, so silence would mean SVG+DXF rather than the PDF the CLI
-        # produced (#968).
+        # No --format selects PDF, which the generated Drawing.export call spells out.
         from typer.testing import CliRunner
 
         from draftwright.cli import app

@@ -178,8 +178,7 @@ def test_a_rejected_export_does_not_recognise_first(kwargs, message):
 
     Harmless while the critique was free — on a detected build the inventory already exists —
     but #1022 made it the trigger for the lazy aggregate, so a broken call started paying for
-    recognition it could never use. Same reasoning the surrounding code already applies to the
-    deprecation warning: report the fault that matters before doing the work.
+    recognition it could never use. Report the fault before doing the work.
     """
     _, sheet = _declared_plate_sheet()
     drawing = sheet.build()
