@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 #: The four downstream boundaries every completeness fact carries a state for.
 _BOUNDARIES = ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer")
@@ -326,6 +326,54 @@ def assert_deleted_generated_line_loses_code_credit(
     assert states("ir_adapter") == {"supported"}
     assert states("dsl_declaration") == {"supported"}
     assert states("generated_code") == {"unknown"}
+
+
+def assert_edge_callout_mutation_loses_drawing_credit(
+    monkeypatch,
+    states: Callable[..., set[str]],
+    annotation_prefix: str,
+    mutation: Literal["remove", "wrong_ink", "wrong_view", "wrong_tip", "sever_provenance"],
+    *,
+    wrong_label: str | None = None,
+    wrong_tip: tuple[float, float, float] | None = None,
+    part: Any = None,
+) -> None:
+    """A damaged chamfer/fillet callout must lose physical drawing credit."""
+    import draftwright.builder as builder
+
+    original = builder.build_drawing
+
+    def damaged(*args, **kwargs):
+        drawing = original(*args, **kwargs)
+        name = next(name for name in drawing.annotations() if name.startswith(annotation_prefix))
+        if mutation == "remove":
+            drawing.remove(name)
+        elif mutation == "wrong_ink":
+            assert wrong_label is not None
+            annotation = drawing.registry.named(name)
+            assert annotation.label != wrong_label
+            annotation.label = wrong_label
+        elif mutation == "wrong_view":
+            identity = drawing.registry.identity_of(name)
+            assert identity["view"] != "side"
+            identity["view"] = "side"
+            drawing.registry.reapply(name, identity)
+        elif mutation == "wrong_tip":
+            assert wrong_tip is not None
+            annotation = drawing.registry.named(name)
+            assert tuple(annotation.position) != wrong_tip
+            annotation.position = wrong_tip
+        elif mutation == "sever_provenance":
+            identity = drawing.registry.identity_of(name)
+            assert identity["measurement"]
+            identity["measurement"] = ()
+            drawing.registry.reapply(name, identity)
+        else:
+            raise AssertionError(f"unknown callout mutation: {mutation}")
+        return drawing
+
+    monkeypatch.setattr(builder, "build_drawing", damaged)
+    assert states("drawing_consumer", part) == {"unsupported"}
 
 
 def assert_quality_summary_counts_audited_requirements(

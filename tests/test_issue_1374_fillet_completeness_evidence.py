@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from _evidence_contract import (
     assert_deleted_generated_line_loses_code_credit,
+    assert_edge_callout_mutation_loses_drawing_credit,
     assert_every_boundary_is_supported,
     assert_missing_build_owned_recognition_fails_closed,
     assert_missing_model_outcomes_fail_closed,
@@ -316,80 +317,31 @@ def test_deleting_generated_fillet_lines_loses_generated_code_credit(monkeypatch
 
 
 def test_removing_placed_fillet_callout_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def without_callout(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_fillet_"))
-        drawing.remove(name)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", without_callout)
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(monkeypatch, _states, "m_fillet_", "remove")
 
 
 def test_wrong_fillet_ink_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def with_wrong_ink(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_fillet_"))
-        drawing.registry.named(name).label = "R7"
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_ink)
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(
+        monkeypatch, _states, "m_fillet_", "wrong_ink", wrong_label="R7"
+    )
 
 
 def test_wrong_fillet_view_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def with_wrong_view(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_fillet_"))
-        identity = drawing.registry.identity_of(name)
-        identity["view"] = "side"
-        drawing.registry.reapply(name, identity)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_view)
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(
+        monkeypatch, _states, "m_fillet_", "wrong_view"
+    )
 
 
 def test_moving_fillet_leader_off_the_physical_round_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def with_wrong_tip(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_fillet_"))
-        drawing.registry.named(name).position = (10.0, 0.0, 0.0)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_tip)
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(
+        monkeypatch, _states, "m_fillet_", "wrong_tip", wrong_tip=(10.0, 0.0, 0.0)
+    )
 
 
 def test_moving_turned_fillet_leader_off_the_profile_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def with_wrong_tip(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_fillet_"))
-        drawing.registry.named(name).position = (50.0, 0.0, 0.0)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_tip)
-    assert _states("drawing_consumer", _turned()) == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(
+        monkeypatch, _states, "m_fillet_", "wrong_tip", wrong_tip=(50.0, 0.0, 0.0), part=_turned()
+    )
 
 
 def test_partial_od_turned_fillets_keep_their_physical_source_target() -> None:
@@ -424,20 +376,9 @@ def test_moving_partial_od_fillet_leader_off_source_loses_credit(monkeypatch) ->
 
 
 def test_severing_fillet_measurement_provenance_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def without_provenance(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_fillet_"))
-        identity = drawing.registry.identity_of(name)
-        identity["measurement"] = ()
-        drawing.registry.reapply(name, identity)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", without_provenance)
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_edge_callout_mutation_loses_drawing_credit(
+        monkeypatch, _states, "m_fillet_", "sever_provenance"
+    )
 
 
 def test_deleting_provider_fillets_cannot_shrink_independent_denominator(
