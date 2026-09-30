@@ -437,7 +437,7 @@ def test_off_axis_side_location_retries_only_on_a_selected_plan_view(
     monkeypatch.setattr(
         hole_locations,
         "_off_axis_queue",
-        lambda *args, **kwargs: captured.update(candidates=args[7], on_drop=kwargs["on_drop"]),
+        lambda *args, **kwargs: captured.update(candidates=args[6], on_drop=kwargs["on_drop"]),
     )
     emits = []
     monkeypatch.setattr(
@@ -491,7 +491,7 @@ def test_off_axis_height_reroutes_around_a_blocked_witness_corridor(monkeypatch)
         hole_locations,
         "_off_axis_queue",
         lambda *args, **kwargs: captured.update(
-            view=args[4], on_drop=kwargs["on_drop"], candidates=args[7]
+            view=args[3], on_drop=kwargs["on_drop"], candidates=args[6]
         ),
     )
     emits = []
@@ -525,7 +525,6 @@ def test_off_axis_missing_strip_invokes_drop_callback_once(monkeypatch):
     )
 
     hole_locations._off_axis_queue(
-        drawing,
         context,
         5,
         None,

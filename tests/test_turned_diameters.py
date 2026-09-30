@@ -113,6 +113,23 @@ class TestTurnedDiameters:
         part += Pos(0, 0, 8.5) * Cylinder(14, 3.5, align=(Align.CENTER, Align.CENTER, b))
         return Pos(0, 0, axis_z) * part.rotate(Axis.X, rotation)
 
+    def test_y_step_diameter_uses_foreign_view_clearance(self, monkeypatch):
+        from draftwright.annotations._machined_leaders import _MachinedJobContext
+
+        checked = []
+        original = _MachinedJobContext.foreign_label_clear
+
+        def check(self, view, label):
+            checked.append((view, label))
+            return original(self, view, label)
+
+        monkeypatch.setattr(_MachinedJobContext, "foreign_label_clear", check)
+        dwg = build_drawing(self._issue_892_y_chain())
+
+        assert any(f.kind == "step" and f.frame.axis == "y" for f in dwg.model().features)
+        assert any(name.startswith("m_dia_y") for name in dwg.annotations())
+        assert checked and all(view == "front" and label is not None for view, label in checked)
+
     @staticmethod
     def _assert_y_diameter_leaders_clear_holes(dwg):
         circles = []

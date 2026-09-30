@@ -60,7 +60,6 @@ class _SlotDimensionBuilder:
 @dataclass
 class _SlotLaneDrop:
     ctx: PlacementContext
-    dwg: Any
     kind: str
     index: int
     view: str
@@ -72,7 +71,6 @@ class _SlotLaneDrop:
     def __call__(self, _name: str) -> None:
         _record_slot_drop(
             self.ctx,
-            self.dwg,
             self.kind,
             self.index,
             self.view,
@@ -119,7 +117,6 @@ class _SlotFarDrop:
             return  # placed on the opposite strip
         _record_slot_drop(
             self.ctx,
-            self.dwg,
             self.kind,
             self.index,
             self.view,
@@ -138,7 +135,6 @@ class _SlotFarDrop:
 
 def _record_slot_drop(
     ctx,
-    dwg,
     kind,
     idx,
     view,
@@ -305,7 +301,6 @@ def _place_slot_dimension(
                 on_place=_shared_placed,
                 on_drop=_SlotLaneDrop(
                     ctx=ctx,
-                    dwg=dwg,
                     kind=drop_word,
                     index=idx,
                     view=vw[0],
@@ -528,7 +523,7 @@ def _render_slot_dimensions(dwg, plan, a, *, ctx, only=None, reach) -> tuple[int
             ):
                 count += 1
             else:
-                _record_slot_drop(ctx, dwg, "width", i, name, s, wpd.id)
+                _record_slot_drop(ctx, "width", i, name, s, wpd.id)
         if lpd is not None:
             if _place(
                 s.long_axis,
@@ -542,7 +537,7 @@ def _render_slot_dimensions(dwg, plan, a, *, ctx, only=None, reach) -> tuple[int
             ):
                 count += 1
             else:
-                _record_slot_drop(ctx, dwg, "length", i, name, s, lpd.id)
+                _record_slot_drop(ctx, "length", i, name, s, lpd.id)
         if rpd is not None:
             bounds = dwg.view_bounds(name)
             if bounds is not None:
@@ -584,7 +579,7 @@ def _render_slot_dimensions(dwg, plan, a, *, ctx, only=None, reach) -> tuple[int
                 # The immediate placement path must name the approved position
                 # measurement on drop, just as the corridor path does. Otherwise
                 # coverage reports the missing position without its identity.
-                _record_slot_drop(ctx, dwg, "position", i, name, s, pos.id)
+                _record_slot_drop(ctx, "position", i, name, s, pos.id)
         elif s.kind in ("pocket", "pad") and s.frame.axis != "z":
             # Side-/front-opening pockets and pads need two in-plane coordinates in their
             # end-on view.  The compiler approves one entry PER coordinate, each with its
@@ -608,7 +603,7 @@ def _render_slot_dimensions(dwg, plan, a, *, ctx, only=None, reach) -> tuple[int
                     # Each non-Z pocket coordinate has its own approved entry. Report
                     # that entry's identity if placement fails, so the drop names the
                     # measurement the dimension would have shown.
-                    _record_slot_drop(ctx, dwg, "position", i, name, s, entry.id)
+                    _record_slot_drop(ctx, "position", i, name, s, entry.id)
     return count, radius_jobs
 
 

@@ -72,9 +72,7 @@ class _MachinedJobContext:
         if view not in self.foreign_boxes_by_view:
             self.foreign_boxes_by_view[view] = tuple(
                 (box, has_label)
-                for _name, owner, box, has_label in self.bindings.attribute_annotations(
-                    self.dwg, self.a
-                )
+                for _name, owner, box, has_label in self.bindings.attribute_annotations(self.dwg)
                 if owner != view
             )
         pad = self.dwg.draft.pad_around_text

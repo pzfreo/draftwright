@@ -531,10 +531,6 @@ def _satisfaction_parameter(parameter: str) -> str | None:
     return parameter
 
 
-def _location_members(feature, parameter: str):
-    return _members(feature)
-
-
 @dataclass
 class _HoleEvidence:
     placed: set[tuple[object, str]]
@@ -810,9 +806,7 @@ def _structured_locations_placed(
                         "physical_location",
                     )
         return bool(features)
-    expected = {
-        (feature, point) for feature in features for point in _location_members(feature, parameter)
-    }
+    expected = {(feature, point) for feature in features for point in _members(feature)}
     covered = {
         (feature, point)
         for feature in features

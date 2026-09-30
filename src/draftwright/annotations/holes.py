@@ -599,7 +599,6 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
 
 def _record_callout_drop(
     ctx,
-    dwg,
     view,
     diam,
     reason,
@@ -1348,7 +1347,7 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
     return y_by_id, dropped_ids
 
 
-def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft, *, ctx):
+def _assemble_view_callouts(a, groups, feature_keys, only, draft, *, ctx):
     """Render shared presentation batches over the surviving original IR members."""
     from draftwright.model.callout import hole_callout_batches
 
@@ -1483,9 +1482,7 @@ def _place_front_callouts(
             text_sides.append(("left", centre[0] - gap - w, centre[0] - gap))
         if not text_sides:
             _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
-            _record_callout_drop(
-                ctx, dwg, view, dia, "no room beside the view", feat, callout=callout
-            )
+            _record_callout_drop(ctx, view, dia, "no room beside the view", feat, callout=callout)
             continue
         side, _, _ = min(
             text_sides,
@@ -1534,7 +1531,7 @@ def _place_front_callouts(
         if name in left_names:
             dia, feat, callout = meta[name]
             _log.info("Hole callout ø%s skipped (front strip full)", _fmt(dia))
-            _record_callout_drop(ctx, dwg, view, dia, "front strip full", feat, callout=callout)
+            _record_callout_drop(ctx, view, dia, "front strip full", feat, callout=callout)
             continue
         if place_furniture:  # deferred furniture replay owns furniture when false
             idx, feat = furniture[name]
@@ -1596,7 +1593,6 @@ class _HoleLeaderCallbacks:
         )
         _record_callout_drop(
             self.context,
-            self.drawing,
             self.view,
             self.diameter,
             detail,
@@ -1853,7 +1849,6 @@ def _place_immediate_queue(
         for s in dropped:
             _record_callout_drop(
                 ctx,
-                dwg,
                 view,
                 s[1],
                 f"{side} strip full",
@@ -1863,7 +1858,6 @@ def _place_immediate_queue(
     for s in text_dropped:
         _record_callout_drop(
             ctx,
-            dwg,
             view,
             s[1],
             "no legible room: settled annotation ink crosses the callout text",
@@ -2284,7 +2278,7 @@ def _place_planside_callouts(
                 if requested_side is not None
                 else "no room beside the view"
             )
-            _record_callout_drop(ctx, dwg, view, dia, reason, feat, callout=callout)
+            _record_callout_drop(ctx, view, dia, reason, feat, callout=callout)
             continue
 
         # Natural Y is the bore's own row; keep-out-band avoidance is `_place_queue`'s carve.
@@ -2401,7 +2395,7 @@ def _annotate_holes(
     )
 
     by_view, feat_of_callout, side_of_callout = _assemble_view_callouts(
-        a, view_of_axis, groups, feature_keys, only, draft, ctx=ctx
+        a, groups, feature_keys, only, draft, ctx=ctx
     )
 
     # One shared name pool across every view and both branches: built once and

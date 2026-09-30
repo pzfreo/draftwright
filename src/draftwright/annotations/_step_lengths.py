@@ -327,7 +327,6 @@ def _render_profile_groups(
                 if length is not None and length.id is not None
             )
             _record_step_chain_drop(
-                dwg,
                 "no longitudinal view uniquely identifies this physical profile",
                 ctx=ctx,
                 measurement=measurements,

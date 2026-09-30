@@ -537,7 +537,6 @@ class StripDepths:
 def _measure_strips(
     model,
     n_steps: int,
-    bb,
     font_size: float = _FONT_SIZE,
     arrow_length: float = 2.7,
     pad_around_text: float = 2.0,
@@ -1489,7 +1488,7 @@ def _view_geom(a) -> dict:
     }
 
 
-def _attribute_annotations(dwg, a):
+def _attribute_annotations(dwg):
     """Yield ``(name, view, bbox, is_label)`` for every annotation OWNED by an
     orthographic view, per the view recorded at creation (``dwg.view_of``).
 

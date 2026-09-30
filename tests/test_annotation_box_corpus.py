@@ -35,14 +35,14 @@ class TestComposeAnnoBoxesCorpus:
         corpus = []
         for label, part in parts.items():
             model, w = _sizing_model(part)
-            corpus.append((label, model, w, part.bounding_box()))
+            corpus.append((label, model, w))
         return corpus
 
     def test_byte_identity_across_corpus(self):
         helper = _ComposeAnnoBoxes()
-        for label, model, w, bb in self._corpus():
+        for label, model, w in self._corpus():
             for n_steps in (0, 1, 4):
-                helper._assert_match(model, n_steps, bb, w, label=label)
+                helper._assert_match(model, n_steps, w, label=label)
 
     def test_box_structure_contract(self):
         """The per-side box structure 4c consumes: the right dim ladder is
@@ -56,7 +56,7 @@ class TestComposeAnnoBoxesCorpus:
             _will_balloon,
         )
 
-        for label, model, w, _bb in self._corpus():
+        for label, model, w in self._corpus():
             for n_steps in (0, 2):
                 boxes = _compose_anno_boxes(model, n_steps, bore_callout_width=w)
                 rights = [b.depth for b in boxes if b.side == "right"]

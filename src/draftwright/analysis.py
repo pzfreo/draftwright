@@ -1941,7 +1941,6 @@ def _select_sheet(
             _measure_strips(
                 strip_sizing_model,
                 n_steps_i,
-                bb,
                 arrow_length=_arrow_length,
                 pad_around_text=_pad_around_text,
                 bore_callout_width=bore_callout_width,
@@ -2092,7 +2091,6 @@ def _place_sheet(
         _measure_strips(
             strip_sizing_model,
             n_steps,
-            bb,
             arrow_length=_arrow_length,
             pad_around_text=_pad_around_text,
             bore_callout_width=bore_callout_width,

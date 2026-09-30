@@ -56,7 +56,7 @@ def _bbox_bounds(part) -> tuple[tuple[float, float], ...]:
     )
 
 
-def _identity_interval(identity, bounds, axis_index: int) -> _AxisCarrier | None:
+def _identity_interval(identity, axis_index: int) -> _AxisCarrier | None:
     """Return the physical interval one semantic measurement carries on *axis_index*."""
 
     feature: Any = getattr(identity, "feature", None)
@@ -123,7 +123,7 @@ def _intervals_cover_axis(identities, bounds, axis_index: int) -> bool:
     carriers = tuple(
         carrier
         for identity in identities
-        if (carrier := _identity_interval(identity, bounds, axis_index)) is not None
+        if (carrier := _identity_interval(identity, axis_index)) is not None
     )
     if not carriers:
         return False

@@ -240,10 +240,9 @@ def test_record_callout_drop_emits_a_callout_escalation():
     from draftwright.linting.coverage import CoverageState
     from draftwright.registry import AnnotationRegistry
 
-    # The build-issue + dropped-diameter bookkeeping now routes through the ctx's registry/
-    # coverage (#639), not the drawing — so the dwg arg is inert here.
+    # The build-issue and dropped-diameter bookkeeping use the context's registry and coverage.
     ctx = PlacementContext(registry=AnnotationRegistry(), coverage=CoverageState())
-    _record_callout_drop(ctx, object(), "plan", 6.0, "no room beside the view")
+    _record_callout_drop(ctx, "plan", 6.0, "no room beside the view")
     assert [i.code for i in ctx.registry.issues] == ["callout_dropped"]
     assert ctx.coverage.dropped_diams == [6.0]
     assert len(ctx.escalations) == 1
@@ -255,7 +254,6 @@ def test_record_callout_drop_emits_a_callout_escalation():
     callout = SimpleNamespace(measurements=("bore.diameter",))
     _record_callout_drop(
         ctx2,
-        object(),
         "plan",
         6.0,
         "no room beside the view",
@@ -276,7 +274,7 @@ def test_record_slot_drop_emits_a_slot_escalation():
 
     ctx = PlacementContext(registry=AnnotationRegistry())
     sentinel = object()
-    _record_slot_drop(ctx, object(), "width", 0, "plan", sentinel)
+    _record_slot_drop(ctx, "width", 0, "plan", sentinel)
     assert [(i.severity, i.code) for i in ctx.registry.issues] == [("info", "slot_dim_dropped")]
     assert len(ctx.escalations) == 1
     e = ctx.escalations[0]
@@ -294,20 +292,19 @@ def test_record_pmi_drop_emits_a_pmi_escalation():
 
     ctx = PlacementContext(registry=AnnotationRegistry())
     rec = SimpleNamespace(pmi_kind="linear")
-    _record_pmi_drop(ctx, object(), "X", "12.0", rec)
+    _record_pmi_drop(ctx, "X", "12.0", rec)
     assert [(i.severity, i.code) for i in ctx.registry.issues] == [("warning", "pmi_dropped")]
     assert len(ctx.escalations) == 1
     e = ctx.escalations[0]
     assert e.kind == "pmi" and e.view == "front" and e.feature is rec
 
     ctx2 = PlacementContext(registry=AnnotationRegistry())
-    _record_pmi_drop(ctx2, object(), "Y", "12.0", SimpleNamespace(pmi_kind="linear"))
+    _record_pmi_drop(ctx2, "Y", "12.0", SimpleNamespace(pmi_kind="linear"))
     assert ctx2.escalations[0].view == "side"
 
     ctx_explicit = PlacementContext(registry=AnnotationRegistry())
     _record_pmi_drop(
         ctx_explicit,
-        object(),
         "Y",
         "12.0",
         SimpleNamespace(pmi_kind="linear", view="plan", side="right"),
@@ -319,7 +316,7 @@ def test_record_pmi_drop_emits_a_pmi_escalation():
     # dropped bore diameter/radius (caught by review, #351 PR-4a).
     for ax, want_view in (("Z", "plan"), ("X", "side"), ("Y", "front")):
         ctx3 = PlacementContext(registry=AnnotationRegistry())
-        _record_pmi_drop(ctx3, object(), ax, "ø12.0", SimpleNamespace(pmi_kind="diameter"))
+        _record_pmi_drop(ctx3, ax, "ø12.0", SimpleNamespace(pmi_kind="diameter"))
         assert ctx3.escalations[0].view == want_view, ax
 
 

@@ -195,7 +195,6 @@ def test_impossible_lane_drop_retains_bounded_blocker_evidence() -> None:
 
     _record_slot_drop(
         context,
-        None,
         "width",
         0,
         "plan",

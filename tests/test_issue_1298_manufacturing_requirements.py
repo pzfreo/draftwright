@@ -1459,7 +1459,6 @@ def test_single_member_pattern_receives_internal_thread_and_rejects_a_second_one
     ctx = PlacementContext(registry=AnnotationRegistry(), coverage=CoverageState())
     _record_callout_drop(
         ctx,
-        object(),
         "side",
         1.6,
         "shared leader inventory full",

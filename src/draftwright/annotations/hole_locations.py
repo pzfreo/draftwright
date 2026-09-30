@@ -99,7 +99,6 @@ class _HeightFallback:
             trace=self.context.trace,
         ):
             _off_axis_drop(
-                self.drawing,
                 "Z",
                 p_view,
                 ctx=self.context,
@@ -172,7 +171,7 @@ def _approved_off_axis_holes(plan) -> list[_OffHole]:
 
 
 def _off_axis_drop(
-    dwg, axis, view, *, ctx, measurement=(), reason="no room beside the view", short_span=False
+    axis, view, *, ctx, measurement=(), reason="no room beside the view", short_span=False
 ):
     # Recorded at INFO under a code DISTINCT from the plan path's
     # ``location_ref_dropped`` (which is a warning). Two reasons:
@@ -234,7 +233,6 @@ def _off_axis_emit(
 
 
 def _off_axis_queue(
-    dwg,
     ctx,
     tier,
     strip,
@@ -316,7 +314,6 @@ def _locate_across(dwg, ctx, a: Analysis, off):
         if yo * a.SCALE < 1.0:
             if abs(entry.value) > 1e-9:
                 _off_axis_drop(
-                    dwg,
                     "Y",
                     "side",
                     ctx=ctx,
@@ -375,7 +372,6 @@ def _locate_across(dwg, ctx, a: Analysis, off):
             # has drained, so its solitary carve cannot preempt a later candidate.
             if "plan" not in dwg.views:
                 _off_axis_drop(
-                    dwg,
                     "y",
                     "side",
                     ctx=ctx,
@@ -397,7 +393,6 @@ def _locate_across(dwg, ctx, a: Analysis, off):
             ):
                 return
             _off_axis_drop(
-                dwg,
                 "y",
                 "side",
                 ctx=ctx,
@@ -407,7 +402,6 @@ def _locate_across(dwg, ctx, a: Analysis, off):
         ctx.post_drain.append(_retry)
 
     _off_axis_queue(
-        dwg,
         ctx,
         tier,
         a.sv_zones.below,
@@ -445,7 +439,6 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off, *, view="front"):
         if xo * a.SCALE < 1.0:
             if abs(entry.value) > 1e-9:
                 _off_axis_drop(
-                    dwg,
                     "X",
                     view,
                     ctx=ctx,
@@ -475,7 +468,6 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off, *, view="front"):
     x_feats = {nm: _off_axis_owner(holes) for nm, holes in x_loc_by_name.items()}
     x_measurements = {name: tuple(ids) for name, ids in x_mids_by_name.items()}
     _off_axis_queue(
-        dwg,
         ctx,
         tier,
         layout_frame(a).zones(view).below,
@@ -486,7 +478,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off, *, view="front"):
         features=x_feats,
         measurements=x_measurements,
         on_drop=lambda nm: _off_axis_drop(
-            dwg, "x", view, ctx=ctx, measurement=x_measurements.get(nm, ())
+            "x", view, ctx=ctx, measurement=x_measurements.get(nm, ())
         ),
         order_key=lambda nm, _i: order_x.get(nm, _i),
     )
@@ -529,7 +521,6 @@ def _locate_along_z(dwg, ctx, a: Analysis, off, *, front_view="front"):
         if zo * a.SCALE < 1.0:
             if abs(entry.value) > 1e-9:
                 _off_axis_drop(
-                    dwg,
                     "Z",
                     front_view if h.axis == "y" else "side",
                     ctx=ctx,
@@ -612,7 +603,6 @@ def _locate_along_z(dwg, ctx, a: Analysis, off, *, front_view="front"):
                     primary_cand = alt_cand
 
         _off_axis_queue(
-            dwg,
             ctx,
             tier,
             strip,

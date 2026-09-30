@@ -63,7 +63,7 @@ class TestComposeThenPackRepack:
             {"a": self._label((0, 0, 10, 10)), "b": self._label((5, 5, 15, 15))},
             {"a": "front", "b": "plan"},
         )
-        assert _cross_view_overlaps(dwg, None) == 1
+        assert _cross_view_overlaps(dwg) == 1
 
     def test_overlap_counts_label_vs_line_across_views(self):
         # The literal #121 case: a plan balloon (bare geometry) over a front-view
@@ -74,7 +74,7 @@ class TestComposeThenPackRepack:
             {"dim": self._label((0, 0, 10, 10)), "balloon": self._line((5, 5, 15, 15))},
             {"dim": "front", "balloon": "plan"},
         )
-        assert _cross_view_overlaps(dwg, None) == 1
+        assert _cross_view_overlaps(dwg) == 1
 
     def test_overlap_ignores_same_view(self):
         from draftwright.builder import _cross_view_overlaps
@@ -83,7 +83,7 @@ class TestComposeThenPackRepack:
             {"a": self._label((0, 0, 10, 10)), "b": self._label((5, 5, 15, 15))},
             {"a": "front", "b": "front"},
         )
-        assert _cross_view_overlaps(dwg, None) == 0
+        assert _cross_view_overlaps(dwg) == 0
 
     def test_overlap_ignores_line_vs_line(self):
         # Two bare lines crossing between views is normal drafting, not a clash.
@@ -93,7 +93,7 @@ class TestComposeThenPackRepack:
             {"a": self._line((0, 0, 10, 10)), "b": self._line((5, 5, 15, 15))},
             {"a": "front", "b": "side"},
         )
-        assert _cross_view_overlaps(dwg, None) == 0
+        assert _cross_view_overlaps(dwg) == 0
 
     def test_overlap_ignores_untagged_furniture(self):
         # An annotation with no ortho-view tag (iso/section/detail/title) is
@@ -104,7 +104,7 @@ class TestComposeThenPackRepack:
             {"dim": self._label((0, 0, 10, 10)), "note": self._label((5, 5, 15, 15))},
             {"dim": "front", "note": "iso"},
         )
-        assert _cross_view_overlaps(dwg, None) == 0
+        assert _cross_view_overlaps(dwg) == 0
 
     def test_nearby_cross_view_labels_reserve_external_text_padding(self):
         from draftwright.builder import _cross_view_overlaps
@@ -115,7 +115,7 @@ class TestComposeThenPackRepack:
             {"a": self._label((0, 0, 10, 10)), "b": self._label((13, 0, 23, 10))},
             {"a": "front", "b": "side"},
         )
-        assert _cross_view_overlaps(dwg, None) == 1
+        assert _cross_view_overlaps(dwg) == 1
 
     def test_cross_view_padding_is_not_accumulated_across_comparisons(self):
         from draftwright.builder import _cross_view_overlaps
@@ -131,7 +131,7 @@ class TestComposeThenPackRepack:
             },
             {"front": "front", "side": "side", "plan": "plan"},
         )
-        assert _cross_view_overlaps(dwg, None) == 0
+        assert _cross_view_overlaps(dwg) == 0
 
     # --- annotation-over-view-linework trigger (#293) ---------------------
 
