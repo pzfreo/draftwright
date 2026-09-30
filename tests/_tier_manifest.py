@@ -561,6 +561,287 @@ CONTRACT_GROUPS = {
     ),
 }
 
+# Narrow source owners for fast modules outside the shared change-area contracts above.
+# These do not expand the broad-source fallback on every Linux compatibility leg.
+ADDITIONAL_SOURCE_CONTRACTS = {
+    "src/draftwright/_build_profile.py": ("test_build_profile_harness.py",),
+    "src/draftwright/_core.py": ("test_formatting.py",),
+    "src/draftwright/_warnings.py": ("test_scale_policy.py",),
+    "src/draftwright/analysis.py": (
+        "test_analysis_geometry.py",
+        "test_auxiliary_layout.py",
+        "test_detect_once.py",
+        "test_diameter_deduplication.py",
+        "test_issue_1396_layout_advisories.py",
+        "test_prismatic_classification.py",
+        "test_repack_geometry_seam.py",
+        "test_shared_box_memo.py",
+    ),
+    "src/draftwright/annotation_layout_profile.py": (
+        "test_layout_scheme.py",
+        "test_view_blocks.py",
+    ),
+    "src/draftwright/annotations/_axial_render.py": ("test_issue_443_grm03_axial_coverage.py",),
+    "src/draftwright/annotations/_envelope.py": (
+        "test_envelope_view_route_issue_1813.py",
+        "test_issue_1000_envelope_reuse.py",
+    ),
+    "src/draftwright/annotations/_pocket_pad.py": ("test_issue_916_pocket_leader.py",),
+    "src/draftwright/annotations/balloons.py": ("test_balloon_ring_standoff.py",),
+    "src/draftwright/annotations/from_model.py": (
+        "test_fits.py",
+        "test_issue_1058_wheel_profile.py",
+        "test_issue_1349_precision_display.py",
+        "test_issue_1360_thread_depth.py",
+        "test_issue_1392_recognisers_048.py",
+        "test_issue_1524_tolerance_magnitude.py",
+        "test_render_seam.py",
+        "test_suppression_marks.py",
+    ),
+    "src/draftwright/annotations/gears.py": ("test_issue_1086_declared_gears.py",),
+    "src/draftwright/annotations/holes.py": ("test_issue_367_leader_ink.py",),
+    "src/draftwright/annotations/leaders.py": (
+        "test_issue_1187_unroutable_leaders.py",
+        "test_issue_1188_per_view_assignment.py",
+    ),
+    "src/draftwright/annotations/orchestrator.py": (
+        "test_iso_nts_caption_placement.py",
+        "test_issue_1593_title_block_keepout.py",
+        "test_layout_constants.py",
+        "test_typ_dimensions.py",
+    ),
+    "src/draftwright/builder.py": (
+        "test_issue_1155_grm04_sheet_use.py",
+        "test_repack_geometry_seam.py",
+        "test_scale_policy.py",
+    ),
+    "src/draftwright/cli.py": (
+        "test_cli_report_sidecar.py",
+        "test_format_selector.py",
+        "test_issue_1514_projection_safeguard.py",
+    ),
+    "src/draftwright/compose.py": (
+        "test_adr0018_view_selection.py",
+        "test_annotation_box_composition.py",
+        "test_annotation_box_corpus.py",
+        "test_depth_estimators.py",
+        "test_iso_layout.py",
+        "test_issue_1082_polygonal_stock.py",
+        "test_issue_1216_callout_reservation_measures_ink.py",
+        "test_issue_1395_degenerate_iso_region.py",
+        "test_issue_1612_sheet_margins.py",
+        "test_pre_render_profile_choice.py",
+    ),
+    "src/draftwright/document.py": ("test_issue_1353_cnc_authoritative_workflow.py",),
+    "src/draftwright/document_evidence.py": (
+        "test_document_claim_authority.py",
+        "test_requirement_carriers.py",
+    ),
+    "src/draftwright/drawing.py": (
+        "test_feature_queries.py",
+        "test_issue_1154_one_owner_per_measurement.py",
+        "test_issue_909_sloped_profile.py",
+        "test_title_block_units_format.py",
+    ),
+    "src/draftwright/drawing_edits.py": (
+        "test_drawing_operations.py",
+        "test_note_verb.py",
+    ),
+    "src/draftwright/explicit_scale.py": ("test_issue_1338_scale_before_page_escalation.py",),
+    "src/draftwright/fits.py": ("test_fits.py",),
+    "src/draftwright/layout.py": ("test_layout_property.py",),
+    "src/draftwright/layout_safety.py": ("test_layout_safety.py",),
+    "src/draftwright/layout_scheme.py": (
+        "test_layout_scheme.py",
+        "test_pre_render_profile_choice.py",
+    ),
+    "src/draftwright/leader_policy.py": ("test_leader_region_policy.py",),
+    "src/draftwright/layout_selection.py": (
+        "test_annotation_scheme_compare_script.py",
+        "test_candidate_preview_sheet_holdout.py",
+    ),
+    "src/draftwright/linting/_registry.py": ("test_issue_1229_ledger_member_keying.py",),
+    "src/draftwright/linting/angled_step_coverage.py": (
+        "test_issue_1247_angled_step_disposition.py",
+    ),
+    "src/draftwright/linting/angular.py": ("test_angle_patterns.py",),
+    "src/draftwright/linting/blend_coverage.py": ("test_issue_1479_radius_leader_targets.py",),
+    "src/draftwright/linting/circular_blind_step_coverage.py": (
+        "test_circular_blind_step_semantics.py",
+        "test_framed_step_family_evidence.py",
+    ),
+    "src/draftwright/linting/coverage.py": (
+        "test_issue_1132_turned_profile_span_is_reported.py",
+        "test_issue_1176_quality_fidelity.py",
+        "test_issue_1245_passage_disposition.py",
+        "test_issue_1246_prismatic_pocket_disposition.py",
+        "test_issue_1450_boss_blend_ownership.py",
+    ),
+    "src/draftwright/linting/evidence.py": (
+        "test_equivalent_dimension_presentations_issue_1759.py",
+        "test_issue_1217_claimed_representations.py",
+        "test_issue_1217_the_facility_is_shared.py",
+        "test_issue_1219_location_claims_its_own_axis.py",
+        "test_issue_1543_feature_schedules.py",
+    ),
+    "src/draftwright/linting/flat_coverage.py": ("test_flat_completeness.py",),
+    "src/draftwright/linting/hole_coverage.py": (
+        "test_issue_1143_hole_completeness.py",
+        "test_issue_1351_structured_note_coverage.py",
+        "test_issue_1378_diameter_leader_targets.py",
+        "test_issue_1531_semantic_hole_counts.py",
+    ),
+    "src/draftwright/linting/ink_overlap.py": ("test_repair.py",),
+    "src/draftwright/linting/issues.py": (
+        "test_blind_slot_completeness.py",
+        "test_issue_1397_unverifiable_requirement_message.py",
+        "test_issue_883_location_identity.py",
+        "test_paired_ramp_semantics.py",
+    ),
+    "src/draftwright/linting/oriented_slot_coverage.py": (
+        "test_issue_1432_adoption.py",
+        "test_issue_1432_boundary_failures.py",
+    ),
+    "src/draftwright/linting/paired_ramp_step_coverage.py": ("test_paired_ramp_semantics.py",),
+    "src/draftwright/linting/pmi_coverage.py": ("test_manufacturing_schedule.py",),
+    "src/draftwright/linting/pocket_coverage.py": (
+        "test_issue_1485_curved_pockets.py",
+        "test_issue_1485_rounded_pockets.py",
+    ),
+    "src/draftwright/linting/quality.py": (
+        "test_e2e_standards.py",
+        "test_issue_1126_requesting_less_never_scores_better.py",
+        "test_typed_remediation_projection_issue_1759.py",
+    ),
+    "src/draftwright/linting/requirements.py": (
+        "test_requirement_applicability.py",
+        "test_requirement_catalog_families.py",
+    ),
+    "src/draftwright/linting/schedule_evidence.py": ("test_issue_1543_schedule_requirements.py",),
+    "src/draftwright/linting/structural.py": (
+        "test_issue_1153_contradictory_dimensions.py",
+        "test_issue_1196_deterministic_view_names.py",
+        "test_issue_1204_multiscale_view_issues.py",
+        "test_issue_1216_pairwise_across_scale_groups.py",
+        "test_layout_evidence_issue_1711.py",
+        "test_lint_box_cache.py",
+        "test_lint_reconciliation.py",
+        "test_lint_structural.py",
+    ),
+    "src/draftwright/linting/suggest.py": ("test_lint_suggestions.py",),
+    "src/draftwright/model/compiled.py": (
+        "test_blind_slot_semantics.py",
+        "test_issue_1511_turned_boss_heights.py",
+        "test_issue_1517_through_indicator.py",
+        "test_issue_1560_envelope_axes.py",
+        "test_issue_915_dense_case.py",
+        "test_issue_924_zero_length_shoulders.py",
+        "test_issue_955_height_contingency.py",
+        "test_overall_height_coverage.py",
+        "test_suppression_ledger.py",
+    ),
+    "src/draftwright/model/declare.py": (
+        "test_declaration_identity_issue_1710.py",
+        "test_flat_stock_identity.py",
+        "test_geometry_graph_spike.py",
+        "test_grid_lattice_convention.py",
+        "test_issue_676_polygonal_boss_declare.py",
+        "test_object_aspects.py",
+        "test_slanted_blind_step.py",
+    ),
+    "src/draftwright/model/detect.py": (
+        "test_candidate_evidence_issue_1726.py",
+        "test_channel_ownership.py",
+        "test_detect_registry.py",
+        "test_feature_provenance.py",
+        "test_groove_profile.py",
+        "test_issue_1073_cross_body_patterns.py",
+        "test_pattern_ownership.py",
+        "test_pmi_common_labels.py",
+        "test_pocket_pattern_recognition.py",
+        "test_section_recess_pockets.py",
+        "test_slot_pattern_recognition.py",
+    ),
+    "src/draftwright/model/detect_inventory.py": ("test_recogniser_step_inventory.py",),
+    "src/draftwright/model/dimension_intent.py": ("test_dimension_intent_contract.py",),
+    "src/draftwright/model/ir.py": (
+        "test_dimension_role_vocabulary.py",
+        "test_issue_1006_measurement_comparison.py",
+        "test_issue_1116_ap242_hole_tolerance_lowering.py",
+        "test_issue_1325_nominal_agreement.py",
+        "test_issue_1357_pmi_frame.py",
+        "test_issue_676_polygonal_boss.py",
+        "test_parameter_id.py",
+        "test_turned_diameters.py",
+    ),
+    "src/draftwright/model/manufacturing_schedule.py": ("test_manufacturing_schedule.py",),
+    "src/draftwright/model/pmi_lowering.py": ("test_nominal_step_pmi.py",),
+    "src/draftwright/pmi.py": (
+        "test_issue_1336_grm03_ap242_pmi_fixture.py",
+        "test_issue_1563_sheet_pmi_reconciliation.py",
+        "test_pmi_datum_lowering.py",
+    ),
+    "src/draftwright/profile_angles.py": ("test_profile_angles.py",),
+    "src/draftwright/projection.py": (
+        "test_drawing_state.py",
+        "test_iso_detail_growth.py",
+        "test_isometric_orientation.py",
+        "test_isometric_placement.py",
+        "test_issue_1240_iso_above_strip_visibility.py",
+        "test_issue_1260_view_constraints.py",
+        "test_view_coordinates.py",
+    ),
+    "src/draftwright/recogniser_contract.py": ("test_recognition_policy_dispositions.py",),
+    "src/draftwright/recognition_frame.py": (
+        "test_issue_1357_framed_activation.py",
+        "test_issue_1357_framed_boundary.py",
+    ),
+    "src/draftwright/recognition_ownership.py": (
+        "test_plate_ownership.py",
+        "test_through_step_ownership.py",
+    ),
+    "src/draftwright/repair.py": (
+        "test_issue_1153_contradictory_dimensions.py",
+        "test_repair.py",
+        "test_witness_label_reconciliation.py",
+    ),
+    "src/draftwright/reporting.py": (
+        "test_declaration_report_issue_1710.py",
+        "test_declared_report_issue_1688.py",
+        "test_document_report_authority.py",
+        "test_issue_1460_step_inspection.py",
+        "test_report_status_reasons_issue_1618.py",
+    ),
+    "src/draftwright/score.py": ("test_score.py",),
+    "src/draftwright/section_recess_contract.py": (
+        "test_issue_1485_quiddity_024_boundary.py",
+        "test_issue_1598_hex_pockets.py",
+        "test_issue_958_cross_solid_recognition.py",
+        "test_section_recess_contract.py",
+    ),
+    "src/draftwright/sheet.py": (
+        "test_sheet_of.py",
+        "test_soft_deprecation.py",
+    ),
+    "src/draftwright/sheet_emit.py": (
+        "test_issue_1157_no_implicit_general_tolerance.py",
+        "test_issue_1536_title_overflow.py",
+        "test_issue_1585_title_block_date.py",
+        "test_projection_symbol_default.py",
+        "test_sheet_furniture.py",
+        "test_sheet_generation_snapshot.py",
+    ),
+    "src/draftwright/view_plan.py": (
+        "test_adr0018_view_routing.py",
+        "test_derived_view_integration.py",
+        "test_issue_1130_view_planning_evidence.py",
+        "test_issue_1262_automatic_turned_views.py",
+        "test_issue_1350_detected_takeover.py",
+        "test_issue_1515_first_angle.py",
+        "test_issue_1518_explicit_rear.py",
+    ),
+}
+
 # These coordinators cross the area boundaries above. A change to one must run every group.
 BROAD_SOURCE_PATTERNS = (
     "src/draftwright/_core.py",
@@ -574,11 +855,16 @@ BROAD_SOURCE_PATTERNS = (
 # These run on every code-bearing pull request before any change-area expansion.
 PR_CORE_MODULES = frozenset(
     {
+        "test_agents_guide.py",
         "test_build_drawing_entrypoints.py",
         "test_compiled_plan_boundary.py",
         "test_declared_recognition_gate.py",
+        "test_dense_sheet_canary.py",
         "test_e2e_slice.py",
         "test_export_formats.py",
+        "test_fillets_adjacency.py",
+        "test_flat_stock_opposition.py",
+        "test_issue_1532_authored_section_examples.py",
     }
 )
 
@@ -586,6 +872,9 @@ PR_CORE_MODULES = frozenset(
 # production unit. They remain mandatory on every PR without lengthening the inner unit loop.
 PR_POLICY_MODULES = frozenset(
     {
+        "test_adr_corpus.py",
+        "test_annotation_scheme_corpus_script.py",
+        "test_annotation_scheme_shadow_script.py",
         "test_api_docs.py",
         "test_architecture_docs.py",
         "test_carve_free_position_callers.py",
@@ -595,6 +884,9 @@ PR_POLICY_MODULES = frozenset(
         "test_import_boundaries.py",
         "test_private_test_attr_reads.py",
         "test_private_test_imports.py",
+        "test_quiddity_lifecycle_boundary.py",
+        "test_real_part_fixtures.py",
+        "test_shared_drawing_cache.py",
         "test_suite_shape.py",
         "test_tier_manifest.py",
         "test_version_bump_ci.py",
@@ -612,6 +904,18 @@ CRITICAL_CONTRACT_MODULES = frozenset(
         "test_scale_selection.py",
     }
 )
+
+# These modules have no fast tests. Keep each exception explicit so a new fast module
+# cannot silently escape the PR selector.
+NONFAST_ONLY_MODULES = {
+    "test_agent_improvement_canary_issue_1716.py": "slow real-part canary",
+    "test_dimension_lane_canary_issue_1757.py": "slow real-part canary",
+    "test_issue_1544_frame_document_canary.py": "slow real-part canary",
+    "test_issue_1555_turned_recognition_format_invariance.py": "slow STEP fixture builds",
+    "test_issue_827_real_part_canary.py": "slow real-part canary",
+    "test_layout_hypothesis.py": "slow generated geometry property test",
+    "test_pareto_loop_canary_issue_1753.py": "slow real-part canary",
+}
 
 FULL_EXPRESSION = "not slow and not scheduled"
 SCHEDULED_EXPRESSION = "slow or scheduled"
@@ -655,6 +959,8 @@ def pr_modules(tests_dir: Path, changed_paths: list[str]) -> list[str]:
     for name in selected_groups(changed_paths):
         patterns = CONTRACT_GROUPS[name].test_patterns
         modules.update(module for module in available if _matches(module, patterns))
+    for path in changed_paths:
+        modules.update(ADDITIONAL_SOURCE_CONTRACTS.get(path, ()))
     missing = modules - available
     if missing:
         raise ValueError(f"tier manifest names missing test modules: {sorted(missing)}")
