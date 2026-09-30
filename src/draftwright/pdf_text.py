@@ -7,6 +7,7 @@ explicitly. Drawing passes both values at its delegation seam.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from itertools import permutations
 
 from build123d import Align, Mode, Text
@@ -575,6 +576,13 @@ def pdf_text_runs(draft, annotations, *, dimension_spec_of=None):
                         rotation = _angles.angle(annotation)
                         if id(annotation) in _angles.raw_basic_unresolved:
                             continue
+                        geometry_error: Callable[..., float]
+                        font_args = (
+                            run_font_size,
+                            run_font_path,
+                            run_font_name,
+                            run_font_style_enum,
+                        )
                         if getattr(annotation, "is_basic", False):
                             x0, y0, x1, y1 = label_box
                             actual = (x1 - x0, y1 - y0)
@@ -584,23 +592,23 @@ def pdf_text_runs(draft, annotations, *, dimension_spec_of=None):
                             )
                             base_angle = math.radians(rotation) - transform
 
-                            def geometry_error(candidate):
-                                width, height = _text_size(
-                                    candidate,
-                                    run_font_size,
-                                    run_font_path,
-                                    run_font_name,
-                                    run_font_style_enum,
-                                )
+                            def basic_geometry_error(
+                                candidate,
+                                font_args=font_args,
+                                base_angle=base_angle,
+                                transform=transform,
+                                actual=actual,
+                            ):
+                                width, height = _text_size(candidate, *font_args)
                                 frame_width = (
                                     abs(width * math.cos(base_angle))
                                     + abs(height * math.sin(base_angle))
-                                    + 0.8 * run_font_size
+                                    + 0.8 * font_args[0]
                                 )
                                 frame_height = (
                                     abs(width * math.sin(base_angle))
                                     + abs(height * math.cos(base_angle))
-                                    + 0.8 * run_font_size
+                                    + 0.8 * font_args[0]
                                 )
                                 predicted = (
                                     abs(frame_width * math.cos(transform))
@@ -610,6 +618,8 @@ def pdf_text_runs(draft, annotations, *, dimension_spec_of=None):
                                 )
                                 return math.dist(actual, predicted)
 
+                            geometry_error = basic_geometry_error
+
                         else:
                             polygon = getattr(annotation, "label_polygon", None)
                             visible_width = (
@@ -618,15 +628,15 @@ def pdf_text_runs(draft, annotations, *, dimension_spec_of=None):
                                 else label_box[2] - label_box[0]
                             )
 
-                            def geometry_error(candidate):
-                                width = _text_size(
-                                    candidate,
-                                    run_font_size,
-                                    run_font_path,
-                                    run_font_name,
-                                    run_font_style_enum,
-                                )[0]
+                            def plain_geometry_error(
+                                candidate,
+                                font_args=font_args,
+                                visible_width=visible_width,
+                            ):
+                                width = _text_size(candidate, *font_args)[0]
                                 return abs(width - visible_width)
+
+                            geometry_error = plain_geometry_error
 
                         match = _angles.raw_basic_matches.get(id(annotation))
                         value = (

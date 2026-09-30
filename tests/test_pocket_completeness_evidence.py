@@ -427,7 +427,7 @@ def test_weakening_provider_widths_reduces_parameter_fidelity(
             center = (low + high) / 2
             factor = (high - low - 1) / (high - low)
 
-            def narrowed(point):
+            def narrowed(point, center=center, factor=factor, component=component):
                 return tuple(
                     center + (value - center) * factor if i == component else value
                     for i, value in enumerate(point)

@@ -549,7 +549,7 @@ def profile_angle_requirement_outcomes(evidence, ownership, features, registry, 
         elif final:
             (owner,) = final
 
-            def matches_id(identity):
+            def matches_id(identity, owner=owner, parameter_id=parameter_id):
                 return identity.feature is owner and identity.parameter == parameter_id
 
             measured = tuple(

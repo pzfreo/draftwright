@@ -636,7 +636,13 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
                 (str(feature_representation), str(reason))
             )
 
-        def record_representation(feature, parameter):
+        def record_representation(
+            feature,
+            parameter,
+            requirement_representations=requirement_representations,
+            representation=representation,
+            representation_reason=representation_reason,
+        ):
             if (feature, parameter) in requirement_representations:
                 representations[(feature, parameter)].update(
                     requirement_representations[(feature, parameter)]
@@ -1449,7 +1455,9 @@ def lint_hole_leader_targets(
             )
         elif (
             min(
-                _projected_edge_distance(edge, tip, lambda x, y, z: project(view, x, y, z))
+                _projected_edge_distance(
+                    edge, tip, lambda x, y, z, view=view: project(view, x, y, z)
+                )
                 for edge in edges
             )
             > 2e-3

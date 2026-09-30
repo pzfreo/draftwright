@@ -46,7 +46,7 @@ def test_report_returns_structured_reader_failures(monkeypatch):
         (FakeReader(transfer=RuntimeError("transfer exploded")), "transfer exploded"),
         (FakeReader(transfer=False), "Transfer failed"),
     ):
-        monkeypatch.setattr(pmi, "STEPCAFControl_Reader", lambda: reader)
+        monkeypatch.setattr(pmi, "STEPCAFControl_Reader", lambda reader=reader: reader)
         assert expected in pmi.extract_pmi_report("broken.step").error
 
 

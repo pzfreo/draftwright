@@ -1340,7 +1340,7 @@ def diff_builds(before, after) -> dict:
             substituted[name] = (sorted(b_ids.elements()), sorted(a_ids.elements()))
         elif exact_owners:
 
-            def exact(drawing):
+            def exact(drawing, name=name):
                 identities = drawing.registry.measurement_of(name)
                 if not identities or any(
                     id(item.feature) not in exact_owners for item in identities

@@ -163,7 +163,7 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
-extend-select = ["B905"]
+extend-select = ["B023", "B905"]
 ignore = ["E501"]
 
 [dependency-groups]

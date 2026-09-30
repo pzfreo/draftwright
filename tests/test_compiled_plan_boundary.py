@@ -354,7 +354,7 @@ class TestTheRendererCannotSeeContent:
                 def visit_AsyncFunctionDef(self, node):  # noqa: N802 - ast visitor protocol
                     self.visit_FunctionDef(node)
 
-                def visit_Call(self, node):  # noqa: N802 - ast visitor protocol
+                def visit_Call(self, node, module=module):  # noqa: N802 - ast visitor protocol
                     if (
                         self.scope
                         and isinstance(node.func, ast.Name)

@@ -296,7 +296,9 @@ def lint_blend_leader_targets(*, registry, cylinders, project, evidence=None, ow
             )
         elif (
             min(
-                _projected_edge_distance(edge, tip, lambda x, y, z: project(view, x, y, z))
+                _projected_edge_distance(
+                    edge, tip, lambda x, y, z, view=view: project(view, x, y, z)
+                )
                 for edge in arcs
             )
             > 2e-3

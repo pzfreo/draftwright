@@ -631,7 +631,7 @@ def lint_location_coverage(
 
         features = feature_index.get((axis, ref), set())
 
-        def _axis_covered(model_axis):
+        def _axis_covered(model_axis, features=features, ref=ref, projections=projections):
             semantic = any(owner in features for owner in satisfied_locations) or any(
                 owner in features and parameter.endswith(f".{model_axis}") and point == ref
                 for owner, parameter, point in structured_locations
@@ -2020,7 +2020,7 @@ def _overall_axial_extent_is_dimensioned(
             continue
         horizontal, own_cross = _profile_projection(dwg, view, origin, prof.axis)
 
-        def projected(station: float) -> float:
+        def projected(station: float, view=view, horizontal=horizontal) -> float:
             point = list(origin)
             point["xyz".index(prof.axis)] = station
             x, y, *_ = dwg.at(view, *point)
@@ -2028,7 +2028,7 @@ def _overall_axial_extent_is_dimensioned(
 
         lo, hi = projected(min(prof.shoulders)), projected(max(prof.shoulders))
 
-        def sibling_cross(profile) -> float:
+        def sibling_cross(profile, view=view) -> float:
             _horizontal, cross = _profile_projection(
                 dwg, view, _turned_axis_origin(part, profile), profile.axis
             )

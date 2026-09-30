@@ -268,7 +268,7 @@ def render_envelope(
             # The same model-space X span is visible in front. Route it there
             # before the shared corridor solve if that view has a real tier;
             # neither a later drop nor an interior retry can create strip depth.
-            def _one_tier_fits(strip):
+            def _one_tier_fits(strip, slot=slot):
                 if strip is None:
                     return False
                 lo, hi, _inner = strip_free_span(strip)

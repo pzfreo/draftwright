@@ -264,7 +264,7 @@ def profile_angle_repetitions(evidence) -> tuple[ProfileAngleRepetition, ...]:
             centre = tuple(p + along * n for p, n in zip(pattern.center, normal, strict=True))
             theta = 2 * pi / count
 
-            def rotate(point):
+            def rotate(point, centre=centre, normal=normal, theta=theta):
                 delta = _sub(point, centre)
                 crossed = _cross(normal, delta)
                 axial = _dot(normal, delta)
