@@ -2,7 +2,7 @@
 
 `Drawing` is the composable build result: it owns the render list and view
 map and delegates identity to the registry, coverage to lint, and exposes
-`.lint()/.add()/.dimension()/.repair()/.export*()`. Sits below the builder
+`.lint()/.dimension()/.repair()/.export()`. Sits below the builder
 (which constructs it) — imports only the stage modules + `_core`, never
 `builder`/`make_drawing`.
 """
@@ -13,7 +13,6 @@ import contextlib
 import math
 import os
 import sys
-import warnings
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
@@ -257,8 +256,8 @@ class Drawing:
         page_w, page_h: sheet size in mm.
         tb_w: title-block width in mm.
         draft: the shared ``Draft`` preset used by the automatic annotations.
-        look_at: scaled centroid ``(x, y, z)`` — the default ``look_at`` and a
-            building block for custom view cameras (see :meth:`add_view`).
+        look_at: scaled centroid ``(x, y, z)`` — the default target for
+            internal view projection (see :meth:`_add_view`).
         dist: orthographic camera distance in scaled space.
         centroid: unscaled centroid ``(x, y, z)``.
         views: ``{name: (visible_compound, hidden_compound_or_None)}``.
@@ -505,15 +504,6 @@ class Drawing:
         return self._coverage.is_scattered_hole_doc(name)
 
     # -- views ----------------------------------------------------------------
-    @deprecated(
-        "Drawing.add_view() is deprecated (#817): view projection is engine plumbing. Custom "
-        "section/auxiliary views come from the section verb; the raw projector is now private "
-        "(_add_view). Removed in 0.5.0."
-    )
-    def add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
-        """DEPRECATED (#817): the raw view projector is now private (:meth:`_add_view`)."""
-        return self._add_view(name, shape, camera, up, position, look_at=look_at, scaled=scaled)
-
     def _add_view(
         self, name, shape, camera, up, position, *, look_at=None, scaled=False, bounds_cache=None
     ):
@@ -555,25 +545,9 @@ class Drawing:
         """Return the :class:`ViewCoordinates` for a named view."""
         return self._coords[view]
 
-    @deprecated(
-        "Drawing.set_view_coordinates() is deprecated (#817): view-coordinate plumbing is "
-        "engine-internal; the mutator is now private (_set_view_coordinates). Removed in 0.5.0."
-    )
-    def set_view_coordinates(self, view, coords) -> None:
-        """DEPRECATED (#817): now private (:meth:`_set_view_coordinates`)."""
-        self._set_view_coordinates(view, coords)
-
     def _set_view_coordinates(self, view, coords) -> None:
         """Override a view's projected coordinates (a repositioned detail/section band, #307)."""
         self._coords[view] = coords
-
-    @deprecated(
-        "Drawing.drop_view_coordinates() is deprecated (#817): view-coordinate plumbing is "
-        "engine-internal; the mutator is now private (_drop_view_coordinates). Removed in 0.5.0."
-    )
-    def drop_view_coordinates(self, view) -> None:
-        """DEPRECATED (#817): now private (:meth:`_drop_view_coordinates`)."""
-        self._drop_view_coordinates(view)
 
     def _drop_view_coordinates(self, view) -> None:
         """Remove a view's projected coordinates (a bailed detail/section, #307)."""
@@ -747,7 +721,7 @@ class Drawing:
     # --- build-context compat properties (#639): one BuildState, thin views.
     # _part_model and the two caches are GETTER-ONLY by design:
     # zero assignment sites exist in src/ or tests/, and a future wholesale
-    # replacement must go through BuildState (attach_part_model / the caches'
+    # replacement must go through BuildState (_attach_part_model / the caches'
     # in-place mutation) so it fails loudly instead of silently forking the
     # single-writer inventory the encapsulation guard pins. _analysis keeps a
     # setter for manual-construction flows (also inventoried by the guard).
@@ -864,14 +838,6 @@ class Drawing:
         """
         return self._build.ann_box_cache
 
-    @deprecated(
-        "Drawing.attach_part_model() is deprecated (#817): build-state attach is engine "
-        "plumbing; the mutator is now private (_attach_part_model). Removed in 0.5.0."
-    )
-    def attach_part_model(self, model) -> None:
-        """DEPRECATED (#817): now private (:meth:`_attach_part_model`)."""
-        self._attach_part_model(model)
-
     def _attach_part_model(self, model) -> None:
         """Attach the built PartModel so ``model()`` and feature edits see it. Lets the
         orchestrator hand the model back without an ``annotations/`` attribute write (#639)."""
@@ -978,14 +944,6 @@ class Drawing:
         """The opt-in solve-trace recorder threaded through this build (#736), or
         ``None`` (the default — tracing off). See ``build_drawing(trace=...)``."""
         return self._build.trace
-
-    @deprecated(
-        "Drawing.attach_solve_trace() is deprecated (#817): build-state attach is engine "
-        "plumbing; the mutator is now private (_attach_solve_trace). Removed in 0.5.0."
-    )
-    def attach_solve_trace(self, trace) -> None:
-        """DEPRECATED (#817): now private (:meth:`_attach_solve_trace`)."""
-        self._attach_solve_trace(trace)
 
     def _attach_solve_trace(self, trace) -> None:
         """Attach the #736 :class:`~draftwright.annotations._common.SolveTrace` recorder
@@ -1171,21 +1129,6 @@ class Drawing:
             cells=cells,
             measurement_span=measurement_span,
         )
-
-    @deprecated(
-        "Drawing.add() is deprecated (#817): use the placement verbs (callout/dimension/note/"
-        "add_table/…); free text is note(). The raw add primitive is now private (_add). "
-        "Removed in 0.5.0."
-    )
-    def add(self, obj, name=None, view=None, feature=None):
-        """DEPRECATED (#817): the raw placement primitive is now private (:meth:`_add`). Use the
-        placement **verbs** — :meth:`callout`/:meth:`dimension`/:meth:`note`/:meth:`add_table`/
-        :meth:`add_balloons` — which route through the solve; :meth:`note` is the door for free
-        text. The public wrapper remains one release for compatibility.
-
-        The ``@deprecated`` (PEP 702) decorator both emits the runtime ``DeprecationWarning`` and
-        lets type checkers/IDEs flag call sites statically (#817)."""
-        return self._add(obj, name, view, feature)
 
     def remove(self, name):
         """Remove a previously named annotation. Raises ``KeyError`` if absent."""
@@ -1697,7 +1640,7 @@ class Drawing:
         A deliberate placement — by you or an AI — must win over automatic
         layout. :meth:`repair` will not re-place a pinned annotation, and the
         constraint solver (ADR 2 (was 0003)) treats it as fixed. Pinning fixes the
-        *position*, not existence: :meth:`remove` and :meth:`clear_annotations`
+        *position*, not existence: :meth:`remove` and :meth:`_clear_annotations`
         still apply. Raises ``KeyError`` if *name* is not a known annotation.
         Returns ``self`` for chaining.
         """
@@ -1711,15 +1654,6 @@ class Drawing:
         ``self``; a no-op if *name* was not pinned."""
         self._registry.unpin(name)
         return self
-
-    @deprecated(
-        "Drawing.clear_annotations() is deprecated (#817): wholesale annotation removal is a "
-        "footgun for user scripts — use the feature-scoped verbs (drop/remove). The primitive "
-        "is now private (_clear_annotations). Removed in 0.5.0."
-    )
-    def clear_annotations(self, keep=("title_block",)):
-        """DEPRECATED (#817): now private (:meth:`_clear_annotations`)."""
-        return self._clear_annotations(keep)
 
     def _clear_annotations(self, keep=("title_block",)):
         """Remove all annotations except those named in *keep* (#74).
@@ -1885,18 +1819,14 @@ class Drawing:
         self,
         out=None,
         *,
-        formats=None,
-        svg=None,
-        dxf=None,
+        formats,
         dpi: int = 150,
         reproducible: bool | None = None,
-    ) -> dict[str, str] | tuple[str | None, str | None]:
+    ) -> dict[str, str]:
         return export_drawing(
             self,
             out,
             formats=formats,
-            svg=svg,
-            dxf=dxf,
             dpi=dpi,
             reproducible=reproducible,
             supported_formats=self._EXPORT_FORMATS,
@@ -1905,19 +1835,6 @@ class Drawing:
             write_dxf=self._write_dxf,
             pdf_text_runs=self._pdf_text_runs,
         )
-
-    def export_pdf(self, out=None) -> str:
-        """Deprecated — use ``export(out, formats=("pdf",))["pdf"]``. Renders a PDF (svglib +
-        reportlab) with the draftwright metadata + clickable title-block link."""
-        warnings.warn(
-            "Drawing.export_pdf() is deprecated; use export(formats=('pdf',))['pdf']. "
-            "Removed in 0.5.0.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        paths = self.export(out, formats=("pdf",))
-        assert isinstance(paths, dict)  # formats=... always returns the {format: path} dict
-        return paths["pdf"]
 
     def _add_shapes(self, exporter, *, ordered: bool = False):
         return add_export_shapes(

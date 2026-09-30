@@ -95,10 +95,7 @@ class TestDraftwrightAttribution:
         import zlib
 
         dwg = build_drawing(Box(60, 40, 20))
-        # Via export(formats=("pdf",)), not the deprecated export_pdf: this test needs *a PDF*
-        # to check the link, not that particular verb, and routing it through a surface slated
-        # for removal in 0.5.0 would take the test with it. The deprecation keeps its own
-        # coverage in test_export_pdf_is_deprecated_but_still_works.
+        # The PDF export includes the link annotation.
         pdf_path = dwg.export(str(tmp_path / "p"), formats=("pdf",))["pdf"]
         data = Path(pdf_path).read_bytes()
         found = b"pzfreo/draftwright" in data
@@ -221,105 +218,28 @@ class TestExportFormats:
         with pytest.raises(ValueError, match="dpi > 0"):
             dwg.export(str(tmp_path / "z"), formats="png", dpi=0)
 
-    def test_export_pdf_is_deprecated_but_still_works(self, tmp_path):
+    def test_removed_export_forms_reject_before_writing_issue_2113(self, tmp_path):
         dwg = build_drawing(Box(30, 20, 10))
-        with pytest.warns(DeprecationWarning, match="export_pdf"):
-            pdf = dwg.export_pdf(str(tmp_path / "old"))
-        assert Path(pdf).exists() and pdf.endswith(".pdf")
+        stem = str(tmp_path / "removed")
+        for kwargs in (
+            {},
+            {"formats": None},
+            {"svg": True},
+            {"dxf": True},
+            {"formats": ("svg",), "svg": False},
+        ):
+            with pytest.raises(TypeError):
+                dwg.export(stem, **kwargs)
+        assert not list(tmp_path.glob("removed.*"))
 
-    def test_the_legacy_export_shapes_warn_and_still_work(self, tmp_path):
-        """#987: both were "Deprecated" in the v0.3.1 changelog and silent at runtime for four
-        minor releases, which made their 0.5.0 removal a silent break.
-
-        `test_deprecation_dates` only counts that a warning EXISTS and names a version, so it
-        cannot catch any of what is asserted here (Codex review): the two shapes are told apart,
-        the advice matches what the call actually selected, the caller is blamed rather than
-        draftwright, and the legacy return value is unchanged."""
+    def test_one_shot_formats_iterable_is_exported_once(self, tmp_path):
         dwg = build_drawing(Box(30, 20, 10))
-
-        # Bare export(): the old default. Distinct message, and still the (svg, dxf) tuple.
-        with pytest.warns(DeprecationWarning, match="omitted or None") as rec:
-            legacy = dwg.export(str(tmp_path / "bare"))
-        assert isinstance(legacy, tuple) and len(legacy) == 2
-        assert all(p and Path(p).exists() for p in legacy)
-        # Blamed on THIS file, not drawing.py — a warning pointing at the library tells the
-        # reader nothing about which of their lines to change (#965).
-        assert Path(rec[0].filename).name == Path(__file__).name
-
-        # The booleans deselect, so the suggested formats must be what this call ASKED for.
-        # A canned ('svg', 'dxf') would tell the caller to start writing an SVG they had
-        # switched off — advice that changes behaviour.
-        with pytest.warns(DeprecationWarning, match=r"formats=\('dxf',\)") as rec2:
-            svg_path, dxf_path = dwg.export(str(tmp_path / "dxfonly"), svg=False, dxf=True)
-        assert svg_path is None and dxf_path is not None and Path(dxf_path).exists()
-        assert "omitted or None" not in str(rec2[0].message)  # the other shape's message
-
-        # `formats=None` is indistinguishable from omitting it — None IS the default sentinel —
-        # so it takes the same path and must get the same message, not one claiming no formats
-        # argument was passed (Codex r3).
-        with pytest.warns(DeprecationWarning, match="omitted or None"):
-            assert isinstance(dwg.export(str(tmp_path / "none"), formats=None), tuple)
-
-        # The supported call is silent and returns the dict.
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", DeprecationWarning)
-            paths = dwg.export(str(tmp_path / "new"), formats=("svg", "dxf"))
+        paths = dwg.export(str(tmp_path / "gen"), formats=(f for f in ("svg", "dxf")))
         assert sorted(paths) == ["dxf", "svg"]
-
-    def test_a_legacy_boolean_alongside_formats_says_it_is_ignored(self, tmp_path):
-        """`formats=` wins over the booleans, so `formats=("svg",), svg=False` writes the very
-        SVG the caller switched off — and the legacy branch never runs, so before this it
-        happened in total silence.
-
-        A deprecated argument that is ignored without a word is the failure this change exists
-        to fix, so it warns. `formats` still wins: the warning reports the outcome rather than
-        changing it."""
-        dwg = build_drawing(Box(30, 20, 10))
-        with pytest.warns(DeprecationWarning, match="IGNORED when formats=") as rec:
-            paths = dwg.export(str(tmp_path / "both"), formats=("svg",), svg=False)
-        assert sorted(paths) == ["svg"], "formats= still decides what is written"
-        assert "svg=" in str(rec[0].message)  # names which argument was dropped
-        assert Path(rec[0].filename).name == Path(__file__).name  # blames the caller
-
-    def test_a_one_shot_formats_iterable_survives_the_warning(self, tmp_path):
-        """Building the warning message must not CONSUME `formats` (Codex #987 r4).
-
-        It read `tuple(formats)` to say what would be written, and the export then iterated the
-        same object again — so a generator warned "writes ('svg', 'dxf')" and then wrote
-        nothing, returning {}. The warning silently broke the call it was describing, which is
-        a worse failure than the silence it was added to fix. `formats` is normalised once now.
-        """
-        dwg = build_drawing(Box(30, 20, 10))
-        with pytest.warns(DeprecationWarning, match=r"formats=\('svg', 'dxf'\)"):
-            paths = dwg.export(
-                str(tmp_path / "gen"), formats=(f for f in ("svg", "dxf")), svg=False
-            )
-        assert sorted(paths) == ["dxf", "svg"], "the generator was consumed by the warning"
         assert all(Path(p).exists() for p in paths.values())
 
-        # And a plain string is one format, not its letters: `tuple("svg")` said ('s','v','g').
-        with pytest.warns(DeprecationWarning, match=r"formats=\('svg',\)"):
-            assert sorted(dwg.export(str(tmp_path / "str"), formats="svg", dxf=True)) == ["svg"]
-
-    def test_a_bad_format_reports_the_typo_not_the_deprecation(self, tmp_path):
-        """A mistyped format is a broken call, not a deprecated one. Normalising `formats`
-        earlier put the deprecation warning ahead of the format validation, so a caller
-        promoting DeprecationWarning to an error would see the deprecation instead of the typo
-        that actually stopped their export. Validation runs first."""
-        dwg = build_drawing(Box(30, 20, 10))
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            with pytest.raises(ValueError, match="unknown export format"):
-                dwg.export(str(tmp_path / "bad"), formats=("nope",), svg=False)
-        assert not [w for w in caught if issubclass(w.category, DeprecationWarning)], (
-            "the deprecation fired before the ValueError that matters"
-        )
-
-    def test_make_drawing_is_not_on_the_legacy_export_path(self, tmp_path):
-        """#987: `make_drawing` used to call `.export()` with no formats, so warning on that
-        path would have fired for every caller of the headline API — blaming draftwright's own
-        line for a call they never made. It passes `formats=` now, and its documented tuple
-        return is unchanged."""
+    def test_make_drawing_keeps_its_tuple_output(self, tmp_path):
+        """The facade keeps its documented SVG/DXF tuple over explicit Drawing formats."""
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
             svg, dxf = make_drawing(Box(30, 20, 10), out=str(tmp_path / "mk"))

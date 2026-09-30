@@ -122,8 +122,8 @@ of DXF export time again. Off costs exactly what it did before the option existe
 
 - ❌ Raw page coordinates for feature annotations; `Drawing.place_dim(...)` (deprecated raw
   hatch). To influence placement use `pin=`/`priority=`, not coordinates.
-- ❌ `dwg.add(Dimension/Leader/FeatureControlFrame(...))` / raw `Note` objects — `add` is the
-  engine's low-level placement primitive (being made private, #817). Use the verbs: `note()` for
+- ❌ `dwg.add(Dimension/Leader/FeatureControlFrame(...))` / raw `Note` objects — the public
+  `Drawing.add` wrapper was removed in 0.5.0; `_add` is engine plumbing. Use `note()` for
   free text, `add_table()`/`add_hole_table()` for tables, the feature verbs for callouts/dims.
 - ❌ Bypassing recognition / treating byte-identical output as a *stability* guarantee across
   versions or layout changes — it is not one, and pinning a byte digest to catch regressions is

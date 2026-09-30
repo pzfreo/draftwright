@@ -12,6 +12,7 @@ from build123d import Box, Cylinder, Pos
 from build123d_drafting.helpers import Centerline
 
 from draftwright import build_drawing
+from draftwright.annotations._common import PlacementContext
 from draftwright.sheet import Sheet
 
 
@@ -62,7 +63,9 @@ def test_section_lookup_requires_matching_cut_live_line_and_view_issue_1931():
     view = dwg.views.pop("section_aa")
     assert not dwg.registry.has_section(0.0, dwg.views)
     dwg.views["section_aa"] = view
-    dwg.add(Centerline((0, 0, 0), (1, 0, 0)), "section_line")
+    PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items).place(
+        Centerline((0, 0, 0), (1, 0, 0)), "section_line"
+    )
     assert not dwg.registry.has_section(0.0, dwg.views)
 
 

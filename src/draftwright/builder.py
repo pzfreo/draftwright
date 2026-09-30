@@ -2811,16 +2811,12 @@ def make_drawing(
         Tuple of ``(svg_path, dxf_path)`` for the generated files.
 
     This is a thin wrapper: ``make_drawing(...)`` is
-    ``build_drawing(...).export(formats=("svg", "dxf"))``, unpacked to a tuple. Not a bare
-    ``.export()`` — that is the deprecated legacy shape and warns (#987).
+    ``build_drawing(...).export(formats=("svg", "dxf"))``, unpacked to a tuple.
     To add or remove annotations or add section/auxiliary views before export,
     call :func:`build_drawing` and use the returned :class:`Drawing`.
     """
-    # `formats=("svg", "dxf")` rather than a bare `.export()`: the no-formats call is
-    # the deprecated legacy shape and now warns, and a warning raised from HERE would blame
-    # draftwright's own line for a call the caller never made.
-    # This keeps make_drawing's documented `(svg_path, dxf_path)` return while leaving the
-    # legacy path with no internal callers, which is what lets it warn honestly.
+    # Keep make_drawing's documented tuple while Drawing.export requires explicit
+    # formats and returns a dict.
     _paths = build_drawing(
         step_file,
         out=out,
