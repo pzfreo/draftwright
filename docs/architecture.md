@@ -365,7 +365,9 @@ and re-exports the existing private helper names.
   the deterministic
   1D PAVA strip solve (`_solve_strip_1d_pava`, plus `plan_strip`/`StripCandidate`,
   the ADR 2 (was 0014) collect-then-solve entry point), the 2D free-rectangle placer
-  (`fit_box`), and the balloon band-assignment min-cost max-flow solve
+  (`fit_box`) and compressed-coordinate largest-empty-rectangle sweep
+  (`_largest_empty_rect`, still importable through `_core`), and the balloon
+  band-assignment min-cost max-flow solve
   (`_assign_balloon_bands`, #516; here since #699 — solvers live in the solver
   layer), and the required/unknown/optional survival order shared by pre-render
   demand and placement solvers. It has no IR or rendering dependency; source and
