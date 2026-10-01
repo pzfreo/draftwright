@@ -51,9 +51,10 @@ dependency runs one way: requirements determine views.
    `test_strip_layout.py`, `test_layout_property.py`, `test_layout_hypothesis.py`.
 6. **One stage order, two entry paths.** `_PASS_SEQUENCE` is the only stage tuple; `_auto_annotate`
    and `finalize()` both run it through `run_stages`. `test_issue_563_placement_intent.py`.
-7. **Feature leaders assign jointly, late, and observably.** Lexicographic objective (placed jobs,
-   priority, fixed-obstacle penalty, length, order); budgets count measured work and a fired budget
-   is a named capability loss; the greedy result is the floor under every cap.
+7. **Feature leaders assign jointly, late, and observably.** Lexicographic objective
+   (required jobs, unknown jobs, optional jobs, priority, fixed-obstacle penalty, length, order);
+   unknown provenance is never silently optional. Budgets count measured work and a fired budget
+   is a named capability loss; the class-first greedy result is the floor under every cap.
    `test_issue_1166_cross_pass_feature_leaders.py`, `test_issue_740_leader_assignment.py`,
    `test_issue_1188_per_view_assignment.py`, `test_issue_1308_machined_leader_analytics.py`.
 8. **Material re-entry is one predicate for router and critique**, a cost never a gate; the

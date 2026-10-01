@@ -52,6 +52,22 @@ class TestItIsADecompositionNotAnApproximation:
         assert {split.choices[0], split.choices[1]} == {0, 1}
         assert {split.choices[2], split.choices[3]} == {0, 1}
 
+    def test_semantic_order_remains_exact_after_view_decomposition(self):
+        costs = [[1.0], [1.0], [1.0], [1.0]]
+        conflicts = [(0, 0, 1, 0), (2, 0, 3, 0)]
+        classes = ["optional", "required", "unknown", "optional"]
+        direct = _assign_leader_candidates(costs, conflicts, obligation_classes=classes)
+        split = _assign_by_view(
+            ["front", "front", "side", "side"],
+            costs,
+            conflicts,
+            priorities=[0.0] * 4,
+            penalties_by_job=[[0]] * 4,
+            obligation_classes=classes,
+        )
+
+        assert split.choices == direct.choices == (None, 0, 0, None)
+
     def test_a_conflict_spanning_views_fails_closed(self):
         # The guard on the premise this decomposition rests on. Today both call sites
         # build same-view conflicts only, so it never fires — but a cross-view conflict

@@ -261,6 +261,7 @@ class _MachinedJobContext:
             noun=self.noun,
             drop_code=self.drop_code,
             priority=self.priority,
+            obligation_class="required" if source_ids else "unknown",
             fallback_candidates=fallback_candidates,
             fallback_accept=fallback_accept,
             interior_label_clear=interior_label_clear,

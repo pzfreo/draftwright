@@ -15,6 +15,7 @@ from build123d_drafting.helpers import Draft, Leader
 from draftwright import ScaleCompletenessWarning, Sheet, build_drawing, observe_build
 from draftwright._geometry import _segments_cross_or_overlap
 from draftwright.annotations._common import _box_hits, annotation_obstacle_boxes
+from draftwright.annotations.leaders import FeatureLeaderJob, _semantic_job_order
 from draftwright.layout import _assign_leader_candidates
 from draftwright.model import FilletFeature, Frame, GrooveFeature, PartModel, pocket
 
@@ -239,6 +240,70 @@ def test_pure_assignment_minimises_length_at_equal_cardinality():
     assert result.optimal
 
 
+def test_required_leader_outlives_two_optional_leaders_on_one_conflict():
+    costs = ((1.0,), (1.0,), (1.0,))
+    conflicts = ((0, 0, 1, 0), (0, 0, 2, 0))
+
+    assert _assign_leader_candidates(costs, conflicts).choices == (None, 0, 0)
+    result = _assign_leader_candidates(
+        costs,
+        conflicts,
+        obligation_classes=("required", "optional", "optional"),
+        priorities=(0.0, 100.0, 100.0),
+    )
+
+    assert result.choices == (0, None, None)
+    assert result.optimal
+
+
+def test_bounded_leader_floor_preserves_required_job_even_when_it_arrives_later():
+    result = _assign_leader_candidates(
+        ((1.0,), (1.0,)),
+        ((0, 0, 1, 0),),
+        obligation_classes=("optional", "required"),
+        max_states=1,
+    )
+
+    assert result.choices == (None, 0)
+    assert not result.optimal
+
+
+def test_unknown_leader_outlives_optional_but_not_required():
+    result = _assign_leader_candidates(
+        ((1.0,), (1.0,), (1.0,)),
+        ((0, 0, 1, 0), (1, 0, 2, 0), (0, 0, 2, 0)),
+        obligation_classes=("optional", "unknown", "required"),
+    )
+
+    assert result.choices == (None, None, 0)
+
+
+def test_resource_floor_orders_jobs_by_obligation_then_stable_input_order():
+    def job(name, classification, measurements=()):
+        return FeatureLeaderJob(
+            name=name,
+            view="front",
+            silhouette=(0.0, 0.0, 1.0, 1.0),
+            label=name,
+            candidates=(),
+            build=lambda *_args: None,
+            measurement=measurements,
+            noun="test",
+            drop_code="test_dropped",
+            obligation_class=classification,
+        )
+
+    jobs = (
+        job("optional", "optional"),
+        job("unknown_a", "unknown"),
+        job("required", "unknown", measurements=(object(),)),
+        job("unknown_b", "unknown"),
+    )
+    assert _semantic_job_order(jobs) == (2, 1, 3, 0)
+    with pytest.raises(ValueError, match="measured leader job cannot be optional"):
+        _semantic_job_order((job("invalid", "optional", measurements=(object(),)),))
+
+
 def test_sub_micron_cost_noise_reaches_stable_candidate_order_tie_break():
     result = _assign_leader_candidates(((10.0 + 1e-12, 10.0),), ())
 
@@ -268,6 +333,8 @@ def test_pure_assignment_rejects_malformed_numeric_inputs(costs, conflicts, max_
         ({"priorities": (1.0, float("nan"))}, "priorities must be finite"),
         ({"penalties_by_job": ((0,),)}, "penalties must match the candidate-cost shape"),
         ({"penalties_by_job": ((0,), (-1,))}, "penalties must be non-negative"),
+        ({"obligation_classes": ("required",)}, "classes must match the number of jobs"),
+        ({"obligation_classes": ("unknown", "wrong")}, "invalid annotation obligation class"),
     ),
 )
 def test_pure_assignment_rejects_malformed_objective_inputs(kwargs, message):
@@ -342,6 +409,71 @@ def test_bounded_solver_matches_exhaustive_lexicographic_oracle():
 
         result = _assign_leader_candidates(costs, conflicts)
 
+        assert result.optimal
+        assert result.choices == expected
+
+
+def test_classed_assignment_matches_exhaustive_oracle():
+    rng = random.Random(1866)
+    for _case in range(100):
+        costs = tuple(
+            tuple(float(rng.randrange(1, 6)) for _ in range(rng.randrange(1, 3)))
+            for _ in range(rng.randrange(2, 6))
+        )
+        classes = tuple(rng.choice(("required", "unknown", "optional")) for _ in costs)
+        priorities = tuple(float(rng.randrange(-3, 4)) for _ in costs)
+        penalties = tuple(tuple(rng.randrange(3) for _ in job) for job in costs)
+        conflicts = tuple(
+            (left_job, left_candidate, right_job, right_candidate)
+            for left_job in range(len(costs))
+            for right_job in range(left_job + 1, len(costs))
+            for left_candidate in range(len(costs[left_job]))
+            for right_candidate in range(len(costs[right_job]))
+            if rng.random() < 0.3
+        )
+        blocked = {
+            ((left_job, left_candidate), (right_job, right_candidate))
+            for left_job, left_candidate, right_job, right_candidate in conflicts
+        }
+
+        def score(
+            choices, classes=classes, priorities=priorities, penalties=penalties, costs=costs
+        ):
+            selected = [(job, choice) for job, choice in enumerate(choices) if choice is not None]
+            counts = tuple(
+                sum(classes[job] == kind for job, _ in selected)
+                for kind in ("required", "unknown", "optional")
+            )
+            return (
+                *(-count for count in counts),
+                -sum(priorities[job] for job, _ in selected),
+                sum(penalties[job][choice] for job, choice in selected),
+                sum(int(round(costs[job][choice] * 1000)) for job, choice in selected),
+                tuple(
+                    len(costs[job]) if choice is None else choice
+                    for job, choice in enumerate(choices)
+                ),
+            )
+
+        feasible = []
+        for choices in product(*[(*range(len(job)), None) for job in costs]):
+            selected = [(job, choice) for job, choice in enumerate(choices) if choice is not None]
+            if any(
+                (left, right) in blocked
+                for index, left in enumerate(selected)
+                for right in selected[index + 1 :]
+            ):
+                continue
+            feasible.append(choices)
+        expected = min(feasible, key=score)
+
+        result = _assign_leader_candidates(
+            costs,
+            conflicts,
+            priorities=priorities,
+            penalties_by_job=penalties,
+            obligation_classes=classes,
+        )
         assert result.optimal
         assert result.choices == expected
 

@@ -369,6 +369,56 @@ def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not(fresh_drawi
     assert not any(issue.code == "feature_leader_crossing" for issue in drawing.lint())
 
 
+@pytest.mark.parametrize("budget_exhausted", [False, True])
+def test_shared_leader_conflict_preserves_required_job_over_optional(
+    fresh_drawing, monkeypatch, budget_exhausted
+):
+    if budget_exhausted:
+        monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_PAIR_PROBES", 0)
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
+    elbow = (tip[0] + 20.0, tip[1], 0.0)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+
+    def build(tip, elbow, _feature):
+        return Leader(tip=(*tip, 0), elbow=elbow, label="R1", draft=drawing.draft)
+
+    for name, classification in (("optional_leader", "optional"), ("required_leader", "required")):
+        collect_feature_leader(
+            ctx,
+            FeatureLeaderJob(
+                name=name,
+                view="front",
+                silhouette=bounds,
+                label="R1",
+                candidates=((tip, elbow, object()),),
+                build=build,
+                measurement=(),
+                noun="fillet",
+                drop_code="fillet_dropped",
+                obligation_class=classification,
+            ),
+        )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    assert "required_leader" in drawing.annotations()
+    assert "optional_leader" not in drawing.annotations()
+
+
 def test_circular_center_furniture_keeps_its_empty_interior_available(fresh_drawing):
     drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     ctx = PlacementContext(
