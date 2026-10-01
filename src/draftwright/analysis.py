@@ -21,6 +21,7 @@ from build123d import Compound, Shape
 from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.STEPControl import STEPControl_Reader
 from quiddity import (
+    HoleRecord,
     PartFrame,
     RecognitionResult,
     TurnedProfile,
@@ -1142,7 +1143,7 @@ class _ModelState:
     _draft_est: Any
     _arrow_length: Any
     _pad_around_text: Any
-    holes: Any
+    holes: list[HoleRecord]
     patterns: Any
     bosses: Any
     slots: Any
