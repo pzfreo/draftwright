@@ -30,7 +30,7 @@
     "annotations/_slots.py:_render_slot_dimensions": 23,
     "annotations/_step_lengths.py:_profile_assignment_satisfiable": 19,
     "annotations/_step_lengths.py:_render_profile_groups": 35,
-    "annotations/balloons.py:_guarded_free_segments": 38,
+    "annotations/balloons.py:_guarded_free_segments": 26,
     "annotations/balloons.py:_retained_annotation_geometry": 21,
     "annotations/balloons.py:render_balloons": 24,
     "annotations/from_model.py:callout_from_spec": 25,
