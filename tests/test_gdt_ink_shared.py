@@ -97,6 +97,7 @@ def _solve(
     dimension_priority=0.0,
     obligation_classes=None,
     trace=None,
+    candidate_names=("dimension", "frame"),
 ):
     monkeypatch.setattr(_common, "strip_obstacles", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(_common, "pending_title_block_box", lambda _drawing: None)
@@ -108,7 +109,11 @@ def _solve(
         strip,
         "plan",
         "y",
-        [("dimension", _dimension), ("frame", _frame)],
+        [
+            (name, build)
+            for name, build in (("dimension", _dimension), ("frame", _frame))
+            if name in candidate_names
+        ],
         tier=5.0,
         force=True,
         ctx=drawing,
@@ -125,6 +130,15 @@ def _solve(
         trace=trace,
     )
     return drawing, remaining
+
+
+def _assert_capacity_fixture_fits_each_alone(monkeypatch, outer_limit):
+    for name in ("dimension", "frame"):
+        drawing, remaining = _solve(
+            monkeypatch, repair=False, outer_limit=outer_limit, candidate_names=(name,)
+        )
+        assert [placed for placed, _item in drawing.added] == [name]
+        assert remaining == []
 
 
 def test_frame_moves_as_whole_when_same_batch_dimension_crosses_its_glyph(monkeypatch):
@@ -190,10 +204,11 @@ def test_required_dimension_outlasts_optional_frame_in_same_batch(monkeypatch):
 
     # The segment-cap preselection must use the same semantic order as the
     # exact-ink displacement decision above.
+    _assert_capacity_fixture_fits_each_alone(monkeypatch, 19.0)
     cramped, cramped_remaining = _solve(
         monkeypatch,
         repair=False,
-        outer_limit=18.0,
+        outer_limit=19.0,
         obligation_classes={"dimension": "required", "frame": "optional"},
     )
     assert [name for name, _item in cramped.added] == ["dimension"]
@@ -227,7 +242,8 @@ def test_frame_frame_ink_conflict_returns_to_relocation_path(monkeypatch):
 
 
 def test_authored_frame_survives_over_capacity_before_auto_dimension(monkeypatch):
-    drawing, remaining = _solve(monkeypatch, repair=False, outer_limit=18.0)
+    _assert_capacity_fixture_fits_each_alone(monkeypatch, 19.0)
+    drawing, remaining = _solve(monkeypatch, repair=False, outer_limit=19.0)
     assert [name for name, _item in drawing.added] == ["frame"]
     assert [name for name, _build in remaining] == ["dimension"]
 
