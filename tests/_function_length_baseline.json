@@ -52,7 +52,7 @@
     "reporting.py:_raw_report_assessment": 218,
     "reporting.py:_requirements": 212,
     "reporting.py:document_report": 273,
-    "sheet_emit.py:_feature_block": 272,
+    "sheet_emit.py:_feature_block": 233,
     "sheet_emit.py:emit_sheet_script": 287
   }
 }

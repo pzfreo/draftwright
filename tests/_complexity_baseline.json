@@ -133,7 +133,7 @@
     "section_recess_contract.py:section_recess_fields": 21,
     "section_recess_contract.py:section_recess_pocket_fields": 21,
     "sheet_emit.py:_adopted_view_block": 26,
-    "sheet_emit.py:_feature_block": 34,
+    "sheet_emit.py:_feature_block": 29,
     "sheet_emit.py:_feature_line": 20,
     "sheet_emit.py:_model_constructor_imports": 16,
     "sheet_emit.py:_short_label": 25,
