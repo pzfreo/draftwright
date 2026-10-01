@@ -14,6 +14,11 @@ _SOURCE = Path(__file__).resolve().parents[1] / "src" / "draftwright"
 _MAX_MODULE_LINES = 3_000
 _MAX_ANNOTATION_MODULE_LINES = 2_500
 _MAX_FUNCTION_LINES = 300
+_LONG_FUNCTION_LIMIT = 200
+_FUNCTION_LENGTH_BASELINE = Path(__file__).with_name("_function_length_baseline.json")
+_BOOTSTRAP_FUNCTION_LENGTH_SHA256 = (
+    "84c56f21a973d61fb1f7096fde8b759bc749273bbb0d6ad0887163d5c40e2c25"
+)
 _MAX_COMPLEXITY = 15
 _COMPLEXITY_BASELINE = Path(__file__).with_name("_complexity_baseline.json")
 _COMPLEXITY_MESSAGE = re.compile(r"^`[^`]+` is too complex \((\d+) > 15\)$")
@@ -90,6 +95,25 @@ def _function_owners(path: Path) -> dict[int, str]:
     return owners
 
 
+def _long_function_findings() -> dict[str, int]:
+    """Measure qualified source functions over the reviewed 200-line boundary."""
+    findings = {}
+    for path in _source_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        owners = _function_owners(path)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            assert node.end_lineno is not None
+            lines = node.end_lineno - node.lineno + 1
+            if lines <= _LONG_FUNCTION_LIMIT:
+                continue
+            key = f"{path.relative_to(_SOURCE).as_posix()}:{owners[node.lineno]}"
+            assert key not in findings, f"Duplicate qualified length identity: {key}"
+            findings[key] = lines
+    return findings
+
+
 def _complexity_findings() -> dict[str, int]:
     """Ask the locked Ruff for every function above the reviewed threshold."""
     result = subprocess.run(
@@ -132,8 +156,8 @@ def _complexity_findings() -> dict[str, int]:
     return findings
 
 
-def _committed_complexity_ceiling() -> dict[str, int] | None:
-    """Read the reviewed baseline at the branch point with main, if it exists."""
+def _committed_baseline_ceiling(baseline_path: Path) -> dict[str, int] | None:
+    """Read a reviewed baseline at the branch point with main, if it exists."""
     repository = _SOURCE.parents[1]
     for main_ref in ("origin/main", "main"):
         merge_base = subprocess.run(
@@ -146,7 +170,7 @@ def _committed_complexity_ceiling() -> dict[str, int] | None:
         if merge_base.returncode != 0:
             continue
         committed = subprocess.run(
-            ["git", "show", f"{merge_base.stdout.strip()}:tests/_complexity_baseline.json"],
+            ["git", "show", f"{merge_base.stdout.strip()}:tests/{baseline_path.name}"],
             cwd=repository,
             capture_output=True,
             text=True,
@@ -180,7 +204,7 @@ def test_c901_complexity_budget_only_shrinks():
     )
     # PR test jobs fetch full history. Main's committed budget is the lasting
     # ceiling; the fingerprint anchors the initial PR and shallow checkouts.
-    if (ceiling := _committed_complexity_ceiling()) is None:
+    if (ceiling := _committed_baseline_ceiling(_COMPLEXITY_BASELINE)) is None:
         fingerprint = hashlib.sha256(
             json.dumps(budgets, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
@@ -194,6 +218,45 @@ def test_c901_complexity_budget_only_shrinks():
             if name not in ceiling or value > ceiling[name]
         }
         assert not increased_budget, f"C901 baseline may only shrink: {increased_budget}"
+
+
+def test_long_function_budget_only_shrinks():
+    """Existing functions over 200 lines cannot grow toward the 300-line cap."""
+    baseline = json.loads(_FUNCTION_LENGTH_BASELINE.read_text(encoding="utf-8"))
+    assert baseline["limit"] == _LONG_FUNCTION_LIMIT
+    budgets = baseline["functions"]
+    assert all(value > _LONG_FUNCTION_LIMIT for value in budgets.values())
+    observed = _long_function_findings()
+    new_or_grown = {
+        name: (budgets.get(name), value)
+        for name, value in observed.items()
+        if name not in budgets or value > budgets[name]
+    }
+    assert not new_or_grown, f"New or longer functions over 200 lines: {new_or_grown}"
+    reduced_or_removed = {
+        name: (value, observed.get(name))
+        for name, value in budgets.items()
+        if name not in observed or observed[name] < value
+    }
+    assert not reduced_or_removed, (
+        f"Lower the reviewed function-length baseline after a reduction: {reduced_or_removed}"
+    )
+    if (ceiling := _committed_baseline_ceiling(_FUNCTION_LENGTH_BASELINE)) is None:
+        fingerprint = hashlib.sha256(
+            json.dumps(budgets, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        assert fingerprint == _BOOTSTRAP_FUNCTION_LENGTH_SHA256, (
+            "Initial function-length baseline changed; review its ceiling and fingerprint together"
+        )
+    else:
+        increased_budget = {
+            name: (ceiling.get(name), value)
+            for name, value in budgets.items()
+            if name not in ceiling or value > ceiling[name]
+        }
+        assert not increased_budget, (
+            f"Function-length baseline may only shrink: {increased_budget}"
+        )
 
 
 def test_placement_mega_functions_stay_under_200_lines():

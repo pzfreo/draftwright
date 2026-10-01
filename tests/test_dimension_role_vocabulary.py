@@ -276,7 +276,6 @@ class TestTheCanonicalSpellingIsEnforced:
         the method it claimed to guard was broken — a guard that bypasses its own subject
         proves only that the author knows what the answer should be.
         """
-        import pytest
         from build123d import Box, Cylinder, Pos
 
         from draftwright.builder import detect_part_model
@@ -288,8 +287,9 @@ class TestTheCanonicalSpellingIsEnforced:
                 part -= Pos(x, y, 0) * Cylinder(3, 30)
         model = detect_part_model(part)
         pattern = next((f for f in model.features if f.kind == "pattern"), None)
-        if pattern is None or not any(p.discriminator for p in pattern.parameters()):
-            pytest.skip("fixture stopped detecting a discriminated grid pattern")
+        assert pattern is not None and any(p.discriminator for p in pattern.parameters()), (
+            "fixture stopped detecting a discriminated grid pattern"
+        )
 
         src = emit_sheet_script(model, "part", "s", title="T", number="N")
         ns: dict = {"part": part}
@@ -316,8 +316,9 @@ class TestTheCanonicalSpellingIsEnforced:
                 part -= Pos(x, y, 0) * Cylinder(3, 30)
         sheet = Sheet.from_part(part, title="T", number="N").authored_dimensions()
         pattern = next((f for f in sheet.features if f.kind == "pattern"), None)
-        if pattern is None or not any(p.discriminator for p in pattern.parameters()):
-            pytest.skip("fixture stopped detecting a discriminated grid pattern")
+        assert pattern is not None and any(p.discriminator for p in pattern.parameters()), (
+            "fixture stopped detecting a discriminated grid pattern"
+        )
         with pytest.raises(ValueError, match="already names"):
             sheet.dimension(pattern, "grid_pitch.length.row", axis="col")
 
@@ -337,8 +338,9 @@ class TestTheCanonicalSpellingIsEnforced:
                 part -= Pos(x, y, 0) * Cylinder(3, 30)
         sheet = Sheet.from_part(part, title="T", number="N").authored_dimensions()
         pattern = next(f for f in sheet.features if f.kind == "pattern")
-        if not any(p.role == "grid_pitch" for p in pattern.parameters()):
-            pytest.skip("fixture stopped detecting a grid pattern")
+        assert any(p.role == "grid_pitch" for p in pattern.parameters()), (
+            "fixture stopped detecting a grid pattern"
+        )
 
         with pytest.raises(ValueError, match="ambiguous"):
             sheet.dimension(pattern, "grid_pitch")
