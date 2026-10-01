@@ -49,7 +49,6 @@
     "pdf_text.py:pdf_text_runs": 229,
     "pmi.py:_dimension_record": 220,
     "pmi.py:_extract_xcaf_dimensions": 249,
-    "recogniser_contract.py:validate_recogniser_capabilities": 264,
     "reporting.py:_raw_report_assessment": 218,
     "reporting.py:_requirements": 212,
     "reporting.py:document_report": 273,
