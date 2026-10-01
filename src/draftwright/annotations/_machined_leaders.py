@@ -72,9 +72,7 @@ class _MachinedJobContext:
         if view not in self.foreign_boxes_by_view:
             self.foreign_boxes_by_view[view] = tuple(
                 (box, has_label)
-                for _name, owner, box, has_label in self.bindings.attribute_annotations(
-                    self.dwg, self.a
-                )
+                for _name, owner, box, has_label in self.bindings.attribute_annotations(self.dwg)
                 if owner != view
             )
         pad = self.dwg.draft.pad_around_text
@@ -362,14 +360,14 @@ class _MachinedJobContext:
                 )
                 search_tip = normal_stub
 
-            def build_at(elbow, _tip=tip, _feature=feature):
+            def build_at(elbow, _tip=tip, _feature=feature, normal_stub=normal_stub):
                 if normal_stub is not None:
                     return decorate(
                         bindings.RoutedLeader(_tip, (normal_stub,), elbow, label, dwg.draft)
                     )
                 return build(_tip, (*elbow, 0), _feature)
 
-            def build_routed(bends, elbow, _tip=tip):
+            def build_routed(bends, elbow, _tip=tip, normal_stub=normal_stub):
                 route_bends = (normal_stub, *bends) if normal_stub is not None else bends
                 return decorate(bindings.RoutedLeader(_tip, route_bends, elbow, label, dwg.draft))
 

@@ -416,7 +416,7 @@ def test_the_deliberately_bare_names_are_reachable():
         f"{sorted(_DELIBERATELY_BARE - seen)} never occur in this corpus, so excluding them "
         "excludes nothing"
     )
-    for part_name, drawing in drawings.items():
+    for _part_name, drawing in drawings.items():
         for name in _DELIBERATELY_BARE & set(drawing.registry.names()):
             label = str(getattr(drawing.registry.named(name), "label", ""))
             assert label.startswith(("3\u00d7", "4\u00d7")), (

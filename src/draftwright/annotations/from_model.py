@@ -637,7 +637,7 @@ def _flat_candidates(dwg, view, vb, members, reach, *, provenances):
         reach,
         provenances=provenances,
     )
-    for member, provenance in zip(members, provenances):
+    for member, provenance in zip(members, provenances, strict=False):
         for tip, elbow, _owner in _radial_candidates(
             dwg,
             view,

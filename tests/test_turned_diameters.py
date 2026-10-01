@@ -113,6 +113,23 @@ class TestTurnedDiameters:
         part += Pos(0, 0, 8.5) * Cylinder(14, 3.5, align=(Align.CENTER, Align.CENTER, b))
         return Pos(0, 0, axis_z) * part.rotate(Axis.X, rotation)
 
+    def test_y_step_diameter_uses_foreign_view_clearance(self, monkeypatch):
+        from draftwright.annotations._machined_leaders import _MachinedJobContext
+
+        checked = []
+        original = _MachinedJobContext.foreign_label_clear
+
+        def check(self, view, label):
+            checked.append((view, label))
+            return original(self, view, label)
+
+        monkeypatch.setattr(_MachinedJobContext, "foreign_label_clear", check)
+        dwg = build_drawing(self._issue_892_y_chain())
+
+        assert any(f.kind == "step" and f.frame.axis == "y" for f in dwg.model().features)
+        assert any(name.startswith("m_dia_y") for name in dwg.annotations())
+        assert checked and all(view == "front" and label is not None for view, label in checked)
+
     @staticmethod
     def _assert_y_diameter_leaders_clear_holes(dwg):
         circles = []
@@ -536,7 +553,7 @@ class TestTurnedDiameters:
         labels = sorted((o.label_bbox for o in detail.values()), key=lambda bb: bb[0])
         assert all(
             left[2] + dwg.draft.pad_around_text <= right[0] + 1e-6
-            for left, right in zip(labels, labels[1:])
+            for left, right in zip(labels, labels[1:], strict=False)
         )
         marker = dwg.get_annotation("detail_marker_A").bounding_box()
         axis_page_y = dwg.at("side", 0, 0, axis_z)[1]
@@ -579,7 +596,7 @@ class TestTurnedDiameters:
         )
         assert all(
             left[2] + dwg.draft.pad_around_text <= right[0] + 1e-6
-            for left, right in zip(labels, labels[1:])
+            for left, right in zip(labels, labels[1:], strict=False)
         )
 
     def test_issue_892_clear_labels_but_tight_arrows_still_request_detail(self):
@@ -655,7 +672,7 @@ class TestTurnedDiameters:
         leaders = [o for n, o in dwg.iter_annotations() if n.startswith("m_dia")]
         assert len(leaders) >= 2
         xs = sorted(ldr.elbow[0] for ldr in leaders)
-        assert all(b - a > 1.0 for a, b in zip(xs, xs[1:]))  # spread, not stacked
+        assert all(b - a > 1.0 for a, b in zip(xs, xs[1:], strict=False))  # spread, not stacked
 
     def test_z_rotational_part_is_untouched(self):
         # A plain Z disc's OD is covered by dim_od (rotational), so render_diameters

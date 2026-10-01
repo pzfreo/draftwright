@@ -100,7 +100,7 @@ def pytest_configure(config) -> None:
     # The public lazy package attribute and Sheet's import-time binding otherwise bypass a
     # patch installed only on builder.py. That omission made the first #1307 census a lower
     # bound, so all three bindings are explicit here.
-    setattr(draftwright, "build_drawing", builder_public)
+    setattr(draftwright, "build_drawing", builder_public)  # noqa: B010 - lazy package attribute
     sheet.build_drawing = _timed("sheet.build_drawing", sheet.build_drawing)
     builder._build_drawing_once = _timed(
         "builder._build_drawing_once", builder._build_drawing_once

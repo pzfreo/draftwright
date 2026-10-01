@@ -157,13 +157,14 @@ def _automatic_y_chain_detail_footprints(
     # line. A single pre-sheet box would otherwise plan a phantom combined
     # chain and could enlarge the sheet without any matching detail request.
     if any(
-        abs(previous[1] - current[0]) > 1e-3 + 1e-9 for previous, current in zip(rows, rows[1:])
+        abs(previous[1] - current[0]) > 1e-3 + 1e-9
+        for previous, current in zip(rows, rows[1:], strict=False)
     ):
         return None
     # The renderer states a contiguous repeated pitch of three or more once on
     # the parent view. Such a chain does not request an enlarged detail.
     repeat = 1
-    for prev, current in zip(rows, rows[1:]):
+    for prev, current in zip(rows, rows[1:], strict=False):
         old, new = prev[2], current[2]
         same_text = (
             old.value_text == new.value_text
@@ -302,7 +303,8 @@ def _automatic_x_head_detail_footprints(
         # different physically sorted run until both boundaries share ordering.
         return None
     if any(
-        abs(previous[1] - current[0]) > 1e-3 + 1e-9 for previous, current in zip(rows, rows[1:])
+        abs(previous[1] - current[0]) > 1e-3 + 1e-9
+        for previous, current in zip(rows, rows[1:], strict=False)
     ):
         return None
     # The renderer crops against the controlled step's physical profile, not
@@ -1063,7 +1065,7 @@ def _validate_explicit_scale(
         if advisories is not None:
             advisories.append(("legibility_floor_breached", message))
         if warn_advisory:
-            warnings.warn(message)
+            warnings.warn(message, stacklevel=1)
 
 
 @dataclass(frozen=True)
@@ -1939,7 +1941,6 @@ def _select_sheet(
             _measure_strips(
                 strip_sizing_model,
                 n_steps_i,
-                bb,
                 arrow_length=_arrow_length,
                 pad_around_text=_pad_around_text,
                 bore_callout_width=bore_callout_width,
@@ -2090,7 +2091,6 @@ def _place_sheet(
         _measure_strips(
             strip_sizing_model,
             n_steps,
-            bb,
             arrow_length=_arrow_length,
             pad_around_text=_pad_around_text,
             bore_callout_width=bore_callout_width,

@@ -11,7 +11,7 @@ class TestComposeAnnoBoxes:
     that _measure_strips computes — the byte-identical box-model foundation that
     later steps make honest."""
 
-    def _assert_match(self, model, n_steps, bb, w=0.0, label=""):
+    def _assert_match(self, model, n_steps, w=0.0, label=""):
         from draftwright.builder import _FONT_SIZE, draft_preset
         from draftwright.compose import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
 
@@ -28,7 +28,7 @@ class TestComposeAnnoBoxes:
             composed = _footprint_from_boxes(
                 _compose_anno_boxes(model, n_steps, bore_callout_width=w, **kw)
             )
-            scalar = _measure_strips(model, n_steps, bb, bore_callout_width=w, **kw)
+            scalar = _measure_strips(model, n_steps, bore_callout_width=w, **kw)
             assert composed == scalar, (label, n_steps, kw)
 
     def test_bore_callout_width_flows_through_boxes(self):
@@ -40,7 +40,6 @@ class TestComposeAnnoBoxes:
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
         model, _ = _sizing_model(part)
-        bb = part.bounding_box()
         draft = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
         width = 55.0
         expected_bore_depth = width + draft.pad_around_text + draft.arrow_length
@@ -57,7 +56,6 @@ class TestComposeAnnoBoxes:
         assert _footprint_from_boxes(boxes) == _measure_strips(
             model,
             0,
-            bb,
             bore_callout_width=width,
             arrow_length=draft.arrow_length,
             pad_around_text=draft.pad_around_text,
@@ -66,16 +64,14 @@ class TestComposeAnnoBoxes:
     def test_matches_for_plain_part(self):
         part = Box(60, 40, 12)
         model, w = _sizing_model(part)
-        bb = part.bounding_box()
         for n_steps in (0, 1, 3):
-            self._assert_match(model, n_steps, bb, w)
+            self._assert_match(model, n_steps, w)
 
     def test_matches_for_bored_part(self):
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
         model, w = _sizing_model(part)
-        bb = part.bounding_box()
         for n_steps in (0, 2):
-            self._assert_match(model, n_steps, bb, w)
+            self._assert_match(model, n_steps, w)
 
     def test_matches_for_dense_ballooning_part(self):
         # _dense_plate triggers _will_balloon → exercises the plan_halo band.
@@ -83,9 +79,8 @@ class TestComposeAnnoBoxes:
 
         part = _dense_plate()
         model, w = _sizing_model(part)
-        bb = part.bounding_box()
         assert _will_balloon(model)  # guard: this case must balloon
-        self._assert_match(model, 0, bb, w)
+        self._assert_match(model, 0, w)
 
     def test_pattern_plus_same_spec_loose_size_as_separate_callouts(self):
         # #584 WP1 A (accepted divergence, more-correct): a pattern and same-spec LOOSE

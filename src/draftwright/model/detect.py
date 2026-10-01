@@ -1214,7 +1214,7 @@ def _through_step_leg_spans(steps) -> tuple[tuple[str, float, float], ...]:
     spans = []
     for step in steps:
         axes = tuple(axis for axis in "xyz" if axis != step.axis)
-        for start, end in zip(step.section, step.section[1:]):
+        for start, end in zip(step.section, step.section[1:], strict=False):
             changed = next(index for index in (0, 1) if start[index] != end[index])
             lo, hi = sorted((float(start[changed]), float(end[changed])))
             spans.append((axes[changed], lo, hi))

@@ -1242,7 +1242,14 @@ def _datum_scheme_represented_by_symbols(model: PartModel, text: str) -> tuple[s
                 if isinstance(feature, ChamferFeature) and feature.turned and feature.axis == axis
             ]
 
-            def _verified_transition(left: StepFeature, right: StepFeature) -> bool:
+            def _verified_transition(
+                left: StepFeature,
+                right: StepFeature,
+                axial=axial,
+                tol=tol,
+                plane=plane,
+                chamfers=chamfers,
+            ) -> bool:
                 left_end = max(point[axial] for point in left.span)
                 right_start = min(point[axial] for point in right.span)
                 gap = right_start - left_end
@@ -1268,7 +1275,7 @@ def _datum_scheme_represented_by_symbols(model: PartModel, text: str) -> tuple[s
                 )
                 and (left.profile == right.profile)
                 and _verified_transition(left, right)
-                for left, right in zip(ordered, ordered[1:])
+                for left, right in zip(ordered, ordered[1:], strict=False)
             ):
                 return ()
         represented.extend(datum.source_ids)

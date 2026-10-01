@@ -55,7 +55,7 @@ from draftwright.model.ir import (
 _MIN_INPLACE_BORE_HALF_MM = 4.0
 
 
-def _record_pmi_drop(ctx, dwg, ax, label, rec):
+def _record_pmi_drop(ctx, ax, label, rec):
     """Record a PMI dim the layout could not place (#208).
 
     Previously silent (#351 PR-4a) — a PMI dim that found no strip space just
@@ -96,7 +96,7 @@ def _record_pmi_drop(ctx, dwg, ax, label, rec):
     )
 
 
-def _record_pmi_unrenderable(dwg, label, rec, *, ctx):
+def _record_pmi_unrenderable(label, rec, *, ctx):
     """Record an authored dimension whose reference geometry can't form a witness (fewer
     than two distinct reference points, or a zero span). Distinct from
     ``pmi_dropped`` (a *placement* failure): this is a *validation* failure, so a caller
@@ -614,7 +614,7 @@ def _leader_route_is_readable(route, owner_bounds) -> bool:
         return False
     diagonal = math.hypot(owner_bounds[2] - owner_bounds[0], owner_bounds[3] - owner_bounds[1])
     max_leg = max(30.0, diagonal)
-    legs = tuple(zip(route, route[1:]))
+    legs = tuple(zip(route, route[1:], strict=False))
     if any(math.hypot(b[0] - a[0], b[1] - a[1]) > max_leg for a, b in legs):
         return False
     if sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in legs) > 2 * max_leg:
@@ -718,7 +718,7 @@ def _sheet_leader_fallback(
     )[:128]
 
     def _route_blocked(route):
-        route_segments = tuple(zip(route, route[1:]))
+        route_segments = tuple(zip(route, route[1:], strict=False))
         return (
             not _leader_route_is_readable(route, owner_bounds)
             or any(
@@ -779,13 +779,13 @@ def _sheet_leader_fallback(
             routed = []
             for bends in bend_routes:
                 route = (tip, *bends, elbow)
-                if any(left == right for left, right in zip(route, route[1:])):
+                if any(left == right for left, right in zip(route, route[1:], strict=False)):
                     continue
                 if _route_blocked(route):
                     continue
                 length = sum(
                     math.hypot(right[0] - left[0], right[1] - left[1])
-                    for left, right in zip(route, route[1:])
+                    for left, right in zip(route, route[1:], strict=False)
                 )
                 routed.append((length, bends, route, routed_build))
             routes.extend(item[1:] for item in sorted(routed, key=lambda item: item[0])[:96])
@@ -1047,7 +1047,7 @@ def _pmi_queue_options(
                 source=_pmi_source_ids(_rec),
             )
             return
-        _record_pmi_drop(ctx, dwg, _ax, _label, _rec)
+        _record_pmi_drop(ctx, _ax, _label, _rec)
 
     register_corridor(
         ctx,
@@ -1520,7 +1520,7 @@ def _place_pmi_record(
         )
         if placed is None:
             _log.debug("PMI dim[%d] X: degenerate reference", idx)
-            _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
+            _record_pmi_unrenderable(label, rec, ctx=ctx)
             return False
 
     elif ax == "Z":
@@ -1539,7 +1539,7 @@ def _place_pmi_record(
         )
         if placed is None:
             _log.debug("PMI dim[%d] Z: degenerate reference", idx)
-            _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
+            _record_pmi_unrenderable(label, rec, ctx=ctx)
             return False
 
     elif ax == "Y" and (rec.view is not None or rec.side is not None):
@@ -1550,7 +1550,7 @@ def _place_pmi_record(
             and _pmi_witness_from_bbox(rec, "plan", a) is None
         ):
             _log.debug("PMI dim[%d] Y: degenerate reference", idx)
-            _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
+            _record_pmi_unrenderable(label, rec, ctx=ctx)
             return False
         # A side override selects an exact strip. A view-only override keeps the ordinary
         # geometry-derived side within that projection instead of changing an unspecified
@@ -1591,7 +1591,7 @@ def _place_pmi_record(
             and _pmi_witness_from_bbox(rec, "plan", a) is None
         ):
             _log.debug("PMI dim[%d] Y: degenerate reference", idx)
-            _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
+            _record_pmi_unrenderable(label, rec, ctx=ctx)
             return False
         # Try side view (Y maps to SX horizontal).
         wp = _pmi_witness_from_bbox(rec, "side", a)

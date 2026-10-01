@@ -1,6 +1,7 @@
 """Slot recognition and automatic slot dimensioning."""
 
 import math
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -431,7 +432,7 @@ class TestFindSlots:
     def test_slot_is_frozen_dataclass(self):
         s = recognise_slots(Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20))[0]
         assert isinstance(s, Slot)
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             s.width = 1.0  # frozen
 
     def test_output_order_is_deterministic(self):

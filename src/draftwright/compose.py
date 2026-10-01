@@ -321,7 +321,7 @@ def _est_planned_bore_callout_width(
         # placement check reject a callout the reservation said would fit, and the whole
         # annotation was dropped with `callout_dropped: no room beside the view` — a wrong
         # drawing produced from a right one (#1234).
-        def _term(value, tol_key, decimals_key):
+        def _term(value, tol_key, decimals_key, spec=spec):
             return _text_width(
                 f"{_fmt(value, spec.get(decimals_key))}{_tol_suffix(spec.get(tol_key), draft)}",
                 font_size,
@@ -537,7 +537,6 @@ class StripDepths:
 def _measure_strips(
     model,
     n_steps: int,
-    bb,
     font_size: float = _FONT_SIZE,
     arrow_length: float = 2.7,
     pad_around_text: float = 2.0,
@@ -789,7 +788,7 @@ def _reserve_measured_anno_corridors(
         view = _END_ON[feature.frame.axis]
         horizontal_axis = {"x": "y", "y": "x"}[feature.frame.axis]
 
-        def _pad_parameter_is_authored(parameter_id: str) -> bool:
+        def _pad_parameter_is_authored(parameter_id: str, feature=feature) -> bool:
             if model.authored_dimensions is None:
                 return True
             role = parameter_id.split(".", 1)[0]
@@ -1489,7 +1488,7 @@ def _view_geom(a) -> dict:
     }
 
 
-def _attribute_annotations(dwg, a):
+def _attribute_annotations(dwg):
     """Yield ``(name, view, bbox, is_label)`` for every annotation OWNED by an
     orthographic view, per the view recorded at creation (``dwg.view_of``).
 

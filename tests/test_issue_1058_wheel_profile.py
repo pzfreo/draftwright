@@ -761,7 +761,7 @@ def test_a_dropped_counted_callout_records_every_profile_occurrence():
         record_issue=lambda *_args, **_kwargs: None,
     )
     callout = SimpleNamespace(covers_profiles=(exact,), covers_count=3)
-    _record_callout_drop(ctx, None, "plan", 10.0, "test", callout=callout)
+    _record_callout_drop(ctx, "plan", 10.0, "test", callout=callout)
     assert ctx.coverage.dropped_profiles == [exact, exact, exact]
 
 

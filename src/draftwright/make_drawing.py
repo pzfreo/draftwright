@@ -3,8 +3,8 @@
 The `Drawing` result object now lives in `drawing.py`; build orchestration
 (`build_drawing`/`make_drawing`) in `builder.py`; the `_cli`
 compat shim beside the Typer app in `cli.py` (#523). This module re-exports the
-public surface so `from draftwright.make_drawing import ...` and the `draftwright`
-CLI entry point keep working.
+public surface so `from draftwright.make_drawing import ...` keeps working. The
+installed `draftwright` command points to `draftwright.cli:app`.
 """
 
 import warnings

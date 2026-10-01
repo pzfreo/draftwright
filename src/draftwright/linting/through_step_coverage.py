@@ -115,7 +115,7 @@ def _parameter_ids(source) -> tuple[str, str]:
     ):
         raise ValueError
     ids = []
-    for start, end in zip(section, section[1:]):
+    for start, end in zip(section, section[1:], strict=False):
         changed = [index for index in (0, 1) if start[index] != end[index]]
         if len(changed) != 1:
             raise ValueError
@@ -128,7 +128,7 @@ def _parameter_ids(source) -> tuple[str, str]:
 def _source_leg_intervals(source) -> tuple[tuple[str, float, float], ...]:
     transverse = tuple(axis for axis in "xyz" if axis != source.axis)
     intervals = []
-    for start, end in zip(source.section, source.section[1:]):
+    for start, end in zip(source.section, source.section[1:], strict=False):
         changed = next(index for index in (0, 1) if start[index] != end[index])
         lo, hi = sorted((float(start[changed]), float(end[changed])))
         intervals.append((transverse[changed], lo, hi))

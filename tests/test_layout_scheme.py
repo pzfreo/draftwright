@@ -125,7 +125,7 @@ def test_unknown_obligation_is_not_optional_and_source_backed_optional_is_refuse
 
 def test_strip_measurement_carries_the_scheme_without_changing_depths():
     model = _model()
-    strips = _measure_strips(model, 0, model.bbox)
+    strips = _measure_strips(model, 0)
 
     assert strips.scheme == plan_annotation_scheme(model)
     assert strips.right == 20.0
@@ -156,7 +156,7 @@ def test_strip_measurement_carries_the_scheme_without_changing_depths():
 
 def test_build_scoped_scheme_reservation_caps_only_selected_corridors():
     model = _model()
-    strips = _measure_strips(model, 0, model.bbox)
+    strips = _measure_strips(model, 0)
     profile = AnnotationLayoutProfile(
         corridor_scale=1,
         capped_routes=frozenset({("front", "left")}),
@@ -248,7 +248,7 @@ def test_y_axis_hole_leader_reserves_the_front_below_band_it_uses():
     hole = HoleFeature(Frame((0, 0, 0), "y"), 4, 10, False)
     model = PartModel(Box(20, 20, 15).bounding_box(), "y", [hole])
 
-    strips = _measure_strips(model, 0, model.bbox)
+    strips = _measure_strips(model, 0)
     leaders = [demand for demand in strips.scheme.demands if demand.family == "feature_leader"]
 
     assert [(demand.view, demand.side) for demand in leaders] == [("front", "below")]

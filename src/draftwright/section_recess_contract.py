@@ -111,7 +111,7 @@ def section_recess_pocket_fields(record: Mapping, *, schema_version: int) -> dic
     if len({run_index, u_index, v_index}) != 3:
         raise ValueError("section frame directions must be perpendicular")
     cross = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
-    if any(abs(a - b) > 1e-9 for a, b in zip(cross, run)):
+    if any(abs(a - b) > 1e-9 for a, b in zip(cross, run, strict=False)):
         raise ValueError("section frame must be right-handed")
     low, high = _section_numbers(geometry["run_interval"], 2, "run interval")
     if high <= low:
@@ -202,7 +202,9 @@ def section_recess_pocket_fields(record: Mapping, *, schema_version: int) -> dic
     ):
         raise UnsupportedSectionRecess("profile does not follow rectangular supports")
     chain = points if edge_anchored else [*points, points[0]]
-    if any(sum(a[i] != b[i] for i in range(2)) != 1 for a, b in zip(chain, chain[1:])):
+    if any(
+        sum(a[i] != b[i] for i in range(2)) != 1 for a, b in zip(chain, chain[1:], strict=False)
+    ):
         raise UnsupportedSectionRecess("profile contains a diagonal or crossing support")
 
     mouth = {}

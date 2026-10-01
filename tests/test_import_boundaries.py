@@ -34,7 +34,7 @@ DAG violation today, so they are accepted rather than chased):
 
 - **Dynamic imports.** ``importlib.import_module(x)`` / ``__import__(x)`` with a non-literal
   argument can't be resolved statically. The current uses (``__init__`` lazy public-API
-  loader, ``sheet_emit``'s emitter, and ``recogniser_contract``'s declaration validator) pass a
+  loader, ``sheet_object_source``'s source loader, and ``recogniser_contract``'s declaration validator) pass a
   variable and live at the top layer (L7/L8), where an upward edge is impossible anyway. A
   future dynamic import of an internal
   module from a lower layer would not be seen — prefer a static import there.
@@ -126,7 +126,7 @@ _LAYERS: dict[str, int] = {
     "blend_contract": 0,
     "oriented_slot_contract": 1,
     "section_recess_contract": 0,
-    "score": 0,  # census over recognition/ only — a leaf beside the recognisers (#704)
+    "score": 0,  # deprecated quiddity.feature_census compatibility shim (#1936)
     # audit: diffs two FINISHED drawings through their public reads (#996). A leaf by
     # construction — it imports nothing from the engine, so the thing it measures can never
     # come to depend on it.
@@ -1259,7 +1259,7 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
             # Keep positional object/member pairs adjacent, so a string replacement is not
             # mistaken for another member. Explicit member keywords may combine with a
             # positional provider in bound or unbound patch calls.
-            for provider_node, member_node in zip(node.args, node.args[1:]):
+            for provider_node, member_node in zip(node.args, node.args[1:], strict=False):
                 provider = resolve_expr(provider_node)
                 member = literal(member_node)
                 if provider in _PROVIDER_PUBLIC_MODULES and member is not None:
@@ -1453,8 +1453,7 @@ def test_public_recogniser_member_is_an_immutable_public_snapshot(monkeypatch):
 
     assert not hasattr(contract, "recognition")
     assert getattr(contract.public_recogniser_member, "__closure__", None) is None
-    with pytest.raises(AttributeError):
-        contract.public_recogniser_member._root
+    assert not hasattr(contract.public_recogniser_member, "_root")
     with pytest.raises(AttributeError):
         contract.public_recogniser_member._root = {"profiled_bores": object()}
 

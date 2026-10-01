@@ -327,7 +327,6 @@ def _render_profile_groups(
                 if length is not None and length.id is not None
             )
             _record_step_chain_drop(
-                dwg,
                 "no longitudinal view uniquely identifies this physical profile",
                 ctx=ctx,
                 measurement=measurements,
@@ -578,7 +577,10 @@ def _render_y_profile(
             for seg in bare_rows
         ]
         scale_needed = y_chain_detail_scale_needed(
-            tuple((seg.pa[0], seg.pb[0], row.value) for seg, row in zip(fsegs, bare_rows)),
+            tuple(
+                (seg.pa[0], seg.pb[0], row.value)
+                for seg, row in zip(fsegs, bare_rows, strict=False)
+            ),
             tuple(label_widths),
             arrow_length=draft.arrow_length,
             text_padding=draft.pad_around_text,
@@ -713,7 +715,7 @@ def _render_y_profile(
                 )
                 if not all(
                     c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
-                    for (c1, w1), (c2, w2) in zip(dcw, dcw[1:])
+                    for (c1, w1), (c2, w2) in zip(dcw, dcw[1:], strict=False)
                 ):
                     _log.info(
                         "Y-chain detail rejected at scale %.3g: labels still collide",

@@ -315,7 +315,7 @@ def test_bounded_solver_matches_exhaustive_lexicographic_oracle():
             for left_job, left_candidate, right_job, right_candidate in conflicts
         }
 
-        def score(choices):
+        def score(choices, costs=costs):
             count = sum(choice is not None for choice in choices)
             cost = sum(
                 int(round(costs[job][choice] * 1000))

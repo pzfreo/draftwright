@@ -223,7 +223,7 @@ def boss_requirement_outcomes(
         owners = tuple(feature for _source, feature in members)
         outcomes.append(
             BossRequirementOutcome(
-                _point(getattr(sources[0], "location")),
+                _point(getattr(sources[0], "location")),  # noqa: B009 - provider record typed as object
                 "grouping.count",
                 _state(owners, "grouping.count", registry=registry, omissions=omissions),
                 features=owners,

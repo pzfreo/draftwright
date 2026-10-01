@@ -1184,21 +1184,22 @@ def y_chain_detail_scale_needed(
     if not segments:
         return None
     centres = sorted(
-        ((pa + pb) / 2, width) for (pa, pb, _length), width in zip(segments, label_widths)
+        ((pa + pb) / 2, width)
+        for (pa, pb, _length), width in zip(segments, label_widths, strict=True)
     )
     labels_clear = all(
         next_centre - centre >= (width + next_width) / 2 + text_padding
-        for (centre, width), (next_centre, next_width) in zip(centres, centres[1:])
+        for (centre, width), (next_centre, next_width) in zip(centres, centres[1:], strict=False)
     )
     inside_arrows_fit = all(
         abs(pb - pa) >= width + 2 * arrow_length + 2 * text_padding
-        for (pa, pb, _length), width in zip(segments, label_widths)
+        for (pa, pb, _length), width in zip(segments, label_widths, strict=True)
     )
     if labels_clear and inside_arrows_fit:
         return None
     return max(
         (width + 2 * arrow_length + 2 * text_padding) / length
-        for (_pa, _pb, length), width in zip(segments, label_widths)
+        for (_pa, _pb, length), width in zip(segments, label_widths, strict=True)
         if length > 0
     )
 

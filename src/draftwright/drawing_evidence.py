@@ -243,7 +243,7 @@ def layout_utilization(page, view_names, view_bounds, annotations) -> dict:
         clipped = [found for box in boxes if (found := clip(box, region)) is not None]
         xs = sorted({value for box in clipped for value in (box[0], box[2])})
         area = 0.0
-        for left, right in zip(xs, xs[1:]):
+        for left, right in zip(xs, xs[1:], strict=False):
             intervals = sorted(
                 (box[1], box[3]) for box in clipped if box[0] < right and box[2] > left
             )

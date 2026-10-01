@@ -343,7 +343,7 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
     return bb
 
 
-def _cross_view_overlaps(dwg, a) -> int:
+def _cross_view_overlaps(dwg) -> int:
     """Count annotation footprints from *different* views that lack clearance.
 
     A label owns the drafting preset's external text padding on every side.  Waiting until
@@ -355,7 +355,7 @@ def _cross_view_overlaps(dwg, a) -> int:
     exactly as pass 1 placed it, so well-estimated parts stay byte-identical;
     only a sheet with a real collision is re-packed (ADR 2 (was 0004)).
     """
-    items = list(_attribute_annotations(dwg, a))
+    items = list(_attribute_annotations(dwg))
     clearance = _annotation_clearance(dwg)
     n = 0
     for i in range(len(items)):
@@ -394,7 +394,7 @@ def _annotation_view_overlaps(dwg, a) -> int:
     boxes = {v: (cx - hw, cy - hh, cx + hw, cy + hh) for v, (cx, cy, hw, hh) in geom.items()}
     clearance = _annotation_clearance(dwg)
     n = 0
-    for _name, v, bb, label in _attribute_annotations(dwg, a):
+    for _name, v, bb, label in _attribute_annotations(dwg):
         if not label:
             continue
         bb = _inflate_box(bb, clearance)
@@ -467,7 +467,7 @@ def _measure_blocks(dwg, a) -> dict:
     geom = _view_geom(a)
     ext: dict = {v: None for v in geom}
     clearance = _annotation_clearance(dwg)
-    for name, v, bb, label in _attribute_annotations(dwg, a):
+    for name, v, bb, label in _attribute_annotations(dwg):
         # A label's measured footprint includes the same external text clearance used by the
         # repack trigger.  Otherwise repack would notice the shortfall and then reproduce it.
         bb = _inflate_box(bb, clearance if label else 0.0)
@@ -797,7 +797,8 @@ def _assemble(
         ]
         if len(defaults) == 1:
             general_tolerance_source = defaults[0]
-            a = replace(a, tolerance=getattr(general_tolerance_source, "designation"))
+            # The feature union does not expose this kind-specific attribute.
+            a = replace(a, tolerance=getattr(general_tolerance_source, "designation"))  # noqa: B009
 
     # ADR 1 (was 0005 §2): the one build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.
@@ -1049,7 +1050,7 @@ def _repack_candidates(a, scale, page):
 def _needs_repack(dwg, a) -> bool:
     """True when the measured drawing still needs a compose-then-pack pass."""
     return (
-        _cross_view_overlaps(dwg, a) != 0
+        _cross_view_overlaps(dwg) != 0
         or _annotation_view_overlaps(dwg, a) != 0
         or _annotations_out_of_bounds(dwg, a)
     )
@@ -1327,7 +1328,10 @@ class _PlacementCritique:
             or len(cached) < len(before)
             or len(after) != len(expected)
             or any(left is not right for left, right in zip(after, expected, strict=True))
-            or any(left is not right for left, right in zip(cached[-len(before) :], before))
+            or any(
+                left is not right
+                for left, right in zip(cached[-len(before) :], before, strict=True)
+            )
         ):
             self.discard(drawing)
             return
@@ -2778,7 +2782,7 @@ def make_drawing(
         "estimated-strips", "demand-guided", "compare", "baseline", "candidate-preview", "best"
     ] = "demand-guided",
 ) -> tuple[str, str]:
-    """Generate a 4-view technical drawing from a STEP file or build123d object.
+    """Generate a technical drawing from a STEP file or build123d object.
 
     Args:
         step_file: Path to a STEP/STP file, or a build123d ``Shape`` (e.g. a
@@ -2806,8 +2810,8 @@ def make_drawing(
         detail_view: automatically add an enlarged view for crowded prismatic step
             dimensions. Default ``True``; pass ``False`` to disable that recovery.
         reproducible: make repeated exports from the returned drawing byte-identical
-            on the same Draftwright version. Off by default because canonical DXF
-            ordering has a measurable export-time cost.
+            on the same Draftwright version. On by default; pass ``False`` to skip
+            canonical DXF ordering.
         framed_recognition: opt an automatic build into the provider-owned local recognition
             frame. Raw remains the default rollout path.
         leader_region: feature-leader label region policy. ``"auto"`` keeps the normal

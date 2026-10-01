@@ -148,7 +148,10 @@ out in the issue/PR/review, not after merge.
 
 ## Dependencies
 
-- `build123d-drafting-helpers>=0.13.0` (Apache 2.0), `build123d>=0.9.0` (Apache 2.0)
+- `build123d>=0.9.0,<0.11 ; python_full_version < '3.13'` and
+  `build123d>=0.11,<0.12 ; python_full_version >= '3.13'` (Apache 2.0),
+  `build123d-drafting-helpers>=0.15.5` (Apache 2.0), and
+  `quiddity==0.3.3` (Apache 2.0). `pyproject.toml` is the dependency authority.
 - Export render chain: `reportlab` + `svglib` (PDF), `pypdfium2` + `pillow` (PNG) —
   all pure-wheel, no native cairo; svglib is the one weak-copyleft (LGPL) member.
 - The 1D strip solve is dependency-free PAVA (`_solve_strip_1d_pava`); `kiwisolver`
@@ -159,12 +162,12 @@ out in the issue/PR/review, not after merge.
 Tests are geometry-level — edge counts, bbox placement, face counts, lint clean
 checks. Target is 100% passing. Tiers (#153):
 
-- **`uv run pytest -m unit`** (~30 s, most of it interpreter/OCC import) — the pure-logic
+- **`uv run pytest -m unit`** — the pure-logic
   inner loop: zero OCC geometry, enforced by a conftest hook (#656). Membership is the
   `UNIT_MODULES` list in `tests/_unit_manifest.py`; grow it there.
-- **`uv run pytest -m smoke`** (~30 s) — curated build-light subset for a quick
+- **`uv run pytest -m smoke`** — curated build-light subset for a quick
   local "did I break something obvious" check.
-- **`uv run pytest`** — full fast tier (`-m 'not slow'`; nearly every test does a
+- **`uv run pytest`** — full fast tier (`-m 'not slow and not scheduled'`; nearly every test does a
   real OCC build). Prefer **targeted** selections (`-k`, node ids) locally;
   `scripts/pr-check --full` uses `-n auto --dist worksteal`, CI keeps `loadscope`. A
   critique-style test should share a module-scoped built drawing, not mint a new dense

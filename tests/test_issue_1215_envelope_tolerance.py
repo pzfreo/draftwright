@@ -143,7 +143,7 @@ class TestTheCostOnACrowdedSheet:
 
     @staticmethod
     def _label_box(drawing, name):
-        return getattr(drawing.registry.named(name), "label_bbox")
+        return drawing.registry.named(name).label_bbox
 
     def test_a_rotated_label_grows_along_the_dimension_line(self):
         bare = self._label_box(_built(axis=None), "dim_height")

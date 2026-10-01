@@ -138,5 +138,5 @@ class AngularDimension(Compound):
                 )
                 for index in range(count + 1)
             ]
-            result.extend(zip(points, points[1:]))
+            result.extend(zip(points, points[1:], strict=False))
         return tuple((self._point(start), self._point(end)) for start, end in result)

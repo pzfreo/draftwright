@@ -95,7 +95,7 @@ def test_dim_footprint_matches_real_geometry(p1, p2, side, distance, label):
     real = _geom_box(_dim(p1, p2, side, distance, draft, label=label))
     est = dim_footprint(p1, p2, side, distance, draft, label)
     assert real is not None
-    assert max(abs(e - r) for e, r in zip(est, real)) <= 0.15
+    assert max(abs(e - r) for e, r in zip(est, real, strict=False)) <= 0.15
 
 
 def test_dim_footprint_matches_name_resolved_font():
@@ -106,7 +106,7 @@ def test_dim_footprint_matches_name_resolved_font():
     real = _geom_box(_dim((10, 20, 0), (40, 20, 0), (0, -1, 0), 15, draft, label="2× 15"))
     est = dim_footprint((10, 20, 0), (40, 20, 0), (0, -1, 0), 15, draft, "2× 15")
     assert real is not None
-    assert max(abs(e - r) for e, r in zip(est, real)) <= 0.15
+    assert max(abs(e - r) for e, r in zip(est, real, strict=False)) <= 0.15
 
 
 @pytest.mark.parametrize(

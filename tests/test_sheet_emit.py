@@ -3827,7 +3827,9 @@ def _structurally_equal(a, b, *, tol=5e-4):
             return a is b
         return math.isclose(a, b, rel_tol=0, abs_tol=tol)
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
-        return len(a) == len(b) and all(_structurally_equal(x, y, tol=tol) for x, y in zip(a, b))
+        return len(a) == len(b) and all(
+            _structurally_equal(x, y, tol=tol) for x, y in zip(a, b, strict=False)
+        )
     return a == b
 
 
@@ -4548,7 +4550,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         assert [f.kind for f in rebuilt.features][: len(model.features)] == [
             f.kind for f in model.features
         ], name
-        for original, back in zip(model.features, rebuilt.features):
+        for original, back in zip(model.features, rebuilt.features, strict=False):
             assert _structurally_equal(original, back), (
                 f"{name}: {original.kind} came back different:\n  from {original}\n  to   {back}"
             )
@@ -4633,7 +4635,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             f"{name}: the script declares a different set of feature kinds from its mirror"
         )
 
-        for original, rebuilt in zip(by_kind_detected, by_kind_declared):
+        for original, rebuilt in zip(by_kind_detected, by_kind_declared, strict=False):
             for field in dataclasses.fields(original):
                 want = getattr(original, field.name)
                 got = getattr(rebuilt, field.name)
@@ -4681,6 +4683,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             for o, r in zip(
                 [f for f in detected.features if f.kind != "authored_dimension"],
                 [f for f in declared.features if f.kind != "authored_dimension"],
+                strict=False,
             )
             if any(f.name == "members" for f in dataclasses.fields(o))
         ]

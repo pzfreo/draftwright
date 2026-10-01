@@ -1,9 +1,8 @@
 """Compat facade: the annotation passes moved to the annotations/ subpackage (#164).
 
-`_auto_annotate` (the orchestrator) now lives in `annotations.orchestrator`; the
-individual passes in `annotations.{sections,turned,pmi,holes}`. This module re-exports
-the orchestrator entry point and the two helpers still referenced by name elsewhere,
-so `from draftwright.annotate import _auto_annotate` keeps working.
+`_auto_annotate` and its companion entry points live in
+`annotations.orchestrator`; rendering passes live in `annotations/`. This module
+retains the historical import path for callers of those entry points.
 """
 
 import warnings

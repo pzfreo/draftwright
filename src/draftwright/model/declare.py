@@ -1255,7 +1255,7 @@ def step_level(
     levels = tuple(sorted(levels))
     # Levels are a correlated ladder: a duplicate or non-increasing level double-dimensions a
     # rung and skews the shoulder-suppression count — reject rather than silently accept (#578).
-    for lo, hi in zip(levels, levels[1:]):
+    for lo, hi in zip(levels, levels[1:], strict=False):
         if not hi > lo:
             raise ValueError(
                 f"step_level() levels must be unique and strictly increasing: {levels}"

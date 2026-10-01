@@ -132,7 +132,8 @@ def _coalesce_aligned_linear_pitch_dims(dwg, a: Analysis, *, ctx) -> None:
             dwg.remove(name)
         identity["measurement"] = tuple(measurements)
         ctx.registry.reapply(chosen_name, identity)
-        setattr(chosen, "source_features", tuple(owners))
+        # Feature annotations acquire this provenance after they are built.
+        setattr(chosen, "source_features", tuple(owners))  # noqa: B010
 
 
 def _add_grid_pitch_dims(

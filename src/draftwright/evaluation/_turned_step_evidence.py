@@ -245,7 +245,8 @@ def _turned_step_drawing_outcomes(
                 return False
             intervals = sorted((key[2][0], key[2][1]) for key in keys)
             if any(
-                abs(left[1] - right[0]) > 1e-6 for left, right in zip(intervals, intervals[1:])
+                abs(left[1] - right[0]) > 1e-6
+                for left, right in zip(intervals, intervals[1:], strict=False)
             ):
                 return False
             run_stations = sorted(

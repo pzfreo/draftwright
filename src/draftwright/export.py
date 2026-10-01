@@ -244,7 +244,7 @@ def canonicalize_svg(svg_path: str) -> None:
         # there and two runs that agree on the order still differ in bytes.
         tails = [child.tail for child in children]
         children.sort(key=_leaf_key)
-        for child, tail in zip(children, tails):
+        for child, tail in zip(children, tails, strict=True):
             child.tail = tail
         group[:] = children
     # Strip the SVG namespace from in-memory tag spellings, then declare it as
@@ -773,15 +773,10 @@ def _elements(shape, *, ordered: bool = False):
     the fact in :func:`canonicalize_svg`, where the elements are already in the
     file and cost nothing to reorder.)
 
-    **Ordering is the expensive half of a reproducible export** - one
-    ``bounding_box()`` and one ``edges()`` per part, measured at about a third
-    of DXF export time again on a 358-part sheet (0.40 s -> 0.54 s, interleaved
-    over 9 runs) - so it is opt-in, and off costs exactly what it did before the
-    option existed. The metadata pinning in :func:`write_dxf` is the cheap half
-    (~1 ms); both hang off the one ``reproducible`` flag a caller sets, because
-    a caller asking for a file that does not change between runs wants both and
-    should not have to know which one costs. This sits on the hot path #602
-    cleared: measure, do not predict.
+    Ordering and metadata pinning share the public ``reproducible`` policy,
+    which is enabled by default. A caller may set ``reproducible=False`` to
+    skip both costs when stable export bytes are unnecessary. Ordering sits on
+    the hot path #602 cleared, so measure before changing this policy.
     """
     faces = list(shape.faces())
     if not faces:

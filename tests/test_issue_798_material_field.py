@@ -9,6 +9,7 @@ not evidence.
 from __future__ import annotations
 
 import math
+from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
 import pytest
@@ -185,7 +186,7 @@ class TestDeterminism:
     def test_the_field_is_frozen(self):
         field = material_field(_square(0, 0, 10, 10))
         assert isinstance(field, MaterialField)
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             field.cell = 1.0  # type: ignore[misc]
 
 

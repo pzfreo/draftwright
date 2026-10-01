@@ -704,7 +704,9 @@ def _solve_segmented_strip_1d(
     if not naturals:
         return []
     ordered = sorted(segments)
-    if any(b[0] - a[1] < gap - _LAYOUT_EPSILON for a, b in zip(ordered, ordered[1:])):
+    if any(
+        b[0] - a[1] < gap - _LAYOUT_EPSILON for a, b in zip(ordered, ordered[1:], strict=False)
+    ):
         raise ValueError("segmented strip intervals must be separated by gap")
     # member-count -> (cost, coordinates); ties keep the first (leftmost) split.
     states: dict[int, tuple[float, list[float]]] = {0: (0.0, [])}
@@ -717,7 +719,7 @@ def _solve_segmented_strip_1d(
                 solved = _solve_strip_1d(chunk, gap, lo, hi)
                 assert solved is not None  # count never exceeds _strip_capacity
                 candidate = (
-                    cost + sum(abs(x - n) for x, n in zip(solved, chunk)),
+                    cost + sum(abs(x - n) for x, n in zip(solved, chunk, strict=False)),
                     coords + solved,
                 )
                 previous = next_states.get(placed + count)

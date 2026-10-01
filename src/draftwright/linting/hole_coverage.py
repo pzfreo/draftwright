@@ -286,11 +286,7 @@ def _pattern_key(pattern) -> tuple:
         member = recognised[0]
         bcd = getattr(pattern, "diameter", None) if kind == "bolt_circle" else None
         pitch = getattr(pattern, "pitch", None) if kind == "linear" else None
-        grid = (
-            (getattr(pattern, "row_pitch"), getattr(pattern, "col_pitch"))
-            if kind == "grid"
-            else None
-        )
+        grid = (pattern.row_pitch, pattern.col_pitch) if kind == "grid" else None
         direction = getattr(pattern, "direction", None)
         rows = getattr(pattern, "rows", None)
         cols = getattr(pattern, "cols", None)
@@ -535,10 +531,6 @@ def _satisfaction_parameter(parameter: str) -> str | None:
     return parameter
 
 
-def _location_members(feature, parameter: str):
-    return _members(feature)
-
-
 @dataclass
 class _HoleEvidence:
     placed: set[tuple[object, str]]
@@ -636,7 +628,13 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
                 (str(feature_representation), str(reason))
             )
 
-        def record_representation(feature, parameter):
+        def record_representation(
+            feature,
+            parameter,
+            requirement_representations=requirement_representations,
+            representation=representation,
+            representation_reason=representation_reason,
+        ):
             if (feature, parameter) in requirement_representations:
                 representations[(feature, parameter)].update(
                     requirement_representations[(feature, parameter)]
@@ -808,9 +806,7 @@ def _structured_locations_placed(
                         "physical_location",
                     )
         return bool(features)
-    expected = {
-        (feature, point) for feature in features for point in _location_members(feature, parameter)
-    }
+    expected = {(feature, point) for feature in features for point in _members(feature)}
     covered = {
         (feature, point)
         for feature in features
@@ -1449,7 +1445,9 @@ def lint_hole_leader_targets(
             )
         elif (
             min(
-                _projected_edge_distance(edge, tip, lambda x, y, z: project(view, x, y, z))
+                _projected_edge_distance(
+                    edge, tip, lambda x, y, z, view=view: project(view, x, y, z)
+                )
                 for edge in edges
             )
             > 2e-3

@@ -47,7 +47,7 @@ class TestFindTurnedSteps:
     def test_steps_tile_the_axis_and_sum_to_overall(self):
         steps = recognise_turned_steps(_shaft_x((30, 40), (16, 30)))
         # contiguous: each step's hi is the next step's lo
-        for a, b in zip(steps, steps[1:]):
+        for a, b in zip(steps, steps[1:], strict=False):
             assert a.hi == pytest.approx(b.lo)
         assert sum(s.length for s in steps) == pytest.approx(70.0)
 
@@ -84,7 +84,7 @@ class TestFindTurnedSteps:
         assert len(sh) == 3
         assert list(sh) == sorted(sh)  # sorted shoulder positions
         # consecutive shoulders delimit the steps
-        diffs = sorted(round(b - a, 2) for a, b in zip(sh, sh[1:]))
+        diffs = sorted(round(b - a, 2) for a, b in zip(sh, sh[1:], strict=False))
         assert diffs == [30.0, 40.0]
 
     def test_plain_cylinder_is_empty(self):

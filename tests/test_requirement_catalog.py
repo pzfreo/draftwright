@@ -77,7 +77,9 @@ def test_live_catalog_joins_by_source_and_parameter_despite_reordered_rows(intak
     for original, current in zip(baseline.requirements, aligned, strict=True):
         assert original.parameter_id == current.parameter_id
         assert len(original.source_records) == len(current.source_records)
-        assert all(a is b for a, b in zip(original.source_records, current.source_records))
+        assert all(
+            a is b for a, b in zip(original.source_records, current.source_records, strict=False)
+        )
 
 
 @pytest.mark.parametrize("kind", ("holes", "u_channel"))

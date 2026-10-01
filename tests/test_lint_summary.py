@@ -382,7 +382,7 @@ class TestLintSummaryAndDrops:
         # issues and never accumulate the build-time drop records.
 
         plate = Box(120, 60, 8)
-        for x, r in zip((-48, -24, 0, 24, 48), (2.0, 2.5, 3.0, 3.5, 4.0)):
+        for x, r in zip((-48, -24, 0, 24, 48), (2.0, 2.5, 3.0, 3.5, 4.0), strict=False):
             plate -= Pos(x, 0, 0) * Cylinder(r, 8)
         dwg = build_drawing(plate)
         first, second = dwg.lint(), dwg.lint()

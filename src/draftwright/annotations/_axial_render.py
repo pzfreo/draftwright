@@ -117,7 +117,7 @@ def _step_measurements(segs: list[_StepChainSegment]) -> tuple[Any, ...]:
     return tuple(result)
 
 
-def _record_step_chain_drop(dwg, why: str, *, ctx, measurement=()) -> None:
+def _record_step_chain_drop(why: str, *, ctx, measurement=()) -> None:
     """Record the ``step_dim_dropped`` warning for unresolved turned lengths.
     These drops were silent (debug log only) — the user got
     a drawing with no step-length dimensioning and no signal. Mirrors
@@ -221,7 +221,7 @@ def _draw_step_chain(
             def _clear(items):
                 return all(
                     c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
-                    for (c1, w1), (c2, w2) in zip(items, items[1:])
+                    for (c1, w1), (c2, w2) in zip(items, items[1:], strict=False)
                 )
 
             if _clear(cw):
@@ -231,7 +231,6 @@ def _draw_step_chain(
             else:
                 _log.info("step-length chain skipped: too dense even when staggered")
                 _record_step_chain_drop(
-                    dwg,
                     "shoulders too dense to dimension even when staggered",
                     ctx=ctx,
                     measurement=_step_measurements(segs),
@@ -300,7 +299,6 @@ def _draw_step_chain(
             page[0] <= box[0] and box[2] <= page[2] and page[1] <= box[1] and box[3] <= page[3]
         ):
             _record_step_chain_drop(
-                dwg,
                 "a dimension would fall off the drawable page",
                 ctx=ctx,
                 measurement=measurements,
