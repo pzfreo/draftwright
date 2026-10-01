@@ -126,7 +126,7 @@ def _complexity_findings() -> dict[str, int]:
         assert line in owners, f"Ruff finding has no function at {path}:{line}"
         match = _COMPLEXITY_MESSAGE.fullmatch(issue["message"])
         assert match is not None, issue["message"]
-        key = f"{path.relative_to(_SOURCE)}:{owners[line]}"
+        key = f"{path.relative_to(_SOURCE).as_posix()}:{owners[line]}"
         assert key not in findings, f"Duplicate qualified complexity identity: {key}"
         findings[key] = int(match.group(1))
     return findings
