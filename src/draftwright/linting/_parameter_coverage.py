@@ -45,7 +45,7 @@ def parameter_outcomes(
     registry,
     omissions,
     *,
-    source_inventory: str,
+    source_inventory: str | None = None,
     kind: str,
     key_fn: Callable[[object], tuple],
     parameter_ids: tuple[str, ...],
@@ -54,6 +54,8 @@ def parameter_outcomes(
     feature_key_fn: Callable[[object], tuple] | None = None,
     source_at_fn: Callable[[object], tuple[float, float, float]] | None = None,
     source_type: type | None = None,
+    sources_fn: Callable[[RecognitionResult], tuple] | None = None,
+    parameter_ids_fn: Callable[[object, object], tuple[str, ...] | None] | None = None,
     key_errors: tuple[type[Exception], ...] = (),
     parameter_errors: tuple[type[Exception], ...] = (AttributeError, TypeError),
 ) -> list[_Outcome]:
@@ -65,7 +67,12 @@ def parameter_outcomes(
             f"{entrypoint}() requires the run's RecognitionResult; "
             f"got {type(recognition).__name__}"
         )
-    sources = tuple(getattr(recognition, source_inventory))
+    if sources_fn is None:
+        if source_inventory is None:
+            raise ValueError("a source inventory or source selector is required")
+        sources = tuple(getattr(recognition, source_inventory))
+    else:
+        sources = sources_fn(recognition)
     if not sources:
         return []
 
@@ -107,7 +114,11 @@ def parameter_outcomes(
             source_at = key[1]
         else:
             source_at = source_at_fn(source)
-        valid = feature is not None and _has_parameters(feature, parameter_ids, parameter_errors)
+        valid = feature is not None and (
+            parameter_ids_fn(feature, source) == parameter_ids
+            if parameter_ids_fn is not None
+            else _has_parameters(feature, parameter_ids, parameter_errors)
+        )
         for parameter in parameter_ids:
             if not valid:
                 outcomes.append(
@@ -141,12 +152,15 @@ def parameter_outcomes(
 
 
 def lint_parameter_coverage(
-    outcomes: list[_Outcome], *, issue_factory: Callable[[_Outcome, str], LintIssue]
+    outcomes: list[_Outcome],
+    *,
+    issue_factory: Callable[[_Outcome, str], LintIssue],
+    missing_message: str = "has no placed, suppressed, or dropped callout outcome",
 ) -> list[LintIssue]:
     """Report uncovered states without repeating placement-drop findings."""
     messages = {
         "suppressed": "was deliberately omitted by the authored dimension set",
-        "missing": "has no placed, suppressed, or dropped callout outcome",
+        "missing": missing_message,
         "unverifiable": "cannot be joined to measurement provenance without guessing",
     }
     issues = []
