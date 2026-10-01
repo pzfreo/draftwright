@@ -21,7 +21,7 @@
     "annotations/_edge_callouts.py:_surface_normal_candidates": 17,
     "annotations/_gdt.py:_gdt_drop_callback": 16,
     "annotations/_gdt.py:render_gdt": 20,
-    "annotations/_leader_fixed_ink.py:_annotation_fixed_ink": 32,
+    "annotations/_leader_fixed_ink.py:_annotation_fixed_ink": 27,
     "annotations/_locations.py:render_locations": 20,
     "annotations/_machined_leaders.py:_MachinedJobContext.lower": 21,
     "annotations/_placement_occupancy.py:annotation_ink_clear": 18,
