@@ -15,6 +15,7 @@ from draftwright.evaluation.step_analysis import (
     ExpectedFact,
     ObservedFact,
     ParameterExpectation,
+    _boundary_observer,
     _BuildAttempt,
     _drawing_for_observation,
     evaluate_case,
@@ -377,6 +378,22 @@ def test_prepared_observation_rejects_foreign_part_or_repair_policy() -> None:
         _drawing_for_observation(object(), build=build)
     with pytest.raises(ValueError, match="another repair policy"):
         _drawing_for_observation(part, build=build, repair=False)
+
+
+def test_shared_boundary_observer_keeps_cardinality_and_exclusive_ownership(caplog) -> None:
+    observed = _boundary_observer(
+        2,
+        counted_as="Double-D bores",
+        scored_as="Double-D bores",
+        eligible=(True, False),
+    )
+
+    assert observed("ir_adapter", lambda: ["supported", "supported"]) == [
+        "supported",
+        "unknown",
+    ]
+    assert observed("dsl_declaration", lambda: ["supported"]) == ["unknown", "unknown"]
+    assert "observed 1 outcomes for 2 Double-D bores" in caplog.text
 
 
 @pytest.mark.parametrize(

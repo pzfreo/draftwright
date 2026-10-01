@@ -1252,6 +1252,39 @@ def _declared_turned_step_model(part, sources):
     return sheet.model()
 
 
+def _boundary_observer(
+    count: int,
+    *,
+    counted_as: str,
+    scored_as: str,
+    eligible: Sequence[bool] | None = None,
+) -> Callable[[str, Callable[[], list[Outcome]]], list[Outcome]]:
+    """Score each downstream boundary once per physical source, retaining unknowns."""
+    unknown: list[Outcome] = ["unknown"] * count
+
+    def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+        try:
+            result = observe()
+            if len(result) != count:
+                raise ValueError(f"observed {len(result)} outcomes for {count} {counted_as}")
+            if eligible is not None:
+                return [
+                    outcome if eligible[index] else "unknown"
+                    for index, outcome in enumerate(result)
+                ]
+            return result
+        except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+            _log.warning(
+                "evaluation: %s observation failed (%s); scoring %s as unknown",
+                name,
+                exc,
+                scored_as,
+            )
+            return list(unknown)
+
+    return observed_boundary
+
+
 def _bore_observers() -> Mapping[str, _PreparedObserver]:
     def observe_holes(
         part: object, *, build: _BuildAttempt | None = None
@@ -1290,25 +1323,9 @@ def _bore_observers() -> Mapping[str, _PreparedObserver]:
             except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
                 _log.warning("evaluation: recognition access failed (%s); observing no holes", exc)
                 return ()
-            unknown: list[Outcome] = ["unknown"] * len(holes)
-
-            def observed_boundary(
-                name: str, observe: Callable[[], list[Outcome]]
-            ) -> list[Outcome]:
-                try:
-                    result = observe()
-                    if len(result) != len(holes):
-                        raise ValueError(
-                            f"observed {len(result)} outcomes for {len(holes)} recognised holes"
-                        )
-                    return result
-                except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                    _log.warning(
-                        "evaluation: %s observation failed (%s); scoring holes as unknown",
-                        name,
-                        exc,
-                    )
-                    return list(unknown)
+            observed_boundary = _boundary_observer(
+                len(holes), counted_as="recognised holes", scored_as="holes"
+            )
 
             boundary_outcomes = {
                 "ir_adapter": observed_boundary(
@@ -1404,23 +1421,9 @@ def _bore_observers() -> Mapping[str, _PreparedObserver]:
                 "evaluation: recognition access failed (%s); observing no countersinks", exc
             )
             return ()
-        unknown: list[Outcome] = ["unknown"] * len(countersinks)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(countersinks):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(countersinks)} countersinks"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring countersinks as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(countersinks), counted_as="countersinks", scored_as="countersinks"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1502,26 +1505,12 @@ def _bore_variant_observers() -> Mapping[str, _PreparedObserver]:
                 "evaluation: recognition access failed (%s); observing no Double-D bores", exc
             )
             return ()
-        unknown: list[Outcome] = ["unknown"] * len(bores)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(bores):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(bores)} Double-D bores"
-                    )
-                return [
-                    outcome if exclusive_owners[index] else "unknown"
-                    for index, outcome in enumerate(result)
-                ]
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring Double-D bores as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(bores),
+            counted_as="Double-D bores",
+            scored_as="Double-D bores",
+            eligible=exclusive_owners,
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1586,23 +1575,9 @@ def _bore_variant_observers() -> Mapping[str, _PreparedObserver]:
                 "evaluation: recognition access failed (%s); observing no hole patterns", exc
             )
             return ()
-        unknown: list[Outcome] = ["unknown"] * len(patterns)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(patterns):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(patterns)} recognised patterns"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring patterns as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(patterns), counted_as="recognised patterns", scored_as="patterns"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1691,23 +1666,9 @@ def _stock_observers() -> Mapping[str, _PreparedObserver]:
             _log.warning("evaluation: recognition access failed (%s); observing no flats", exc)
             return ()
         groups = _flat_groups(flats)
-        unknown: list[Outcome] = ["unknown"] * len(groups)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(groups):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(groups)} physical flats"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring flats as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(groups), counted_as="physical flats", scored_as="flats"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1778,23 +1739,9 @@ def _stock_observers() -> Mapping[str, _PreparedObserver]:
             raise ObservationError(
                 "rectangular-pads", f"recognition access failed: {exc}"
             ) from exc
-        unknown: list[Outcome] = ["unknown"] * len(pads)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(pads):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(pads)} physical pads"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring rectangular pads as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(pads), counted_as="physical pads", scored_as="rectangular pads"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1863,23 +1810,9 @@ def _stock_observers() -> Mapping[str, _PreparedObserver]:
                 exc,
             )
             raise ObservationError("plates", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(plates)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(plates):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(plates)} physical plates"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring plates as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(plates), counted_as="physical plates", scored_as="plates"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1959,23 +1892,9 @@ def _polygonal_observers() -> Mapping[str, _PreparedObserver]:
             raise ObservationError(
                 "polygonal-bosses", f"recognition access failed: {exc}"
             ) from exc
-        unknown: list[Outcome] = ["unknown"] * len(bosses)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(bosses):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(bosses)} polygonal bosses"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring polygonal bosses as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(bosses), counted_as="polygonal bosses", scored_as="polygonal bosses"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2043,23 +1962,9 @@ def _polygonal_observers() -> Mapping[str, _PreparedObserver]:
                 exc,
             )
             raise ObservationError("polygonal-stock", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(stocks)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(stocks):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(stocks)} polygonal stocks"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring polygonal stock as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(stocks), counted_as="polygonal stocks", scored_as="polygonal stock"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2128,23 +2033,9 @@ def _turned_profile_observers() -> Mapping[str, _PreparedObserver]:
         except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
             _log.warning("evaluation: recognition access failed (%s); observing no grooves", exc)
             raise ObservationError("grooves", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(grooves)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(grooves):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(grooves)} physical grooves"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring grooves as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(grooves), counted_as="physical grooves", scored_as="grooves"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2208,23 +2099,9 @@ def _turned_profile_observers() -> Mapping[str, _PreparedObserver]:
                 "evaluation: recognition access failed (%s); observing no turned steps", exc
             )
             raise ObservationError("turned-steps", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(sources)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(sources):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(sources)} turned-step bands"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring turned steps as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(sources), counted_as="turned-step bands", scored_as="turned steps"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2285,23 +2162,9 @@ def _edge_observers() -> Mapping[str, _PreparedObserver]:
         except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
             _log.warning("evaluation: recognition access failed (%s); observing no chamfers", exc)
             raise ObservationError("chamfers", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(chamfers)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(chamfers):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(chamfers)} physical chamfers"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring chamfers as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(chamfers), counted_as="physical chamfers", scored_as="chamfers"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2360,23 +2223,9 @@ def _edge_observers() -> Mapping[str, _PreparedObserver]:
         except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
             _log.warning("evaluation: recognition access failed (%s); observing no fillets", exc)
             raise ObservationError("fillets", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(fillets)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(fillets):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(fillets)} physical fillets"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring fillets as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(fillets), counted_as="physical fillets", scored_as="fillets"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2442,23 +2291,9 @@ def _recess_observers() -> Mapping[str, _PreparedObserver]:
         except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
             _log.warning("evaluation: recognition access failed (%s); observing no pockets", exc)
             return ()
-        unknown: list[Outcome] = ["unknown"] * len(pockets)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(pockets):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(pockets)} physical pockets"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring pockets as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(pockets), counted_as="physical pockets", scored_as="pockets"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2534,23 +2369,9 @@ def _recess_observers() -> Mapping[str, _PreparedObserver]:
                 exc,
             )
             return ()
-        unknown: list[Outcome] = ["unknown"] * len(patterns)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(patterns):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(patterns)} pocket patterns"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring pocket patterns as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(patterns), counted_as="pocket patterns", scored_as="pocket patterns"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
