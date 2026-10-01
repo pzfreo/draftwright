@@ -296,6 +296,11 @@ def test_real_corpus_denominator_does_not_shrink_when_the_observer_is_deleted() 
 def test_two_physical_families_share_one_primary_build_and_recognition(monkeypatch) -> None:
     import draftwright.analysis as analysis
     import draftwright.builder as builder
+    import draftwright.sheet as sheet
+
+    # The generated-code boundary imports Sheet. Bind its builder before this test patches
+    # the module function, or the later Sheet tests retain the temporary wrapper.
+    assert sheet.build_drawing is builder.build_drawing
 
     countersinks = load_corpus(CORPUS.parent / "corpus-countersinks-v1.json")
     seat = next(case for case in countersinks.cases if case.case_id == "countersink-single-seat")
@@ -351,6 +356,38 @@ def test_two_physical_families_share_one_primary_build_and_recognition(monkeypat
     assert result.detection.missed == result.detection.false_positives == 0
     assert result.parameter_fidelity.passed == result.parameter_fidelity.total == 7
     assert result.downstream_usefulness.passed == result.downstream_usefulness.total == 8
+    assert result.complete_cases == result.conformant_cases == 1
+
+
+def test_mixed_polygonal_stock_scope_keeps_both_build_policies(monkeypatch) -> None:
+    import draftwright.builder as builder
+    import draftwright.sheet as sheet
+
+    assert sheet.build_drawing is builder.build_drawing
+    stock_corpus = load_corpus(CORPUS.parent / "corpus-polygonal-stock-v1.json")
+    stock = next(case for case in stock_corpus.cases if case.case_id == "polygonal-stock-x")
+    corpus = replace(stock_corpus, scope=("holes", "polygonal-stock"), cases=(stock,))
+    original = builder.build_drawing
+    repair_options = []
+
+    def counted_build(*args, **kwargs):
+        repair_options.append(kwargs.get("repair", True))
+        drawing = original(*args, **kwargs)
+        recognition = drawing.recognition()
+        assert recognition is not None
+        assert len(recognition.polygonal_stock) == 1
+        assert len(recognition.holes) == 0
+        return drawing
+
+    monkeypatch.setattr(builder, "build_drawing", counted_build)
+
+    result = evaluate_step_corpus(corpus)
+
+    assert repair_options == [True, False]
+    assert result.detection.matched == 1
+    assert result.detection.missed == result.detection.false_positives == 0
+    assert result.parameter_fidelity.passed == result.parameter_fidelity.total == 4
+    assert result.downstream_usefulness.passed == result.downstream_usefulness.total == 4
     assert result.complete_cases == result.conformant_cases == 1
 
 
