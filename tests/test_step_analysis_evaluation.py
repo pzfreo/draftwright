@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,8 @@ from draftwright.evaluation.step_analysis import (
     ExpectedFact,
     ObservedFact,
     ParameterExpectation,
+    _BuildAttempt,
+    _drawing_for_observation,
     evaluate_case,
     evaluate_corpus,
     evaluate_step_corpus,
@@ -287,6 +290,93 @@ def test_real_corpus_denominator_does_not_shrink_when_the_observer_is_deleted() 
     assert damaged.detection.missed == 5
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(corpus.cases)
+
+
+def test_two_physical_families_share_one_primary_build_and_recognition(monkeypatch) -> None:
+    import draftwright.analysis as analysis
+    import draftwright.builder as builder
+
+    countersinks = load_corpus(CORPUS.parent / "corpus-countersinks-v1.json")
+    seat = next(case for case in countersinks.cases if case.case_id == "countersink-single-seat")
+    bore = ExpectedFact(
+        family="holes",
+        identity={
+            "axis": ParameterExpectation((0.0, 0.0, -1.0), 1e-9),
+            "location": ParameterExpectation((8.0, -5.0, 2.0), 1e-6),
+        },
+        parameters={
+            "bottom": ParameterExpectation("through"),
+            "depth": ParameterExpectation(8.0, 1e-6),
+            "diameter": ParameterExpectation(6.0, 1e-6),
+        },
+        required_downstream=(
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer",
+        ),
+    )
+    corpus = replace(
+        countersinks,
+        scope=("holes", "countersinks"),
+        cases=(replace(seat, expected=(bore, *seat.expected)),),
+    )
+    original_build = builder.build_drawing
+    original_recognize = analysis.build_recognition_evidence
+    build_calls = 0
+    recognition_calls = 0
+
+    def counted_build(*args, **kwargs):
+        nonlocal build_calls
+        build_calls += 1
+        drawing = original_build(*args, **kwargs)
+        recognition = drawing.recognition()
+        assert recognition is not None
+        assert len(recognition.holes) == len(recognition.countersinks) == 1
+        return drawing
+
+    def counted_recognize(*args, **kwargs):
+        nonlocal recognition_calls
+        recognition_calls += 1
+        return original_recognize(*args, **kwargs)
+
+    monkeypatch.setattr(builder, "build_drawing", counted_build)
+    monkeypatch.setattr(analysis, "build_recognition_evidence", counted_recognize)
+
+    result = evaluate_step_corpus(corpus)
+
+    assert (build_calls, recognition_calls) == (1, 1)
+    assert result.detection.matched == 2
+    assert result.detection.missed == result.detection.false_positives == 0
+    assert result.parameter_fidelity.passed == result.parameter_fidelity.total == 7
+    assert result.downstream_usefulness.passed == result.downstream_usefulness.total == 8
+    assert result.complete_cases == result.conformant_cases == 1
+
+
+def test_injected_observer_does_not_trigger_a_default_build(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    corpus = load_corpus(CORPUS)
+    negative = next(case for case in corpus.cases if not case.expected)
+
+    def unexpected_build(*_args, **_kwargs):
+        raise AssertionError("custom observers must own their own build policy")
+
+    monkeypatch.setattr(builder, "build_drawing", unexpected_build)
+    result = evaluate_step_corpus(
+        replace(corpus, cases=(negative,)), observers={"holes": lambda _part: ()}
+    )
+    assert result.complete_cases == result.conformant_cases == 1
+
+
+def test_prepared_observation_rejects_foreign_part_or_repair_policy() -> None:
+    part = object()
+    build = _BuildAttempt(part, True, drawing=object())
+
+    with pytest.raises(ValueError, match="another imported part"):
+        _drawing_for_observation(object(), build=build)
+    with pytest.raises(ValueError, match="another repair policy"):
+        _drawing_for_observation(part, build=build, repair=False)
 
 
 @pytest.mark.parametrize(

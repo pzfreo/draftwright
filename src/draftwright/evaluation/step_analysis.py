@@ -143,7 +143,7 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 from math import isfinite
 from pathlib import Path
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, Protocol, TypeAlias
 
 from draftwright.evaluation._double_d_evidence import (
     _DOUBLE_D_CALLOUT_RE as _DOUBLE_D_CALLOUT_RE,
@@ -498,6 +498,47 @@ Scalar: TypeAlias = int | float | str | bool
 Value: TypeAlias = Scalar | tuple[float, ...]
 Outcome: TypeAlias = Literal["supported", "unknown", "unsupported"]
 Observer: TypeAlias = Callable[[object], Sequence["ObservedFact"]]
+
+
+@dataclass(frozen=True)
+class _BuildAttempt:
+    part: object
+    repair: bool
+    drawing: Any | None = None
+    error: Exception | None = None
+
+
+class _PreparedObserver(Protocol):
+    def __call__(
+        self, part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]: ...
+
+
+def _attempt_build(part: object, *, repair: bool = True) -> _BuildAttempt:
+    # The lazy concrete-module import avoids the package-root upward edge and OCC startup
+    # when loading only the corpus schema.
+    from draftwright.builder import build_drawing
+
+    try:
+        if repair:
+            return _BuildAttempt(part, repair, drawing=build_drawing(part))  # type: ignore[arg-type]
+        return _BuildAttempt(part, repair, drawing=build_drawing(part, repair=False))  # type: ignore[arg-type]
+    except Exception as exc:  # noqa: BLE001 — each observer owns its existing failure policy
+        return _BuildAttempt(part, repair, error=exc)
+
+
+def _drawing_for_observation(
+    part: object, *, build: _BuildAttempt | None, repair: bool = True
+) -> Any:
+    if build is not None and build.part is not part:
+        raise ValueError("observation build belongs to another imported part")
+    if build is not None and build.repair is not repair:
+        raise ValueError("observation build uses another repair policy")
+    attempt = build if build is not None else _attempt_build(part, repair=repair)
+    if attempt.error is not None:
+        raise attempt.error
+    return attempt.drawing
+
 
 _log = logging.getLogger(__name__)
 
@@ -1211,22 +1252,14 @@ def _declared_turned_step_model(part, sources):
     return sheet.model()
 
 
-def _bore_observers() -> Mapping[str, Observer]:
-    def observe_holes(part: object) -> Sequence[ObservedFact]:
-        # Lazy for COST, not for layering: `evaluation` is rank 7 and `builder` rank 6, so
-        # a module-level import here is a legal downward edge and passes the DAG guard —
-        # an earlier comment claimed otherwise. What it buys is not paying build123d's
-        # ~6 s import to load this module. Import the concrete module rather than the
-        # package root: `from draftwright import ...` pulls `__init__`, which the guard
-        # treats as the TOP module and would make this a genuine upward edge.
-        from draftwright.builder import build_drawing
-
-        # ONE drawing per fixture, and ONE recognition: the records scored here come from
-        # the build's own aggregate (ADR 3 (was 0017)'s single owner per run), not a second
-        # `build_raw_recognition_result` call, so the facts being scored and the features they
-        # are matched against cannot come from different recognition runs.
+def _bore_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_holes(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
+        # Score the build-owned aggregate so correspondence and rendered features share
+        # one recognition run. Only the failed-build fallback below recognises standalone.
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             # The SCORE is the same `unknown` a correspondence gap produces — the oracle has
             # three outcomes and no fourth — but the two must not be indistinguishable to a
@@ -1324,12 +1357,13 @@ def _bore_observers() -> Mapping[str, Observer]:
             for index, hole in enumerate(holes)
         )
 
-    def observe_countersinks(part: object) -> Sequence[ObservedFact]:
+    def observe_countersinks(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
         """Observe physical seats without making them a second bore denominator."""
-        from draftwright.builder import build_drawing
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring countersinks as unknown", exc
@@ -1440,13 +1474,14 @@ def _bore_observers() -> Mapping[str, Observer]:
     }
 
 
-def _bore_variant_observers() -> Mapping[str, Observer]:
-    def observe_double_d_bores(part: object) -> Sequence[ObservedFact]:
+def _bore_variant_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_double_d_bores(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
         """Observe one complete through-profile occurrence per aggregate record."""
-        from draftwright.builder import build_drawing
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring Double-D bores as unknown", exc
@@ -1530,11 +1565,12 @@ def _bore_variant_observers() -> Mapping[str, Observer]:
             for index, bore in enumerate(bores)
         )
 
-    def observe_hole_patterns(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_hole_patterns(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring hole patterns as unknown", exc
@@ -1636,12 +1672,13 @@ def _bore_variant_observers() -> Mapping[str, Observer]:
     }
 
 
-def _stock_observers() -> Mapping[str, Observer]:
-    def observe_flats(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+def _stock_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_flats(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning("evaluation: drawing build failed (%s); scoring flats as unknown", exc)
             return ()
@@ -1716,11 +1753,12 @@ def _stock_observers() -> Mapping[str, Observer]:
             for index, (identity, members) in enumerate(groups)
         )
 
-    def observe_pads(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_pads(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring rectangular pads as unknown",
@@ -1802,11 +1840,12 @@ def _stock_observers() -> Mapping[str, Observer]:
             for identity in (_pad_identity(pad),)
         )
 
-    def observe_plates(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_plates(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring plates as unknown",
@@ -1894,12 +1933,13 @@ def _stock_observers() -> Mapping[str, Observer]:
     }
 
 
-def _polygonal_observers() -> Mapping[str, Observer]:
-    def observe_polygonal_bosses(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+def _polygonal_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_polygonal_bosses(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring polygonal bosses as unknown",
@@ -1980,11 +2020,12 @@ def _polygonal_observers() -> Mapping[str, Observer]:
             for identity in (_polygonal_boss_identity(boss),)
         )
 
-    def observe_polygonal_stock(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_polygonal_stock(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part, repair=False)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build, repair=False)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring polygonal stock as unknown",
@@ -2069,12 +2110,13 @@ def _polygonal_observers() -> Mapping[str, Observer]:
     }
 
 
-def _turned_profile_observers() -> Mapping[str, Observer]:
-    def observe_grooves(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+def _turned_profile_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_grooves(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning("evaluation: drawing build failed (%s); scoring grooves as unknown", exc)
             raise ObservationError("grooves", f"drawing build failed: {exc}") from exc
@@ -2144,12 +2186,13 @@ def _turned_profile_observers() -> Mapping[str, Observer]:
             for identity in (_groove_identity(groove),)
         )
 
-    def observe_turned_steps(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_turned_steps(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
         from draftwright.linting.turned_step_coverage import physical_turned_steps
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring turned steps as unknown", exc
@@ -2224,12 +2267,13 @@ def _turned_profile_observers() -> Mapping[str, Observer]:
     }
 
 
-def _edge_observers() -> Mapping[str, Observer]:
-    def observe_chamfers(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+def _edge_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_chamfers(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning("evaluation: drawing build failed (%s); scoring chamfers as unknown", exc)
             raise ObservationError("chamfers", f"drawing build failed: {exc}") from exc
@@ -2299,11 +2343,12 @@ def _edge_observers() -> Mapping[str, Observer]:
             for identity in (_chamfer_identity(chamfer),)
         )
 
-    def observe_fillets(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_fillets(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning("evaluation: drawing build failed (%s); scoring fillets as unknown", exc)
             raise ObservationError("fillets", f"drawing build failed: {exc}") from exc
@@ -2379,12 +2424,13 @@ def _edge_observers() -> Mapping[str, Observer]:
     }
 
 
-def _recess_observers() -> Mapping[str, Observer]:
-    def observe_pockets(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+def _recess_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_pockets(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning("evaluation: drawing build failed (%s); scoring pockets as unknown", exc)
             return ()
@@ -2460,8 +2506,9 @@ def _recess_observers() -> Mapping[str, Observer]:
             for identity in (_pocket_identity(pocket),)
         )
 
-    def observe_pocket_patterns(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_pocket_patterns(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
         from draftwright.linting.pocket_pattern_coverage import (
             pocket_pattern_kind,
             pocket_pattern_members,
@@ -2469,7 +2516,7 @@ def _recess_observers() -> Mapping[str, Observer]:
         )
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring pocket patterns as unknown",
@@ -2607,7 +2654,7 @@ def _recess_observers() -> Mapping[str, Observer]:
     }
 
 
-def _default_observers() -> Mapping[str, Observer]:
+def _default_observers() -> Mapping[str, _PreparedObserver]:
     """Register each physical family in the established corpus order."""
     bore = _bore_observers()
     variant = _bore_variant_observers()
@@ -2644,8 +2691,8 @@ def evaluate_step_corpus(
     """Import every pinned STEP fixture and evaluate normalized family observations."""
     from build123d import import_step
 
+    defaults = _default_observers() if observers is None else {}
     if observers is None:
-        defaults = _default_observers()
         registered: Mapping[str, Observer] = {
             family: defaults[family] for family in corpus.scope if family in defaults
         }
@@ -2667,9 +2714,26 @@ def evaluate_step_corpus(
         part = import_step(case.provenance["fixture"])
         failure: ObservationError | None = None
         try:
-            observations = tuple(
-                observation for family in corpus.scope for observation in registered[family](part)
-            )
+            if (
+                observers is None
+                and corpus.scope
+                and ("polygonal-stock" not in corpus.scope or len(corpus.scope) == 1)
+            ):
+                # A case shares its primary detected build. Polygonal stock alone keeps its
+                # established repair=False policy. A mixed stock scope retains separate builds
+                # until one repair policy can be shown equivalent for all its families.
+                build = _attempt_build(part, repair="polygonal-stock" not in corpus.scope)
+                observations = tuple(
+                    observation
+                    for family in corpus.scope
+                    for observation in defaults[family](part, build=build)
+                )
+            else:
+                observations = tuple(
+                    observation
+                    for family in corpus.scope
+                    for observation in registered[family](part)
+                )
         except ObservationError as exc:
             failure = exc
             observations = ()
