@@ -49,7 +49,8 @@ keeps it below `_core` → **2**
 `linting/`, `reporting`, `drawing_evidence`, render-free corridor demand planning,
 and peers → **3** `analysis` and
 recognition lifecycle state → **4**
-`annotations/` (the render passes, including axial and rotational `_axial_render`, feature-family `_slots`,
+`annotations/` (the render passes, including sheet furniture in `_sheet_furniture`,
+axial and rotational `_axial_render`, feature-family `_slots`,
 `_pocket_pad`, `_edge_callouts`, `_thin_profiles`, `_diameters`, `_locations`, `_gdt`,
 `_pmi_dimensions`, `_step_lengths`, and `_height_ladder` owners, shared machined
 leader lowering in `_machined_leaders`, analytical dimension ink in `_dimension_ink`,

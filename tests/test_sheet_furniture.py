@@ -97,7 +97,7 @@ class TestZoneGrid:
         assert dwg._analysis.zones is False
 
     def test_zones_imply_frame_and_have_iso_counts(self, shared_drawing):
-        from draftwright._core import _zone_divisions
+        from draftwright.annotations._sheet_furniture import _zone_divisions
 
         dwg = shared_drawing("box_80x60x20", zones=True)
         a = dwg._analysis
@@ -137,7 +137,11 @@ class TestZoneGrid:
         # Codex review: match a standard on BOTH dims (a same-width custom page must not borrow
         # the A-series count), and clamp rows to the available letters so a tall page can't
         # index past _ZONE_LETTERS.
-        from draftwright._core import _ZONE_DIVISIONS, _ZONE_LETTERS, _zone_divisions
+        from draftwright.annotations._sheet_furniture import (
+            _ZONE_DIVISIONS,
+            _ZONE_LETTERS,
+            _zone_divisions,
+        )
 
         assert _zone_divisions(420, 297) == _ZONE_DIVISIONS[(420, 297)]  # A3 unchanged
         assert _zone_divisions(297, 100) != _ZONE_DIVISIONS[(297, 210)]  # not the A4 count

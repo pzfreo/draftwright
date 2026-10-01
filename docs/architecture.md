@@ -176,6 +176,9 @@ and re-exports the existing private helper names.
     `build model → plan/model-routed intents → render`; some inline engine code remains — chiefly
     `_maybe_tabulate_holes` (the hole-table/balloon escalation resolver) and the
     iso right-strip outer-limit tightening — pending the last convergence steps.
+  - **`annotations/_sheet_furniture.py`** — the shared title-block cache, page
+    frame, zone ruler, projection glyph, scale note, and document-wide finish
+    renderers called by both the builder and annotation orchestrator.
   - **`annotations/from_model.py`** — the IR render facade and remaining feature
     passes: turns the planner's `DimensionGroup`/render intents into placed
     dimensions, callouts, centre marks, and section triggers. It keeps the
@@ -360,7 +363,7 @@ and re-exports the existing private helper names.
   the orchestrator calls down with no cycle.
 - **`_core.py`** — shared primitives below both `make_drawing.py` and `annotate.py`:
   the `Analysis` namespace and its field types (`_Projector`, `Strip`, `ViewZones`),
-  the dimension/format helpers (`_dim`, `_fmt`, `_add_title_block`, …), and the
+  the dimension/format helpers (`_dim`, `_fmt`, `_attribution_author`, …), and the
   page/slot/margin layout constants.
 - **`layout.py`** — the deterministic placement primitives used by ADR 2:
   the deterministic
