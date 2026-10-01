@@ -82,6 +82,7 @@ class _LeaderTraceRecorder:
             "label": job.label,
             "source_pass": job.noun,
             "priority": job.priority,
+            "obligation_class": job.effective_obligation_class,
             "candidates_tried": raw_count,
             "obstacles": obstacle_count,
             "rejected": [

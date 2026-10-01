@@ -109,6 +109,14 @@ a diagnostic gap exposed by CTC03: a strip-full trace alone could not explain
 which subsequent recovery attempts failed. It is not a new placement policy or
 evidence that CTC03 must fit perfectly on one page.
 
+The feature-leader joint assignment and its bounded producer fallback apply the
+same required/unknown/optional survival order before numeric priority, fixed-ink
+penalty, and leader length. Approved measurements and source-owned callouts are
+required even when a producer leaves the class unspecified. This can preserve a
+required leader at the cost of multiple optional jobs in a genuine conflict;
+ADR 2 invariant 7 records the approved order. It still coordinates only the
+feature-leader inventory, not all representation choices across the drawing.
+
 ## Extra sheets reuse the explicit document boundary
 
 `Document`/`DocumentResult` already provide explicitly authored sheets over one

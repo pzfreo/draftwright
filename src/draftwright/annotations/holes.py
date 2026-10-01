@@ -1782,6 +1782,7 @@ def _collect_shared_queue(
                 # this callout's text (or vice versa).
                 require_clear_label_ink=True,
                 priority=float(dia),
+                obligation_class=("required" if getattr(callout, "source_ids", ()) else "unknown"),
                 on_place=_on_place,
                 on_drop=callbacks.on_drop,
                 recover=(

@@ -82,6 +82,7 @@ from draftwright.layout import (
 )
 from draftwright.leader_policy import LeaderRegionPolicy as LeaderRegionPolicy
 from draftwright.model.compiled import resolve_feature
+from draftwright.obligations import ObligationClass, obligation_rank
 from draftwright.progress import activity, checkpoint
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
 
@@ -167,9 +168,31 @@ class FeatureLeaderJob:
     allow_policy_b_fixed: bool = False
     require_clear_label_ink: bool = False
     priority: float = 0.0
+    obligation_class: ObligationClass = "unknown"
     on_place: Callable[[Any], None] | None = None
     on_drop: Callable[[str], None] | None = None
     recover: Callable[[], tuple[Any, Any] | None] | None = None
+
+    @property
+    def effective_obligation_class(self) -> ObligationClass:
+        """A job carrying an approved measurement cannot be optional ink."""
+        obligation_rank(self.obligation_class)
+        if self.measurement:
+            if self.obligation_class == "optional":
+                raise ValueError("measured leader job cannot be optional")
+            return "required"
+        return self.obligation_class
+
+
+def _semantic_job_order(jobs: Iterable[FeatureLeaderJob]) -> tuple[int, ...]:
+    """Stable required/unknown/optional order for the resource-bounded floor."""
+    jobs = tuple(jobs)
+    return tuple(
+        sorted(
+            range(len(jobs)),
+            key=lambda index: (-obligation_rank(jobs[index].effective_obligation_class), index),
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -633,12 +656,13 @@ def _assign_by_view(
     *,
     priorities,
     penalties_by_job,
+    obligation_classes=None,
 ):
     """Solve the leader assignment independently per view and merge the results (#1188).
 
     **Exact, not an approximation.** Two facts make the problem separable: a candidate
     conflict is only ever constructed for a same-view pair, and every term of the
-    lexicographic objective (placed, priority, penalty, cost) is a sum over jobs. The
+    lexicographic objective (classed survival, priority, penalty, cost) is a sum over jobs. The
     optimum of the whole inventory is therefore the union of the per-view optima.
 
     The reason to bother is that the search is combinatorial in the number of jobs. Solved
@@ -651,6 +675,13 @@ def _assign_by_view(
     these searches are independent.
     """
     order: dict[str, list[int]] = {}
+    classes = (
+        ("unknown",) * len(costs_by_job)
+        if obligation_classes is None
+        else tuple(obligation_classes)
+    )
+    if len(classes) != len(costs_by_job):
+        raise ValueError("leader obligation classes must match the number of jobs")
     for job_index, view in enumerate(job_views):
         order.setdefault(view, []).append(job_index)
     choices: list[int | None] = [None] * len(costs_by_job)
@@ -717,6 +748,7 @@ def _assign_by_view(
                 component_conflicts,
                 priorities=[priorities[members[position]] for position in component],
                 penalties_by_job=[penalties_by_job[members[position]] for position in component],
+                obligation_classes=[classes[members[position]] for position in component],
             )
             for component_index, position in enumerate(component):
                 choices[members[position]] = result.choices[component_index]
@@ -1498,6 +1530,7 @@ def _refine_provisional_leaders(inputs: _ProvisionalRefinementInput) -> _Provisi
             [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
             conflicts,
             priorities=[job.priority for job in jobs],
+            obligation_classes=[job.effective_obligation_class for job in jobs],
             penalties_by_job=[
                 [
                     (len(fixed_blockers) + units) * max_provisional_penalty
@@ -1636,7 +1669,7 @@ def _run_greedy_floor(
     abandoned_raw_counts=None,
     prefer_clear=True,
 ) -> int:
-    """Deterministic first-clear floor in original stage/job order.
+    """Deterministic first-clear floor in class, then stage/job order.
 
     ``prefer_clear`` examines a bounded tail for a route that clears material (#798).
     Geometry-validation replay disables that preference to preserve the producer floor.
@@ -1679,7 +1712,8 @@ def _run_greedy_floor(
     pending_recoveries = []
     legacy_boxes = start.legacy_boxes
 
-    for job_index, job in enumerate(jobs):
+    for job_index in _semantic_job_order(jobs):
+        job = jobs[job_index]
         obstacle_count = len(fixed[job.view])
         fallback_source = (
             candidate_budget_fallback_jobs[job_index]
@@ -2072,6 +2106,7 @@ def _prepare_primary_joint(floor: _GreedyFloorInput, batch: _LeaderBatch) -> _Pr
         [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
         conflicts,
         priorities=[job.priority for job in jobs],
+        obligation_classes=[job.effective_obligation_class for job in jobs],
         penalties_by_job=[
             [
                 len(blockers) + units
@@ -2102,7 +2137,7 @@ def _prepare_primary_joint(floor: _GreedyFloorInput, batch: _LeaderBatch) -> _Pr
 def _replay_state_budget(
     floor: _GreedyFloorInput, batch: _LeaderBatch, primary: _PrimaryJoint
 ) -> int | None:
-    """Retain a complete incumbent or replay the producer's cardinality floor."""
+    """Retain a complete incumbent or replay the class-first producer floor."""
     assignment = primary.assignment
     fallback_jobs = batch.fallback_jobs
     conflicts = primary.conflicts
@@ -2116,8 +2151,8 @@ def _replay_state_budget(
     raw_count_by_job = primary.raw_count_by_job
     candidate_entry = floor.recorder.candidate_entry
 
-    # Override the established producer layout only for a proven cardinality
-    # improvement. A complete incumbent beats any floor with an empty job stream;
+    # Under a search budget, normally replay the lazy producer floor. A complete
+    # incumbent beats any floor with an empty job stream;
     # otherwise the floor may place every job too, with different downstream
     # section/table opportunities. Peek at most one raw candidate per job and
     # restore each nonempty stream for the ordinary fallback/validation paths.
@@ -2134,9 +2169,8 @@ def _replay_state_budget(
     if not assignment.optimal and not retain_complete_incumbent:
         # The layout solver's bounded-search incumbent is seeded from the new
         # exact-ink candidate order, not from every producer's canonical
-        # pre-#1166 lazy fallback.  Replaying that producer floor is the only
-        # general guarantee that resource pressure cannot reduce semantic
-        # cardinality relative to the established renderer.
+        # lazy fallback. Replay those streams in class order when bounded search
+        # is inconclusive, retaining a deterministic required-first floor.
         conflict_names_by_candidate: dict[tuple[int, int], set[str]] = {}
         for earlier_job, earlier_index, later_job, later_index in conflicts:
             conflict_names_by_candidate.setdefault((earlier_job, earlier_index), set()).add(
@@ -2215,7 +2249,7 @@ def _materialize_joint_or_replay(
 
     if geometry_failures:
         # Rendered-OCC validation is deliberately outside the numeric search,
-        # but failure cannot silently reduce the solver's primary cardinality.
+        # but failure cannot silently reduce the solver's class-first floor.
         # Replay the canonical lazy producer floor: it validates candidates in
         # order and continues after a bad survivor, remaining bounded by the
         # original streams and preserving the pre-shared-stage semantic floor.
@@ -2227,8 +2261,8 @@ def _materialize_joint_or_replay(
         return _run_greedy_floor(
             floor,
             "greedy_geometry_validation",
-            # A pure legacy replay: this exists to guarantee cardinality after the exact
-            # path lost candidates to rendering failures, so it must not spend its search
+            # A pure producer replay: this preserves the class-first floor after the
+            # exact path lost candidates to rendering failures, so it must not spend its search
             # looking for a tidier route.
             prefer_clear=False,
             fixed_probes=total_fixed_probes,

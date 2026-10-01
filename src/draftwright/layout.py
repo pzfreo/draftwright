@@ -39,8 +39,8 @@ What actually lives here today:
 - :func:`_assign_leader_candidates` — the bounded within-pass assignment for
   post-drain machined-feature leaders (#740).  The annotation layer lowers
   measured alternatives to numeric costs and pairwise conflicts; this leaf
-  maximises placed jobs, then minimises total leader length, retaining the
-  legacy greedy incumbent if its deterministic search budget is exhausted.
+  preserves required, then unknown, then optional jobs before comparing
+  priority and route costs; its deterministic search has a bounded floor.
 - :func:`obligation_rank` — the shared required/unknown/optional survival order
   for pre-render demand and placement. Unknown ink cannot be treated as optional.
 
@@ -54,7 +54,7 @@ from __future__ import annotations
 import heapq
 import math
 from dataclasses import dataclass, field
-from typing import Literal, NamedTuple
+from typing import Literal, NamedTuple, cast
 
 Axis = Literal["x", "y"]
 ObligationClass = Literal["required", "optional", "unknown"]
@@ -363,8 +363,8 @@ class _LeaderAssignment:
 
     ``choices[job]`` is the selected candidate index or ``None``. ``optimal``
     is false when a deterministic resource guard prevented or stopped the exact
-    search; the returned incumbent is still at least as good as the legacy
-    greedy pass. ``states`` is deterministic work-count evidence for traces and
+    search; the returned incumbent preserves the class-first greedy floor.
+    ``states`` is deterministic work-count evidence for traces and
     tests (zero when the job-count guard prevents search from starting).
     """
 
@@ -373,31 +373,45 @@ class _LeaderAssignment:
     states: int
 
 
+def _leader_semantic_weights(job_count, obligation_classes) -> tuple[int, ...]:
+    """Encode required, unknown and optional counts in exact lexicographic order."""
+    classes: tuple[ObligationClass, ...]
+    if obligation_classes is None:
+        classes = cast(tuple[ObligationClass, ...], ("unknown",) * job_count)
+    else:
+        classes = tuple(obligation_classes)
+        if len(classes) != job_count:
+            raise ValueError("leader obligation classes must match the number of jobs")
+    # Every possible lower-class total is smaller than one higher-class placement.
+    semantic_base = job_count + 1
+    return tuple(semantic_base ** obligation_rank(classification) for classification in classes)
+
+
 def _assign_leader_candidates(
     costs_by_job,
     conflicts=(),
     *,
     priorities=None,
     penalties_by_job=None,
+    obligation_classes=None,
     max_states: int = _LEADER_ASSIGN_MAX_STATES,
 ) -> _LeaderAssignment:
     """Assign at most one candidate per leader job (#740).
 
-    The objectives are lexicographic: maximum placed jobs, maximum summed job
-    priority, minimum fixed-obstacle Policy-B penalty, minimum total leader
-    length, then the stable input candidate order. ``priorities`` and
-    ``penalties_by_job`` default to zero, preserving #740's original objective.
-    ``conflicts`` contains
-    ``(job_a, candidate_a, job_b, candidate_b)`` pairs that may not coexist.
-    The caller derives those pairs from page geometry; this leaf knows only
-    indices and numeric costs.
+    The objectives are lexicographic: maximum placed required jobs, then unknown
+    jobs, then optional jobs; maximum summed job priority; minimum fixed-obstacle
+    Policy-B penalty; minimum total leader length; then stable input candidate
+    order. With no classes supplied every job is unknown, preserving #740's
+    original count-first objective and tie convention. Priorities and penalties
+    default to zero. ``conflicts`` contains incompatible candidate index pairs;
+    the caller derives them from page geometry.
 
     General candidate-conflict assignment is combinatorial.  The search is
-    therefore explicitly bounded.  Before searching, the function constructs
-    the old first-clear greedy result as an incumbent.  If the budget is reached,
-    that incumbent (or a strictly better one found so far) is returned with
-    ``optimal=False``.  Resource pressure can never make the new pass place fewer
-    callouts than the pre-#740 algorithm.
+    therefore explicitly bounded. Before searching, the function constructs a
+    deterministic class-first greedy incumbent. If the budget is reached, that
+    incumbent (or a strictly better one found so far) is returned with
+    ``optimal=False``. With uniform classes this is the pre-#740 greedy floor;
+    mixed classes protect required meaning even if fewer optional jobs fit.
     """
 
     if max_states <= 0:
@@ -419,6 +433,7 @@ def _assign_leader_candidates(
     if any(not math.isfinite(priority) for priority in raw_priorities):
         raise ValueError("leader priorities must be finite")
     job_priorities = tuple(int(round(priority * _FLOW_COST_SCALE)) for priority in raw_priorities)
+    semantic_weights = _leader_semantic_weights(len(costs), obligation_classes)
     if penalties_by_job is None:
         penalties = tuple(tuple(0 for _cost in job) for job in costs)
     else:
@@ -510,14 +525,18 @@ def _assign_leader_candidates(
                 options.append(candidate_index)
         candidate_options.append(tuple(options))
 
-    # The exact pre-#740 policy: visit jobs and candidates in input order, and
-    # keep the first candidate compatible with every earlier selection.
-    greedy = []
+    # Seed the bounded search with a semantic floor: higher classes visit first,
+    # then original job order. Uniform classes retain the pre-#740 first-clear floor.
+    greedy: list[int | None] = [None] * len(costs)
     greedy_selected: set[int] = set()
     greedy_cost = 0
     greedy_priority = 0
     greedy_penalty = 0
-    for job_index, job in enumerate(costs):
+    greedy_semantic = 0
+    for job_index in sorted(
+        range(len(costs)), key=lambda index: (-semantic_weights[index], index)
+    ):
+        job = costs[job_index]
         selected = None
         for candidate_index in candidate_options[job_index]:
             cost = job[candidate_index]
@@ -528,41 +547,42 @@ def _assign_leader_candidates(
                 greedy_cost += cost
                 greedy_priority += job_priorities[job_index]
                 greedy_penalty += penalties[job_index][candidate_index]
+                greedy_semantic += semantic_weights[job_index]
                 break
-        greedy.append(selected)
+        greedy[job_index] = selected
 
-    def score(choices, count, priority, penalty, cost):
+    def score(choices, semantic, priority, penalty, cost):
         # ``None`` sorts after every real candidate, preserving the established
-        # input-order tie convention once cardinality and length are equal.
+        # input-order tie convention once class counts and length are equal.
         tie = tuple(
             len(costs[index]) if choice is None else choice for index, choice in enumerate(choices)
         )
-        return (-count, -priority, penalty, cost, tie)
+        return (-semantic, -priority, penalty, cost, tie)
 
     best_choices = tuple(greedy)
-    best_count = sum(choice is not None for choice in greedy)
+    best_semantic = greedy_semantic
     best_priority = greedy_priority
     best_penalty = greedy_penalty
     best_cost = greedy_cost
-    best_score = score(best_choices, best_count, best_priority, best_penalty, best_cost)
+    best_score = score(best_choices, best_semantic, best_priority, best_penalty, best_cost)
     # The exact search is recursive by job. Keep a hard bound comfortably below
     # Python's recursion limit, including the all-blocked case whose pair count is
     # zero and therefore cannot trip the annotation-side pair budget.
     if len(costs) > _LEADER_ASSIGN_MAX_JOBS:
         return _LeaderAssignment(best_choices, False, 0)
 
-    # Optimistic cardinality and cost bounds ignore conflicts; that makes them
-    # cheap and safe. The cost bound is needed only when reaching the incumbent
-    # cardinality requires selecting every remaining non-empty job, so one
-    # suffix sum is sufficient (linear storage, not a quadratic suffix table).
-    suffix_nonempty = [0] * (len(costs) + 1)
+    # Optimistic semantic and cost bounds ignore conflicts; that makes them
+    # cheap and safe. One suffix sum per objective term keeps storage linear.
+    suffix_semantic = [0] * (len(costs) + 1)
     suffix_priority = [0] * (len(costs) + 1)
     suffix_min_penalty = [0] * (len(costs) + 1)
     suffix_min_cost = [0] * (len(costs) + 1)
     for index in range(len(costs) - 1, -1, -1):
-        suffix_nonempty[index] = suffix_nonempty[index + 1] + bool(candidate_options[index])
+        suffix_semantic[index] = suffix_semantic[index + 1] + (
+            semantic_weights[index] if candidate_options[index] else 0
+        )
         suffix_priority[index] = suffix_priority[index + 1] + (
-            job_priorities[index] if candidate_options[index] else 0
+            max(0, job_priorities[index]) if candidate_options[index] else 0
         )
         suffix_min_penalty[index] = suffix_min_penalty[index + 1] + (
             min(penalties[index][candidate] for candidate in candidate_options[index])
@@ -583,21 +603,21 @@ def _assign_leader_candidates(
 
     def search(
         job_index: int,
-        placed: int,
+        semantic: int,
         total_priority: int,
         total_penalty: int,
         total_cost: int,
     ) -> None:
-        nonlocal states, exhausted, best_choices, best_count, best_priority
+        nonlocal states, exhausted, best_choices, best_semantic, best_priority
         nonlocal best_penalty, best_cost, best_score
         if states >= max_states:
             exhausted = True
             return
         states += 1
 
-        if placed + suffix_nonempty[job_index] < best_count:
+        if semantic + suffix_semantic[job_index] < best_semantic:
             return
-        if placed + suffix_nonempty[job_index] == best_count:
+        if semantic + suffix_semantic[job_index] == best_semantic:
             optimistic_priority = total_priority + suffix_priority[job_index]
             if optimistic_priority < best_priority:
                 return
@@ -615,14 +635,14 @@ def _assign_leader_candidates(
             candidate_choices = tuple(choices)
             candidate_score = score(
                 candidate_choices,
-                placed,
+                semantic,
                 total_priority,
                 total_penalty,
                 total_cost,
             )
             if candidate_score < best_score:
                 best_choices = candidate_choices
-                best_count = placed
+                best_semantic = semantic
                 best_priority = total_priority
                 best_penalty = total_penalty
                 best_cost = total_cost
@@ -633,8 +653,8 @@ def _assign_leader_candidates(
         # precedes length in the score, so exploring a short-but-crossing route
         # first produces a weak incumbent and can exhaust the bounded search long
         # before the pruning bounds become useful.  Candidate index remains the
-        # deterministic final tie-break. Dropping is last because cardinality is
-        # the primary objective.
+        # deterministic final tie-break. Dropping is last for this job because
+        # every obligation class has positive survival weight.
         for candidate_index in sorted(
             candidate_options[job_index],
             key=lambda index: (
@@ -650,7 +670,7 @@ def _assign_leader_candidates(
             selected_candidates.add(candidate)
             search(
                 job_index + 1,
-                placed + 1,
+                semantic + semantic_weights[job_index],
                 total_priority + job_priorities[job_index],
                 total_penalty + penalties[job_index][candidate_index],
                 total_cost + costs[job_index][candidate_index],
@@ -660,7 +680,7 @@ def _assign_leader_candidates(
             if exhausted:
                 return
         choices.append(None)
-        search(job_index + 1, placed, total_priority, total_penalty, total_cost)
+        search(job_index + 1, semantic, total_priority, total_penalty, total_cost)
         choices.pop()
 
     search(0, 0, 0, 0, 0)
