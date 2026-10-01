@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
-from draftwright._core import _STRIP_SPACING, Strip, _dim, _tol_suffix
+from draftwright._core import _STRIP_SPACING, Analysis, Strip, _dim, _tol_suffix
 from draftwright.annotations._common import (
     _LOC_SUBCHAIN,
     _SIZE_SUBCHAIN,
@@ -401,7 +401,7 @@ def _place_slot_dimension(
     return True  # deferred — the callback owns the drop; caller's else must not fire
 
 
-def _render_slot_dimensions(dwg, plan, a, *, ctx, only=None, reach) -> tuple[int, list]:
+def _render_slot_dimensions(dwg, plan, a: Analysis, *, ctx, only=None, reach) -> tuple[int, list]:
     """Build compiled slot-family dimensions and collect late radius jobs.
 
     Slot, pad, and pocket geometry supplies witnesses; every printed size and

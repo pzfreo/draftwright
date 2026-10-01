@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 
-from draftwright._core import _tol_suffix
+from draftwright._core import Analysis, _tol_suffix
 from draftwright._geometry import (
     _blend_profile_arcs,
     _fmt_chamfer,
@@ -309,7 +309,7 @@ def _blend_surface_sites(
     return (site(outer_radius),)
 
 
-def chamfer_jobs(dwg, plan, a, *, ctx, only=None, leader_callout_reach):
+def chamfer_jobs(dwg, plan, a: Analysis, *, ctx, only=None, leader_callout_reach):
     """Prepare compiler-approved chamfer leaders and their source outcomes."""
     draft = dwg.draft
     reach = leader_callout_reach(draft)
@@ -427,7 +427,7 @@ def _fillet_label(radius_text, count) -> str:
 def radius_jobs(
     dwg,
     plan,
-    a,
+    a: Analysis,
     *,
     ctx,
     only,

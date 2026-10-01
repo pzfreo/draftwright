@@ -17,6 +17,7 @@ from draftwright._core import (
     _MIN_STEP_DIM_MM,
     _SLOT_DIM_HEIGHT,
     _SLOT_DIM_STEP,
+    Analysis,
     DetailRequest,
     _analysis_margins,
     _classify_steps,
@@ -335,7 +336,7 @@ def _next_steplen_start(ctx, prefix: str = "m_steplen") -> int:
 
 
 def queue_step_detail(
-    dwg, plan, feature, a, *, ctx, view_name, label, factor, source, _draw_step_chain
+    dwg, plan, feature, a: Analysis, *, ctx, view_name, label, factor, source, _draw_step_chain
 ) -> bool:
     """Redraw an authored shoulder detail through the shared approved-length pass."""
     target = FeatureRef(feature)
@@ -824,7 +825,7 @@ def _global_axis_centerline(first, second):
     return centerline
 
 
-def render_rotational(dwg, plan, a, *, ctx) -> int:
+def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
     """Rotational furniture from the IR `RotationalFeature` (#237): the OD dim (above
     the profile view), rotation-axis centrelines on planned profile projections, and concentric
     bore leaders stacked to the left of the front view. Returns the count placed.
@@ -1023,7 +1024,7 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
     return n
 
 
-def render_local_turned_centerlines(dwg, a, *, ctx) -> int:
+def render_local_turned_centerlines(dwg, a: Analysis, *, ctx) -> int:
     """Show the axis of a local turned stack on a non-rotational part.
 
     Mounting lugs can prevent the complete part from classifying as rotational

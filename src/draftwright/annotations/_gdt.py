@@ -11,6 +11,7 @@ from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish,
 from build123d_drafting.helpers import DEFAULT_FONT_PATH
 
 from draftwright._core import (
+    Analysis,
     ViewZones,
     _font_safe_text,
     _text_line_spacing_em,
@@ -335,7 +336,7 @@ def _gdt_drop_callback(
 
 
 def render_gdt(
-    dwg, model, a, *, ctx, leader_ctor, carve_position, sheet_fallback, source_ids_for
+    dwg, model, a: Analysis, *, ctx, leader_ctor, carve_position, sheet_fallback, source_ids_for
 ) -> int:
     """Place declared GD&T frames / datum symbols / surface finishes (#61) as first-class
     ADR 2 (was 0009) corridor candidates — registered into the SAME strip the feature's dimensions

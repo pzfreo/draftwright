@@ -142,7 +142,7 @@ from draftwright.view_plan import (
 )
 
 
-def _derived_view_identifier_pool(a) -> DerivedViewIdentifierPool:
+def _derived_view_identifier_pool(a: Analysis) -> DerivedViewIdentifierPool:
     """Reserve every authored section/detail identity before any derived view renders."""
 
     constraints = a.view_constraints
@@ -164,7 +164,7 @@ def _derived_view_identifier_pool(a) -> DerivedViewIdentifierPool:
     return DerivedViewIdentifierPool(identifiers, candidates=DERIVED_VIEW_IDENTIFIERS)
 
 
-def _planned_sections(a, model, feature_keys, *, identifiers) -> tuple[SectionPlan, ...]:
+def _planned_sections(a: Analysis, model, feature_keys, *, identifiers) -> tuple[SectionPlan, ...]:
     """Combine the automatic section candidate with ADR 2 (was 0018) authored/add requests."""
 
     constraints = a.view_constraints
@@ -229,7 +229,7 @@ def _planned_sections(a, model, feature_keys, *, identifiers) -> tuple[SectionPl
     return tuple(plans)
 
 
-def _queue_authored_details(dwg: DrawingPort, a, ctx, plan) -> None:
+def _queue_authored_details(dwg: DrawingPort, a: Analysis, ctx, plan) -> None:
     """Lower semantic ``detail_view(..., around=feature)`` constraints to crop requests."""
 
     constraints = a.view_constraints

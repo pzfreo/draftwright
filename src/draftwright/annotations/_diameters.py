@@ -13,6 +13,7 @@ from typing import Any, cast
 from build123d_drafting.helpers import DEFAULT_FONT_PATH, Leader
 
 from draftwright._core import (
+    Analysis,
     _drawing_bounds,
     _greedy_strip_ys,
     _solve_strip_ys,
@@ -506,7 +507,7 @@ def _render_diameter_leaders(
 def render_diameters(
     dwg,
     plan,
-    a,
+    a: Analysis,
     *,
     ctx,
     only=None,

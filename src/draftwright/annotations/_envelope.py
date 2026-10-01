@@ -16,6 +16,7 @@ from draftwright._core import (
     _SLOT_DIM_WIDTH,
     _STRIP_SPACING,
     _WITNESS_LIFT_MM,
+    Analysis,
     Strip,
     _tol_suffix,
 )
@@ -162,7 +163,7 @@ class _EnvelopeDropRetry:
 def render_envelope(
     dwg,
     plan,
-    a,
+    a: Analysis,
     *,
     ctx,
     layout_frame_fn,

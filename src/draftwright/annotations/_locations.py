@@ -8,7 +8,12 @@ from typing import Any
 
 from build123d_drafting.helpers import CenterMark
 
-from draftwright._core import _concentric_with_axis, _first_free_index, _legible_locations
+from draftwright._core import (
+    Analysis,
+    _concentric_with_axis,
+    _first_free_index,
+    _legible_locations,
+)
 from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._common import (
     _LOC_SUBCHAIN,
@@ -285,7 +290,17 @@ def _circular_channel_axis_marks(dwg, ctx, dimensions):
 
 
 def render_circular_channel_locations(
-    dwg, plan, a, *, ctx, only=None, pinned=None, axes=None, dim_builder, register, axis_marks
+    dwg,
+    plan,
+    a: Analysis,
+    *,
+    ctx,
+    only=None,
+    pinned=None,
+    axes=None,
+    dim_builder,
+    register,
+    axis_marks,
 ) -> int:
     """Register approved seat-axis offsets in the shared profile corridors."""
     only_refs = None if only is None else {FeatureRef(feature) for feature in only}
@@ -379,7 +394,7 @@ def render_circular_channel_locations(
 def render_locations(
     dwg,
     plan,
-    a,
+    a: Analysis,
     *,
     ctx,
     only=None,
@@ -638,7 +653,7 @@ def render_locations(
 
 def _register_y_locations(
     dwg,
-    a,
+    a: Analysis,
     ctx,
     refs,
     datum_y,

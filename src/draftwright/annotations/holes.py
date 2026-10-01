@@ -117,7 +117,14 @@ _AXIS_ALIGN_COS = 0.9996
 
 
 def add_feature_callout(
-    dwg, feature, model, a, *, view: str | None = None, name: str | None = None, ctx
+    dwg,
+    feature,
+    model,
+    a: Analysis | None,
+    *,
+    view: str | None = None,
+    name: str | None = None,
+    ctx,
 ) -> str:
     """Add a hole/pattern ø-depth **leader callout** for *feature* — the #414 add verb,
     the callout-mechanism half of the editable surface (symmetric with :meth:`Drawing.drop`).
@@ -151,7 +158,7 @@ def add_feature_callout(
     spec = (
         hole_callout_spec(
             group,
-            include_source_pmi=not ctx.document_member or a.pmi_mode == "annotate",
+            include_source_pmi=not ctx.document_member or cast(Analysis, a).pmi_mode == "annotate",
         )
         if group is not None
         else None
@@ -249,7 +256,14 @@ def add_feature_callout(
 
 
 def add_feature_location(
-    dwg, feature, model, a, *, axes: tuple[str, ...] | None = None, pin: bool = False, ctx
+    dwg,
+    feature,
+    model,
+    a: Analysis | None,
+    *,
+    axes: tuple[str, ...] | None = None,
+    pin: bool = False,
+    ctx,
 ) -> list[str]:
     """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern —
     the #418 ``locate()`` add verb (symmetric with :meth:`Drawing.drop`).
@@ -1177,7 +1191,7 @@ def _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, scale):
     return leader, tip, elbow
 
 
-def _is_central(s, a, to_page, view_cx, view_cy, draft):
+def _is_central(s, a: Analysis, to_page, view_cx, view_cy, draft):
     """The coaxial hole whose callout belongs *on* the view-centre row, and so is anchored there
     (ADR 2 (was 0009 Amendment 4)) — the exact minimum-leader spacing solve can't then slide it off
     centre on a tie. Prismatic parts only: on a turned/rotational round view the centre-line
@@ -1347,7 +1361,7 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
     return y_by_id, dropped_ids
 
 
-def _assemble_view_callouts(a, groups, feature_keys, only, draft, *, ctx):
+def _assemble_view_callouts(a: Analysis, groups, feature_keys, only, draft, *, ctx):
     """Render shared presentation batches over the surviving original IR members."""
     from draftwright.model.callout import hole_callout_batches
 
@@ -1429,7 +1443,7 @@ def _hc_name(only, view, i, hc_used):
 
 def _place_front_callouts(
     dwg,
-    a,
+    a: Analysis,
     view,
     specs,
     to_page,
@@ -2149,7 +2163,7 @@ def _place_queue(
 
 def _place_planside_callouts(
     dwg,
-    a,
+    a: Analysis,
     view,
     specs,
     to_page,

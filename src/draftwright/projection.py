@@ -446,7 +446,9 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None, *, bounds_cache=None):
 _ISO_CLEAR_STEPS = 5
 
 
-def _largest_clear_factor(dwg, a, hi, obstacles, base_box, *, lo=1.0, region=None) -> float:
+def _largest_clear_factor(
+    dwg, a: Analysis, hi, obstacles, base_box, *, lo=1.0, region=None
+) -> float:
     """Search the existing clearance ladder using the measured iso bbox at the current scale.
 
     ``_scale_world`` scales the solid about the world origin. The iso camera's direction is
