@@ -2,7 +2,7 @@
 
 The NIST CTC-01 STEP is recognised once while generating the editable script, then that
 script is built twice: as generated and after one sanctioned ``Sheet`` layout edit.
-This canary pins the historical estimated-strips planner: its A2-to-A1 page edit has
+This canary pins the historical estimated-strips planner: its A3-to-A1 page edit has
 a reviewed, already-resolved overlap. The demand-guided default may choose a
 different page, which would change the experiment rather than test stale credit.
 All negative policy checks below mutate the two resulting JSON documents in
@@ -141,7 +141,7 @@ def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> 
 
     # This is the autonomous-loop edit under test: use only a sanctioned Sheet layout
     # declaration, never raw annotation coordinates. The automatic planner has already
-    # selected a clean A2, so a larger A1 must not receive stale credit for resolving the
+    # selected a clean A3, so a larger A1 must not receive stale credit for resolving the
     # old A4 overlap. Path changes merely keep the two replay artifacts separate and are
     # not drawing semantics.
     source = baseline_script.read_text(encoding="utf-8")
@@ -179,7 +179,7 @@ def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> 
     assert len(list((tmp_path / "candidate-trace").glob("*.trace.json"))) == 1
     assert baseline["drawing"]["layout"]["placement"]["availability"] == "available"
     assert candidate["drawing"]["layout"]["placement"]["availability"] == "available"
-    assert baseline["drawing"]["layout"]["page"]["width"] == 594.0
+    assert baseline["drawing"]["layout"]["page"]["width"] == 420.0
     assert candidate["drawing"]["layout"]["page"]["width"] == 841.0
     assert baseline["drawing"]["layout"]["page"]["scale"] == 0.2
     assert candidate["drawing"]["layout"]["page"]["scale"] == 0.2

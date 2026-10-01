@@ -90,6 +90,7 @@ from draftwright.annotations._placement_occupancy import (  # noqa: F401 — sta
     is_page_spanning_rider,
     late_furniture_obstacles,
     pending_title_block_box,
+    strip_dimension_occupancy,
     strip_free_span,
     strip_obstacles,
     strip_occupants,
@@ -1691,6 +1692,18 @@ def drain_corridors(ctx, dwg):
     _drain_interior_dimensions(ctx, dwg)
 
 
+def _strip_outward_reserve(name, sizes, probe_boxes, *, axis, inner_is_low, probe_origin, tier):
+    size = (sizes or {}).get(name)
+    if size is not None:
+        idx = 1 if axis == "y" else 0
+        return max(tier, size[idx] if axis == "x" else size[idx] / 2)
+    box = probe_boxes.get(name)
+    if box is None:
+        return tier
+    idx = 1 if axis == "y" else 0
+    return max(tier, box[idx + 2] - probe_origin if inner_is_low else probe_origin - box[idx])
+
+
 def _prepare_strip_candidate_run(run) -> None:
     """Measure footprints, carve occupied tiers, and retain hard blockers."""
     dwg, strip, view, axis, cands, tier = (
@@ -1719,26 +1732,32 @@ def _prepare_strip_candidate_run(run) -> None:
     )
     lo, hi, inner = strip_free_span(strip)
     idx = 1 if axis == "y" else 0
+    probe_origin = lo
+    probe_boxes = {
+        name: (
+            footprints[name](probe_origin)
+            if name in (footprints or {})
+            else _geom_box(build(probe_origin))
+        )
+        for name, build in cands
+    }
 
-    # Reserve the outermost label's OUTWARD extent at the strip boundary. plan_strip bounds
-    # the dim-LINE position, but the label extends outward from it — so without this the last
-    # tier's label overshoots outer_limit (into the iso view / page margin), unlike the old
-    # Strip.allocate which checked `start + tier <= outer_limit`. A plain dim's
-    # label extends one `tier` outward (one-sided). A GD&T glyph hangs off a Leader that
-    # CENTRES it on the elbow for an above/below strip (real outward extent = height/2) but
-    # places it one-sided for a left/right strip (extent = full width). Reserve the MAX real
-    # outward extent among these candidates — else a glyph wider than `tier` renders off the
-    # sheet (annotation_out_of_bounds) instead of dropping when the strip is too narrow (ADR
-    # 0009 Amdt 7 fixed inter-candidate gaps but not this edge). With no `sizes` (every dim)
-    # this is `tier`, byte-identical. The strip edge is not an obstacle (obstacles carry their
-    # own footprint + pad), so only the boundary needs it.
-    def _outward(name):
-        sz = (sizes or {}).get(name)
-        if sz is None:
-            return tier  # a dim: one-sided tier reservation (unchanged)
-        return sz[idx] if axis == "x" else sz[idx] / 2  # GD&T: one-sided (L/R) vs centred (A/B)
-
-    reserve = max([tier, *(_outward(n) for n, _ in cands)])
+    # plan_strip bounds dimension-line positions, while rendered labels extend beyond
+    # them. Reserve at least one tier, and more when the measured ink needs it. The
+    # existing tier minimum preserves established choices on roomy sheets; opaque
+    # probes use it as their fallback. The probe origin stays fixed when the low edge moves.
+    reserve = max(
+        _strip_outward_reserve(
+            name,
+            sizes,
+            probe_boxes,
+            axis=axis,
+            inner_is_low=inner == probe_origin,
+            probe_origin=probe_origin,
+            tier=tier,
+        )
+        for name, _build in cands
+    )
     if inner == lo:
         hi -= reserve
     else:
@@ -1763,10 +1782,6 @@ def _prepare_strip_candidate_run(run) -> None:
     # (a prediction miss degrades to a later-segment retry, never a collision).
     # A candidate with an analytical footprint needs no probe build at
     # all — its box at any position is computed, not measured.
-    probe_boxes = {
-        name: (footprints[name](lo) if name in (footprints or {}) else _geom_box(build(lo)))
-        for name, build in cands
-    }
     pbands = [(b[perp], b[perp + 2]) for b in probe_boxes.values() if b is not None]
 
     def _predicted_box(name, pos):
@@ -1779,16 +1794,12 @@ def _prepare_strip_candidate_run(run) -> None:
         box = list(pb)
         # The moving edge is the one AWAY from the view (`inner`); the feature-side
         # edge is anchored geometry and stays put.
-        box[idx + 2 if inner == lo else idx] += pos - lo
+        box[idx + 2 if inner == lo else idx] += pos - probe_origin
         return tuple(box)
 
-    if tp is None:
-        occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-        owners = {}
-    else:  # tracing: same boxes, tagged with their owning annotation names
-        named = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES, named=True)
-        occupied = [b for _, b in named]
-        owners = {id(b): n for n, b in named}
+    named, exact_ink, exact_boxes = strip_dimension_occupancy(dwg, view, axis, exact=not sizes)
+    occupied = [box for _name, box in named]
+    owners = {id(box): name for name, box in named} if tp is not None else {}
     # Obstacles OUTSIDE the batch's predicted perpendicular band are invisible to the
     # carve below by design — but that makes the band prediction itself load-bearing: a
     # candidate whose real geometry exceeds its predicted band could land on one with no
@@ -1811,7 +1822,7 @@ def _prepare_strip_candidate_run(run) -> None:
             for r in corner_reserves
             if r is not None and r[perp] < band_hi and r[perp + 2] > band_lo
         ]
-    blockers = () if force else corridor_blockers(dwg, view)
+    blockers = () if force else corridor_blockers(dwg, view, exact_leaders=bool(exact_ink))
     # The title block is drawn near the end of `_PASS_SEQUENCE`, so it is
     # never in `occupied` above. `pending_title_block_box` knows its fixed box
     # from the sheet geometry, so a strip placer can honour it regardless.
@@ -1848,7 +1859,7 @@ def _prepare_strip_candidate_run(run) -> None:
         tp["free_segments"] = [list(s) for s in segs]
     todo = list(cands)
 
-    def _real_box_conflict(name, real):
+    def _real_box_conflict(name, real, annotation=None):
         """Return the hard-obstacle reason for a built survivor, if any."""
         if real is None:
             return None
@@ -1861,6 +1872,13 @@ def _prepare_strip_candidate_run(run) -> None:
             return "real_box_out_of_band"
         if _box_hits(real, keep_out):
             return "real_box_title_block"
+        if (
+            annotation is not None
+            and not force
+            and _box_hits(real, exact_boxes)
+            and not annotation_ink_clear(dwg, annotation, view=view, against=exact_ink)
+        ):
+            return "real_ink_leader_blocked"
         return None
 
     run.tp, run.lo, run.hi, run.inner, run.idx, run.pad = tp, lo, hi, inner, idx, pad
@@ -1999,7 +2017,7 @@ def _solve_strip_candidate_segments(run) -> None:
         for (name, build), pos in accepted:
             dim = build(pos)
             real = _geom_box(dim)
-            if reason := _real_box_conflict(name, real):
+            if reason := _real_box_conflict(name, real, dim):
                 if tp is not None:
                     tp["rejected"].append({"name": name, "reason": reason})
                 rejected_total.append((name, build))
@@ -2016,13 +2034,11 @@ def _solve_strip_candidate_segments(run) -> None:
 
 def _adjust_strip_candidate_labels(run) -> None:
     """Reuse clear lateral tiers and shift dimension labels as one batch."""
-    dwg, view, axis, cands, tier, strip = (
+    dwg, view, axis, cands = (
         run.dwg,
         run.view,
         run.axis,
         run.cands,
-        run.tier,
-        run.strip,
     )
     anchored, valid_positions = run.anchored, run.valid_positions
     lo, hi, inner, pad, tp = run.lo, run.hi, run.inner, run.pad, run.tp
@@ -2083,7 +2099,7 @@ def _adjust_strip_candidate_labels(run) -> None:
                         continue
                     candidate = builds[name](target)
                     box = _geom_box(candidate)
-                    if box is None or _real_box_conflict(name, box):
+                    if box is None or _real_box_conflict(name, box, candidate):
                         continue
                     if page is not None and not (
                         page[0] <= box[0]
@@ -2142,7 +2158,7 @@ def _adjust_strip_candidate_labels(run) -> None:
                 *committed_names,
                 *(name for name, _dim_obj in solved if (anchored or {}).get(name, False)),
             },
-            perpendicular_step=tier + strip.spacing,
+            perpendicular_step=pad,
         )
         adjusted = adjusted_batch[len(committed) :]
         # A label shift normally stays inside the dimension's measured span and
@@ -2158,7 +2174,7 @@ def _adjust_strip_candidate_labels(run) -> None:
                 solved.append((name, dim))
                 continue
             real = _geom_box(dim)
-            solved.append((name, natural if _real_box_conflict(name, real) else dim))
+            solved.append((name, natural if _real_box_conflict(name, real, dim) else dim))
     run.solved = solved
 
 
