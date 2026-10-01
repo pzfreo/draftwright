@@ -22,6 +22,7 @@ from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import index_evidence as _index_evidence
 from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._coverage_common import state as _state
+from draftwright.linting._parameter_coverage import lint_parameter_coverage
 from draftwright.linting._registry import (
     RequirementCarrier,
     with_measurement_carriers,
@@ -328,25 +329,16 @@ def lint_polygonal_boss_coverage(
     if assembly is None:
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
-    messages = {
-        "suppressed": "was deliberately omitted by the authored dimension set",
-        "missing": "has no placed, suppressed, or dropped measurement outcome",
-        "unverifiable": "cannot be joined to measurement provenance without guessing",
-    }
-    issues = []
-    for outcome in polygonal_boss_requirement_outcomes(recognition, features, registry, omissions):
-        if outcome.state in {"placed", "satisfied_by_structured_note", "dropped"}:
-            continue
-        location = (
-            "at an unknown location" if outcome.source_at is None else f"at {outcome.source_at}"
-        )
-        issues.append(
-            LintIssue(
-                severity=severity,
-                code=f"polygonal_boss_requirement_{outcome.state}",
-                message=(
-                    f"polygonal boss {location} {requirement_subject(outcome)} {messages[outcome.state]}"
-                ),
-            )
-        )
-    return issues
+    return lint_parameter_coverage(
+        polygonal_boss_requirement_outcomes(recognition, features, registry, omissions),
+        missing_message="has no placed, suppressed, or dropped measurement outcome",
+        issue_factory=lambda outcome, reason: LintIssue(
+            severity=severity,
+            code=f"polygonal_boss_requirement_{outcome.state}",
+            message=(
+                "polygonal boss at "
+                f"{'an unknown location' if outcome.source_at is None else outcome.source_at} "
+                f"{requirement_subject(outcome)} {reason}"
+            ),
+        ),
+    )
