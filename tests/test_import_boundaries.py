@@ -115,6 +115,7 @@ _LAYERS: dict[str, int] = {
     "plate_correspondence": 1,
     "contract_values": 0,  # finite values and exact shared vector arithmetic
     "measurement_support": 0,
+    "sheet_metadata": 0,
     "profile_angles": 1,
     "angular_geometry": 0,
     "recogniser_policy": 0,

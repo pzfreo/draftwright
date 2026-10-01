@@ -99,6 +99,7 @@ from draftwright.recognition_frame import (
     require_unambiguous_groove_owner,
 )
 from draftwright.recognition_ownership import RecognitionOwnershipBuilder
+from draftwright.sheet_metadata import SheetMetadata
 from draftwright.view_plan import (
     DERIVED_VIEW_IDENTIFIERS,
     ViewConstraints,
@@ -1071,10 +1072,6 @@ def _validate_explicit_scale(
 @dataclass(frozen=True)
 class _AnalysisRequest:
     step_file: Any
-    title: Any
-    number: Any
-    tolerance: Any
-    drawn_by: Any
     out: Any
     scale: Any
     page: Any
@@ -1084,20 +1081,7 @@ class _AnalysisRequest:
     decorations: Any
     authored: Any
     requested: Any
-    material: Any
-    date: Any
-    revision: Any
-    company: Any
-    approved_by: Any
-    document_type: Any
-    sheet: Any
-    frame: Any
-    projection: Any
-    projection_symbol: Any
-    text_position: Any
-    text_orientation: Any
-    leader_region: Any
-    zones: Any
+    metadata: SheetMetadata
     _reuse: Any
     _required_tables: Any
     _arrangements: Any
@@ -1108,11 +1092,6 @@ class _AnalysisRequest:
     _framed_recognition: Any
     _document_input: Any
     _scale_from_prior_analysis: Any
-    margin_left: Any
-    margin_right: Any
-    margin_top: Any
-    margin_bottom: Any
-    title_block_width: Any
 
 
 @dataclass(frozen=True)
@@ -1215,14 +1194,14 @@ class _SheetOptions:
 
 
 def _sheet_options(r: _AnalysisRequest) -> _SheetOptions:
-    projection = r.projection
-    frame = r.frame
-    zones = r.zones
-    margin_left = r.margin_left
-    margin_right = r.margin_right
-    margin_top = r.margin_top
-    margin_bottom = r.margin_bottom
-    title_block_width = r.title_block_width
+    projection = r.metadata.projection
+    frame = r.metadata.frame
+    zones = r.metadata.zones
+    margin_left = r.metadata.margin_left
+    margin_right = r.metadata.margin_right
+    margin_top = r.metadata.margin_top
+    margin_bottom = r.metadata.margin_bottom
+    title_block_width = r.metadata.title_block_width
     convention = projection or "third"
     # The zone-grid ruler draws its ticks on the frame, so it implies one.
     frame = frame or zones
@@ -1285,15 +1264,15 @@ def _prepare_source(r: _AnalysisRequest) -> _SourceState:
     source = r.source
     model = r.model
     decorations = r.decorations
-    frame = r.frame
+    frame = r.metadata.frame
     _reuse = r._reuse
     _framed_recognition = r._framed_recognition
     _document_input = r._document_input
-    margin_left = r.margin_left
-    margin_right = r.margin_right
-    margin_top = r.margin_top
-    margin_bottom = r.margin_bottom
-    title_block_width = r.title_block_width
+    margin_left = r.metadata.margin_left
+    margin_right = r.metadata.margin_right
+    margin_top = r.metadata.margin_top
+    margin_bottom = r.metadata.margin_bottom
+    title_block_width = r.metadata.title_block_width
     if _document_input is not None:
         if model is None or _framed_recognition:
             raise ValueError("document members require their sealed raw model")
@@ -1498,8 +1477,8 @@ def _prepare_source(r: _AnalysisRequest) -> _SourceState:
 
 
 def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
-    text_position = r.text_position
-    text_orientation = r.text_orientation
+    text_position = r.metadata.text_position
+    text_orientation = r.metadata.text_orientation
     _reuse = s.reuse
     _document_input = r._document_input
     part = s.part
@@ -1902,15 +1881,15 @@ def _select_sheet(
 ) -> _ScaleState:
     scale = r.scale
     page = r.page
-    text_position = r.text_position
-    text_orientation = r.text_orientation
+    text_position = r.metadata.text_position
+    text_orientation = r.metadata.text_orientation
     _reuse = s.reuse
     _arrangements = r._arrangements
     _views = r._views
     _include_iso = r._include_iso
     _view_constraints = r._view_constraints
     _scale_from_prior_analysis = r._scale_from_prior_analysis
-    title_block_width = r.title_block_width
+    title_block_width = r.metadata.title_block_width
     convention = s.convention
     title_block_width = s.title_block_width
     margin = s.margin
@@ -2305,25 +2284,25 @@ def _assemble_analysis(
         pv_zones=p.pv_zones,
         sv_zones=p.sv_zones,
         step_file=r.step_file,
-        title=r.title,
-        number=r.number,
-        tolerance=r.tolerance,
-        drawn_by=r.drawn_by,
-        material=r.material,
-        date=r.date,
-        revision=r.revision,
-        company=r.company,
-        approved_by=r.approved_by,
-        document_type=r.document_type,
-        sheet=r.sheet,
+        title=r.metadata.title,
+        number=r.metadata.number,
+        tolerance=r.metadata.tolerance,
+        drawn_by=r.metadata.drawn_by,
+        material=r.metadata.material,
+        date=r.metadata.date,
+        revision=r.metadata.revision,
+        company=r.metadata.company,
+        approved_by=r.metadata.approved_by,
+        document_type=r.metadata.document_type,
+        sheet=r.metadata.sheet,
         frame=s.frame,
-        projection=r.projection,
-        projection_symbol=r.projection_symbol,
-        text_position=r.text_position,
-        text_orientation=r.text_orientation,
-        leader_region=r.leader_region,
+        projection=r.metadata.projection,
+        projection_symbol=r.metadata.projection_symbol,
+        text_position=r.metadata.text_position,
+        text_orientation=r.metadata.text_orientation,
+        leader_region=r.metadata.leader_region,
         projection_convention=s.convention,
-        zones=r.zones,
+        zones=r.metadata.zones,
         out=r.out,
         pmi_report=s.pmi_report,
         pmi_mode=s.pmi_mode,
@@ -2390,21 +2369,11 @@ def _analyse(
 
     Returns an :class:`Analysis`.
     """
-    r = _AnalysisRequest(
-        step_file=step_file,
+    metadata = SheetMetadata(
         title=title,
         number=number,
         tolerance=tolerance,
         drawn_by=drawn_by,
-        out=out,
-        scale=scale,
-        page=page,
-        pmi=pmi,
-        source=source,
-        model=model,
-        decorations=decorations,
-        authored=authored,
-        requested=requested,
         material=material,
         date=date,
         revision=revision,
@@ -2419,6 +2388,24 @@ def _analyse(
         text_orientation=text_orientation,
         leader_region=leader_region,
         zones=zones,
+        margin_left=margin_left,
+        margin_right=margin_right,
+        margin_top=margin_top,
+        margin_bottom=margin_bottom,
+        title_block_width=title_block_width,
+    )
+    r = _AnalysisRequest(
+        step_file=step_file,
+        out=out,
+        scale=scale,
+        page=page,
+        pmi=pmi,
+        source=source,
+        model=model,
+        decorations=decorations,
+        authored=authored,
+        requested=requested,
+        metadata=metadata,
         _reuse=_reuse,
         _required_tables=_required_tables,
         _arrangements=_arrangements,
@@ -2429,11 +2416,6 @@ def _analyse(
         _framed_recognition=_framed_recognition,
         _document_input=_document_input,
         _scale_from_prior_analysis=_scale_from_prior_analysis,
-        margin_left=margin_left,
-        margin_right=margin_right,
-        margin_top=margin_top,
-        margin_bottom=margin_bottom,
-        title_block_width=title_block_width,
     )
     s = _prepare_source(r)
     m = _build_sizing_model(r, s)
