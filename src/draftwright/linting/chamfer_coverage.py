@@ -16,14 +16,14 @@ from quiddity import RecognitionResult
 
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import point3 as _point
+from draftwright.linting._parameter_coverage import (
+    ParameterRequirementState as ChamferRequirementState,
+)
+from draftwright.linting._parameter_coverage import (
+    lint_parameter_coverage,
+    parameter_outcomes,
+)
 from draftwright.linting._registry import RequirementCarrier
-from draftwright.linting._single_parameter import (
-    SingleParameterRequirementState as ChamferRequirementState,
-)
-from draftwright.linting._single_parameter import (
-    lint_single_parameter_coverage,
-    single_parameter_outcomes,
-)
 from draftwright.linting.issues import LintIssue
 
 
@@ -62,7 +62,7 @@ def chamfer_requirement_outcomes(
     omissions=(),
 ) -> list[ChamferRequirementOutcome]:
     """Follow every recognised physical chamfer to its semantic callout outcome."""
-    return single_parameter_outcomes(
+    return parameter_outcomes(
         recognition,
         features,
         registry,
@@ -89,7 +89,7 @@ def lint_chamfer_coverage(
     if assembly is None:
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
-    return lint_single_parameter_coverage(
+    return lint_parameter_coverage(
         chamfer_requirement_outcomes(recognition, features, registry, omissions),
         issue_factory=lambda outcome, reason: LintIssue(
             severity=severity,

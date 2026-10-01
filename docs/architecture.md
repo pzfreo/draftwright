@@ -423,8 +423,8 @@ and re-exports the existing private helper names.
   critique over an explicit drawing context), `coverage.py` (`lint_feature_coverage` + `CoverageState`),
   `_coverage_common.py` (stable import of `_registry`'s exact measurement-outcome index,
   shared outcome checks, exact three-coordinate point rounding, and blind-slot value validation),
-  `_single_parameter.py` (the shared physical-key, exact-parameter and outcome driver for
-  chamfer and fillet coverage),
+  `_parameter_coverage.py` (the shared physical-key, exact-parameter and outcome driver for
+  chamfer, fillet, paired-ramp-step, and circular-blind-step coverage),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
   `angular.py` (degree claims and actual angular ink), `requirements.py` (the physical
   requirement join), `schedule_evidence.py` (verified table-cell carriers),
