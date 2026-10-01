@@ -64,36 +64,11 @@ def render_step_lengths(
     )
 
 
-def _render_profile_groups(
-    dwg,
+def _profile_groups_from_plan(
     plan,
-    *,
-    ctx,
-    only=None,
-    _profile_bounds_hint=None,
-    _profile_view_hint=None,
-    _draw_step_chain: Callable[..., int],
-) -> int | None:
-    """Unified turned step-length chains (ADR 1 (was 0008) #223): each `StepFeature`'s length
-    span projects into the profile view and joins the chain that tiles the turning
-    axis so every shoulder is located. X-turned → horizontal chain above the front
-    view; Z-turned → vertical chain to its right; Y-turned → horizontal chain above
-    the side view.
+) -> list[tuple[tuple[str, tuple[float, float], object | None], set[object]]]:
+    """Group step spans by physical axis, explicit membership, and groove-connected run."""
 
-    A crowded **X-turned head** — a contiguous run of steps too short to dimension
-    legibly even staggered (shoulders below the page arrowhead floor) — is not crammed
-    in line: the main view locates that run as one *block* dim and an enlarged
-    `DetailRequest` (#304/#307) is queued to break it down. If the detail later can't
-    place, the block still locates the head extent and lint reports the un-located
-    interior shoulders — never worse than the prior skip. Parallel or axially disconnected
-    profiles are grouped before collapse and rendered against their own silhouettes. Returns the
-    count placed, or None for one profile."""
-    # One axial chain belongs to one physical axis line. Group BEFORE the repeat-run collapse:
-    # equal lengths on parallel shafts are separate requirements, not one global ``N×`` run.
-    # View assignment always sees the complete roster, even when ``only`` narrows a deferred
-    # edit. Otherwise re-adding one removed profile forgets a surviving sibling's lane and can
-    # place both chains on top of each other. Recursive per-profile placement carries an explicit
-    # view hint and narrows only the refs that actually receive ink.
     # Emitted declarations round coordinates to 0.001 mm, so exact neighbours may return
     # with a sub-micron numerical seam. This is declaration precision, not a physical gap.
     adjacency_tol = 1e-3 + 1e-9
@@ -158,6 +133,40 @@ def _render_profile_groups(
                 refs.add(ref)
                 profile_runs[-1] = (max(run_hi, hi), refs)
         profile_groups.extend((key, refs) for _hi, refs in profile_runs)
+    return profile_groups
+
+
+def _render_profile_groups(
+    dwg,
+    plan,
+    *,
+    ctx,
+    only=None,
+    _profile_bounds_hint=None,
+    _profile_view_hint=None,
+    _draw_step_chain: Callable[..., int],
+) -> int | None:
+    """Unified turned step-length chains (ADR 1 (was 0008) #223): each `StepFeature`'s length
+    span projects into the profile view and joins the chain that tiles the turning
+    axis so every shoulder is located. X-turned → horizontal chain above the front
+    view; Z-turned → vertical chain to its right; Y-turned → horizontal chain above
+    the side view.
+
+    A crowded **X-turned head** — a contiguous run of steps too short to dimension
+    legibly even staggered (shoulders below the page arrowhead floor) — is not crammed
+    in line: the main view locates that run as one *block* dim and an enlarged
+    `DetailRequest` (#304/#307) is queued to break it down. If the detail later can't
+    place, the block still locates the head extent and lint reports the un-located
+    interior shoulders — never worse than the prior skip. Parallel or axially disconnected
+    profiles are grouped before collapse and rendered against their own silhouettes. Returns the
+    count placed, or None for one profile."""
+    # One axial chain belongs to one physical axis line. Group BEFORE the repeat-run collapse:
+    # equal lengths on parallel shafts are separate requirements, not one global ``N×`` run.
+    # View assignment always sees the complete roster, even when ``only`` narrows a deferred
+    # edit. Otherwise re-adding one removed profile forgets a surviving sibling's lane and can
+    # place both chains on top of each other. Recursive per-profile placement carries an explicit
+    # view hint and narrows only the refs that actually receive ink.
+    profile_groups = _profile_groups_from_plan(plan)
     if len(profile_groups) > 1 and _profile_view_hint is None:
         profile_views = {
             "x": ("front", "plan"),

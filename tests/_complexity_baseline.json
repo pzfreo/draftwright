@@ -29,7 +29,7 @@
     "annotations/_pmi_dimensions.py:_sheet_leader_fallback": 22,
     "annotations/_slots.py:_render_slot_dimensions": 23,
     "annotations/_step_lengths.py:_profile_assignment_satisfiable": 19,
-    "annotations/_step_lengths.py:_render_profile_groups": 35,
+    "annotations/_step_lengths.py:_render_profile_groups": 25,
     "annotations/balloons.py:_guarded_free_segments": 26,
     "annotations/balloons.py:_retained_annotation_geometry": 21,
     "annotations/balloons.py:render_balloons": 24,

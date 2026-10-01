@@ -12,7 +12,7 @@
     "annotations/_pmi_dimensions.py:_sheet_leader_fallback": 240,
     "annotations/_slots.py:_place_slot_dimension": 219,
     "annotations/_slots.py:_render_slot_dimensions": 204,
-    "annotations/_step_lengths.py:_render_profile_groups": 270,
+    "annotations/_step_lengths.py:_render_profile_groups": 207,
     "annotations/_step_lengths.py:_render_y_profile": 228,
     "annotations/balloons.py:render_balloons": 294,
     "annotations/holes.py:_place_pitch_dim": 260,

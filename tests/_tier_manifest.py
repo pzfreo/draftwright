@@ -156,6 +156,7 @@ CONTRACT_GROUPS = {
         (
             "test_through_step_semantics.py",
             "test_turned_lengths.py",
+            "test_step_profile_grouping.py",
             "test_issue_1505_short_axial_chains.py",
             "test_issue_1357_plural_turned_profiles.py",
         ),
