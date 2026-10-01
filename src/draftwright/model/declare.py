@@ -2505,6 +2505,102 @@ def _shared_projection_plane(cylinders: list[CylindricalReference]) -> str | Non
     )
 
 
+def _angular_dimension_members(references) -> list[AngularReference]:
+    """Accept angular members as records or complete field mappings."""
+
+    members: list[AngularReference] = []
+    for raw in references:
+        if isinstance(raw, AngularReference):
+            members.append(raw)
+            continue
+        if not isinstance(raw, dict):
+            raise ValueError("measured_dimension() angular_references items must be mappings")
+        try:
+            members.append(AngularReference(**raw))
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                "measured_dimension() angular reference mapping is incomplete"
+            ) from exc
+    return members
+
+
+def _cylindrical_dimension_references(references) -> list[CylindricalReference]:
+    """Accept cylindrical references as records or complete field mappings."""
+
+    cylinders: list[CylindricalReference] = []
+    for raw in references:
+        if isinstance(raw, CylindricalReference):
+            cylinders.append(raw)
+            continue
+        if not isinstance(raw, dict):
+            raise ValueError("measured_dimension() cylindrical_refs items must be mappings")
+        try:
+            cylinders.append(
+                CylindricalReference(
+                    axis_origin=raw["axis_origin"],
+                    axis_direction=raw["axis_direction"],
+                    radius=raw["radius"],
+                    axial_interval=raw["axial_interval"],
+                    sense=raw["sense"],
+                )
+            )
+        except KeyError as exc:
+            raise ValueError(
+                f"measured_dimension() cylindrical reference is missing {exc.args[0]!r}"
+            ) from exc
+    return cylinders
+
+
+def _circular_dimension_references(references) -> list[CircularReference]:
+    """Accept circular references as records or complete field mappings."""
+
+    circles: list[CircularReference] = []
+    for raw in references:
+        if isinstance(raw, CircularReference):
+            circles.append(raw)
+            continue
+        if not isinstance(raw, dict):
+            raise ValueError("measured_dimension() circular_refs items must be mappings")
+        try:
+            circles.append(
+                CircularReference(
+                    center=raw["center"],
+                    normal=raw["normal"],
+                    radius=raw["radius"],
+                )
+            )
+        except KeyError as exc:
+            raise ValueError(
+                f"measured_dimension() circular reference is missing {exc.args[0]!r}"
+            ) from exc
+    return circles
+
+
+def _measured_dimension_anchor(bbox, cylinders, circles, angular_members, pts):
+    """Choose the declared witness centre in the established precedence order."""
+
+    if bbox is not None:
+        x0, y0, z0, x1, y1, z1 = bbox
+        return ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+    if cylinders:
+        return tuple(
+            sum(reference.midpoint[index] for reference in cylinders) / len(cylinders)
+            for index in range(3)
+        )
+    if circles:
+        return tuple(
+            sum(reference.center[index] for reference in circles) / len(circles)
+            for index in range(3)
+        )
+    if angular_members:
+        return tuple(
+            sum(reference.vertex[index] for reference in angular_members) / len(angular_members)
+            for index in range(3)
+        )
+    n = len(pts)
+    return tuple(sum(p[i] for p in pts) / n for i in range(3))
+
+
 def measured_dimension(
     *,
     kind: str,
@@ -2581,63 +2677,13 @@ def measured_dimension(
         if pts and pts != angular_points:
             raise ValueError("angular ref_pts must agree with first, vertex, second")
         pts = angular_points
-    angular_members: list[AngularReference] = []
-    for raw in angular_references:
-        if isinstance(raw, AngularReference):
-            angular_members.append(raw)
-            continue
-        if not isinstance(raw, dict):
-            raise ValueError("measured_dimension() angular_references items must be mappings")
-        try:
-            angular_members.append(AngularReference(**raw))
-        except (KeyError, TypeError) as exc:
-            raise ValueError(
-                "measured_dimension() angular reference mapping is incomplete"
-            ) from exc
+    angular_members = _angular_dimension_members(angular_references)
     if angular_members and angular_reference is not None:
         raise ValueError(
             "measured_dimension() cannot combine angular_reference and angular_references"
         )
-    cylinders: list[CylindricalReference] = []
-    for raw in cylindrical_refs:
-        if isinstance(raw, CylindricalReference):
-            cylinders.append(raw)
-            continue
-        if not isinstance(raw, dict):
-            raise ValueError("measured_dimension() cylindrical_refs items must be mappings")
-        try:
-            cylinders.append(
-                CylindricalReference(
-                    axis_origin=raw["axis_origin"],
-                    axis_direction=raw["axis_direction"],
-                    radius=raw["radius"],
-                    axial_interval=raw["axial_interval"],
-                    sense=raw["sense"],
-                )
-            )
-        except KeyError as exc:
-            raise ValueError(
-                f"measured_dimension() cylindrical reference is missing {exc.args[0]!r}"
-            ) from exc
-    circles: list[CircularReference] = []
-    for raw in circular_refs:
-        if isinstance(raw, CircularReference):
-            circles.append(raw)
-            continue
-        if not isinstance(raw, dict):
-            raise ValueError("measured_dimension() circular_refs items must be mappings")
-        try:
-            circles.append(
-                CircularReference(
-                    center=raw["center"],
-                    normal=raw["normal"],
-                    radius=raw["radius"],
-                )
-            )
-        except KeyError as exc:
-            raise ValueError(
-                f"measured_dimension() circular reference is missing {exc.args[0]!r}"
-            ) from exc
+    cylinders = _cylindrical_dimension_references(cylindrical_refs)
+    circles = _circular_dimension_references(circular_refs)
     imported_blocked = bool(source_id and rendering_blockers)
     cylindrical_diameter = dim_kind == "diameter" and bool(cylinders)
     circular_diameter = dim_kind == "diameter" and bool(circles)
@@ -2717,28 +2763,7 @@ def measured_dimension(
                 "measured_dimension() cannot combine range bounds with deviation tolerances"
             )
     if at is None:
-        if bbox is not None:
-            x0, y0, z0, x1, y1, z1 = bbox
-            at = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
-        elif cylinders:
-            at = tuple(
-                sum(reference.midpoint[index] for reference in cylinders) / len(cylinders)
-                for index in range(3)
-            )
-        elif circles:
-            at = tuple(
-                sum(reference.center[index] for reference in circles) / len(circles)
-                for index in range(3)
-            )
-        elif angular_members:
-            at = tuple(
-                sum(reference.vertex[index] for reference in angular_members)
-                / len(angular_members)
-                for index in range(3)
-            )
-        else:
-            n = len(pts)
-            at = tuple(sum(p[i] for p in pts) / n for i in range(3))
+        at = _measured_dimension_anchor(bbox, cylinders, circles, angular_members, pts)
     origin = _point3("at", at)
     ax = _norm_axis(axis or (dom.lower() if dom in ("X", "Y", "Z") else "z"))
     return AuthoredDimension(

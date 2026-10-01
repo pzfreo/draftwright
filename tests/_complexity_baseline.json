@@ -93,7 +93,7 @@
     "linting/turned_step_coverage.py:turned_step_requirement_outcomes": 29,
     "model/compiled.py:_compile_schedules": 21,
     "model/compiled.py:_consolidate_boss_heights": 16,
-    "model/declare.py:measured_dimension": 45,
+    "model/declare.py:measured_dimension": 29,
     "model/declare.py:step_level": 27,
     "model/detect.py:_append_hole_features": 19,
     "model/detect.py:_append_late_feature_families": 18,

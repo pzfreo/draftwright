@@ -42,7 +42,6 @@
     "linting/structural.py:_lint_annotation_pairs": 257,
     "linting/structural.py:_lint_view_shapes": 234,
     "linting/turned_step_coverage.py:turned_step_requirement_outcomes": 232,
-    "model/declare.py:measured_dimension": 264,
     "model/detect.py:_append_late_feature_families": 220,
     "model/pmi_lowering.py:lower_ap242_hole_tolerances": 223,
     "pdf_text.py:_TextRotation.angle": 287,
