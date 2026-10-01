@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from collections.abc import Mapping
+from dataclasses import dataclass, fields
+from typing import Any, cast
 
 
 @dataclass(frozen=True)
@@ -37,3 +38,10 @@ class SheetMetadata:
     margin_top: float | None
     margin_bottom: float | None
     title_block_width: float | None
+
+    @classmethod
+    def from_mapping(cls, values: Mapping[str, object]) -> SheetMetadata:
+        """Select this record's fields from a front-door argument mapping."""
+        return cls(
+            **cast("dict[str, Any]", {item.name: values[item.name] for item in fields(cls)})
+        )

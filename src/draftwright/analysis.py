@@ -2364,35 +2364,14 @@ def _analyse(
     margin_top: float | None = None,
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
+    _sheet_metadata: SheetMetadata | None = None,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
     Returns an :class:`Analysis`.
     """
-    metadata = SheetMetadata(
-        title=title,
-        number=number,
-        tolerance=tolerance,
-        drawn_by=drawn_by,
-        material=material,
-        date=date,
-        revision=revision,
-        company=company,
-        approved_by=approved_by,
-        document_type=document_type,
-        sheet=sheet,
-        frame=frame,
-        projection=projection,
-        projection_symbol=projection_symbol,
-        text_position=text_position,
-        text_orientation=text_orientation,
-        leader_region=leader_region,
-        zones=zones,
-        margin_left=margin_left,
-        margin_right=margin_right,
-        margin_top=margin_top,
-        margin_bottom=margin_bottom,
-        title_block_width=title_block_width,
+    metadata = (
+        _sheet_metadata if _sheet_metadata is not None else SheetMetadata.from_mapping(locals())
     )
     r = _AnalysisRequest(
         step_file=step_file,

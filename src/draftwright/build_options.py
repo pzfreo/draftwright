@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from draftwright._core import _dimension_draft
 from draftwright.annotation_layout_profile import annotation_layout_policy
 from draftwright.leader_policy import leader_region_policy
+from draftwright.sheet_metadata import SheetMetadata
 from draftwright.view_plan import validate_projection
 
 if TYPE_CHECKING:
@@ -88,6 +89,12 @@ class BuildOptions:
         """Capture matching public arguments without a second forwarding roster."""
         selected = {item.name: values[item.name] for item in fields(cls) if item.name in values}
         return cls(**cast("dict[str, Any]", selected))
+
+    def sheet_metadata(self, *, title: str) -> SheetMetadata:
+        """Carry settled presentation inputs into every analysis attempt."""
+        values = vars(self).copy()
+        values["title"] = title
+        return SheetMetadata.from_mapping(values)
 
     def script_constructor_args(self, special: Mapping[str, Sequence[str]]) -> list[str]:
         """Serialize Sheet constructor options in the established source order.
