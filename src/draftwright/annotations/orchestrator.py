@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from draftwright._core import (
     _TABULATE_MIN_HOLES,
@@ -60,6 +60,7 @@ from draftwright.annotations._sheet_furniture import (
     _add_zone_grid,
 )
 from draftwright.annotations.balloons import render_balloons
+from draftwright.annotations.drawing_port import DrawingPort
 from draftwright.annotations.from_model import (
     ladder_plan_for,
     queue_step_detail,
@@ -119,6 +120,7 @@ from draftwright.model import (
     DimensionId,
     Frame,
     HoleFeature,
+    PartModel,
     PatternFeature,
     RotationalFeature,
     SectionPlan,
@@ -227,7 +229,7 @@ def _planned_sections(a, model, feature_keys, *, identifiers) -> tuple[SectionPl
     return tuple(plans)
 
 
-def _queue_authored_details(dwg, a, ctx, plan) -> None:
+def _queue_authored_details(dwg: DrawingPort, a, ctx, plan) -> None:
     """Lower semantic ``detail_view(..., around=feature)`` constraints to crop requests."""
 
     constraints = a.view_constraints
@@ -380,7 +382,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
 )
 
 
-def _place_manufacturing_schedule(dwg, schedule, ctx) -> bool:
+def _place_manufacturing_schedule(dwg: DrawingPort, schedule, ctx) -> bool:
     """Commit the full table before allowing its short references into any solve."""
     if ctx.registry.named("manufacturing_requirements") is not None:
         return False  # never replace an existing authored annotation by name
@@ -425,7 +427,7 @@ def run_stages(stages: dict, sequence: tuple[str, ...] | None = None) -> None:
                 fn()
 
 
-def drain_and_reconcile(ctx, dwg) -> None:
+def drain_and_reconcile(ctx, dwg: DrawingPort) -> None:
     """Solve every registered corridor once (ADR 2 (was 0009) end state, #345/#346/#393),
     then reconcile witness-crossing labels (#690) — the drain step both build
     paths share verbatim (#699 slice b). ``drain_corridors`` is resolved at call
@@ -545,7 +547,7 @@ def _declared_feature_keys(groups, a: Analysis) -> set:
 class _AutoAnnotationRun:
     """Per-pass inputs shared by the canonical annotation stages."""
 
-    dwg: Any
+    dwg: DrawingPort
     analysis: Analysis
     ctx: PlacementContext
     model: Any
@@ -999,7 +1001,7 @@ def _final_annotation_stages(run: _AutoAnnotationRun) -> dict:
     }
 
 
-def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
+def _auto_annotate(dwg: DrawingPort, a: Analysis, *, detail_view: bool = False):
     """Add the standard automatic dimensions, centrelines, and title block.
 
     Returns the compiler's omission diagnostics — every measurement it considered and did not
@@ -1087,7 +1089,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # `build_model(a)` fallback covers a direct caller that reached _auto_annotate without a
     # model. The ensured model is threaded onto the run's ctx so every pass reads
     # it there, without accessing the drawing's private state.
-    _model = dwg.model() if dwg.model() is not None else build_model(a)
+    _model = cast(PartModel, dwg.model() if dwg.model() is not None else build_model(a))
     ctx.part_model = _model
     ctx.model_declared = dwg.model_declared
     ctx.document_member = getattr(dwg, "document_member", False)

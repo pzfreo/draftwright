@@ -46,6 +46,32 @@ def _anno_sources() -> list[Path]:
     return [p for p in sorted(_ANNO_DIR.rglob("*.py")) if "__pycache__" not in p.parts]
 
 
+def test_drawing_port_names_match_annotation_pass_reads():
+    """A new drawing read in a pass must enter the reviewed rank-4 port."""
+    port = ast.parse((_ANNO_DIR / "drawing_port.py").read_text(encoding="utf-8"))
+    (declaration,) = (
+        node for node in port.body if isinstance(node, ast.ClassDef) and node.name == "DrawingPort"
+    )
+    members = {node.name for node in declaration.body if isinstance(node, ast.FunctionDef)} | {
+        node.target.id
+        for node in declaration.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    }
+    reads = {
+        node.attr
+        for path in _anno_sources()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "dwg"
+    }
+    assert reads == members, (
+        "DrawingPort and pass reads disagree",
+        sorted(reads - members),
+        sorted(members - reads),
+    )
+
+
 def _is_dwg(node: ast.AST) -> bool:
     """Whether *node* is a bare conventional drawing-receiver name (``dwg``, or
     ``drawing`` since the #699 slice-d whole-engine guard — a rename must not be
