@@ -1530,6 +1530,7 @@ def _refine_provisional_leaders(inputs: _ProvisionalRefinementInput) -> _Provisi
             [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
             conflicts,
             priorities=[job.priority for job in jobs],
+            obligation_classes=[job.effective_obligation_class for job in jobs],
             penalties_by_job=[
                 [
                     (len(fixed_blockers) + units) * max_provisional_penalty

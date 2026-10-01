@@ -32,6 +32,7 @@ from draftwright.annotations.leaders import (
     _FIXED_INVENTORY_EXHAUSTED,
     FeatureLeaderJob,
     _annotation_fixed_ink,
+    _assign_by_view,
     _candidate_conflict,
     _candidate_hits_component,
     _convex_hull,
@@ -41,6 +42,8 @@ from draftwright.annotations.leaders import (
     _measure,
     _MeasuredLeaderCandidate,
     _point_in_convex_component,
+    _ProvisionalRefinementInput,
+    _refine_provisional_leaders,
     _rendered_ink_matches,
     _rendered_residual_components,
     _select_greedy_job,
@@ -2458,6 +2461,61 @@ def test_rendered_title_keeps_the_whole_mandatory_band_hard(fresh_drawing):
     assert drain_feature_leaders(drawing, analysis, ctx) == 0
     assert "title_cell_leader" not in drawing.annotations()
     assert any(issue.code == "fillet_dropped" for issue in drawing.registry.issues)
+
+
+def test_provisional_refinement_preserves_required_leader_over_two_unknown_leaders():
+    jobs = [
+        FeatureLeaderJob(
+            name=f"leader_{index}",
+            view="front",
+            silhouette=(0, 0, 1, 1),
+            label="FEATURE",
+            candidates=(),
+            build=lambda _tip, _elbow, _feature: None,
+            measurement=(),
+            noun="hole",
+            drop_code="hole_dropped",
+            obligation_class="required" if index == 0 else "unknown",
+        )
+        for index in range(3)
+    ]
+    candidates = [
+        [_MeasuredLeaderCandidate(None, (0, 0), (1, 1), None, 0, 1.0, None, (), ())]
+        for _job in jobs
+    ]
+    conflicts = [(0, 0, 1, 0), (0, 0, 2, 0)]
+    primary = _assign_by_view(
+        [job.view for job in jobs],
+        [[1.0]] * 3,
+        conflicts,
+        priorities=[0.0] * 3,
+        penalties_by_job=[[0]] * 3,
+        obligation_classes=[job.effective_obligation_class for job in jobs],
+    )
+    assert primary.choices == (0, None, None)
+
+    def fixed_obstacles(*, provisional=False):
+        return (
+            {"front": (_FixedInkComponent("future_section", box=(10, 10, 11, 11)),)}
+            if provisional
+            else {"front": ()}
+        )
+
+    refined = _refine_provisional_leaders(
+        _ProvisionalRefinementInput(
+            jobs,
+            ("front",),
+            candidates,
+            conflicts,
+            [[()]] * 3,
+            [[0]] * 3,
+            {"front": 0},
+            primary,
+            fixed_obstacles,
+        )
+    )
+    assert refined.outcome == "selected", "the provisional solve must actually run"
+    assert refined.assignment.choices == primary.choices
 
 
 def test_provisional_section_refines_without_reducing_required_leaders(fresh_drawing):
