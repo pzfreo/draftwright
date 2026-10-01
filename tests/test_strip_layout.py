@@ -29,6 +29,24 @@ def _same(a, b, tol=1e-6):
     )
 
 
+class _StripProbeDrawing:
+    page_w = page_h = 100.0
+
+    def __init__(self, *, annotations=(), draft=None):
+        self.added = []
+        self.annotations = list(annotations)
+        self.draft = draft
+
+    def iter_annotations(self):
+        return [*self.annotations, *self.added]
+
+    def view_of(self, _name):
+        return "front"
+
+    def place(self, obj, name, view=None, feature=None, measurement=None):
+        self.added.append((name, obj))
+
+
 def _drive_screw_x():
     # X-turned cylinder + coaxial axial bore: centrelines + a bore-callout leader.
     with BuildPart() as p:
@@ -732,6 +750,85 @@ def test_place_strip_candidates_reserves_outermost_label_within_bounds():
     left = place_strip_candidates(dwg, strip, "plan", "y", cands, tier=5.0, force=True, ctx=dwg)
     assert len(dwg.added) == 1, "outermost label would overshoot outer_limit — must not place it"
     assert len(left) == 1, "the unplaceable candidate must be returned, not dropped silently"
+
+
+def test_dimension_witness_continues_leader_shaft_but_not_crossing_shelf():
+    from build123d_drafting.helpers import Dimension, Draft, Leader
+
+    from draftwright.annotations._common import annotation_ink_clear
+
+    draft = Draft(font_size=3.0)
+    leader = Leader((10, 12, 0), (10, 6, 0), "HOLE", draft, text_side="right")
+    drawing = _StripProbeDrawing(annotations=(("leader", leader),), draft=draft)
+    joined = Dimension((0, 10, 0), (10, 10, 0), "below", 5, draft, label="10")
+    crossing = Dimension((10, 10, 0), (12, 10, 0), "below", 5, draft, label="2")
+    assert annotation_ink_clear(drawing, joined, view="front")
+    assert not annotation_ink_clear(drawing, crossing, view="front")
+
+
+def test_strip_places_dimension_when_witness_continues_leader_shaft():
+    from build123d_drafting.helpers import Draft, Leader
+
+    from draftwright._core import Strip, _dim
+    from draftwright.annotations._common import place_strip_candidates
+
+    draft = Draft(font_size=3.0)
+    leader = Leader((10, 12, 0), (10, 6, 0), "HOLE", draft, text_side="right")
+    drawing = _StripProbeDrawing(annotations=(("leader", leader),), draft=draft)
+    strip = Strip(anchor=10.0, outer_limit=0.0, direction=-1.0, gap=2.0)
+
+    def build(pos):
+        return _dim((0, 10, 0), (10, 10, 0), "below", 10 - pos, draft, label="10")
+
+    assert not place_strip_candidates(
+        drawing, strip, "front", "y", [("dimension", build)], tier=3.0, ctx=drawing
+    )
+    assert dict(drawing.added)["dimension"].placement_spec.distance == pytest.approx(2.0)
+
+
+def test_strip_rejects_a_separate_leader_shelf_crossing():
+    from build123d_drafting.helpers import Draft, Leader
+
+    from draftwright._core import Strip, _dim
+    from draftwright.annotations._common import place_strip_candidates
+
+    draft = Draft(font_size=3.0)
+    leader = Leader((10, 12, 0), (10, 6, 0), "HOLE", draft, text_side="right")
+    drawing = _StripProbeDrawing(annotations=(("leader", leader),), draft=draft)
+    strip = Strip(anchor=10.0, outer_limit=-10.0, direction=-1.0, gap=5.0)
+
+    def build(pos):
+        return _dim((10, 10, 0), (12, 10, 0), "below", 10 - pos, draft, label="2")
+
+    assert place_strip_candidates(
+        drawing, strip, "front", "y", [("dimension", build)], tier=3.0, ctx=drawing
+    )
+    assert not drawing.added
+
+
+@pytest.mark.parametrize(
+    ("span", "expected_distance"),
+    [((0, 20), 17.5), ((30, 50), 8.0)],
+)
+def test_committed_ladder_uses_its_line_station_only_in_the_shared_span(span, expected_distance):
+    from build123d_drafting.helpers import Draft
+
+    from draftwright._core import Strip, _dim
+    from draftwright.annotations._common import place_strip_candidates
+
+    draft = Draft(font_size=3.0)
+    prior = _dim((0, 0, 0), (20, 0, 0), "above", 8, draft, label="20")
+    assert prior.placement_spec.distance == 8
+    drawing = _StripProbeDrawing(annotations=(("prior", prior),), draft=draft)
+    strip = Strip(anchor=0.0, outer_limit=25.0, direction=1.0, gap=8.0)
+
+    def build(pos):
+        return _dim((span[0], 0, 0), (span[1], 0, 0), "above", pos, draft, label="20")
+
+    assert not place_strip_candidates(
+        drawing, strip, "front", "y", [("next", build)], tier=7.0, ctx=drawing
+    )
+    assert dict(drawing.added)["next"].placement_spec.distance == pytest.approx(expected_distance)
 
 
 def test_candidate_reuses_horizontal_tier_only_for_disjoint_dimensions():

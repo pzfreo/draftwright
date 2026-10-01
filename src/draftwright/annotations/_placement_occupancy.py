@@ -374,7 +374,7 @@ def strip_free_span(strip):
     return strip.outer_limit, near, near  # lo, hi, inner (=hi)
 
 
-def corridor_blockers(dwg, view):
+def corridor_blockers(dwg, view, *, exact_leaders=False):
     """Boxes of annotations a dimension's *witness corridor* (the span from the view
     edge out to its dim line) must not cross — leaders/callouts, the section hatch, the
     title block: everything that is neither a datum-chained ``Dimension`` nor a
@@ -395,12 +395,66 @@ def corridor_blockers(dwg, view):
             owner = dwg.view_of(name)
             if owner is not None and owner != view:
                 continue
-        if isinstance(o, (Dimension, SafeDimension)) or type(o).__name__ in CROSSABLE_TYPES:
+        if (
+            isinstance(o, (Dimension, SafeDimension))
+            or type(o).__name__ in CROSSABLE_TYPES
+            or (exact_leaders and isinstance(o, Leader) and segments_of(o))
+        ):
             continue  # datum-chained dims share the corridor; centre lines are crossable
         bb = _geom_box(o, cache)
         if bb is not None:
             boxes.append(bb)
     return boxes
+
+
+def strip_dimension_occupancy(dwg, view, axis, *, exact=True):
+    """Coarse strip boxes plus ink that a final dimension checks exactly.
+
+    Leader hulls claim empty strip space; parallel dimensions contribute a line station
+    rather than their padded witness boxes. Opaque furniture stays in the coarse carve.
+    """
+    named = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES, named=True)
+    if not exact:
+        return named, [], []
+    annotations = {
+        name: annotation
+        for name, annotation in dwg.iter_annotations()
+        if dwg.view_of(name) in (None, view)
+    }
+    leaders = [
+        (name, annotation)
+        for name, annotation in annotations.items()
+        if isinstance(annotation, Leader) and segments_of(annotation)
+    ]
+    sides = {"above", "below"} if axis == "y" else {"left", "right"}
+    registry = getattr(dwg, "registry", None)
+    dimensions = []
+    for name, annotation in annotations.items():
+        if not isinstance(annotation, (Dimension, SafeDimension)):
+            continue
+        spec = registry.dimension_spec_of(name) if registry is not None else None
+        if spec is None:
+            spec = getattr(annotation, "placement_spec", None)
+        if spec is not None and spec.side in sides:
+            dimensions.append((name, annotation, spec))
+    exact_ink = [*leaders, *((name, annotation) for name, annotation, _spec in dimensions)]
+    exact_names = {name for name, _annotation in exact_ink}
+    exact_boxes = [box for name, box in named if name in exact_names]
+    coarse = [(name, box) for name, box in named if name not in exact_names]
+    for name, _annotation, spec in dimensions:
+        if axis == "y":
+            station = float(spec.p1[1]) + (1 if spec.side == "above" else -1) * float(
+                spec.distance
+            )
+            lo, hi = sorted((float(spec.p1[0]), float(spec.p2[0])))
+            coarse.append((name, (lo, station, hi, station)))
+        else:
+            station = float(spec.p1[0]) + (1 if spec.side == "right" else -1) * float(
+                spec.distance
+            )
+            lo, hi = sorted((float(spec.p1[1]), float(spec.p2[1])))
+            coarse.append((name, (station, lo, station, hi)))
+    return coarse, exact_ink, exact_boxes
 
 
 def balloon_annotation_label_boxes(dwg, view):
@@ -455,7 +509,39 @@ def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
     )
 
 
-def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
+def _joined_dimension_leader_segments(candidate, annotation, candidate_segments):
+    """A witness may continue a leader shaft, including its shelf at the elbow."""
+    if not isinstance(candidate, (Dimension, SafeDimension)) or type(annotation) is not Leader:
+        return lambda _start, _end, _fixed_start, _fixed_end: False
+    tip, elbow = getattr(annotation, "tip", None), getattr(annotation, "elbow", None)
+    if tip is None or elbow is None:
+        return lambda _start, _end, _fixed_start, _fixed_end: False
+
+    def collinear(a, b, c, d):
+        def cross(point):
+            return (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0])
+
+        return abs(cross(c)) <= 1e-9 and abs(cross(d)) <= 1e-9
+
+    if not any(collinear(start, end, tip, elbow) for start, end in candidate_segments):
+        return lambda _start, _end, _fixed_start, _fixed_end: False
+
+    def joined(start, end, fixed_start, fixed_end):
+        if collinear(start, end, fixed_start, fixed_end) and collinear(
+            fixed_start, fixed_end, tip, elbow
+        ):
+            return True
+        return (
+            tuple(elbow[:2]) in (tuple(fixed_start[:2]), tuple(fixed_end[:2]))
+            and collinear(start, end, elbow, elbow)
+            and min(start[0], end[0]) - 1e-9 <= elbow[0] <= max(start[0], end[0]) + 1e-9
+            and min(start[1], end[1]) - 1e-9 <= elbow[1] <= max(start[1], end[1]) + 1e-9
+        )
+
+    return joined
+
+
+def annotation_ink_clear(dwg, candidate, *, view=None, additional=(), against=None) -> bool:
     """Whether *candidate* clears exact decomposable ink and conservative fixed furniture.
 
     A diagonal dimension cannot use the strip system's conservative AABB occupancy as its
@@ -479,7 +565,8 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
     )
     if candidate_region is None:
         return False
-    for name, annotation in chain(dwg.iter_annotations(), ((None, item) for item in additional)):
+    placed = dwg.iter_annotations() if against is None else against
+    for name, annotation in chain(placed, ((None, item) for item in additional)):
         owner = dwg.view_of(name) if name is not None else view
         if view is not None and owner is not None and owner != view:
             continue
@@ -519,6 +606,7 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
         ):
             return False
         if annotation_segments:
+            joined = _joined_dimension_leader_segments(candidate, annotation, candidate_segments)
             candidate_tip = getattr(candidate, "tip", None)
             annotation_tip = getattr(annotation, "tip", None)
             candidate_elbow = getattr(candidate, "elbow", None)
@@ -554,6 +642,7 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
                 and not shares_leader_trunk
                 and any(
                     _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
+                    and not joined(start, end, fixed_start, fixed_end)
                     for start, end in candidate_segments
                     for fixed_start, fixed_end in annotation_segments
                 )
