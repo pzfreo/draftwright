@@ -66,6 +66,7 @@ class TestFindTurnedSteps:
         try:
             shaft = shaft.chamfer(0.8, None, edges)
         except Exception:
+            # OCC could not construct the input; recognition has not run yet.
             pytest.skip("chamfer not constructible on this fixture")
         steps = recognise_turned_steps(shaft)
         assert steps

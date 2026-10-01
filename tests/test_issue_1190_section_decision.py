@@ -46,8 +46,9 @@ class TestTheOutcomeIsAlwaysRecorded:
 
     def test_a_placed_section_is_recorded_as_placed(self):
         dwg = build_drawing(_counterbored_block(), page="A3")
-        if dwg.view_bounds("section_aa") is None:
-            pytest.skip("fixture did not place a section on this page")
+        assert dwg.view_bounds("section_aa") is not None, (
+            "fixture did not place a section on this page"
+        )
         assert dwg.section_decision["status"] == "placed"
 
     def test_a_pass_that_never_ran_is_distinguished_from_one_that_found_nothing(self):

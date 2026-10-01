@@ -182,7 +182,8 @@ over the symbol that varies (`tests/_evidence_contract.py` is the worked example
 ratchet `CLONE_BUDGET` down; raising it needs a reason in the PR body, like `fail_under`.
 
 The suite may not grow by ACCRETING issue-named files. `tests/test_suite_shape.py`
-pins the number of `tests/test_issue_*` modules and lets it only shrink. A regression
+pins both `tests/test_issue_*` and `tests/test_*_issue_NNNN.py` modules and lets their
+combined count only shrink. A regression
 test goes in the module named after the behaviour it defends, as
 `test_<behaviour>_issue_NNNN` (maintainer decision, 2026-09-13); the existing
 issue-named modules fold into behaviour modules over time (#1637).

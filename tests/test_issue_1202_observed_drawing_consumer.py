@@ -205,8 +205,9 @@ class TestTheCorrespondenceIsNotFooledByGeometry:
         part = Box(60, 30, 20) - Pos(0, 0, 8) * Cylinder(3, 8) - Pos(0, 0, -5) * Cylinder(3, 14)
         drawing = build_drawing(part)
         holes = list(drawing.recognition().holes)
-        if len({tuple(h.location) for h in holes}) < 2:
-            pytest.skip("this build did not recognise two distinct coaxial holes")
+        assert len({tuple(h.location) for h in holes}) >= 2, (
+            "this build did not recognise two distinct coaxial holes"
+        )
         callouts = _size_callouts(drawing)
         assert len(callouts) >= 2, f"the two bores share one callout: {callouts}"
         before = _drawing_consumer_outcomes(holes, drawing)
