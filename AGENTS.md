@@ -85,6 +85,8 @@ the rank-0 `contract_values` leaf;
 shared outcome checks, exact three-coordinate point rounding, and blind-slot value
 validation live inside rank-2 `linting/_coverage_common`; `linting/_registry` owns the
 exact measurement-outcome index and named physical-requirement carrier record.
+`linting/_single_parameter` drives the shared chamfer/fillet recognition-to-outcome
+join while each family retains its physical key and publicly named outcome record.
 Rank-0 `measurement_support` keeps the shared witness and location predicates without
 a package import.
 Within rank-7 `evaluation/`, `_turned_step_evidence.py` owns turned-step IR and drawing
