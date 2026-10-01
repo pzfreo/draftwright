@@ -82,13 +82,13 @@ def _place_pitch(drawing, analysis, context):
 def test_pitch_tries_bounded_clear_ink_alternative(monkeypatch):
     checks = []
 
-    def ink_clear(_drawing, _candidate):
-        checks.append(True)
-        return len(checks) == 3
+    def ink_clear(_drawing, _candidate, *, view=None):
+        checks.append(view)
+        return len(checks) >= 3
 
     drawing, analysis, context, placed, issues = _pitch_fixture(monkeypatch, ink_clear=ink_clear)
     _place_pitch(drawing, analysis, context)
-    assert len(checks) == 3
+    assert checks == ["plan", "plan", "plan", None]
     assert [name for name, _dim in placed] == ["test_pitch"]
     assert issues == []
 
@@ -96,7 +96,8 @@ def test_pitch_tries_bounded_clear_ink_alternative(monkeypatch):
 def test_pitch_reports_drop_when_no_ink_clear_alternative(monkeypatch):
     checks = []
 
-    def ink_clear(_drawing, _candidate):
+    def ink_clear(_drawing, _candidate, *, view=None):
+        assert view == "plan"
         checks.append(True)
         return False
 
@@ -104,7 +105,7 @@ def test_pitch_reports_drop_when_no_ink_clear_alternative(monkeypatch):
     _place_pitch(drawing, analysis, context)
     assert placed == []
     assert issues == ["hole_pattern_dim_dropped"]
-    assert 1 <= len(checks) <= 17  # one strip probe plus eight per fallback side
+    assert 1 <= len(checks) <= 18  # bounded offsets on both sides
 
 
 @pytest.mark.parametrize("owner_view", ["plan", "front"])

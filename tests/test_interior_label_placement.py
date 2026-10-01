@@ -12,6 +12,7 @@ import pytest
 from draftwright import build_drawing
 from draftwright.annotations import _common
 from draftwright.linting.quality import is_hard_layout_issue
+from draftwright.model.compiled import compile_dimensions
 from draftwright.registry import DimensionPlacementSpec, PlacedDimension
 
 _CTC01_AP203 = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap203.stp"
@@ -90,7 +91,14 @@ def test_ctc01_a3_keeps_required_dimensions_when_exterior_space_is_available(
     assert "location_ref_dropped" not in codes
     assert "overall_dim_withheld" not in codes
     assert "feature_not_located" not in codes
-    assert {"m_locy0", "m_locy1", "m_env_width"} <= set(drawing.annotations())
+    assert {"m_locy0", "m_env_width"} <= set(drawing.annotations())
+    approved_y = {
+        location.id
+        for location in compile_dimensions(drawing.model()).locations
+        if location.role == "location_pattern" and location.discriminator == "y"
+    }
+    assert len(approved_y) == 2
+    assert set(drawing.registry.identity_of("m_locy0")["measurement"]) == approved_y
     # These dimensions previously needed an interior retry. A clearer exterior
     # arrangement is equally valid; their semantic survival is what matters.
 

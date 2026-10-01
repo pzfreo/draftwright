@@ -24,6 +24,7 @@ from draftwright.annotations._common import (
     place_strip_candidates,
     register_corridor,
 )
+from draftwright.annotations._placement_occupancy import strip_free_span
 from draftwright.annotations.leaders import (
     FeatureLeaderCandidate,
     LeaderCandidateRegion,
@@ -131,6 +132,20 @@ class _SlotFarDrop:
             self.ctx.post_drain.append(partial(self.retry, name))
         else:
             self.retry(name)
+
+
+def _slot_position_ink_candidates(original, *, strip, build, tier):
+    """Retry an unplaced slot location against exact settled ink in its owning strip."""
+    if original is not None:
+        return
+    lo, hi, inner = strip_free_span(strip)
+    room = hi - lo - tier
+    step = max(strip.spacing, 1.0)
+    for index in range(1, 9):
+        distance = index * step
+        if distance > room:
+            break
+        yield build(inner + strip.direction * distance)
 
 
 def _record_slot_drop(
@@ -396,6 +411,18 @@ def _place_slot_dimension(
             precedence=1 if is_pos else 0,
             force=False,
             feature=s,  # provenance (ADR 5 (was 0010)): this dim belongs to the slot
+            # Grid-pitch witness boxes can carve every tier despite an exact clear
+            # slot-position label. The shared postsolve validates real segments and labels.
+            compact_candidates=(
+                partial(
+                    _slot_position_ink_candidates,
+                    strip=near_strip,
+                    build=_cand_for(near_side, near_hi)[1],
+                    tier=tier,
+                )
+                if s.kind == "slot" and kind == "pos"
+                else None
+            ),
         ),
     )
     return True  # deferred — the callback owns the drop; caller's else must not fire

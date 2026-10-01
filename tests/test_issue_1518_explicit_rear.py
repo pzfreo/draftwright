@@ -368,6 +368,7 @@ def test_epic_1508_combined_style_rear_and_wording_canary(rear_enclosure, conven
 
     from draftwright import Sheet, build_drawing
     from draftwright.audit import compare_measurements
+    from draftwright.linting.ink_overlap import crossing_length, segments_of
     from draftwright.sheet_emit import emit_sheet_script
 
     # The third hole passes through the 2 mm back wall; the other two remain blind.
@@ -436,6 +437,22 @@ def test_epic_1508_combined_style_rear_and_wording_canary(rear_enclosure, conven
         assert drawing.view_plan.convention == convention
         assert drawing.draft.text_position == "above"
         assert drawing.draft.text_orientation == "horizontal"
+        callouts = [
+            annotation
+            for name, annotation in drawing.iter_annotations()
+            if name.startswith("hc_rear")
+        ]
+        x_locations = [
+            annotation
+            for name, annotation in drawing.iter_annotations()
+            if name.startswith("dim_loc_rear_x")
+        ]
+        assert len(callouts) == len(x_locations) == 3
+        assert all(
+            crossing_length(segments_of(dimension), callout.label_bbox) == 0
+            for dimension in x_locations
+            for callout in callouts
+        )
         pairs = tuple(zip(original_features, drawing.model().features, strict=True))
         assert (
             compare_measurements(original, drawing, feature_pairs=pairs)["status"] == "preserved"

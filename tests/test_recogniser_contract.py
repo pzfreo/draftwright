@@ -326,6 +326,10 @@ def _records_from_recognisers():
         ("hole_patterns:bolt", recognise_hole_patterns(recognise_holes(_bolt_circle_plate()))),
         ("hole_patterns:linear", recognise_hole_patterns(recognise_holes(_linear_array_plate()))),
         ("hole_patterns:grid", recognise_hole_patterns(recognise_holes(_grid_plate()))),
+        (
+            "hole_patterns:rectangle",
+            recognise_hole_patterns(recognise_holes(_bolt_circle_plate(4))),
+        ),
         ("recognise_chamfers", recognise_chamfers(_chamfered_box())),
         ("recognise_blends", recognise_blends(_small_blended_box())),
         ("recognise_channels", recognise_section_recesses(channel)),
@@ -460,7 +464,29 @@ def test_every_record_type_is_actually_exercised():
     Guards against the count-only trap: a record type whose drive-part stops producing it
     (or a new record added without coverage) fails here instead of passing on a bare tally.
     """
-    expected = public_record_universe()
+    # These provider records have a declared deferred consumer policy, but no authored
+    # runtime fixture yet. Keep the exclusion exact so another public record cannot hide.
+    from draftwright.recogniser_policy import DEFERRED_FAMILIES, UNSUPPORTED_FAMILIES
+
+    unexercised_deferred = {
+        "CircularFacePattern",
+        "FreeformSurface",
+        "InteriorVoid",
+        "ObliqueThroughStep",
+        "OrientedChamfer",
+        "SheetMetalBody",
+        "ThinWallBody",
+    }
+    declared_deferred = {
+        name
+        for family, (records, _tracking, _reason) in UNSUPPORTED_FAMILIES.items()
+        if family in DEFERRED_FAMILIES
+        for name in records
+    }
+    assert unexercised_deferred <= declared_deferred
+    expected = public_record_universe() - {
+        public_recogniser_member(name) for name in unexercised_deferred
+    }
     seen = {type(rec) for _, rec in _records_from_recognisers()}
     assert seen == expected, (
         "runtime contract roster disagrees with the mechanically derived public universe: "

@@ -182,7 +182,7 @@ def profile_angle_requirements(evidence) -> tuple[ProfileAngle, ...]:
         if type(source) is not PlanarOuterProfileEvidence:
             continue
         profile = source.profile
-        if profile.schema_version != 1 or profile.boundary_kind != "outer":
+        if profile.schema_version not in {1, 2} or profile.boundary_kind != "outer":
             raise ValueError("unsupported planar outer-profile schema")
         axis = max(range(3), key=lambda index: abs(profile.normal[index]))
         camera_side = -1 if axis == 1 else 1

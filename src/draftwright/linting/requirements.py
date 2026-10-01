@@ -187,7 +187,7 @@ def recognized_requirement_outcomes(
             recognition, features, registry, omissions, part=part
         ),
         "polygonal_bosses": polygonal_boss_requirement_outcomes(
-            recognition, features, registry, omissions
+            recognition, features, registry, omissions, evidence=evidence
         ),
         "polygonal_stock": polygonal_stock_outcomes(recognition, features, registry, omissions),
         "pockets": pocket_requirement_outcomes(

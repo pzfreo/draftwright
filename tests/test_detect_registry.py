@@ -266,6 +266,7 @@ def test_every_derived_converter_lowers_representative_public_records_to_ir():
         (recognise_holes, recognise_hole_patterns, _bolt_circle_plate),
         (recognise_holes, recognise_hole_patterns, _linear_array_plate),
         (recognise_holes, recognise_hole_patterns, _grid_plate),
+        (recognise_holes, recognise_hole_patterns, lambda: _grid_plate(2, 2, 20, 30)),
         (recognise_slots, recognise_slot_patterns, _slot_array_plate),
         (recognise_slots, recognise_slot_patterns, _slot_grid_plate),
     )

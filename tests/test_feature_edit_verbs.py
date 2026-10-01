@@ -220,14 +220,17 @@ class TestFeatureEditVerbs:
         assert set(names) <= dwg.registry.pinned_names()
 
     def test_locate_dedups_coincident_members(self):
-        # The 4 corner ø10 holes group into one HoleFeature (X∈{25,-25}, Y∈{20,-20});
+        # Three L-arranged holes share X and Y stations without forming a rectangle.
         # locate() places one dim per distinct axis position, not one per member.
-        dwg = build_drawing(_holed_plate(), auto_dims=False)
-        corners = next(f for f in dwg.model().features if f.kind == "hole" and len(f.members) == 4)
+        part = Box(100, 60, 10)
+        for x, y in ((-25, -20), (25, -20), (-25, 20)):
+            part -= Pos(x, y, 0) * Cylinder(5, 10)
+        dwg = build_drawing(part, auto_dims=False)
+        corners = next(f for f in dwg.model().features if f.kind == "hole" and len(f.members) == 3)
         names = dwg.locate(corners)
         labels = sorted(dwg.get_annotation(n).label for n in names)
-        # X offsets 25→65 / -25→15; Y offsets 20→50 / -20→10 — four distinct dims.
-        assert labels == ["10", "15", "50", "65"]
+        # X offsets -25→25 / 25→75; Y offsets -20→10 / 20→50.
+        assert labels == ["10", "25", "50", "75"]
 
     def test_locate_rejects_side_drilled_feature(self):
         # A side-drilled (X-axis) bore has no plan location dim — clear ValueError.

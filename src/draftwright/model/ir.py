@@ -148,6 +148,7 @@ from draftwright.model.ir_foundation import (
 from draftwright.model.ir_foundation import (
     display as display,
 )
+from draftwright.model.ir_foundation import grid_has_centre_datum
 from draftwright.model.oriented_slot_geometry import validate_feature, validate_passage
 from draftwright.section_recess_contract import (
     circular_channel_geometry,
@@ -2615,8 +2616,10 @@ class RequestedDimension:
             ):
                 raise ValueError("location axis must be transverse to the hole axis")
             if self.member == "centre":
-                if not isinstance(feature, PatternFeature) or feature.pattern != "bolt_circle":
-                    raise ValueError("only a bolt-circle pattern has a centre location")
+                if not isinstance(feature, PatternFeature) or not (
+                    feature.pattern == "bolt_circle" or grid_has_centre_datum(feature)
+                ):
+                    raise ValueError("only a bolt-circle or proved grid has a centre location")
             elif (
                 isinstance(self.member, bool)
                 or not isinstance(self.member, int)

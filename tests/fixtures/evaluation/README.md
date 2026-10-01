@@ -27,9 +27,12 @@ individual location requirements, which remain owned by `corpus-v1.json`:
   constant-pitch linear array; collinearity also prevents treating the three points as a bolt
   circle.
 - `pattern-topology-a.step` starts with a 140 × 90 × 12 mm centred block and adds a Ø10 × 2 mm
-  boss centred at (-35, 0, 6), giving the circular datum a physical witness (#1611). Four Ø6 through holes
-  form a 32 mm bolt circle centred at (-35, 0), and three Ø4 through holes form an independent
-  vertical linear array at X = 35 with 18 mm pitch.
+  boss centred at (-35, 0, 6). Four Ø6 through holes sit at cardinal offsets of 16 mm around
+  (-35, 0), forming a 2 × 2 square rotated 45° with both pitches equal to 16√2 mm. Three Ø4
+  through holes form an independent vertical linear array at X = 35 with 18 mm pitch. The
+  reviewed [quiddity#791](https://github.com/pzfreo/quiddity/issues/791) rule gives a proved
+  four-hole square precedence over its equivalent fitted bolt circle; the boss does not change
+  the square's grouping identity.
 - `pattern-topology-b.step` is geometrically identical to `pattern-topology-a.step`; every Part 21
   entity identifier was bijectively renumbered and the entity records serialized in reverse order,
   with references rewritten by the same bijection.

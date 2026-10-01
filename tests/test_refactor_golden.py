@@ -82,6 +82,11 @@ incomplete; the established recovery ladder can now produce complete drawings on
 standard sheet after yielding the optional ISO. The larger page is accepted here because it
 recovers required manufacturing outcomes, not because annotation coordinates moved.
 
+Quiddity 0.3.9 identifies ``grid_plate`` as two rectangular grids. Their absolute location
+labels now state the physical grid centres (30/95 in X, 38/40 in Y); both close Y locations
+fit as separate corridor dimensions. The drawing has no build issues and fits A3 at 1:1,
+where the previous baseline used A2 at 2:1. The four grid pitch dimensions remain placed.
+
 Re-bless the recorded baseline (advances the footprint ratchet — do it deliberately):
     DRAFTWRIGHT_UPDATE_GOLDEN=1 uv run pytest tests/test_refactor_golden.py
 """

@@ -2,7 +2,7 @@
 
 The NIST CTC-01 STEP is recognised once while generating the editable script, then that
 script is built twice: as generated and after one sanctioned ``Sheet`` layout edit.
-This canary pins the historical estimated-strips planner: its A3-to-A1 page edit has
+This canary pins the historical estimated-strips planner: its A2-to-A1 page edit has
 a reviewed, already-resolved overlap. The demand-guided default may choose a
 different page, which would change the experiment rather than test stale credit.
 All negative policy checks below mutate the two resulting JSON documents in
@@ -42,15 +42,19 @@ _TARGET = LayoutFindingIdentity(
 
 
 def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
-    """CTC-01's reviewed 79 claims, independent of either observed assessment."""
+    """CTC-01's reviewed Quiddity 0.3.9 claims, independent of either assessment."""
 
     rows: list[tuple[str, str]] = []
     for declaration in (1, 2):
         rows.append((f"declaration:{declaration}", "bore.diameter"))
         rows.extend(
-            (f"declaration:{declaration}", f"location.location.member.{member}.{axis}")
-            for member in range(4)
-            for axis in ("x", "y")
+            (f"declaration:{declaration}", parameter)
+            for parameter in (
+                "grid_pitch.length.col",
+                "grid_pitch.length.row",
+                "location_pattern.location.centre.x",
+                "location_pattern.location.centre.y",
+            )
         )
     rows.extend(
         ("declaration:3", parameter)
@@ -81,7 +85,7 @@ def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
     rows.extend((f"declaration:{declaration}", "chamfer.length") for declaration in range(9, 12))
     rows.extend((f"declaration:{declaration}", "fillet.radius") for declaration in range(12, 20))
     rows.extend((f"declaration:{declaration}", "blend.radius") for declaration in range(20, 51))
-    assert len(rows) == 79
+    assert len(rows) == 71
     return tuple(ExpectedRequirement(*row) for row in rows)
 
 
@@ -141,7 +145,7 @@ def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> 
 
     # This is the autonomous-loop edit under test: use only a sanctioned Sheet layout
     # declaration, never raw annotation coordinates. The automatic planner has already
-    # selected a clean A3, so a larger A1 must not receive stale credit for resolving the
+    # selected an A2, so a larger A1 must not receive stale credit for resolving the
     # old A4 overlap. Path changes merely keep the two replay artifacts separate and are
     # not drawing semantics.
     source = baseline_script.read_text(encoding="utf-8")
@@ -179,7 +183,7 @@ def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> 
     assert len(list((tmp_path / "candidate-trace").glob("*.trace.json"))) == 1
     assert baseline["drawing"]["layout"]["placement"]["availability"] == "available"
     assert candidate["drawing"]["layout"]["placement"]["availability"] == "available"
-    assert baseline["drawing"]["layout"]["page"]["width"] == 420.0
+    assert baseline["drawing"]["layout"]["page"]["width"] == 594.0
     assert candidate["drawing"]["layout"]["page"]["width"] == 841.0
     assert baseline["drawing"]["layout"]["page"]["scale"] == 0.2
     assert candidate["drawing"]["layout"]["page"]["scale"] == 0.2
@@ -193,10 +197,18 @@ def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> 
     assert set(inspected_holes) == expected_occurrences
     assert all(row["defining_face_ids"] for row in inspected_holes.values())
     assert all(row["constituent_face_ids"] for row in inspected_holes.values())
-    assert all(row["draftwright"]["owners"] == ["hole:2"] for row in inspected_holes.values())
+    assert all(row["draftwright"]["owners"] == ["pattern:2"] for row in inspected_holes.values())
     hole_declaration = _declaration(baseline, "declaration:2")
-    assert hole_declaration["owner"]["id"] == "hole:2"
-    assert set(hole_declaration["recognition"]["occurrence_ids"]) == expected_occurrences
+    assert hole_declaration["owner"]["id"] == "pattern:2"
+    assert set(hole_declaration["recognition"]["occurrence_ids"]) == {
+        *expected_occurrences,
+        "hole_patterns:2",
+    }
+    grouped = next(row for row in inspection["found"] if row["id"] == "hole_patterns:2")
+    assert grouped["draftwright"]["owners"] == ["pattern:2"]
+    assert set(grouped["defining_face_ids"]) == {
+        face for row in inspected_holes.values() for face in row["defining_face_ids"]
+    }
     inspected_slot = next(row for row in inspection["found"] if row["id"] == "slots:1")
     assert inspected_slot["defining_face_ids"] == ["face:54", "face:55", "face:84", "face:87"]
     assert inspected_slot["draftwright"]["owners"] == ["slot:1"]
@@ -216,8 +228,8 @@ def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> 
     assert not comparison["policy"]["blockers"]
     assert not comparison["unavailable"]["reasons"]
     assert all(not row["changes"] for row in comparison["requirements"]["transitions"])
-    assert len(baseline["measurements"]["entries"]) == 79
-    assert len(candidate["measurements"]["entries"]) == 79
+    assert len(baseline["measurements"]["entries"]) == 71
+    assert len(candidate["measurements"]["entries"]) == 71
     assert baseline["measurements"]["unknown"] == candidate["measurements"]["unknown"] == []
     assert baseline["measurements"]["unavailable_owner_claims"] == []
     assert candidate["measurements"]["unavailable_owner_claims"] == []
@@ -229,8 +241,8 @@ def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> 
     )
     assert inspection["missed"]["face_count"] == {
         "total": 139,
-        "claimed": 99,
-        "unclaimed": 40,
+        "claimed": 103,
+        "unclaimed": 36,
     }
 
     # Counterfactual policy checks reuse the real assessment. Clearing the crossing by

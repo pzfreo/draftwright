@@ -88,7 +88,8 @@ def test_narrow_floor_has_one_drafting_owner_despite_raw_family_overlap() -> Non
     features = drawing.model().features
 
     assert len(recognition.grooves) == 1
-    assert any(round(item.diameter, 3) == 18.0 for item in recognition.bosses)
+    # The provider no longer emits a redundant boss at this turned groove floor.
+    assert recognition.bosses == ()
     assert any(round(item.diameter, 3) == 18.0 for item in recognition.turned_steps)
     assert len([feature for feature in features if feature.kind == "groove"]) == 1
     assert not [

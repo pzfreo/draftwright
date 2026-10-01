@@ -674,10 +674,12 @@ class TestStability:
     # Keyed on (feature kind, feature origin, id) → value. `span`/`refs` are
     # deliberately excluded — they carry model coordinates that shift with unrelated
     # recognition work, so pinning them would make this churn without adding
-    # semantic protection. Note the two holes sharing `bore.diameter`: that is why
+    # semantic protection. Note the hole and pattern sharing `bore.diameter`: that is why
     # the key includes the feature, not the parameter id alone.
     _EXPECTED = {
-        ("hole", (-30.0, -18.0, 6.0), "bore.diameter"): 5.0,
+        ("pattern", (0.0, 0.0, 6.0), "bore.diameter"): 5.0,
+        ("pattern", (0.0, 0.0, 6.0), "grid_pitch.length.row"): 36.0,
+        ("pattern", (0.0, 0.0, 6.0), "grid_pitch.length.col"): 60.0,
         ("hole", (0.0, 0.0, 6.0), "bore.diameter"): 10.0,
         ("envelope", (0.0, 0.0, 0.0), "width.length"): 80.0,
         ("envelope", (0.0, 0.0, 0.0), "height.length"): 12.0,
@@ -685,9 +687,8 @@ class TestStability:
     }
 
     def _part(self):
-        # The four ⌀5 corner holes are grouped into ONE count-group feature rather
-        # than a grid pattern, so this fixture carries no grid pitches — the row/col
-        # discriminator is pinned at unit level above instead.
+        # The four ⌀5 corner holes form one rectangular pattern. Keep its pitches
+        # in this end-to-end identity binding as well as the unit mapping above.
         return (
             Box(80, 50, 12)
             - Pos(0, 0, 0) * Cylinder(5, 40)

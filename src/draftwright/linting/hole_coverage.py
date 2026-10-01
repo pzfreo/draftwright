@@ -9,13 +9,20 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
-from math import hypot
+from math import cos, hypot, radians, sin
 from typing import Literal
 
-from quiddity import BoltCircle, HoleRecord, HoleSpec, RecognitionResult, countersink_matches_hole
+from quiddity import (
+    BoltCircle,
+    HoleRecord,
+    HoleSpec,
+    RecognitionResult,
+    RectangularHoleSet,
+    countersink_matches_hole,
+)
 
 from draftwright._core import _decode_hole_location_fact, _fmt
-from draftwright._geometry import _END_ON, _is_principal_axis, _projected_edge_distance
+from draftwright._geometry import _END_ON, _is_principal_axis, _projected_edge_distance, plane_axes
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._registry import (
@@ -253,6 +260,8 @@ def _planar_direction(value, axis: str):
 
 
 def _pattern_kind(pattern) -> str:
+    if isinstance(pattern, RectangularHoleSet):
+        return "grid"
     if hasattr(pattern, "diameter") and hasattr(pattern, "center"):
         return "bolt_circle"
     if hasattr(pattern, "row_pitch"):
@@ -286,10 +295,16 @@ def _pattern_key(pattern) -> tuple:
         member = recognised[0]
         bcd = getattr(pattern, "diameter", None) if kind == "bolt_circle" else None
         pitch = getattr(pattern, "pitch", None) if kind == "linear" else None
-        grid = (pattern.row_pitch, pattern.col_pitch) if kind == "grid" else None
+        grid = (
+            (pattern.height, pattern.width)
+            if isinstance(pattern, RectangularHoleSet)
+            else (pattern.row_pitch, pattern.col_pitch)
+            if kind == "grid"
+            else None
+        )
         direction = getattr(pattern, "direction", None)
-        rows = getattr(pattern, "rows", None)
-        cols = getattr(pattern, "cols", None)
+        rows = 2 if isinstance(pattern, RectangularHoleSet) else getattr(pattern, "rows", None)
+        cols = 2 if isinstance(pattern, RectangularHoleSet) else getattr(pattern, "cols", None)
         angle = getattr(pattern, "angle", None)
         spec = _recognised_spec(member)
     else:
@@ -776,18 +791,60 @@ def _retain_physical_carriers(evidence, carriers, names, feature, parameter, val
         )
 
 
+def _grid_has_physical_centre(feature) -> bool:
+    """Credit a centre only when the physical members prove the declared lattice."""
+    members = getattr(feature, "members", ())
+    rows = getattr(feature, "rows", None)
+    cols = getattr(feature, "cols", None)
+    pitches = getattr(feature, "grid", None)
+    if (
+        getattr(feature, "pattern", None) != "grid"
+        or rows is None
+        or cols is None
+        or pitches is None
+        or rows * cols != len(members)
+        or len(members) != feature.count
+    ):
+        return False
+    row_pitch, col_pitch = pitches
+    angle = radians(feature.angle or 0.0)
+    u, v = plane_axes(feature.frame.axis)
+    centre = feature.frame.origin
+    unmatched = list(members)
+    for row in range(rows):
+        for col in range(cols):
+            across = (col - (cols - 1) / 2) * col_pitch
+            along = (row - (rows - 1) / 2) * row_pitch
+            du = across * cos(angle) - along * sin(angle)
+            dv = across * sin(angle) + along * cos(angle)
+            expected = tuple(centre[i] + du * u[i] + dv * v[i] for i in range(3))
+            match = next(
+                (
+                    index
+                    for index, point in enumerate(unmatched)
+                    if all(abs(point[i] - expected[i]) <= 0.01 for i in range(3))
+                ),
+                None,
+            )
+            if match is None:
+                return False
+            unmatched.pop(match)
+    return True
+
+
 def _structured_locations_placed(
     evidence, features, parameter: str, turned_axis_centers, *, names=None, carriers=None
 ) -> bool:
     if parameter.startswith("location_pattern.location."):
         for feature in features:
-            if getattr(feature, "pattern", None) == "bolt_circle":
+            if getattr(feature, "pattern", None) == "bolt_circle" or _grid_has_physical_centre(
+                feature
+            ):
                 valid = {_normalised_location(feature, feature.frame.origin)}
             else:
-                # Linear/grid absolute location is compiled from one member nearest the
-                # datum. Any member is a truthful anchor because pitch/lattice facts locate
-                # the rest. Fine member addressing does not make every member's absolute
-                # position a separate physical requirement for a pattern.
+                # A noncentred grid or linear pattern needs a physical member anchor.
+                # Pitch/lattice facts locate the rest. Fine member addressing does not
+                # make every member's position a separate physical requirement.
                 valid = {_normalised_location(feature, point) for point in _members(feature)}
             carried = valid.intersection(evidence.locations.get((feature, parameter), ()))
             if not carried:

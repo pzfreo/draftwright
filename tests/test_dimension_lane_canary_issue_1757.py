@@ -74,12 +74,24 @@ def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> No
         )
     )
     generated_source = generated_script.read_text(encoding="utf-8")
+    identified = {
+        name: next(line for line in generated_source.splitlines() if line.startswith(f"{name} = "))
+        for name in ("slot1", "slot2", "control_frame1", "control_frame6")
+    }
+    assert "width=40, length=120" in identified["slot1"]
+    assert ".identify('declaration:5'" in identified["slot1"]
+    assert "width=50, length=100" in identified["slot2"]
+    assert ".identify('declaration:6'" in identified["slot2"]
+    assert "source_id='geometric_tolerance:0:1:4:1'" in identified["control_frame1"]
+    assert ".identify('declaration:58'" in identified["control_frame1"]
+    assert "source_id='geometric_tolerance:0:1:4:20'" in identified["control_frame6"]
+    assert ".identify('declaration:63'" in identified["control_frame6"]
     side_prefix = tmp_path / "side"
     side_script = _script_variant(
         generated_source,
         generated_prefix,
         side_prefix,
-        'sheet.layout_override("declaration:57", side="above")\n'
+        'sheet.layout_override("declaration:58", side="above")\n'
         'sheet.layout_override("declaration:63", side="below")',
     )
     baseline = _run(side_script, tmp_path / "side-trace")
@@ -89,8 +101,8 @@ def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> No
         side_script.read_text(encoding="utf-8"),
         side_prefix,
         lane_prefix,
-        'sheet.layout_override("declaration:9", parameter="slot_width.length", lane=3)\n'
-        'sheet.layout_override("declaration:10", parameter="slot_width.length", lane=4)',
+        'sheet.layout_override("declaration:5", parameter="slot_width.length", lane=3)\n'
+        'sheet.layout_override("declaration:6", parameter="slot_width.length", lane=4)',
     )
     candidate = _run(lane_script, tmp_path / "lane-trace")
 
@@ -115,7 +127,7 @@ def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> No
         assert _annotation(baseline, name)["semantic"] == _annotation(candidate, name)["semantic"]
     assert candidate["drawing"]["layout"]["overrides"][-2:] == [
         {
-            "declaration_id": "declaration:9",
+            "declaration_id": "declaration:5",
             "parameter_id": "slot_width.length",
             "control": "lane",
             "authored_value": 3,
@@ -124,7 +136,7 @@ def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> No
             "status": "applied",
         },
         {
-            "declaration_id": "declaration:10",
+            "declaration_id": "declaration:6",
             "parameter_id": "slot_width.length",
             "control": "lane",
             "authored_value": 4,

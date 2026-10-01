@@ -541,21 +541,11 @@ class TestEscalation:
         assert not any(n.startswith("balloon_") for n in ann)
         assert sum(1 for n in ann if n.startswith("hc_plan")) >= 1  # spec-group callouts
         assert any(n.startswith("m_locx") for n in ann)  # location dims placed, not dropped
-        remaining = _ink_crossings_named(
-            dwg,
-            [(str(value), "2× 14.1") for value in (10, 20, 30, 40, 50, 60)],
-        )
+        remaining = _ink_crossings_named(dwg, [])
         warnings = [i for i in remaining if i.severity in ("warning", "error")]
-        assert warnings and {issue.code for issue in warnings} == {
-            "hole_pattern_dim_dropped",
-            # The #1250 summary of that same drop, at error severity so `passed` cannot be
-            # true over a sheet the engine would refuse if it were requested explicitly.
-            "plan_incomplete",
-        }
-        assert all(issue.measurement_ids for issue in warnings)
-        # The helper's exact rotated label polygon makes these six previously
-        # unmeasurable crossings visible without clipping against the inflated
-        # 10.197 × 10.197 mm AABB (#1322 review).
+        assert warnings == []
+        assert dwg.scale_decision["status"] == "automatic_replanned"
+        assert len([name for name in ann if name.startswith("dim_pitch_plan")]) == 5
 
     def test_escalation_clears_density_lint(self, dense_plate_dwg):
         # No callout_dropped / location_ref_dropped / count-mismatch warnings

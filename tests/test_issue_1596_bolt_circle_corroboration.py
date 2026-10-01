@@ -147,7 +147,7 @@ def test_no_leftover_holes_do_not_corroborate_a_fitted_circle():
 
 @pytest.mark.parametrize("rotation", [(0, 0, 0), (0, 0, 23), (0, 0, 45), (90, 0, 0), (0, 90, 0)])
 def test_the_rule_does_not_depend_on_the_angle_to_the_axes(rotation):
-    """A circular body corroborates; a bare square plate does not, in every principal plane."""
+    """A real five-hole circle survives; a fitted four-hole subset is refused."""
     from build123d import Rotation
     from quiddity import BoltCircle
     from quiddity.evidence import build_recognition_evidence
@@ -156,30 +156,31 @@ def test_the_rule_does_not_depend_on_the_angle_to_the_axes(rotation):
 
     transform = Rotation(*rotation)
     for part, accepted in (
-        (_flange(4, central_feature=False), True),
-        (_grid_plate((-10, 10), columns=(-10, 10)), False),
+        (_flange(5, central_feature=False), True),
+        (_grid_plate(_UNEVEN_ROWS), False),
     ):
         part = transform * part
         evidence = build_recognition_evidence(part)
         assert len(evidence.result.hole_patterns) == 1
         assert isinstance(evidence.result.hole_patterns[0], BoltCircle)
-        assert len(evidence.result.hole_patterns[0].holes) == 4
+        assert len(evidence.result.hole_patterns[0].holes) == (5 if accepted else 4)
         model = _build_part_model_from_recognition(part, evidence.result)
         patterns = [f for f in model.features if isinstance(f, PatternFeature)]
         assert bool(patterns) is accepted
-        assert sum(f.count for f in model.features if f.kind in ("hole", "pattern")) == 4
+        assert sum(f.count for f in model.features if f.kind in ("hole", "pattern")) == (
+            5 if accepted else 6
+        )
 
 
 # --- what must keep working ------------------------------------------------------------
 
 
-def test_four_holes_around_a_real_centre_keep_their_bolt_circle():
-    """A four-bolt round flange is real and common, so member count alone would refuse as
-    much good work as bad. What separates it from the grid is a physical feature at the
-    centre that a machinist can indicate off."""
-    (pattern,) = _bolt_circles(_flange(4))
+def test_four_holes_around_a_real_centre_keep_their_rectangular_spacing():
+    """The provider's four-hole rectangle carries the flange's exact spacing."""
+    (pattern,) = _patterns(_flange(4))
+    assert pattern.pattern == "grid"
     assert pattern.count == 4
-    assert pattern.bcd == pytest.approx(60.0)
+    assert pattern.grid == pytest.approx((42.43, 42.43))
 
 
 def test_a_concentric_feature_alone_can_carry_it():
@@ -201,14 +202,9 @@ def test_a_concentric_feature_alone_can_carry_it():
     assert pattern.count == 4
 
 
-def test_a_round_body_concentric_with_the_holes_is_itself_corroboration():
-    """A plain disc with four bolt holes and nothing in the middle keeps its bolt circle.
-
-    Its ⌀80 body is a boss on the pattern axis at the pattern centre. Written expecting a
-    refusal; the code was right and the expectation was wrong, and it is kept because "the
-    part itself is the concentric feature" is the commonest flange there is.
-    """
-    (pattern,) = _bolt_circles(_flange(4, central_feature=False))
+def test_a_round_body_with_four_holes_keeps_their_rectangular_spacing():
+    (pattern,) = _patterns(_flange(4, central_feature=False))
+    assert pattern.pattern == "grid"
     assert pattern.count == 4
 
 
@@ -278,14 +274,9 @@ class TestTheConcentricityPredicate:
         )
 
 
-@pytest.fixture(scope="module", params=["uneven-six", "square-four"])
-def refused_pattern_drawing(request):
-    part = (
-        _grid_plate(_UNEVEN_ROWS)
-        if request.param == "uneven-six"
-        else _grid_plate((-10, 10), columns=(-10, 10))
-    )
-    return build_drawing(part, title="T", number="N")
+@pytest.fixture(scope="module")
+def refused_pattern_drawing():
+    return build_drawing(_grid_plate(_UNEVEN_ROWS), title="T", number="N")
 
 
 def test_a_refused_pattern_does_not_leave_the_hole_ledger_believing_in_it(refused_pattern_drawing):
@@ -424,29 +415,27 @@ def test_declared_patterns_remain_exact_and_corroborated_patterns_cannot_disappe
     from draftwright.model.detect import _pattern_feature
     from draftwright.registry import AnnotationRegistry
 
-    part = (
-        _flange(4, central_feature=False)
-        if corroborated
-        else _grid_plate((-10, 10), columns=(-10, 10))
-    )
+    part = _flange(5, central_feature=False) if corroborated else _grid_plate(_UNEVEN_ROWS)
     result = build_recognition_evidence(part).result
     (source,) = result.hole_patterns
-    assert isinstance(source, BoltCircle) and len(source.holes) == 4
+    assert isinstance(source, BoltCircle) and len(source.holes) == (5 if corroborated else 4)
     feature = _pattern_feature(source, source.holes)
     registry = AnnotationRegistry()
     exact = hole_requirement_outcomes(result, [feature], registry)
-    assert exact and all(row.state == "missing" for row in exact)
-    assert any(row.parameter_id == "bolt_circle.diameter" for row in exact)
+    pattern_rows = [row for row in exact if row.source_kind == "hole_pattern"]
+    assert pattern_rows and all(row.state == "missing" for row in pattern_rows)
+    assert any(row.parameter_id == "bolt_circle.diameter" for row in pattern_rows)
+    if not corroborated:
+        assert [(row.state, row.member_count) for row in exact if row.source_kind == "hole"] == [
+            ("unverifiable", 2)
+        ]
     wrong = replace(feature, bcd=feature.bcd + 1)
     mismatch = hole_requirement_outcomes(result, [wrong], registry)
     assert any(row.state == "unverifiable" for row in mismatch)
 
-    ordinary = replace(feature.member, count=4, members=feature.members)
+    ordinary = replace(feature.member, count=len(source.holes), members=feature.members)
     fallback = hole_requirement_outcomes(result, [ordinary], registry)
     assert fallback
-    assert any(row.state == "unverifiable" for row in fallback) is corroborated
+    assert any(row.state == "unverifiable" for row in fallback)
     if not corroborated:
-        assert all(row.state == "missing" for row in fallback)
-        assert (
-            sum(row.member_count for row in fallback if row.parameter_id == "bore.diameter") == 4
-        )
+        assert [(row.state, row.member_count) for row in fallback] == [("unverifiable", 6)]

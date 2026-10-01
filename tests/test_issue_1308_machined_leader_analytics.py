@@ -75,14 +75,12 @@ EXPECTED = {
             "m_slot1_length": "Dimension",
             "m_slot0_pos": "Dimension",
             "m_locx0": "Dimension",
-            "m_locx1": "Dimension",
-            "m_locx2": "Dimension",
+            "dim_pitch_plan0_0": "Dimension",
+            "dim_pitch_plan0_1": "Dimension",
             "m_slot1_pos": "Dimension",
-            "m_locx3": "Dimension",
             "m_locy0": "Dimension",
-            "m_locy1": "Dimension",
-            "m_locy2": "Dimension",
-            "m_locy3": "Dimension",
+            "dim_pitch_plan1_0": "Dimension",
+            "dim_pitch_plan1_1": "Dimension",
             "dim_step_0": "Dimension",
             "m_bossheight_z0": "Dimension",
             "dim_loc_front_z7500": "Dimension",
@@ -344,6 +342,15 @@ def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, 
         assert rendered_ink_matches.get(id(annotation)) is True, name
     if fixture == "nist_ctc_01_asme1_ap242.stp":
         from build123d import Edge, GeomType
+
+        # Both symmetric grids share one physical X and Y centre mark; each mark
+        # retains the two approved pattern-location identities.
+        for axis in "xy":
+            keys = drawing.measurement_keys(f"m_loc{axis}0")
+            assert len(keys) == 2
+            assert {key["parameter_id"] for key in keys} == {
+                f"location_pattern.location.centre.{axis}"
+            }
 
         # #1479 moved all three Blend tips from analytic axes to their own
         # physical boundaries. Check the named occurrence independently of

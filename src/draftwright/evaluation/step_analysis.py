@@ -1606,6 +1606,8 @@ def _bore_variant_observers() -> Mapping[str, _PreparedObserver]:
         }
 
         def parameters(pattern) -> dict[str, Value]:
+            from quiddity import RectangularHoleSet
+
             kind = _pattern_kind(pattern)
             values: dict[str, Value] = {"count": len(pattern.holes)}
             if kind == "bolt_circle":
@@ -1613,11 +1615,12 @@ def _bore_variant_observers() -> Mapping[str, _PreparedObserver]:
             elif kind == "linear":
                 values.update(pitch=pattern.pitch, direction=pattern.direction)
             else:
+                rectangular = isinstance(pattern, RectangularHoleSet)
                 values.update(
-                    rows=pattern.rows,
-                    cols=pattern.cols,
-                    row_pitch=pattern.row_pitch,
-                    col_pitch=pattern.col_pitch,
+                    rows=2 if rectangular else pattern.rows,
+                    cols=2 if rectangular else pattern.cols,
+                    row_pitch=pattern.height if rectangular else pattern.row_pitch,
+                    col_pitch=pattern.width if rectangular else pattern.col_pitch,
                     angle=pattern.angle,
                     center=pattern.center,
                 )

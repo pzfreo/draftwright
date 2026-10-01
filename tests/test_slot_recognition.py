@@ -535,8 +535,11 @@ class TestSlotDimensioning:
     @pytest.mark.timeout(60)
     def test_slot_dims_do_not_overprint_hole_callouts(self):
         # A slot dim's witness/arrow geometry must not cross a hole callout label.
-        # The collision gate tests the dim's FULL geometry (not just its label
-        # box) against external annotations, which lint is blind to (#146 review).
+        # This fixture deliberately has overlapping whole-geometry boxes; those
+        # boxes contain empty space, so check the rendered strokes themselves.
+        from draftwright.annotations._common import annotation_ink_clear
+        from draftwright.linting.ink_overlap import crossing_length, segments_of
+
         part = Box(140, 60, 16) - Pos(0, 0, 0) * Box(10, 40, 24)
         for x, y in [(-45, 20), (45, 20), (-45, -20), (45, -20)]:
             part = part - Pos(x, y, 0) * Cylinder(4, 16)
@@ -546,14 +549,23 @@ class TestSlotDimensioning:
             return min(a[2], b[2]) > max(a[0], b[0]) and min(a[3], b[3]) > max(a[1], b[1])
 
         external = [
-            o.label_bbox
+            (n, o)
             for n, o in dwg.iter_annotations()
             if not n.startswith("m_slot") and getattr(o, "label_bbox", None) is not None
         ]
         assert external  # the holes produced callouts
+        bbox_overlaps = []
         for n, o in dwg.iter_annotations():
             if not n.startswith("m_slot"):
                 continue
             g = o.bounding_box()
             full = (g.min.X, g.min.Y, g.max.X, g.max.Y)
-            assert not any(overlaps(full, e) for e in external), f"{n} overprints a callout"
+            for other_name, other in external:
+                bbox_overlaps.append(overlaps(full, other.label_bbox))
+                assert crossing_length(segments_of(o), other.label_bbox) == 0, (
+                    f"{n} strokes cross {other_name} text"
+                )
+                assert annotation_ink_clear(dwg, o, against=((other_name, other),)), (
+                    f"{n} overprints {other_name}"
+                )
+        assert any(bbox_overlaps), "fixture precondition: whole boxes must overlap"

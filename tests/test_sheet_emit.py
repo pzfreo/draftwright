@@ -550,7 +550,10 @@ class TestEmit:
             for node in ast.walk(ast.parse(src))
             if isinstance(node, ast.Constant) and type(node.value) in (int, float)
         }
-        assert not numbers & {1170, 650}, "the raw import's bbox leaked into the script"
+        # Quiddity 0.3.9 also finds a real 650 mm grid pitch in this part. The
+        # raw envelope's 1170 mm width remains forbidden; the reconstructed
+        # envelope measurement below checks its other axis independently.
+        assert 1170 not in numbers, "the raw import's bbox leaked into the script"
 
         # ...and the verb genuinely rebuilds 800 × 450, rather than merely not saying 1170.
         ns: dict = {}
@@ -2843,7 +2846,16 @@ class TestTheDimensionMirror:
     @staticmethod
     @cache
     def _corpus():
+        from math import cos, pi, sin
+
         from build123d import Align, Axis, Box, Cylinder, Pos, Rot
+
+        def bolt_circle_flange():
+            part = Cylinder(40, 8)
+            for index in range(6):
+                angle = 2 * pi * index / 6
+                part -= Pos(28 * cos(angle), 28 * sin(angle), 0) * Cylinder(3, 12)
+            return part
 
         def flange():
             part = Cylinder(21, 4)
@@ -2889,6 +2901,7 @@ class TestTheDimensionMirror:
             # purpose — a disconnected profile is a separate, unrelated defect (#943).
             "turned shaft": Cylinder(15, 20) + Pos(0, 0, 17.5) * Cylinder(10, 15),
             "bored flange": Cylinder(40, 8) - Cylinder(8, 20),
+            "bolt circle flange": bolt_circle_flange(),
             # The two PATTERN kinds whose members are nested constructor calls
             # (`pocket_pattern(pocket(...), …)`). They were classified "untested" under
             # #948 and were in fact BROKEN — the emitted script named `pocket`/`slot`
@@ -2966,6 +2979,7 @@ class TestTheDimensionMirror:
         "polygonal stock": {"polygonal_stock"},
         "turned shaft": {"rotational", "step"},
         "bored flange": {"rotational"},
+        "bolt circle flange": {"pattern"},
         "pocket pattern": {"pocket_pattern"},
         "slot pattern": {"slot_pattern"},
         "chamfer": {"chamfer"},

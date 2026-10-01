@@ -28,18 +28,23 @@ from quiddity import (
     BossRecord,
     Chamfer,
     CircularBlindStep,
+    CircularFacePattern,
     CounterSink,
     DoubleDBore,
     FaceLevel,
     Fillet,
     Flat,
+    FreeformSurface,
     Groove,
     GussetRib,
     GussetRibArray,
     GussetRibMirrorPair,
     HoleRecord,
     HoleSpec,
+    InteriorVoid,
     LinearArray,
+    ObliqueThroughStep,
+    OrientedChamfer,
     OrientedSlot,
     OrientedSlotArray,
     OrientedSlotGrid,
@@ -49,6 +54,7 @@ from quiddity import (
     PolygonalStock,
     RaisedPad,
     RecognitionResult,
+    RectangularHoleSet,
     RectGrid,
     RepeatingRadialProfile,
     RiserEvidence,
@@ -57,10 +63,12 @@ from quiddity import (
     SectionRecessDocument,
     SectionRecessGrid,
     SectionRecessRefusal,
+    SheetMetalBody,
     Slot,
     SlotArray,
     SlotGrid,
     StepShoulder,
+    ThinWallBody,
     ThroughStep,
     TurnedStep,
     analyse_cylinders,
@@ -93,6 +101,7 @@ from draftwright._geometry import (
     _xyz,
     plane_axis_names,
 )
+from draftwright.measurement_support import square_polygonal_boss_pad_owner
 from draftwright.model.declare import circular_blind_step, control_frame, datum
 from draftwright.model.detect_inventory import (
     DetectionInventory,
@@ -255,6 +264,19 @@ def _pattern_feature(pat, members) -> PatternFeature:
             pitch=pat.pitch,
             direction=pat.direction,
         )
+    if isinstance(pat, RectangularHoleSet):
+        frame = Frame(_xyz(pat.center), axis)
+        return PatternFeature(
+            frame,
+            "grid",
+            n,
+            _member_hole(members[0], frame),
+            members=locs,
+            grid=(pat.height, pat.width),
+            rows=2,
+            cols=2,
+            angle=pat.angle,
+        )
     if isinstance(pat, RectGrid):
         frame = Frame(_xyz(pat.center), axis)
         return PatternFeature(
@@ -281,7 +303,7 @@ def _groups_by_diameter(bosses, tol: float = 0.15):
     return list(out.values())
 
 
-def _boss_groove_floor_candidates(b, grooves):
+def _boss_groove_floor_candidates(b, grooves, recognition_evidence=None):
     """Exact groove records satisfying the established boss-floor consumer predicate."""
     ax = _axis_letter(b)
     axis_index = "xyz".index(ax)
@@ -290,6 +312,11 @@ def _boss_groove_floor_candidates(b, grooves):
         for g in grooves
         if abs(b.diameter - g.diameter) <= _DIA_TOL
         and g.axis == ax
+        and (
+            recognition_evidence is None
+            or _records_share_defining_target(recognition_evidence, "bosses", b, "grooves", g)
+            is not False
+        )
         and all(
             abs(float(b.location[index]) - float(g.at[index])) <= 0.5
             for index in range(3)
@@ -1134,6 +1161,7 @@ _DERIVED_CONVERTERS: dict[type, Callable[..., Feature]] = {
     BoltCircle: _pattern_feature,
     LinearArray: _pattern_feature,
     RectGrid: _pattern_feature,
+    RectangularHoleSet: _pattern_feature,
     SectionRecessArray: _pocket_pattern_feature,
     SectionRecessGrid: _pocket_pattern_feature,
     SlotArray: _slot_pattern_feature,
@@ -1175,6 +1203,17 @@ _ORCHESTRATED_RECORDS: dict[type, str] = {
 # tier so neither unsupported evidence nor its compatibility records disappear into substrate
 # merely because neither has an IR converter.
 _UNCONSUMED_RECORDS: dict[type, str] = {
+    CircularFacePattern: ("geometric face relation with no reviewed drafting requirement (#1365)"),
+    FreeformSurface: ("surface evidence with no reviewed dimension or inspection grammar (#1365)"),
+    InteriorVoid: ("body-owned void evidence whose drawing requirements remain undecided (#1365)"),
+    ObliqueThroughStep: (
+        "free-axis step cannot be represented by the principal-frame ThroughStepFeature (#1365)"
+    ),
+    OrientedChamfer: ("free-axis chamfer lacks a reviewed IR and view grammar (#1365)"),
+    SheetMetalBody: (
+        "developed blank and bend-note drafting contract remain under design (#1557)"
+    ),
+    ThinWallBody: ("shell thickness evidence has no reviewed drafting requirement (#1365)"),
     AngledStep: (
         "an aggregate-reconciled angled blind step whose slanted face has yielded out of "
         "`chamfers`; its available measurements do not choose a truthful general dimension "
@@ -1607,6 +1646,7 @@ def _append_hole_features(
                 hole_pattern_feature,
                 reason_code="hole_pattern_member",
             )
+            ownership.bind_hole_pattern(pat, hole_pattern_feature)
     # Un-patterned holes: group by machining spec so identical holes share one
     # count× callout (the engine's grouped-callout rule); HoleSpec keys on the
     # snapped axis and the countersink too, so opposite-face drillings and csk-vs-plain
@@ -1806,7 +1846,7 @@ def _append_turned_and_boss_features(
             boss_step_candidates.append((b, tuple(candidate_steps)))
             owned = bool(candidate_steps)
             if not owned:
-                candidate_grooves = _boss_groove_floor_candidates(b, grooves)
+                candidate_grooves = _boss_groove_floor_candidates(b, grooves, recognition_evidence)
                 boss_groove_candidates.append((b, candidate_grooves))
                 if not candidate_grooves:
                     boss_feature = convert(b, ctx)
@@ -1844,7 +1884,7 @@ def _append_turned_and_boss_features(
             if remaining:
                 remaining_boss_groups.append(remaining)
         boss_groove_candidates = [
-            (boss, _boss_groove_floor_candidates(boss, grooves))
+            (boss, _boss_groove_floor_candidates(boss, grooves, recognition_evidence))
             for group in remaining_boss_groups
             for boss in group
         ]
@@ -2190,6 +2230,23 @@ def _append_profile_angle_features(*, recognition_evidence, features, ownership)
                 ownership.bind_profile_angle(member, feature, parameter_id=parameter.parameter_id)
 
 
+def _append_polygonal_boss_or_pad_owner(
+    boss, pads, pad_features_by_record_id, ownership, append_direct
+) -> None:
+    """Lower a boss or retain its exact four-sided pad ownership."""
+    pad_owner = square_polygonal_boss_pad_owner(
+        boss, pads, ownership.evidence if ownership is not None else None
+    )
+    if pad_owner is None or ownership is None:
+        append_direct(boss)
+        return
+    ownership.absorb_into(
+        boss,
+        pad_features_by_record_id[id(pad_owner)],
+        reason_code="polygonal_boss_pad_owner",
+    )
+
+
 def _append_primary_feature_families(
     run: DetectionRun,
     *,
@@ -2298,16 +2355,20 @@ def _append_primary_feature_families(
     # Bounded rectangular raised pads: footprint sizing, attachment-axis height, and
     # two in-plane locations. A Z attachment level may also enter the general profile
     # ladder, but that datum-to-level fact does not replace the pad's local rise.
+    pad_features_by_record_id = {}
     for pad in pads:
         append_direct(pad)
+        pad_features_by_record_id[id(pad)] = features[-1]
 
     # Bounded regular polygonal bosses own an across-flats callout and their direct axial
-    # height. They are distinct from circular bosses (diameter semantics) and rectangular
-    # pads (two orthogonal footprint sizes).
+    # height. They are distinct from circular bosses (diameter semantics); an exact
+    # four-sided duplicate of a rectangular pad shares that pad's IR owner.
     if polygonal_bosses is None:
         polygonal_bosses = scan_polygonal_bosses()
     for boss in polygonal_bosses:
-        append_direct(boss)
+        _append_polygonal_boss_or_pad_owner(
+            boss, pads, pad_features_by_record_id, ownership, append_direct
+        )
 
     # A whole regular polygonal prism is stock, not a boss: it owns the form/A-F
     # definition and its axial stock length independently of attachment evidence.

@@ -46,6 +46,55 @@ class RequirementExclusion:
     span: tuple | None = None
 
 
+def square_polygonal_boss_pad_owner(boss, pads, evidence):
+    """Return the unique exact same-run pad whose faces include a four-flat boss."""
+    if evidence is None or boss.side_count != 4:
+        return None
+    boss_occurrences = tuple(
+        occurrence
+        for occurrence in evidence.features
+        if evidence.family(occurrence) == "polygonal_bosses"
+        and evidence.record(occurrence) is boss
+    )
+    if len(boss_occurrences) != 1:
+        return None
+    boss_faces = evidence.defining_faces(boss_occurrences[0])
+    if not boss_faces:
+        return None
+    candidates = []
+    for pad in pads:
+        pad_occurrences = tuple(
+            occurrence
+            for occurrence in evidence.features
+            if evidence.family(occurrence) == "pads" and evidence.record(occurrence) is pad
+        )
+        if len(pad_occurrences) != 1 or not boss_faces < evidence.defining_faces(
+            pad_occurrences[0]
+        ):
+            continue
+        bounds = {
+            "x": (pad.x0, pad.x1),
+            "y": (pad.y0, pad.y1),
+            "z": (pad.z0, pad.z1),
+        }
+        if (
+            boss.axis == pad.axis
+            and abs(boss.base - bounds[pad.axis][0]) <= 1e-6
+            and abs(boss.top - bounds[pad.axis][1]) <= 1e-6
+            and all(
+                abs(boss.center[index] - sum(bounds[axis]) / 2) <= 1e-6
+                for index, axis in enumerate("xyz")
+            )
+            and all(
+                abs(boss.across_flats - (bounds[axis][1] - bounds[axis][0])) <= 1e-6
+                for axis in "xyz"
+                if axis != pad.axis
+            )
+        ):
+            candidates.append(pad)
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def pocket_location_reference(feature, datum_at):
     """Retain the planner's centre/near-end reference selection exactly."""
     point = list(feature.frame.origin)

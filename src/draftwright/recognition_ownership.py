@@ -274,13 +274,16 @@ DIRECT_FAMILIES = ownership_families("direct")
 
 # The aggregate exposes these as authoritative physical member occurrences. Draftwright may
 # lower one member to one feature or absorb several members into one grouped/pattern feature.
-# Derived pattern records remain outside this occurrence set in Quiddity 0.3.3.
+# Quiddity also issues run-local FeatureRefs for derived hole-pattern relations. Those relations
+# share the member group's IR owner without adding another physical hole requirement.
 GROUPABLE_FAMILIES = ownership_families("groupable")
 
 # Nested accepted occurrences share their supported parent's final IR owner.
 NESTED_FAMILIES = ownership_families("nested")
 
-# Final ownership for these accepted occurrences depends on cross-family classification.
+# These accepted occurrences have a supported consumer path, but the final owner depends on
+# Draftwright's cross-family classification.  The conversion site must record either the direct
+# adapter or the exact aggregate feature that intentionally absorbs the occurrence.
 CONDITIONAL_FAMILIES = ownership_families("conditional")
 
 OwnershipDisposition = Literal["represented", "absorbed"]
@@ -322,7 +325,7 @@ _ABSORBED_REASON_CODES = frozenset(
     }
 )
 _FEATURE_ABSORPTION_REASON_CODES = frozenset(
-    {"channel_step_level_owner", "turned_step_groove_owner"}
+    {"channel_step_level_owner", "polygonal_boss_pad_owner", "turned_step_groove_owner"}
 )
 _MULTI_FEATURE_ABSORPTION_OWNER_KINDS = {
     "plate_slot_pattern_owner": ("envelope", "slot_pattern"),
@@ -345,6 +348,7 @@ _REASON_FAMILY = {
     "gusset_rib_adapter": "gusset_ribs",
     "gusset_rib_pattern_member": "gusset_ribs",
     "hole_adapter": "holes",
+    "hole_pattern_relation": "hole_patterns",
     "hole_pattern_member": "holes",
     "pmi_split_member": "holes",
     "section_recess_adapter": "section_recesses",
@@ -353,6 +357,7 @@ _REASON_FAMILY = {
     "plate_slot_pattern_owner": "plates",
     "plate_step_ladder_owner": "plates",
     "plate_step_level_owner": "plates",
+    "polygonal_boss_pad_owner": "polygonal_bosses",
     "slot_adapter": "slots",
     "slot_pattern_member": "slots",
     "through_step_adapter": "through_steps",
@@ -364,9 +369,11 @@ _NESTED_OWNER_FAMILY = {"countersink_hole_owner": "holes"}
 _NESTED_OWNER_FIELD = {"countersink_hole_owner": "csink"}
 _FEATURE_ABSORPTION_OWNER_KIND = {
     "channel_step_level_owner": "step_level",
+    "polygonal_boss_pad_owner": "pad",
     "turned_step_groove_owner": "groove",
 }
 _FEATURE_ABSORPTION_EXISTING_OWNER = {
+    "polygonal_boss_pad_owner": ("pads", "direct_adapter"),
     "turned_step_groove_owner": ("grooves", "direct_adapter"),
 }
 _CHAINED_OWNER_FAMILY = {
@@ -639,6 +646,7 @@ class RecognitionOwnershipBuilder:
         self._bindings: list[OccurrenceBinding] = []
         self._profile_angles: list[ProfileAngleBinding] = []
         self._hole_pattern_refusals: list[HolePatternRefusal] = []
+        self._hole_pattern_policy: list[OccurrencePolicyOutcome] = []
         expected_ids = {
             id(occurrence)
             for occurrence in (
@@ -681,7 +689,52 @@ class RecognitionOwnershipBuilder:
             raise ValueError("refused pattern must belong to this recognition run")
         if any(row.pattern is pattern for row in self._hole_pattern_refusals):
             raise ValueError("hole-pattern refusal was already recorded")
+        occurrence = self._occurrence_for(pattern)
+        if self.evidence.family(occurrence) != "hole_patterns":
+            raise ValueError("refused relation is not a hole-pattern occurrence")
         self._hole_pattern_refusals.append(HolePatternRefusal(pattern, reason_code))
+        self._hole_pattern_policy.append(
+            OccurrencePolicyOutcome(
+                occurrence=occurrence,
+                disposition="unsupported",
+                reason_code=reason_code,
+                tracking="https://github.com/pzfreo/draftwright/issues/1365",
+            )
+        )
+
+    def bind_hole_pattern(self, pattern: object, feature: object) -> None:
+        """Bind one issued pattern relation to its exact member group's IR owner."""
+
+        occurrence = self._occurrence_for(pattern)
+        if self.evidence.family(occurrence) != "hole_patterns":
+            raise ValueError("record is not a hole-pattern relation")
+        if getattr(feature, "kind", None) != "pattern":
+            raise ValueError("hole-pattern relation requires a pattern IR owner")
+        members = self.evidence.members(occurrence)
+        pattern_holes = getattr(pattern, "holes", None)
+        if not isinstance(pattern_holes, tuple):
+            raise ValueError("hole-pattern relation has no issued members")
+        if len(members) != len(pattern_holes) or any(
+            self.evidence.record(member) is not record
+            for member, record in zip(members, pattern_holes, strict=True)
+        ):
+            raise ValueError("hole-pattern relation has different issued members")
+        if any(id(binding.occurrence) == id(occurrence) for binding in self._bindings):
+            raise ValueError("hole-pattern relation already has an IR owner")
+        if any(
+            not any(
+                binding.occurrence is member
+                and binding.feature is feature
+                and binding.reason_code == "hole_pattern_member"
+                for binding in self._bindings
+            )
+            for member in members
+        ):
+            raise ValueError("hole-pattern relation requires all exact member bindings")
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._bindings.append(
+            OccurrenceBinding(occurrence, feature, reason_code="hole_pattern_relation")
+        )
 
     def _occurrence_for(self, record: object) -> FeatureRef:
         """Resolve only exact records issued by this evidence authority."""
@@ -1183,14 +1236,19 @@ class RecognitionOwnershipBuilder:
     def snapshot(self) -> RecognitionOwnership:
         """Copy the current ledger without manufacturing owners for missing occurrences."""
 
+        refused_ids = {id(outcome.occurrence) for outcome in self._hole_pattern_policy}
         return RecognitionOwnership(
             evidence=self.evidence,
             expected_direct=self._expected_direct,
             expected_groupable=self._expected_groupable,
             expected_nested=self._expected_nested,
-            expected_conditional=self._expected_conditional,
+            expected_conditional=tuple(
+                occurrence
+                for occurrence in self._expected_conditional
+                if id(occurrence) not in refused_ids
+            ),
             bindings=tuple(self._bindings),
-            policy_outcomes=self._policy_outcomes,
+            policy_outcomes=(*self._policy_outcomes, *self._hole_pattern_policy),
             profile_angles=tuple(self._profile_angles),
             hole_pattern_refusals=tuple(self._hole_pattern_refusals),
         )

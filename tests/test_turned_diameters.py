@@ -225,8 +225,27 @@ class TestTurnedDiameters:
         # view rather than becoming orphan furniture.
         assert dwg.view_of("centerline_plan") == "plan"
         assert "plan" in dwg.views
-        assert not any(n.startswith("dim_loc_front_") for n in dwg.annotations())
-        assert not any(n.startswith("dim_loc_side_") for n in dwg.annotations())
+        grid = next(f for f in dwg.model().features if f.kind == "pattern" and f.pattern == "grid")
+        assert grid.frame.axis == "y" and grid.frame.origin == (0, 0, 0)
+        assert {(point[0], point[2]) for point in grid.members} == {
+            (-18, -18),
+            (-18, 18),
+            (18, -18),
+            (18, 18),
+        }
+        location_names = tuple(
+            name
+            for name in dwg.annotations()
+            if name.startswith(("dim_loc_front_", "dim_loc_side_"))
+        )
+        assert location_names  # the four-lug hole pattern has its own location scheme
+        assert {
+            key["parameter_id"] for name in location_names for key in dwg.measurement_keys(name)
+        } == {
+            "location_pattern.location.centre.x",
+            "location_pattern.location.centre.z",
+        }
+        assert {dwg.get_annotation(name).label for name in location_names} == {"23"}
 
         codes = {issue.code for issue in dwg.lint()}
         assert "feature_not_dimensioned" not in codes
@@ -237,12 +256,15 @@ class TestTurnedDiameters:
         # because the check was blind: the outline-crossing form exempted every
         # `covers_diameters` annotation wholesale, and this is a hole callout. Measured
         # against the filled material field the cut is real, and pinning WHICH leader
-        # is a stronger guard than the absence it replaces. Front-view hole callouts
-        # keep their specialised placer under ADR 2 (was 0014), so routing this one clear is
-        # #798's own remaining work.
+        # is a stronger guard than the absence it replaces. The changed provider inventory
+        # also exposes one diameter-leader cut in this view.
         silhouette = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
-        assert len(silhouette) == 1, [i.message for i in silhouette]
-        assert "4× ⌀4 THRU" in silhouette[0].message
+        assert len(silhouette) == 2, [i.message for i in silhouette]
+        assert any("4× ⌀4 THRU" in issue.message for issue in silhouette)
+        assert any(
+            issue.annotation_name and issue.annotation_name.startswith("m_dia_y")
+            for issue in silhouette
+        )
 
         for name in tuple(dwg.annotations()):
             if "steplen" in name:
@@ -446,8 +468,8 @@ class TestTurnedDiameters:
 
         Retargeted onto the Sheet script by #940. This fixture also carries what
         `test_issue_881_generated_script_emits_y_step_intents` used to assert about the
-        imperative script's TEXT: that suite's executable half — side/plan centrelines, no
-        front/side location dims, the step-length chain on the side view — is folded in
+        imperative script's TEXT: that suite's executable half — side/plan centrelines,
+        pattern-only front/side locations, the step-length chain on the side view — is folded in
         below, since the source-text half described a file that no longer exists.
         """
         part = self._issue_881_y_step_flange()
@@ -467,8 +489,8 @@ class TestTurnedDiameters:
             for issue in auto.lint(physical=False)
             if issue.code == "leader_crosses_silhouette"
         ]
-        assert len(auto_crossings) == 1
-        assert auto_crossings[0].annotation_name and auto_crossings[0].view
+        assert len(auto_crossings) == 2
+        assert all(issue.annotation_name and issue.view for issue in auto_crossings)
 
         _source, replayed = _sheet_script_drawing(part, tmp_path, "flange")
 
@@ -482,27 +504,11 @@ class TestTurnedDiameters:
         assert (
             auto.get_annotation("dim_height").label == replayed.get_annotation("dim_height").label
         )
-        # The off-axis four-hole pattern has relative pitch/count but no absolute X/Z
-        # location dimensions. The hole-family ledger added by #1143 reports those two
-        # physical requirements honestly on both paths; reconstruction must preserve the
-        # same critique as well as the same annotation set.
-        # The `leader_crosses_silhouette` entry is the #798 bolt-circle cut described in
-        # test_issue_881_...; it appears on BOTH paths, which is what this test is
-        # actually about — the replay reproduces the same critique, defects included.
-        # Candidate prevention (#1334) removes the same-batch step-chain crossings.
-        # Four producer-floor Policy B crossings are reported on both paths.
-        # Quiddity refuses four recess proposals at the solid mounting lugs. The
-        # material-volume checks above prohibit reviving the old false pocket claims.
-        assert (
-            auto.lint_summary()["by_code"]
-            == replayed.lint_summary()["by_code"]
-            == {
-                "hole_requirement_missing": 2,
-                "leader_crosses_silhouette": 1,
-                "feature_leader_crossing": 4,
-                "section_recess_recognition_refused": 4,
-            }
-        )
+        # The provider now recognises the four mounting holes as one rectangular
+        # pattern. Both routes must preserve the same measured critique, including
+        # the refused recess proposals at the mounting lugs.
+        assert auto.lint_summary()["by_code"] == replayed.lint_summary()["by_code"]
+        assert auto.lint_summary()["by_code"]["section_recess_recognition_refused"] == 4
 
         # #1512's two crossings no longer occur on this fixture. They were the restored 6 mm
         # and 4 mm boss-height witnesses cutting the step chain's `4× 2` repeat label, and
@@ -521,7 +527,28 @@ class TestTurnedDiameters:
         assert replayed.view_of("centerline_side") == "side"
         assert replayed.view_of("centerline_plan") == "plan"
         assert "plan" in replayed.views
-        assert not any(n.startswith(("dim_loc_front_", "dim_loc_side_")) for n in replay)
+        replay_grid = next(
+            f for f in replayed.model().features if f.kind == "pattern" and f.pattern == "grid"
+        )
+        assert replay_grid.frame.axis == "y" and replay_grid.frame.origin == (0, 0, 0)
+        assert {(point[0], point[2]) for point in replay_grid.members} == {
+            (-18, -18),
+            (-18, 18),
+            (18, -18),
+            (18, 18),
+        }
+        replay_locations = tuple(
+            name for name in replay if name.startswith(("dim_loc_front_", "dim_loc_side_"))
+        )
+        assert {
+            key["parameter_id"]
+            for name in replay_locations
+            for key in replayed.measurement_keys(name)
+        } == {
+            "location_pattern.location.centre.x",
+            "location_pattern.location.centre.z",
+        }
+        assert {replayed.get_annotation(name).label for name in replay_locations} == {"23"}
         assert {replayed.view_of(n) for n in replay if n.startswith("m_steplen")} == {"side"}
 
     @pytest.mark.parametrize(("axis_z", "rotation"), [(0.0, 90), (17.0, 90), (-11.0, -90)])

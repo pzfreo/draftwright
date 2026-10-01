@@ -113,7 +113,7 @@ FAMILIES: tuple[FamilyRow, ...] = (
         "hole-patterns",
         "hole_patterns",
         "hole_patterns",
-        "unclassified",
+        "conditional",
         True,
         True,
         quality_key="hole_patterns",
