@@ -124,7 +124,7 @@
     "profile_angles.py:profile_angle_repetitions": 19,
     "projection.py:_exactify_silhouettes": 21,
     "recogniser_contract.py:_family_declaration": 23,
-    "recogniser_contract.py:validate_recogniser_capabilities": 35,
+    "recogniser_contract.py:validate_recogniser_capabilities": 24,
     "recognition_ownership.py:RecognitionOwnershipBuilder.remap_feature": 21,
     "repair.py:reconcile_witness_labels": 20,
     "reporting.py:_requirements": 28,
