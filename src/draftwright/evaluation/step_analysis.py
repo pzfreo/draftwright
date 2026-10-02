@@ -143,7 +143,7 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 from math import isfinite
 from pathlib import Path
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, Protocol, TypeAlias
 
 from draftwright.evaluation._double_d_evidence import (
     _DOUBLE_D_CALLOUT_RE as _DOUBLE_D_CALLOUT_RE,
@@ -498,6 +498,47 @@ Scalar: TypeAlias = int | float | str | bool
 Value: TypeAlias = Scalar | tuple[float, ...]
 Outcome: TypeAlias = Literal["supported", "unknown", "unsupported"]
 Observer: TypeAlias = Callable[[object], Sequence["ObservedFact"]]
+
+
+@dataclass(frozen=True)
+class _BuildAttempt:
+    part: object
+    repair: bool
+    drawing: Any | None = None
+    error: Exception | None = None
+
+
+class _PreparedObserver(Protocol):
+    def __call__(
+        self, part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]: ...
+
+
+def _attempt_build(part: object, *, repair: bool = True) -> _BuildAttempt:
+    # The lazy concrete-module import avoids the package-root upward edge and OCC startup
+    # when loading only the corpus schema.
+    from draftwright.builder import build_drawing
+
+    try:
+        if repair:
+            return _BuildAttempt(part, repair, drawing=build_drawing(part))  # type: ignore[arg-type]
+        return _BuildAttempt(part, repair, drawing=build_drawing(part, repair=False))  # type: ignore[arg-type]
+    except Exception as exc:  # noqa: BLE001 — each observer owns its existing failure policy
+        return _BuildAttempt(part, repair, error=exc)
+
+
+def _drawing_for_observation(
+    part: object, *, build: _BuildAttempt | None, repair: bool = True
+) -> Any:
+    if build is not None and build.part is not part:
+        raise ValueError("observation build belongs to another imported part")
+    if build is not None and build.repair is not repair:
+        raise ValueError("observation build uses another repair policy")
+    attempt = build if build is not None else _attempt_build(part, repair=repair)
+    if attempt.error is not None:
+        raise attempt.error
+    return attempt.drawing
+
 
 _log = logging.getLogger(__name__)
 
@@ -1211,22 +1252,47 @@ def _declared_turned_step_model(part, sources):
     return sheet.model()
 
 
-def _bore_observers() -> Mapping[str, Observer]:
-    def observe_holes(part: object) -> Sequence[ObservedFact]:
-        # Lazy for COST, not for layering: `evaluation` is rank 7 and `builder` rank 6, so
-        # a module-level import here is a legal downward edge and passes the DAG guard —
-        # an earlier comment claimed otherwise. What it buys is not paying build123d's
-        # ~6 s import to load this module. Import the concrete module rather than the
-        # package root: `from draftwright import ...` pulls `__init__`, which the guard
-        # treats as the TOP module and would make this a genuine upward edge.
-        from draftwright.builder import build_drawing
+def _boundary_observer(
+    count: int,
+    *,
+    counted_as: str,
+    scored_as: str,
+    eligible: Sequence[bool] | None = None,
+) -> Callable[[str, Callable[[], list[Outcome]]], list[Outcome]]:
+    """Score each downstream boundary once per physical source, retaining unknowns."""
+    unknown: list[Outcome] = ["unknown"] * count
 
-        # ONE drawing per fixture, and ONE recognition: the records scored here come from
-        # the build's own aggregate (ADR 3 (was 0017)'s single owner per run), not a second
-        # `build_raw_recognition_result` call, so the facts being scored and the features they
-        # are matched against cannot come from different recognition runs.
+    def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            result = observe()
+            if len(result) != count:
+                raise ValueError(f"observed {len(result)} outcomes for {count} {counted_as}")
+            if eligible is not None:
+                return [
+                    outcome if eligible[index] else "unknown"
+                    for index, outcome in enumerate(result)
+                ]
+            return result
+        except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+            _log.warning(
+                "evaluation: %s observation failed (%s); scoring %s as unknown",
+                name,
+                exc,
+                scored_as,
+            )
+            return list(unknown)
+
+    return observed_boundary
+
+
+def _bore_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_holes(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
+        # Score the build-owned aggregate so correspondence and rendered features share
+        # one recognition run. Only the failed-build fallback below recognises standalone.
+        try:
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             # The SCORE is the same `unknown` a correspondence gap produces — the oracle has
             # three outcomes and no fourth — but the two must not be indistinguishable to a
@@ -1257,25 +1323,9 @@ def _bore_observers() -> Mapping[str, Observer]:
             except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
                 _log.warning("evaluation: recognition access failed (%s); observing no holes", exc)
                 return ()
-            unknown: list[Outcome] = ["unknown"] * len(holes)
-
-            def observed_boundary(
-                name: str, observe: Callable[[], list[Outcome]]
-            ) -> list[Outcome]:
-                try:
-                    result = observe()
-                    if len(result) != len(holes):
-                        raise ValueError(
-                            f"observed {len(result)} outcomes for {len(holes)} recognised holes"
-                        )
-                    return result
-                except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                    _log.warning(
-                        "evaluation: %s observation failed (%s); scoring holes as unknown",
-                        name,
-                        exc,
-                    )
-                    return list(unknown)
+            observed_boundary = _boundary_observer(
+                len(holes), counted_as="recognised holes", scored_as="holes"
+            )
 
             boundary_outcomes = {
                 "ir_adapter": observed_boundary(
@@ -1324,12 +1374,13 @@ def _bore_observers() -> Mapping[str, Observer]:
             for index, hole in enumerate(holes)
         )
 
-    def observe_countersinks(part: object) -> Sequence[ObservedFact]:
+    def observe_countersinks(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
         """Observe physical seats without making them a second bore denominator."""
-        from draftwright.builder import build_drawing
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring countersinks as unknown", exc
@@ -1370,23 +1421,9 @@ def _bore_observers() -> Mapping[str, Observer]:
                 "evaluation: recognition access failed (%s); observing no countersinks", exc
             )
             return ()
-        unknown: list[Outcome] = ["unknown"] * len(countersinks)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(countersinks):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(countersinks)} countersinks"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring countersinks as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(countersinks), counted_as="countersinks", scored_as="countersinks"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1440,13 +1477,14 @@ def _bore_observers() -> Mapping[str, Observer]:
     }
 
 
-def _bore_variant_observers() -> Mapping[str, Observer]:
-    def observe_double_d_bores(part: object) -> Sequence[ObservedFact]:
+def _bore_variant_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_double_d_bores(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
         """Observe one complete through-profile occurrence per aggregate record."""
-        from draftwright.builder import build_drawing
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring Double-D bores as unknown", exc
@@ -1467,26 +1505,12 @@ def _bore_variant_observers() -> Mapping[str, Observer]:
                 "evaluation: recognition access failed (%s); observing no Double-D bores", exc
             )
             return ()
-        unknown: list[Outcome] = ["unknown"] * len(bores)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(bores):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(bores)} Double-D bores"
-                    )
-                return [
-                    outcome if exclusive_owners[index] else "unknown"
-                    for index, outcome in enumerate(result)
-                ]
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring Double-D bores as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(bores),
+            counted_as="Double-D bores",
+            scored_as="Double-D bores",
+            eligible=exclusive_owners,
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1530,11 +1554,12 @@ def _bore_variant_observers() -> Mapping[str, Observer]:
             for index, bore in enumerate(bores)
         )
 
-    def observe_hole_patterns(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_hole_patterns(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring hole patterns as unknown", exc
@@ -1550,23 +1575,9 @@ def _bore_variant_observers() -> Mapping[str, Observer]:
                 "evaluation: recognition access failed (%s); observing no hole patterns", exc
             )
             return ()
-        unknown: list[Outcome] = ["unknown"] * len(patterns)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(patterns):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(patterns)} recognised patterns"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring patterns as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(patterns), counted_as="recognised patterns", scored_as="patterns"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1636,12 +1647,13 @@ def _bore_variant_observers() -> Mapping[str, Observer]:
     }
 
 
-def _stock_observers() -> Mapping[str, Observer]:
-    def observe_flats(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+def _stock_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_flats(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning("evaluation: drawing build failed (%s); scoring flats as unknown", exc)
             return ()
@@ -1654,23 +1666,9 @@ def _stock_observers() -> Mapping[str, Observer]:
             _log.warning("evaluation: recognition access failed (%s); observing no flats", exc)
             return ()
         groups = _flat_groups(flats)
-        unknown: list[Outcome] = ["unknown"] * len(groups)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(groups):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(groups)} physical flats"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring flats as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(groups), counted_as="physical flats", scored_as="flats"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1716,11 +1714,12 @@ def _stock_observers() -> Mapping[str, Observer]:
             for index, (identity, members) in enumerate(groups)
         )
 
-    def observe_pads(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_pads(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring rectangular pads as unknown",
@@ -1740,23 +1739,9 @@ def _stock_observers() -> Mapping[str, Observer]:
             raise ObservationError(
                 "rectangular-pads", f"recognition access failed: {exc}"
             ) from exc
-        unknown: list[Outcome] = ["unknown"] * len(pads)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(pads):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(pads)} physical pads"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring rectangular pads as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(pads), counted_as="physical pads", scored_as="rectangular pads"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1802,11 +1787,12 @@ def _stock_observers() -> Mapping[str, Observer]:
             for identity in (_pad_identity(pad),)
         )
 
-    def observe_plates(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_plates(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring plates as unknown",
@@ -1824,23 +1810,9 @@ def _stock_observers() -> Mapping[str, Observer]:
                 exc,
             )
             raise ObservationError("plates", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(plates)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(plates):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(plates)} physical plates"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring plates as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(plates), counted_as="physical plates", scored_as="plates"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1894,12 +1866,13 @@ def _stock_observers() -> Mapping[str, Observer]:
     }
 
 
-def _polygonal_observers() -> Mapping[str, Observer]:
-    def observe_polygonal_bosses(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+def _polygonal_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_polygonal_bosses(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring polygonal bosses as unknown",
@@ -1919,23 +1892,9 @@ def _polygonal_observers() -> Mapping[str, Observer]:
             raise ObservationError(
                 "polygonal-bosses", f"recognition access failed: {exc}"
             ) from exc
-        unknown: list[Outcome] = ["unknown"] * len(bosses)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(bosses):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(bosses)} polygonal bosses"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring polygonal bosses as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(bosses), counted_as="polygonal bosses", scored_as="polygonal bosses"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -1980,11 +1939,12 @@ def _polygonal_observers() -> Mapping[str, Observer]:
             for identity in (_polygonal_boss_identity(boss),)
         )
 
-    def observe_polygonal_stock(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_polygonal_stock(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part, repair=False)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build, repair=False)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring polygonal stock as unknown",
@@ -2002,23 +1962,9 @@ def _polygonal_observers() -> Mapping[str, Observer]:
                 exc,
             )
             raise ObservationError("polygonal-stock", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(stocks)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(stocks):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(stocks)} polygonal stocks"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring polygonal stock as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(stocks), counted_as="polygonal stocks", scored_as="polygonal stock"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2069,12 +2015,13 @@ def _polygonal_observers() -> Mapping[str, Observer]:
     }
 
 
-def _turned_profile_observers() -> Mapping[str, Observer]:
-    def observe_grooves(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+def _turned_profile_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_grooves(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning("evaluation: drawing build failed (%s); scoring grooves as unknown", exc)
             raise ObservationError("grooves", f"drawing build failed: {exc}") from exc
@@ -2086,23 +2033,9 @@ def _turned_profile_observers() -> Mapping[str, Observer]:
         except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
             _log.warning("evaluation: recognition access failed (%s); observing no grooves", exc)
             raise ObservationError("grooves", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(grooves)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(grooves):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(grooves)} physical grooves"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring grooves as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(grooves), counted_as="physical grooves", scored_as="grooves"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2144,12 +2077,13 @@ def _turned_profile_observers() -> Mapping[str, Observer]:
             for identity in (_groove_identity(groove),)
         )
 
-    def observe_turned_steps(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_turned_steps(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
         from draftwright.linting.turned_step_coverage import physical_turned_steps
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring turned steps as unknown", exc
@@ -2165,23 +2099,9 @@ def _turned_profile_observers() -> Mapping[str, Observer]:
                 "evaluation: recognition access failed (%s); observing no turned steps", exc
             )
             raise ObservationError("turned-steps", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(sources)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(sources):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(sources)} turned-step bands"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring turned steps as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(sources), counted_as="turned-step bands", scored_as="turned steps"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2224,167 +2144,103 @@ def _turned_profile_observers() -> Mapping[str, Observer]:
     }
 
 
-def _edge_observers() -> Mapping[str, Observer]:
-    def observe_chamfers(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+def _edge_observer(
+    family: str,
+    identity_of: Callable[..., tuple],
+    parameters_of: Callable[..., Mapping[str, Value]],
+    model_outcomes: Callable[..., list[Outcome]],
+    declared_model: Callable[..., Any],
+    drawing_outcomes: Callable[..., list[Outcome]],
+) -> _PreparedObserver:
+    """Keep the shared edge-profile observation flow and each family's evidence separate."""
 
+    def observe(part: object, *, build: _BuildAttempt | None = None) -> Sequence[ObservedFact]:
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
-            _log.warning("evaluation: drawing build failed (%s); scoring chamfers as unknown", exc)
-            raise ObservationError("chamfers", f"drawing build failed: {exc}") from exc
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring %s as unknown", exc, family
+            )
+            raise ObservationError(family, f"drawing build failed: {exc}") from exc
         try:
             recognition = drawing.recognition()
             if recognition is None:
                 raise ValueError("detected build has no build-owned recognition result")
-            chamfers = tuple(recognition.chamfers)
+            sources = tuple(getattr(recognition, family))
         except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
-            _log.warning("evaluation: recognition access failed (%s); observing no chamfers", exc)
-            raise ObservationError("chamfers", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(chamfers)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(chamfers):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(chamfers)} physical chamfers"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring chamfers as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
-
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no %s", exc, family
+            )
+            raise ObservationError(family, f"recognition access failed: {exc}") from exc
+        observed_boundary = _boundary_observer(
+            len(sources), counted_as=f"physical {family}", scored_as=family
+        )
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
                 "ir_adapter",
-                lambda: _chamfer_model_outcomes(chamfers, recognition, drawing.model().features),
+                lambda: model_outcomes(sources, recognition, drawing.model().features),
             ),
             "dsl_declaration": observed_boundary(
                 "dsl_declaration",
-                lambda: _chamfer_model_outcomes(
-                    chamfers,
-                    recognition,
-                    _declared_chamfer_model(part, chamfers).features,
+                lambda: model_outcomes(
+                    sources, recognition, declared_model(part, sources).features
                 ),
             ),
             "generated_code": observed_boundary(
                 "generated_code",
-                lambda: _chamfer_model_outcomes(
-                    chamfers,
-                    recognition,
-                    _generated_sheet_model(part, drawing.model()).features,
+                lambda: model_outcomes(
+                    sources, recognition, _generated_sheet_model(part, drawing.model()).features
                 ),
             ),
             "drawing_consumer": observed_boundary(
-                "drawing_consumer", lambda: _chamfer_drawing_outcomes(chamfers, drawing)
+                "drawing_consumer", lambda: drawing_outcomes(sources, drawing)
             ),
         }
-
         return tuple(
             ObservedFact(
-                family="chamfers",
+                family=family,
                 identity={"axis": identity[0], "location": identity[1], "turned": identity[2]},
-                parameters=_chamfer_parameters(chamfer),
+                parameters=parameters_of(source),
                 downstream={
                     boundary: boundary_outcomes[boundary][index]
                     for boundary in _DOWNSTREAM_BOUNDARIES
                 },
             )
-            for index, chamfer in enumerate(chamfers)
-            for identity in (_chamfer_identity(chamfer),)
+            for index, source in enumerate(sources)
+            for identity in (identity_of(source),)
         )
 
-    def observe_fillets(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    return observe
 
-        try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
-        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
-            _log.warning("evaluation: drawing build failed (%s); scoring fillets as unknown", exc)
-            raise ObservationError("fillets", f"drawing build failed: {exc}") from exc
-        try:
-            recognition = drawing.recognition()
-            if recognition is None:
-                raise ValueError("detected build has no build-owned recognition result")
-            fillets = tuple(recognition.fillets)
-        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
-            _log.warning("evaluation: recognition access failed (%s); observing no fillets", exc)
-            raise ObservationError("fillets", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(fillets)
 
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(fillets):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(fillets)} physical fillets"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring fillets as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
-
-        boundary_outcomes = {
-            "ir_adapter": observed_boundary(
-                "ir_adapter",
-                lambda: _fillet_model_outcomes(fillets, recognition, drawing.model().features),
-            ),
-            "dsl_declaration": observed_boundary(
-                "dsl_declaration",
-                lambda: _fillet_model_outcomes(
-                    fillets,
-                    recognition,
-                    _declared_fillet_model(part, fillets).features,
-                ),
-            ),
-            "generated_code": observed_boundary(
-                "generated_code",
-                lambda: _fillet_model_outcomes(
-                    fillets,
-                    recognition,
-                    _generated_sheet_model(part, drawing.model()).features,
-                ),
-            ),
-            "drawing_consumer": observed_boundary(
-                "drawing_consumer", lambda: _fillet_drawing_outcomes(fillets, drawing)
-            ),
-        }
-
-        return tuple(
-            ObservedFact(
-                family="fillets",
-                identity={"axis": identity[0], "location": identity[1], "turned": identity[2]},
-                parameters=_fillet_parameters(fillet),
-                downstream={
-                    boundary: boundary_outcomes[boundary][index]
-                    for boundary in _DOWNSTREAM_BOUNDARIES
-                },
-            )
-            for index, fillet in enumerate(fillets)
-            for identity in (_fillet_identity(fillet),)
-        )
-
+def _edge_observers() -> Mapping[str, _PreparedObserver]:
     return {
-        "chamfers": observe_chamfers,
-        "fillets": observe_fillets,
+        "chamfers": _edge_observer(
+            "chamfers",
+            _chamfer_identity,
+            _chamfer_parameters,
+            _chamfer_model_outcomes,
+            _declared_chamfer_model,
+            _chamfer_drawing_outcomes,
+        ),
+        "fillets": _edge_observer(
+            "fillets",
+            _fillet_identity,
+            _fillet_parameters,
+            _fillet_model_outcomes,
+            _declared_fillet_model,
+            _fillet_drawing_outcomes,
+        ),
     }
 
 
-def _recess_observers() -> Mapping[str, Observer]:
-    def observe_pockets(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+def _recess_observers() -> Mapping[str, _PreparedObserver]:
+    def observe_pockets(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning("evaluation: drawing build failed (%s); scoring pockets as unknown", exc)
             return ()
@@ -2396,23 +2252,9 @@ def _recess_observers() -> Mapping[str, Observer]:
         except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
             _log.warning("evaluation: recognition access failed (%s); observing no pockets", exc)
             return ()
-        unknown: list[Outcome] = ["unknown"] * len(pockets)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(pockets):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(pockets)} physical pockets"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring pockets as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(pockets), counted_as="physical pockets", scored_as="pockets"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2460,8 +2302,9 @@ def _recess_observers() -> Mapping[str, Observer]:
             for identity in (_pocket_identity(pocket),)
         )
 
-    def observe_pocket_patterns(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
+    def observe_pocket_patterns(
+        part: object, *, build: _BuildAttempt | None = None
+    ) -> Sequence[ObservedFact]:
         from draftwright.linting.pocket_pattern_coverage import (
             pocket_pattern_kind,
             pocket_pattern_members,
@@ -2469,7 +2312,7 @@ def _recess_observers() -> Mapping[str, Observer]:
         )
 
         try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
+            drawing = _drawing_for_observation(part, build=build)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
                 "evaluation: drawing build failed (%s); scoring pocket patterns as unknown",
@@ -2487,23 +2330,9 @@ def _recess_observers() -> Mapping[str, Observer]:
                 exc,
             )
             return ()
-        unknown: list[Outcome] = ["unknown"] * len(patterns)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(patterns):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(patterns)} pocket patterns"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring pocket patterns as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
+        observed_boundary = _boundary_observer(
+            len(patterns), counted_as="pocket patterns", scored_as="pocket patterns"
+        )
 
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2607,7 +2436,7 @@ def _recess_observers() -> Mapping[str, Observer]:
     }
 
 
-def _default_observers() -> Mapping[str, Observer]:
+def _default_observers() -> Mapping[str, _PreparedObserver]:
     """Register each physical family in the established corpus order."""
     bore = _bore_observers()
     variant = _bore_variant_observers()
@@ -2644,8 +2473,8 @@ def evaluate_step_corpus(
     """Import every pinned STEP fixture and evaluate normalized family observations."""
     from build123d import import_step
 
+    defaults = _default_observers() if observers is None else {}
     if observers is None:
-        defaults = _default_observers()
         registered: Mapping[str, Observer] = {
             family: defaults[family] for family in corpus.scope if family in defaults
         }
@@ -2667,9 +2496,26 @@ def evaluate_step_corpus(
         part = import_step(case.provenance["fixture"])
         failure: ObservationError | None = None
         try:
-            observations = tuple(
-                observation for family in corpus.scope for observation in registered[family](part)
-            )
+            if (
+                observers is None
+                and corpus.scope
+                and ("polygonal-stock" not in corpus.scope or len(corpus.scope) == 1)
+            ):
+                # A case shares its primary detected build. Polygonal stock alone keeps its
+                # established repair=False policy. A mixed stock scope retains separate builds
+                # until one repair policy can be shown equivalent for all its families.
+                build = _attempt_build(part, repair="polygonal-stock" not in corpus.scope)
+                observations = tuple(
+                    observation
+                    for family in corpus.scope
+                    for observation in defaults[family](part, build=build)
+                )
+            else:
+                observations = tuple(
+                    observation
+                    for family in corpus.scope
+                    for observation in registered[family](part)
+                )
         except ObservationError as exc:
             failure = exc
             observations = ()

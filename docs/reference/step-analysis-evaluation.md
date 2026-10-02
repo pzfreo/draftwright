@@ -16,8 +16,10 @@ Format 1 currently proves independent `holes`, `countersinks`, `hole-patterns`,
 `double-d-bores`, `flats`,
 `pockets`, `pocket-patterns`, `grooves`, `rectangular-pads`, `polygonal-bosses`, `plates`,
 `chamfers` and `fillets` vertical slices. Each observer reads released `quiddity`
-geometry records, builds one drawing, and reads all four downstream outcomes from that build
-through the public IR, `Sheet`, generated-code and ADR 5 (was 0010) provenance seams.
+geometry records and reads downstream outcomes through the public IR, `Sheet`, generated-code
+and ADR 5 (was 0010) provenance seams. Compatible observers for one corpus case share a primary
+drawing build. A case that mixes `polygonal-stock` with other families also needs a separate
+`repair=False` build for the stock observer; generated-code evidence has its own build.
 
 Since #1217 that outcome comes from the engine's own requirement ledger
 (`linting.hole_coverage.hole_requirement_outcomes`) rather than from a second correspondence

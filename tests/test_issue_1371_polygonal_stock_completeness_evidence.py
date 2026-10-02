@@ -872,6 +872,21 @@ def test_polygonal_stock_observer_uses_one_build_owned_aggregate(monkeypatch) ->
     assert_observer_uses_one_build_owned_recognition(monkeypatch, "polygonal-stock", _stock())
 
 
+def test_polygonal_stock_observer_keeps_its_no_repair_build(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    original = builder.build_drawing
+    options = []
+
+    def captured(*args, **kwargs):
+        options.append(kwargs.copy())
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(builder, "build_drawing", captured)
+    assert _default_observers()["polygonal-stock"](_stock())
+    assert options == [{"repair": False}]
+
+
 def test_polygonal_stock_observer_rejects_a_missing_build_owned_aggregate(monkeypatch) -> None:
     import draftwright.builder as builder
 
