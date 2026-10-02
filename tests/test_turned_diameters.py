@@ -877,7 +877,7 @@ class TestTurnedDiameters:
             dwg.drop(owners[0])
         assert tuple(dwg.iter_annotations()) == before
 
-    def test_bore_matching_an_approved_step_gets_a_reserved_role_label(self):
+    def test_blind_bore_matching_a_step_keeps_distinct_reserved_callouts(self):
         from draftwright._core import _text_size
         from draftwright.compose import _est_planned_bore_callout_width
         from draftwright.model.planner import plan_dimensions
@@ -899,15 +899,14 @@ class TestTurnedDiameters:
             and any(dim.param.role == "bore" and dim.param.value == 70 for dim in group.dims)
             for group in groups
         )
-        assert drawing.get_annotation("ldr_z0").label == "ø70 BORE"
-        # The blind hole has a separate callout whose width would otherwise
-        # mask a missing rotational BORE reservation.
-        rotational_groups = tuple(
-            group for group in groups if group.feature_kind in {"step", "rotational"}
-        )
+        # The blind bore has one depth-bearing hole callout; the equal external
+        # step diameter remains a distinct, explicitly external measurement.
+        assert drawing.get_annotation("m_dia_z0").label == "ø70 OD"
+        assert drawing.get_annotation("hc_plan0").label == "⌀70 ↧ 4"
+        hole_groups = tuple(group for group in groups if group.feature_kind == "hole")
         assert (
-            _est_planned_bore_callout_width(rotational_groups, drawing.draft)
-            >= _text_size("ø70 BORE", drawing.draft.font_size)[0]
+            _est_planned_bore_callout_width(hole_groups, drawing.draft)
+            >= _text_size("⌀70 ↧ 4", drawing.draft.font_size)[0]
         )
 
     def test_z_column_leader_lands_on_the_left_edge(self):

@@ -556,10 +556,10 @@ def render_diameters(
     end_buckets: dict = {}  # Y-turned: radial leaders in the end-on front view
     include_source_pmi = not ctx.document_member or a.pmi_mode == "annotate"
     bore_specs = [
-        (rotational.facts.frame.origin, dim.value_text)
-        for rotational in plan.of_kind("rotational")
-        if rotational.facts.frame.axis == "z"
-        for dim in rotational.dims
+        (bore_group.facts.frame.origin, dim.value_text)
+        for bore_group in plan.of_kind("rotational", "hole")
+        if bore_group.facts.frame.axis == "z"
+        for dim in bore_group.dims
         if dim.kind == "diameter" and dim.role == "bore"
     ]
     for g in plan.of_kind("step", "boss"):
