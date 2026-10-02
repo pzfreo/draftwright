@@ -265,6 +265,43 @@ def test_step_title_selected_value_requires_finished_ink_issue_2158(
     ]
 
 
+@pytest.mark.parametrize(("source_value", "wrong_ink"), [("6", "9"), ("66", "99"), ("666", "999")])
+def test_step_material_title_ink_shape_must_match_source_issue_2158(
+    monkeypatch, source_value, wrong_ink
+):
+    from draftwright.annotations import _sheet_furniture
+
+    part = Box(30, 20, 10)
+    baseline = build_drawing(part, material=source_value, auto_dims=False, scale=1)
+    baseline_title = baseline.get_annotation("title_block")
+    original = _sheet_furniture.TitleBlock
+
+    def substitute_value(*args, **kwargs):
+        assert kwargs["material"] == source_value
+        return original(*args, **{**kwargs, "material": wrong_ink})
+
+    monkeypatch.setattr(_sheet_furniture, "TitleBlock", substitute_value)
+    drawing = build_drawing(part, material=source_value, auto_dims=False, scale=1)
+    title = drawing.get_annotation("title_block")
+    assert _fields(drawing)["material"] == source_value
+    assert title.field_ink["material"] == pytest.approx(baseline_title.field_ink["material"])
+    assert len(title.faces()) == len(baseline_title.faces())
+
+    source = MaterialFact("#4", source_value, "", "#5", "#2", "#1", "")
+    assert source.source_id == "material:#4" and not source.reason
+    registry = SimpleNamespace(named=lambda name: title if name == "title_block" else None)
+    issues = lint_step_title_defaults(
+        PmiExtractionReport(material_facts=(source,)),
+        registry,
+        material_authored=None,
+        tolerance_authored=None,
+        pmi_mode="annotate",
+    )
+    assert [(issue.code, issue.source_ids) for issue in issues] == [
+        ("step_material_mismatch", (source.source_id,))
+    ]
+
+
 @pytest.mark.parametrize("page", ("A4", "A2", "A0"))
 def test_named_iso_page_states_units_and_format(page):
     sheet = Sheet(Box(30, 20, 10), page=page, scale=1, detail_view=False)

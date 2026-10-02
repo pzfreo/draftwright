@@ -7,7 +7,7 @@ from collections import Counter
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
-from build123d import Align, Location, Mode, Text
+from build123d import Align, Location, Mode, Sketch, Text
 
 from draftwright.linting.issues import LintIssue
 from draftwright.pmi import PmiExtractionReport
@@ -44,19 +44,6 @@ def _title_value_has_finished_ink(title, field: str, value: str) -> bool:
         left = title.position.X + cell["min_x"] + 0.1
         right = title.position.X + cell["max_x"] - 0.1
 
-        def signature(face):
-            box = face.bounding_box()
-            return tuple(
-                round(number, 3)
-                for number in (
-                    face.area,
-                    box.min.X,
-                    box.min.Y,
-                    box.max.X,
-                    box.max.Y,
-                )
-            )
-
         actual = []
         for face in title.faces():
             box = face.bounding_box()
@@ -66,10 +53,13 @@ def _title_value_has_finished_ink(title, field: str, value: str) -> bool:
                 and box.min.Y >= lower
                 and box.max.Y <= upper
             ):
-                actual.append(signature(face))
-        return bool(actual) and sorted(actual) == sorted(
-            signature(face) for face in expected.faces()
-        )
+                actual.append(face)
+        if not actual:
+            return False
+        finished = Sketch(children=actual)
+        missing = sum(face.area for face in expected.cut(finished).faces())
+        extra = sum(face.area for face in finished.cut(expected).faces())
+        return missing + extra <= 1e-5
     except Exception:
         # A geometry or font failure cannot vouch for source-selected ink.
         return False
