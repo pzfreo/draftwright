@@ -531,6 +531,26 @@ def render_gdt(
         px, py = hproj(o[hi]), vproj(o[vi])
         horizontal = item.side in ("above", "below")  # frame stacks along y
         axis = "y" if horizontal else "x"
+        # Coincident projected datum shafts can cover the nearer datum's tip.
+        # Prefer the one nearest this strip's anchor; the farther datum retains
+        # the ordinary side/sheet fallback if its first corridor becomes full.
+        datum_stem_rank = 0
+        if item.kind == "datum_ref":
+            perp, stack = (px, py) if horizontal else (py, px)
+            distance = abs(stack - strip.anchor)
+            for other in items:
+                if other is item or other.kind != "datum_ref":
+                    continue
+                if (other.view, other.side) != (item.view, item.side):
+                    continue
+                other_origin = other.frame.origin
+                other_perp = hproj(other_origin[hi]) if horizontal else vproj(other_origin[vi])
+                other_stack = vproj(other_origin[vi]) if horizontal else hproj(other_origin[hi])
+                if (
+                    abs(other_perp - perp) <= 1e-6
+                    and abs(other_stack - strip.anchor) > distance + 1e-6
+                ):
+                    datum_stem_rank += 1
         # The IR is public input (ADR 4 (was 0011)), so an invalid glyph spec (a mistyped
         # characteristic, a bad tolerance) must drop THIS item with a warning — never crash
         # the whole drawing build. The helper raises on a bad spec; catch it at the measure
@@ -728,7 +748,9 @@ def render_gdt(
                 on_drop=_drop,
                 dedup=None,
                 precedence=0,
-                priority=_GDT_CORRIDOR_PRIORITY,  # authored intent outranks auto dims
+                priority=(
+                    _GDT_CORRIDOR_PRIORITY + datum_stem_rank * PRIORITY.AUTHORED_DATUM_STEM_STEP
+                ),
                 # A declared frame has no alternate view — force-keep (policy B) rather than
                 # drop a user-authored annotation; only a physically full strip drops.
                 force=True,

@@ -1303,6 +1303,31 @@ def _datum_context(label, dim_tol_tool) -> tuple[str, str]:
     return (context, "") if context else ("", "datum occurrence has no tolerance context")
 
 
+def _datum_definition(
+    letter: str, definitions: tuple[DatumDefinitionFact, ...]
+) -> tuple[DatumDefinitionFact | None, str]:
+    """Use a datum's own complete Part21 definition, independent of its tolerance uses."""
+    matches = [definition for definition in definitions if definition.letter == letter]
+    if len(matches) > 1:
+        return None, f"Part21 has {len(matches)} datum definitions for letter {letter!r}"
+    if matches and not matches[0].reason and matches[0].datum_feature_id:
+        return matches[0], ""
+    return None, ""
+
+
+def _same_datum_support(xcaf_bbox, xcaf_axis, part21_bbox, part21_axis) -> bool:
+    """Require the authored definition to resolve to the same physical support."""
+    return bool(
+        xcaf_bbox is not None
+        and part21_bbox is not None
+        and xcaf_axis not in ("", "?")
+        and xcaf_axis == part21_axis
+        and all(
+            abs(left - right) <= 1e-5 for left, right in zip(xcaf_bbox, part21_bbox, strict=True)
+        )
+    )
+
+
 def _coalesce_datum_records(records: list[PmiRecord]) -> list[PmiRecord]:
     """Project occurrence records onto authored datum-feature definitions."""
     grouped: dict[str, list[PmiRecord]] = {}
@@ -2600,11 +2625,28 @@ def _extract_xcaf_datums(
         source_id = _source_id("datum", label)
         try:
             letter, letter_reason = _datum_letter(label)
-            context, context_reason = _datum_context(label, dt)
-            fact: DatumOccurrenceFact | None = None
-            correspondence_reason = datum_part21_error
-            if not correspondence_reason and not letter_reason and not context_reason:
-                fact, correspondence_reason = match_datum_occurrence(datum_facts, context, letter)
+            definition, definition_reason = (
+                _datum_definition(letter, datum_definitions) if not letter_reason else (None, "")
+            )
+            fact: DatumOccurrenceFact | DatumDefinitionFact | None = definition
+            context, context_reason = "", ""
+            correspondence_reason = definition_reason
+            contexts: tuple[str, ...] = ()
+            if definition is not None:
+                # Context is optional provenance. A writer may attach this same datum to
+                # several tolerances (or none), and their names are not its identity.
+                context, _ignored_context_reason = _datum_context(label, dt)
+                contexts = (context,) if context else ()
+            elif not definition_reason:
+                # Older files can have an incomplete standalone definition but an exact
+                # named use. Retain that correspondence as a compatibility fallback.
+                context, context_reason = _datum_context(label, dt)
+                correspondence_reason = datum_part21_error
+                if not correspondence_reason and not letter_reason and not context_reason:
+                    fact, correspondence_reason = match_datum_occurrence(
+                        datum_facts, context, letter
+                    )
+                contexts = (context,) if context else ()
             if frame is None:
                 datum_geometry = _datum_reference_geometry(label, shape_tool)
             else:
@@ -2623,7 +2665,27 @@ def _extract_xcaf_datums(
                         datum_geometry = _datum_geometry_from_shapes(topology_shapes)
                     else:
                         datum_geometry = _datum_geometry_from_shapes(topology_shapes, frame)
-                    points, ref_bbox, reference_axis, geometry_reasons = datum_geometry
+                    matched_points, matched_bbox, matched_axis, matched_reasons = datum_geometry
+                    if (
+                        definition is not None
+                        and ref_bbox is not None
+                        and not _same_datum_support(
+                            ref_bbox, reference_axis, matched_bbox, matched_axis
+                        )
+                    ):
+                        geometry_reasons = tuple(
+                            dict.fromkeys(
+                                (*geometry_reasons, "datum definition support disagrees with XCAF")
+                            )
+                        )
+                        fact = None
+                    else:
+                        points, ref_bbox, reference_axis = (
+                            matched_points,
+                            matched_bbox,
+                            matched_axis,
+                        )
+                        geometry_reasons = matched_reasons
                 else:
                     geometry_reasons = tuple(dict.fromkeys((*geometry_reasons, *topology_reasons)))
             blockers = tuple(
@@ -2652,7 +2714,7 @@ def _extract_xcaf_datums(
                     source_category="datum",
                     lowering_blockers=blockers,
                     source_ids=(source_id,),
-                    datum_contexts=(context,) if context else (),
+                    datum_contexts=contexts,
                     reference_item_ids=fact.reference_item_ids if fact is not None else (),
                     reference_axis=reference_axis,
                 )

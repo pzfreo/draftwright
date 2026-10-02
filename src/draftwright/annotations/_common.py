@@ -613,6 +613,9 @@ class PRIORITY:
     #: Authored intent — GD&T frames, imported PMI. The user asked for these by name,
     #: so they outrank anything the engine chose for itself.
     AUTHORED = 1.0
+    #: When datum leaders share one projected stem, reserve its near end first.
+    #: Farther datums can still use their normal post-drain side/sheet fallback.
+    AUTHORED_DATUM_STEM_STEP = 0.01
     #: Never-drop: the mandatory envelope dims, and a user-pinned intent (ADR 2 (was 0012)).
     #: Two distinct meanings that deliberately share a rung — both are non-negotiable.
     MANDATORY = 100.0
