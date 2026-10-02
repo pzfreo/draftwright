@@ -7,11 +7,15 @@ partial-inventory contracts before any feature crosses the IR waist.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from quiddity import (
+    BoltCircle,
+    HoleRecord,
+    LinearArray,
+    RectGrid,
     recognise_hole_patterns,
     recognise_oriented_slot_patterns,
     recognise_slot_patterns,
@@ -28,9 +32,9 @@ from draftwright.progress import stage
 
 @dataclass
 class DetectionInventory:
-    holes: Any
+    holes: Sequence[HoleRecord] | None
     double_d_bores: Any
-    patterns: Any
+    patterns: Sequence[BoltCircle | LinearArray | RectGrid] | None
     bosses: Any
     polygonal_bosses: Any
     polygonal_stock: Any
@@ -262,7 +266,7 @@ def complete_inventory(
         # that documented partial-input relationship instead of combining caller-owned members
         # with patterns derived from the aggregate's separately detected members.
         if s.derive_hole_patterns:
-            s.patterns = recognise_hole_patterns(s.holes)
+            s.patterns = recognise_hole_patterns(cast(Sequence[HoleRecord], s.holes))
         if s.derive_slot_patterns:
             s.slot_patterns = recognise_slot_patterns(s.slots)
         if s.derive_oriented_slot_patterns:
