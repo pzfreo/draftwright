@@ -1867,151 +1867,30 @@ def _stock_observers() -> Mapping[str, _PreparedObserver]:
 
 
 def _polygonal_observers() -> Mapping[str, _PreparedObserver]:
-    def observe_polygonal_bosses(
-        part: object, *, build: _BuildAttempt | None = None
-    ) -> Sequence[ObservedFact]:
-
-        try:
-            drawing = _drawing_for_observation(part, build=build)
-        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
-            _log.warning(
-                "evaluation: drawing build failed (%s); scoring polygonal bosses as unknown",
-                exc,
-            )
-            raise ObservationError("polygonal-bosses", f"drawing build failed: {exc}") from exc
-        try:
-            recognition = drawing.recognition()
-            if recognition is None:
-                raise ValueError("detected build has no build-owned recognition result")
-            bosses = tuple(recognition.polygonal_bosses)
-        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
-            _log.warning(
-                "evaluation: recognition access failed (%s); observing no polygonal bosses",
-                exc,
-            )
-            raise ObservationError(
-                "polygonal-bosses", f"recognition access failed: {exc}"
-            ) from exc
-        observed_boundary = _boundary_observer(
-            len(bosses), counted_as="polygonal bosses", scored_as="polygonal bosses"
-        )
-
-        boundary_outcomes = {
-            "ir_adapter": observed_boundary(
-                "ir_adapter",
-                lambda: _polygonal_boss_model_outcomes(
-                    bosses, recognition, drawing.model().features
-                ),
-            ),
-            "dsl_declaration": observed_boundary(
-                "dsl_declaration",
-                lambda: _polygonal_boss_model_outcomes(
-                    bosses,
-                    recognition,
-                    _declared_polygonal_boss_model(part, bosses).features,
-                ),
-            ),
-            "generated_code": observed_boundary(
-                "generated_code",
-                lambda: _polygonal_boss_model_outcomes(
-                    bosses,
-                    recognition,
-                    _generated_sheet_model(part, drawing.model()).features,
-                ),
-            ),
-            "drawing_consumer": observed_boundary(
-                "drawing_consumer",
-                lambda: _polygonal_boss_drawing_outcomes(bosses, drawing),
-            ),
-        }
-
-        return tuple(
-            ObservedFact(
-                family="polygonal-bosses",
-                identity={"axis": identity[0], "center": identity[1]},
-                parameters=_polygonal_boss_parameters(boss),
-                downstream={
-                    boundary: boundary_outcomes[boundary][index]
-                    for boundary in _DOWNSTREAM_BOUNDARIES
-                },
-            )
-            for index, boss in enumerate(bosses)
-            for identity in (_polygonal_boss_identity(boss),)
-        )
-
-    def observe_polygonal_stock(
-        part: object, *, build: _BuildAttempt | None = None
-    ) -> Sequence[ObservedFact]:
-
-        try:
-            drawing = _drawing_for_observation(part, build=build, repair=False)
-        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
-            _log.warning(
-                "evaluation: drawing build failed (%s); scoring polygonal stock as unknown",
-                exc,
-            )
-            raise ObservationError("polygonal-stock", f"drawing build failed: {exc}") from exc
-        try:
-            recognition = drawing.recognition()
-            if recognition is None:
-                raise ValueError("detected build has no build-owned recognition result")
-            stocks = tuple(recognition.polygonal_stock)
-        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
-            _log.warning(
-                "evaluation: recognition access failed (%s); observing no polygonal stock",
-                exc,
-            )
-            raise ObservationError("polygonal-stock", f"recognition access failed: {exc}") from exc
-        observed_boundary = _boundary_observer(
-            len(stocks), counted_as="polygonal stocks", scored_as="polygonal stock"
-        )
-
-        boundary_outcomes = {
-            "ir_adapter": observed_boundary(
-                "ir_adapter",
-                lambda: _polygonal_stock_model_outcomes(
-                    stocks, recognition, drawing.model().features
-                ),
-            ),
-            "dsl_declaration": observed_boundary(
-                "dsl_declaration",
-                lambda: _polygonal_stock_model_outcomes(
-                    stocks,
-                    recognition,
-                    _declared_polygonal_stock_model(part, stocks).features,
-                ),
-            ),
-            "generated_code": observed_boundary(
-                "generated_code",
-                lambda: _polygonal_stock_model_outcomes(
-                    stocks,
-                    recognition,
-                    _generated_sheet_model(part, drawing.model()).features,
-                ),
-            ),
-            "drawing_consumer": observed_boundary(
-                "drawing_consumer",
-                lambda: _polygonal_stock_drawing_outcomes(stocks, drawing),
-            ),
-        }
-
-        return tuple(
-            ObservedFact(
-                family="polygonal-stock",
-                identity={"axis": identity[0], "center": identity[1]},
-                parameters=_polygonal_stock_parameters(stock),
-                downstream={
-                    boundary: boundary_outcomes[boundary][index]
-                    for boundary in _DOWNSTREAM_BOUNDARIES
-                },
-            )
-            for index, stock in enumerate(stocks)
-            for identity in (_polygonal_stock_identity(stock),)
-        )
-
     return {
-        "polygonal-bosses": observe_polygonal_bosses,
-        "polygonal-stock": observe_polygonal_stock,
+        "polygonal-bosses": _feature_observer(
+            "polygonal-bosses",
+            _polygonal_boss_identity,
+            _polygonal_boss_parameters,
+            _polygonal_boss_model_outcomes,
+            _declared_polygonal_boss_model,
+            _polygonal_boss_drawing_outcomes,
+            identity_fields=("axis", "center"),
+            counted_as="polygonal bosses",
+            scored_as="polygonal bosses",
+        ),
+        "polygonal-stock": _feature_observer(
+            "polygonal-stock",
+            _polygonal_stock_identity,
+            _polygonal_stock_parameters,
+            _polygonal_stock_model_outcomes,
+            _declared_polygonal_stock_model,
+            _polygonal_stock_drawing_outcomes,
+            identity_fields=("axis", "center"),
+            counted_as="polygonal stocks",
+            scored_as="polygonal stock",
+            repair=False,
+        ),
     }
 
 
@@ -2144,36 +2023,44 @@ def _turned_profile_observers() -> Mapping[str, _PreparedObserver]:
     }
 
 
-def _edge_observer(
+def _feature_observer(
     family: str,
     identity_of: Callable[..., tuple],
     parameters_of: Callable[..., Mapping[str, Value]],
     model_outcomes: Callable[..., list[Outcome]],
     declared_model: Callable[..., Any],
     drawing_outcomes: Callable[..., list[Outcome]],
+    *,
+    identity_fields: tuple[str, ...] = ("axis", "location", "turned"),
+    counted_as: str | None = None,
+    scored_as: str | None = None,
+    repair: bool = True,
 ) -> _PreparedObserver:
-    """Keep the shared edge-profile observation flow and each family's evidence separate."""
+    """Observe families with the same four-boundary evidence flow."""
+
+    counted_as = counted_as or f"physical {family}"
+    scored_as = scored_as or family
 
     def observe(part: object, *, build: _BuildAttempt | None = None) -> Sequence[ObservedFact]:
         try:
-            drawing = _drawing_for_observation(part, build=build)
+            drawing = _drawing_for_observation(part, build=build, repair=repair)
         except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
             _log.warning(
-                "evaluation: drawing build failed (%s); scoring %s as unknown", exc, family
+                "evaluation: drawing build failed (%s); scoring %s as unknown", exc, scored_as
             )
             raise ObservationError(family, f"drawing build failed: {exc}") from exc
         try:
             recognition = drawing.recognition()
             if recognition is None:
                 raise ValueError("detected build has no build-owned recognition result")
-            sources = tuple(getattr(recognition, family))
+            sources = tuple(getattr(recognition, family.replace("-", "_")))
         except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
             _log.warning(
-                "evaluation: recognition access failed (%s); observing no %s", exc, family
+                "evaluation: recognition access failed (%s); observing no %s", exc, scored_as
             )
             raise ObservationError(family, f"recognition access failed: {exc}") from exc
         observed_boundary = _boundary_observer(
-            len(sources), counted_as=f"physical {family}", scored_as=family
+            len(sources), counted_as=counted_as, scored_as=scored_as
         )
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
@@ -2199,7 +2086,7 @@ def _edge_observer(
         return tuple(
             ObservedFact(
                 family=family,
-                identity={"axis": identity[0], "location": identity[1], "turned": identity[2]},
+                identity={field: identity[index] for index, field in enumerate(identity_fields)},
                 parameters=parameters_of(source),
                 downstream={
                     boundary: boundary_outcomes[boundary][index]
@@ -2215,7 +2102,7 @@ def _edge_observer(
 
 def _edge_observers() -> Mapping[str, _PreparedObserver]:
     return {
-        "chamfers": _edge_observer(
+        "chamfers": _feature_observer(
             "chamfers",
             _chamfer_identity,
             _chamfer_parameters,
@@ -2223,7 +2110,7 @@ def _edge_observers() -> Mapping[str, _PreparedObserver]:
             _declared_chamfer_model,
             _chamfer_drawing_outcomes,
         ),
-        "fillets": _edge_observer(
+        "fillets": _feature_observer(
             "fillets",
             _fillet_identity,
             _fillet_parameters,
