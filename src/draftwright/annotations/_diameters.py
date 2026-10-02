@@ -575,8 +575,35 @@ def render_diameters(
             tuple(pd.id for gp in gs for pd in gp.dims if pd.kind == "diameter"),
         )
 
-    def _items(buckets):
-        return [_item(entry) for entry in buckets.values()]
+    def _items(buckets, *, distinguish_axial_steps=False):
+        items = [_item(entry) for entry in buckets.values()]
+        if not distinguish_axial_steps:
+            return items
+        by_label: dict[str, list[int]] = {}
+        for index, (entry, item) in enumerate(zip(buckets.values(), items, strict=True)):
+            _anchor, _dia, value, _feature, tol, rider, _mids = item
+            if len(entry[6]) == 1 and entry[6][0].feature_kind == "step":
+                label = f"ø{value}{_tol_suffix(tol, dwg.draft)}" + (f" {rider}" if rider else "")
+                by_label.setdefault(label, []).append(index)
+        for indices in by_label.values():
+            if len(indices) != 2 or items[indices[0]][0][2] == items[indices[1]][0][2]:
+                continue
+            for index, qualifier in zip(
+                sorted(indices, key=lambda i: items[i][0][2]),
+                ("BOT", "TOP"),
+                strict=True,
+            ):
+                anchor, dia, value, feature, tol, rider, mids = items[index]
+                items[index] = (
+                    anchor,
+                    dia,
+                    value,
+                    feature,
+                    tol,
+                    f"{rider} {qualifier}" if rider else qualifier,
+                    mids,
+                )
+        return items
 
     # The placers name leaders m_dia_{x,z}{start+i} contiguously from one start.
     # The automatic pass uses start=0. Finalize may run after existing m_dia
@@ -657,7 +684,7 @@ def render_diameters(
     )
     placed += _diameter_column_left(
         dwg,
-        _items(col_buckets),
+        _items(col_buckets, distinguish_axial_steps=True),
         start=start_z,
         trace=trace,
         ctx=ctx,

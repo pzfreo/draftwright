@@ -4,10 +4,105 @@ import math
 from pathlib import Path
 
 import pytest
-from build123d import Align, Box, Cylinder, Pos, Rot
+from build123d import Align, Box, Cylinder, Pos, Rot, export_step
 from quiddity import RectangularHoleSet, recognise_hole_patterns, recognise_holes
 
 from draftwright import build_drawing
+
+
+@pytest.mark.slow
+def test_coincident_flange_patterns_and_diameters_name_both_supports_issue_2129(
+    tmp_path, monkeypatch
+):
+    from draftwright import Drawing
+    from draftwright.annotations.from_model import callout_from_spec
+    from draftwright.compose import _est_planned_bore_callout_width
+    from draftwright.model.callout import hole_callout_batches
+    from draftwright.model.planner import plan_dimensions
+    from draftwright.sheet_emit import generate_sheet_script
+
+    # The source STEP has two separate flanges, each with its own twelve holes at
+    # identical X/Y sites. The end view therefore overlays the two inventories.
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = (
+        Cylinder(65, 5, align=align)
+        + Pos(0, 0, 5) * Cylinder(35, 103, align=align)
+        + Pos(0, 0, 108) * Cylinder(65, 5, align=align)
+    )
+    for z in (0, 108):
+        for index in range(12):
+            angle = 2 * math.pi * index / 12
+            part -= Pos(55 * math.cos(angle), 55 * math.sin(angle), z) * Cylinder(
+                4, 5, align=align
+            )
+    source = tmp_path / "flanged.step"
+    export_step(part, str(source))
+    options = dict(pmi="annotate", scale=1, page="A2", scale_policy="permissive")
+    drawing = build_drawing(source, **options)
+
+    def same_support_claims(dwg):
+        diameters = [
+            (name, annotation, dwg.registry.features_of(name)[0])
+            for name, annotation in dwg.iter_annotations()
+            if name.startswith("m_dia_z") and annotation.label.startswith("ø130")
+        ]
+        patterns = [
+            (name, annotation, dwg.registry.features_of(name)[0])
+            for name, annotation in dwg.iter_annotations()
+            if name.startswith("hc_plan") and annotation.label.startswith("12× ⌀8")
+        ]
+        # The fixture contains two different axial supports for each identical
+        # measurement. Its two patterns coincide in plan projection, which is
+        # precisely when equal text cannot tell the reader which face it names.
+        assert len(diameters) == len(patterns) == 2
+        assert sorted(feature.frame.origin[2] for _, _, feature in diameters) == [2.5, 110.5]
+        assert sorted(feature.frame.origin[2] for _, _, feature in patterns) == [5.0, 113.0]
+        assert (
+            len(
+                {
+                    tuple(sorted((point[0], point[1]) for point in feature.members))
+                    for _, _, feature in patterns
+                }
+            )
+            == 1
+        )
+        assert all(dwg.registry.measurement_of(name) for name, _, _ in diameters + patterns)
+        assert {annotation.label for _, annotation, _ in diameters} == {
+            "ø130 BOT",
+            "ø130 TOP",
+        }
+        assert all(
+            annotation.label.endswith("BOT") == (feature.frame.origin[2] == 2.5)
+            for _, annotation, feature in diameters
+        )
+        assert {annotation.label for _, annotation, _ in patterns} == {
+            "12× ⌀8 THRU EQ SP ON ø110 BC LOWER FACE",
+            "12× ⌀8 THRU EQ SP ON ø110 BC UPPER FACE",
+        }
+        assert all(
+            annotation.label.endswith("LOWER FACE") == (feature.frame.origin[2] == 5.0)
+            for _, annotation, feature in patterns
+        )
+        return {name: annotation.label for name, annotation, _ in diameters + patterns}
+
+    direct_labels = same_support_claims(drawing)
+    groups = plan_dimensions(drawing.model())
+    estimate = _est_planned_bore_callout_width(groups, drawing.draft)
+    rendered = [
+        callout_from_spec(batch.spec, drawing.draft, batch.spec["count"])
+        for batch in hole_callout_batches(groups)
+        if batch.spec["count"] == 12
+    ]
+    assert len(rendered) == 2
+    assert estimate >= max(callout.callout_width for callout in rendered)
+
+    captured = {}
+    monkeypatch.setattr(
+        Drawing, "export", lambda self, *a, **k: captured.setdefault("drawing", self)
+    )
+    script = generate_sheet_script(source, out=str(tmp_path / "flanged"), **options)
+    exec(compile(Path(script).read_text(encoding="utf-8"), script, "exec"), {})
+    assert same_support_claims(captured["drawing"]) == direct_labels
 
 
 class TestHolePatternCallouts:

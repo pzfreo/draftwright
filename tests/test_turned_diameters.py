@@ -851,9 +851,16 @@ class TestTurnedDiameters:
         marks = [
             (name, item)
             for name, item in dwg.iter_annotations()
-            if str(getattr(item, "label", "")) == "ø20"
+            if str(getattr(item, "label", "")).startswith("ø20")
         ]
         assert len(marks) == 2
+        assert {item.label for _, item in marks} == {"ø20 BOT", "ø20 TOP"}
+        assert dwg.scale == 1.0
+        assert not [
+            issue
+            for issue in dwg.lint()
+            if issue.code in {"annotation_overlap", "annotation_out_of_bounds"}
+        ]
         on_long = dwg.at("front", 0, 0, 22.5)[1]
         on_short = dwg.at("front", 0, 0, 0)[1]
         in_gap = dwg.at("front", 0, 0, 7.5)[1]

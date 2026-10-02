@@ -20,7 +20,7 @@ feature. `through` is read off the feature for exactly this reason.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from draftwright._geometry import _fmt
 from draftwright.model.ir import HoleFeature, PatternFeature, ThreadOperation, ThreadRequirement
@@ -186,6 +186,52 @@ def hole_callout_batches(
                 spec,
             )
         )
+    # Two axial faces can carry congruent patterns whose end-view members project
+    # onto the same ink. Keep both physical owners, and name which face each
+    # complete callout describes. The spec is shared with the width estimator, so
+    # this wording is reserved before the placement solve.
+    coincident: dict[tuple, list[tuple[int, float]]] = {}
+    nonprinting = {
+        "measurements",
+        "source_measurements",
+        "geometry_measurements",
+        "geometry_qualifiers",
+        "source_ids",
+        "source_features",
+        "owner_counts",
+    }
+    for index, callout_batch in enumerate(result):
+        if len(callout_batch.groups) != 1:
+            continue
+        group = callout_batch.groups[0]
+        feature = group.feature
+        if (
+            not isinstance(feature, PatternFeature)
+            or feature.frame.axis != "z"
+            or len(callout_batch.locations) != len(feature.members)
+        ):
+            continue
+        signature = tuple(
+            (name, repr(value))
+            for name, value in sorted(callout_batch.spec.items())
+            if name not in nonprinting
+        )
+        projected = tuple(
+            sorted((round(point[0], 6), round(point[1], 6)) for point in callout_batch.locations)
+        )
+        coincident.setdefault((group.view, signature, projected), []).append(
+            (index, feature.frame.origin[2])
+        )
+    for sites in coincident.values():
+        if len(sites) != 2 or sites[0][1] == sites[1][1]:
+            continue
+        for (index, _station), qualifier in zip(
+            sorted(sites, key=lambda site: site[1]), ("LOWER FACE", "UPPER FACE"), strict=True
+        ):
+            callout_batch = result[index]
+            result[index] = replace(
+                callout_batch, spec={**callout_batch.spec, "site_suffix": qualifier}
+            )
     return tuple(result)
 
 
@@ -490,7 +536,9 @@ def hole_callout_suffix(spec: dict, tolerance_suffix=lambda _value: "") -> str |
     below ``_core`` while ensuring both consumers measure and draw identical thread-depth text.
     """
 
-    if not any(key in spec for key in ("profile_suffix", "thread", "pattern_suffix")):
+    if not any(
+        key in spec for key in ("profile_suffix", "thread", "pattern_suffix", "site_suffix")
+    ):
         return spec.get("suffix")
 
     thread = spec.get("thread")
@@ -503,7 +551,12 @@ def hole_callout_suffix(spec: dict, tolerance_suffix=lambda _value: "") -> str |
     return (
         " ".join(
             part
-            for part in (spec.get("profile_suffix"), thread, spec.get("pattern_suffix"))
+            for part in (
+                spec.get("profile_suffix"),
+                thread,
+                spec.get("pattern_suffix"),
+                spec.get("site_suffix"),
+            )
             if part
         )
         or None
