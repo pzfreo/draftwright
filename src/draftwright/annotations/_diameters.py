@@ -523,6 +523,74 @@ def _render_diameter_leaders(
     )
 
 
+def _diameter_bucket_item(entry):
+    """Carry an approved diameter identity into row or column placement."""
+    anchor, diameter, value_text, refs, tolerance, rider, groups = entry
+    return (
+        _diameter_step_anchor(anchor, groups),
+        diameter,
+        value_text,
+        next(iter(refs)) if len(refs) == 1 else None,
+        tolerance,
+        rider,
+        tuple(dim.id for group in groups for dim in group.dims if dim.kind == "diameter"),
+    )
+
+
+def _counted_column_items(buckets, draft):
+    """Share exactly two equal step labels while retaining both physical identities."""
+    entries = list(buckets.values())
+    items = [(*_diameter_bucket_item(entry), 1) for entry in entries]
+    by_content: dict[tuple, list[int]] = {}
+    for index, (entry, item) in enumerate(zip(entries, items, strict=True)):
+        if len(entry[6]) == 1 and entry[6][0].feature_kind == "step":
+            # Equal printed text may hide unequal approved values or tolerances.
+            _anchor, diameter, value, _feature, tolerance, rider, _mids, _count = item
+            by_content.setdefault(
+                (diameter, value, _tol_suffix(tolerance, draft), rider), []
+            ).append(index)
+    removed = set()
+    for indices in by_content.values():
+        if (
+            len(indices) != 2
+            or items[indices[0]][0][2] == items[indices[1]][0][2]
+            or items[indices[0]][4] != items[indices[1]][4]
+        ):
+            continue
+        first, second = indices
+        anchor, diameter, value, _feature, tolerance, rider, mids, _count = items[first]
+        items[first] = (
+            anchor,
+            diameter,
+            value,
+            None,
+            tolerance,
+            rider,
+            mids + items[second][6],
+            2,
+        )
+        removed.add(second)
+    return [item for index, item in enumerate(items) if index not in removed]
+
+
+def _z_bore_specs(plan):
+    return [
+        (group.facts.frame.origin, dim.value_text)
+        for group in plan.of_kind("rotational", "hole")
+        if group.facts.frame.axis == "z"
+        for dim in group.dims
+        if dim.kind == "diameter" and dim.role == "bore"
+    ]
+
+
+def _matching_bore_values(bore_specs, origin):
+    return {
+        value
+        for bore_origin, value in bore_specs
+        if all(abs(bore_origin[index] - origin[index]) <= 1e-6 for index in (0, 1))
+    }
+
+
 def render_diameters(
     dwg,
     plan,
@@ -555,13 +623,7 @@ def render_diameters(
     col_buckets: dict = {}  # Z-turned
     end_buckets: dict = {}  # Y-turned: radial leaders in the end-on front view
     include_source_pmi = not ctx.document_member or a.pmi_mode == "annotate"
-    bore_specs = [
-        (bore_group.facts.frame.origin, dim.value_text)
-        for bore_group in plan.of_kind("rotational", "hole")
-        if bore_group.facts.frame.axis == "z"
-        for dim in bore_group.dims
-        if dim.kind == "diameter" and dim.role == "bore"
-    ]
+    bore_specs = _z_bore_specs(plan)
     for g in plan.of_kind("step", "boss"):
         if only is not None and g.ref not in only:  # recorded finalize subset
             continue
@@ -575,11 +637,7 @@ def render_diameters(
             include_source_pmi=include_source_pmi,
             manufacturing_tags=ctx.manufacturing_tags,
         )
-        bore_values = {
-            value
-            for origin, value in bore_specs
-            if all(abs(origin[index] - g.facts.frame.origin[index]) <= 1e-6 for index in (0, 1))
-        }
+        bore_values = _matching_bore_values(bore_specs, g.facts.frame.origin)
         thr = _external_diameter_rider(thr, dpd.value_text, g.facts.frame.axis, bore_values)
         if dwg.registry.has_measurement(dpd.id):
             continue
@@ -593,44 +651,6 @@ def render_diameters(
         entry[6].append(g)
         if entry[4] is None:
             entry[4] = dtol
-
-    def _item(entry):
-        # Carry the exact approved identity into the row/column placement.
-        a, d, value_text, refs, t, thr, gs = entry
-        return (
-            _diameter_step_anchor(a, gs),
-            d,
-            value_text,
-            next(iter(refs)) if len(refs) == 1 else None,
-            t,
-            thr,
-            tuple(pd.id for gp in gs for pd in gp.dims if pd.kind == "diameter"),
-        )
-
-    def _column_items(buckets):
-        entries = list(buckets.values())
-        items = [(*_item(entry), 1) for entry in entries]
-        by_content: dict[tuple, list[int]] = {}
-        for index, (entry, item) in enumerate(zip(entries, items, strict=True)):
-            if len(entry[6]) == 1 and entry[6][0].feature_kind == "step":
-                # Equal printed text may hide unequal approved values or tolerances.
-                _anchor, dia, value, _feature, tol, rider, _mids, _count = item
-                by_content.setdefault((dia, value, _tol_suffix(tol, dwg.draft), rider), []).append(
-                    index
-                )
-        removed = set()
-        for indices in by_content.values():
-            if (
-                len(indices) != 2
-                or items[indices[0]][0][2] == items[indices[1]][0][2]
-                or items[indices[0]][4] != items[indices[1]][4]
-            ):
-                continue
-            first, second = indices
-            anchor, dia, value, _feature, tol, rider, mids, _count = items[first]
-            items[first] = (anchor, dia, value, None, tol, rider, mids + items[second][6], 2)
-            removed.add(second)
-        return [item for index, item in enumerate(items) if index not in removed]
 
     # The placers name leaders m_dia_{x,z}{start+i} contiguously from one start.
     # The automatic pass uses start=0. Finalize may run after existing m_dia
@@ -672,7 +692,7 @@ def render_diameters(
         entries = [entry for _ordinal, entry in run]
         placed += _diameter_row_below(
             dwg,
-            [_item(entry) for _index, entry in entries],
+            [_diameter_bucket_item(entry) for _index, entry in entries],
             start=start_x + entries[0][0],
             trace=trace,
             ctx=ctx,
@@ -711,7 +731,7 @@ def render_diameters(
     )
     placed += _diameter_column_left(
         dwg,
-        _column_items(col_buckets),
+        _counted_column_items(col_buckets, dwg.draft),
         start=start_z,
         trace=trace,
         ctx=ctx,
@@ -804,6 +824,12 @@ def render_diameters(
 
 _REROUTE_EDGE_TOL = 2.0  # page mm: a tip this close to an axial end sits AT that end
 _REROUTE_SLACK = 1.0  # page mm: an elbow displaced this far toward the interior is "into the body"
+
+
+def _copy_shared_measurement_metadata(source, target) -> None:
+    for attr in ("source_features", "indivisible_measurements"):
+        if hasattr(source, attr):
+            setattr(target, attr, getattr(source, attr))
 
 
 def _reroute_crossing_diameters(dwg, *, ctx, material_penalty) -> int:
@@ -901,9 +927,7 @@ def _reroute_crossing_diameters(dwg, *, ctx, material_penalty) -> int:
                 cand = Leader(
                     tip=(tip[0], tip[1], 0), elbow=(ex, ey, 0), label=ldr.label, draft=draft
                 )
-                for attr in ("source_features", "indivisible_measurements"):
-                    if hasattr(ldr, attr):
-                        setattr(cand, attr, getattr(ldr, attr))
+                _copy_shared_measurement_metadata(ldr, cand)
                 box = _anno_box(cand)
                 if box is None or not _within_page(box) or _box_hits(box, obstacles):
                     continue

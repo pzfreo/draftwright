@@ -825,6 +825,30 @@ def _global_axis_centerline(first, second):
     return centerline
 
 
+def _coaxial_step_diameter_texts(plan, origin):
+    return {
+        dim.value_text
+        for step in plan.of_kind("step", "boss")
+        if step.facts.frame.axis == "z"
+        and all(abs(step.facts.frame.origin[index] - origin[index]) <= 1e-6 for index in (0, 1))
+        if (dim := step.dim(kind="diameter")) is not None
+    }
+
+
+def _rotational_dia_label(dim, draft, step_diameters):
+    # Planner-fed value + authored tolerance/fit suffix.
+    label = f"ø{dim.value_text}{_tol_suffix(dim.tolerance, draft)}"
+    return label + " BORE" if dim.role == "bore" and dim.value_text in step_diameters else label
+
+
+def _rotational_od_mark(first, second, side, draft, od_dim, label):
+    mark = _dim(first, second, side, 8, draft, label=label)
+    if len(od_dim.equivalent_ids) > 1:
+        mark.source_features = tuple(identity.feature for identity in od_dim.equivalent_ids)
+        mark.indivisible_measurements = True
+    return mark
+
+
 def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
     """Rotational furniture from the IR `RotationalFeature` (#237): the OD dim (above
     the profile view), rotation-axis centrelines on planned profile projections, and concentric
@@ -844,30 +868,7 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
     axis = g.facts.frame.axis
     od_dim = g.dim(kind="diameter", role="od")
     bore_dims = [d for d in g.dims if d.kind == "diameter" and d.role == "bore"]
-    step_diameters = {
-        dim.value_text
-        for step in plan.of_kind("step", "boss")
-        if step.facts.frame.axis == "z"
-        and all(
-            abs(step.facts.frame.origin[index] - g.facts.frame.origin[index]) <= 1e-6
-            for index in (0, 1)
-        )
-        if (dim := step.dim(kind="diameter")) is not None
-    }
-
-    def _dia_label(dim):
-        # Planner-fed value + authored tolerance/fit suffix.
-        label = f"ø{dim.value_text}{_tol_suffix(dim.tolerance, draft)}"
-        return (
-            label + " BORE" if dim.role == "bore" and dim.value_text in step_diameters else label
-        )
-
-    def _od_mark(first, second, side):
-        mark = _dim(first, second, side, 8, draft, label=_dia_label(od_dim))
-        if len(od_dim.equivalent_ids) > 1:
-            mark.source_features = tuple(identity.feature for identity in od_dim.equivalent_ids)
-            mark.indivisible_measurements = True
-        return mark
+    step_diameters = _coaxial_step_diameter_texts(plan, g.facts.frame.origin)
 
     def _place_axis_centerline(item, name, view):
         # Automatic view selection may omit one of a turned body's two equivalent profile
@@ -883,10 +884,13 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
         if od_dim is not None:
             od = od_dim.value
             ctx.place(
-                _od_mark(
+                _rotational_od_mark(
                     (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
                     (FX(a.cx + od / 2), FZ(a.bb.max.Z) + 2, 0),
                     "above",
+                    draft,
+                    od_dim,
+                    _rotational_dia_label(od_dim, draft, step_diameters),
                 ),
                 "dim_od",
                 view="front",
@@ -941,7 +945,7 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
                         Leader(
                             tip=(FX(a.cx - d / 2), tip_z, 0),
                             elbow=(elbow_x, tip_z, 0),
-                            label=_dia_label(dim),
+                            label=_rotational_dia_label(dim, draft, step_diameters),
                             draft=draft,
                         ),
                         f"ldr_z{i}",
@@ -973,10 +977,13 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
         if od_dim is not None:
             od = od_dim.value
             ctx.place(
-                _od_mark(
+                _rotational_od_mark(
                     (FX(a.bb.min.X) - 2, FZ(a.cz - od / 2), 0),
                     (FX(a.bb.min.X) - 2, FZ(a.cz + od / 2), 0),
                     "left",
+                    draft,
+                    od_dim,
+                    _rotational_dia_label(od_dim, draft, step_diameters),
                 ),
                 "dim_od",
                 view="front",
@@ -1006,10 +1013,13 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
         if od_dim is not None:
             od = od_dim.value
             ctx.place(
-                _od_mark(
+                _rotational_od_mark(
                     (SX(a.bb.min.Y) - 2, SZ(a.cz - od / 2), 0),
                     (SX(a.bb.min.Y) - 2, SZ(a.cz + od / 2), 0),
                     "left",
+                    draft,
+                    od_dim,
+                    _rotational_dia_label(od_dim, draft, step_diameters),
                 ),
                 "dim_od",
                 view="side",
