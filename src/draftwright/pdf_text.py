@@ -184,6 +184,7 @@ def _glyph_faces_inside_label(annotation, fs):
     x0, y0, x1, y1 = label_box
     inset = 0.05 * fs
     faces = []
+    centres = []
     for face in annotation.faces():
         box = face.bounding_box()
         if (
@@ -192,11 +193,14 @@ def _glyph_faces_inside_label(annotation, fs):
             and box.min.Y >= y0 + inset
             and box.max.Y <= y1 - inset
         ):
+            centre = face.center()
+            centres.append((centre.X, centre.Y))
             faces.append(face)
     if faces:
         min_area = max(face.area for face in faces) * 0.01
         faces = [face for face in faces if face.area >= min_area]
-    return faces
+        centres = [(face.center().X, face.center().Y) for face in faces]
+    return faces, centres
 
 
 def _face_ratio(face):
@@ -276,9 +280,8 @@ def _single_face_obb_match(source_face, target_face):
     return aspect_error, math.degrees(math.atan2(cross, dot))
 
 
-def _multi_face_match(source_faces, target_faces):
+def _multi_face_match(source_faces, target_faces, target_points):
     source_points = [(face.center().X, face.center().Y) for face in source_faces]
-    target_points = [(face.center().X, face.center().Y) for face in target_faces]
     source_mean = (
         sum(point[0] for point in source_points) / len(source_points),
         sum(point[1] for point in source_points) / len(source_points),
@@ -347,7 +350,7 @@ class _TextRotation:
             options.append((font_error, faces))
         return options
 
-    def _shape_matches(self, annotation, glyph_faces, raw_label):
+    def _shape_matches(self, annotation, glyph_faces, centres, raw_label):
         matches = []
         for candidate in _raw_dimension_candidates(annotation, raw_label, self.draft):
             options = self._source_face_options(candidate, glyph_faces)
@@ -370,7 +373,7 @@ class _TextRotation:
                 if match is None:
                     match = _single_face_obb_match(source_faces[0], glyph_faces[0])
             else:
-                match = _multi_face_match(source_faces, glyph_faces)
+                match = _multi_face_match(source_faces, glyph_faces, centres)
             if match is not None:
                 error, angle = match
                 matches.append((error, candidate, angle))
@@ -384,11 +387,12 @@ class _TextRotation:
         if (axis := _basic_span_axis(annotation)) is not None:
             return _upright(axis - transform_rotation) + transform_rotation
         # A wide label can consume all spans; use its glyph faces as the last resort.
-        glyph_faces = _glyph_faces_inside_label(annotation, self.fs)
-        if glyph_faces is None:
+        glyphs = _glyph_faces_inside_label(annotation, self.fs)
+        if glyphs is None:
             return None
+        glyph_faces, centres = glyphs
         raw_label = str(getattr(annotation, "label", ""))
-        matches = self._shape_matches(annotation, glyph_faces, raw_label)
+        matches = self._shape_matches(annotation, glyph_faces, centres, raw_label)
         if len(raw_label) == 1 and id(annotation) not in self.raw_basic_exact_matches:
             # A guessed face may put selectable text far from custom-font ink.
             self.raw_basic_unresolved.add(id(annotation))
