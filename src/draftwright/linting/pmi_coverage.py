@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 from draftwright.linting.issues import LintIssue
@@ -470,13 +471,16 @@ _EXPLAINED_OMISSION_CODES = frozenset(
 )
 
 
-def lint_pmi_rendering(features, registry, mode: str, *, decorations=None) -> list[LintIssue]:
-    """Report source-bearing typed PMI that produced no annotation or placement drop.
+def lint_pmi_rendering(
+    features, registry, mode: str, *, decorations=None, report: PmiExtractionReport | None = None
+) -> list[LintIssue]:
+    """Reconcile source-bearing typed PMI with surviving annotation ink.
 
     ADR 5 (was 0010)'s registry is the existing annotation-to-feature provenance owner. A placement
     rejection is already a structured source-bearing ``*_dropped`` build issue (the code stays
     specific to the ordinary renderer typed PMI entered), so this reconciliation is derived
-    from those two outcomes rather than maintained in a parallel ledger.
+    from those two outcomes rather than maintained in a parallel ledger. Placed control
+    frames are also checked against the independent extracted magnitude.
     """
     if mode != "annotate":
         return []
@@ -517,7 +521,7 @@ def lint_pmi_rendering(features, registry, mode: str, *, decorations=None) -> li
         if getattr(issue, "code", None) in _EXPLAINED_OMISSION_CODES
         for source_id in getattr(issue, "source_ids", ())
     }
-    return [
+    issues = [
         LintIssue(
             severity="error",
             code="pmi_not_rendered",
@@ -533,3 +537,41 @@ def lint_pmi_rendering(features, registry, mode: str, *, decorations=None) -> li
             for feature in source_features
         )
     ]
+    if report is None:
+        return issues
+
+    # Read the emitted frame's text, not its IR display hint: a formatter or renderer
+    # can change the value after extraction while the source census stays correct.
+    source_values = {
+        record.source_id: Decimal(str(record.value))
+        for record in report.records
+        if record.source_category == "geometric_tolerance" and record.value > 0
+    }
+    for name, annotation in registry.iter_named():
+        declaration = registry.declaration_of(name)
+        if getattr(declaration, "kind", None) != "control_frame":
+            continue
+        source_id = getattr(declaration, "source_id", "")
+        expected = source_values.get(source_id)
+        if expected is None:
+            continue
+        values = []
+        for spec in getattr(annotation, "pdf_text_relative_specs", ()):
+            try:
+                value = Decimal(str(spec[0]))
+            except (InvalidOperation, IndexError, TypeError):
+                continue
+            if value.is_finite():
+                values.append(value)
+        if values == [expected]:
+            continue
+        issues.append(
+            LintIssue(
+                severity="error",
+                code="pmi_value_mismatch",
+                message=f"{name} states {values or 'no numeric value'} for AP242 source {source_id}; source tolerance is {expected}",
+                source_ids=(source_id,),
+                annotation_name=name,
+            )
+        )
+    return issues

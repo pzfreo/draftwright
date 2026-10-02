@@ -568,6 +568,14 @@ def _fmt(v: float, decimals: int | None = None) -> str:
     return str(r) if abs(v - r) < 1e-6 else f"{v:.1f}"
 
 
+def _fmt_pmi_magnitude(value: float, decimals: int | None = None) -> str:
+    """Keep a PMI magnitude's digits unless source display precision is known."""
+    source = Decimal(str(value))
+    if decimals is None:
+        return format(source, "f")
+    return f"{source:.{decimals}f}"
+
+
 def _fmt_tolerance(tolerance, decimal_precision: int = 1) -> str:
     """Shared numeric tolerance suffix, preserving every authored deviation digit."""
     if tolerance is None:

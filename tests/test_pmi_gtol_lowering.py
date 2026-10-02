@@ -7,9 +7,11 @@ import pytest
 from build123d import Box
 
 import draftwright.pmi as pmi_module
+from draftwright.builder import build_drawing, detect_part_model
+from draftwright.linting.pmi_coverage import lint_pmi_rendering
 from draftwright.model import build_pmi_features
 from draftwright.model.ir import ControlFrame, Frame, PmiFeature
-from draftwright.pmi import PmiRecord
+from draftwright.pmi import PmiExtractionReport, PmiRecord
 from draftwright.sheet_emit import _feature_block, _feature_line
 
 
@@ -121,14 +123,54 @@ def test_repeated_datum_targets_lower_to_one_ordered_compartment():
     assert feature.datums == ("A", "B", "C")
 
 
-def test_imported_control_frame_tolerance_uses_drawing_precision():
+def test_imported_control_frame_keeps_source_magnitude_precision():
     record = replace(_record(), value=0.254000000000003)
 
     (feature,) = build_pmi_features((record,), Box(20, 20, 20).bounding_box())
 
     assert isinstance(feature, ControlFrame)
     assert feature.tolerance == "0.254000000000003"
-    assert feature.display_tolerance == "0.3"
+    assert feature.display_tolerance == "0.254000000000003"
+
+
+def test_flatness_source_magnitude_reaches_ink_and_lint_detects_a_wrong_value():
+    part = Box(20, 20, 20)
+    record = replace(
+        _record(value=0.05),
+        kind="flatness",
+        type_code=7,
+        label="flatness 0.05",
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    assert record.value == 0.05  # the source contains the value before lowering
+    (feature,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(feature, ControlFrame)
+    assert feature.display_tolerance == "0.05"
+
+    model = detect_part_model(part)
+    model.features.append(feature)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name
+        for name in drawing.registry.names()
+        if drawing.registry.declaration_of(name) is feature
+    )
+    annotation = drawing.registry.named(name)
+    assert annotation.pdf_text_relative_specs[0][0] == "0.05"
+    report = PmiExtractionReport(records=(record,))
+    assert lint_pmi_rendering(model.features, drawing.registry, "annotate", report=report) == []
+
+    annotation.pdf_text_relative_specs = (
+        ("0.1", *annotation.pdf_text_relative_specs[0][1:]),
+        *annotation.pdf_text_relative_specs[1:],
+    )
+    assert annotation.pdf_text_relative_specs[0][0] == "0.1"
+    issues = lint_pmi_rendering(model.features, drawing.registry, "annotate", report=report)
+    assert [(issue.code, issue.source_ids, issue.annotation_name) for issue in issues] == [
+        ("pmi_value_mismatch", (record.source_id,), name)
+    ]
 
 
 def test_complete_all_over_tolerance_lowers_to_control_frame():
