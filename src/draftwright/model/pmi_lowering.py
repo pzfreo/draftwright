@@ -905,6 +905,13 @@ def _structured_thread_extent(
                 if "minimum full thread" in fields
                 else None
             )
+        if through and full is not None:
+            if len(feature.cylindrical_refs) != 1 or full > (
+                feature.cylindrical_refs[0].axial_interval[1]
+                - feature.cylindrical_refs[0].axial_interval[0]
+                + 0.01
+            ):
+                raise ValueError("structured minimum full thread exceeds source cylinder")
     else:
         if through:
             raise ValueError("structured external thread cannot be a through tap")

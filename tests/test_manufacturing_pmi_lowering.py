@@ -197,6 +197,48 @@ def test_structured_through_tap_lowers_without_a_prose_sentence_issue_2137():
     assert not any(isinstance(feature, PmiFeature) for feature in lowered.features)
 
 
+def test_structured_through_tap_refuses_full_thread_longer_than_source_issue_2137():
+    hole = HoleFeature(Frame((-20.0, 0.0, 0.0), "x"), 1.6, depth=None, through=True)
+    raw = replace(
+        _raw(
+            "internal_thread",
+            "internal thread",
+            _reference(1.6, (-20.0, 20.0), "internal"),
+            "#long_thread",
+        ),
+        structured_fields=(
+            ("thread side", "internal"),
+            ("designation", "M2x0.4"),
+            ("fit class", "6H"),
+            ("hand", "right"),
+            ("through", "true"),
+            ("tapping drill diameter", 1.6),
+            ("minimum full thread", 100.0),
+        ),
+    )
+    assert dict(raw.structured_fields)["minimum full thread"] > (
+        raw.cylindrical_refs[0].axial_interval[1] - raw.cylindrical_refs[0].axial_interval[0]
+    )
+
+    refused = lower_ap242_manufacturing_requirements(_model(hole, raw))
+
+    assert refused.features[0].thread is None
+    assert refused.features[1].lowering_blockers == (
+        "structured minimum full thread exceeds source cylinder",
+    )
+
+    supported = replace(
+        raw,
+        structured_fields=tuple(
+            (name, 30.0 if name == "minimum full thread" else value)
+            for name, value in raw.structured_fields
+        ),
+    )
+    accepted = lower_ap242_manufacturing_requirements(_model(hole, supported))
+    assert accepted.features[0].thread.minimum_full_thread == 30.0
+    assert len(accepted.features) == 1
+
+
 @pytest.mark.parametrize("reverse", (False, True))
 def test_conflicting_structured_threads_leave_every_source_unlowered_issue_2137(reverse):
     hole = HoleFeature(Frame((-20.0, 0.0, 0.0), "x"), 1.6, depth=None, through=True)
