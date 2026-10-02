@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from build123d import Align, Location, Mode, Sketch, Text, Vector
 from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
 from build123d_drafting.helpers import DEFAULT_FONT_PATH
 
@@ -212,7 +213,7 @@ def _gdt_visual_zone(glyph, draft) -> str:
 
 
 def _gdt_visual_tolerance(glyph, draft, zone: str) -> str:
-    """Trust a tolerance label only when its complete text is in the glyph ink."""
+    """Trust a tolerance label only when its finished ink matches the font text."""
     text = str(glyph.tolerance_str)
     h = draft.font_size
     font_path = getattr(draft, "font_path", DEFAULT_FONT_PATH)
@@ -220,24 +221,42 @@ def _gdt_visual_tolerance(glyph, draft, zone: str) -> str:
     left = (2.0 + 0.6) * h
     if zone == "diameter_zone":
         left += (2.0 * 0.42 + 0.6) * h
-    right = left + _text_size(text, h, font_path, font_name)[0]
-    tolerance = max(1e-3, h * 1e-3)
-    faces = []
-    for face in glyph.faces():
-        box = face.bounding_box()
+    try:
+        # Construct the expected font outlines independently of the helper's text
+        # builder, so a same-width wrong digit cannot validate its own output.
+        expected = Text(
+            text,
+            font_size=h,
+            font=font_name,
+            font_path=font_path,
+            align=(Align.CENTER, Align.CENTER),
+            mode=Mode.PRIVATE,
+        )
+        width = expected.bounding_box().size.X
+        right = left + width
+        expected = expected.moved(Location(Vector(left + width / 2.0, h, 0)))
+        tolerance = max(1e-3, h * 1e-3)
+        faces = []
+        for face in glyph.faces():
+            box = face.bounding_box()
+            if (
+                box.min.X >= left - tolerance
+                and box.max.X <= right + tolerance
+                and box.min.Y > 0.1 * h
+                and box.max.Y < 1.9 * h
+            ):
+                faces.append(face)
+        if not faces:
+            return ""
+        actual = Sketch(children=faces)
+        area_tolerance = max(1e-8, h * h * 1e-8)
         if (
-            box.min.X >= left - tolerance
-            and box.max.X <= right + tolerance
-            and box.min.Y > 0.1 * h
-            and box.max.Y < 1.9 * h
+            expected.cut(actual).area <= area_tolerance
+            and actual.cut(expected).area <= area_tolerance
         ):
-            faces.append(box)
-    if (
-        len(faces) >= len(text.replace(" ", ""))
-        and min((box.min.X for box in faces), default=float("inf")) <= left + tolerance
-        and max((box.max.X for box in faces), default=float("-inf")) >= right - tolerance
-    ):
-        return text
+            return text
+    except Exception:
+        return ""
     return ""
 
 

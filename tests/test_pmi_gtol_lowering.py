@@ -11,7 +11,12 @@ from build123d_drafting import FeatureControlFrame
 
 import draftwright.annotations._gdt as gdt_module
 import draftwright.pmi as pmi_module
-from draftwright.annotations._gdt import _gdt_glyph, _gdt_pdf_text_specs, _gdt_visual_zone
+from draftwright.annotations._gdt import (
+    _gdt_glyph,
+    _gdt_pdf_text_specs,
+    _gdt_visual_tolerance,
+    _gdt_visual_zone,
+)
 from draftwright.builder import build_drawing, detect_part_model
 from draftwright.linting.pmi_coverage import lint_pmi_rendering
 from draftwright.model import build_pmi_features
@@ -555,6 +560,66 @@ def test_missing_finished_tolerance_text_is_reported_issue_2156(monkeypatch, cas
     ] == (expected_specs)
     assert annotation.gdt_visual_tolerance == ""
     assert annotation.gdt_visual_zone == ""
+    assert [
+        (issue.code, issue.source_ids, issue.annotation_name)
+        for issue in lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(record,)),
+        )
+    ] == [("pmi_value_mismatch", (record.source_id,), name)]
+
+
+@pytest.mark.parametrize("spherical", (False, True))
+def test_same_footprint_wrong_tolerance_digits_are_rejected_issue_2156(monkeypatch, spherical):
+    part = Box(20, 20, 20)
+    record = replace(
+        _record(value=0.03, modifiers=("spherical_diameter_zone",) if spherical else ()),
+        kind="profile_surface" if spherical else "flatness",
+        type_code=12 if spherical else 7,
+        label="profile_surface 0.03" if spherical else "flatness 0.03",
+        datum_refs=(),
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (frame,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(frame, ControlFrame) and frame.spherical_diameter is spherical
+    draft = Draft(font_size=3.0)
+    baseline = _gdt_glyph(frame, draft)
+    original_text = drafting_helpers._gdt_text
+
+    def wrong_digit(draft, text, size):
+        if text in ("0.03", "Sø0.03"):
+            return original_text(draft, text.replace("0.03", "0.06"), size)
+        return original_text(draft, text, size)
+
+    monkeypatch.setattr(drafting_helpers, "_gdt_text", wrong_digit)
+    damaged = _gdt_glyph(frame, draft)
+    assert damaged.tolerance_str == baseline.tolerance_str
+    assert len(damaged.faces()) == len(baseline.faces())
+    assert damaged.bounding_box().size.X == pytest.approx(baseline.bounding_box().size.X)
+    assert sum(face.area for face in damaged.faces()) != pytest.approx(
+        sum(face.area for face in baseline.faces())
+    )
+    assert _gdt_visual_tolerance(baseline, draft, _gdt_visual_zone(baseline, draft)) == (
+        "Sø0.03" if spherical else "0.03"
+    )
+    assert _gdt_visual_tolerance(damaged, draft, _gdt_visual_zone(damaged, draft)) == ""
+
+    model = detect_part_model(part)
+    model.features.append(frame)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name for name in drawing.registry.names() if drawing.registry.declaration_of(name) is frame
+    )
+    annotation = drawing.registry.named(name)
+    expected_specs = ("Sø", "0.03") if spherical else ("0.03",)
+    assert (
+        tuple(spec[0] for spec in annotation.pdf_text_relative_specs)[: len(expected_specs)]
+        == expected_specs
+    )
     assert [
         (issue.code, issue.source_ids, issue.annotation_name)
         for issue in lint_pmi_rendering(
