@@ -8,6 +8,7 @@ from build123d import Align, Box, Cone, Cylinder, Pos
 from build123d_drafting import HoleCallout
 
 from draftwright import Sheet, build_drawing
+from draftwright.analysis import _planned_section_count
 from draftwright.builder import detect_part_model
 from draftwright.linting import lint_feature_coverage
 from draftwright.model.compiled import FeatureRef, compile_dimensions
@@ -26,6 +27,7 @@ def blind_axial_pin():
 def test_blind_axial_hole_owns_one_approved_bore_and_depth_issue_2134(blind_axial_pin):
     sizing_model = detect_part_model(blind_axial_pin)
     assert len(sizing_model.blind_axial_bore_supports) == 1
+    assert _planned_section_count(sizing_model, None, is_rotational=True, cx=0, cy=0) == 1
     sizing_rotational = next(
         feature for feature in sizing_model.features if feature.kind == "rotational"
     )
@@ -61,6 +63,7 @@ def test_blind_axial_hole_owns_one_approved_bore_and_depth_issue_2134(blind_axia
     assert omission.conveyed_by == hole_diameter.id
 
     assert drawing.registry.named("hc_plan0").label == "⌀4.2 ↧ 8"
+    assert "section_aa" in drawing.views
     assert not [name for name in drawing.annotations() if name.startswith("ldr_z")]
     assert set(drawing.registry.measurement_of("hc_plan0")) == {
         hole_diameter.id,
@@ -69,6 +72,17 @@ def test_blind_axial_hole_owns_one_approved_bore_and_depth_issue_2134(blind_axia
     assert "hc_plan0" in drawing.annotations_of(hole)
     assert "hc_plan0" not in drawing.annotations_of(rotational)
     assert not [issue for issue in drawing.lint() if issue.code == "hole_requirement_missing"]
+
+
+def test_concentric_through_bore_keeps_no_automatic_section_issue_2134():
+    bottom = (Align.CENTER, Align.CENTER, Align.MIN)
+    pin = Cylinder(3, 12, align=bottom) + Pos(0, 0, 12) * Cylinder(5, 20, align=bottom)
+    pin -= Cylinder(2.1, 32, align=bottom)
+    model = detect_part_model(pin)
+    assert any(feature.kind == "hole" and feature.through for feature in model.features)
+    assert _planned_section_count(model, None, is_rotational=True, cx=0, cy=0) == 0
+    drawing = build_drawing(pin)
+    assert "section_aa" not in drawing.views
 
 
 def test_blind_axial_bore_support_is_required_for_consolidation_issue_2134(blind_axial_pin):

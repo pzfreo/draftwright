@@ -575,8 +575,10 @@ def _will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
         return False
     features = getattr(model, "features", model)
 
-    def feature_member(pt) -> bool:
-        return not (is_rotational and math.hypot(pt[0] - cx, pt[1] - cy) <= _CONCENTRIC_TOL_MM)
+    def feature_member(pt, *, through: bool) -> bool:
+        return not (
+            is_rotational and through and math.hypot(pt[0] - cx, pt[1] - cy) <= _CONCENTRIC_TOL_MM
+        )
 
     for feat in features:
         if getattr(feat, "kind", None) not in ("hole", "pattern"):
@@ -584,10 +586,10 @@ def _will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
         frame = getattr(feat, "frame", None)
         if frame is None or frame.axis != "z":
             continue
-        members = getattr(feat, "members", ()) or (frame.origin,)
-        if not any(feature_member(m) for m in members):
-            continue
         bore = getattr(feat, "member", feat)
+        members = getattr(feat, "members", ()) or (frame.origin,)
+        if not any(feature_member(m, through=getattr(bore, "through", True)) for m in members):
+            continue
         if (
             getattr(bore, "cbore", None) is not None
             or getattr(bore, "spotface", None) is not None
