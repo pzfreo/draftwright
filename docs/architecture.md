@@ -13,7 +13,8 @@ semantic survival order), `registry.py`, `fonts/`,
 `_geometry.py`,
 `fits.py`,
 `contract_values.py`, `measurement_support.py`, `sheet_metadata.py`,
-`angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
+`angular_geometry.py`, `family_table.py`, `recogniser_policy.py`,
+`recogniser_schema.py`,
 `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary →
 the rank-1 `model/` IR waist, `recognition_ownership.py`, `profile_angles.py`,
@@ -500,6 +501,10 @@ and re-exports the existing private helper names.
   deferred, and geometry-only family policy. Both the cross-repository capability declaration and
   the run-local occurrence ledger project this same immutable data; recognition remains
   geometry-only and no engine leaf imports the rank-7 contract validator.
+- **`family_table.py`** — rank-0 consumer metadata for provider and local drafting families.
+  It spells out provider, issued evidence, aggregate, requirement, and quality names where
+  they differ. The four static ownership categories are derived from it; record-dependent
+  ownership exceptions remain with `recognition_ownership.py`.
 - **`recogniser_schema.py`** — the rank-0 Draftwright-owned table of public provider record
   schema versions consumed by adapters. The report projector and rank-7 cross-repository
   validator share this leaf, so the engine never imports the validator to learn schema metadata.

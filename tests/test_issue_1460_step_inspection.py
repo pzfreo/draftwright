@@ -96,6 +96,7 @@ _EXPECTED_ENGINE_MODULES = frozenset(
         "draftwright.recognition_cache",
         "draftwright.recognition_ownership",
         "draftwright.reporting",
+        "draftwright.sheet_metadata",  # _analyse assembles immutable front-door options
         "draftwright.view_plan",
     }
 )

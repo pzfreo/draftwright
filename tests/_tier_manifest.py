@@ -648,6 +648,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_title_block_units_format.py",
     ),
     "src/draftwright/explicit_scale.py": ("test_issue_1338_scale_before_page_escalation.py",),
+    "src/draftwright/family_table.py": ("test_family_table.py",),
     "src/draftwright/fits.py": ("test_fits.py",),
     "src/draftwright/layout.py": ("test_layout_property.py",),
     "src/draftwright/layout_safety.py": ("test_layout_safety.py",),
@@ -797,6 +798,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_issue_1357_framed_boundary.py",
     ),
     "src/draftwright/recognition_ownership.py": (
+        "test_family_table.py",
         "test_plate_ownership.py",
         "test_through_step_ownership.py",
     ),

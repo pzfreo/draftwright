@@ -35,7 +35,7 @@ in step; do not restate the module list here.
 In outline, by `_LAYERS` rank: **0** strict package leaves — placement solvers,
 including the largest-empty-rectangle sweep,
 geometry maths, registry with typed candidate-region provenance, sheet metadata,
-measurement support with pocket/pad location predicates,
+canonical family metadata, measurement support with pocket/pad location predicates,
 and recognition-boundary contracts → **1**
 the `model/` IR waist with its foundational record owner, dimension-intent and
 oriented-slot geometry validation, `detect_inventory` aggregate projection and

@@ -119,6 +119,7 @@ _LAYERS: dict[str, int] = {
     "profile_angles": 1,
     "angular_geometry": 0,
     "recogniser_policy": 0,
+    "family_table": 0,
     # Consumer-owned public record schema versions, shared by the report projector and the
     # rank-7 cross-repository validator without either leaf depending on the validator.
     "recogniser_schema": 0,
