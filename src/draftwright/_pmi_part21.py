@@ -426,6 +426,57 @@ def _manufacturing_graph(step):
     return definitions, representations, callout_names, callout_aspects, aspect_items
 
 
+def _material_representation(step, representation_ids: tuple[str, ...]):
+    """Resolve one material-name representation without losing malformed links."""
+    reasons: list[str] = []
+    representation_id = representation_ids[0] if len(representation_ids) == 1 else ""
+    if len(representation_ids) != 1:
+        reasons.append(f"material property has {len(representation_ids)} representations")
+    item_ids: tuple[str, ...] = ()
+    if representation_id:
+        representation = _entity_named(step.get(representation_id), "REPRESENTATION")
+        if representation is None or len(representation.params) < 2:
+            reasons.append("material representation is unavailable or malformed")
+        elif _text(representation.params[0]).casefold() != "material name":
+            reasons.append("material representation is not named 'material name'")
+        else:
+            item_ids = tuple(dict.fromkeys(_references(representation.params[1])))
+    item_id = item_ids[0] if len(item_ids) == 1 else ""
+    if representation_id and len(item_ids) != 1:
+        reasons.append(f"material representation has {len(item_ids)} items")
+    designation = common_name = ""
+    if item_id:
+        item = _entity_named(step.get(item_id), "DESCRIPTIVE_REPRESENTATION_ITEM")
+        if item is None or len(item.params) < 2:
+            reasons.append("material item is not a descriptive representation item")
+        else:
+            designation = _text(item.params[0]).strip()
+            common_name = _text(item.params[1]).strip()
+            if not designation:
+                reasons.append("material designation is empty")
+    return representation_id, item_id, designation, common_name, reasons
+
+
+def _material_fact(step, entity_id, definition, links, product_ids, shaped_products):
+    owner = definition.params[2] if len(definition.params) >= 3 else None
+    owner_id = str(owner) if isinstance(owner, p21.Reference) else ""
+    representation_ids = tuple(dict.fromkeys(links.get(entity_id, ())))
+    representation_id, item_id, designation, common_name, reasons = _material_representation(
+        step, representation_ids
+    )
+    if product_ids != {owner_id} or shaped_products != {owner_id}:
+        reasons.insert(0, "material is not owned by the single shaped source product definition")
+    return MaterialFact(
+        entity_id,
+        designation,
+        common_name,
+        owner_id,
+        representation_id,
+        item_id,
+        "; ".join(reasons),
+    )
+
+
 def read_material_properties(step_file: str | Path) -> tuple[MaterialFact, ...]:
     """Read only the CAx-IF material-name property of one product definition.
 
@@ -471,51 +522,10 @@ def read_material_properties(step_file: str | Path) -> tuple[MaterialFact, ...]:
         and len(definition.params) >= 3
         and isinstance(definition.params[2], p21.Reference)
     }
-    facts = []
-    for entity_id, definition in definitions:
-        reasons: list[str] = []
-        owner = definition.params[2] if len(definition.params) >= 3 else None
-        owner_id = str(owner) if isinstance(owner, p21.Reference) else ""
-        if product_ids != {owner_id} or shaped_products != {owner_id}:
-            reasons.append("material is not owned by the single shaped source product definition")
-        representation_ids = tuple(dict.fromkeys(links.get(entity_id, ())))
-        representation_id = representation_ids[0] if len(representation_ids) == 1 else ""
-        if len(representation_ids) != 1:
-            reasons.append(f"material property has {len(representation_ids)} representations")
-        item_ids: tuple[str, ...] = ()
-        if representation_id:
-            representation = _entity_named(step.get(representation_id), "REPRESENTATION")
-            if representation is None or len(representation.params) < 2:
-                reasons.append("material representation is unavailable or malformed")
-            elif _text(representation.params[0]).casefold() != "material name":
-                reasons.append("material representation is not named 'material name'")
-            else:
-                item_ids = tuple(dict.fromkeys(_references(representation.params[1])))
-        item_id = item_ids[0] if len(item_ids) == 1 else ""
-        if representation_id and len(item_ids) != 1:
-            reasons.append(f"material representation has {len(item_ids)} items")
-        designation = common_name = ""
-        if item_id:
-            item = _entity_named(step.get(item_id), "DESCRIPTIVE_REPRESENTATION_ITEM")
-            if item is None or len(item.params) < 2:
-                reasons.append("material item is not a descriptive representation item")
-            else:
-                designation = _text(item.params[0]).strip()
-                common_name = _text(item.params[1]).strip()
-                if not designation:
-                    reasons.append("material designation is empty")
-        facts.append(
-            MaterialFact(
-                entity_id,
-                designation,
-                common_name,
-                owner_id,
-                representation_id,
-                item_id,
-                "; ".join(reasons),
-            )
-        )
-    return tuple(facts)
+    return tuple(
+        _material_fact(step, entity_id, definition, links, product_ids, shaped_products)
+        for entity_id, definition in definitions
+    )
 
 
 def read_manufacturing_requirements(
