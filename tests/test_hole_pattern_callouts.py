@@ -1,13 +1,244 @@
 """Grouped hole-pattern callout behavior."""
 
 import math
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-from build123d import Align, Box, Cylinder, Pos, Rot
+from build123d import Align, Box, Cylinder, Pos, Rot, export_step
 from quiddity import RectangularHoleSet, recognise_hole_patterns, recognise_holes
 
 from draftwright import build_drawing
+
+
+def test_coincident_pattern_supports_get_absolute_face_names_without_a_build():
+    from draftwright.model import hole, pattern
+    from draftwright.model.callout import HoleCalloutBatch, _qualify_coincident_axial_patterns
+
+    def batch(z, diameter=8):
+        sites = ((10, 0, z), (-10, 0, z))
+        feature = pattern(
+            hole(diameter=diameter, at=sites[0], axis="z"),
+            kind="other",
+            count=2,
+            at=(0, 0, z),
+            members=sites,
+        )
+        return HoleCalloutBatch(
+            (SimpleNamespace(feature=feature, view="plan"),), sites, {"diameter": diameter}
+        )
+
+    for stations, expected in (
+        ((0, 20), ("LOWER FACE", "UPPER FACE")),
+        (
+            (0, 20, 40),
+            (
+                "FACE 1 OF 3 FROM LOWER END",
+                "FACE 2 OF 3 FROM LOWER END",
+                "FACE 3 OF 3 FROM LOWER END",
+            ),
+        ),
+    ):
+        batches = tuple(batch(z, 10 if z == 20 else 8) for z in reversed(stations))
+        assert len({tuple((x, y) for x, y, _z in item.locations) for item in batches}) == 1
+        qualified = _qualify_coincident_axial_patterns(list(batches))
+        assert {
+            item.groups[0].feature.frame.origin[2]: item.spec["site_suffix"] for item in qualified
+        } == dict(zip(stations, expected, strict=True))
+
+    duplicate = batch(0)
+    with pytest.raises(ValueError, match="no distinct axial stations"):
+        _qualify_coincident_axial_patterns([duplicate, batch(0)])
+    differently_sized = _qualify_coincident_axial_patterns([duplicate, batch(0, 10)])
+    assert all("site_suffix" not in item.spec for item in differently_sized)
+
+
+@pytest.mark.slow
+def test_coincident_flange_patterns_and_diameters_name_both_supports_issue_2129(
+    tmp_path, monkeypatch
+):
+    from draftwright import Drawing
+    from draftwright.annotations.from_model import callout_from_spec
+    from draftwright.compose import _est_planned_bore_callout_width
+    from draftwright.model.callout import hole_callout_batches
+    from draftwright.model.planner import plan_dimensions
+    from draftwright.sheet_emit import generate_sheet_script
+
+    # The source STEP has two separate flanges, each with its own twelve holes at
+    # identical X/Y sites. The end view therefore overlays the two inventories.
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = (
+        Cylinder(65, 5, align=align)
+        + Pos(0, 0, 5) * Cylinder(35, 103, align=align)
+        + Pos(0, 0, 108) * Cylinder(65, 5, align=align)
+    )
+    for z in (0, 108):
+        for index in range(12):
+            angle = 2 * math.pi * index / 12
+            part -= Pos(55 * math.cos(angle), 55 * math.sin(angle), z) * Cylinder(
+                4, 5, align=align
+            )
+    source = tmp_path / "flanged.step"
+    export_step(part, str(source))
+    options = dict(pmi="annotate", scale=1, page="A2", scale_policy="permissive")
+    drawing = build_drawing(source, **options)
+
+    def same_support_claims(dwg):
+        diameters = [
+            (name, annotation, dwg.registry.features_of(name))
+            for name, annotation in dwg.iter_annotations()
+            if annotation.label == "2× ø130"
+        ]
+        patterns = [
+            (name, annotation, dwg.registry.features_of(name)[0])
+            for name, annotation in dwg.iter_annotations()
+            if name.startswith("hc_plan") and annotation.label.startswith("12× ⌀8")
+        ]
+        # The fixture contains two different axial supports for each identical
+        # measurement. Its two patterns coincide in plan projection, which is
+        # precisely when equal text cannot tell the reader which face it names.
+        assert len(diameters) == 1 and len(patterns) == 2
+        assert sorted(feature.frame.origin[2] for feature in diameters[0][2]) == [2.5, 110.5]
+        assert sorted(feature.frame.origin[2] for _, _, feature in patterns) == [5.0, 113.0]
+        assert (
+            len(
+                {
+                    tuple(sorted((point[0], point[1]) for point in feature.members))
+                    for _, _, feature in patterns
+                }
+            )
+            == 1
+        )
+        assert diameters[0][0] == "dim_od"
+        assert len(dwg.registry.measurement_of(diameters[0][0])) == 3
+        assert all(dwg.registry.measurement_of(name) for name, _, _ in patterns)
+        assert not any(
+            name.startswith("m_dia_z") and "ø130" in str(getattr(annotation, "label", ""))
+            for name, annotation in dwg.iter_annotations()
+        )
+        assert all(diameters[0][0] in dwg.annotations_of(feature) for feature in diameters[0][2])
+        before = tuple(dwg.iter_annotations())
+        with pytest.raises(ValueError, match="also measures other features"):
+            dwg.drop(diameters[0][2][0])
+        assert tuple(dwg.iter_annotations()) == before
+        assert len(dwg.registry.measurement_of(diameters[0][0])) == 3
+        assert {annotation.label for _, annotation, _ in patterns} == {
+            "12× ⌀8 THRU EQ SP ON ø110 BC LOWER FACE",
+            "12× ⌀8 THRU EQ SP ON ø110 BC UPPER FACE",
+        }
+        assert all(
+            annotation.label.endswith("LOWER FACE") == (feature.frame.origin[2] == 5.0)
+            for _, annotation, feature in patterns
+        )
+        return {name: annotation.label for name, annotation, _ in diameters + patterns}
+
+    direct_labels = same_support_claims(drawing)
+    from draftwright._core import _dim
+    from draftwright.repair import _replace_dim
+
+    original_od = drawing.get_annotation("dim_od")
+    placement = original_od.placement_spec
+    _replace_dim(
+        drawing,
+        original_od,
+        _dim(
+            placement.p1,
+            placement.p2,
+            placement.side,
+            placement.distance,
+            placement.draft,
+            **placement.kwargs,
+        ),
+    )
+    assert drawing.get_annotation("dim_od") is not original_od
+    assert drawing.get_annotation("dim_od").indivisible_measurements
+    assert same_support_claims(drawing) == direct_labels
+    groups = plan_dimensions(drawing.model())
+    estimate = _est_planned_bore_callout_width(groups, drawing.draft)
+    rendered = [
+        callout_from_spec(batch.spec, drawing.draft, batch.spec["count"])
+        for batch in hole_callout_batches(groups)
+        if batch.spec["count"] == 12
+    ]
+    assert len(rendered) == 2
+    assert estimate >= max(callout.callout_width for callout in rendered)
+
+    captured = {}
+    monkeypatch.setattr(
+        Drawing, "export", lambda self, *a, **k: captured.setdefault("drawing", self)
+    )
+    script = generate_sheet_script(source, out=str(tmp_path / "flanged"), **options)
+    exec(compile(Path(script).read_text(encoding="utf-8"), script, "exec"), {})
+    assert same_support_claims(captured["drawing"]) == direct_labels
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("radii", ((4, 4, 4), (5, 4, 4)))
+def test_three_coincident_flange_patterns_name_each_axial_support_issue_2129(radii):
+    from draftwright.annotations.from_model import callout_from_spec
+    from draftwright.compose import _est_planned_bore_callout_width
+    from draftwright.model.callout import hole_callout_batches
+    from draftwright.model.planner import plan_dimensions
+
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = Cylinder(65, 5, align=align) + Pos(0, 0, 5) * Cylinder(35, 103, align=align)
+    for z in (54, 108):
+        part += Pos(0, 0, z) * Cylinder(65, 5, align=align)
+    for z, radius in zip((0, 54, 108), radii, strict=True):
+        for index in range(12):
+            angle = 2 * math.pi * index / 12
+            part -= Pos(55 * math.cos(angle), 55 * math.sin(angle), z) * Cylinder(
+                radius, 5, align=align
+            )
+    drawing = build_drawing(part, scale=1, page="A2", scale_policy="permissive")
+    patterns = [
+        (name, annotation, drawing.registry.features_of(name)[0])
+        for name, annotation in drawing.iter_annotations()
+        if name.startswith("hc_plan") and annotation.label.startswith("12× ⌀")
+    ]
+    assert len(patterns) == 3
+    assert sorted(feature.frame.origin[2] for _name, _annotation, feature in patterns) == [
+        5.0,
+        59.0,
+        113.0,
+    ]
+    assert (
+        len(
+            {
+                tuple(sorted((point[0], point[1]) for point in feature.members))
+                for _name, _annotation, feature in patterns
+            }
+        )
+        == 1
+    )
+    assert {
+        feature.frame.origin[2]: annotation.label.rsplit(" FACE ", 1)[-1]
+        for _name, annotation, feature in patterns
+    } == {
+        5.0: "1 OF 3 FROM LOWER END",
+        59.0: "2 OF 3 FROM LOWER END",
+        113.0: "3 OF 3 FROM LOWER END",
+    }
+    assert {
+        feature.frame.origin[2]: annotation.label.split(" ", 2)[1]
+        for _name, annotation, feature in patterns
+    } == {5.0: f"⌀{2 * radii[0]}", 59.0: "⌀8", 113.0: "⌀8"}
+    assert all(drawing.registry.measurement_of(name) for name, _ann, _feature in patterns)
+
+    groups = plan_dimensions(drawing.model())
+    batches = [batch for batch in hole_callout_batches(groups) if batch.spec["count"] == 12]
+    assert len(batches) == 3
+    rendered = [callout_from_spec(batch.spec, drawing.draft, 12) for batch in batches]
+    assert _est_planned_bore_callout_width(groups, drawing.draft) >= max(
+        callout.callout_width for callout in rendered
+    )
+    original_group = batches[0].groups[0]
+    duplicate_group = replace(original_group, feature=replace(original_group.feature))
+    assert duplicate_group.feature is not original_group.feature
+    assert duplicate_group.feature.frame.origin[2] == original_group.feature.frame.origin[2]
+    with pytest.raises(ValueError, match="no distinct axial stations"):
+        hole_callout_batches((original_group, duplicate_group))
 
 
 class TestHolePatternCallouts:

@@ -12,6 +12,7 @@ import math
 import pytest
 from build123d import Box, Cylinder, Pos
 
+from draftwright.annotations._diameters import _external_diameter_rider
 from draftwright.annotations.from_model import hole_callout_spec
 from draftwright.model import build_part_model, plan_dimensions
 
@@ -23,6 +24,19 @@ def _groups(part):
 def _hole_or_pattern_spec(part):
     g = next(g for g in _groups(part) if g.feature_kind in ("hole", "pattern"))
     return hole_callout_spec(g)
+
+
+@pytest.mark.parametrize(
+    ("rider", "value", "axis", "bores", "expected"),
+    [
+        (None, "70", "z", {"70"}, "OD"),
+        ("M3", "70", "z", {"70"}, "M3 OD"),
+        (None, "70", "z", {"71"}, None),
+        (None, "70", "x", {"70"}, None),
+    ],
+)
+def test_step_diameter_role_suffix_only_for_same_view_bore(rider, value, axis, bores, expected):
+    assert _external_diameter_rider(rider, value, axis, bores) == expected
 
 
 class TestCalloutSpec:

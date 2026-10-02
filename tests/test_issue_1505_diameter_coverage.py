@@ -90,7 +90,7 @@ def test_equal_bore_and_external_diameters_keep_separate_measurement_coverage(
         drawing.items[:] = saved_items
 
 
-def test_equal_external_diameters_remain_independently_removable(equal_diameter_drawing):
+def test_equal_external_diameters_keep_owned_safe_removal(equal_diameter_drawing):
     drawing, owners, hole = equal_diameter_drawing
     saved_registry, saved_items = drawing.registry.snapshot(), list(drawing.items)
     try:
@@ -104,13 +104,21 @@ def test_equal_external_diameters_remain_independently_removable(equal_diameter_
             for owner in owners
         ]
         assert all(len(names) == 1 for names in names_by_owner)
-        assert len(set.union(*names_by_owner)) == len(owners), (
-            "equal diameters on distinct shoulders cannot become one unowned mark"
-        )
-        removed = drawing.drop(owners[0])
-        assert names_by_owner[0] <= set(removed)
-        assert not names_by_owner[0] & set(drawing.registry.names())
-        assert all(names <= set(drawing.registry.names()) for names in names_by_owner[1:])
+        if len(owners) == 2:
+            assert names_by_owner[0] == names_by_owner[1]
+            (shared_name,) = names_by_owner[0]
+            assert {
+                identity.feature
+                for identity in drawing.registry.measurement_of(shared_name)
+                if identity.parameter == "step.diameter"
+            } == set(owners)
+            with pytest.raises(ValueError, match="also measures other features"):
+                drawing.drop(owners[0])
+            assert shared_name in drawing.registry.names()
+        else:
+            removed = drawing.drop(owners[0])
+            assert names_by_owner[0] <= set(removed)
+            assert not names_by_owner[0] & set(drawing.registry.names())
         assert any(
             identity.feature is hole and identity.parameter == "bore.diameter"
             for name in drawing.registry.names()
@@ -153,4 +161,6 @@ def test_global_od_reuse_requires_one_undecorated_band_on_the_same_axis(diameter
         assert od.equivalent_ids[0].feature is band
         assert od.equivalent_ids[0].parameter == "step.diameter"
     else:
-        assert od.equivalent_ids == (), "unrelated or decorated facts cannot borrow a global OD"
+        assert od.equivalent_ids == (), (
+            "adjacent, unrelated or decorated facts cannot borrow a global OD"
+        )

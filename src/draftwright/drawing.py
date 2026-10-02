@@ -1190,6 +1190,14 @@ class Drawing:
                     f"schedule {name!r} also measures other features; edit its declared "
                     "rows and rebuild, or remove the whole table explicitly by name"
                 )
+            if getattr(self._registry.named(name), "indivisible_measurements", False) and any(
+                measurement.feature is not feature
+                for measurement in self._registry.measurement_of(name)
+            ):
+                raise ValueError(
+                    f"annotation {name!r} also measures other features; edit the "
+                    "declaration and rebuild, or remove the whole annotation explicitly by name"
+                )
         survivors: list = []
         for name in names:
             for owner in getattr(self._registry.named(name), "source_features", ()):

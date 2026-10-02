@@ -1985,7 +1985,7 @@ def compile_dimensions(
     groups_out, group_omissions = _compile_groups(planned)
     if model.orientation == "x" and not _step_chain_covers_extent(model, groups_out, "x"):
         groups_out, group_omissions = _compile_groups(planned, restore_width=True)
-    groups_out = _share_unique_outer_diameter(groups_out, planned)
+    groups_out = _share_unique_outer_diameter(groups_out, planned, model.bbox)
     step_chain_approved = _step_chain_covers_extent(model, groups_out, "z")
     overall, contingency, height_omissions = _compile_overall_height(
         model,
@@ -2342,14 +2342,29 @@ def _consolidate_boss_heights(model, planned, groups, omissions, overall):
     return retained, updated
 
 
-def _share_unique_outer_diameter(groups: list[ApprovedGroup], planned) -> list[ApprovedGroup]:
-    """Let a global OD carry one unique coaxial maximum band's approved identity.
+def _two_distinct_od_bands(matches, axis: int, bbox) -> bool:
+    """Require two separate step spans inside the part's measured envelope."""
+    if len(matches) != 2 or any(dimension.id is None for _group, dimension in matches):
+        return False
+    spans = [
+        sorted(point[axis] for point in dimension.id.feature.span) for _group, dimension in matches
+    ]
+    low, high = float(tuple(bbox.min)[axis]), float(tuple(bbox.max)[axis])
+    return all(low - 1e-6 <= start < end <= high + 1e-6 for start, end in spans) and (
+        spans[0][1] < spans[1][0] - 1e-6 or spans[1][1] < spans[0][0] - 1e-6
+    )
+
+
+def _share_unique_outer_diameter(
+    groups: list[ApprovedGroup], planned, bbox
+) -> list[ApprovedGroup]:
+    """Let a global OD carry matching coaxial maximum bands' approved identities.
 
     A global OD has no axial station or body token. It can therefore stand for
-    a native external diameter only when exactly one band supplies
-    that maximum on its axis line. Equal disjoint bands, bores and decorated
-    diameters keep their own measurements. The native entry remains available
-    if the global OD does not land.
+    one unique maximum band, or two plain step bands with exactly the same
+    approved size and tolerance. Bores and decorated diameters keep their own
+    measurements. The native entries remain available if the global OD does
+    not land.
     """
     result = []
     for group in groups:
@@ -2395,22 +2410,34 @@ def _share_unique_outer_diameter(groups: list[ApprovedGroup], planned) -> list[A
             if abs(diameter.value - od.value) <= 1e-6
         ]
         if (
-            len(matches) == 1
-            and sum(abs(value - od.value) <= 1e-6 for value in physical) == 1
+            len(matches) in (1, 2)
+            and sum(abs(value - od.value) <= 1e-6 for value in physical) == len(matches)
             and not any(value > od.value + 1e-6 for value in physical)
         ):
-            candidate, diameter = matches[0]
             if (
+                len(matches) == 1
+                or all(
+                    candidate.feature_kind == "step" and diameter.value == od.value
+                    for candidate, diameter in matches
+                )
+                and _two_distinct_od_bands(matches, axis, bbox)
+            ) and all(
                 diameter.id is not None
                 and diameter.tolerance is None
                 and diameter.value_text == od.value_text
                 and candidate.facts.get("thread") is None
                 and candidate.facts.get("knurl") is None
+                for candidate, diameter in matches
             ):
                 group = replace(
                     group,
                     dims=tuple(
-                        replace(entry, equivalent_ids=(diameter.id,)) if entry is od else entry
+                        replace(
+                            entry,
+                            equivalent_ids=tuple(diameter.id for _candidate, diameter in matches),
+                        )
+                        if entry is od
+                        else entry
                         for entry in group.dims
                     ),
                 )

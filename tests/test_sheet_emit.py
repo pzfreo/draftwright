@@ -2303,7 +2303,7 @@ class TestRoundTripParity:
             # Non-degenerate: the groove and the OD are drawn, so parity is over real content.
             assert any(n.startswith("m_groove") for n in names), (which, names)
             assert "4 WIDE × ø18" in labels, (which, labels)
-            assert "ø24" in labels, (which, labels)
+            assert "2× ø24" in labels, (which, labels)
             assert sorted(
                 item.label for name, item in dwg.iter_annotations() if name.startswith("m_steplen")
             ) == ["26", "30"], (which, labels)
