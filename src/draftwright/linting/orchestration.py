@@ -627,6 +627,7 @@ def _lint_pmi(ctx: LintContext) -> list:
         ctx.registry,
         ctx.analysis.pmi_mode,
         decorations=getattr(ctx.model, "decorations", {}),
+        report=ctx.analysis.pmi_report,
     )
     # The two directions the four checks above cannot cover, because each of them
     # reasons FROM the census: content whose census is missing entirely, and content

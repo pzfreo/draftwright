@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from build123d import Align, Location, Mode, ShapeList, Sketch, Text, Vector
 from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
 from build123d_drafting.helpers import DEFAULT_FONT_PATH
 
@@ -83,6 +84,8 @@ def _gdt_glyph(item, draft):
     must not alias a shared object across the strip solve's repeated probe builds."""
     if item.kind == "control_frame":
         tolerance = item.display_tolerance or item.tolerance
+        if item.spherical_diameter:
+            tolerance = "Sø" + tolerance
         return FeatureControlFrame(
             item.characteristic,
             tolerance,
@@ -149,10 +152,18 @@ def _gdt_pdf_text_specs(glyph, item, draft) -> tuple:
         add("ø", diameter_cx, H / 2.0)
         x = diameter_cx + diameter_radius + pad
     tolerance = item.display_tolerance or item.tolerance
-    tolerance_width = _text_size(tolerance, h, font_path, font_name)[0]
-    tolerance_cx = x + tolerance_width / 2.0
-    add(tolerance, tolerance_cx, H / 2.0)
-    x = tolerance_cx + tolerance_width / 2.0 + pad
+    if item.spherical_diameter:
+        prefix_width = _text_size("Sø", h, font_path, font_name)[0]
+        tolerance_width = _text_size("Sø" + tolerance, h, font_path, font_name)[0]
+        value_width = _text_size(tolerance, h, font_path, font_name)[0]
+        add("Sø", x + prefix_width / 2.0, H / 2.0)
+        add(tolerance, x + tolerance_width - value_width / 2.0, H / 2.0)
+        x += tolerance_width + pad
+    else:
+        tolerance_width = _text_size(tolerance, h, font_path, font_name)[0]
+        tolerance_cx = x + tolerance_width / 2.0
+        add(tolerance, tolerance_cx, H / 2.0)
+        x = tolerance_cx + tolerance_width / 2.0 + pad
     if item.modifier:
         modifier_cx = x + modifier_radius
         add(item.modifier.upper(), modifier_cx, H / 2.0, size=0.8 * h)
@@ -168,6 +179,123 @@ def _gdt_pdf_text_specs(glyph, item, draft) -> tuple:
     for index, letter in enumerate(item.datums):
         add(letter, datum_start + (index + 0.5) * H, H / 2.0)
     return tuple(specs)
+
+
+def _gdt_visual_zone(glyph, draft) -> str:
+    """Read the zone qualifier from the rendered frame glyph, not its IR spec."""
+    if glyph.tolerance_str.startswith("Sø"):
+        return "spherical_diameter_zone"
+
+    # The helper draws a diametral-zone sign as a ring and diagonal stroke in
+    # the tolerance cell. Its text label omits that sign, and `segments` keeps
+    # pretrace strokes even when the helper drops a failed stroke. Require ink
+    # at the slash centre as well as the two ring poles in the finished sketch.
+    h = draft.font_size
+    radius = 0.42 * h
+    center = ((2.0 + 0.6 + 0.42) * h, h)
+    first = (center[0] + 0.9 * radius, center[1] - 0.9 * radius)
+    second = (center[0] - 0.9 * radius, center[1] + 0.9 * radius)
+
+    def near(left, right):
+        return all(abs(a - b) <= 1e-4 for a, b in zip(left, right, strict=True))
+
+    slash = any(
+        (near(a, first) and near(b, second)) or (near(a, second) and near(b, first))
+        for a, b in glyph.segments
+    )
+    if (
+        slash
+        and glyph.is_inside((center[0], center[1], 0.0))
+        and all(glyph.is_inside((center[0], center[1] + sign * radius, 0.0)) for sign in (-1, 1))
+    ):
+        return "diameter_zone"
+    return ""
+
+
+def _cut_area(result: Any) -> float:
+    """Account for OCC cuts that return one shape or several pieces."""
+    if isinstance(result, ShapeList):
+        return sum(float(piece.area) for piece in result)
+    return float(result.area)
+
+
+def _gdt_visual_tolerance(glyph, draft, zone: str, *, modifier: bool = False) -> str:
+    """Trust a tolerance label only when its finished ink matches the font text."""
+    text = str(glyph.tolerance_str)
+    h = draft.font_size
+    font_path = getattr(draft, "font_path", DEFAULT_FONT_PATH)
+    font_name = getattr(draft, "font", "Arial")
+    left = (2.0 + 0.6) * h
+    if zone == "diameter_zone":
+        left += (2.0 * 0.42 + 0.6) * h
+    # Start inside the cell divider, or just after the Ø ring. Include the
+    # padding so unexpected printed characters cannot hide beside the value.
+    stroke_clearance = max(0.1, 0.1 * h)
+    ink_left = left - 0.6 * h + stroke_clearance if zone == "diameter_zone" else 2.0 * h
+    try:
+        # Construct the expected font outlines independently of the helper's text
+        # builder, so a same-width wrong digit cannot validate its own output.
+        expected = Text(
+            text,
+            font_size=h,
+            font=font_name,
+            font_path=font_path,
+            align=(Align.CENTER, Align.CENTER),
+            mode=Mode.PRIVATE,
+        )
+        width = expected.bounding_box().size.X
+        right = left + width
+        expected = expected.moved(Location(Vector(left + width / 2.0, h, 0)))
+        tolerance = max(1e-3, h * 1e-3)
+        glyph_faces = glyph.faces()
+        borders = [
+            (box.min.X + box.max.X) / 2.0
+            for face in glyph_faces
+            if (box := face.bounding_box()).min.X > 2.0 * h + tolerance
+            and box.max.X - box.min.X < max(0.3, 0.1 * h)
+            and box.min.Y < 0.1 * h
+            and box.max.Y > 1.9 * h
+        ]
+        if not borders:
+            return ""
+        ink_right = min(borders)
+        if modifier:
+            ink_right -= (0.6 + 2.0 * 0.62) * h + stroke_clearance
+        if ink_right < right - tolerance:
+            return ""
+        faces = []
+        for face in glyph_faces:
+            box = face.bounding_box()
+            if (
+                box.max.X >= ink_left - tolerance
+                and box.min.X <= ink_right + tolerance
+                and box.min.Y > 0.1 * h
+                and box.max.Y < 1.9 * h
+            ):
+                faces.append(face)
+        if not faces:
+            return ""
+        actual = Sketch(children=faces)
+        area_tolerance = max(1e-8, h * h * 1e-8)
+        if (
+            _cut_area(expected.cut(actual)) <= area_tolerance
+            and _cut_area(actual.cut(expected)) <= area_tolerance
+        ):
+            return text
+    except Exception:
+        return ""
+    return ""
+
+
+def _attach_gdt_text_evidence(leader, glyph, item, draft) -> None:
+    """Keep the placed glyph's value beside PDF text for independent PMI lint."""
+    leader.pdf_text_relative_specs = _gdt_pdf_text_specs(glyph, item, draft)
+    if item.kind == "control_frame":
+        zone = _gdt_visual_zone(glyph, draft)
+        leader.gdt_visual_tolerance = _gdt_visual_tolerance(
+            glyph, draft, zone, modifier=bool(item.modifier)
+        )
+        leader.gdt_visual_zone = zone if leader.gdt_visual_tolerance else ""
 
 
 def _gdt_drop_callback(
@@ -464,7 +592,7 @@ def render_gdt(
                     getattr(draft, "font", "Arial"),
                 )
             else:
-                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(g, _it, draft)
+                _attach_gdt_text_evidence(leader, g, _it, draft)
             return leader
 
         def _build_at(elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
@@ -486,7 +614,7 @@ def render_gdt(
                     getattr(draft, "font", "Arial"),
                 )
             else:
-                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(_g, _it, draft)
+                _attach_gdt_text_evidence(leader, _g, _it, draft)
             return leader
 
         def _build_routed(bends, elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
@@ -509,7 +637,7 @@ def render_gdt(
                     getattr(draft, "font", "Arial"),
                 )
             else:
-                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(_g, _it, draft)
+                _attach_gdt_text_evidence(leader, _g, _it, draft)
             return leader
 
         def _compact_candidates(

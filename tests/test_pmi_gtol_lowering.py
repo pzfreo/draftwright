@@ -1,15 +1,27 @@
 """Geometric-tolerance modifier preservation and concept lowering (#1095)."""
 
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
+import build123d_drafting.helpers as drafting_helpers
 import pytest
-from build123d import Box
+from build123d import Box, Draft
+from build123d_drafting import FeatureControlFrame
 
+import draftwright.annotations._gdt as gdt_module
 import draftwright.pmi as pmi_module
+from draftwright.annotations._gdt import (
+    _gdt_glyph,
+    _gdt_pdf_text_specs,
+    _gdt_visual_tolerance,
+    _gdt_visual_zone,
+)
+from draftwright.builder import build_drawing, detect_part_model
+from draftwright.linting.pmi_coverage import lint_pmi_rendering
 from draftwright.model import build_pmi_features
 from draftwright.model.ir import ControlFrame, Frame, PmiFeature
-from draftwright.pmi import PmiRecord
+from draftwright.pmi import PmiExtractionReport, PmiRecord
 from draftwright.sheet_emit import _feature_block, _feature_line
 
 
@@ -121,14 +133,146 @@ def test_repeated_datum_targets_lower_to_one_ordered_compartment():
     assert feature.datums == ("A", "B", "C")
 
 
-def test_imported_control_frame_tolerance_uses_drawing_precision():
+def test_imported_control_frame_keeps_source_magnitude_precision():
     record = replace(_record(), value=0.254000000000003)
 
     (feature,) = build_pmi_features((record,), Box(20, 20, 20).bounding_box())
 
     assert isinstance(feature, ControlFrame)
     assert feature.tolerance == "0.254000000000003"
-    assert feature.display_tolerance == "0.3"
+    assert feature.display_tolerance == "0.254"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0.254000000000003, "0.254"),
+        (0.050000000000003, "0.05"),
+        (0.05, "0.05"),
+        (0.00000000000001, "0.00000000000001"),
+    ],
+)
+def test_xcaf_display_fallback_has_bounded_significant_digits(value, expected):
+    from decimal import Decimal
+
+    from draftwright._geometry import _fmt_pmi_magnitude
+
+    text = _fmt_pmi_magnitude(value)
+    assert text == expected
+    source = Decimal(str(value))
+    assert abs(Decimal(text) - source) <= Decimal("0.5").scaleb(source.adjusted() - 12)
+    assert _fmt_pmi_magnitude(value, 3) == f"{source:.3f}"
+
+
+def test_flatness_source_magnitude_reaches_ink_and_lint_detects_a_wrong_value():
+    part = Box(20, 20, 20)
+    record = replace(
+        _record(value=0.05),
+        kind="flatness",
+        type_code=7,
+        label="flatness 0.05",
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    assert record.value == 0.05  # the source contains the value before lowering
+    (feature,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(feature, ControlFrame)
+    assert feature.display_tolerance == "0.05"
+
+    model = detect_part_model(part)
+    model.features.append(feature)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name
+        for name in drawing.registry.names()
+        if drawing.registry.declaration_of(name) is feature
+    )
+    annotation = drawing.registry.named(name)
+    assert annotation.pdf_text_relative_specs[0][0] == "0.05"
+    assert annotation.gdt_visual_tolerance == "0.05"
+    report = PmiExtractionReport(records=(record,))
+    assert lint_pmi_rendering(model.features, drawing.registry, "annotate", report=report) == []
+
+    # The independent source may carry binary transfer noise; the printed 0.05
+    # remains within the documented 13-digit interval, but a value just beyond it
+    # must be reported even though both would round to 0.05 at two decimals.
+    noisy = replace(record, value=0.050000000000003)
+    assert (
+        lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(noisy,)),
+        )
+        == []
+    )
+    outside = replace(record, value=0.05000000000001)
+    assert [
+        issue.code
+        for issue in lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(outside,)),
+        )
+    ] == ["pmi_value_mismatch"]
+
+    annotation.pdf_text_relative_specs = (
+        ("0.1", *annotation.pdf_text_relative_specs[0][1:]),
+        *annotation.pdf_text_relative_specs[1:],
+    )
+    assert annotation.pdf_text_relative_specs[0][0] == "0.1"
+    issues = lint_pmi_rendering(model.features, drawing.registry, "annotate", report=report)
+    assert [(issue.code, issue.source_ids, issue.annotation_name) for issue in issues] == [
+        ("pmi_value_mismatch", (record.source_id,), name)
+    ]
+
+
+def test_flatness_lint_detects_visual_value_changed_after_source_lowering(monkeypatch):
+    part = Box(20, 20, 20)
+    record = replace(
+        _record(value=0.05),
+        kind="flatness",
+        type_code=7,
+        label="flatness 0.05",
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (feature,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(feature, ControlFrame) and feature.display_tolerance == "0.05"
+    model = detect_part_model(part)
+    model.features.append(feature)
+
+    original_glyph = gdt_module._gdt_glyph
+
+    def wrong_visual_glyph(item, draft):
+        if item.kind == "control_frame":
+            item = replace(item, display_tolerance="0.1")
+        return original_glyph(item, draft)
+
+    monkeypatch.setattr(gdt_module, "_gdt_glyph", wrong_visual_glyph)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name
+        for name in drawing.registry.names()
+        if drawing.registry.declaration_of(name) is feature
+    )
+    annotation = drawing.registry.named(name)
+    assert annotation.gdt_visual_tolerance == "0.1"
+    assert annotation.pdf_text_relative_specs[0][0] == "0.05"
+    assert drawing.registry.declaration_of(name) is feature
+
+    issues = lint_pmi_rendering(
+        model.features,
+        drawing.registry,
+        "annotate",
+        report=PmiExtractionReport(records=(record,)),
+    )
+    assert [(issue.code, issue.source_ids, issue.annotation_name) for issue in issues] == [
+        ("pmi_value_mismatch", (record.source_id,), name)
+    ]
 
 
 def test_complete_all_over_tolerance_lowers_to_control_frame():
@@ -177,6 +321,445 @@ def test_generated_sheet_round_trips_imported_zone_and_material_qualifiers():
     assert restored.display_tolerance == feature.display_tolerance == "0.5"
     assert isinstance(restored.origin, PmiFeature)
     assert restored.origin.gtol_modifiers == modifiers
+
+
+def test_spherical_diameter_zone_is_drawn_with_numeric_source_check_issue_2156(tmp_path):
+    import pypdfium2 as pdfium
+
+    part = Box(20, 20, 20)
+    record = replace(
+        _record(modifiers=("spherical_diameter_zone",)),
+        datum_refs=(),
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (frame,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(frame, ControlFrame)
+    assert frame.spherical_diameter and not frame.diameter
+    assert frame.display_tolerance == "0.5"
+    with pytest.raises(ValueError, match="both diametral and spherical"):
+        replace(frame, diameter=True)
+
+    draft = Draft(font_size=3.0)
+    glyph = _gdt_glyph(frame, draft)
+    assert isinstance(glyph, FeatureControlFrame)
+    assert glyph.tolerance_str == "Sø0.5"
+    assert _gdt_visual_zone(glyph, draft) == "spherical_diameter_zone"
+    assert tuple(spec[0] for spec in _gdt_pdf_text_specs(glyph, frame, draft))[:2] == (
+        "Sø",
+        "0.5",
+    )
+
+    restored = _execute_feature_line(frame)
+    assert isinstance(restored, ControlFrame)
+    assert restored.spherical_diameter and restored.origin.gtol_modifiers == record.gtol_modifiers
+    replay_glyph = _gdt_glyph(restored, draft)
+    assert replay_glyph.tolerance_str == glyph.tolerance_str
+    assert tuple(spec[0] for spec in _gdt_pdf_text_specs(replay_glyph, restored, draft))[:2] == (
+        "Sø",
+        "0.5",
+    )
+
+    model = detect_part_model(part)
+    model.features.append(frame)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name for name in drawing.registry.names() if drawing.registry.declaration_of(name) is frame
+    )
+    annotation = drawing.registry.named(name)
+    assert tuple(spec[0] for spec in annotation.pdf_text_relative_specs)[:2] == ("Sø", "0.5")
+    pdf_path = drawing.export(str(tmp_path / "spherical-zone"), formats=("pdf",))["pdf"]
+    pdf = pdfium.PdfDocument(pdf_path)
+    try:
+        page = pdf[0]
+        text_page = page.get_textpage()
+        try:
+            text = text_page.get_text_range()
+            assert "Sø" in text and "0.5" in text
+        finally:
+            text_page.close()
+    finally:
+        pdf.close()
+    report = PmiExtractionReport(records=(record,))
+    assert lint_pmi_rendering(model.features, drawing.registry, "annotate", report=report) == []
+    annotation.pdf_text_relative_specs = (
+        *annotation.pdf_text_relative_specs[:1],
+        ("0.6", *annotation.pdf_text_relative_specs[1][1:]),
+        *annotation.pdf_text_relative_specs[2:],
+    )
+    assert [
+        issue.code
+        for issue in lint_pmi_rendering(
+            model.features, drawing.registry, "annotate", report=report
+        )
+    ] == ["pmi_value_mismatch"]
+
+
+@pytest.mark.parametrize("zone", ("diameter_zone", "spherical_diameter_zone"))
+def test_source_zone_qualifier_survives_visual_glyph_issue_2156(monkeypatch, zone):
+    part = Box(20, 20, 20)
+    record = replace(
+        _record(value=0.05, modifiers=(zone,)),
+        datum_refs=(),
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (frame,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(frame, ControlFrame)
+    assert (frame.diameter, frame.spherical_diameter) == (
+        zone == "diameter_zone",
+        zone == "spherical_diameter_zone",
+    )
+    model = detect_part_model(part)
+    model.features.append(frame)
+    original_glyph = gdt_module._gdt_glyph
+    plain_glyphs = []
+
+    def dropped_zone_glyph(item, draft):
+        if item is frame:
+            glyph = original_glyph(replace(item, diameter=False, spherical_diameter=False), draft)
+            plain_glyphs.append(glyph)
+            return glyph
+        return original_glyph(item, draft)
+
+    monkeypatch.setattr(gdt_module, "_gdt_glyph", dropped_zone_glyph)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name for name in drawing.registry.names() if drawing.registry.declaration_of(name) is frame
+    )
+    annotation = drawing.registry.named(name)
+    assert plain_glyphs and all(glyph.tolerance_str == "0.05" for glyph in plain_glyphs)
+    assert annotation.gdt_visual_tolerance == "0.05"
+    assert tuple(spec[0] for spec in annotation.pdf_text_relative_specs)[:2] == (
+        "ø" if zone == "diameter_zone" else "Sø",
+        "0.05",
+    )
+    assert [
+        (issue.code, issue.source_ids, issue.annotation_name)
+        for issue in lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(record,)),
+        )
+    ] == [("pmi_value_mismatch", (record.source_id,), name)]
+
+
+def test_dropped_diameter_slash_cannot_claim_a_visual_zone_issue_2156(monkeypatch):
+    part = Box(20, 20, 20)
+    record = replace(
+        _record(value=0.05, modifiers=("diameter_zone",)),
+        datum_refs=(),
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (frame,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(frame, ControlFrame) and frame.diameter
+    original_trace = drafting_helpers.trace
+    dropped = []
+
+    def fail_only_zone_slash(edges, *args, **kwargs):
+        edge = edges[0]
+        box = edge.bounding_box()
+        mid_x = (box.min.X + box.max.X) / 2
+        mid_y = (box.min.Y + box.max.Y) / 2
+        if (
+            edge.geom_type.name == "LINE"
+            and box.size.X > 1.0
+            and abs(box.size.X - box.size.Y) <= 1e-6
+            and mid_y > 0
+            and abs(mid_x - 3.02 * mid_y) <= 1e-5
+        ):
+            dropped.append(edge)
+            raise RuntimeError("probe dropped Ø slash during trace")
+        return original_trace(edges, *args, **kwargs)
+
+    monkeypatch.setattr(drafting_helpers, "trace", fail_only_zone_slash)
+    draft = Draft(font_size=3.0)
+    glyph = _gdt_glyph(frame, draft)
+    center = (3.02 * draft.font_size, draft.font_size, 0.0)
+    assert dropped and glyph.segments
+    assert glyph.is_inside((center[0], center[1] + 0.42 * draft.font_size, 0.0))
+    assert not glyph.is_inside(center), "the final Ø slash must actually be absent"
+    assert _gdt_visual_zone(glyph, draft) == ""
+
+    model = detect_part_model(part)
+    model.features.append(frame)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name for name in drawing.registry.names() if drawing.registry.declaration_of(name) is frame
+    )
+    annotation = drawing.registry.named(name)
+    assert tuple(spec[0] for spec in annotation.pdf_text_relative_specs)[:2] == ("ø", "0.05")
+    assert annotation.gdt_visual_zone == ""
+    assert [
+        (issue.code, issue.source_ids, issue.annotation_name)
+        for issue in lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(record,)),
+        )
+    ] == [("pmi_value_mismatch", (record.source_id,), name)]
+
+
+@pytest.mark.parametrize(
+    "case", ("numeric_text_missing", "spherical_text_missing", "spherical_prefix_missing")
+)
+def test_missing_finished_tolerance_text_is_reported_issue_2156(monkeypatch, case):
+    part = Box(20, 20, 20)
+    spherical = case.startswith("spherical")
+    record = replace(
+        _record(value=0.05, modifiers=("spherical_diameter_zone",) if spherical else ()),
+        datum_refs=(),
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (frame,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(frame, ControlFrame) and frame.spherical_diameter is spherical
+    draft = Draft(font_size=3.0)
+    baseline = _gdt_glyph(frame, draft)
+    assert baseline.tolerance_str == ("Sø0.05" if spherical else "0.05")
+
+    if case != "spherical_prefix_missing":
+        original_cell = drafting_helpers._gdt_tol_cell
+
+        def missing_text_faces(*args, **kwargs):
+            strokes, text_faces = original_cell(*args, **kwargs)
+            assert text_faces, "the fixture must remove actual tolerance text"
+            return strokes, []
+
+        monkeypatch.setattr(drafting_helpers, "_gdt_tol_cell", missing_text_faces)
+    else:
+        original_text = drafting_helpers._gdt_text
+
+        def missing_prefix(draft, text, size):
+            if text == "Sø0.05":
+                return original_text(draft, "0.05", size)
+            return original_text(draft, text, size)
+
+        monkeypatch.setattr(drafting_helpers, "_gdt_text", missing_prefix)
+
+    damaged = _gdt_glyph(frame, draft)
+    assert damaged.tolerance_str == baseline.tolerance_str
+    assert len(damaged.faces()) < len(baseline.faces())
+    model = detect_part_model(part)
+    model.features.append(frame)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name for name in drawing.registry.names() if drawing.registry.declaration_of(name) is frame
+    )
+    annotation = drawing.registry.named(name)
+    expected_specs = ("Sø", "0.05") if spherical else ("0.05",)
+    assert tuple(spec[0] for spec in annotation.pdf_text_relative_specs)[
+        : len(expected_specs)
+    ] == (expected_specs)
+    assert annotation.gdt_visual_tolerance == ""
+    assert annotation.gdt_visual_zone == ""
+    assert [
+        (issue.code, issue.source_ids, issue.annotation_name)
+        for issue in lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(record,)),
+        )
+    ] == [("pmi_value_mismatch", (record.source_id,), name)]
+
+
+@pytest.mark.parametrize("spherical", (False, True))
+def test_same_footprint_wrong_tolerance_digits_are_rejected_issue_2156(monkeypatch, spherical):
+    part = Box(20, 20, 20)
+    record = replace(
+        _record(value=0.03, modifiers=("spherical_diameter_zone",) if spherical else ()),
+        kind="profile_surface" if spherical else "flatness",
+        type_code=12 if spherical else 7,
+        label="profile_surface 0.03" if spherical else "flatness 0.03",
+        datum_refs=(),
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (frame,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(frame, ControlFrame) and frame.spherical_diameter is spherical
+    draft = Draft(font_size=3.0)
+    baseline = _gdt_glyph(frame, draft)
+    original_text = drafting_helpers._gdt_text
+
+    def wrong_digit(draft, text, size):
+        if text in ("0.03", "Sø0.03"):
+            return original_text(draft, text.replace("0.03", "0.06"), size)
+        return original_text(draft, text, size)
+
+    monkeypatch.setattr(drafting_helpers, "_gdt_text", wrong_digit)
+    damaged = _gdt_glyph(frame, draft)
+    assert damaged.tolerance_str == baseline.tolerance_str
+    assert len(damaged.faces()) == len(baseline.faces())
+    assert damaged.bounding_box().size.X == pytest.approx(baseline.bounding_box().size.X)
+    assert sum(face.area for face in damaged.faces()) != pytest.approx(
+        sum(face.area for face in baseline.faces())
+    )
+    assert _gdt_visual_tolerance(baseline, draft, _gdt_visual_zone(baseline, draft)) == (
+        "Sø0.03" if spherical else "0.03"
+    )
+    assert _gdt_visual_tolerance(damaged, draft, _gdt_visual_zone(damaged, draft)) == ""
+
+    model = detect_part_model(part)
+    model.features.append(frame)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name for name in drawing.registry.names() if drawing.registry.declaration_of(name) is frame
+    )
+    annotation = drawing.registry.named(name)
+    expected_specs = ("Sø", "0.03") if spherical else ("0.03",)
+    assert (
+        tuple(spec[0] for spec in annotation.pdf_text_relative_specs)[: len(expected_specs)]
+        == expected_specs
+    )
+    assert [
+        (issue.code, issue.source_ids, issue.annotation_name)
+        for issue in lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(record,)),
+        )
+    ] == [("pmi_value_mismatch", (record.source_id,), name)]
+
+
+@pytest.mark.parametrize(
+    "modifiers",
+    (
+        (),
+        ("diameter_zone",),
+        ("spherical_diameter_zone",),
+        ("diameter_zone", "maximum_material_requirement"),
+    ),
+)
+def test_appended_tolerance_ink_is_rejected_issue_2156(monkeypatch, modifiers):
+    part = Box(20, 20, 20)
+    spherical = "spherical_diameter_zone" in modifiers
+    record = replace(
+        _record(value=0.02, modifiers=modifiers),
+        kind="profile_surface" if spherical else "flatness",
+        type_code=12 if spherical else 7,
+        label="profile_surface 0.02" if spherical else "flatness 0.02",
+        datum_refs=(),
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (frame,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(frame, ControlFrame) and frame.spherical_diameter is spherical
+    draft = Draft(font_size=3.0)
+    baseline = _gdt_glyph(frame, draft)
+    original_text = drafting_helpers._gdt_text
+
+    def appended_modifier(draft, text, size):
+        if text in ("0.02", "Sø0.02"):
+            return original_text(draft, text + "M", size)
+        return original_text(draft, text, size)
+
+    monkeypatch.setattr(drafting_helpers, "_gdt_text", appended_modifier)
+    damaged = _gdt_glyph(frame, draft)
+    assert damaged.tolerance_str == baseline.tolerance_str
+    assert len(damaged.faces()) == len(baseline.faces()) + 1
+    assert _gdt_visual_tolerance(
+        baseline, draft, _gdt_visual_zone(baseline, draft), modifier=bool(frame.modifier)
+    ) == ("Sø0.02" if spherical else "0.02")
+    assert (
+        _gdt_visual_tolerance(
+            damaged, draft, _gdt_visual_zone(damaged, draft), modifier=bool(frame.modifier)
+        )
+        == ""
+    )
+
+    model = detect_part_model(part)
+    model.features.append(frame)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name for name in drawing.registry.names() if drawing.registry.declaration_of(name) is frame
+    )
+    annotation = drawing.registry.named(name)
+    assert annotation.gdt_visual_tolerance == ""
+    assert [
+        (issue.code, issue.source_ids, issue.annotation_name)
+        for issue in lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(record,)),
+        )
+    ] == [("pmi_value_mismatch", (record.source_id,), name)]
+
+
+def test_xcaf_diametral_position_survives_glyph_pdf_and_sheet_issue_2156():
+    from OCP.IFSelect import IFSelect_RetDone
+    from OCP.STEPCAFControl import STEPCAFControl_Reader
+    from OCP.TCollection import TCollection_ExtendedString
+    from OCP.TDF import TDF_LabelSequence
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.XCAFDoc import XCAFDoc_DocumentTool, XCAFDoc_GeomTolerance
+
+    step = Path(__file__).parent / "fixtures/nist_ctc_03_asme1_ap242.stp"
+    reader = STEPCAFControl_Reader()
+    reader.SetGDTMode(True)
+    reader.SetNameMode(True)
+    assert reader.ReadFile(str(step)) == IFSelect_RetDone
+    document = TDocStd_Document(TCollection_ExtendedString("XCAF"))
+    assert reader.Transfer(document)
+    labels = TDF_LabelSequence()
+    XCAFDoc_DocumentTool.DimTolTool_s(document.Main()).GetGeomToleranceLabels(labels)
+    raw_positions = []
+    for index in range(1, labels.Length() + 1):
+        label = labels.Value(index)
+        tolerance = XCAFDoc_GeomTolerance.Set_s(label).GetObject()
+        if int(tolerance.GetTypeOfValue()) == 1 and int(tolerance.GetType()) == 10:
+            raw_positions.append(label)
+    assert raw_positions, "the fixture must contain an XCAF diameter-zone position"
+    source_id = pmi_module._source_id("geometric_tolerance", raw_positions[0])
+
+    report = pmi_module.extract_pmi_report(step)
+    (source,) = [source for source in report.sources if source.source_id == source_id]
+    (record,) = [record for record in report.records if record.source_id == source_id]
+    assert source.outcome == "extracted" and record.lowering_blockers == ()
+    assert record.kind == "position" and "diameter_zone" in record.gtol_modifiers
+
+    (frame,) = build_pmi_features((record,), Box(100, 100, 100).bounding_box())
+    assert isinstance(frame, ControlFrame)
+    assert frame.diameter is True and frame.source_id == source_id
+    draft = Draft(font_size=3.0)
+    glyph = _gdt_glyph(frame, draft)
+    assert isinstance(glyph, FeatureControlFrame)
+    assert glyph.tolerance_str == frame.display_tolerance
+    assert _gdt_visual_zone(glyph, draft) == "diameter_zone"
+    plain_glyph = FeatureControlFrame(
+        frame.characteristic,
+        frame.display_tolerance,
+        datums=frame.datums,
+        draft=draft,
+        modifier=frame.modifier,
+    )
+    assert glyph.bounding_box().size.X > plain_glyph.bounding_box().size.X + 1.0
+    assert tuple(spec[0] for spec in _gdt_pdf_text_specs(glyph, frame, draft))[:2] == (
+        "ø",
+        frame.display_tolerance,
+    )
+
+    restored = _execute_feature_line(frame)
+    assert isinstance(restored, ControlFrame)
+    assert restored.diameter is True and restored.source_id == source_id
+    assert restored.origin.gtol_modifiers == record.gtol_modifiers
+    replay_glyph = _gdt_glyph(restored, draft)
+    assert replay_glyph.bounding_box().size.X == pytest.approx(glyph.bounding_box().size.X)
+    assert tuple(spec[0] for spec in _gdt_pdf_text_specs(replay_glyph, restored, draft))[:2] == (
+        "ø",
+        frame.display_tolerance,
+    )
 
 
 def test_lowering_does_not_round_the_source_tolerance_magnitude():

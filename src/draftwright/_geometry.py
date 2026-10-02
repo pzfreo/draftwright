@@ -568,6 +568,22 @@ def _fmt(v: float, decimals: int | None = None) -> str:
     return str(r) if abs(v - r) < 1e-6 else f"{v:.1f}"
 
 
+def _fmt_pmi_magnitude(value: float, decimals: int | None = None) -> str:
+    """Format PMI with an authored decimal policy or bounded XCAF float fallback.
+
+    XCAF supplies a binary float, not the Part21 lexical digits. Without an exact
+    Part21 display policy, keep at most 13 significant decimal digits; the resulting
+    error is bounded by half a unit in the thirteenth significant place. This removes
+    transfer noise without rounding a 0.05 tolerance to a tenth.
+    """
+    source = Decimal(str(value))
+    if decimals is None:
+        if source.is_zero():
+            return format(source, "f")
+        return format(Decimal(format(source, ".13g")).normalize(), "f")
+    return f"{source:.{decimals}f}"
+
+
 def _fmt_tolerance(tolerance, decimal_precision: int = 1) -> str:
     """Shared numeric tolerance suffix, preserving every authored deviation digit."""
     if tolerance is None:

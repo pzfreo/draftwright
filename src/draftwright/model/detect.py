@@ -96,7 +96,7 @@ from quiddity.evidence import FeatureRef, RecognitionEvidence, build_recognition
 
 from draftwright._geometry import (
     _axis_letter,
-    _fmt,
+    _fmt_pmi_magnitude,
     _is_principal_axis,
     _xyz,
     plane_axis_names,
@@ -471,7 +471,8 @@ def build_pmi_features(
                     all_over="all_over" in r.gtol_modifiers,
                     source_id=r.source_id,
                     part21_id=r.part21_id,
-                    display_tolerance=_fmt(r.value),
+                    display_tolerance=_fmt_pmi_magnitude(r.value),
+                    spherical_diameter="spherical_diameter_zone" in r.gtol_modifiers,
                 )
             )
             continue

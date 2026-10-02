@@ -410,13 +410,14 @@ def _make_label(
 ) -> str:
     """Format the annotation label with optional deviation or limit tolerance."""
     from draftwright._core import _fmt
+    from draftwright._geometry import _fmt_pmi_magnitude
 
     prefix = _DIM_PREFIX.get(kind, "")
     base = f"{prefix}{_fmt(value, value_decimals)}"
     if lower_bound is not None and upper_bound is not None:
         base = (
-            f"{prefix}{_fmt(lower_bound, value_decimals)} - "
-            f"{prefix}{_fmt(upper_bound, value_decimals)}"
+            f"{prefix}{_fmt_pmi_magnitude(lower_bound, value_decimals)} - "
+            f"{prefix}{_fmt_pmi_magnitude(upper_bound, value_decimals)}"
         )
         return f"{base} {unit_name}" if unit_name else base
     # OCCT returns tolerances as positive magnitudes regardless of sign
@@ -424,17 +425,17 @@ def _make_label(
     # the - deviation stored as a positive magnitude.  We add explicit signs
     # so the label is unambiguous on the drawing.
     if upper_tol is not None and lower_tol is not None:
-        if abs(abs(upper_tol) - abs(lower_tol)) < 1e-4:
-            base += f" ±{_fmt(abs(upper_tol), tolerance_decimals)}"
+        if abs(upper_tol) == abs(lower_tol):
+            base += f" ±{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
         else:
             base += (
-                f" +{_fmt(abs(upper_tol), tolerance_decimals)}"
-                f"/-{_fmt(abs(lower_tol), tolerance_decimals)}"
+                f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
+                f"/-{_fmt_pmi_magnitude(abs(lower_tol), tolerance_decimals)}"
             )
     elif upper_tol is not None:
-        base += f" +{_fmt(abs(upper_tol), tolerance_decimals)}"
+        base += f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
     elif lower_tol is not None:
-        base += f" -{_fmt(abs(lower_tol), tolerance_decimals)}"
+        base += f" -{_fmt_pmi_magnitude(abs(lower_tol), tolerance_decimals)}"
     return f"{base} {unit_name}" if unit_name else base
 
 
