@@ -15,7 +15,7 @@ for any part.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from math import atan2, degrees, ulp
@@ -1528,8 +1528,8 @@ def _append_hole_features(
     part,
     *,
     cyls,
-    holes,
-    patterns,
+    holes: Sequence[HoleRecord] | None,
+    patterns: Sequence[BoltCircle | LinearArray | RectGrid] | None,
     bosses,
     features: list[Feature],
     ownership: RecognitionOwnershipBuilder | None,
@@ -1611,7 +1611,7 @@ def _append_hole_features(
     # count× callout (the engine's grouped-callout rule); HoleSpec keys on the
     # snapped axis and the countersink too, so opposite-face drillings and csk-vs-plain
     # holes stay distinct.
-    spec_groups: dict = {}
+    spec_groups: dict[HoleSpec, list[HoleRecord]] = {}
     for h in holes:
         if id(h) in patterned:
             continue

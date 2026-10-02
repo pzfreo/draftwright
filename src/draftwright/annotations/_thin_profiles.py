@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
-from draftwright._core import _END_ON, _dim, _fmt, _tol_suffix
+from draftwright._core import _END_ON, Analysis, _dim, _fmt, _tol_suffix
 from draftwright.annotations._common import (
     _SIZE_SUBCHAIN,
     CorridorCandidate,
@@ -68,7 +68,7 @@ class _PlateThicknessCandidate(NamedTuple):
         return dim_footprint(self.pa, self.pb, self.side, pos - self.edge, self.draft, self.label)
 
 
-def register_plate_thickness(dwg, plan, a, *, ctx, drop_factory) -> int:
+def register_plate_thickness(dwg, plan, a: Analysis, *, ctx, drop_factory) -> int:
     """Plate/wall thicknesses (#559).
 
     Plate thickness is the thin extent of each recognised slab
@@ -218,7 +218,7 @@ def register_plate_thickness(dwg, plan, a, *, ctx, drop_factory) -> int:
     return n
 
 
-def register_channel_width(dwg, plan, a, *, ctx) -> int:
+def register_channel_width(dwg, plan, a: Analysis, *, ctx) -> int:
     """Queue approved open-channel widths in their end-on view corridor."""
     draft = dwg.draft
     tier = draft.font_size + 2 * draft.pad_around_text

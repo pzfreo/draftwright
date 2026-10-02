@@ -7,6 +7,10 @@ classifies a snapshot of those intents for the canonical placement stages.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from draftwright._core import Analysis
 
 # The add verbs that record intents (section/rotational target the whole part).
 IntentKind = str
@@ -58,7 +62,7 @@ class _IntentRouting:
 
 
 def classify_intents(
-    intents, model, a, routable, user_dim_uses_corridor, machined_callout_kinds
+    intents, model, a: Analysis | None, routable, user_dim_uses_corridor, machined_callout_kinds
 ) -> _IntentRouting:
     """Classify the recorded placement intents by route — the classification half of
     :meth:`Drawing.finalize` (#590 split). Classifies recorded intents without

@@ -10,7 +10,7 @@ from itertools import chain
 
 from build123d_drafting.helpers import Dimension, Leader, Note, SafeDimension
 
-from draftwright._core import _analysis_margins, place_annotation
+from draftwright._core import Analysis, _analysis_margins, place_annotation
 from draftwright._geometry import _boxes_overlap, _segment_clips_box, _segments_cross_or_overlap
 from draftwright.annotations._dimension_ink import DimensionInkCandidate
 from draftwright.annotations._placement_geometry import (
@@ -126,7 +126,7 @@ def late_furniture_obstacles(dwg, *, named=False):
     return obstacles if named else [box for _owner, box in obstacles]
 
 
-def place_iso_nts_note(dwg, a, bb, *, anno_box) -> None:
+def place_iso_nts_note(dwg, a: Analysis, bb, *, anno_box) -> None:
     """Place the "ISO VIEW (NTS)" caption clear of what is already on the sheet.
 
     This ran with **no collision check at all** — the caption was dropped a fixed two

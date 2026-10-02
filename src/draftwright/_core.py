@@ -24,7 +24,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from quiddity import RecognitionResult, TurnedProfile
+    from quiddity import (
+        BoltCircle,
+        HoleRecord,
+        LinearArray,
+        RecognitionResult,
+        RectGrid,
+        TurnedProfile,
+    )
     from quiddity.evidence import RecognitionEvidence
 
     from draftwright.compose import StripDepths
@@ -211,7 +218,7 @@ def _validated_title_block_width(value: float | None) -> float | None:
     return width
 
 
-def _analysis_margins(a) -> SheetMargins:
+def _analysis_margins(a: Analysis) -> SheetMargins:
     """Content bounds, including the frame band; scalar fallback for legacy analyses."""
     margins = getattr(a, "content_margins", None)
     return margins if margins is not None else SheetMargins.uniform(a.margin)
@@ -601,7 +608,7 @@ def _first_free_index(prefix: str, taken) -> int:
     return j
 
 
-def _concentric_with_axis(a, x: float, y: float) -> bool:
+def _concentric_with_axis(a: Analysis, x: float, y: float) -> bool:
     """True when the page/world point ``(x, y)`` lies on the rotational part's turned axis
     (within :data:`_CONCENTRIC_TOL_MM`). A bore/pattern centred on the axis needs no location
     dim — its position is the axis — so several passes filter such refs; this is the single
@@ -1228,8 +1235,8 @@ class Analysis:
     cy: float
     cz: float
     bbox_max: float
-    holes: list
-    patterns: list
+    holes: list[HoleRecord]
+    patterns: list[BoltCircle | LinearArray | RectGrid]
     bosses: list  # external bosses (recognise_bosses), detected once — the one inventory
     slots: list
     pads: list  # geometry-derived rectangular-pad coverage inventory

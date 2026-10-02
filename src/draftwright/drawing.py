@@ -48,6 +48,7 @@ from draftwright.annotations._common import (
     PlacementContext,
     carve_free_position,
 )
+from draftwright.annotations.drawing_port import ViewCoordinateMap
 from draftwright.auxiliary_layout import fit_auxiliary_box
 from draftwright.drawing_diagnostics import (
     _GEOMETRY_AWARE_CODES as _GEOMETRY_AWARE_CODES,
@@ -394,7 +395,7 @@ class Drawing:
         self.out = out
         self.views: dict = {}
         self.items: list = []
-        self._coords: dict = {}
+        self._coords: dict[str, ViewCoordinateMap] = {}
         self._iso_projection_scale: float | None = None
         # Annotation identity, ownership, pins, and build issues live in the
         # registry (#138 / ADR 1 (was 0005), Step 2), reached through its own surface
@@ -526,7 +527,7 @@ class Drawing:
     # -- views ----------------------------------------------------------------
     def _add_view(
         self, name, shape, camera, up, position, *, look_at=None, scaled=False, bounds_cache=None
-    ):
+    ) -> ViewCoordinateMap:
         """Project ``shape`` from ``camera`` and place it at ``position``.
 
         Args:
@@ -561,11 +562,11 @@ class Drawing:
         self._coords[name] = coords
         return self._coords[name]
 
-    def coords(self, view):
+    def coords(self, view: str) -> ViewCoordinateMap:
         """Return the :class:`ViewCoordinates` for a named view."""
         return self._coords[view]
 
-    def _set_view_coordinates(self, view, coords) -> None:
+    def _set_view_coordinates(self, view: str, coords: ViewCoordinateMap) -> None:
         """Override a view's projected coordinates (a repositioned detail/section band, #307)."""
         self._coords[view] = coords
 

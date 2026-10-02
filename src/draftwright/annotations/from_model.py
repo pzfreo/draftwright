@@ -34,6 +34,7 @@ from build123d_drafting.helpers import (
 from draftwright._core import (
     _EDGE_ON,
     _END_ON,
+    Analysis,
     Strip,
     _dim,
     _drawing_bounds,
@@ -1014,7 +1015,7 @@ class _ThroughStepLegPlacement:
         )
 
 
-def render_through_steps(dwg, plan, a, *, ctx, only=None) -> int:
+def render_through_steps(dwg, plan, a: Analysis, *, ctx, only=None) -> int:
     """Render both defining legs of each rectangular through step (#1382).
 
     The provider supplies the canonical open section, so the renderer needs no geometry
@@ -1977,7 +1978,7 @@ def render_grooves(dwg, plan, a, *, ctx, only=None) -> int:
     )
 
 
-def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
+def render_boss_diameters(dwg, plan, a: Analysis, *, ctx) -> int:
     """ø leaders for a PRISMATIC part's bosses (#629). A boss reads as a circle looking down its
     axis, so its diameter is called out with a leader to that circle in the view normal to the
     axis — a Z boss in the plan, X in the side, Y in the front — free to exit into clear margin
@@ -2187,7 +2188,7 @@ class _BossLengthCandidateGeometry:
         )
 
 
-def render_boss_heights(dwg, plan, a, *, ctx) -> int:
+def render_boss_heights(dwg, plan, a: Analysis, *, ctx) -> int:
     """Queue approved boss heights and polygonal-stock lengths in a profile corridor."""
     tier = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
     specs = {

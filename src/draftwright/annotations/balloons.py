@@ -11,6 +11,7 @@ public verb: an owner method that threads the build state into this pass.
 from __future__ import annotations
 
 import math
+from typing import cast
 
 from build123d import Align, Circle, Compound, Location, Mode, Text
 from build123d_drafting.helpers import Leader
@@ -18,6 +19,8 @@ from build123d_drafting.helpers import Leader
 from draftwright._core import (
     _STRIP_GAP,
     _STRIP_SPACING,
+    Analysis,
+    Strip,
     _analysis_margins,
     _balloon_halo,
     _balloon_radius,
@@ -72,7 +75,7 @@ def _select_top_lane(lane_options, target, fallback_line):
 
 def render_balloons(
     dwg,
-    a,
+    a: Analysis,
     view,
     specs,
     ctx,
@@ -118,7 +121,7 @@ def render_balloons(
     pt, pb = a.PV_Y + a.pv_hh, a.PV_Y - a.pv_hh
     margins, ph, pw = _analysis_margins(a), a.PAGE_H, a.PAGE_W
     zones = a.pv_zones
-    left_limit, right_limit = zones.left.outer_limit, zones.right.outer_limit
+    left_limit, right_limit = cast(Strip, zones.left).outer_limit, zones.right.outer_limit
     bottom_limit, top_limit = zones.below.outer_limit, zones.above.outer_limit
 
     # Stack the balloon ring *beyond* the annotations already placed around the

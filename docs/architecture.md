@@ -166,6 +166,9 @@ and re-exports the existing private helper names.
 - **`annotate.py`** — thin compat facade re-exporting `_auto_annotate` (the
   orchestrator) from `annotations/`. The annotation passes were split into the
   **`annotations/`** subpackage (#164 / ADR 1 (was 0005), P5):
+  - **`annotations/drawing_port.py`** — the structural rank-4 Drawing interface
+    used by annotation stage entry points. The real rank-5 `Drawing` satisfies it
+    through the builder call without an upward annotation import.
   - **`annotations/orchestrator.py`** — `_auto_annotate`, the single entry point
     (called by `build_drawing`); classifies the part and drives the render passes
     + title block. Owns **`_PASS_SEQUENCE`** — the ONE canonical stage order

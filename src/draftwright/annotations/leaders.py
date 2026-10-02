@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from itertools import chain, islice, tee
 from typing import Any
 
-from draftwright._core import _TB_CLEAR, _TB_H
+from draftwright._core import _TB_CLEAR, _TB_H, Analysis
 from draftwright._geometry import (
     MATERIAL_VISIBLE_FLOOR,
     _boxes_overlap,
@@ -1873,7 +1873,7 @@ class _LeaderBatch:
     bounded_fixed_obstacles: Callable[..., Any]
 
 
-def _start_leader_batch(dwg, analysis, ctx, jobs, producer_floor: bool) -> _LeaderBatch:
+def _start_leader_batch(dwg, analysis: Analysis, ctx, jobs, producer_floor: bool) -> _LeaderBatch:
     """Fork fallback streams without exhausting the producer's candidate order."""
     crossing_recovery_enabled = layout_flag(
         "crossing_recovery", "DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"

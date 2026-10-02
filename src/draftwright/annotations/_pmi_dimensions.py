@@ -20,6 +20,7 @@ from build123d_drafting.helpers import (
 )
 
 from draftwright._core import (
+    Analysis,
     _dim,
     _drawing_bounds,
     _frame_margins,
@@ -376,7 +377,7 @@ def _bore_info(rec):
     return bore_axis, cx_f, cy_f, cz_f
 
 
-def _pmi_witness_from_bbox(rec, view: str, a):
+def _pmi_witness_from_bbox(rec, view: str, a: Analysis):
     """Witness points at authored reference stations, supported by their combined bbox.
 
     A bbox describes the size of the referenced faces, not the relationship between them.
@@ -566,7 +567,7 @@ def _oblique_pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
     }
 
 
-def _oblique_linear_specs(a, rec, label, name, draft):
+def _oblique_linear_specs(a: Analysis, rec, label, name, draft):
     if len(rec.ref_pts) != 2:
         return []
     first, second = rec.ref_pts
@@ -906,7 +907,7 @@ def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
     }
 
 
-def _oblique_cylinder_leader_specs(a, rec, label, name, draft):
+def _oblique_cylinder_leader_specs(a: Analysis, rec, label, name, draft):
     """Build solved leader candidates from one exact finite-cylinder surface witness."""
     cylinders = tuple(getattr(rec, "cylindrical_refs", ()))
     if not cylinders:
@@ -1080,7 +1081,7 @@ def _pmi_queue_options(
 
 def _pmi_front_linear(
     dwg,
-    a,
+    a: Analysis,
     ctx,
     rec,
     ax,
@@ -1144,7 +1145,9 @@ def _pmi_front_linear(
     return placed
 
 
-def _angular_specs(a, reference, label, name, draft, *, side=None, implicit_degrees=False):
+def _angular_specs(
+    a: Analysis, reference, label, name, draft, *, side=None, implicit_degrees=False
+):
     axis = reference.principal_axis
     view, to_page, zones = {
         "X": ("side", lambda p: (a.proj.side_x(p[1]), a.proj.side_z(p[2])), a.sv_zones),
@@ -1376,7 +1379,7 @@ def _bore_render_options(
 
 
 def _place_pmi_record(
-    dwg, a, ctx, rec, idx, bore_cfg, draft, *, queue_options=_pmi_queue_options
+    dwg, a: Analysis, ctx, rec, idx, bore_cfg, draft, *, queue_options=_pmi_queue_options
 ) -> bool:
     """Place one PMI record; returns True when it was queued/placed on a strip.
 
@@ -1657,7 +1660,7 @@ def _place_pmi_record(
 def render_pmi(
     dwg,
     model,
-    a,
+    a: Analysis,
     *,
     ctx,
     renderable_records=_renderable_pmi_records,

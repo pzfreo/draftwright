@@ -429,7 +429,7 @@ def _inflate_box(box, clearance):
     )
 
 
-def _annotations_out_of_bounds(dwg, a, tol: float = BOUNDS_ROUNDOFF) -> bool:
+def _annotations_out_of_bounds(dwg, a: Analysis, tol: float = BOUNDS_ROUNDOFF) -> bool:
     """True when any view-owned annotation's footprint extends past the drawable
     area — the second repack trigger besides cross-view overlap.  A ballooned
     plan view can overflow the page top (the balloon ring) without crossing
@@ -619,12 +619,12 @@ def _layout_advisory(code: str, message: str) -> LintIssue:
     raise ValueError(f"unknown layout advisory: {code!r}")
 
 
-def _assembly_model(a, model, decorations, requested, authored) -> PartModel:
+def _assembly_model(a: Analysis, model, decorations, requested, authored) -> PartModel:
     """Attach declared-only rotational and PMI evidence to this assembly's model."""
     pm = (
         _coerce_model(model, a.part, decorations, requested, authored)
         if model is not None
-        else (a.model if a.model is not None else build_model(a))
+        else (cast(PartModel, a.model) if a.model is not None else build_model(a))
     )
     if model is not None:
         # A declared model skips detection, so a turned shaft carries no RotationalFeature —
@@ -719,7 +719,7 @@ def _assembly_model(a, model, decorations, requested, authored) -> PartModel:
 
 @observed_stage("assemble")
 def _assemble(
-    a,
+    a: Analysis,
     out,
     assembly,
     detail_view,
@@ -1013,7 +1013,7 @@ def _assemble(
     return dwg
 
 
-def _repack_candidates(a, scale, page):
+def _repack_candidates(a: Analysis, scale, page):
     """The (scale, page_w, page_h, tb_w) candidates the repack may choose from,
     mirroring :func:`choose_scale`: a user-fixed scale and/or page is honoured;
     otherwise the auto ladder (smallest legible sheet first) is searched."""
@@ -1059,7 +1059,7 @@ def _needs_repack(dwg, a) -> bool:
 
 
 def _repack(
-    a,
+    a: Analysis,
     dwg,
     out,
     assembly,
