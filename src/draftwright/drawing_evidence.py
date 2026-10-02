@@ -6,8 +6,14 @@ recognition and does not mutate annotation placement.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
-def suppression_rows(omissions, feature_key) -> list[dict]:
+if TYPE_CHECKING:
+    from draftwright.model.compiled import Omission
+
+
+def suppression_rows(omissions: Iterable[Omission], feature_key) -> list[dict]:
     """Project compiler omissions with the drawing's stable descriptive key."""
     return [
         {

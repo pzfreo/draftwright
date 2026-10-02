@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from quiddity import RecognitionResult
     from quiddity.evidence import RecognitionEvidence
 
+    from draftwright.model.compiled import Omission
     from draftwright.recognition_ownership import RecognitionOwnership
 
 from draftwright._core import Analysis
@@ -93,7 +94,7 @@ class BuildState:
     #: dropped. So the one place recording WHY a dimension is absent did not outlive the
     #: build, and absence had to be inferred from a finished sheet — which is how a wrong
     #: suppression rule produced four issue reports before anyone found the rule (#997).
-    omissions: tuple = ()
+    omissions: tuple[Omission, ...] = ()
 
     @property
     def recognition(self) -> RecognitionResult | None:
