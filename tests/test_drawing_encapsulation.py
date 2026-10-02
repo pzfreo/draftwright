@@ -620,6 +620,7 @@ def test_build_state_has_a_single_construction_and_fill_site():
             # Imported document defaults are chosen at assembly and read by sheet
             # furniture through named Drawing properties.
             "_build.general_tolerance_source",
+            "_build.material_source",
             "_build.default_surface_finish_source",
             "_build.detail_view",
             "_build.trace",

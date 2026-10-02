@@ -185,6 +185,7 @@ def test_build_options_front_door_parity_issue_1927():
     blank = BuildOptions.from_mapping({"title": "PART", "drawn_by": None, "material": None})
     assert "drawn_by=None" not in blank.script_constructor_args({})
     assert "material=None" not in blank.script_constructor_args({})
+    assert "material=''" in BuildOptions(material="").script_constructor_args({})
 
 
 def test_build_options_preserves_replay_validation_precedence_issue_1927():

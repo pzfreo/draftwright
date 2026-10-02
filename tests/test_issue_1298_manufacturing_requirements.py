@@ -1783,11 +1783,19 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         for field, value, _size, _font in drawing.get_annotation("title_block").title_field_specs
     }
     assert title_fields["general_tolerance"] == "ISO 2768-m"
+    assert title_fields["material"] == "CZ121 / CW614N / CuZn39Pb3"
+    assert drawing.material_source.source_id == "material:#1996"
+    title_box = drawing.get_annotation("title_block").bounding_box()
+    assert drawing.pending_title_block_box() == pytest.approx(
+        (title_box.min.X, title_box.min.Y, title_box.max.X, title_box.max.Y)
+    )
+    assert not [issue for issue in issues if issue.code == "title_field_overflow"]
     model = drawing.model()
     general_tolerance = next(
         feature for feature in model.features if isinstance(feature, GeneralTolerance)
     )
     assert drawing.registry.feature_of("title_block") is general_tolerance
+    assert drawing.material_source in drawing.registry.features_of("title_block")
     default_finish = next(
         feature for feature in model.features if isinstance(feature, DefaultSurfaceFinish)
     )
@@ -1848,6 +1856,12 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert sum(isinstance(feature, ChamferFeature) for feature in replayed_model.features) == 3
     assert "general_notes" not in replayed.annotations()
     assert replayed.registry.feature_of("title_block").source_id == general_tolerance.source_id
+    replayed_fields = {
+        field: value
+        for field, value, _size, _font in replayed.get_annotation("title_block").title_field_specs
+    }
+    assert replayed_fields["material"] == title_fields["material"]
+    assert replayed.material_source.source_id == drawing.material_source.source_id
     assert (
         replayed.registry.feature_of("default_surface_finish").source_id
         == default_finish.source_id

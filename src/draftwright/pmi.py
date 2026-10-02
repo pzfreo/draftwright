@@ -53,6 +53,7 @@ from draftwright._pmi_part21 import (
     DimensionAssociationFact,
     DimensionDisplayFact,
     GeometricToleranceFact,
+    MaterialFact,
     match_common_label,
     match_datum_occurrence,
     match_dimension_association,
@@ -67,6 +68,7 @@ from draftwright._pmi_part21 import (
     read_dimension_length_factor,
     read_geometric_tolerances,
     read_manufacturing_requirements,
+    read_material_properties,
     read_surface_labels,
 )
 from draftwright._pmi_schema import (
@@ -245,6 +247,10 @@ class PmiExtractionReport:
     #: of leaving a reconciliation silently attributed to whatever file was passed.
     source_name: str = ""
     source_sha256: str = ""
+    #: Product-owned title-block facts share this extraction's Part21 snapshot, but are
+    #: not feature PMI and therefore do not enter its annotation source denominator.
+    material_facts: tuple[MaterialFact, ...] = ()
+    material_error: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -2834,6 +2840,12 @@ def _extract_pmi_census(
 
     Does **not** modify the solid geometry — purely a read-only second pass.
     """
+    try:
+        material_facts = read_material_properties(step_file)
+        material_error = ""
+    except Exception as exc:
+        material_facts = ()
+        material_error = f"{type(exc).__name__}: {exc}"
     requirement_sources, requirement_records = _manufacturing_requirement_projection(step_file)
     label_sources, label_records = _surface_label_projection(step_file)
 
@@ -2842,6 +2854,8 @@ def _extract_pmi_census(
             sources=(*requirement_sources, *label_sources),
             records=(*requirement_records, *label_records),
             error=reason,
+            material_facts=material_facts,
+            material_error=material_error,
         )
 
     if not _PMI_AVAILABLE:
@@ -2904,7 +2918,12 @@ def _extract_pmi_census(
     records.extend(label_records)
 
     _log_pmi_census(step_file, sources, tolerance_count)
-    return PmiExtractionReport(sources=tuple(sources), records=tuple(records))
+    return PmiExtractionReport(
+        sources=tuple(sources),
+        records=tuple(records),
+        material_facts=material_facts,
+        material_error=material_error,
+    )
 
 
 def extract_pmi_report(

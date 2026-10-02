@@ -54,6 +54,7 @@ from draftwright.linting import (
     lint_rectangular_blind_slot_coverage,
     lint_round_bottom_blind_slot_coverage,
     lint_slot_coverage,
+    lint_step_title_defaults,
     lint_through_step_coverage,
     lint_turned_profile_span,
 )
@@ -628,6 +629,19 @@ def _lint_pmi(ctx: LintContext) -> list:
         ctx.analysis.pmi_mode,
         decorations=getattr(ctx.model, "decorations", {}),
         report=ctx.analysis.pmi_report,
+        overridden_general_tolerance=(
+            ctx.analysis.tolerance is not None and ctx.build.general_tolerance_source is None
+        ),
+    )
+    issues += lint_step_title_defaults(
+        ctx.analysis.pmi_report,
+        ctx.registry,
+        material_authored=(ctx.analysis.material if ctx.build.material_source is None else None),
+        tolerance_authored=(
+            ctx.analysis.tolerance if ctx.build.general_tolerance_source is None else None
+        ),
+        tolerance_source_selected=ctx.build.general_tolerance_source is not None,
+        pmi_mode=ctx.analysis.pmi_mode,
     )
     # The two directions the four checks above cannot cover, because each of them
     # reasons FROM the census: content whose census is missing entirely, and content

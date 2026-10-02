@@ -2339,7 +2339,7 @@ def _analyse(
     decorations=None,
     authored=None,
     requested=None,
-    material="",
+    material=None,
     date="",
     revision="A",
     company="",

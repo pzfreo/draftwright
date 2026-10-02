@@ -200,5 +200,6 @@ dev = [
 skip = "*.stp,*.step,*.svg,*.dxf,*.pdf,uv.lock,.git,*.ttf,*.otf,src/draftwright/fonts/*"
 # Valid words/identifiers codespell's dictionary misflags (calibrated from a clean run):
 # `nd` a Dijkstra distance var, `tread` a real word (stair-tread faces), `accreting`
-# a real word, `testof` the `TestOf` class name, and the valid hyphenated re-* forms.
-ignore-words-list = "nd,tread,accreting,testof,re-using,re-declare,re-declared,re-declaring"
+# a real word, `testof` the `TestOf` class name, `leaded` a material designation,
+# and the valid hyphenated re-* forms.
+ignore-words-list = "nd,tread,accreting,testof,leaded,re-using,re-declare,re-declared,re-declaring"

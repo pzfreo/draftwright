@@ -112,7 +112,7 @@ class _DrawingOptions(TypedDict):
     scale: float | None
     scale_policy: Literal["strict", "fallback", "permissive"]
     page: str | None
-    material: str
+    material: str | None
     date: str
     revision: str
     company: str
@@ -280,10 +280,10 @@ def main(
     number: str = typer.Option("DWG-001", help="Drawing number"),
     tolerance: str | None = typer.Option(
         None,
-        help="General tolerance (e.g. 'ISO 2768-m'); omitted, the title block says UNSPECIFIED",
+        help="General tolerance (e.g. 'ISO 2768-m'); omitted, use one STEP source value if present",
     ),
     drawn_by: str = typer.Option("", "--drawn-by", help="Designer name"),
-    material: str = typer.Option("", help="Material for the title block"),
+    material: str | None = typer.Option(None, help="Material for the title block"),
     date: str = typer.Option("", help="Date for the title block"),
     revision: str = typer.Option("A", help="Revision for the title block"),
     company: str = typer.Option("", help="Company / legal owner for the title block"),

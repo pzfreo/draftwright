@@ -47,7 +47,6 @@
     "audit.py:compare_assessments": 21,
     "audit.py:compare_measurements": 20,
     "build_once.py:_resolve_views": 16,
-    "builder.py:_assemble": 17,
     "compose.py:_place_orthographic_layout": 17,
     "compose.py:choose_scale": 26,
     "evaluation/_flat_polygonal_evidence.py:_polygonal_stock_drawing_outcomes": 16,

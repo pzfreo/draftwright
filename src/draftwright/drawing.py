@@ -472,6 +472,11 @@ class Drawing:
         return self._build.general_tolerance_source
 
     @property
+    def material_source(self):
+        """The product-owned STEP material selected for the title block, if any."""
+        return self._build.material_source
+
+    @property
     def default_surface_finish_source(self):
         """The document-wide finish attached to sheet furniture, if any."""
         return self._build.default_surface_finish_source

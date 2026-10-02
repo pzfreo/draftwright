@@ -59,6 +59,7 @@ from draftwright.linting.pmi_coverage import (
     lint_pmi_rendering,
     lint_pmi_source_unknown,
     lint_pmi_unreconciled,
+    lint_step_title_defaults,
     pmi_stage_summary,
 )
 from draftwright.linting.pocket_coverage import lint_pocket_coverage
@@ -124,6 +125,7 @@ __all__ = [
     "lint_manufacturing_references",
     "lint_pmi_lowering",
     "lint_pmi_rendering",
+    "lint_step_title_defaults",
     "lint_pmi_source_unknown",
     "lint_pmi_unreconciled",
     "pmi_stage_summary",

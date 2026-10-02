@@ -45,7 +45,7 @@ class BuildOptions:
     requested: tuple | None = None
     authored: tuple | None = None
     trace: str | Path | bool | None = None
-    material: str = field(default="", metadata={"script_order": 18, "script_truthy": True})
+    material: str | None = field(default=None, metadata={"script_order": 18})
     date: str = field(default="", metadata={"script_order": 19, "script_truthy": True})
     revision: str = field(default="A", metadata={"script_order": 20})
     company: str = field(default="", metadata={"script_order": 21, "script_truthy": True})

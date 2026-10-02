@@ -1,18 +1,354 @@
 """The standard title block states the drawing units and effective sheet format."""
 
 from collections import Counter
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from _parts import dense_plate
-from build123d import Box, Location
+from build123d import Box, Location, Sketch
 
 from draftwright import Sheet, build_drawing
+from draftwright._pmi_part21 import MaterialFact
+from draftwright.builder import _resolve_title_document_defaults
+from draftwright.linting.pmi_coverage import lint_step_title_defaults
+from draftwright.pmi import PmiExtractionReport, PmiRecord
 
 
 def _fields(drawing) -> dict[str, str]:
     block = drawing.get_annotation("title_block")
     return {field: value for field, value, _size, _font in block.title_field_specs}
+
+
+@dataclass(frozen=True)
+class _TitleInputs:
+    material: str | None
+    tolerance: str | None
+    pmi_report: PmiExtractionReport
+
+
+def _source_defaults(material="CW614N", reason=""):
+    fact = MaterialFact("#4", material, "Leaded brass", "#5", "#2", "#1", reason)
+    tolerance = SimpleNamespace(kind="general_tolerance", designation="ISO 2768-m")
+    return fact, tolerance
+
+
+def test_step_title_defaults_respect_omitted_blank_explicit_and_ambiguity():
+    material, tolerance = _source_defaults()
+    inputs = _TitleInputs(None, None, PmiExtractionReport(material_facts=(material,)))
+    resolved, tolerance_source, material_source = _resolve_title_document_defaults(
+        inputs, (tolerance,), set()
+    )
+    assert (resolved.material, resolved.tolerance) == ("CW614N", "ISO 2768-m")
+    assert (material_source, tolerance_source) == (material, tolerance)
+
+    blank, tolerance_source, material_source = _resolve_title_document_defaults(
+        replace(inputs, material="", tolerance=""), (tolerance,), set()
+    )
+    assert (blank.material, blank.tolerance) == ("", "")
+    assert (material_source, tolerance_source) == (None, None)
+
+    authored, tolerance_source, material_source = _resolve_title_document_defaults(
+        replace(inputs, material="OTHER", tolerance="ISO 2768-f"), (tolerance,), set()
+    )
+    assert (authored.material, authored.tolerance) == ("OTHER", "ISO 2768-f")
+    assert (material_source, tolerance_source) == (None, None)
+
+    other = replace(material, entity_id="#6", designation="STEEL")
+    ambiguous, _tol_source, material_source = _resolve_title_document_defaults(
+        replace(inputs, pmi_report=PmiExtractionReport(material_facts=(material, other))),
+        (tolerance,),
+        set(),
+    )
+    assert ambiguous.material == "" and material_source is None
+    malformed, _tol_source, material_source = _resolve_title_document_defaults(
+        replace(
+            inputs,
+            pmi_report=PmiExtractionReport(
+                material_facts=(replace(material, reason="foreign product"),)
+            ),
+        ),
+        (tolerance,),
+        set(),
+    )
+    assert malformed.material == "" and material_source is None
+
+
+def test_step_title_lint_reports_disagreement_without_replacing_authored_values():
+    material, _tolerance = _source_defaults()
+    report = PmiExtractionReport(
+        material_facts=(material,),
+        records=(
+            PmiRecord(
+                kind="general_tolerances",
+                type_code=None,
+                value=0,
+                label="ISO 2768-m; per ISO GPS",
+                source_id="manufacturing_requirement:#9",
+                source_category="manufacturing_requirement",
+            ),
+        ),
+    )
+    title = SimpleNamespace(
+        title_field_specs=(
+            ("material", "OTHER", 1, "font"),
+            ("general_tolerance", "ISO 2768-f", 1, "font"),
+        )
+    )
+    registry = SimpleNamespace(named=lambda name: title if name == "title_block" else None)
+    issues = lint_step_title_defaults(
+        report,
+        registry,
+        material_authored="OTHER",
+        tolerance_authored="ISO 2768-f",
+        pmi_mode="annotate",
+    )
+    assert [(issue.code, issue.source_ids) for issue in issues] == [
+        ("step_material_disagreement", ("material:#4",)),
+        ("step_general_tolerance_disagreement", ("manufacturing_requirement:#9",)),
+    ]
+    paired_record = replace(
+        report.records[0],
+        source_ids=("manufacturing_requirement:#9", "manufacturing_requirement:#10"),
+    )
+    paired_issues = lint_step_title_defaults(
+        replace(report, records=(paired_record,)),
+        registry,
+        material_authored="OTHER",
+        tolerance_authored="ISO 2768-f",
+        pmi_mode="annotate",
+    )
+    assert (
+        next(
+            issue.source_ids
+            for issue in paired_issues
+            if issue.code == "step_general_tolerance_disagreement"
+        )
+        == paired_record.source_ids
+    )
+    # A source-selected default must still agree with the settled title field.
+    selected_issues = lint_step_title_defaults(
+        replace(report, records=(paired_record,)),
+        registry,
+        material_authored="",
+        tolerance_authored=None,
+        tolerance_source_selected=True,
+        pmi_mode="annotate",
+    )
+    assert title.title_field_specs[1][1] == "ISO 2768-f"
+    assert paired_record.label.startswith("ISO 2768-m")
+    assert [(issue.severity, issue.code, issue.source_ids) for issue in selected_issues] == [
+        ("error", "step_general_tolerance_mismatch", paired_record.source_ids)
+    ]
+    assert (
+        lint_step_title_defaults(
+            report, registry, material_authored="", tolerance_authored="", pmi_mode="annotate"
+        )
+        == []
+    )
+    assert [
+        issue.code
+        for issue in lint_step_title_defaults(
+            report, registry, material_authored=None, tolerance_authored=None, pmi_mode="annotate"
+        )
+    ] == ["step_material_mismatch"]
+    ambiguous = replace(
+        report,
+        material_facts=(material, replace(material, entity_id="#7", designation="STEEL")),
+    )
+    assert [
+        issue.code
+        for issue in lint_step_title_defaults(
+            ambiguous,
+            registry,
+            material_authored=None,
+            tolerance_authored=None,
+            pmi_mode="annotate",
+        )
+    ] == ["step_material_ambiguous"]
+    malformed = replace(report, material_facts=(replace(material, reason="foreign product"),))
+    assert [
+        issue.code
+        for issue in lint_step_title_defaults(
+            malformed,
+            registry,
+            material_authored=None,
+            tolerance_authored=None,
+            pmi_mode="annotate",
+        )
+    ] == ["step_material_unavailable"]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    ("material", "tolerance", "expected_codes"),
+    [
+        ("", "", set()),
+        (
+            "OTHER",
+            "ISO 2768-f",
+            {"step_material_disagreement", "step_general_tolerance_disagreement"},
+        ),
+    ],
+)
+def test_step_title_explicit_values_win_and_remain_source_auditable(
+    material, tolerance, expected_codes
+):
+    source = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    drawing = build_drawing(
+        source,
+        pmi="annotate",
+        material=material,
+        tolerance=tolerance,
+        auto_dims=False,
+        scale=2,
+        page="A3",
+    )
+    fields = _fields(drawing)
+    assert fields.get("material", "") == material
+    assert fields.get("general_tolerance", "") == tolerance
+    assert drawing.material_source is None
+    assert drawing.general_tolerance_source is None
+    observed = {issue.code for issue in drawing.lint() if issue.code.startswith("step_")}
+    assert observed == expected_codes
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.code == "pmi_not_rendered"
+        and "manufacturing_requirement:#2016" in issue.source_ids
+    ]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    ("field", "source_id", "code"),
+    [
+        ("material", "material:#1996", "step_material_mismatch"),
+        (
+            "general_tolerance",
+            "manufacturing_requirement:#2016",
+            "step_general_tolerance_mismatch",
+        ),
+    ],
+)
+def test_step_title_selected_value_requires_finished_ink_issue_2158(
+    monkeypatch, field, source_id, code
+):
+    from draftwright.annotations import _sheet_furniture
+
+    source = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    baseline = build_drawing(source, pmi="annotate", auto_dims=False, scale=2, page="A3")
+    baseline_title = baseline.get_annotation("title_block")
+    assert not [issue for issue in baseline.lint() if issue.code == code]
+    assert field in baseline_title.field_ink
+
+    original = _sheet_furniture.TitleBlock
+
+    def drop_value(*args, **kwargs):
+        assert kwargs[field]
+        block = original(*args, **{**kwargs, field: ""})
+        # Stale helper metadata must not substitute for finished faces.
+        block.field_ink[field] = baseline_title.field_ink[field]
+        return block
+
+    monkeypatch.setattr(_sheet_furniture, "TitleBlock", drop_value)
+    drawing = build_drawing(source, pmi="annotate", auto_dims=False, scale=2, page="A3")
+    title = drawing.get_annotation("title_block")
+    selected = drawing.material_source if field == "material" else drawing.general_tolerance_source
+    assert selected is not None and selected.source_id == source_id
+    assert _fields(drawing)[field] == selected.designation
+    assert title.field_ink[field] == baseline_title.field_ink[field]
+    assert len(title.faces()) < len(baseline_title.faces())
+    assert [(issue.code, issue.source_ids) for issue in drawing.lint() if issue.code == code] == [
+        (code, (source_id,))
+    ]
+
+
+@pytest.mark.parametrize(("source_value", "wrong_ink"), [("6", "9"), ("66", "99"), ("666", "999")])
+def test_step_material_title_ink_shape_must_match_source_issue_2158(
+    monkeypatch, source_value, wrong_ink
+):
+    from draftwright.annotations import _sheet_furniture
+
+    part = Box(30, 20, 10)
+    baseline = build_drawing(part, material=source_value, auto_dims=False, scale=1)
+    baseline_title = baseline.get_annotation("title_block")
+    original = _sheet_furniture.TitleBlock
+
+    def substitute_value(*args, **kwargs):
+        assert kwargs["material"] == source_value
+        return original(*args, **{**kwargs, "material": wrong_ink})
+
+    monkeypatch.setattr(_sheet_furniture, "TitleBlock", substitute_value)
+    drawing = build_drawing(part, material=source_value, auto_dims=False, scale=1)
+    title = drawing.get_annotation("title_block")
+    assert _fields(drawing)["material"] == source_value
+    assert title.field_ink["material"] == pytest.approx(baseline_title.field_ink["material"])
+    assert len(title.faces()) == len(baseline_title.faces())
+
+    source = MaterialFact("#4", source_value, "", "#5", "#2", "#1", "")
+    assert source.source_id == "material:#4" and not source.reason
+    registry = SimpleNamespace(named=lambda name: title if name == "title_block" else None)
+    issues = lint_step_title_defaults(
+        PmiExtractionReport(material_facts=(source,)),
+        registry,
+        material_authored=None,
+        tolerance_authored=None,
+        pmi_mode="annotate",
+    )
+    assert [(issue.code, issue.source_ids) for issue in issues] == [
+        ("step_material_mismatch", (source.source_id,))
+    ]
+
+
+def test_step_material_title_extra_ink_inside_cell_is_rejected_issue_2158(monkeypatch):
+    import build123d_drafting.helpers as helpers
+
+    part = Box(30, 20, 10)
+    baseline = build_drawing(part, material="6", auto_dims=False, scale=1)
+    baseline_title = baseline.get_annotation("title_block")
+    original = helpers.Text
+    substitutions = []
+
+    def add_glyph(*args, **kwargs):
+        ink = original(*args, **kwargs)
+        if kwargs.get("txt") != "6":
+            return ink
+        substitutions.append(kwargs["txt"])
+        extra = original(*args, **{**kwargs, "txt": "q"}).moved(Location((0, 2, 0)))
+        return Sketch(children=[ink, extra])
+
+    monkeypatch.setattr(helpers, "Text", add_glyph)
+    drawing = build_drawing(part, material="6", auto_dims=False, scale=1)
+    title = drawing.get_annotation("title_block")
+    assert substitutions == ["6"]
+    assert _fields(drawing)["material"] == "6"
+    assert len(title.faces()) == len(baseline_title.faces()) + 1
+    cell = title.cell_bbox("material")
+    extra_faces = [
+        face
+        for face in title.faces()
+        if (box := face.bounding_box()).min.X > title.position.X + cell["min_x"]
+        and box.max.X < title.position.X + cell["max_x"]
+        and box.min.Y > title.position.Y + cell["min_y"] + 4.5
+        and box.max.Y < title.position.Y + cell["max_y"]
+    ]
+    assert len(extra_faces) == 1
+
+    source = MaterialFact("#4", "6", "", "#5", "#2", "#1", "")
+    assert source.source_id == "material:#4" and not source.reason
+    registry = SimpleNamespace(named=lambda name: title if name == "title_block" else None)
+    issues = lint_step_title_defaults(
+        PmiExtractionReport(material_facts=(source,)),
+        registry,
+        material_authored=None,
+        tolerance_authored=None,
+        pmi_mode="annotate",
+    )
+    assert [(issue.code, issue.source_ids) for issue in issues] == [
+        ("step_material_mismatch", (source.source_id,))
+    ]
 
 
 @pytest.mark.parametrize("page", ("A4", "A2", "A0"))

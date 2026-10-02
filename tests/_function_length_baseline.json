@@ -20,7 +20,7 @@
     "annotations/sections.py:_request_prismatic_detail": 212,
     "audit.py:compare_assessments": 277,
     "build_once.py:build_once": 252,
-    "builder.py:_assemble": 293,
+    "builder.py:_assemble": 286,
     "builder.py:_repack": 236,
     "cli.py:main": 223,
     "compose.py:_pack_auxiliary_layout": 201,
