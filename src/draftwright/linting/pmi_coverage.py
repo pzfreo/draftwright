@@ -38,21 +38,18 @@ def _title_value_has_finished_ink(title, field: str, value: str) -> bool:
             align=(Align.CENTER, Align.CENTER),
             mode=Mode.PRIVATE,
         ).moved(Location((cx, cy, 0)))
-        expected_box = expected.bounding_box()
-        lower = expected_box.min.Y - 0.05
-        upper = expected_box.max.Y + 0.05
+        # The caption occupies the lower quarter of this helper-owned cell.
+        # Judge the entire remaining interior: extra glyphs need not lie in
+        # the canonical value's own bounding box.
+        lower = title.position.Y + cell["min_y"] + cell["height"] * 0.25
+        upper = title.position.Y + cell["max_y"] - 0.1
         left = title.position.X + cell["min_x"] + 0.1
         right = title.position.X + cell["max_x"] - 0.1
 
         actual = []
         for face in title.faces():
             box = face.bounding_box()
-            if (
-                box.min.X >= left
-                and box.max.X <= right
-                and box.min.Y >= lower
-                and box.max.Y <= upper
-            ):
+            if box.max.X > left and box.min.X < right and box.max.Y > lower and box.min.Y < upper:
                 actual.append(face)
         if not actual:
             return False

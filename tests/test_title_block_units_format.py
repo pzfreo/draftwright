@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from _parts import dense_plate
-from build123d import Box, Location
+from build123d import Box, Location, Sketch
 
 from draftwright import Sheet, build_drawing
 from draftwright._pmi_part21 import MaterialFact
@@ -288,6 +288,55 @@ def test_step_material_title_ink_shape_must_match_source_issue_2158(
     assert len(title.faces()) == len(baseline_title.faces())
 
     source = MaterialFact("#4", source_value, "", "#5", "#2", "#1", "")
+    assert source.source_id == "material:#4" and not source.reason
+    registry = SimpleNamespace(named=lambda name: title if name == "title_block" else None)
+    issues = lint_step_title_defaults(
+        PmiExtractionReport(material_facts=(source,)),
+        registry,
+        material_authored=None,
+        tolerance_authored=None,
+        pmi_mode="annotate",
+    )
+    assert [(issue.code, issue.source_ids) for issue in issues] == [
+        ("step_material_mismatch", (source.source_id,))
+    ]
+
+
+def test_step_material_title_extra_ink_inside_cell_is_rejected_issue_2158(monkeypatch):
+    import build123d_drafting.helpers as helpers
+
+    part = Box(30, 20, 10)
+    baseline = build_drawing(part, material="6", auto_dims=False, scale=1)
+    baseline_title = baseline.get_annotation("title_block")
+    original = helpers.Text
+    substitutions = []
+
+    def add_glyph(*args, **kwargs):
+        ink = original(*args, **kwargs)
+        if kwargs.get("txt") != "6":
+            return ink
+        substitutions.append(kwargs["txt"])
+        extra = original(*args, **{**kwargs, "txt": "q"}).moved(Location((0, 2, 0)))
+        return Sketch(children=[ink, extra])
+
+    monkeypatch.setattr(helpers, "Text", add_glyph)
+    drawing = build_drawing(part, material="6", auto_dims=False, scale=1)
+    title = drawing.get_annotation("title_block")
+    assert substitutions == ["6"]
+    assert _fields(drawing)["material"] == "6"
+    assert len(title.faces()) == len(baseline_title.faces()) + 1
+    cell = title.cell_bbox("material")
+    extra_faces = [
+        face
+        for face in title.faces()
+        if (box := face.bounding_box()).min.X > title.position.X + cell["min_x"]
+        and box.max.X < title.position.X + cell["max_x"]
+        and box.min.Y > title.position.Y + cell["min_y"] + 4.5
+        and box.max.Y < title.position.Y + cell["max_y"]
+    ]
+    assert len(extra_faces) == 1
+
+    source = MaterialFact("#4", "6", "", "#5", "#2", "#1", "")
     assert source.source_id == "material:#4" and not source.reason
     registry = SimpleNamespace(named=lambda name: title if name == "title_block" else None)
     issues = lint_step_title_defaults(
