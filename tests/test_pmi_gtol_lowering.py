@@ -631,6 +631,72 @@ def test_same_footprint_wrong_tolerance_digits_are_rejected_issue_2156(monkeypat
     ] == [("pmi_value_mismatch", (record.source_id,), name)]
 
 
+@pytest.mark.parametrize(
+    "modifiers",
+    (
+        (),
+        ("diameter_zone",),
+        ("spherical_diameter_zone",),
+        ("diameter_zone", "maximum_material_requirement"),
+    ),
+)
+def test_appended_tolerance_ink_is_rejected_issue_2156(monkeypatch, modifiers):
+    part = Box(20, 20, 20)
+    spherical = "spherical_diameter_zone" in modifiers
+    record = replace(
+        _record(value=0.02, modifiers=modifiers),
+        kind="profile_surface" if spherical else "flatness",
+        type_code=12 if spherical else 7,
+        label="profile_surface 0.02" if spherical else "flatness 0.02",
+        datum_refs=(),
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (frame,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(frame, ControlFrame) and frame.spherical_diameter is spherical
+    draft = Draft(font_size=3.0)
+    baseline = _gdt_glyph(frame, draft)
+    original_text = drafting_helpers._gdt_text
+
+    def appended_modifier(draft, text, size):
+        if text in ("0.02", "Sø0.02"):
+            return original_text(draft, text + "M", size)
+        return original_text(draft, text, size)
+
+    monkeypatch.setattr(drafting_helpers, "_gdt_text", appended_modifier)
+    damaged = _gdt_glyph(frame, draft)
+    assert damaged.tolerance_str == baseline.tolerance_str
+    assert len(damaged.faces()) == len(baseline.faces()) + 1
+    assert _gdt_visual_tolerance(
+        baseline, draft, _gdt_visual_zone(baseline, draft), modifier=bool(frame.modifier)
+    ) == ("Sø0.02" if spherical else "0.02")
+    assert (
+        _gdt_visual_tolerance(
+            damaged, draft, _gdt_visual_zone(damaged, draft), modifier=bool(frame.modifier)
+        )
+        == ""
+    )
+
+    model = detect_part_model(part)
+    model.features.append(frame)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name for name in drawing.registry.names() if drawing.registry.declaration_of(name) is frame
+    )
+    annotation = drawing.registry.named(name)
+    assert annotation.gdt_visual_tolerance == ""
+    assert [
+        (issue.code, issue.source_ids, issue.annotation_name)
+        for issue in lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(record,)),
+        )
+    ] == [("pmi_value_mismatch", (record.source_id,), name)]
+
+
 def test_xcaf_diametral_position_survives_glyph_pdf_and_sheet_issue_2156():
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader

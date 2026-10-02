@@ -212,7 +212,7 @@ def _gdt_visual_zone(glyph, draft) -> str:
     return ""
 
 
-def _gdt_visual_tolerance(glyph, draft, zone: str) -> str:
+def _gdt_visual_tolerance(glyph, draft, zone: str, *, modifier: bool = False) -> str:
     """Trust a tolerance label only when its finished ink matches the font text."""
     text = str(glyph.tolerance_str)
     h = draft.font_size
@@ -221,6 +221,10 @@ def _gdt_visual_tolerance(glyph, draft, zone: str) -> str:
     left = (2.0 + 0.6) * h
     if zone == "diameter_zone":
         left += (2.0 * 0.42 + 0.6) * h
+    # Start inside the cell divider, or just after the Ø ring. Include the
+    # padding so unexpected printed characters cannot hide beside the value.
+    stroke_clearance = max(0.1, 0.1 * h)
+    ink_left = left - 0.6 * h + stroke_clearance if zone == "diameter_zone" else 2.0 * h
     try:
         # Construct the expected font outlines independently of the helper's text
         # builder, so a same-width wrong digit cannot validate its own output.
@@ -236,12 +240,28 @@ def _gdt_visual_tolerance(glyph, draft, zone: str) -> str:
         right = left + width
         expected = expected.moved(Location(Vector(left + width / 2.0, h, 0)))
         tolerance = max(1e-3, h * 1e-3)
+        glyph_faces = glyph.faces()
+        borders = [
+            (box.min.X + box.max.X) / 2.0
+            for face in glyph_faces
+            if (box := face.bounding_box()).min.X > 2.0 * h + tolerance
+            and box.max.X - box.min.X < max(0.3, 0.1 * h)
+            and box.min.Y < 0.1 * h
+            and box.max.Y > 1.9 * h
+        ]
+        if not borders:
+            return ""
+        ink_right = min(borders)
+        if modifier:
+            ink_right -= (0.6 + 2.0 * 0.62) * h + stroke_clearance
+        if ink_right < right - tolerance:
+            return ""
         faces = []
-        for face in glyph.faces():
+        for face in glyph_faces:
             box = face.bounding_box()
             if (
-                box.min.X >= left - tolerance
-                and box.max.X <= right + tolerance
+                box.max.X >= ink_left - tolerance
+                and box.min.X <= ink_right + tolerance
                 and box.min.Y > 0.1 * h
                 and box.max.Y < 1.9 * h
             ):
@@ -265,7 +285,9 @@ def _attach_gdt_text_evidence(leader, glyph, item, draft) -> None:
     leader.pdf_text_relative_specs = _gdt_pdf_text_specs(glyph, item, draft)
     if item.kind == "control_frame":
         zone = _gdt_visual_zone(glyph, draft)
-        leader.gdt_visual_tolerance = _gdt_visual_tolerance(glyph, draft, zone)
+        leader.gdt_visual_tolerance = _gdt_visual_tolerance(
+            glyph, draft, zone, modifier=bool(item.modifier)
+        )
         leader.gdt_visual_zone = zone if leader.gdt_visual_tolerance else ""
 
 
