@@ -519,6 +519,7 @@ CONTRACT_GROUPS = {
             "test_document_claims.py",
             "test_document_coverage.py",
             "test_document_report.py",
+            "test_edge_profile_coverage.py",
             "test_inspection.py",
             "test_lint_coverage.py",
             "test_lint_summary.py",
