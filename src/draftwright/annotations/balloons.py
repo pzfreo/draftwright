@@ -481,30 +481,30 @@ def _guarded_free_segments(
                     rim_points.extend(
                         (qx, qy) for qx in (cx - delta, cx + delta) if x0 <= qx <= x1
                     )
-            if axis == "y":
-                for gx0, gy0, gx1, gy1 in local_glyph_boxes:
-                    if x0 - gx1 < line < x1 - gx0:
-                        critical.update((y0 - gy1, y1 - gy0))
-                if not math.isclose(line, cx):
-                    for qx in (x0, x1):
-                        if not math.isclose(qx, cx):
-                            for qy in (y0, y1):
-                                critical.add(cy + (qy - cy) * (line - cx) / (qx - cx))
-                    for qx, qy in rim_points:
-                        if not math.isclose(qx, cx):
-                            critical.add(cy + (qy - cy) * (line - cx) / (qx - cx))
-            else:
-                for gx0, gy0, gx1, gy1 in local_glyph_boxes:
-                    if y0 - gy1 < line < y1 - gy0:
-                        critical.update((x0 - gx1, x1 - gx0))
-                if not math.isclose(line, cy):
-                    for qy in (y0, y1):
-                        if not math.isclose(qy, cy):
-                            for qx in (x0, x1):
-                                critical.add(cx + (qx - cx) * (line - cy) / (qy - cy))
-                    for qx, qy in rim_points:
-                        if not math.isclose(qy, cy):
-                            critical.add(cx + (qx - cx) * (line - cy) / (qy - cy))
+            cross = 0 if axis == "y" else 1
+            along = 1 - cross
+            centre = (cx, cy)
+            bounds_lo, bounds_hi = (x0, y0), (x1, y1)
+            for glyph in local_glyph_boxes:
+                if bounds_lo[cross] - glyph[cross + 2] < line < bounds_hi[cross] - glyph[cross]:
+                    critical.update(
+                        (bounds_lo[along] - glyph[along + 2], bounds_hi[along] - glyph[along])
+                    )
+            if not math.isclose(line, centre[cross]):
+                ray_points = [
+                    (qcross, qalong)
+                    for qcross in (bounds_lo[cross], bounds_hi[cross])
+                    for qalong in (bounds_lo[along], bounds_hi[along])
+                ]
+                ray_points.extend((point[cross], point[along]) for point in rim_points)
+                for qcross, qalong in ray_points:
+                    if not math.isclose(qcross, centre[cross]):
+                        critical.add(
+                            centre[along]
+                            + (qalong - centre[along])
+                            * (line - centre[cross])
+                            / (qcross - centre[cross])
+                        )
         points = sorted({min(max(value, range_lo), range_hi) for value in critical})
         for point in points:
             if not hits(point):

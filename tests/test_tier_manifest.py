@@ -365,6 +365,7 @@ def test_axial_owner_change_runs_chain_ladder_and_trace_contracts():
     selected = set(pr_modules(_TESTS, [source]))
     assert {
         "test_turned_lengths.py",
+        "test_step_profile_grouping.py",
         "test_issue_1505_short_axial_chains.py",
         "test_compiled_plan_boundary.py",
         "test_refactor_golden.py",
@@ -426,6 +427,7 @@ def test_step_length_owner_selects_its_placement_contract():
     assert {
         "test_through_step_semantics.py",
         "test_turned_lengths.py",
+        "test_step_profile_grouping.py",
         "test_issue_1505_short_axial_chains.py",
         "test_issue_1357_plural_turned_profiles.py",
     } <= selected

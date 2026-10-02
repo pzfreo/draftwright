@@ -67,6 +67,64 @@ def _section_axis(vector: tuple[float, ...]) -> tuple[int, int]:
     return index, sign
 
 
+def _pocket_profile_bounds(
+    profile_source: object, *, edge_anchored: bool
+) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
+    """Validate the published section chain and return its points and bounds."""
+    profile_keys = {"closure", "boundary", "opening"} if edge_anchored else {"closure", "boundary"}
+    if not isinstance(profile_source, Mapping):
+        raise ValueError("profile must be an object")
+    actual_profile_keys = set(profile_source)
+    allowed_profile_keys = (
+        (profile_keys, profile_keys | {"material_side"}) if edge_anchored else (profile_keys,)
+    )
+    if actual_profile_keys not in allowed_profile_keys:
+        raise ValueError(
+            f"profile must contain exactly {sorted(profile_keys)}"
+            + (" with optional material_side" if edge_anchored else "")
+        )
+    material_side = profile_source.get("material_side")
+    if material_side not in (None, "left", "right"):
+        raise ValueError("profile material_side must be left or right")
+    profile = dict(profile_source)
+    profile.pop("material_side", None)
+    if profile["closure"] != ("open" if edge_anchored else "closed"):
+        raise ValueError("profile closure disagrees with pocket classification")
+    boundary = profile["boundary"]
+    if type(boundary) not in (tuple, list) or len(boundary) not in (
+        (3, 4) if edge_anchored else (4,)
+    ):
+        raise UnsupportedSectionRecess("pocket requires a rectangular boundary or open chain")
+    points = []
+    for item in boundary:
+        vertex = _section_object(item, {"point", "bulge"}, "profile vertex")
+        px, py = _section_numbers(vertex["point"], 2, "profile point")
+        point = (px, py)
+        if _section_numbers([vertex["bulge"]], 1, "bulge")[0] != 0:
+            raise UnsupportedSectionRecess("curved profiles need their own drafting semantics")
+        points.append(point)
+    if edge_anchored:
+        opening = profile["opening"]
+        if type(opening) not in (tuple, list) or len(opening) != 2:
+            raise ValueError("opening must join the two loose endpoints")
+        endpoints = tuple(_section_numbers(point, 2, "opening point") for point in opening)
+        if endpoints != (points[-1], points[0]):
+            raise ValueError("opening must join the two loose endpoints")
+    bounds = [(min(p[i] for p in points), max(p[i] for p in points)) for i in range(2)]
+    if any(hi <= lo for lo, hi in bounds):
+        raise ValueError("pocket section must have positive extents")
+    if len(set(points)) != len(points) or any(
+        p[0] not in bounds[0] or p[1] not in bounds[1] for p in points
+    ):
+        raise UnsupportedSectionRecess("profile does not follow rectangular supports")
+    chain = points if edge_anchored else [*points, points[0]]
+    if any(
+        sum(a[i] != b[i] for i in range(2)) != 1 for a, b in zip(chain, chain[1:], strict=False)
+    ):
+        raise UnsupportedSectionRecess("profile contains a diagonal or crossing support")
+    return points, bounds
+
+
 def section_recess_pocket_fields(record: Mapping, *, schema_version: int) -> dict:
     """Validate the schema-4 pocket projection and return consumer geometry fields."""
 
@@ -147,65 +205,7 @@ def section_recess_pocket_fields(record: Mapping, *, schema_version: int) -> dic
         raise ValueError("pocket requires exactly one capped and one open end")
 
     edge_anchored = kind == "edge_open_recess"
-    profile_keys = (
-        {"closure", "boundary", "opening"}
-        if edge_anchored
-        else {
-            "closure",
-            "boundary",
-        }
-    )
-    profile_source = geometry["profile"]
-    if not isinstance(profile_source, Mapping):
-        raise ValueError("profile must be an object")
-    actual_profile_keys = set(profile_source)
-    allowed_profile_keys = (
-        (profile_keys, profile_keys | {"material_side"}) if edge_anchored else (profile_keys,)
-    )
-    if actual_profile_keys not in allowed_profile_keys:
-        raise ValueError(
-            f"profile must contain exactly {sorted(profile_keys)}"
-            + (" with optional material_side" if edge_anchored else "")
-        )
-    material_side = profile_source.get("material_side")
-    if material_side not in (None, "left", "right"):
-        raise ValueError("profile material_side must be left or right")
-    profile = dict(profile_source)
-    profile.pop("material_side", None)
-    if profile["closure"] != ("open" if edge_anchored else "closed"):
-        raise ValueError("profile closure disagrees with pocket classification")
-    boundary = profile["boundary"]
-    if type(boundary) not in (tuple, list) or len(boundary) not in (
-        (3, 4) if edge_anchored else (4,)
-    ):
-        raise UnsupportedSectionRecess("pocket requires a rectangular boundary or open chain")
-    points = []
-    for item in boundary:
-        vertex = _section_object(item, {"point", "bulge"}, "profile vertex")
-        px, py = _section_numbers(vertex["point"], 2, "profile point")
-        point = (px, py)
-        if _section_numbers([vertex["bulge"]], 1, "bulge")[0] != 0:
-            raise UnsupportedSectionRecess("curved profiles need their own drafting semantics")
-        points.append(point)
-    if edge_anchored:
-        opening = profile["opening"]
-        if type(opening) not in (tuple, list) or len(opening) != 2:
-            raise ValueError("opening must join the two loose endpoints")
-        endpoints = tuple(_section_numbers(point, 2, "opening point") for point in opening)
-        if endpoints != (points[-1], points[0]):
-            raise ValueError("opening must join the two loose endpoints")
-    bounds = [(min(p[i] for p in points), max(p[i] for p in points)) for i in range(2)]
-    if any(hi <= lo for lo, hi in bounds):
-        raise ValueError("pocket section must have positive extents")
-    if len(set(points)) != len(points) or any(
-        p[0] not in bounds[0] or p[1] not in bounds[1] for p in points
-    ):
-        raise UnsupportedSectionRecess("profile does not follow rectangular supports")
-    chain = points if edge_anchored else [*points, points[0]]
-    if any(
-        sum(a[i] != b[i] for i in range(2)) != 1 for a, b in zip(chain, chain[1:], strict=False)
-    ):
-        raise UnsupportedSectionRecess("profile contains a diagonal or crossing support")
+    points, bounds = _pocket_profile_bounds(geometry["profile"], edge_anchored=edge_anchored)
 
     mouth = {}
     if curved:

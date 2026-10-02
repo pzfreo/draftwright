@@ -808,6 +808,98 @@ def pending_family_declarations(*, package: object | None = None) -> list[str]:
     return sorted(package_ids - declared)
 
 
+def _validate_record_schemas(
+    family: dict[str, Any], package_family: dict[str, Any], family_id: str
+) -> None:
+    """Check that each declared record accepts the installed provider version."""
+    records = package_family.get("records")
+    actual_schemas = (
+        {
+            record.get("name"): record.get("schema_version")
+            for record in records
+            if isinstance(record, dict)
+        }
+        if isinstance(records, list)
+        else {}
+    )
+    accepted_schemas = family["record_schemas"]
+    valid_schema_declaration = _exact_dict_keys(accepted_schemas, set(actual_schemas)) and all(
+        isinstance(versions, list)
+        and versions
+        and all(type(version) is int and version > 0 for version in versions)
+        and versions == sorted(set(versions))
+        for versions in accepted_schemas.values()
+    )
+    valid_actual_schemas = all(
+        type(version) is int and version > 0 for version in actual_schemas.values()
+    )
+    incompatible = (
+        not valid_schema_declaration
+        or not valid_actual_schemas
+        or any(actual_schemas[name] not in accepted_schemas[name] for name in actual_schemas)
+    )
+    if incompatible:
+        raise RecogniserCapabilityError(
+            f"family {family_id!r} record schema mismatch; expected {actual_schemas!r}, "
+            f"accepted {accepted_schemas!r}; update the adapter and pin deliberately"
+        )
+
+
+def _validate_family_disposition(
+    family: dict[str, Any], package_family: dict[str, Any], family_id: str
+) -> None:
+    """Check the drafting claims permitted by a provider family disposition."""
+    disposition = family["disposition"]
+    if disposition not in {"deferred", "geometry-only", "supported", "unsupported"}:
+        raise RecogniserCapabilityError(f"family {family_id!r} has invalid disposition")
+    if disposition == "geometry-only":
+        if not isinstance(family.get("rationale"), str) or not family["rationale"].strip():
+            raise RecogniserCapabilityError(f"geometry-only family {family_id!r} needs rationale")
+        package_evidence = family.get("package_evidence")
+        available = package_family.get("golden_evidence")
+        if not isinstance(package_evidence, list) or not set(package_evidence) <= set(
+            available or []
+        ):
+            raise RecogniserCapabilityError(
+                f"geometry-only family {family_id!r} needs package-owned evidence"
+            )
+        for boundary in (
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer",
+        ):
+            stage = family[boundary]
+            if isinstance(stage, dict) and stage.get("state") == "supported":
+                raise RecogniserCapabilityError(
+                    f"geometry-only family {family_id!r} invents {boundary} semantics"
+                )
+    elif disposition == "supported":
+        if "rationale" in family or "package_evidence" in family or "tracking" in family:
+            raise RecogniserCapabilityError(
+                f"supported family {family_id!r} has geometry-only/reserved fields"
+            )
+    else:
+        if (
+            not isinstance(family.get("rationale"), str)
+            or not family["rationale"].strip()
+            or not _TRACKING.fullmatch(str(family.get("tracking", "")))
+        ):
+            raise RecogniserCapabilityError(
+                f"reserved family {family_id!r} needs rationale and tracking"
+            )
+        supported = [
+            boundary
+            for boundary in _BOUNDARIES[:-1]
+            if isinstance(family[boundary], dict) and family[boundary].get("state") == "supported"
+        ]
+        if supported:
+            raise RecogniserCapabilityError(
+                f"reserved family {family_id!r} claims supported downstream semantics: "
+                f"{supported!r}"
+            )
+
+
 def validate_recogniser_capabilities(
     declaration: object | None = None,
     *,
@@ -936,89 +1028,8 @@ def validate_recogniser_capabilities(
             *_BOUNDARIES,
         } <= set(family):
             raise RecogniserCapabilityError(f"family {family_id!r} has unknown or missing fields")
-        records = package_by_id[family_id].get("records")
-        actual_schemas = (
-            {
-                record.get("name"): record.get("schema_version")
-                for record in records
-                if isinstance(record, dict)
-            }
-            if isinstance(records, list)
-            else {}
-        )
-        accepted_schemas = family["record_schemas"]
-        valid_schema_declaration = _exact_dict_keys(accepted_schemas, set(actual_schemas)) and all(
-            isinstance(versions, list)
-            and versions
-            and all(type(version) is int and version > 0 for version in versions)
-            and versions == sorted(set(versions))
-            for versions in accepted_schemas.values()
-        )
-        valid_actual_schemas = all(
-            type(version) is int and version > 0 for version in actual_schemas.values()
-        )
-        incompatible = (
-            not valid_schema_declaration
-            or not valid_actual_schemas
-            or any(actual_schemas[name] not in accepted_schemas[name] for name in actual_schemas)
-        )
-        if incompatible:
-            raise RecogniserCapabilityError(
-                f"family {family_id!r} record schema mismatch; expected {actual_schemas!r}, "
-                f"accepted {accepted_schemas!r}; update the adapter and pin deliberately"
-            )
-        disposition = family["disposition"]
-        if disposition not in {"deferred", "geometry-only", "supported", "unsupported"}:
-            raise RecogniserCapabilityError(f"family {family_id!r} has invalid disposition")
-        if disposition == "geometry-only":
-            if not isinstance(family.get("rationale"), str) or not family["rationale"].strip():
-                raise RecogniserCapabilityError(
-                    f"geometry-only family {family_id!r} needs rationale"
-                )
-            package_evidence = family.get("package_evidence")
-            available = package_by_id[family_id].get("golden_evidence")
-            if not isinstance(package_evidence, list) or not set(package_evidence) <= set(
-                available or []
-            ):
-                raise RecogniserCapabilityError(
-                    f"geometry-only family {family_id!r} needs package-owned evidence"
-                )
-            for boundary in (
-                "ir_adapter",
-                "dsl_declaration",
-                "generated_code",
-                "drawing_consumer",
-            ):
-                stage = family[boundary]
-                if isinstance(stage, dict) and stage.get("state") == "supported":
-                    raise RecogniserCapabilityError(
-                        f"geometry-only family {family_id!r} invents {boundary} semantics"
-                    )
-        elif disposition == "supported":
-            if "rationale" in family or "package_evidence" in family or "tracking" in family:
-                raise RecogniserCapabilityError(
-                    f"supported family {family_id!r} has geometry-only/reserved fields"
-                )
-        else:
-            if (
-                not isinstance(family.get("rationale"), str)
-                or not family["rationale"].strip()
-                or not _TRACKING.fullmatch(str(family.get("tracking", "")))
-            ):
-                raise RecogniserCapabilityError(
-                    f"reserved family {family_id!r} needs rationale and tracking"
-                )
-            supported = [
-                boundary
-                for boundary in _BOUNDARIES[:-1]
-                if isinstance(family[boundary], dict)
-                and family[boundary].get("state") == "supported"
-            ]
-            if supported:
-                raise RecogniserCapabilityError(
-                    f"reserved family {family_id!r} claims supported downstream semantics: "
-                    f"{supported!r}"
-                )
+        _validate_record_schemas(family, package_by_id[family_id], family_id)
+        _validate_family_disposition(family, package_by_id[family_id], family_id)
         for boundary in _BOUNDARIES:
             _validate_stage(family[boundary], family_id, boundary, root)
     transitions = current["transitions"]

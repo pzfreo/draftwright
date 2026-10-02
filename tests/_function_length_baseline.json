@@ -12,7 +12,7 @@
     "annotations/_pmi_dimensions.py:_sheet_leader_fallback": 240,
     "annotations/_slots.py:_place_slot_dimension": 219,
     "annotations/_slots.py:_render_slot_dimensions": 204,
-    "annotations/_step_lengths.py:_render_profile_groups": 270,
+    "annotations/_step_lengths.py:_render_profile_groups": 207,
     "annotations/_step_lengths.py:_render_y_profile": 228,
     "annotations/balloons.py:render_balloons": 294,
     "annotations/holes.py:_place_pitch_dim": 260,
@@ -49,11 +49,10 @@
     "pdf_text.py:pdf_text_runs": 229,
     "pmi.py:_dimension_record": 220,
     "pmi.py:_extract_xcaf_dimensions": 249,
-    "recogniser_contract.py:validate_recogniser_capabilities": 264,
     "reporting.py:_raw_report_assessment": 218,
     "reporting.py:_requirements": 212,
     "reporting.py:document_report": 273,
-    "sheet_emit.py:_feature_block": 272,
+    "sheet_emit.py:_feature_block": 233,
     "sheet_emit.py:emit_sheet_script": 287
   }
 }

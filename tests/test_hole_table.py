@@ -85,6 +85,29 @@ class TestHoleTable:
 
         assert _select_top_lane([], 1, 99.0) == (99.0, [], 0)
 
+    def test_guarded_horizontal_band_carves_around_a_retained_label(self):
+        from types import SimpleNamespace
+
+        from draftwright.annotations.balloons import (
+            _guarded_free_segments,
+            balloon_geometry_hits_annotation_labels,
+        )
+
+        member = ("A", 0, SimpleNamespace(diameter=2.0), 2.0, -3.0)
+        label = (6.0, 7.0, 8.0, 9.0)
+        assert balloon_geometry_hits_annotation_labels(((6.0, 6.0, 8.0, 8.0),), (), (label,))
+        free = _guarded_free_segments(
+            member,
+            "x",
+            7.0,
+            ((0.0, 10.0),),
+            1.0,
+            1.0,
+            (label,),
+        )
+
+        assert free == ((0.0, 5.0), (9.0, 10.0))
+
     def test_table_has_a_row_per_spec_group(self):
         dwg = build_drawing(_multi_hole_plate())
         n_groups = len([f for f in dwg.features("plan") if f.type == "hole"])

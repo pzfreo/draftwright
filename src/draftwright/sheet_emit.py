@@ -1086,54 +1086,15 @@ def _feature_block(
                 if exact_parameter is not None or exact_step_length
                 else (object_refs or {}).get(id(f))
             )
-            if gdt_with_origin:
-                if exact_parameter is None:
-                    line = _feature_line(
-                        f,
-                        part_envelope,
-                        origin_ref=origin_ref,
-                        exact_step_length=exact_step_length,
-                        **profile_kw,
-                    )
-                else:
-                    line = _feature_line(
-                        f,
-                        part_envelope,
-                        origin_ref=origin_ref,
-                        exact_parameter=exact_parameter,
-                        exact_step_length=exact_step_length,
-                        **profile_kw,
-                    )
-            elif object_ref is not None:
-                if exact_parameter is None:
-                    line = _feature_line(
-                        f,
-                        part_envelope,
-                        object_ref=object_ref,
-                        exact_step_length=exact_step_length,
-                        **profile_kw,
-                    )
-                else:
-                    line = _feature_line(
-                        f,
-                        part_envelope,
-                        object_ref=object_ref,
-                        exact_parameter=exact_parameter,
-                        exact_step_length=exact_step_length,
-                        **profile_kw,
-                    )
-            elif exact_parameter is not None:
-                line = _feature_line(
-                    f,
-                    part_envelope,
-                    exact_parameter=exact_parameter,
-                    exact_step_length=exact_step_length,
-                    **profile_kw,
-                )
-            else:
-                line = _feature_line(
-                    f, part_envelope, exact_step_length=exact_step_length, **profile_kw
-                )
+            line = _feature_line(
+                f,
+                part_envelope,
+                origin_ref=origin_ref,
+                object_ref=None if gdt_with_origin else object_ref,
+                exact_parameter=exact_parameter,
+                exact_step_length=exact_step_length,
+                **profile_kw,
+            )
             diameter_role = {
                 "hole": "bore",
                 "pattern": "bore",

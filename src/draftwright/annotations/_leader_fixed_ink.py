@@ -316,6 +316,47 @@ def _rendered_residual_components(
     return tuple(out)
 
 
+def _fixed_ink_metadata(annotation, max_components):
+    """Read a bounded, complete snapshot of the annotation's exact ink metadata."""
+
+    try:
+        raw_segments = getattr(annotation, "segments", ()) or ()
+        raw_polygons = getattr(annotation, "fixed_ink_polygons", ()) or ()
+        raw_label = getattr(annotation, "label_bbox", None)
+        global_axis = bool(getattr(annotation, "is_global_axis_centerline", False))
+        if max_components is None:
+            segment_prefix = tuple(raw_segments)
+            raw_fixed_polygons = tuple(raw_polygons)
+        else:
+            segment_prefix = tuple(islice(iter(raw_segments), max_components + 1))
+            if len(segment_prefix) > max_components:
+                return _FIXED_INVENTORY_EXHAUSTED
+            raw_fixed_polygons = tuple(islice(iter(raw_polygons), max_components + 1))
+            if len(raw_fixed_polygons) > max_components:
+                return _FIXED_INVENTORY_EXHAUSTED
+    except Exception:  # noqa: BLE001 — unavailable fixed metadata is not exact ink
+        return None
+    segments = _coerce_segments(segment_prefix)
+    if len(segments) != len(segment_prefix):
+        return None
+    return segments, raw_fixed_polygons, raw_label, global_axis
+
+
+def _fixed_ink_hull(polygon):
+    """Accept only a finite, nondegenerate polygon as an exact ink footprint."""
+
+    try:
+        points = tuple((float(point[0]), float(point[1])) for point in polygon)
+    except Exception:  # noqa: BLE001 — partial exact metadata must fail closed
+        return None
+    if len(points) < 3 or any(
+        not math.isfinite(coordinate) for point in points for coordinate in point
+    ):
+        return None
+    hull = _convex_hull(points)
+    return hull if len(hull) >= 3 else None
+
+
 def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
     """Exact-width fixed ink components for one already-rendered annotation."""
 
@@ -351,26 +392,12 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
             ),
         )
 
-    try:
-        raw_segments = getattr(annotation, "segments", ()) or ()
-        raw_polygons = getattr(annotation, "fixed_ink_polygons", ()) or ()
-        raw_label = getattr(annotation, "label_bbox", None)
-        global_axis = bool(getattr(annotation, "is_global_axis_centerline", False))
-        if max_components is None:
-            segment_prefix = tuple(raw_segments)
-            raw_fixed_polygons = tuple(raw_polygons)
-        else:
-            segment_prefix = tuple(islice(iter(raw_segments), max_components + 1))
-            if len(segment_prefix) > max_components:
-                return _FIXED_INVENTORY_EXHAUSTED
-            raw_fixed_polygons = tuple(islice(iter(raw_polygons), max_components + 1))
-            if len(raw_fixed_polygons) > max_components:
-                return _FIXED_INVENTORY_EXHAUSTED
-    except Exception:  # noqa: BLE001 — unavailable fixed metadata is not exact ink
+    metadata = _fixed_ink_metadata(annotation, max_components)
+    if metadata is _FIXED_INVENTORY_EXHAUSTED:
+        return _FIXED_INVENTORY_EXHAUSTED
+    if metadata is None:
         return unavailable()
-    segments = _coerce_segments(segment_prefix)
-    if len(segments) != len(segment_prefix):
-        return unavailable()
+    segments, raw_fixed_polygons, raw_label, global_axis = metadata
     if raw_label is not None and _coerce_box(raw_label) is None:
         return unavailable()
 
@@ -378,16 +405,8 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
         return max_components is not None and len(components) > max_components
 
     for index, polygon in enumerate(raw_fixed_polygons):
-        try:
-            points = tuple((float(point[0]), float(point[1])) for point in polygon)
-        except Exception:  # noqa: BLE001 — partial exact metadata must fail closed
-            return unavailable()
-        if len(points) < 3 or any(
-            not math.isfinite(coordinate) for point in points for coordinate in point
-        ):
-            return unavailable()
-        hull = _convex_hull(points)
-        if len(hull) < 3:
+        hull = _fixed_ink_hull(polygon)
+        if hull is None:
             return unavailable()
         components.append(
             _FixedInkComponent(
