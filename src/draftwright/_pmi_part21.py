@@ -669,13 +669,8 @@ def read_manufacturing_requirements(
     return tuple(facts)
 
 
-def read_structured_manufacturing_requirements(
-    step_file: str | Path,
-) -> tuple[StructuredManufacturingFact, ...]:
-    """Read CAx-IF user attributes and document defaults as named, unit-aware facts."""
-    if _PROPERTY_DEFINITION_MARKER.search(Path(step_file).read_bytes()) is None:
-        return ()
-    step = _readfile(step_file)
+def _structured_manufacturing_graph(step):
+    """Index authored structured properties and their product/geometry support."""
     definitions: list[tuple[str, Any]] = []
     representations: dict[str, list[str]] = {}
     aspect_items: dict[str, list[str]] = {}
@@ -724,6 +719,78 @@ def read_structured_manufacturing_requirements(
         and len(definition.params) >= 3
         and isinstance(definition.params[2], p21.Reference)
     }
+    return (
+        definitions,
+        representations,
+        aspect_items,
+        uda_properties,
+        product_ids,
+        shaped_shape_ids,
+        shaped_products,
+    )
+
+
+def _structured_manufacturing_fields(step, entity_id, representations, reasons):
+    """Read the one named representation without losing malformed item reasons."""
+    links = tuple(dict.fromkeys(representations.get(entity_id, ())))
+    if len(links) != 1:
+        reasons.append(f"structured manufacturing property has {len(links)} representations")
+    fields: list[tuple[str, str | float]] = []
+    if len(links) == 1:
+        representation = _entity_named(step.get(links[0]), "REPRESENTATION")
+        if representation is None or len(representation.params) < 2:
+            reasons.append("structured manufacturing representation is malformed")
+        else:
+            for item_id in _references(representation.params[1]):
+                item = step.get(item_id)
+                descriptive = _entity_named(item, "DESCRIPTIVE_REPRESENTATION_ITEM")
+                measure = _entity_named(item, "MEASURE_REPRESENTATION_ITEM")
+                if descriptive is not None and len(descriptive.params) >= 2:
+                    fields.append(
+                        (_text(descriptive.params[0]).casefold(), _text(descriptive.params[1]))
+                    )
+                elif measure is not None and len(measure.params) >= 3:
+                    label, typed, unit = measure.params[:3]
+                    if (
+                        not isinstance(typed, p21.TypedParameter)
+                        or typed.type_name != "LENGTH_MEASURE"
+                        or not isinstance(unit, p21.Reference)
+                    ):
+                        reasons.append(f"structured measure {item_id} is not a length")
+                        continue
+                    factor, reason = _unit_factor_mm(step, str(unit))
+                    try:
+                        value = float(typed.param)
+                    except (TypeError, ValueError):
+                        value = float("nan")
+                    if factor is None or not math.isfinite(value) or value <= 0:
+                        reasons.append(reason or f"structured measure {item_id} is invalid")
+                        continue
+                    fields.append((_text(label).casefold(), value * factor))
+                else:
+                    reasons.append(f"structured representation item {item_id} is unsupported")
+    names = [name for name, _ in fields]
+    if len(names) != len(set(names)) or not all(names):
+        reasons.append("structured manufacturing fields have duplicate or empty names")
+    return fields
+
+
+def read_structured_manufacturing_requirements(
+    step_file: str | Path,
+) -> tuple[StructuredManufacturingFact, ...]:
+    """Read CAx-IF user attributes and document defaults as named, unit-aware facts."""
+    if _PROPERTY_DEFINITION_MARKER.search(Path(step_file).read_bytes()) is None:
+        return ()
+    step = _readfile(step_file)
+    (
+        definitions,
+        representations,
+        aspect_items,
+        uda_properties,
+        product_ids,
+        shaped_shape_ids,
+        shaped_products,
+    ) = _structured_manufacturing_graph(step)
     facts: list[StructuredManufacturingFact] = []
     for entity_id, definition in definitions:
         name = _text(definition.params[0]).casefold().replace(" ", "_")
@@ -771,46 +838,7 @@ def read_structured_manufacturing_requirements(
                 reference_ids = tuple(dict.fromkeys(aspect_items.get(str(target), ())))
                 if not reference_ids:
                     reasons.append("structured manufacturing shape aspect has no geometry items")
-        links = tuple(dict.fromkeys(representations.get(entity_id, ())))
-        if len(links) != 1:
-            reasons.append(f"structured manufacturing property has {len(links)} representations")
-        fields: list[tuple[str, str | float]] = []
-        if len(links) == 1:
-            representation = _entity_named(step.get(links[0]), "REPRESENTATION")
-            if representation is None or len(representation.params) < 2:
-                reasons.append("structured manufacturing representation is malformed")
-            else:
-                for item_id in _references(representation.params[1]):
-                    item = step.get(item_id)
-                    descriptive = _entity_named(item, "DESCRIPTIVE_REPRESENTATION_ITEM")
-                    measure = _entity_named(item, "MEASURE_REPRESENTATION_ITEM")
-                    if descriptive is not None and len(descriptive.params) >= 2:
-                        fields.append(
-                            (_text(descriptive.params[0]).casefold(), _text(descriptive.params[1]))
-                        )
-                    elif measure is not None and len(measure.params) >= 3:
-                        label, typed, unit = measure.params[:3]
-                        if (
-                            not isinstance(typed, p21.TypedParameter)
-                            or typed.type_name != "LENGTH_MEASURE"
-                            or not isinstance(unit, p21.Reference)
-                        ):
-                            reasons.append(f"structured measure {item_id} is not a length")
-                            continue
-                        factor, reason = _unit_factor_mm(step, str(unit))
-                        try:
-                            value = float(typed.param)
-                        except (TypeError, ValueError):
-                            value = float("nan")
-                        if factor is None or not math.isfinite(value) or value <= 0:
-                            reasons.append(reason or f"structured measure {item_id} is invalid")
-                            continue
-                        fields.append((_text(label).casefold(), value * factor))
-                    else:
-                        reasons.append(f"structured representation item {item_id} is unsupported")
-        names = [name for name, _ in fields]
-        if len(names) != len(set(names)) or not all(names):
-            reasons.append("structured manufacturing fields have duplicate or empty names")
+        fields = _structured_manufacturing_fields(step, entity_id, representations, reasons)
         facts.append(
             StructuredManufacturingFact(
                 entity_id=entity_id,

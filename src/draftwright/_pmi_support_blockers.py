@@ -6,12 +6,79 @@ Geometric-tolerance fields outside the lowered vocabulary remain explicit source
 
 from __future__ import annotations
 
+import math
+
 from draftwright._pmi_schema import (
     _GTOL_MATERIAL_REQUIREMENT,
     _GTOL_MODIFIER,
     _GTOL_TYPE_OF_VALUE,
     _SUPPORTED_GTOL_SCOPE_MODIFIERS,
 )
+from draftwright.model.ir import CircularReference, CylindricalReference
+
+
+def _circular_diameter_blockers(
+    references: tuple[CircularReference, ...], nominal: float, reasons: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Validate exact circular-edge evidence for one authored diameter."""
+    blockers = list(reasons)
+    if not references:
+        if not blockers:
+            blockers.append("diameter dimension needs a measurable circular-edge reference")
+        return tuple(dict.fromkeys(blockers))
+    normals = {
+        tuple(round(component, 9) for component in reference.normal) for reference in references
+    }
+    if len(normals) != 1:
+        blockers.append("diameter circular references do not share one normal direction")
+    value_tol = max(0.01, abs(nominal) * 5e-4)
+    mismatches = [
+        reference.diameter
+        for reference in references
+        if not math.isclose(reference.diameter, nominal, rel_tol=0.0, abs_tol=value_tol)
+    ]
+    if mismatches:
+        values = ", ".join(f"{value:.6g}" for value in mismatches)
+        blockers.append(
+            f"circular reference diameter(s) {values} mm differ from nominal {nominal:.6g} mm"
+        )
+    return tuple(dict.fromkeys(blockers))
+
+
+def _diameter_reference_blockers(
+    references: tuple[CylindricalReference, ...], nominal: float, reasons: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Facts that make a Size_Diameter relationship unsafe to draw or correlate."""
+    blockers = list(reasons)
+    if not references:
+        if not blockers:
+            blockers.append("diameter dimension needs a measurable cylindrical-face reference")
+        return tuple(dict.fromkeys(blockers))
+    directions = {
+        tuple(round(component, 9) for component in reference.axis_direction)
+        for reference in references
+    }
+    if len(directions) != 1:
+        blockers.append("diameter references do not share one cylinder axis direction")
+    else:
+        direction = next(iter(directions))
+        if min(abs(component) for component in direction) > 1e-6:
+            blockers.append("diameter cylinder axis does not lie in a principal projection plane")
+    senses = {reference.sense for reference in references}
+    if len(senses) != 1:
+        blockers.append("diameter references mix internal and external cylindrical faces")
+    value_tol = max(0.01, abs(nominal) * 5e-4)
+    mismatches = [
+        reference.diameter
+        for reference in references
+        if not math.isclose(reference.diameter, nominal, rel_tol=0.0, abs_tol=value_tol)
+    ]
+    if mismatches:
+        values = ", ".join(f"{value:.6g}" for value in mismatches)
+        blockers.append(
+            f"cylindrical reference diameter(s) {values} mm differ from nominal {nominal:.6g} mm"
+        )
+    return tuple(dict.fromkeys(blockers))
 
 
 def _dimension_geometry_blockers(

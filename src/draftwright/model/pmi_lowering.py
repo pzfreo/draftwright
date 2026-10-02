@@ -873,6 +873,61 @@ def _structured_fields(feature: PmiFeature) -> dict[str, str | float]:
     return dict(feature.structured_fields)
 
 
+def _structured_thread_extent(
+    feature: PmiFeature,
+    fields: dict[str, str | float],
+    application: str,
+    through: bool,
+    prose: ThreadRequirement | None,
+) -> tuple[float | None, float | None, float | None, bool]:
+    """Preserve explicit drill and thread extent semantics from structured and paired prose."""
+    drill: float | None = None
+    depth: float | None = None
+    full: float | None = None
+    if application == "internal":
+        drill = _structured_number_alias(fields, "tapping drill diameter", "drill diameter")
+        depth = (
+            None
+            if through
+            else _structured_number_alias(fields, "tapping drill depth", "drill depth")
+        )
+        if through and ("tapping drill depth" in fields or "drill depth" in fields):
+            raise ValueError("structured through tap cannot declare a blind drill depth")
+        if "full thread length" in fields:
+            if prose is None or prose.minimum_full_thread is None:
+                raise ValueError(
+                    "structured full thread length needs a matching minimum-full-thread prose requirement"
+                )
+            full = _structured_number_alias(fields, "minimum full thread", "full thread length")
+        else:
+            full = (
+                _structured_number(fields, "minimum full thread")
+                if "minimum full thread" in fields
+                else None
+            )
+    else:
+        if through:
+            raise ValueError("structured external thread cannot be a through tap")
+        if "thread length" in fields:
+            length = _structured_number(fields, "thread length")
+            if len(feature.cylindrical_refs) != 1 or not _same_number(
+                feature.cylindrical_refs[0].axial_interval[1]
+                - feature.cylindrical_refs[0].axial_interval[0],
+                length,
+                abs_tol=0.01,
+            ):
+                raise ValueError("structured thread length disagrees with source cylinder")
+        elif prose is None or not prose.full_available_length:
+            raise ValueError("structured external thread has no length requirement")
+    return (
+        drill,
+        depth,
+        full,
+        application == "external"
+        and ("thread length" in fields or bool(prose and prose.full_available_length)),
+    )
+
+
 def _structured_thread_requirement(
     feature: PmiFeature, prose: ThreadRequirement | None
 ) -> ThreadRequirement:
@@ -915,45 +970,9 @@ def _structured_thread_requirement(
     else:
         raise ValueError("structured thread through flag is unsupported")
     designation = f"M{nominal:g} x {pitch:g}-{tolerance_class} {hand}"
-    drill: float | None = None
-    depth: float | None = None
-    full: float | None = None
-    length: float | None = None
-    if application == "internal":
-        drill = _structured_number_alias(fields, "tapping drill diameter", "drill diameter")
-        depth = (
-            None
-            if through
-            else _structured_number_alias(fields, "tapping drill depth", "drill depth")
-        )
-        if through and ("tapping drill depth" in fields or "drill depth" in fields):
-            raise ValueError("structured through tap cannot declare a blind drill depth")
-        if "full thread length" in fields:
-            if prose is None or prose.minimum_full_thread is None:
-                raise ValueError(
-                    "structured full thread length needs a matching minimum-full-thread prose requirement"
-                )
-            full = _structured_number_alias(fields, "minimum full thread", "full thread length")
-        else:
-            full = (
-                _structured_number(fields, "minimum full thread")
-                if "minimum full thread" in fields
-                else None
-            )
-    else:
-        if through:
-            raise ValueError("structured external thread cannot be a through tap")
-        if "thread length" in fields:
-            length = _structured_number(fields, "thread length")
-            if len(feature.cylindrical_refs) != 1 or not _same_number(
-                feature.cylindrical_refs[0].axial_interval[1]
-                - feature.cylindrical_refs[0].axial_interval[0],
-                length,
-                abs_tol=0.01,
-            ):
-                raise ValueError("structured thread length disagrees with source cylinder")
-        elif prose is None or not prose.full_available_length:
-            raise ValueError("structured external thread has no length requirement")
+    drill, depth, full, full_available_length = _structured_thread_extent(
+        feature, fields, application, through, prose
+    )
     return ThreadRequirement(
         application=cast(Literal["external", "internal"], application),
         designation=designation,
@@ -967,7 +986,7 @@ def _structured_thread_requirement(
         shape_aspect_ids=feature.shape_aspect_ids,
         reference_item_ids=feature.reference_item_ids,
         cylindrical_refs=feature.cylindrical_refs,
-        full_available_length=length is not None or bool(prose and prose.full_available_length),
+        full_available_length=full_available_length,
         minimum_full_thread=full,
         drill_diameter=drill,
         drill_depth=depth,
@@ -1150,6 +1169,51 @@ def _remap_model_features(model: PartModel, replacements: dict[int, Feature]) ->
     )
 
 
+def _manufacturing_proposal(feature: PmiFeature, owners, bbox):
+    """Validate one source against its exact cylinder and unique canonical owner."""
+    requirement = (
+        _knurl_requirement(feature)
+        if feature.pmi_kind == "knurl"
+        else _thread_requirement(feature)
+    )
+    reference = requirement.cylindrical_refs[0] if requirement.cylindrical_refs else None
+    expected_diameter = (
+        requirement.maximum_diameter
+        if isinstance(requirement, KnurlRequirement)
+        else requirement.drill_diameter
+        if requirement.application == "internal"
+        else requirement.nominal_diameter
+    )
+    if (
+        reference is None
+        or expected_diameter is None
+        or not _same_number(reference.diameter, expected_diameter, abs_tol=0.01)
+    ):
+        raise ValueError("manufacturing requirement text disagrees with source cylinder")
+    if (
+        isinstance(requirement, ThreadRequirement)
+        and requirement.application == "internal"
+        and not requirement.through
+        and (
+            requirement.drill_depth is None
+            or not _same_number(
+                reference.axial_interval[1] - reference.axial_interval[0],
+                requirement.drill_depth,
+                abs_tol=0.01,
+            )
+        )
+    ):
+        raise ValueError("manufacturing requirement text disagrees with source cylinder")
+    matches = [owner for owner in owners if _manufacturing_owner_matches(requirement, owner, bbox)]
+    if len(matches) != 1:
+        raise ValueError(
+            "unmatched manufacturing requirement: no canonical feature matches source topology"
+            if not matches
+            else f"ambiguous manufacturing requirement: source topology matches {len(matches)} canonical features"
+        )
+    return matches[0], requirement
+
+
 def lower_ap242_manufacturing_requirements(
     model: PartModel, *, feature_remap: FeatureRemap | None = None
 ) -> PartModel:
@@ -1186,57 +1250,10 @@ def lower_ap242_manufacturing_requirements(
         if feature.lowering_blockers:
             continue
         try:
-            requirement = (
-                _knurl_requirement(feature)
-                if feature.pmi_kind == "knurl"
-                else _thread_requirement(feature)
-            )
+            owner, requirement = _manufacturing_proposal(feature, owners, model.bbox)
         except ValueError as exc:
             blocked[index] = str(exc)
             continue
-        reference = requirement.cylindrical_refs[0] if requirement.cylindrical_refs else None
-        expected_diameter = (
-            requirement.maximum_diameter
-            if isinstance(requirement, KnurlRequirement)
-            else requirement.drill_diameter
-            if requirement.application == "internal"
-            else requirement.nominal_diameter
-        )
-        if (
-            reference is None
-            or expected_diameter is None
-            or not _same_number(reference.diameter, expected_diameter, abs_tol=0.01)
-        ):
-            blocked[index] = "manufacturing requirement text disagrees with source cylinder"
-            continue
-        if (
-            isinstance(requirement, ThreadRequirement)
-            and requirement.application == "internal"
-            and not requirement.through
-            and (
-                requirement.drill_depth is None
-                or not _same_number(
-                    reference.axial_interval[1] - reference.axial_interval[0],
-                    requirement.drill_depth,
-                    abs_tol=0.01,
-                )
-            )
-        ):
-            blocked[index] = "manufacturing requirement text disagrees with source cylinder"
-            continue
-        matches = [
-            owner
-            for owner in owners
-            if _manufacturing_owner_matches(requirement, owner, model.bbox)
-        ]
-        if len(matches) != 1:
-            blocked[index] = (
-                "unmatched manufacturing requirement: no canonical feature matches source topology"
-                if not matches
-                else f"ambiguous manufacturing requirement: source topology matches {len(matches)} canonical features"
-            )
-            continue
-        owner = matches[0]
         aspect = "knurl" if isinstance(requirement, KnurlRequirement) else "thread"
         proposals.setdefault((id(owner), aspect), []).append((index, owner, requirement))
 
@@ -1574,6 +1591,20 @@ def _datum_scheme_represented_by_symbols(model: PartModel, text: str) -> tuple[s
     return tuple(dict.fromkeys(represented))
 
 
+def _general_tolerance_designation(feature: PmiFeature) -> str:
+    designation = feature.label.split(";", 1)[0].strip()
+    if feature.structured_fields:
+        structured = _structured_fields(feature).get("tolerance class")
+        if not isinstance(structured, str) or not structured.strip():
+            raise ValueError("structured general-tolerance class is missing")
+        if feature.label != "general tolerances" and designation != structured:
+            raise ValueError("structured general-tolerance class disagrees with prose")
+        designation = structured
+    if not designation:
+        raise ValueError("general-tolerance designation is empty")
+    return designation
+
+
 def lower_ap242_document_requirements(model: PartModel) -> PartModel:
     """Lower source-proven document defaults that have an existing drafting carrier."""
     tolerance_candidates = [
@@ -1593,29 +1624,11 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
         model = replace(model, features=features)
     elif tolerance_candidates:
         index, feature = tolerance_candidates[0]
-        designation = feature.label.split(";", 1)[0].strip()
-        conflict = ""
-        if feature.structured_fields:
-            try:
-                structured = _structured_fields(feature).get("tolerance class")
-            except ValueError as exc:
-                conflict = str(exc)
-                structured = None
-            if not conflict and (not isinstance(structured, str) or not structured.strip()):
-                conflict = "structured general-tolerance class is missing"
-            elif (
-                not conflict
-                and feature.label != "general tolerances"
-                and designation != structured
-            ):
-                conflict = "structured general-tolerance class disagrees with prose"
-            elif not conflict and isinstance(structured, str):
-                designation = structured
-        if conflict or not designation:
+        try:
+            designation = _general_tolerance_designation(feature)
+        except ValueError as exc:
             features = list(model.features)
-            features[index] = _block_requirement(
-                feature, conflict or "general-tolerance designation is empty"
-            )
+            features[index] = _block_requirement(feature, str(exc))
             model = replace(model, features=features)
         else:
             tolerance_requirement = GeneralTolerance(
