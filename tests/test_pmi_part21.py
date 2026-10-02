@@ -201,7 +201,9 @@ def test_structured_manufacturing_attributes_keep_units_and_source_support_issue
         "#9=DESCRIPTIVE_REPRESENTATION_ITEM('through','true');",
         "#10=MEASURE_REPRESENTATION_ITEM('pitch',LENGTH_MEASURE(0.8),#11);",
         "#11=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));",
+        "#51=PRODUCT_DEFINITION('part','',#54,#53);",
         "#50=PRODUCT_DEFINITION_SHAPE('','',#51);",
+        "#55=SHAPE_DEFINITION_REPRESENTATION(#50,#56);",
         "#20=PROPERTY_DEFINITION('default tolerances','',#50);",
         "#21=PROPERTY_DEFINITION_REPRESENTATION(#20,#22);",
         "#22=REPRESENTATION('default tolerances',(#23),#53);",
@@ -229,6 +231,35 @@ def test_structured_manufacturing_attributes_keep_units_and_source_support_issue
         (("tolerance class", "ISO 2768-m"),),
         "",
     )
+
+
+def test_structured_default_tolerance_refuses_two_product_source_issue_2137(tmp_path):
+    instances = (
+        "#51=PRODUCT_DEFINITION('part','',#54,#53);",
+        "#50=PRODUCT_DEFINITION_SHAPE('','',#51);",
+        "#55=SHAPE_DEFINITION_REPRESENTATION(#50,#56);",
+        "#57=PRODUCT_DEFINITION('other','',#54,#53);",
+        "#20=PROPERTY_DEFINITION('default tolerances','',#50);",
+        "#21=PROPERTY_DEFINITION_REPRESENTATION(#20,#22);",
+        "#22=REPRESENTATION('default tolerances',(#23),#53);",
+        "#23=DESCRIPTIVE_REPRESENTATION_ITEM('tolerance class','ISO 2768-m');",
+    )
+    path = tmp_path / "two-product.step"
+    path.write_text(_step(*instances), encoding="utf-8")
+    assert sum("PRODUCT_DEFINITION(" in row for row in instances) == 2
+
+    (fact,) = read_structured_manufacturing_requirements(path)
+
+    assert fact.kind == "general_tolerances"
+    assert fact.fields == (("tolerance class", "ISO 2768-m"),)
+    assert "single shaped source product definition" in fact.reason
+    import draftwright.pmi as pmi
+
+    sources, records = pmi._manufacturing_requirement_projection(path)
+    source = next(item for item in sources if item.source_id == "manufacturing_requirement:#20")
+    assert source.outcome == "partially_extracted"
+    assert "single shaped source product definition" in source.reason
+    assert any(item.source_id == source.source_id and item.lowering_blockers for item in records)
 
 
 @pytest.mark.parametrize(

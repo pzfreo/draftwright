@@ -197,6 +197,226 @@ def test_structured_through_tap_lowers_without_a_prose_sentence_issue_2137():
     assert not any(isinstance(feature, PmiFeature) for feature in lowered.features)
 
 
+@pytest.mark.parametrize("reverse", (False, True))
+def test_conflicting_structured_threads_leave_every_source_unlowered_issue_2137(reverse):
+    hole = HoleFeature(Frame((-20.0, 0.0, 0.0), "x"), 1.6, depth=None, through=True)
+    sources = tuple(
+        replace(
+            _raw(
+                "internal_thread",
+                "internal thread",
+                _reference(1.6, (-20.0, 20.0), "internal"),
+                f"#pitch_{pitch}",
+            ),
+            structured_fields=(
+                ("thread side", "internal"),
+                ("designation", f"M2x{pitch}"),
+                ("nominal size", "M2"),
+                ("pitch", pitch),
+                ("fit class", "6H"),
+                ("hand", "right"),
+                ("through", "true"),
+                ("tapping drill diameter", 1.6),
+            ),
+        )
+        for pitch in (0.4, 0.5)
+    )
+    assert {dict(source.structured_fields)["pitch"] for source in sources} == {0.4, 0.5}
+    assert all(source.cylindrical_refs == sources[0].cylindrical_refs for source in sources)
+
+    lowered = lower_ap242_manufacturing_requirements(
+        _model(hole, *(reversed(sources) if reverse else sources))
+    )
+
+    assert lowered.features[0].thread is None
+    fallbacks = [feature for feature in lowered.features if isinstance(feature, PmiFeature)]
+    assert {feature.source_id for feature in fallbacks} == {
+        "manufacturing_requirement:#pitch_0.4",
+        "manufacturing_requirement:#pitch_0.5",
+    }
+    assert all(
+        feature.lowering_blockers
+        == (
+            "ambiguous thread ownership: multiple manufacturing requirements claim canonical feature",
+        )
+        for feature in fallbacks
+    )
+
+
+def test_thread_and_knurl_aspects_on_one_owner_lower_independently_issue_2137():
+    head = StepFeature(
+        frame=Frame((1.0, 0.0, 0.0), "x"),
+        length=2.0,
+        diameter=10.0,
+        span=((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
+    )
+    thread = replace(
+        _raw(
+            "external_thread",
+            "external thread",
+            _reference(10.0, (0.0, 2.0), "external"),
+            "#thread",
+        ),
+        structured_fields=(
+            ("thread side", "external"),
+            ("designation", "M10x1.5"),
+            ("nominal size", "M10"),
+            ("pitch", 1.5),
+            ("fit class", "6g"),
+            ("hand", "right"),
+            ("thread length", 2.0),
+        ),
+    )
+    knurl = replace(
+        _raw("knurl", "knurl", _reference(10.0, (0.2, 1.8), "external"), "#knurl"),
+        structured_fields=(
+            ("pattern", "straight"),
+            ("diametral pitch", 1.0),
+            ("major diameter", 10.0),
+        ),
+    )
+    remaps = []
+
+    lowered = lower_ap242_manufacturing_requirements(
+        _model(head, thread, knurl), feature_remap=lambda *args: remaps.append(args)
+    )
+
+    assert len(lowered.features) == 1
+    assert lowered.features[0].thread is not None
+    assert lowered.features[0].knurl is not None
+    assert remaps == [(head, (lowered.features[0],), None)]
+
+
+def test_source_shaped_paired_manufacturing_fields_lower_with_explicit_prose_issue_2137():
+    hole = HoleFeature(Frame((0.0, 0.0, 0.0), "x"), 4.2, depth=8.0, through=False)
+    head = StepFeature(
+        frame=Frame((1.0, 0.0, 0.0), "x"),
+        length=2.0,
+        diameter=10.0,
+        span=((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
+    )
+    end = StepFeature(
+        frame=Frame((5.0, 0.0, 0.0), "x"),
+        length=2.0,
+        diameter=6.0,
+        span=((4.0, 0.0, 0.0), (6.0, 0.0, 0.0)),
+    )
+    internal = replace(
+        _raw(
+            "internal_thread",
+            "M5 x 0.8-6H RH, 6 mm minimum full thread; DIA 4.2 tapping drill x 8 mm full-diameter depth; conventional 118 degree drill point",
+            _reference(4.2, (0.0, 8.0), "internal"),
+            "#internal",
+        ),
+        source_ids=(
+            "manufacturing_requirement:#internal",
+            "manufacturing_requirement:#internal_uda",
+        ),
+        structured_fields=(
+            ("thread side", "internal"),
+            ("designation", "M5x0.8"),
+            ("fit class", "6H"),
+            ("hand", "right"),
+            ("full thread length", 6.0),
+            ("drill diameter", 4.2),
+            ("drill depth", 8.0),
+        ),
+    )
+    external = replace(
+        _raw(
+            "external_thread",
+            "M6 x 1-6g RH, full available length on nominal DIA 6 region",
+            _reference(6.0, (4.0, 6.0), "external"),
+            "#external",
+        ),
+        source_ids=(
+            "manufacturing_requirement:#external",
+            "manufacturing_requirement:#external_uda",
+        ),
+        structured_fields=(
+            ("thread side", "external"),
+            ("designation", "M6x1"),
+            ("fit class", "6g"),
+            ("hand", "right"),
+        ),
+    )
+    knurl = replace(
+        _raw(
+            "knurl",
+            "Straight knurl, 1 mm pitch, full width between C0.3 chamfers, DIA 10 mm maximum after knurling; cut or formed process permitted",
+            _reference(10.0, (0.2, 1.8), "external"),
+            "#knurl",
+        ),
+        source_ids=("manufacturing_requirement:#knurl", "manufacturing_requirement:#knurl_uda"),
+        structured_fields=(("pattern", "straight"), ("pitch", 1.0), ("maximum diameter", 10.0)),
+    )
+    assert "thread length" not in dict(external.structured_fields)
+    assert "minimum full thread" not in dict(internal.structured_fields)
+
+    lowered = lower_ap242_manufacturing_requirements(
+        _model(hole, head, end, internal, external, knurl)
+    )
+
+    assert len(lowered.features) == 3
+    assert lowered.features[0].thread.minimum_full_thread == 6.0
+    assert lowered.features[0].thread.drill_point_angle == 118.0
+    assert lowered.features[1].knurl.edge_chamfer == 0.3
+    assert lowered.features[2].thread.full_available_length
+    assert lowered.features[2].thread.pitch == 1.0
+
+    conflicting_length = replace(
+        internal,
+        structured_fields=tuple(
+            (name, 7.0 if name == "full thread length" else value)
+            for name, value in internal.structured_fields
+        ),
+    )
+    refused = lower_ap242_manufacturing_requirements(_model(hole, conflicting_length))
+    assert refused.features[0].thread is None
+    assert refused.features[1].lowering_blockers == (
+        "structured thread values disagree with prose",
+    )
+
+
+def test_structured_thread_cannot_infer_unstated_length_meaning_issue_2137():
+    blind = replace(
+        _raw(
+            "internal_thread", "internal thread", _reference(4.2, (0.0, 8.0), "internal"), "#blind"
+        ),
+        structured_fields=(
+            ("thread side", "internal"),
+            ("designation", "M5x0.8"),
+            ("fit class", "6H"),
+            ("hand", "right"),
+            ("full thread length", 6.0),
+            ("drill diameter", 4.2),
+            ("drill depth", 8.0),
+        ),
+    )
+    external = replace(
+        _raw(
+            "external_thread",
+            "external thread",
+            _reference(6.0, (4.0, 6.0), "external"),
+            "#external",
+        ),
+        structured_fields=(
+            ("thread side", "external"),
+            ("designation", "M6x1"),
+            ("fit class", "6g"),
+            ("hand", "right"),
+        ),
+    )
+    assert all(source.structured_fields for source in (blind, external))
+
+    lowered = lower_ap242_manufacturing_requirements(_model(blind, external))
+
+    assert [feature.lowering_blockers for feature in lowered.features] == [
+        ("structured full thread length needs a matching minimum-full-thread prose requirement",),
+        ("structured external thread has no length requirement",),
+    ]
+
+
 @pytest.mark.parametrize("kind", ("internal_thread", "knurl", "general_tolerances"))
 @pytest.mark.parametrize("extra", ("unknown", "duplicate"))
 def test_structured_manufacturing_field_schema_rejects_unclaimed_meaning_issue_2137(kind, extra):

@@ -680,8 +680,15 @@ def read_structured_manufacturing_requirements(
     representations: dict[str, list[str]] = {}
     aspect_items: dict[str, list[str]] = {}
     uda_properties: set[str] = set()
+    product_ids: set[str] = set()
+    shape_definition_refs: set[str] = set()
     for section in step.data:
         for entity_id, instance in section.instances.items():
+            if _entity_named(instance, "PRODUCT_DEFINITION") is not None:
+                product_ids.add(entity_id)
+            shape_representation = _entity_named(instance, "SHAPE_DEFINITION_REPRESENTATION")
+            if shape_representation is not None and shape_representation.params:
+                shape_definition_refs.update(_references(shape_representation.params[0]))
             definition = _entity_named(instance, "PROPERTY_DEFINITION")
             if definition is not None and definition.params:
                 definitions.append((entity_id, definition))
@@ -707,6 +714,13 @@ def read_structured_manufacturing_requirements(
                     ):
                         uda_properties.add(str(prop))
 
+    shaped_products = {
+        str(definition.params[2])
+        for ref in shape_definition_refs
+        if (definition := _entity_named(step.get(ref), "PRODUCT_DEFINITION_SHAPE")) is not None
+        and len(definition.params) >= 3
+        and isinstance(definition.params[2], p21.Reference)
+    }
     facts: list[StructuredManufacturingFact] = []
     for entity_id, definition in definitions:
         name = _text(definition.params[0]).casefold().replace(" ", "_")
@@ -725,10 +739,20 @@ def read_structured_manufacturing_requirements(
         reference_ids: tuple[str, ...] = ()
         if is_default:
             target = definition.params[2] if len(definition.params) >= 3 else None
-            if not isinstance(target, p21.Reference) or not _instance_is(
-                step, str(target), "PRODUCT_DEFINITION_SHAPE"
-            ):
+            product_shape = (
+                _entity_named(step.get(str(target)), "PRODUCT_DEFINITION_SHAPE")
+                if isinstance(target, p21.Reference)
+                else None
+            )
+            if product_shape is None:
                 reasons.append("structured default tolerances have no product shape")
+            else:
+                owner = product_shape.params[2] if len(product_shape.params) >= 3 else None
+                owner_id = str(owner) if isinstance(owner, p21.Reference) else ""
+                if product_ids != {owner_id} or shaped_products != {owner_id}:
+                    reasons.append(
+                        "structured default tolerances are not owned by the single shaped source product definition"
+                    )
         else:
             target = definition.params[2] if len(definition.params) >= 3 else None
             if not isinstance(target, p21.Reference) or not _instance_is(

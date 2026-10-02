@@ -814,6 +814,12 @@ def _structured_number(fields: dict[str, str | float], name: str) -> float:
     return value
 
 
+def _structured_number_alias(fields: dict[str, str | float], name: str, alias: str) -> float:
+    if name in fields and alias in fields:
+        raise ValueError(f"structured manufacturing has both {name} and {alias}")
+    return _structured_number(fields, name if name in fields else alias)
+
+
 def _structured_text(fields: dict[str, str | float], name: str) -> str:
     value = fields.get(name)
     if not isinstance(value, str) or not value.strip():
@@ -834,6 +840,9 @@ _STRUCTURED_MANUFACTURING_FIELDS = {
             "tapping drill diameter",
             "tapping drill depth",
             "minimum full thread",
+            "full thread length",
+            "drill diameter",
+            "drill depth",
         }
     ),
     "external_thread": frozenset(
@@ -847,7 +856,9 @@ _STRUCTURED_MANUFACTURING_FIELDS = {
             "thread length",
         }
     ),
-    "knurl": frozenset({"pattern", "diametral pitch", "major diameter"}),
+    "knurl": frozenset(
+        {"pattern", "diametral pitch", "major diameter", "pitch", "maximum diameter"}
+    ),
     "general_tolerances": frozenset({"tolerance class"}),
 }
 
@@ -862,26 +873,30 @@ def _structured_fields(feature: PmiFeature) -> dict[str, str | float]:
     return dict(feature.structured_fields)
 
 
-def _structured_thread_requirement(feature: PmiFeature) -> ThreadRequirement:
+def _structured_thread_requirement(
+    feature: PmiFeature, prose: ThreadRequirement | None
+) -> ThreadRequirement:
     fields = _structured_fields(feature)
     application = _structured_text(fields, "thread side").casefold()
     if application not in ("internal", "external") or feature.pmi_kind != f"{application}_thread":
         raise ValueError("structured thread side disagrees with requirement kind")
-    nominal_text = _structured_text(fields, "nominal size")
-    nominal_match = re.fullmatch(r"M(\d+(?:\.\d+)?)", nominal_text, re.IGNORECASE)
     designation_text = _structured_text(fields, "designation")
     designation_match = re.fullmatch(
         r"M(?P<nominal>\d+(?:\.\d+)?)\s*x\s*(?P<pitch>\d+(?:\.\d+)?)",
         designation_text,
         re.IGNORECASE,
     )
-    if nominal_match is None or designation_match is None:
+    if designation_match is None:
         raise ValueError("structured thread designation or nominal size is unsupported")
-    nominal = float(nominal_match.group(1))
-    pitch = _structured_number(fields, "pitch")
-    if not _same_number(nominal, float(designation_match["nominal"])) or not _same_number(
-        pitch, float(designation_match["pitch"])
-    ):
+    nominal = float(designation_match["nominal"])
+    pitch = float(designation_match["pitch"])
+    if "nominal size" in fields:
+        nominal_match = re.fullmatch(
+            r"M(\d+(?:\.\d+)?)", _structured_text(fields, "nominal size"), re.IGNORECASE
+        )
+        if nominal_match is None or not _same_number(nominal, float(nominal_match.group(1))):
+            raise ValueError("structured thread designation disagrees with nominal size or pitch")
+    if "pitch" in fields and not _same_number(pitch, _structured_number(fields, "pitch")):
         raise ValueError("structured thread designation disagrees with nominal size or pitch")
     tolerance_class = _structured_text(fields, "fit class")
     if re.fullmatch(r"[A-Za-z0-9]+", tolerance_class) is None:
@@ -905,26 +920,40 @@ def _structured_thread_requirement(feature: PmiFeature) -> ThreadRequirement:
     full: float | None = None
     length: float | None = None
     if application == "internal":
-        drill = _structured_number(fields, "tapping drill diameter")
-        depth = None if through else _structured_number(fields, "tapping drill depth")
-        if through and "tapping drill depth" in fields:
-            raise ValueError("structured through tap cannot declare a blind drill depth")
-        full = (
-            _structured_number(fields, "minimum full thread")
-            if "minimum full thread" in fields
-            else None
+        drill = _structured_number_alias(fields, "tapping drill diameter", "drill diameter")
+        depth = (
+            None
+            if through
+            else _structured_number_alias(fields, "tapping drill depth", "drill depth")
         )
+        if through and ("tapping drill depth" in fields or "drill depth" in fields):
+            raise ValueError("structured through tap cannot declare a blind drill depth")
+        if "full thread length" in fields:
+            if prose is None or prose.minimum_full_thread is None:
+                raise ValueError(
+                    "structured full thread length needs a matching minimum-full-thread prose requirement"
+                )
+            full = _structured_number_alias(fields, "minimum full thread", "full thread length")
+        else:
+            full = (
+                _structured_number(fields, "minimum full thread")
+                if "minimum full thread" in fields
+                else None
+            )
     else:
         if through:
             raise ValueError("structured external thread cannot be a through tap")
-        length = _structured_number(fields, "thread length")
-        if len(feature.cylindrical_refs) != 1 or not _same_number(
-            feature.cylindrical_refs[0].axial_interval[1]
-            - feature.cylindrical_refs[0].axial_interval[0],
-            length,
-            abs_tol=0.01,
-        ):
-            raise ValueError("structured thread length disagrees with source cylinder")
+        if "thread length" in fields:
+            length = _structured_number(fields, "thread length")
+            if len(feature.cylindrical_refs) != 1 or not _same_number(
+                feature.cylindrical_refs[0].axial_interval[1]
+                - feature.cylindrical_refs[0].axial_interval[0],
+                length,
+                abs_tol=0.01,
+            ):
+                raise ValueError("structured thread length disagrees with source cylinder")
+        elif prose is None or not prose.full_available_length:
+            raise ValueError("structured external thread has no length requirement")
     return ThreadRequirement(
         application=cast(Literal["external", "internal"], application),
         designation=designation,
@@ -938,7 +967,7 @@ def _structured_thread_requirement(feature: PmiFeature) -> ThreadRequirement:
         shape_aspect_ids=feature.shape_aspect_ids,
         reference_item_ids=feature.reference_item_ids,
         cylindrical_refs=feature.cylindrical_refs,
-        full_available_length=length is not None,
+        full_available_length=length is not None or bool(prose and prose.full_available_length),
         minimum_full_thread=full,
         drill_diameter=drill,
         drill_depth=depth,
@@ -949,12 +978,14 @@ def _structured_thread_requirement(feature: PmiFeature) -> ThreadRequirement:
 def _thread_requirement(feature: PmiFeature) -> ThreadRequirement:
     if not feature.structured_fields:
         return _text_thread_requirement(feature)
-    structured = _structured_thread_requirement(feature)
     try:
         prose = _text_thread_requirement(feature)
     except ValueError as exc:
         if len(feature.source_ids) > 1:
             raise ValueError("structured thread cannot reconcile with prose") from exc
+        prose = None
+    structured = _structured_thread_requirement(feature, prose)
+    if prose is None:
         return structured
     shared = (
         "application",
@@ -989,9 +1020,9 @@ def _structured_knurl_requirement(feature: PmiFeature) -> KnurlRequirement:
         raise ValueError("structured knurl pattern is unsupported")
     return KnurlRequirement(
         pattern=cast(Literal["straight", "diamond"], pattern),
-        pitch=_structured_number(fields, "diametral pitch"),
+        pitch=_structured_number_alias(fields, "diametral pitch", "pitch"),
         full_width=False,
-        maximum_diameter=_structured_number(fields, "major diameter"),
+        maximum_diameter=_structured_number_alias(fields, "major diameter", "maximum diameter"),
         text=feature.label,
         source_ids=_requirement_source_ids(feature),
         part21_id=feature.part21_id,
@@ -1139,10 +1170,18 @@ def lower_ap242_manufacturing_requirements(
         if isinstance(feature, (StepFeature, BossFeature, HoleFeature, PatternFeature))
     ]
     replacements: dict[int, Feature] = {}
-    replacement_pairs: list[tuple[Feature, Feature]] = []
     consumed: set[int] = set()
     blocked: dict[int, str] = {}
-    claimed: set[int] = set()
+    proposals: dict[
+        tuple[int, str],
+        list[
+            tuple[
+                int,
+                StepFeature | BossFeature | HoleFeature | PatternFeature,
+                ThreadRequirement | KnurlRequirement,
+            ]
+        ],
+    ] = {}
     for index, feature in raw.items():
         if feature.lowering_blockers:
             continue
@@ -1198,11 +1237,17 @@ def lower_ap242_manufacturing_requirements(
             )
             continue
         owner = matches[0]
-        if id(owner) in claimed:
-            blocked[index] = (
-                "ambiguous manufacturing requirement: canonical feature is already claimed"
-            )
+        aspect = "knurl" if isinstance(requirement, KnurlRequirement) else "thread"
+        proposals.setdefault((id(owner), aspect), []).append((index, owner, requirement))
+
+    for (_owner_id, aspect), candidates in proposals.items():
+        if len(candidates) != 1:
+            for index, _owner, _requirement in candidates:
+                blocked[index] = (
+                    f"ambiguous {aspect} ownership: multiple manufacturing requirements claim canonical feature"
+                )
             continue
+        index, owner, requirement = candidates[0]
         current = replacements.get(id(owner), owner)
         updated: Feature
         if isinstance(requirement, KnurlRequirement):
@@ -1229,14 +1274,13 @@ def lower_ap242_manufacturing_requirements(
                 continue
             updated = replace(current, thread=requirement)
         replacements[id(owner)] = updated
-        replacement_pairs.append((owner, updated))
-        claimed.add(id(owner))
         consumed.add(index)
 
     lowered = _remap_model_features(model, replacements)
     if feature_remap is not None:
-        for source, replacement in replacement_pairs:
-            feature_remap(source, (replacement,), None)
+        for owner in owners:
+            if (replacement := replacements.get(id(owner))) is not None:
+                feature_remap(owner, (replacement,), None)
     rebuilt: list[Feature] = []
     for index, lowered_feature in enumerate(lowered.features):
         if index in consumed:
