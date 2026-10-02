@@ -186,11 +186,16 @@ def hole_callout_batches(
                 spec,
             )
         )
-    # Axial faces can carry congruent patterns whose end-view members project
-    # onto the same ink. Keep each physical owner, and name its axial station.
-    # The spec is shared with the width estimator, so this wording is reserved
-    # before the placement solve.
-    coincident: dict[tuple, list[tuple[int, float]]] = {}
+    return _qualify_coincident_axial_patterns(result)
+
+
+def _qualify_coincident_axial_patterns(
+    result: list[HoleCalloutBatch],
+) -> tuple[HoleCalloutBatch, ...]:
+    """Name every axial face whose patterns project onto the same end-view sites."""
+    # Include different bore sizes: their labels still need absolute physical support.
+    # The shared spec reaches both the renderer and width estimator before placement.
+    coincident: dict[tuple, list[tuple[int, float, tuple]]] = {}
     nonprinting = {
         "measurements",
         "source_measurements",
@@ -219,27 +224,30 @@ def hole_callout_batches(
         projected = tuple(
             sorted((round(point[0], 6), round(point[1], 6)) for point in callout_batch.locations)
         )
-        coincident.setdefault((group.view, signature, projected), []).append(
-            (index, feature.frame.origin[2])
+        coincident.setdefault((group.view, projected), []).append(
+            (index, feature.frame.origin[2], signature)
         )
     for sites in coincident.values():
         if len(sites) < 2:
             continue
-        if len({station for _index, station in sites}) != len(sites):
+        if len({(station, signature) for _index, station, signature in sites}) != len(sites):
             raise ValueError("coincident hole patterns have no distinct axial stations")
-        ordered_sites = sorted(sites, key=lambda site: (site[1], site[0]))
+        stations = sorted({station for _index, station, _signature in sites})
+        if len(stations) < 2:
+            continue
         qualifiers = (
             ("LOWER FACE", "UPPER FACE")
-            if len(sites) == 2
+            if len(stations) == 2
             else tuple(
-                f"FACE {ordinal} OF {len(sites)} FROM LOWER END"
-                for ordinal in range(1, len(sites) + 1)
+                f"FACE {ordinal} OF {len(stations)} FROM LOWER END"
+                for ordinal in range(1, len(stations) + 1)
             )
         )
-        for (index, _station), qualifier in zip(ordered_sites, qualifiers, strict=True):
+        by_station = dict(zip(stations, qualifiers, strict=True))
+        for index, station, _signature in sites:
             callout_batch = result[index]
             result[index] = replace(
-                callout_batch, spec={**callout_batch.spec, "site_suffix": qualifier}
+                callout_batch, spec={**callout_batch.spec, "site_suffix": by_station[station]}
             )
     return tuple(result)
 

@@ -45,7 +45,7 @@ def test_coincident_flange_patterns_and_diameters_name_both_supports_issue_2129(
         diameters = [
             (name, annotation, dwg.registry.features_of(name))
             for name, annotation in dwg.iter_annotations()
-            if annotation.label == "ø130"
+            if annotation.label == "2× ø130"
         ]
         patterns = [
             (name, annotation, dwg.registry.features_of(name)[0])
@@ -91,6 +91,26 @@ def test_coincident_flange_patterns_and_diameters_name_both_supports_issue_2129(
         return {name: annotation.label for name, annotation, _ in diameters + patterns}
 
     direct_labels = same_support_claims(drawing)
+    from draftwright._core import _dim
+    from draftwright.repair import _replace_dim
+
+    original_od = drawing.get_annotation("dim_od")
+    placement = original_od.placement_spec
+    _replace_dim(
+        drawing,
+        original_od,
+        _dim(
+            placement.p1,
+            placement.p2,
+            placement.side,
+            placement.distance,
+            placement.draft,
+            **placement.kwargs,
+        ),
+    )
+    assert drawing.get_annotation("dim_od") is not original_od
+    assert drawing.get_annotation("dim_od").indivisible_measurements
+    assert same_support_claims(drawing) == direct_labels
     groups = plan_dimensions(drawing.model())
     estimate = _est_planned_bore_callout_width(groups, drawing.draft)
     rendered = [
@@ -111,7 +131,8 @@ def test_coincident_flange_patterns_and_diameters_name_both_supports_issue_2129(
 
 
 @pytest.mark.slow
-def test_three_coincident_flange_patterns_name_each_axial_support_issue_2129():
+@pytest.mark.parametrize("radii", ((4, 4, 4), (5, 4, 4)))
+def test_three_coincident_flange_patterns_name_each_axial_support_issue_2129(radii):
     from draftwright.annotations.from_model import callout_from_spec
     from draftwright.compose import _est_planned_bore_callout_width
     from draftwright.model.callout import hole_callout_batches
@@ -121,17 +142,17 @@ def test_three_coincident_flange_patterns_name_each_axial_support_issue_2129():
     part = Cylinder(65, 5, align=align) + Pos(0, 0, 5) * Cylinder(35, 103, align=align)
     for z in (54, 108):
         part += Pos(0, 0, z) * Cylinder(65, 5, align=align)
-    for z in (0, 54, 108):
+    for z, radius in zip((0, 54, 108), radii, strict=True):
         for index in range(12):
             angle = 2 * math.pi * index / 12
             part -= Pos(55 * math.cos(angle), 55 * math.sin(angle), z) * Cylinder(
-                4, 5, align=align
+                radius, 5, align=align
             )
     drawing = build_drawing(part, scale=1, page="A2", scale_policy="permissive")
     patterns = [
         (name, annotation, drawing.registry.features_of(name)[0])
         for name, annotation in drawing.iter_annotations()
-        if name.startswith("hc_plan") and annotation.label.startswith("12× ⌀8")
+        if name.startswith("hc_plan") and annotation.label.startswith("12× ⌀")
     ]
     assert len(patterns) == 3
     assert sorted(feature.frame.origin[2] for _name, _annotation, feature in patterns) == [
@@ -156,6 +177,10 @@ def test_three_coincident_flange_patterns_name_each_axial_support_issue_2129():
         59.0: "2 OF 3 FROM LOWER END",
         113.0: "3 OF 3 FROM LOWER END",
     }
+    assert {
+        feature.frame.origin[2]: annotation.label.split(" ", 2)[1]
+        for _name, annotation, feature in patterns
+    } == {5.0: f"⌀{2 * radii[0]}", 59.0: "⌀8", 113.0: "⌀8"}
     assert all(drawing.registry.measurement_of(name) for name, _ann, _feature in patterns)
 
     groups = plan_dimensions(drawing.model())

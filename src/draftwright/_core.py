@@ -625,6 +625,9 @@ def _copy_dimension_spec_riders(source, target) -> None:
     new = target.placement_spec
     new.label_value = old.label_value
     new.authored_side = old.authored_side
+    for attr in ("source_features", "indivisible_measurements"):
+        if hasattr(source, attr):
+            setattr(target, attr, getattr(source, attr))
 
 
 def _dim(p1, p2, side, distance, draft, **kwargs):

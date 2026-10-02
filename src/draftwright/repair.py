@@ -68,11 +68,10 @@ def _replace_dim(dwg, old, new):
     # The same declared meaning and side constraint must follow repaired geometry.
     name = next((name for name, obj in dwg.registry.iter_named() if obj is old), None)
     spec = dwg.registry.dimension_spec_of(name) if name is not None else None
+    _copy_dimension_spec_riders(old, new)
     if spec is not None and isinstance(new, PlacedDimension):
         new.placement_spec.label_value = spec.label_value
         new.placement_spec.authored_side = spec.authored_side
-    else:
-        _copy_dimension_spec_riders(old, new)
     _swap_annotation(dwg, old, new)
 
 

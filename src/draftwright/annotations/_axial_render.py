@@ -838,7 +838,11 @@ def _coaxial_step_diameter_texts(plan, origin):
 def _rotational_dia_label(dim, draft, step_diameters):
     # Planner-fed value + authored tolerance/fit suffix.
     label = f"ø{dim.value_text}{_tol_suffix(dim.tolerance, draft)}"
-    return label + " BORE" if dim.role == "bore" and dim.value_text in step_diameters else label
+    if dim.role == "bore" and dim.value_text in step_diameters:
+        return label + " BORE"
+    if dim.role == "od" and len(dim.equivalent_ids) > 1:
+        return f"{len(dim.equivalent_ids)}× {label}"
+    return label
 
 
 def _rotational_od_mark(first, second, side, draft, od_dim, label):
