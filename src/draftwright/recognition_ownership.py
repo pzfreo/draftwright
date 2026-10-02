@@ -17,6 +17,7 @@ from quiddity.evidence import FeatureRef, RecognitionEvidence
 
 from draftwright._geometry import _axis_letter
 from draftwright.blend_contract import blend_provider_key
+from draftwright.family_table import ownership_families
 from draftwright.oriented_slot_contract import standalone_oriented_slots
 from draftwright.profile_angles import ProfileAngle
 from draftwright.recogniser_policy import (
@@ -269,38 +270,18 @@ def boss_blend_owner_pairs(
 # model.detect. Remaining nested and classification-only families stay unclassified until a later
 # slice can state their ownership honestly. Consumer-policy-only occurrences are classified
 # separately below because they deliberately have no IR owner.
-DIRECT_FAMILIES = frozenset(
-    {
-        "blends",
-        "chamfers",
-        "circular_blind_steps",
-        "double_d_bores",
-        "fillets",
-        "flats",
-        "grooves",
-        "oriented_slots",
-        "pads",
-        "paired_ramp_steps",
-        "polygonal_bosses",
-        "polygonal_stock",
-    }
-)
+DIRECT_FAMILIES = ownership_families("direct")
 
-# The aggregate exposes these as authoritative physical member occurrences.  Draftwright may
+# The aggregate exposes these as authoritative physical member occurrences. Draftwright may
 # lower one member to one feature or absorb several members into one grouped/pattern feature.
-# The derived pattern records are deliberately not FeatureRefs and must not be promoted into
-# invented persistent occurrences.
-GROUPABLE_FAMILIES = frozenset({"gusset_ribs", "holes", "section_recesses", "slots"})
+# Derived pattern records remain outside this occurrence set in Quiddity 0.3.3.
+GROUPABLE_FAMILIES = ownership_families("groupable")
 
-# These accepted occurrences are nested records carried by a supported parent occurrence. They
-# must retain their own outcome while sharing the parent's final IR owner rather than creating a
-# duplicate feature or requirement.
-NESTED_FAMILIES = frozenset({"countersinks"})
+# Nested accepted occurrences share their supported parent's final IR owner.
+NESTED_FAMILIES = ownership_families("nested")
 
-# These accepted occurrences have a supported consumer path, but the final owner depends on
-# Draftwright's cross-family classification.  The conversion site must record either the direct
-# adapter or the exact aggregate feature that intentionally absorbs the occurrence.
-CONDITIONAL_FAMILIES = frozenset({"bosses", "plates", "through_steps", "turned_steps"})
+# Final ownership for these accepted occurrences depends on cross-family classification.
+CONDITIONAL_FAMILIES = ownership_families("conditional")
 
 OwnershipDisposition = Literal["represented", "absorbed"]
 PolicyDisposition = OwnerlessDisposition
