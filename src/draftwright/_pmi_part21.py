@@ -714,9 +714,12 @@ def read_structured_manufacturing_requirements(
                     ):
                         uda_properties.add(str(prop))
 
+    shaped_shape_ids = {
+        ref for ref in shape_definition_refs if _instance_is(step, ref, "PRODUCT_DEFINITION_SHAPE")
+    }
     shaped_products = {
         str(definition.params[2])
-        for ref in shape_definition_refs
+        for ref in shaped_shape_ids
         if (definition := _entity_named(step.get(ref), "PRODUCT_DEFINITION_SHAPE")) is not None
         and len(definition.params) >= 3
         and isinstance(definition.params[2], p21.Reference)
@@ -752,6 +755,10 @@ def read_structured_manufacturing_requirements(
                 if product_ids != {owner_id} or shaped_products != {owner_id}:
                     reasons.append(
                         "structured default tolerances are not owned by the single shaped source product definition"
+                    )
+                if shaped_shape_ids != {str(target)}:
+                    reasons.append(
+                        "structured default tolerances are not owned by the sole shaped source product shape"
                     )
         else:
             target = definition.params[2] if len(definition.params) >= 3 else None

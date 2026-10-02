@@ -262,6 +262,43 @@ def test_structured_default_tolerance_refuses_two_product_source_issue_2137(tmp_
     assert any(item.source_id == source.source_id and item.lowering_blockers for item in records)
 
 
+def test_structured_default_tolerance_refuses_two_shapes_of_one_product_issue_2137(tmp_path):
+    instances = (
+        "#51=PRODUCT_DEFINITION('part','',#54,#53);",
+        "#50=PRODUCT_DEFINITION_SHAPE('first','',#51);",
+        "#55=SHAPE_DEFINITION_REPRESENTATION(#50,#56);",
+        "#60=PRODUCT_DEFINITION_SHAPE('second','',#51);",
+        "#61=SHAPE_DEFINITION_REPRESENTATION(#60,#62);",
+        "#20=PROPERTY_DEFINITION('default tolerances','',#50);",
+        "#21=PROPERTY_DEFINITION_REPRESENTATION(#20,#22);",
+        "#22=REPRESENTATION('default tolerances',(#23),#53);",
+        "#23=DESCRIPTIVE_REPRESENTATION_ITEM('tolerance class','ISO 2768-m');",
+    )
+    path = tmp_path / "two-shapes-one-product.step"
+    path.write_text(_step(*instances), encoding="utf-8")
+    assert sum("PRODUCT_DEFINITION(" in row for row in instances) == 1
+    assert sum("PRODUCT_DEFINITION_SHAPE(" in row for row in instances) == 2
+    assert sum("SHAPE_DEFINITION_REPRESENTATION(" in row for row in instances) == 2
+
+    (fact,) = read_structured_manufacturing_requirements(path)
+
+    assert fact.kind == "general_tolerances"
+    assert fact.fields == (("tolerance class", "ISO 2768-m"),)
+    assert fact.reason == (
+        "structured default tolerances are not owned by the sole shaped source product shape"
+    )
+    import draftwright.pmi as pmi
+
+    sources, records = pmi._manufacturing_requirement_projection(path)
+    source = next(item for item in sources if item.source_id == "manufacturing_requirement:#20")
+    assert source.outcome == "partially_extracted"
+    assert source.reason == fact.reason
+    assert any(
+        item.source_id == source.source_id and item.lowering_blockers == (fact.reason,)
+        for item in records
+    )
+
+
 @pytest.mark.parametrize(
     ("definition", "association", "expected_kind", "reason_part"),
     [
