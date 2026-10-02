@@ -583,10 +583,10 @@ def _render_step_lengths_or_contingency(run: _AutoAnnotationRun) -> None:
     )
 
 
-def _locate_off_axis_stage(dwg, ctx, a, feature_keys, compiled, *, which: str) -> None:
+def _locate_off_axis_stage(run: _AutoAnnotationRun, *, which: str) -> None:
     """Register a side-drilled location only when the hole inventory exists."""
-    if feature_keys:
-        _locate_off_axis_holes(dwg, ctx, a, which=which, plan=compiled)
+    if run.feature_keys:
+        _locate_off_axis_holes(run.dwg, run.ctx, run.analysis, which=which, plan=run.compiled)
 
 
 def _initial_annotation_stages(run: _AutoAnnotationRun) -> dict:
@@ -699,7 +699,7 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
     """Register feature dimensions and callouts before the corridor drain."""
     dwg, a, ctx = run.dwg, run.analysis, run.ctx
     _compiled = run.compiled
-    feature_keys, detail_view = run.feature_keys, run.detail_view
+    detail_view = run.detail_view
 
     def _s_chamfers():
         # Chamfer callouts: C{leg} / {leg}×{angle}° via a leader off each chamfer face.
@@ -785,7 +785,7 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
         # the overall envelope depth. They now queue into the same batch; the envelope's
         # later subchain + mandatory priority keeps ISO outermost stacking and prevents
         # best-effort locations from starving the principal depth dimension.
-        _locate_off_axis_stage(dwg, ctx, a, feature_keys, _compiled, which="across")
+        _locate_off_axis_stage(run, which="across")
 
     def _s_envelope():
         # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
@@ -835,7 +835,7 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
         # envelope candidates so below/right corridors solve them together with GD&T/PMI
         # at the drain. The front-right height ladder's leapfrog witness chain
         # remains inside its candidates' build closures; nothing here places immediately.
-        _locate_off_axis_stage(dwg, ctx, a, feature_keys, _compiled, which="along")
+        _locate_off_axis_stage(run, which="along")
 
     def _s_slots():
         # Non-cylindrical machined features: slots and reduced across-flats sections.
