@@ -7,11 +7,72 @@ from collections import Counter
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
+from build123d import Align, Location, Mode, Text
+
 from draftwright.linting.issues import LintIssue
 from draftwright.pmi import PmiExtractionReport
 
 _SUPPORTED_MANUFACTURING_REQUIREMENTS = frozenset(("external_thread", "internal_thread", "knurl"))
 _MANUFACTURING_REF = re.compile(r"\bSEE (MFG [1-9][0-9]*)\b")
+
+
+def _title_value_has_finished_ink(title, field: str, value: str) -> bool:
+    """Compare the selected STEP value with the finished faces in its title cell.
+
+    Input specs and the PDF text layer can survive a helper that omits the
+    visible value.  The helper draws centred value glyphs above a lower caption;
+    compare those glyphs with independently constructed text in the placed cell.
+    Any unreadable geometry fails closed.
+    """
+    try:
+        _field, _value, size, font = next(
+            spec for spec in title.title_field_specs if spec[0] == field
+        )
+        cell = title.cell_bbox(field)
+        cx = title.position.X + (cell["min_x"] + cell["max_x"]) / 2
+        cy = title.position.Y + (cell["min_y"] + cell["max_y"]) / 2
+        expected = Text(
+            txt=value,
+            font_size=size,
+            font_path=font,
+            align=(Align.CENTER, Align.CENTER),
+            mode=Mode.PRIVATE,
+        ).moved(Location((cx, cy, 0)))
+        expected_box = expected.bounding_box()
+        lower = expected_box.min.Y - 0.05
+        upper = expected_box.max.Y + 0.05
+        left = title.position.X + cell["min_x"] + 0.1
+        right = title.position.X + cell["max_x"] - 0.1
+
+        def signature(face):
+            box = face.bounding_box()
+            return tuple(
+                round(number, 3)
+                for number in (
+                    face.area,
+                    box.min.X,
+                    box.min.Y,
+                    box.max.X,
+                    box.max.Y,
+                )
+            )
+
+        actual = []
+        for face in title.faces():
+            box = face.bounding_box()
+            if (
+                box.min.X >= left
+                and box.max.X <= right
+                and box.min.Y >= lower
+                and box.max.Y <= upper
+            ):
+                actual.append(signature(face))
+        return bool(actual) and sorted(actual) == sorted(
+            signature(face) for face in expected.faces()
+        )
+    except Exception:
+        # A geometry or font failure cannot vouch for source-selected ink.
+        return False
 
 
 def lint_manufacturing_references(registry) -> list[LintIssue]:
@@ -691,7 +752,10 @@ def lint_step_title_defaults(
                     source_ids=(fact.source_id,),
                 )
             )
-        elif material_authored is None and fields.get("material", "") != fact.designation:
+        elif material_authored is None and (
+            fields.get("material", "") != fact.designation
+            or not _title_value_has_finished_ink(title, "material", fact.designation)
+        ):
             issues.append(
                 LintIssue(
                     severity="error",
@@ -712,8 +776,14 @@ def lint_step_title_defaults(
         if len(tolerances) == 1:
             record = tolerances[0]
             designation = record.label.split(";", 1)[0].strip()
-            if designation and fields.get("general_tolerance", "") != designation:
-                selected = tolerance_source_selected and tolerance_authored is None
+            selected = tolerance_source_selected and tolerance_authored is None
+            if designation and (
+                fields.get("general_tolerance", "") != designation
+                or (
+                    selected
+                    and not _title_value_has_finished_ink(title, "general_tolerance", designation)
+                )
+            ):
                 issues.append(
                     LintIssue(
                         severity="error" if selected else "warning",

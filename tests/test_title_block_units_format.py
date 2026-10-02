@@ -220,6 +220,51 @@ def test_step_title_explicit_values_win_and_remain_source_auditable(
     ]
 
 
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    ("field", "source_id", "code"),
+    [
+        ("material", "material:#1996", "step_material_mismatch"),
+        (
+            "general_tolerance",
+            "manufacturing_requirement:#2016",
+            "step_general_tolerance_mismatch",
+        ),
+    ],
+)
+def test_step_title_selected_value_requires_finished_ink_issue_2158(
+    monkeypatch, field, source_id, code
+):
+    from draftwright.annotations import _sheet_furniture
+
+    source = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    baseline = build_drawing(source, pmi="annotate", auto_dims=False, scale=2, page="A3")
+    baseline_title = baseline.get_annotation("title_block")
+    assert not [issue for issue in baseline.lint() if issue.code == code]
+    assert field in baseline_title.field_ink
+
+    original = _sheet_furniture.TitleBlock
+
+    def drop_value(*args, **kwargs):
+        assert kwargs[field]
+        block = original(*args, **{**kwargs, field: ""})
+        # Stale helper metadata must not substitute for finished faces.
+        block.field_ink[field] = baseline_title.field_ink[field]
+        return block
+
+    monkeypatch.setattr(_sheet_furniture, "TitleBlock", drop_value)
+    drawing = build_drawing(source, pmi="annotate", auto_dims=False, scale=2, page="A3")
+    title = drawing.get_annotation("title_block")
+    selected = drawing.material_source if field == "material" else drawing.general_tolerance_source
+    assert selected is not None and selected.source_id == source_id
+    assert _fields(drawing)[field] == selected.designation
+    assert title.field_ink[field] == baseline_title.field_ink[field]
+    assert len(title.faces()) < len(baseline_title.faces())
+    assert [(issue.code, issue.source_ids) for issue in drawing.lint() if issue.code == code] == [
+        (code, (source_id,))
+    ]
+
+
 @pytest.mark.parametrize("page", ("A4", "A2", "A0"))
 def test_named_iso_page_states_units_and_format(page):
     sheet = Sheet(Box(30, 20, 10), page=page, scale=1, detail_view=False)
