@@ -57,6 +57,10 @@ _FMT_BUDGET: dict[str, tuple[int, str]] = {
     "from_model.callout_from_spec.f": (1, "the spec carries floats — the hc_ migration"),
     # --- Not dimensional plan content at all.
     "sections._overall_height_name": (1, "detail-view caption from the analysis"),
+    "_sheet_furniture._sheet_format": (
+        2,
+        "title-block page size from settled sheet dimensions, not a compiled measurement",
+    ),
 }
 
 _ANNOTATIONS = pathlib.Path(__file__).resolve().parents[1] / "src" / "draftwright" / "annotations"
