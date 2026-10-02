@@ -35,12 +35,6 @@ from draftwright._core import (
     _LADDER,
     _PAGE_SIZES,
     _SCALES,
-    _add_default_surface_finish,
-    _add_projection_symbol,
-    _add_scale_note,
-    _add_sheet_frame,
-    _add_title_block,
-    _add_zone_grid,
     _analysis_margins,
     _dimension_draft,
     _dimension_head_bounds,
@@ -49,7 +43,6 @@ from draftwright._core import (
     _parse_page,
     _Projector,
     _tb_width,
-    _title_block_box,
 )
 from draftwright._geometry import BOUNDS_ROUNDOFF, _boxes_overlap, _scale_world
 from draftwright._warnings import ScaleCompletenessWarning
@@ -64,6 +57,15 @@ from draftwright.annotations._common import (
     _geom_box,
     annotation_ink_obstacles,
     place_iso_nts_note,
+)
+from draftwright.annotations._sheet_furniture import (
+    _add_default_surface_finish,
+    _add_projection_symbol,
+    _add_scale_note,
+    _add_sheet_frame,
+    _add_title_block,
+    _add_zone_grid,
+    _title_block_box,
 )
 from draftwright.annotations.from_model import render_document_notes
 from draftwright.annotations.gears import render_gear_tables

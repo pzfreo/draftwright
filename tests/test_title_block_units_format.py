@@ -64,16 +64,16 @@ def test_related_vertical_dividers_share_one_grid():
 
 
 def test_title_block_is_constructed_once_per_build_issue_1942(monkeypatch):
-    from draftwright import _core
+    from draftwright.annotations import _sheet_furniture
 
-    original = _core._make_title_block
+    original = _sheet_furniture._make_title_block
     calls = []
 
     def counted(drawing, analysis):
         calls.append((analysis.PAGE_W, analysis.PAGE_H))
         return original(drawing, analysis)
 
-    monkeypatch.setattr(_core, "_make_title_block", counted)
+    monkeypatch.setattr(_sheet_furniture, "_make_title_block", counted)
     drawing = build_drawing(Box(30, 20, 10), page="A4", scale=1)
     block = drawing.get_annotation("title_block")
     bounds = block.bounding_box()
@@ -87,7 +87,7 @@ def test_title_block_is_constructed_once_per_build_issue_1942(monkeypatch):
 
 
 def test_title_block_is_shared_across_page_retries_issue_1942(monkeypatch):
-    from draftwright import _core
+    from draftwright.annotations import _sheet_furniture
     from draftwright.drawing import Drawing
 
     part = Box(120, 80, 10)
@@ -99,7 +99,7 @@ def test_title_block_is_shared_across_page_retries_issue_1942(monkeypatch):
             part -= Pos(25 + i * 20, -20 + j * 18, 0) * Cylinder(4, 10)
 
     original_for = Drawing.title_block_for
-    original_make = _core._make_title_block
+    original_make = _sheet_furniture._make_title_block
     request_drawings = {}
     built = []
     calls = []
@@ -120,7 +120,7 @@ def test_title_block_is_shared_across_page_retries_issue_1942(monkeypatch):
         return original_make(drawing, analysis)
 
     monkeypatch.setattr(Drawing, "title_block_for", cached)
-    monkeypatch.setattr(_core, "_make_title_block", counted_make)
+    monkeypatch.setattr(_sheet_furniture, "_make_title_block", counted_make)
     drawing = build_drawing(part)
 
     # Repeated calls on one Drawing are insufficient: this must cross a build retry.
@@ -133,9 +133,9 @@ def test_title_block_is_shared_across_page_retries_issue_1942(monkeypatch):
 
 
 def test_cached_title_block_annotations_have_independent_ownership_issue_1942(monkeypatch):
-    from draftwright import _core
     from draftwright._core import SheetMargins
     from draftwright.analysis import _analyse
+    from draftwright.annotations import _sheet_furniture
     from draftwright.builder import _assemble
 
     part = Box(30, 20, 10)
@@ -143,14 +143,14 @@ def test_cached_title_block_annotations_have_independent_ownership_issue_1942(mo
         part, title="OWNED", number="DWG-1", tolerance=None, drawn_by="A", out="owned", pmi="off"
     )
     moved_analysis = replace(analysis, title_block_margins=SheetMargins(right=20, bottom=20))
-    original_make = _core._make_title_block
+    original_make = _sheet_furniture._make_title_block
     calls = []
 
     def counted(drawing, candidate):
         calls.append((candidate.PAGE_W, candidate.PAGE_H))
         return original_make(drawing, candidate)
 
-    monkeypatch.setattr(_core, "_make_title_block", counted)
+    monkeypatch.setattr(_sheet_furniture, "_make_title_block", counted)
     cache = {}
     first = _assemble(analysis, "owned", None, False, auto_dims=False, title_block_cache=cache)
     second = _assemble(

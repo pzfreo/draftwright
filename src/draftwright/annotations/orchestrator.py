@@ -24,12 +24,6 @@ from draftwright._core import (
     Analysis,
     DetailRequest,
     HoleRef,
-    _add_default_surface_finish,
-    _add_projection_symbol,
-    _add_scale_note,
-    _add_sheet_frame,
-    _add_title_block,
-    _add_zone_grid,
     _concentric_with_axis,
     _fmt,
     _iso_bbox,
@@ -56,6 +50,14 @@ from draftwright.annotations._common import (
     _restore_annotation_transaction,
     _snapshot_annotation_transaction,
     _stash_annotations,
+)
+from draftwright.annotations._sheet_furniture import (
+    _add_default_surface_finish,
+    _add_projection_symbol,
+    _add_scale_note,
+    _add_sheet_frame,
+    _add_title_block,
+    _add_zone_grid,
 )
 from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.from_model import (

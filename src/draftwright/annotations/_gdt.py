@@ -15,7 +15,6 @@ from draftwright._core import (
     _font_safe_text,
     _text_line_spacing_em,
     _text_size,
-    _title_block_box,
 )
 from draftwright._geometry import _turned_profile_site
 from draftwright.annotations._common import (
@@ -26,6 +25,7 @@ from draftwright.annotations._common import (
     annotation_ink_clear,
     register_corridor,
 )
+from draftwright.annotations._sheet_furniture import _title_block_box
 from draftwright.annotations.routed import RoutedLeader
 from draftwright.model.compiled import DimensionId
 from draftwright.model.ir import (

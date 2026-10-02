@@ -6,7 +6,7 @@ near-degenerate arc sanitisation, the element-wise shape-export degradation, and
 the svglib + reportlab PDF render. Moved out of `make_drawing.py` so the orchestration there
 stays thin; this module mostly *consumes* drawing contents (paths, exporters,
 shapes), so it sits below `make_drawing` in the import DAG and depends only on
-`_core` (the shared `_DRAFTWRIGHT_URL`) and build123d.
+lower-ranked helpers and build123d.
 """
 
 from __future__ import annotations
@@ -37,8 +37,9 @@ from OCP.BRepTools import BRepTools
 from OCP.GeomConvert import GeomConvert
 from OCP.TopTools import TopTools_FormatVersion
 
-from draftwright._core import _DRAFTWRIGHT_URL
 from draftwright.fonts import PLEX_MONO
+
+_DRAFTWRIGHT_URL = "https://github.com/pzfreo/draftwright"
 
 _log = logging.getLogger(__name__)
 

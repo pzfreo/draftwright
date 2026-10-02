@@ -18,12 +18,12 @@ class TestDraftwrightAttribution:
     """draftwright self-attribution in the title block + clickable SVG link."""
 
     def test_author_appends_draftwright(self):
-        from draftwright._core import _attribution_author
+        from draftwright.annotations._sheet_furniture import _attribution_author
 
         assert _attribution_author("P. Fremantle") == "P. Fremantle / draftwright"
 
     def test_author_defaults_to_draftwright(self):
-        from draftwright._core import _attribution_author
+        from draftwright.annotations._sheet_furniture import _attribution_author
 
         assert _attribution_author("") == "draftwright"
         assert _attribution_author(None) == "draftwright"
