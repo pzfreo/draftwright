@@ -1529,7 +1529,7 @@ def _append_hole_features(
     *,
     cyls,
     holes: Sequence[HoleRecord] | None,
-    patterns,
+    patterns: Sequence[BoltCircle | LinearArray | RectGrid] | None,
     bosses,
     features: list[Feature],
     ownership: RecognitionOwnershipBuilder | None,

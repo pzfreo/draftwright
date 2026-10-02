@@ -24,7 +24,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from quiddity import HoleRecord, RecognitionResult, TurnedProfile
+    from quiddity import (
+        BoltCircle,
+        HoleRecord,
+        LinearArray,
+        RecognitionResult,
+        RectGrid,
+        TurnedProfile,
+    )
     from quiddity.evidence import RecognitionEvidence
 
     from draftwright.compose import StripDepths
@@ -1229,7 +1236,7 @@ class Analysis:
     cz: float
     bbox_max: float
     holes: list[HoleRecord]
-    patterns: list
+    patterns: list[BoltCircle | LinearArray | RectGrid]
     bosses: list  # external bosses (recognise_bosses), detected once — the one inventory
     slots: list
     pads: list  # geometry-derived rectangular-pad coverage inventory
