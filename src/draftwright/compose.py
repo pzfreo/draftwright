@@ -26,8 +26,6 @@ from build123d_drafting.helpers import draft_preset, format_drawing_scale
 from draftwright._core import (
     _DIM_PAD,
     _FONT_SIZE,
-    _ISO_MIN_FIT_FRAC,
-    _ISO_WIDTH_BUDGET,
     _LADDER,
     _MARGIN,
     _PAGE_SIZES,
@@ -89,6 +87,24 @@ from draftwright.view_plan import (
 )
 
 _log = logging.getLogger(__name__)
+
+# Horizontal page budget to reserve for the isometric view during scale
+# selection and view placement, as a fraction of bbox_max * scale. This is a
+# deliberate under-estimate, not the true projected size (a cube's iso
+# projection is ~1.63*bbox_max wide): the iso is the last column and is fitted
+# to the actual largest-empty-rect afterwards by _fit_iso_view(), which shrinks
+# it to whatever space is genuinely left. A true fit test here is circular —
+# the empty rect depends on the very view positions this estimate feeds — so
+# the budget stays a single, named factor rather than a recomputed fit.
+_ISO_WIDTH_BUDGET = 0.7
+
+# Scale selection accepts a layout when the largest empty rectangle left for the
+# iso view can hold a square of at least this fraction of the iso's natural size
+# (bbox_max * scale * _ISO_WIDTH_BUDGET). Below 1.0 because _fit_iso_view scales
+# the iso down to whatever space remains, so a modestly smaller rectangle still
+# renders a legible iso — letting a long/short part enlarge onto a sheet (e.g.
+# 2:1 on A3) where the strict row model would have under-scaled it.
+_ISO_MIN_FIT_FRAC = 0.6
 
 # Empty paper between the *reserved annotation footprints* of neighbouring
 # principal views.  A strip is allowed to use its own band, not this gutter.

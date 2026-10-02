@@ -18,7 +18,6 @@ from draftwright._core import (
     _TB_LINE_WIDTH,
     Analysis,
     _analysis_margins,
-    _attribution_author,
     _fmt,
     _font_safe_text,
     _frame_margins,
@@ -26,6 +25,14 @@ from draftwright._core import (
     place_annotation,
 )
 from draftwright.fonts import PLEX_SANS_CONDENSED
+
+
+def _attribution_author(drawn_by: str | None) -> str:
+    """ISO 7200 "drawn by" value: the human author and draftwright, or just
+    draftwright when no author was supplied."""
+    author = (drawn_by or "").strip()
+    return f"{author} / draftwright" if author else "draftwright"
+
 
 # ISO 5457 zone-grid letters (vertical edges): A.. skipping I and O (confusable with 1 / 0).
 _ZONE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ"

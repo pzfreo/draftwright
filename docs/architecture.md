@@ -363,7 +363,7 @@ and re-exports the existing private helper names.
   the orchestrator calls down with no cycle.
 - **`_core.py`** — shared primitives below both `make_drawing.py` and `annotate.py`:
   the `Analysis` namespace and its field types (`_Projector`, `Strip`, `ViewZones`),
-  the dimension/format helpers (`_dim`, `_fmt`, `_attribution_author`, …), and the
+  the dimension/format helpers (`_dim`, `_fmt`, …), and the
   page/slot/margin layout constants.
 - **`layout.py`** — the deterministic placement primitives used by ADR 2:
   the deterministic

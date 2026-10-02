@@ -1413,16 +1413,6 @@ _greedy_strip_ys = _greedy_strip_1d
 _solve_strip_ys = _solve_strip_1d
 
 
-_DRAFTWRIGHT_URL = "https://github.com/pzfreo/draftwright"
-
-
-def _attribution_author(drawn_by: str | None) -> str:
-    """ISO 7200 "drawn by" value: the human author and draftwright, or just
-    draftwright when no author was supplied."""
-    author = (drawn_by or "").strip()
-    return f"{author} / draftwright" if author else "draftwright"
-
-
 def _iso_bbox(dwg):
     """(min_x, min_y, max_x, max_y) of the placed iso view, hidden lines included."""
     if "iso" not in dwg.views:
@@ -1455,25 +1445,6 @@ _PAGE_SIZES = {
 # overflowing layout. Ordered largest-scale-first for "least reduction first".
 _SCALES = [10.0, 5.0, 2.0, 1.0]
 _SCALES += [0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001, 0.0005, 0.0002, 0.0001]
-
-# Horizontal page budget to reserve for the isometric view during scale
-# selection and view placement, as a fraction of bbox_max * scale.  This is a
-# deliberate *under-estimate*, not the true projected size (a cube's iso
-# projection is ~1.63*bbox_max wide): the iso is the last column and is fitted
-# to the actual largest-empty-rect afterwards by _fit_iso_view(), which shrinks
-# it to whatever space is genuinely left.  A true fit test here is circular —
-# the empty rect depends on the very view positions this estimate feeds — so
-# the budget stays a single, named factor rather than a recomputed fit.
-_ISO_WIDTH_BUDGET = 0.7
-
-# Scale selection accepts a layout when the largest empty rectangle left for the
-# iso view can hold a square of at least this fraction of the iso's natural size
-# (bbox_max * scale * _ISO_WIDTH_BUDGET).  Below 1.0 because _fit_iso_view scales
-# the iso down to whatever space remains, so a modestly smaller rectangle still
-# renders a legible iso — letting a long/short part enlarge onto a sheet (e.g.
-# 2:1 on A3) where the strict row model would have under-scaled it.
-_ISO_MIN_FIT_FRAC = 0.6
-
 
 # Automatic scale/page preference ladder, first-fit.  The enlargement/unity
 # region is page-major: every standard scale on the smallest sheet (A4) is tried
