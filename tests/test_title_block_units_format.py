@@ -4,7 +4,8 @@ from collections import Counter
 from dataclasses import replace
 
 import pytest
-from build123d import Box, Cylinder, Location, Pos
+from _parts import dense_plate
+from build123d import Box, Location
 
 from draftwright import Sheet, build_drawing
 
@@ -90,13 +91,9 @@ def test_title_block_is_shared_across_page_retries_issue_1942(monkeypatch):
     from draftwright.annotations import _sheet_furniture
     from draftwright.drawing import Drawing
 
-    part = Box(120, 80, 10)
-    for i in range(3):
-        for j in range(3):
-            part -= Pos(-45 + i * 15, -15 + j * 15, 0) * Cylinder(2.5, 10)
-    for i in range(2):
-        for j in range(3):
-            part -= Pos(25 + i * 20, -20 + j * 18, 0) * Cylinder(4, 10)
+    # This part still exercises multiple attempts on the same page with the
+    # current recogniser, so the cache-sharing assertion keeps its precondition.
+    part = dense_plate()
 
     original_for = Drawing.title_block_for
     original_make = _sheet_furniture._make_title_block

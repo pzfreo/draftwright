@@ -186,8 +186,32 @@ def test_frame_represents_seats_and_pockets_without_crediting_the_segment_note(
     package, result = frame_document
     report = result.report()
     rows = report["recognition"]["requirements"]
+    # The provider also issues one fitted four-hole bolt-circle relation. Its corners
+    # are part of the six-hole group, with no independent circular corroboration, so
+    # the consumer refuses it and the report keeps one unresolved source row.
+    assert len(rows) == 78
+    (relation,) = [row for row in rows if row["family"] == "hole_patterns"]
+    assert relation["parameter_id"] is None
+    assert relation["requirement_count"] == 1
+    assert relation["state"] == "unresolved" and relation["coverage_credit"] == 0
+    assert relation["owner_ids"] == [] and relation["carrying_annotations"] == []
+    assert {outcome["state"] for outcome in relation["local_outcomes"]} == {"unsupported"}
+    (relation_source,) = [
+        row
+        for row in report["recognition"]["occurrences"]
+        if row["id"] in relation["occurrence_ids"]
+    ]
+    assert relation_source["record_type"] == "BoltCircle"
+    assert relation_source["disposition"] == "unsupported"
+    assert relation_source["reason_code"] == "uncorroborated_bolt_circle"
+    assert relation_source["record"]["center"] == [0.0, 12.1875, 3.5]
+    assert sorted(tuple(hole["location"]) for hole in relation_source["record"]["holes"]) == [
+        (-12.15, 0.0, 3.5),
+        (-12.15, 24.375, 3.5),
+        (12.15, 0.0, 3.5),
+        (12.15, 24.375, 3.5),
+    ]
     # Each seat has six requirements; each hex pocket has two physical sizes.
-    assert len(rows) == 77
     recesses = [row for row in rows if row["family"] == "section_recesses"]
     assert len(recesses) == 30
     assert len({tuple(row["occurrence_ids"]) for row in recesses}) == 9

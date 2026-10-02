@@ -65,6 +65,7 @@ from draftwright.model.ir import (
     StepLevelFeature,
     validate_authored_dimension_placement,
 )
+from draftwright.model.ir_foundation import grid_has_centre_datum
 from draftwright.view_plan import (
     UncoveredViewRequirement,
     ViewPlanIncomplete,
@@ -880,7 +881,9 @@ def location_components(feature) -> list[dict]:
         else feature.members or (feature.frame.origin,)
     )
     members: list[int | Literal["centre"]] = list(range(len(points)))
-    if isinstance(feature, PatternFeature) and feature.pattern == "bolt_circle":
+    if isinstance(feature, PatternFeature) and (
+        feature.pattern == "bolt_circle" or grid_has_centre_datum(feature)
+    ):
         members.append("centre")
     return [
         {
@@ -1055,7 +1058,7 @@ def hole_location_references(model: PartModel, feature, datum: Point):
     members: dict[int | None, Point] = dict(enumerate(points))
     defaults: set[int | None]
     if isinstance(feature, PatternFeature):
-        if feature.pattern == "bolt_circle":
+        if feature.pattern == "bolt_circle" or grid_has_centre_datum(feature):
             members[None] = feature.frame.origin
             defaults = {None}
         else:

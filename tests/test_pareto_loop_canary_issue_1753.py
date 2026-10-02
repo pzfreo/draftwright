@@ -23,22 +23,23 @@ _FIXTURE_SHA256 = "85a5752da05f53c456ca3a9e038c90358e1d5a3141d1f0d6e5f0970f2356e
 
 
 def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
-    """Reviewed Quiddity-0.3.3/AP242 claims; never derive the denominator from output."""
+    """Reviewed CTC-01/AP242 claims; never derive the denominator from output."""
 
     rows: list[tuple[str, str]] = []
-    rows.append(("declaration:1", "bore.diameter"))
-    rows.extend(
-        ("declaration:1", f"location.location.member.{member}.{axis}")
-        for member in range(3)
-        for axis in ("x", "y")
-    )
-    for declaration in range(2, 7):
+    # The physical four-hole lattices are Ø25 at X±160/Y±45 and Ø35 at
+    # X±325/Y±175. Quiddity #791 gives each proved rectangle one grid owner.
+    for declaration in (1, 2):
         rows.append((f"declaration:{declaration}", "bore.diameter"))
         rows.extend(
-            (f"declaration:{declaration}", f"location.location.member.0.{axis}")
-            for axis in ("x", "y")
+            (f"declaration:{declaration}", parameter)
+            for parameter in (
+                "grid_pitch.length.row",
+                "grid_pitch.length.col",
+                "location_pattern.location.centre.x",
+                "location_pattern.location.centre.y",
+            )
         )
-    for declaration in (7, 8):
+    for declaration in (3, 4):
         rows.extend(
             (f"declaration:{declaration}", parameter)
             for parameter in (
@@ -49,7 +50,7 @@ def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
             )
         )
     rows.extend(
-        ("declaration:9", parameter)
+        ("declaration:5", parameter)
         for parameter in (
             "location_slot.length",
             "slot_end_radius.radius",
@@ -58,22 +59,22 @@ def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
         )
     )
     rows.extend(
-        ("declaration:10", parameter)
+        ("declaration:6", parameter)
         for parameter in ("location_slot.length", "slot_length.length", "slot_width.length")
     )
     rows.extend(
-        ("declaration:11", parameter)
+        ("declaration:7", parameter)
         for parameter in ("boss_height.length", "polygon_across_flats.length")
     )
     rows.extend(
-        ("declaration:12", parameter)
+        ("declaration:8", parameter)
         for parameter in ("depth.length", "height.length", "width.length")
     )
-    rows.append(("declaration:13", "step_height.length"))
-    rows.extend((f"declaration:{declaration}", "chamfer.length") for declaration in range(14, 17))
-    rows.extend((f"declaration:{declaration}", "fillet.radius") for declaration in range(17, 24))
-    rows.extend((f"declaration:{declaration}", "blend.radius") for declaration in range(24, 52))
-    assert len(rows) == 81
+    rows.append(("declaration:9", "step_height.length"))
+    rows.extend((f"declaration:{declaration}", "chamfer.length") for declaration in range(10, 13))
+    rows.extend((f"declaration:{declaration}", "fillet.radius") for declaration in range(13, 20))
+    rows.extend((f"declaration:{declaration}", "blend.radius") for declaration in range(20, 48))
+    assert len(rows) == 69
     return tuple(ExpectedRequirement(*row) for row in rows)
 
 
@@ -145,17 +146,17 @@ def test_ctc01_resolved_gdt_finding_is_not_offered_to_the_pareto_loop(
         encoding="utf-8",
     )
     baseline = _run(baseline_script, tmp_path / "baseline-trace")
-    assert baseline["producer"]["quiddity"] == "0.3.3"
+    assert baseline["producer"]["quiddity"] == "0.3.10"
     assert baseline["source"]["sha256"] == _FIXTURE_SHA256
 
     # #1756 resolves this exact finding during ordinary placement. A Pareto loop must
-    # therefore not offer a stale semantic edit for it. The compact equivalent-hole batch
-    # also removes the two historical slot/callout contacts without changing the fixed
-    # requirement denominator.
+    # therefore not offer a stale semantic edit for it. The two position frames
+    # (AP242 geometric_tolerance:0:1:4:1 and :5) moved from declarations 57/58
+    # to 58/59 when member holes became the two grid declarations.
     assert not [
         row
         for row in baseline["drawing"]["layout"]["findings"]
-        if set(row["declaration_ids"]) == {"declaration:57", "declaration:58"}
+        if set(row["declaration_ids"]) == {"declaration:58", "declaration:59"}
     ]
     assert baseline["drawing"]["layout"]["edit_surface"] == "semantic-dsl-only"
     assert len(list((tmp_path / "baseline-trace").glob("*.trace.json"))) == 1
@@ -166,4 +167,4 @@ def test_ctc01_resolved_gdt_finding_is_not_offered_to_the_pareto_loop(
     assert {
         (row["declaration_id"], row["parameter_id"]) for row in baseline["measurements"]["entries"]
     } == expected
-    assert len(baseline["measurements"]["entries"]) == 81
+    assert len(baseline["measurements"]["entries"]) == 69

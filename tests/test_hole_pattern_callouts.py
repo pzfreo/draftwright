@@ -1,9 +1,11 @@
 """Grouped hole-pattern callout behavior."""
 
 import math
+from pathlib import Path
 
 import pytest
 from build123d import Align, Box, Cylinder, Pos, Rot
+from quiddity import RectangularHoleSet, recognise_hole_patterns, recognise_holes
 
 from draftwright import build_drawing
 
@@ -40,6 +42,58 @@ class TestHolePatternCallouts:
         for x, y in pos:
             part -= Pos(x, y, 0) * Cylinder(3, 12)
         return part
+
+    @pytest.mark.timeout(120)
+    def test_four_corner_rectangle_states_two_pitches_without_a_bolt_circle(self):
+        part = Box(80, 100, 12)
+        for x in (-10, 10):
+            for y in (-15, 15):
+                part -= Pos(x, y, 0) * Cylinder(3, 12)
+
+        (pattern,) = recognise_hole_patterns(recognise_holes(part))
+        assert isinstance(pattern, RectangularHoleSet)
+        assert (pattern.width, pattern.height) == (30.0, 20.0)
+
+        drawing = build_drawing(part)
+        (feature,) = (item for item in drawing.model().features if item.kind == "pattern")
+        assert feature.pattern == "grid"
+        assert (feature.grid, feature.rows, feature.cols) == ((20.0, 30.0), 2, 2)
+        callouts = [
+            annotation.label
+            for name, annotation in drawing.iter_annotations()
+            if name.startswith("hc_")
+        ]
+        assert callouts == ["4× ⌀6 THRU (2×2)"]
+        assert {
+            annotation.label
+            for name, annotation in drawing.iter_annotations()
+            if name.startswith("dim_pitch_")
+        } == {"1× 20", "1× 30"}
+        assert drawing.lint() == []
+
+    @pytest.mark.parametrize("variant", ("a", "b"))
+    def test_diagonal_square_grid_pitches_survive_the_exact_ink_gate(self, variant):
+        source = Path(__file__).parent / f"fixtures/evaluation/pattern-topology-{variant}.step"
+        drawing = build_drawing(source, page="A3")
+        patterns = [
+            pattern
+            for pattern in drawing.recognition().hole_patterns
+            if isinstance(pattern, RectangularHoleSet)
+        ]
+        assert len(patterns) == 1 and patterns[0].angle == 45.0
+        grid_pitches = [
+            annotation
+            for name, annotation in drawing.iter_annotations()
+            if name.startswith("dim_pitch_plan") and annotation.label == "1× 22.6"
+        ]
+        assert len(grid_pitches) == 2
+        assert not any(issue.code == "hole_pattern_dim_dropped" for issue in drawing.lint())
+        states = {
+            row["parameter_id"]: row["state"]
+            for row in drawing.report()["recognition"]["requirements"]
+            if row["family"] == "hole_patterns"
+        }
+        assert states["grid_pitch.length.row"] == states["grid_pitch.length.col"] == "placed"
 
     @pytest.mark.timeout(120)
     def test_rect_grid_one_callout_and_two_pitch_dims(self):

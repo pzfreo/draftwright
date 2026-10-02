@@ -341,6 +341,7 @@ def _lint_physical_common(ctx: LintContext, evidence: _PhysicalEvidence, registr
         features=getattr(model, "features", ()) if model is not None else (),
         registry=physical_registry,
         omissions=ctx.build.omissions,
+        evidence=ctx.build.recognition_evidence,
         assembly=ctx.assembly,
     )
     issues += lint_section_recess_coverage(recognition)

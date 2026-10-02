@@ -66,6 +66,14 @@ FAMILIES: tuple[FamilyRow, ...] = (
         True,
         quality_key="circular_blind_steps",
     ),
+    FamilyRow(
+        "circular-face-patterns",
+        "circular-face-patterns",
+        "circular_face_patterns",
+        "circular_face_patterns",
+        "ownerless",
+        policy_status="deferred",
+    ),
     FamilyRow("countersinks", "countersinks", "countersinks", "countersinks", "nested"),
     FamilyRow(
         "double-d-bores",
@@ -87,6 +95,14 @@ FAMILIES: tuple[FamilyRow, ...] = (
         "fillets", "fillets", "fillets", "fillets", "direct", True, True, quality_key="fillets"
     ),
     FamilyRow("flats", "flats", "flats", "flats", "direct", True, True, quality_key="flats"),
+    FamilyRow(
+        "freeform-surfaces",
+        "freeform-surfaces",
+        "freeform_surfaces",
+        "freeform_surfaces",
+        "ownerless",
+        policy_status="deferred",
+    ),
     FamilyRow(
         "grooves", "grooves", "grooves", "grooves", "direct", True, True, quality_key="grooves"
     ),
@@ -113,12 +129,36 @@ FAMILIES: tuple[FamilyRow, ...] = (
         "hole-patterns",
         "hole_patterns",
         "hole_patterns",
-        "unclassified",
+        "conditional",
         True,
         True,
         quality_key="hole_patterns",
     ),
     FamilyRow("holes", "holes", "holes", "holes", "groupable", True, True, quality_key="holes"),
+    FamilyRow(
+        "interior-voids",
+        "interior-voids",
+        "interior_voids",
+        "interior_voids",
+        "ownerless",
+        policy_status="deferred",
+    ),
+    FamilyRow(
+        "oblique-through-steps",
+        "oblique-through-steps",
+        "oblique_through_steps",
+        "oblique_through_steps",
+        "ownerless",
+        policy_status="deferred",
+    ),
+    FamilyRow(
+        "oriented-chamfers",
+        "oriented-chamfers",
+        "oriented_chamfers",
+        "oriented_chamfers",
+        "ownerless",
+        policy_status="deferred",
+    ),
     FamilyRow(
         "oriented-slot-patterns",
         "oriented-slot-patterns",
@@ -194,6 +234,14 @@ FAMILIES: tuple[FamilyRow, ...] = (
         quality_key="section_recesses",
     ),
     FamilyRow(
+        "sheet-metal-bodies",
+        "sheet-metal-bodies",
+        "sheet_metal_bodies",
+        "sheet_metal_bodies",
+        "ownerless",
+        policy_status="deferred",
+    ),
+    FamilyRow(
         "slot-patterns",
         "slot-patterns",
         None,
@@ -204,6 +252,14 @@ FAMILIES: tuple[FamilyRow, ...] = (
         quality_key="slot_patterns",
     ),
     FamilyRow("slots", "slots", "slots", "slots", "groupable", True, True, quality_key="slots"),
+    FamilyRow(
+        "thin-wall-bodies",
+        "thin-wall-bodies",
+        "thin_wall_bodies",
+        "thin_wall_bodies",
+        "ownerless",
+        policy_status="deferred",
+    ),
     FamilyRow(
         "through-steps",
         "through-steps",

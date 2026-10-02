@@ -1757,6 +1757,16 @@ def _strip_outward_reserve(name, sizes, probe_boxes, *, axis, inner_is_low, prob
     return max(tier, box[idx + 2] - probe_origin if inner_is_low else probe_origin - box[idx])
 
 
+def _reserved_strip_segments(lo, hi, occupied, idx, pad):
+    blocked = [(box[idx], box[idx + 2]) for box in occupied]
+    segments = carve_free_segments(lo, hi, blocked, pad)
+    # An exact-edge fit has one legal dimension-line coordinate. The generic
+    # carve omits point segments, so retain it when no obstacle covers the point.
+    if hi == lo and not any(start - pad < lo < end + pad for start, end in blocked):
+        return [(lo, hi)]
+    return segments
+
+
 def _prepare_strip_candidate_run(run) -> None:
     """Measure footprints, carve occupied tiers, and retain hard blockers."""
     dwg, strip, view, axis, cands, tier = (
@@ -1898,7 +1908,7 @@ def _prepare_strip_candidate_run(run) -> None:
     # view as a last resort must still not print over the block.
     _tb = pending_title_block_box(dwg)
     keep_out = (_tb,) if _tb is not None else ()
-    segs = carve_free_segments(lo, hi, [(b[idx], b[idx + 2]) for b in occupied], pad)
+    segs = _reserved_strip_segments(lo, hi, occupied, idx, pad)
     # Fill innermost-first (nearest the view), matching the old cursor's stack order.
     segs.sort(key=lambda s: abs((s[0] if inner == lo else s[1]) - inner))
     if tp is not None:  # the diagnosis payload: what carved this strip, and what's left

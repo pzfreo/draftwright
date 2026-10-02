@@ -179,13 +179,19 @@ def test_wrong_placed_grid_pitch_ink_loses_drawing_credit(monkeypatch) -> None:
     assert _states("drawing_consumer") == {"unsupported"}
 
 
-def test_wrong_linear_pitch_and_bcd_nominals_lose_only_their_drawing_credit(
+def test_wrong_linear_pitch_on_compound_part_loses_its_drawing_credit(
     monkeypatch,
 ) -> None:
     from build123d import import_step
 
     import draftwright.builder as builder
 
+    compound = import_step(CORPUS.parent / "pattern-topology-a.step")
+    baseline = _default_observers()["hole-patterns"](compound)
+    assert {fact.identity["kind"]: fact.downstream["drawing_consumer"] for fact in baseline} == {
+        "grid": "supported",
+        "linear": "supported",
+    }
     original = builder.build_drawing
 
     def with_wrong_compound_nominals(*args, **kwargs):
@@ -200,19 +206,15 @@ def test_wrong_linear_pitch_and_bcd_nominals_lose_only_their_drawing_credit(
                 assert annotation.label == "2× 18"
                 annotation.label = "2× 19"
                 changed.add("linear")
-            if "bolt_circle.diameter" in parameters:
-                assert "4× " in annotation.label and "ø32 BC" in annotation.label
-                annotation.label = annotation.label.replace("ø32 BC", "ø33 BC")
-                changed.add("bolt_circle")
-        assert changed == {"linear", "bolt_circle"}
+        assert changed == {"linear"}
         return drawing
 
     monkeypatch.setattr(builder, "build_drawing", with_wrong_compound_nominals)
-    compound = import_step(CORPUS.parent / "pattern-topology-a.step")
     observed = _default_observers()["hole-patterns"](compound)
     assert len(observed) == 2
     assert {fact.downstream["ir_adapter"] for fact in observed} == {"supported"}
-    assert {fact.downstream["drawing_consumer"] for fact in observed} == {"unsupported"}
+    by_kind = {fact.identity["kind"]: fact.downstream["drawing_consumer"] for fact in observed}
+    assert by_kind == {"grid": "supported", "linear": "unsupported"}
 
 
 def test_wrong_placed_grid_interval_count_loses_drawing_credit(monkeypatch) -> None:
@@ -275,8 +277,13 @@ def test_deleting_provider_patterns_cannot_shrink_the_independent_denominator(mo
 
 
 def test_weakening_provider_arrangement_values_reduces_parameter_fidelity(monkeypatch) -> None:
+    from quiddity import RectangularHoleSet
+
     import draftwright.analysis as analysis
 
+    baseline = evaluate_step_corpus(load_corpus(CORPUS))
+    assert baseline.detection.matched == 5
+    assert baseline.parameter_fidelity.score == 1.0
     original = analysis._result_from_evidence
 
     def weakened_patterns(*args, **kwargs):
@@ -285,6 +292,8 @@ def test_weakening_provider_arrangement_values_reduces_parameter_fidelity(monkey
         for pattern in result.hole_patterns:
             if hasattr(pattern, "pitch"):
                 changed.append(replace(pattern, pitch=pattern.pitch + 1.0))
+            elif isinstance(pattern, RectangularHoleSet):
+                changed.append(replace(pattern, width=pattern.width + 1.0))
             elif hasattr(pattern, "row_pitch"):
                 changed.append(replace(pattern, row_pitch=pattern.row_pitch + 1.0))
             else:
@@ -292,15 +301,8 @@ def test_weakening_provider_arrangement_values_reduces_parameter_fidelity(monkey
         return replace(result, hole_patterns=tuple(changed))
 
     monkeypatch.setattr(analysis, "_result_from_evidence", weakened_patterns)
-    # NOT reduced. The damaged fraction here depends on which pattern kind each fixture
-    # carries — the mutation hits `pitch`, `row_pitch` or `diameter` — so the ratio is a
-    # property of the corpus composition, not of the damage. Measured: the full corpus
-    # scores 14/19 = 0.7368 and the reduced subset 4/6 = 0.6667, so reducing it would
-    # mean inventing a new expected number rather than restating the authored one.
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
-    assert damaged.detection.recall == 1.0
-    assert damaged.detection.false_positives == 0
-    assert damaged.parameter_fidelity.passed == 14
-    assert damaged.parameter_fidelity.total == 19
-    assert damaged.parameter_fidelity.score == 14 / 19
+    assert damaged.detection == baseline.detection
+    assert damaged.parameter_fidelity.total == baseline.parameter_fidelity.total
+    assert damaged.parameter_fidelity.score < baseline.parameter_fidelity.score

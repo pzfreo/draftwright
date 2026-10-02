@@ -1,5 +1,6 @@
 """Automatic feature-location dimensions and section interaction."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +9,103 @@ from build123d import Box, Compound, Cylinder, Edge, Pos
 
 from draftwright import build_drawing
 from draftwright.annotations import _locations, from_model, hole_locations
+
+
+def test_symmetric_grid_uses_its_centre_for_absolute_location():
+    from draftwright.builder import detect_part_model
+    from draftwright.model.compiled import compile_dimensions, resolve_feature
+
+    source = Path(__file__).parent / "fixtures/evaluation/pattern-topology-a.step"
+    model = detect_part_model(source)
+    grid = next(f for f in model.features if f.kind == "pattern" and f.pattern == "grid")
+    linear = next(f for f in model.features if f.kind == "pattern" and f.pattern == "linear")
+    assert grid.frame.origin == (-35.0, 0.0, 6.0)
+    assert {point[1] for point in grid.members} == {-16.0, 0.0, 16.0}
+    assert linear.members[0][1] == -18.0  # the two first-member Y refs are only 2 mm apart
+
+    planned = compile_dimensions(model).locations
+    grid_ids = {
+        loc.id.parameter
+        for loc in planned
+        if loc.id is not None and resolve_feature(loc.ref) is grid
+    }
+    assert {"location_pattern.location.centre.x", "location_pattern.location.centre.y"} <= grid_ids
+
+    drawing = build_drawing(source, page="A1", scale=1, scale_policy="permissive")
+    assert not [issue for issue in drawing.lint() if issue.code == "location_ref_dropped"]
+    assert {
+        key["parameter_id"]
+        for name, _ in drawing.iter_annotations()
+        if name.startswith("m_locy")
+        for key in drawing.measurement_keys(name)
+    } == {"location_pattern.location.member.0.y", "location_pattern.location.centre.y"}
+
+
+def test_close_grid_centre_and_linear_member_x_reach_corridor(monkeypatch):
+    from draftwright.builder import detect_part_model
+    from draftwright.model.compiled import compile_dimensions
+
+    part = Box(160, 120, 10)
+    for x in (-10, 10):
+        for y in (-15, 15):
+            part -= Pos(x, y, 0) * Cylinder(3, 10)
+    for x in (2, 20, 38):
+        part -= Pos(x, 40, 0) * Cylinder(2, 10)
+    part -= Pos(0, -40, 0) * Cylinder(2, 10)  # merges with the grid-centre X ref
+
+    model = detect_part_model(part)
+    patterns = [feature for feature in model.features if feature.kind == "pattern"]
+    assert {(feature.pattern, feature.frame.origin) for feature in patterns} == {
+        ("grid", (0.0, 0.0, 5.0)),
+        ("linear", (20.0, 40.0, 5.0)),
+    }
+    grid = next(feature for feature in patterns if feature.pattern == "grid")
+    linear = next(feature for feature in patterns if feature.pattern == "linear")
+    assert grid.members[0][0] == -10.0
+    assert linear.members[0][0] == 2.0  # 2 mm from the grid-centre X
+    assert {
+        location.id.parameter
+        for location in compile_dimensions(model).locations
+        if location.id is not None
+    } >= {
+        "location_pattern.location.centre.x",
+        "location_pattern.location.member.0.x",
+    }
+
+    def placed_x(drawing):
+        return {
+            key["parameter_id"]
+            for name, _ in drawing.iter_annotations()
+            if name.startswith("m_locx")
+            for key in drawing.measurement_keys(name)
+        }
+
+    drawing = build_drawing(part, page="A1", scale=1, scale_policy="permissive")
+    assert not [issue for issue in drawing.lint() if issue.code == "location_ref_dropped"]
+    assert placed_x(drawing) == {
+        "location_pattern.location.centre.x",
+        "location_pattern.location.member.0.x",
+        "location.location.member.0.x",
+    }
+    assert any(
+        {key["parameter_id"] for key in drawing.measurement_keys(name)}
+        >= {"location_pattern.location.centre.x", "location.location.member.0.x"}
+        for name, _ in drawing.iter_annotations()
+        if name.startswith("m_locx")
+    )
+
+    centre_ordinates = _locations._pattern_centre_ordinates
+    monkeypatch.setattr(
+        _locations,
+        "_pattern_centre_ordinates",
+        lambda refs, axis: set() if axis == "x" else centre_ordinates(refs, axis),
+    )
+    without_exemption = build_drawing(part, page="A1", scale=1, scale_policy="permissive")
+    assert any(issue.code == "location_ref_dropped" for issue in without_exemption.lint())
+    assert placed_x(without_exemption) == {
+        "location_pattern.location.centre.x",
+        "location.location.member.0.x",
+    }
 
 
 def test_circular_channel_location_geometry_binds_each_candidate_and_reads_live_draft_issue_1930(
@@ -92,9 +190,9 @@ def test_location_facades_resolve_patched_helpers_when_called(monkeypatch):
 
 @pytest.fixture(scope="module")
 def plate_drawing():
-    # corners (a square → bolt-circle group) + centre cbore stack +
-    # off-centre blind hole: refs are the BC centre (= cbore hole,
-    # deduped) and the blind hole
+    # corners (a square → rectangular grid) + centre cbore stack +
+    # off-centre blind hole: refs are the grid centre (= cbore hole,
+    # deduped) and the blind hole.
     part = (
         Box(100, 100, 20)
         - Pos(35, 35, 0) * Cylinder(5, 20)

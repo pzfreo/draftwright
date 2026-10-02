@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Pin Quiddity 0.3.10 and classify its seven new recognition families explicitly. Four-hole
+  rectangular sets now use the existing grid grammar and state both pitches instead of a
+  bolt-circle claim; paired-ramp and through-step schema 3 records retain their established
+  drawing claims.
 - The agent usage guide moved from `AGENTS.md` to `docs/using-draftwright.md`; `AGENTS.md`
   now holds the contributor instructions formerly in `CLAUDE.md` (#1938).
 

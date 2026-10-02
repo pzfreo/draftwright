@@ -7,12 +7,13 @@ serialized models. This leaf owns their constructors and validation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import atan2, hypot, isfinite, pi
+from math import atan2, cos, hypot, isfinite, pi, radians, sin
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
 from draftwright import contract_values
 from draftwright._geometry import (
     _fmt,
+    plane_axes,
 )
 from draftwright.feature_identity import (
     register_envelope_feature_type,
@@ -874,6 +875,63 @@ class PatternFeature:
 
     def references(self) -> list[Datum]:
         return []
+
+
+def _grid_points_match(actual: tuple[Point, ...], expected: list[Point]) -> bool:
+    """Match each member to one lattice site within provider rounding tolerance."""
+    choices = [
+        [
+            index
+            for index, target in enumerate(expected)
+            if all(abs(point[axis] - target[axis]) <= 0.01 for axis in range(3))
+        ]
+        for point in actual
+    ]
+    owners = [-1] * len(expected)
+
+    def assign(member: int, seen: set[int]) -> bool:
+        for site in choices[member]:
+            if site in seen:
+                continue
+            seen.add(site)
+            if owners[site] == -1 or assign(owners[site], seen):
+                owners[site] = member
+                return True
+        return False
+
+    return all(assign(member, set()) for member in range(len(actual)))
+
+
+def grid_has_centre_datum(feature: PatternFeature) -> bool:
+    """Accept a grid centre only when its members prove the declared lattice."""
+    if (
+        feature.pattern != "grid"
+        or feature.grid is None
+        or feature.rows is None
+        or feature.cols is None
+        or feature.rows * feature.cols != feature.count
+        or len(feature.members) != feature.count
+    ):
+        return False
+    row_pitch, col_pitch = feature.grid
+    angle = radians(feature.angle or 0.0)
+    u, v = plane_axes(feature.frame.axis)
+    centre = feature.frame.origin
+    expected: list[Point] = []
+    for row in range(feature.rows):
+        for col in range(feature.cols):
+            across = (col - (feature.cols - 1) / 2) * col_pitch
+            along = (row - (feature.rows - 1) / 2) * row_pitch
+            du = across * cos(angle) - along * sin(angle)
+            dv = across * sin(angle) + along * cos(angle)
+            expected.append(
+                (
+                    centre[0] + du * u[0] + dv * v[0],
+                    centre[1] + du * u[1] + dv * v[1],
+                    centre[2] + du * u[2] + dv * v[2],
+                )
+            )
+    return _grid_points_match(feature.members, expected)
 
 
 @dataclass(frozen=True)

@@ -222,6 +222,10 @@ def test_framed_off_axis_pattern_keeps_one_absolute_location_requirement():
     }
 
     assert pattern.frame.axis in {"x", "y"}
+    assert pattern.pattern == "grid" and (pattern.rows, pattern.cols) == (2, 2)
+    assert pattern.frame.origin == tuple(
+        sum(member[axis] for member in pattern.members) / len(pattern.members) for axis in range(3)
+    )
     assert location_ids == {
         "location_pattern.location.centre.y",
         "location_pattern.location.centre.z",

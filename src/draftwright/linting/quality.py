@@ -157,7 +157,14 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: merging them would let an undecided family look settled. An authoritative occurrence
 #: with an unsupported outcome belongs to the set above instead.
 _UNDECIDED_INVENTORIES: dict[str, str] = {
+    "circular_face_patterns": "https://github.com/pzfreo/draftwright/issues/1365",
+    "freeform_surfaces": "https://github.com/pzfreo/draftwright/issues/1365",
+    "interior_voids": "https://github.com/pzfreo/draftwright/issues/1365",
+    "oblique_through_steps": "https://github.com/pzfreo/draftwright/issues/1365",
+    "oriented_chamfers": "https://github.com/pzfreo/draftwright/issues/1365",
     "oriented_slot_patterns": "https://github.com/pzfreo/draftwright/issues/1430",
+    "sheet_metal_bodies": "https://github.com/pzfreo/draftwright/issues/1557",
+    "thin_wall_bodies": "https://github.com/pzfreo/draftwright/issues/1365",
 }
 
 _AUDITED_FAMILIES = (

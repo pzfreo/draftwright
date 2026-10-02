@@ -1,6 +1,7 @@
 """Slot completeness follows semantic provenance, never presentation (#1018 Gate 2)."""
 
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +12,51 @@ from draftwright import Drawing, Sheet, build_drawing
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 from draftwright.model import slot
 from draftwright.model.compiled import compile_dimensions
+
+
+def test_ctc_left_slot_position_survives_grid_pitch_carve(monkeypatch):
+    from draftwright.annotations import _slots
+    from draftwright.annotations._placement_occupancy import annotation_ink_clear
+
+    source = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    options = dict(page="A2", scale=0.2, scale_policy="permissive", pmi="annotate")
+    drawing = build_drawing(source, **options)
+    approved = [
+        entry
+        for entry in compile_dimensions(drawing.model()).locations
+        if entry.role == "location_slot"
+    ]
+    assert {entry.value_text for entry in approved} == {"55", "635"}
+    left = next(entry for entry in approved if entry.value_text == "55")
+    assert drawing.get_annotation("m_slot0_pos").label == "55"
+    assert left.id in drawing.registry.identity_of("m_slot0_pos")["measurement"]
+    assert {
+        drawing.get_annotation(f"dim_pitch_plan{row}_{col}").label
+        for row in (0, 1)
+        for col in (0, 1)
+    } == {
+        "1× 90",
+        "1× 320",
+        "1× 350",
+        "1× 650",
+    }
+    assert {
+        drawing.get_annotation(name).label
+        for name in ("m_slot0_width", "m_slot0_length", "m_slot1_width", "m_slot1_length")
+    } == {"40", "120", "50", "100"}
+    assert annotation_ink_clear(
+        drawing,
+        drawing.get_annotation("m_slot0_pos"),
+        view="plan",
+        against=[("hc_plan1", drawing.get_annotation("hc_plan1"))],
+    )
+    assert not any(issue.code == "slot_dim_dropped" for issue in drawing.lint())
+
+    # Removing the exact-ink retry exposes the original strip-capacity failure.
+    monkeypatch.setattr(_slots, "_slot_position_ink_candidates", lambda *_args, **_kwargs: ())
+    without_retry = build_drawing(source, **options)
+    assert without_retry.get_annotation("m_slot0_pos") is None
+    assert any(issue.code == "slot_dim_dropped" for issue in without_retry.lint())
 
 
 def _off_centre_slot():

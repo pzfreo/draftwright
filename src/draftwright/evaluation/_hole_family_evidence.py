@@ -356,11 +356,19 @@ def _countersink_drawing_outcomes(countersinks, recognition, drawing) -> list[Ou
 
 
 def _pattern_kind(pattern) -> str:
+    if _is_rectangular_hole_set(pattern):
+        return "grid"
     if hasattr(pattern, "diameter") and hasattr(pattern, "center"):
         return "bolt_circle"
     if hasattr(pattern, "row_pitch"):
         return "grid"
     return "linear"
+
+
+def _is_rectangular_hole_set(pattern) -> bool:
+    from quiddity import RectangularHoleSet
+
+    return isinstance(pattern, RectangularHoleSet)
 
 
 def _pattern_members(pattern) -> tuple[tuple[float, float, float], ...]:
@@ -466,9 +474,9 @@ def _pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
         if outcome.parameter_id == "pitch.length":
             interval_count = len(pattern.holes) - 1
         elif outcome.parameter_id == "grid_pitch.length.row":
-            interval_count = pattern.rows - 1
+            interval_count = (2 if _is_rectangular_hole_set(pattern) else pattern.rows) - 1
         elif outcome.parameter_id == "grid_pitch.length.col":
-            interval_count = pattern.cols - 1
+            interval_count = (2 if _is_rectangular_hole_set(pattern) else pattern.cols) - 1
         else:
             interval_count = None
         return interval_count is None or rendered_interval_count(outcome, interval_count)
@@ -554,10 +562,15 @@ def _declared_pattern_model(part, patterns):
         elif kind == "linear":
             kwargs.update(pitch=observed.pitch, direction=observed.direction)
         else:
+            grid = (
+                (observed.height, observed.width)
+                if _is_rectangular_hole_set(observed)
+                else (observed.row_pitch, observed.col_pitch)
+            )
             kwargs.update(
-                grid=(observed.row_pitch, observed.col_pitch),
-                rows=observed.rows,
-                cols=observed.cols,
+                grid=grid,
+                rows=2 if _is_rectangular_hole_set(observed) else observed.rows,
+                cols=2 if _is_rectangular_hole_set(observed) else observed.cols,
                 angle=observed.angle,
             )
         sheet.pattern(declared_member, **kwargs)

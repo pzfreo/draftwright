@@ -1,12 +1,14 @@
 """Semantic completeness for recognised polygonal-boss requirements (#1372).
 
-Each aggregate ``PolygonalBoss`` is one attached regular-hexagonal-prism occurrence with two
+Each standalone aggregate ``PolygonalBoss`` is one attached regular polygonal prism with two
 manufacturing requirements: its across-flats definition and its attachment-to-terminal
-height.  Principal axis, physical centre, the six-side schema invariant, axial span, ordered flat directions
+height.  Principal axis, physical centre, the four/six-side schema invariant, axial span, ordered flat directions
 and physical flat centres join the provider record to exactly one ``PolygonalBossFeature``.
 Compiler ``DimensionId`` values then join both requirements to placed, explicitly satisfied,
 suppressed, dropped, missing, or unverifiable outcomes.  Labels, annotation names, views,
 leader tips, projections and page coordinates are never correspondence evidence.
+An exact four-sided duplicate of a recognised pad contributes no second physical requirement;
+the pad ledger owns its dimensions.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from math import atan2, cos, hypot, isclose, isfinite, pi
-from typing import Literal
+from typing import Any, Literal
 
 from quiddity import PolygonalBoss, RecognitionResult
 
@@ -32,6 +34,7 @@ from draftwright.linting.issues import (
     LintIssue,
     requirement_subject,
 )
+from draftwright.measurement_support import square_polygonal_boss_pad_owner
 
 PolygonalBossRequirementState = Literal[
     "placed",
@@ -93,8 +96,8 @@ def polygonal_boss_center(boss) -> Point:
 def _validate_polygonal_boss_source(boss: PolygonalBoss) -> None:
     """Enforce invariants of the installed provider family at source intake."""
     side_count = boss.side_count
-    if type(side_count) is not int or side_count != 6:
-        raise ValueError("the polygonal-boss provider contract requires exactly six sides")
+    if type(side_count) is not int or side_count not in {4, 6}:
+        raise ValueError("the polygonal-boss provider contract requires four or six sides")
     axis = str(boss.axis)
     if axis not in {"x", "y", "z"}:
         raise ValueError("the polygonal-boss provider contract requires a principal axis")
@@ -119,7 +122,7 @@ def _validate_polygonal_boss_source(boss: PolygonalBoss) -> None:
         raise ValueError("the polygonal-boss provider contract requires finite supports")
     ring = _canonical_support_ring(directions, centres)
     if len(ring) != side_count:
-        raise ValueError("the polygonal-boss provider contract requires six paired supports")
+        raise ValueError("the polygonal-boss provider contract requires paired supports")
     if len(set(_points(directions))) != side_count or len(set(_points(centres))) != side_count:
         raise ValueError("the polygonal-boss provider contract requires distinct supports")
     angles = []
@@ -224,11 +227,20 @@ def _parameter_ids(feature, source) -> tuple[str, str] | None:
     return required
 
 
+def _square_pad_owner(source, recognition, evidence: Any):
+    """Match only an exact polygonal-boss occurrence in the same provider run."""
+    if evidence is None or evidence.result is not recognition:
+        return None
+    return square_polygonal_boss_pad_owner(source, recognition.pads, evidence)
+
+
 def polygonal_boss_requirement_outcomes(
     recognition: RecognitionResult | None,
     features,
     registry,
     omissions=(),
+    *,
+    evidence: Any = None,
 ) -> list[PolygonalBossRequirementOutcome]:
     """Follow every recognised polygonal-boss requirement to its semantic outcome."""
     if recognition is None:
@@ -275,6 +287,15 @@ def polygonal_boss_requirement_outcomes(
     }
     outcomes: list[PolygonalBossRequirementOutcome] = []
     for source, key, at in keyed_sources:
+        if (
+            key is not None
+            and isinstance(source, PolygonalBoss)
+            and source.side_count == 4
+            and source_counts[key] == 1
+        ):
+            pad_owner = _square_pad_owner(source, recognition, evidence)
+            if pad_owner is not None:
+                continue  # The pad ledger owns these same two physical measurements.
         matches = ir_by_key.get(key, ()) if key is not None else ()
         feature = (
             matches[0] if key is not None and len(matches) == source_counts[key] == 1 else None
@@ -323,6 +344,7 @@ def lint_polygonal_boss_coverage(
     features,
     registry,
     omissions=(),
+    evidence: Any = None,
     assembly=None,
 ) -> list[LintIssue]:
     """Report uncovered polygonal-boss requirements without duplicating placement drops."""
@@ -330,7 +352,9 @@ def lint_polygonal_boss_coverage(
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     return lint_parameter_coverage(
-        polygonal_boss_requirement_outcomes(recognition, features, registry, omissions),
+        polygonal_boss_requirement_outcomes(
+            recognition, features, registry, omissions, evidence=evidence
+        ),
         missing_message="has no placed, suppressed, or dropped measurement outcome",
         issue_factory=lambda outcome, reason: LintIssue(
             severity=severity,

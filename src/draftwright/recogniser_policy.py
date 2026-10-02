@@ -32,6 +32,36 @@ EVIDENCE_ONLY_FAMILIES: Mapping[str, str] = MappingProxyType(
 # ensures a new provider family cannot hide by being absent from this table and the supported map.
 UNSUPPORTED_FAMILIES: Mapping[str, tuple[tuple[str, ...], str, str]] = MappingProxyType(
     {
+        "circular-face-patterns": (
+            ("CircularFacePattern",),
+            "https://github.com/pzfreo/draftwright/issues/1365",
+            "A repeated circular face is geometric evidence, but Draftwright has no reviewed "
+            "drawing requirement or IR owner for this face relation.",
+        ),
+        "freeform-surfaces": (
+            ("BSplineSurfaceSupport", "FreeformSurface", "SurfaceContinuityLink"),
+            "https://github.com/pzfreo/draftwright/issues/1365",
+            "Freeform surface evidence has no reviewed dimension or inspection grammar in "
+            "Draftwright.",
+        ),
+        "interior-voids": (
+            ("InteriorVoid",),
+            "https://github.com/pzfreo/draftwright/issues/1365",
+            "A body-owned interior void is physical evidence, but no drawing requirement has "
+            "been reviewed for its sampled volume and faces.",
+        ),
+        "oblique-through-steps": (
+            ("ObliqueThroughStep",),
+            "https://github.com/pzfreo/draftwright/issues/1365",
+            "The existing ThroughStepFeature and its view grammar use a principal frame; "
+            "the oblique run requires a reviewed representation before it can enter the IR.",
+        ),
+        "oriented-chamfers": (
+            ("OrientedChamfer",),
+            "https://github.com/pzfreo/draftwright/issues/1365",
+            "The existing chamfer drawing path does not carry this free-axis run and its "
+            "support spans through declaration, views, and completeness.",
+        ),
         "oriented-slot-patterns": (
             ("OrientedSlotArray", "OrientedSlotGrid"),
             "https://github.com/pzfreo/draftwright/issues/1430",
@@ -49,10 +79,43 @@ UNSUPPORTED_FAMILIES: Mapping[str, tuple[tuple[str, ...], str, str]] = MappingPr
             "requirements or section/detail view are required. Draftwright therefore reports every "
             "occurrence as an unsupported completeness requirement.",
         ),
+        "sheet-metal-bodies": (
+            (
+                "FlatOverlapWitness",
+                "FlatPatternPlan",
+                "FormedSheetFeature",
+                "SheetBend",
+                "SheetEdgeTreatment",
+                "SheetFlange",
+                "SheetMetalBody",
+                "UnfoldedBendStrip",
+                "UnfoldedFlangeFace",
+            ),
+            "https://github.com/pzfreo/draftwright/issues/1557",
+            "A developed blank and bend notes require a sheet-metal drawing contract and "
+            "view plan that are still under design.",
+        ),
+        "thin-wall-bodies": (
+            ("ShellHistoryHint", "ThinWallBody", "UnpairedWallFace", "WallFacePair"),
+            "https://github.com/pzfreo/draftwright/issues/1365",
+            "Wall thickness and shell evidence have no reviewed Draftwright IR, declaration, "
+            "or completeness requirement yet.",
+        ),
     }
 )
 
-DEFERRED_FAMILIES: frozenset[str] = frozenset({"oriented-slot-patterns"})
+DEFERRED_FAMILIES: frozenset[str] = frozenset(
+    {
+        "circular-face-patterns",
+        "freeform-surfaces",
+        "interior-voids",
+        "oblique-through-steps",
+        "oriented-chamfers",
+        "oriented-slot-patterns",
+        "sheet-metal-bodies",
+        "thin-wall-bodies",
+    }
+)
 
 
 @dataclass(frozen=True)

@@ -105,6 +105,13 @@ _DETECTOR_FAMILIES = frozenset(
         "blends",
         "fillets",
         "plates",
+        "circular_face_patterns",
+        "freeform_surfaces",
+        "interior_voids",
+        "oblique_through_steps",
+        "oriented_chamfers",
+        "sheet_metal_bodies",
+        "thin_wall_bodies",
     }
 )
 _RECONCILIATION_REASONS = frozenset(
@@ -124,6 +131,10 @@ _RECONCILIATION_REASONS = frozenset(
         "blend.fillet_superseded_by_circular_blind_step",
         "blend.chain_superseded_by_fillet",
         "bore.hole_superseded_by_double_d_bore",
+        "turned.boss_superseded_by_step",
+        "wall.plate_superseded_by_body",
+        "wall.boss_superseded_by_body",
+        "wall.riser_superseded_by_body",
         "turned.step_groove_compatible",
         "turned.groove_step_compatible",
     }

@@ -243,6 +243,24 @@ def resolve_through_step_ownership(
 ) -> ThroughStepOwnershipStage:
     """Resolve exact legacy owners after pad and edge-floor exclusions."""
 
+    def _datum_level_zs(steps) -> tuple[float, ...]:
+        """A local endpoint cannot claim a global datum level by ordinate alone."""
+        base_z = float(bbox.min.Z)
+        return tuple(
+            level
+            for step in steps
+            for level in level_zs((step,))
+            if getattr(step, "endpoint_scopes", ("solid", "solid")) == ("solid", "solid")
+            or (
+                step.axis != "z"
+                and any(
+                    (abs(start[1] - base_z) <= 1e-6 and abs(end[1] - level) <= 1e-6)
+                    or (abs(end[1] - base_z) <= 1e-6 and abs(start[1] - level) <= 1e-6)
+                    for start, end in zip(step.section, step.section[1:], strict=False)
+                )
+            )
+        )
+
     def _side_pad_owns_level(level: FaceLevel, pad: RaisedPad) -> bool:
         if pad.axis == "z" or level.x_span is None or level.y_span is None:
             return False
@@ -316,7 +334,7 @@ def resolve_through_step_ownership(
     # until the surviving legacy grammar still proves both legs for every preempted record.
     while True:
         owned_spans = leg_spans(lowered_through_steps)
-        owned_levels = level_zs(lowered_through_steps)
+        owned_levels = _datum_level_zs(lowered_through_steps)
         owned_shoulders = shoulder_sites(lowered_through_steps, bbox)
         remaining_levels = tuple(
             z for z in ownership_step_zs if not any(abs(z - owned) < 0.5 for owned in owned_levels)
@@ -372,7 +390,7 @@ def resolve_through_step_ownership(
         if id(step) not in lowered_through_step_ids
     }
     through_leg_spans = leg_spans(lowered_through_steps)
-    through_level_zs = level_zs(lowered_through_steps)
+    through_level_zs = _datum_level_zs(lowered_through_steps)
     through_shoulder_sites = shoulder_sites(lowered_through_steps, bbox)
     return ThroughStepOwnershipStage(
         side_pad_level_zs,

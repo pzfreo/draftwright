@@ -195,6 +195,82 @@ def test_x_pad_compose_reserves_both_end_on_dimension_bands():
     assert not [issue for issue in drawing.lint() if issue.severity in {"warning", "error"}]
 
 
+def test_four_flat_polygonal_occurrence_shares_its_exact_pad_owner():
+    from dataclasses import replace
+
+    from draftwright.linting.pad_coverage import pad_requirement_outcomes
+    from draftwright.linting.polygonal_boss_coverage import (
+        _square_pad_owner,
+        polygonal_boss_requirement_outcomes,
+    )
+    from draftwright.measurement_support import square_polygonal_boss_pad_owner
+
+    part = _box((10, 20, 20), (0, 0, 0)) + _box((5, 9, 9), (10, 4, 4))
+    drawing = build_drawing(part)
+    evidence = drawing.recognition_evidence()
+    ownership = drawing.recognition_ownership()
+    assert evidence is not None and ownership is not None
+    boss_occurrences = tuple(
+        item for item in evidence.features if evidence.family(item) == "polygonal_bosses"
+    )
+    pad_occurrences = tuple(item for item in evidence.features if evidence.family(item) == "pads")
+    assert len(boss_occurrences) == len(pad_occurrences) == 1
+    boss_faces = evidence.defining_faces(boss_occurrences[0])
+    assert evidence.record(boss_occurrences[0]).side_count == 4
+    assert boss_faces and boss_faces < evidence.defining_faces(pad_occurrences[0])
+    assert (
+        square_polygonal_boss_pad_owner(
+            replace(evidence.record(boss_occurrences[0])), drawing.recognition().pads, evidence
+        )
+        is None
+    )
+
+    boss_binding = ownership.binding_for(boss_occurrences[0])
+    pad_binding = ownership.binding_for(pad_occurrences[0])
+    assert boss_binding is not None and pad_binding is not None
+    assert boss_binding.reason_code == "polygonal_boss_pad_owner"
+    assert boss_binding.feature is pad_binding.feature
+    assert not [
+        feature for feature in drawing.model().features if feature.kind == "polygonal_boss"
+    ]
+    outcomes = polygonal_boss_requirement_outcomes(
+        drawing.recognition(), drawing.model().features, drawing.registry, evidence=evidence
+    )
+    assert outcomes == []
+    copied_boss = replace(evidence.record(boss_occurrences[0]))
+    assert _square_pad_owner(evidence.record(boss_occurrences[0]), drawing.recognition(), evidence)
+    assert _square_pad_owner(copied_boss, drawing.recognition(), evidence) is None
+    copied_recognition = replace(drawing.recognition(), polygonal_bosses=(copied_boss,))
+    copied_outcomes = polygonal_boss_requirement_outcomes(
+        copied_recognition, (), drawing.registry, evidence=evidence
+    )
+    assert len(copied_outcomes) == 1
+    assert copied_outcomes[0].state == "unverifiable"
+    assert copied_outcomes[0].requirement_count == 2
+    assert copied_outcomes[0].source_records == (copied_boss,)
+    pad_outcomes = pad_requirement_outcomes(
+        drawing.recognition(), drawing.model().features, drawing.registry
+    )
+    assert {outcome.parameter_id: outcome.state for outcome in pad_outcomes}.items() >= {
+        "pad_width.length": "placed",
+        "pad_length.length": "placed",
+        "pad_height.length": "placed",
+    }.items()
+    without_pad = tuple(feature for feature in drawing.model().features if feature.kind != "pad")
+    assert (
+        polygonal_boss_requirement_outcomes(
+            drawing.recognition(), without_pad, drawing.registry, evidence=evidence
+        )
+        == []
+    )
+    assert "unverifiable" in {
+        outcome.state
+        for outcome in pad_requirement_outcomes(
+            drawing.recognition(), without_pad, drawing.registry
+        )
+    }
+
+
 def test_x_pad_side_strip_consumes_its_reserved_band_at_scale_two():
     """The side strip starts at geometry, not beyond its reserved outer footprint."""
     part = _box((10, 12, 12), (0, 0, 0)) + _box((5, 5.4, 5.4), (10, 2.4, 2.4))

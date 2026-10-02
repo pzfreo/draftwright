@@ -294,6 +294,24 @@ def test_mixed_axis_aggregate_scores_every_physical_leg() -> None:
     assert [outcome.state for outcome in outcomes] == ["placed"] * 4
 
 
+def test_local_endpoint_step_keeps_distinct_datum_height_ladder() -> None:
+    from _parts import uniform_staircase
+
+    drawing = build_drawing(uniform_staircase(n_treads=8, rise=15.0))
+    recognition = drawing.recognition()
+    assert recognition is not None
+    # The provider's boundary L sections are local rises. They do not own the seven
+    # heights measured from the whole part's base datum.
+    assert {step.endpoint_scopes for step in recognition.through_steps} == {
+        ("solid", "local"),
+        ("local", "solid"),
+    }
+    step_levels = [feature for feature in drawing.model().features if feature.kind == "step_level"]
+    assert len(step_levels) == 1
+    assert step_levels[0].levels == (15.0, 30.0, 45.0, 60.0, 75.0, 90.0, 105.0)
+    assert drawing.get_annotation("dim_step_typ").label == "8× 15"
+
+
 def test_mixed_legacy_and_aggregate_ownership_reaches_a_fixed_point() -> None:
     base = Rot(90, 0, 0) * _through_step_part()
     drawing = build_drawing(Compound([Pos(-70, 0, 0) * base, Pos(70, 0, 0) * base]))

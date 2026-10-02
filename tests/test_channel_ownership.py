@@ -50,6 +50,7 @@ def _channel_occurrence(ownership):
 def test_conditional_family_roster_is_explicit() -> None:
     assert CONDITIONAL_FAMILIES == {
         "bosses",
+        "hole_patterns",
         "plates",
         "through_steps",
         "turned_steps",

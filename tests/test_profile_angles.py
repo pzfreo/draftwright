@@ -99,6 +99,18 @@ def test_absent_profile_authority_does_not_fabricate_requirements():
     assert profile_angle_repetitions(None) == ()
 
 
+def test_concave_outer_profile_schema_is_accepted_without_inventing_angles():
+    part = Box(80, 60, 30) - Pos(0, 0, 7.5) * Box(80, 20, 15)
+    evidence = build_recognition_evidence(part)
+    profiles = [
+        evidence.planar_outer_profile(face)
+        for face in evidence.faces
+        if evidence.planar_outer_profile(face) is not None
+    ]
+    assert any(source.profile.schema_version == 2 for source in profiles)
+    assert profile_angle_requirements(evidence) == ()
+
+
 @pytest.fixture(scope="module")
 def chamfer_and_unrelated_equal_corners():
     part = extrude(

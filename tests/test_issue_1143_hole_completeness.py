@@ -17,7 +17,11 @@ from quiddity import (
 
 from draftwright import Sheet, build_drawing
 from draftwright.builder import detect_part_model
-from draftwright.linting.hole_coverage import canonical_hole_sites, hole_requirement_outcomes
+from draftwright.linting.hole_coverage import (
+    _grid_has_physical_centre,
+    canonical_hole_sites,
+    hole_requirement_outcomes,
+)
 from draftwright.linting.issues import LintIssue
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.declare import hole as declare_hole
@@ -270,14 +274,15 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
     assert {item.parameter_id for item in outcomes if item.source_kind == "hole_pattern"} == {
         "bore.diameter",
         "bore.through",
-        "bolt_circle.diameter",
+        "grid_pitch.length.row",
+        "grid_pitch.length.col",
         "grouping.count",
         "location_pattern.location.x",
         "location_pattern.location.y",
     }
     assert all(item.state == "placed" for item in outcomes)
     assert completeness["audited_score"] == 1.0
-    assert completeness["requirements"] == completeness["placed"] == 10
+    assert completeness["requirements"] == completeness["placed"] == 11
     assert completeness["by_family"] == {
         "outer_profile_angles": 0,
         "section_recesses": 0,
@@ -292,7 +297,7 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
         "grooves": 0,
         "gusset_ribs": 0,
         "holes": 4,
-        "hole_patterns": 6,
+        "hole_patterns": 7,
         "pads": 0,
         "plates": 0,
         "polygonal_bosses": 0,
@@ -316,7 +321,6 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
         if name.startswith("hc_") and drawing.get_annotation(name).label.startswith("4×")
     )
     assert {key["parameter_id"] for key in drawing.measurement_keys(pattern_callout)} == {
-        "bolt_circle.diameter",
         "bore.diameter",
     }
 
@@ -331,8 +335,8 @@ def test_shared_location_marks_retain_addressable_and_physical_axis_identities()
         "location_pattern.location.centre.x",
     }
     assert {key["parameter_id"] for key in y_keys} == {
-        "location.location.member.0.y",
         "location_pattern.location.centre.y",
+        "location.location.member.0.y",
     }
     assert len({key["feature"] for key in x_keys}) == 2
     assert len({key["feature"] for key in y_keys}) == 2
@@ -1131,12 +1135,18 @@ def test_transposed_grid_declaration_corresponds_to_the_same_physical_lattice():
 def test_inconsistent_grid_definition_cannot_be_certified_from_member_points_alone():
     part = _grid_pattern()
     detected = detect_part_model(part)
+    physical_grid = next(feature for feature in detected.features if feature.kind == "pattern")
+    assert _grid_has_physical_centre(physical_grid)
     features = [
         replace(feature, grid=(30.0, 26.0))
         if getattr(feature, "pattern", None) == "grid"
         else feature
         for feature in detected.features
     ]
+    inconsistent_grid = next(feature for feature in features if feature.kind == "pattern")
+    assert inconsistent_grid.frame.origin == physical_grid.frame.origin
+    assert inconsistent_grid.members == physical_grid.members
+    assert not _grid_has_physical_centre(inconsistent_grid)
 
     drawing = build_drawing(part, model=replace(detected, features=features), page="A3")
     unverifiable = [item for item in _outcomes(drawing) if item.state == "unverifiable"]
@@ -2151,7 +2161,7 @@ def test_removing_a_required_callout_or_location_reduces_completeness():
         "bore.diameter",
         "bore.through",
     }
-    assert _completeness(callout_drawing)["audited_score"] == 0.8
+    assert _completeness(callout_drawing)["audited_score"] == 9 / 11
 
     location_drawing = build_drawing(_pattern_and_central_bore())
     location_drawing.remove("m_locx0")
@@ -2164,7 +2174,7 @@ def test_removing_a_required_callout_or_location_reduces_completeness():
         ("hole", "location.location.x"),
         ("hole_pattern", "location_pattern.location.x"),
     }
-    assert _completeness(location_drawing)["audited_score"] == 0.8
+    assert _completeness(location_drawing)["audited_score"] == 9 / 11
 
 
 def test_grouped_loose_holes_require_every_member_location_mark():
@@ -2282,8 +2292,19 @@ def test_scattered_hole_table_preserves_placed_pattern_location_evidence():
 
 
 def test_scattered_hole_table_preserves_unresolved_pattern_location_drops():
-    drawing = build_drawing(_dense_scattered_plate_with_bolt_circle((19.6, 9.6)), page="A3")
+    scale = 0.01
+    drawing = build_drawing(
+        _dense_scattered_plate_with_bolt_circle((19.6, 9.6)),
+        page="A3",
+        scale=scale,
+        scale_policy="permissive",
+    )
+    pattern = next(feature for feature in drawing.model().features if feature.kind == "pattern")
+    bounds = drawing.model().bbox
+    assert (pattern.frame.origin[0] - bounds.min.X) * scale < 1.0
+    assert (pattern.frame.origin[1] - bounds.min.Y) * scale < 1.0
 
+    assert drawing.add_hole_table("plan", balloons=False) is not None
     assert "hole_table_plan" in drawing.annotations()
     assert {
         item.parameter_id: item.state
@@ -2623,9 +2644,9 @@ def test_deleting_a_declaration_cannot_shrink_the_recognition_denominator():
     drawing = build_drawing(part, model=reduced)
     completeness = _completeness(drawing)
 
-    assert completeness["requirements"] == baseline["requirements"] == 10
+    assert completeness["requirements"] == baseline["requirements"] == 11
     assert completeness["unverifiable"] == 4
-    assert completeness["audited_score"] == 0.6
+    assert completeness["audited_score"] == 7 / 11
     assert {
         item.requirement_count for item in _outcomes(drawing) if item.state == "unverifiable"
     } == {4}
@@ -2634,6 +2655,7 @@ def test_deleting_a_declaration_cannot_shrink_the_recognition_denominator():
         "feature_not_dimensioned": 1,
         "feature_no_centermark": 1,
         "hole_requirement_unverifiable": 1,
+        "nominal_rounded": 1,
     }
     assert summary["geometry_issues"] == 3
 
@@ -2684,12 +2706,17 @@ def test_declared_structural_profile_cannot_certify_a_circular_hole():
     assert completeness["audited_score"] == 0.0
 
 
-def test_shifted_declared_bolt_circle_center_cannot_certify_physical_location():
+def test_shifted_declared_rectangular_members_cannot_certify_physical_location():
     part = _pattern_and_central_bore()
     detected = detect_part_model(part)
     pattern = next(feature for feature in detected.features if feature.kind == "pattern")
     z = pattern.frame.origin[2]
-    shifted = replace(pattern, frame=replace(pattern.frame, origin=(5.0, 5.0, z)))
+    assert pattern.pattern == "grid" and len(pattern.members) == 4
+    shifted = replace(
+        pattern,
+        frame=replace(pattern.frame, origin=(5.0, 5.0, z)),
+        members=tuple((x + 5.0, y + 5.0, member_z) for x, y, member_z in pattern.members),
+    )
     declared = replace(
         detected,
         features=[shifted if feature is pattern else feature for feature in detected.features],
@@ -2702,12 +2729,12 @@ def test_shifted_declared_bolt_circle_center_cannot_certify_physical_location():
         (item.source_kind, item.parameter_id, item.state, item.requirement_count)
         for item in outcomes
         if item.state == "unverifiable"
-    ] == [("hole_pattern", "?", "unverifiable", 6)]
+    ] == [("hole_pattern", "?", "unverifiable", 7)]
     completeness = _completeness(drawing)
-    assert completeness["requirements"] == 10
+    assert completeness["requirements"] == 11
     assert completeness["placed"] == 4
-    assert completeness["unverifiable"] == 6
-    assert completeness["audited_score"] == 0.4
+    assert completeness["unverifiable"] == 7
+    assert completeness["audited_score"] == 4 / 11
 
 
 def test_blind_bolt_circle_tool_center_projects_members_and_center_together():

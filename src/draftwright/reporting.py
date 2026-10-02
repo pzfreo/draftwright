@@ -346,6 +346,7 @@ def build_requirement_catalog(
                     row,
                 )
             )
+    projected_records.update(_covered_hole_pattern_group_ids(evidence, outcomes))
     for reference, record in requirement_source_census(evidence, ownership):
         if (
             ownership.status(reference) not in {"unsupported", "deferred", "evidence_only"}
@@ -372,6 +373,26 @@ def build_requirement_catalog(
     return RequirementCatalog(
         evidence, ownership, tuple(model.features), tuple(outcomes), tuple(entries)
     )
+
+
+def _covered_hole_pattern_group_ids(evidence, outcomes) -> set[int]:
+    """Account for grouping records through exact physical-hole source identity."""
+    pattern_sources = {
+        frozenset(id(record) for record in _outcome_records(row))
+        for row in outcomes["hole_patterns"]
+    }
+    covered = set()
+    for reference in evidence.features:
+        if evidence.family(reference) != "hole_patterns":
+            continue
+        pattern = evidence.record(reference)
+        holes = getattr(pattern, "holes", None)
+        if type(holes) is not tuple or not holes:
+            continue
+        member_ids = frozenset(id(hole) for hole in holes)
+        if len(member_ids) == len(holes) and member_ids in pattern_sources:
+            covered.add(id(pattern))
+    return covered
 
 
 def _validate_catalog_supports(alternatives, feature_order):

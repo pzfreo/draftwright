@@ -91,8 +91,8 @@ exact measurement-outcome index and named physical-requirement carrier record.
 circular-blind-step, rectangular-blind-slot, and round-bottom-blind-slot
 recognition-to-outcome join while each family retains its physical key and publicly
 named outcome record.
-Rank-0 `measurement_support` keeps the shared witness and location predicates without
-a package import.
+Rank-0 `measurement_support` keeps the shared witness, location, and exact
+four-flat boss/pad ownership predicates without a package import.
 Within rank-7 `evaluation/`, `_turned_step_evidence.py` owns turned-step IR and drawing
 evidence, and `_pocket_evidence.py` owns lone-pocket and pocket-pattern evidence;
 `_groove_evidence.py` owns groove correspondence, declaration, and drawing evidence;
@@ -159,7 +159,7 @@ out in the issue/PR/review, not after merge.
 - `build123d>=0.9.0,<0.11 ; python_full_version < '3.13'` and
   `build123d>=0.11,<0.12 ; python_full_version >= '3.13'` (Apache 2.0),
   `build123d-drafting-helpers>=0.15.5` (Apache 2.0), and
-  `quiddity==0.3.3` (Apache 2.0). `pyproject.toml` is the dependency authority.
+  `quiddity==0.3.10` (Apache 2.0). `pyproject.toml` is the dependency authority.
 - Export render chain: `reportlab` + `svglib` (PDF), `pypdfium2` + `pillow` (PNG) —
   all pure-wheel, no native cairo; svglib is the one weak-copyleft (LGPL) member.
 - The 1D strip solve is dependency-free PAVA (`_solve_strip_1d_pava`); `kiwisolver`

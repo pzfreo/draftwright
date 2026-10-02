@@ -542,6 +542,76 @@ def test_bolt_circle_centre_is_distinct_from_a_member(grouped_holes, tmp_path, a
     assert _locations(replayed) == _locations(before)
 
 
+def test_proved_grid_centre_and_explicit_member_round_trip(tmp_path):
+    members = ((-5, -15, 0), (15, -15, 0), (-5, 15, 0), (15, 15, 0))
+    part = Box(80, 100, 10)
+    for point in members:
+        part -= Pos(*point) * Cylinder(3, 10)
+    sheet = Sheet(part, scale=2).authored_dimensions()
+    pattern = sheet.pattern(
+        declared_hole(diameter=6, depth=10, axis="z", at=(5, 0, 0)),
+        kind="grid",
+        count=4,
+        grid=(30, 20),
+        rows=2,
+        cols=2,
+        at=(5, 0, 0),
+        members=members,
+    )
+    sheet.dimension(pattern, "bore.diameter")
+    sheet.dimension(pattern, "location", member="centre", axis="x")
+    sheet.dimension(pattern, "location", member=0, axis="y")
+    drawing = sheet.build()
+    assert {
+        key["parameter_id"] for _label, keys in _locations(drawing).values() for key in keys
+    } == {
+        "location_pattern.location.centre.x",
+        "location_pattern.location.member.0.y",
+    }
+    script = emit_sheet_script(
+        sheet.model(),
+        "part",
+        str(tmp_path / "grid"),
+        title="Grid",
+        number="883",
+        formats=(),
+        scale=2,
+    )
+    replayed = execute_sheet_script_without_export(script, "<grid-centre>", {"part": part})
+    assert _locations(replayed) == _locations(drawing)
+
+    feature = next(f for f in sheet.model().features if isinstance(f, PatternFeature))
+    skewed = replace(feature, members=(*members[:3], (15, 16, 0)))
+    with pytest.raises(ValueError, match="proved grid"):
+        RequestedDimension(skewed, "location", member="centre", discriminator="x")
+
+
+def test_near_vertical_grid_centre_is_independent_of_member_sort_order():
+    from draftwright.model.ir_foundation import grid_has_centre_datum
+
+    frame = Frame((0, 0, 0), "z")
+    feature = PatternFeature(
+        frame,
+        "grid",
+        4,
+        declared_hole(diameter=2, depth=10, axis="z", at=(0, 0, 0)),
+        members=(
+            (10.004127183069723, -5.001745253088779, 0.0),
+            (9.995872512312857, 4.998254594602511, 0.0),
+            (-9.995872512312857, -4.998254594602511, 0.0),
+            (-10.004127183069723, 5.001745253088779, 0.0),
+        ),
+        grid=(20, 10),
+        rows=2,
+        cols=2,
+        angle=89.99,
+    )
+    assert feature.members[0][0] > feature.members[1][0]
+    assert feature.members[2][0] > feature.members[3][0]
+    assert grid_has_centre_datum(feature)
+    assert RequestedDimension(feature, "location", member="centre", discriminator="x")
+
+
 @pytest.mark.parametrize("second_axis", ["x", "y"])
 def test_coincident_ordinate_records_only_approved_owners(second_axis):
     points = ((-15, -10, 0), (15, -10, 0))

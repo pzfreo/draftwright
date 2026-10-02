@@ -93,7 +93,7 @@ _FAMILIES: dict[str, _FamilySpec] = {
         "render_gusset_ribs",
     ),
     "hole-patterns": _FamilySpec(
-        ("BoltCircle", "LinearArray", "RectGrid"),
+        ("BoltCircle", "LinearArray", "RectGrid", "RectangularHoleSet"),
         "_pattern_feature",
         "pattern",
         "_annotate_holes",

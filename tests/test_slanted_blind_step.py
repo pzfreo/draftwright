@@ -93,25 +93,30 @@ def test_slanted_blind_step_gets_reconstructable_dimension_plan(slanted_blind_st
     detected = detect_part_model(_slanted_blind_step())
     assert tuple(detected.features) == tuple(dwg.model().features)
     names = set(dwg.annotations())
+    recognition = dwg.recognition()
+    assert recognition is not None
+    bounds = slanted_blind_step.bounding_box()
+    assert (round(bounds.size.X, 6), round(bounds.size.Z, 6)) == (50.0, 25.0)
+    assert [step.section for step in recognition.through_steps] == [
+        (
+            (bounds.max.X - 10.0, bounds.min.Z + 19.0),
+            (bounds.max.X - 10.0, bounds.min.Z + 14.0),
+            (bounds.max.X, bounds.min.Z + 14.0),
+        )
+    ]
 
     assert "m_env_width" in names
-    assert {"dim_shoulder_x0", "dim_shoulder_x1", "dim_shoulder_x2"} <= names
+    assert {"dim_shoulder_x0", "dim_shoulder_x1"} <= names
+    assert {"dim_through_step_y0_z", "dim_through_step_y0_x"} <= names
+    assert dwg.get_annotation("dim_through_step_y0_x").label == "10"
     assert {"m_pocket_xy0", "m_pocket_xy1"} <= names
-    assert "detail_a" in dwg.views
-
-    detail_labels = Counter(
-        str(getattr(ann, "label", ""))
-        for name, ann in dwg.annotations_in_view("detail_a")
-        if name.startswith("dim_detail_a_step")
-    )
     main_labels = Counter(
         str(getattr(ann, "label", ""))
         for name, ann in dwg.annotations_in_view("front")
         if name.startswith("dim_step")
     )
     assert main_labels["14"] == 1
-    assert detail_labels["19"] == 1
-    assert not main_labels & detail_labels
+    assert main_labels["19"] == 1
     assert getattr(dwg.get_annotation("dim_height"), "label", None) == "25"
     assert not [i for i in dwg.lint() if i.severity in ("warning", "error")]
 

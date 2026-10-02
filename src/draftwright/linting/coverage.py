@@ -1697,6 +1697,21 @@ def _lint_prismatic_transitions(part, bbox, features, recognition, missing_ir, s
             feature.w_center + feature.width / 2,
         )
     )
+    # An X/Y-run through-step owns the bend of its exact transverse section. It can
+    # replace one legacy profile shoulder while retaining its own two local legs.
+    model_shoulders.update(
+        ("y" if feature.axis == "x" else "x", round(feature.section[1][0], 3))
+        for feature in features
+        if getattr(feature, "kind", None) == "through_step"
+        and feature.axis in {"x", "y"}
+        and any(
+            source.axis == feature.axis
+            and source.length == feature.length
+            and source.at == feature.frame.origin
+            and source.section == feature.section
+            for source in recognition.through_steps
+        )
+    )
     # A lone vertical transition can legitimately be owned by a declared plate
     # thickness scheme. Two or more stations describe a stepped/slanted profile
     # chain and must survive into correlated step IR.

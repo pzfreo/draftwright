@@ -743,15 +743,13 @@ def test_diagonal_dimension_gate_keeps_legacy_untight_labels_conservative() -> N
 
 
 @pytest.mark.parametrize(
-    "drop_code,invalid_real_geometry",
+    "drop_code",
     [
-        ("pocket_pattern_dim_dropped", "component_boxes"),
-        ("hole_pattern_dim_dropped", "geometry_box"),
+        "pocket_pattern_dim_dropped",
+        "hole_pattern_dim_dropped",
     ],
 )
-def test_pitch_fallback_rejects_unverifiable_real_geometry(
-    monkeypatch, drop_code: str, invalid_real_geometry: str
-) -> None:
+def test_pitch_fallback_rejects_unverifiable_real_geometry(monkeypatch, drop_code: str) -> None:
     from build123d import Draft
 
     from draftwright.annotations import holes
@@ -813,10 +811,13 @@ def test_pitch_fallback_rejects_unverifiable_real_geometry(
         "dim_footprint",
         lambda *_args, **_kwargs: (20.0, 20.0, 30.0, 24.0),
     )
-    if invalid_real_geometry == "component_boxes":
-        monkeypatch.setattr(holes, "annotation_obstacle_boxes", lambda *_args, **_kwargs: ())
-    else:
-        monkeypatch.setattr(holes, "_geom_box", lambda *_args, **_kwargs: None)
+    probed_ink = []
+
+    def no_verifiable_ink(_drawing, dimension):
+        probed_ink.append(dimension)
+        return ()
+
+    monkeypatch.setattr(holes, "annotation_obstacle_boxes", no_verifiable_ink)
 
     holes._place_pitch_dim(
         drawing,
@@ -833,6 +834,8 @@ def test_pitch_fallback_rejects_unverifiable_real_geometry(
     )
 
     assert "test_rejected_pitch" not in registry.names()
+    assert probed_ink
+    assert all(item.label_bbox and item.segments for item in probed_ink)
     assert [issue.code for issue in registry.issues] == [drop_code]
 
 

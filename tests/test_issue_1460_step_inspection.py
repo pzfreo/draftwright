@@ -34,8 +34,8 @@ _PLAIN_FIXTURE = _FIXTURES / "evaluation" / "plain-block.step"
 # The only fixture measured to lower AP242 PMI onto hole ownership, which is what makes the
 # two run modes disagree about what Draftwright did.
 _UNLOWERED_PMI_FIXTURE = _FIXTURES / "nist_ctc_01_asme1_ap242.stp"
-# Unclaimed faces spanning bspline and cylinder: a part whose face evidence a
-# hardcoded surface kind or a repeated vector component cannot satisfy.
+# Curved unclaimed faces complement the plain block's planar faces. Together they
+# detect a hardcoded surface kind or a repeated vector component.
 _CURVED_FIXTURE = _FIXTURES / "issue_1058_wheel_rh.step"
 _CTC_01_AP203 = _FIXTURES / "nist_ctc_01_asme1_ap203.stp"
 _TURNED_FIXTURE = _FIXTURES / "evaluation" / "turned-step-axis-z.step"
@@ -138,7 +138,7 @@ def test_a_real_fixture_returns_the_documented_document() -> None:
     }
     assert set(document["producer"]) == {"draftwright", "quiddity"}
     assert all(document["producer"].values())
-    assert len(document["found"]) == 16
+    assert len(document["found"]) == 11
 
 
 def test_each_found_feature_is_the_providers_own_record_forwarded_verbatim() -> None:
@@ -218,8 +218,8 @@ def test_evaluated_empty_families_are_not_reported_as_unavailable_or_not_applica
     assert lifecycle["coverage"] == "bounded"
     assert lifecycle["scope"] == "detector-candidate-lifecycle"
     assert lifecycle["recognition_recall"] == "not-assessed"
-    assert len(lifecycle["families"]) == 33
-    assert len({row["family"] for row in lifecycle["families"]}) == 33
+    assert len(lifecycle["families"]) == 40
+    assert len({row["family"] for row in lifecycle["families"]}) == 40
     assert all(row["evaluation"] == "evaluated" for row in lifecycle["families"])
     assert all(
         (row["proposed"], row["accepted"], row["rejected"], row["dispositions"]) == (0, 0, 0, [])
@@ -430,25 +430,11 @@ def test_malformed_provider_lifecycle_fields_fail_closed() -> None:
 def test_unclaimed_face_evidence_matches_independently_measured_geometry() -> None:
     """Every field checked against build123d directly, not against itself.
 
-    The previous version asserted the surface set was `{"plane"}` and that the position lay
-    inside its own bbox. Both hold when `surface` is hardcoded and when `_vector` returns the
-    same component twice — measured: four such mutations passed the whole suite. This uses a
-    part whose unclaimed faces are NOT all planar, and compares each value with one computed
-    from the source solid.
+    The two fixtures expose planar and curved unclaimed faces. Comparing both to the source
+    geometry checks surface kind and coordinates without relying on the projector itself.
     """
 
     from draftwright.builder import _detect_part_model_analysis
-
-    document = inspect_step(_CURVED_FIXTURE)
-    faces = document["missed"]["unclaimed_faces"]
-    _model, analysis = _detect_part_model_analysis(_CURVED_FIXTURE, pmi="off")
-    evidence = analysis.recognition_evidence
-
-    surfaces = {face["surface"] for face in faces}
-    assert len(surfaces) > 1, (
-        "fixture precondition: unclaimed faces must span more than one surface kind, or a "
-        "hardcoded `surface` satisfies this test"
-    )
 
     # Measured from the source solid by calling build123d directly, never through `_face`, so
     # a constant surface kind or a repeated vector component cannot satisfy both sides.
@@ -460,13 +446,25 @@ def test_unclaimed_face_evidence_matches_independently_measured_geometry() -> No
             (round(centre.X, 6), round(centre.Y, 6), round(centre.Z, 6)),
         )
 
-    expected = sorted(
-        described(evidence.face(reference))
-        for reference in evidence.association.unassociated_faces
-    )
-    actual = sorted(
-        (face["surface"], round(face["area"], 6), tuple(round(v, 6) for v in face["position"]))
-        for face in faces
+    expected = []
+    actual = []
+    for fixture in (_CURVED_FIXTURE, _PLAIN_FIXTURE):
+        document = inspect_step(fixture)
+        faces = document["missed"]["unclaimed_faces"]
+        _model, analysis = _detect_part_model_analysis(fixture, pmi="off")
+        evidence = analysis.recognition_evidence
+        expected.extend(
+            described(evidence.face(reference))
+            for reference in evidence.association.unassociated_faces
+        )
+        actual.extend(
+            (face["surface"], round(face["area"], 6), tuple(round(v, 6) for v in face["position"]))
+            for face in faces
+        )
+    expected.sort()
+    actual.sort()
+    assert {kind for kind, _area, _position in expected} == {"plane", "cylinder"}, (
+        "fixture precondition: a hardcoded surface kind must be observable"
     )
     assert actual == expected, (
         "every field must match geometry measured independently of the projector"

@@ -115,6 +115,7 @@ def test_ownership_categories_are_derived_and_keep_their_established_members() -
         == ownership_families("conditional")
         == {
             "bosses",
+            "hole_patterns",
             "plates",
             "through_steps",
             "turned_steps",

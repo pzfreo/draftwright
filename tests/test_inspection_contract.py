@@ -18,8 +18,6 @@ from draftwright.inspection_contract import (
     validate_profile_evidence_contract,
 )
 
-ROOT = Path(__file__).parents[1]
-
 
 @pytest.mark.parametrize(
     "symbol",
@@ -46,12 +44,12 @@ def _manifest() -> dict:
 def test_installed_pypi_wheel_satisfies_the_inspection_contract() -> None:
     distribution = importlib.metadata.distribution("quiddity")
 
-    assert distribution.version == "0.3.3"
+    assert distribution.version == "0.3.10"
     assert distribution.read_text("direct_url.json") is None
     assert (
         Path(inspect.getfile(inspection.inspection_api_manifest))
         .resolve()
-        .is_relative_to(ROOT / ".venv")
+        .is_relative_to(Path(distribution.locate_file("quiddity")).resolve())
     )
     validate_inspection_contract()
 

@@ -417,14 +417,19 @@ def _locate_across(dwg, ctx, a: Analysis, off):
 
 
 def _locate_along_planar(dwg, ctx, a: Analysis, off, *, view="front"):
-    """The "along" phase's planar dim: a Y-axis hole's X position below the FRONT view, placed
-    after the envelope + turned-diameter passes so it never evicts those from the contended
-    front-below strip (#133). Promoted (#638)."""
+    """The "along" phase's planar dim for a Y-axis hole.
+
+    Rear callouts occupy the below strip; their vertical shafts and labels share the
+    X-location witness corridor. Route rear X locations above the same view so both
+    authored measurements and callout ink remain legible.
+    """
     draft = dwg.draft
     FX, FZ = (a.proj.rear_x, a.proj.rear_z) if view == "rear" else (a.proj.front_x, a.proj.front_z)
     dx, dz = a.bb.min.X, a.bb.min.Z
     tier = draft.font_size + 2 * draft.pad_around_text
-    xw = FZ(dz) - _WITNESS_LIFT_MM
+    above = view == "rear"
+    xw = FZ(a.bb.max.Z) + _WITNESS_LIFT_MM if above else FZ(dz) - _WITNESS_LIFT_MM
+    side = "above" if above else "below"
     seen_x: set = set()
     x_cands = []
     order_x: dict = {}
@@ -460,7 +465,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off, *, view="front"):
                 (
                     name,
                     lambda pos, pl=p_lo, ph=p_hi, lb=label, nm=name: _with_hole_location_coverage(
-                        _dim(pl, ph, "below", xw - pos, draft, label=lb),
+                        _dim(pl, ph, side, pos - xw if above else xw - pos, draft, label=lb),
                         x_coverage_by_name[nm],
                     ),
                 )
@@ -470,9 +475,9 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off, *, view="front"):
     _off_axis_queue(
         ctx,
         tier,
-        layout_frame(a).zones(view).below,
+        layout_frame(a).zones(view).above if above else layout_frame(a).zones(view).below,
         view,
-        "below",
+        side,
         "y",
         x_cands,
         features=x_feats,
@@ -667,7 +672,7 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which, plan):
         # prevents ``a.is_rotational``. Treat either classification as a valid
         # turning axis so the centreline, not redundant half-envelope offsets,
         # locates the bore (#881).
-        if isinstance(h.feature, PatternFeature) and a.recognition_frame is not None:
+        if isinstance(h.feature, PatternFeature):
             return False
         turning_axis = a.od_axis if a.is_rotational else getattr(a.prof, "axis", None)
         if turning_axis is None or h.axis != turning_axis:

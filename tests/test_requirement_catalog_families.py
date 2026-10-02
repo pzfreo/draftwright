@@ -5,7 +5,8 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
-from build123d import RegularPolygon, extrude
+from build123d import Box, Cylinder, Pos, RegularPolygon, extrude
+from quiddity import RectangularHoleSet
 
 from draftwright.builder import _detect_part_model_analysis
 from draftwright.linting.requirements import recognized_requirement_outcomes
@@ -130,3 +131,21 @@ def test_member_cannot_erase_supported_family_obligations(family_intake):
     else:
         with pytest.raises(ReportUnavailableError):
             match_requirement_catalog(baseline, _catalog(model, analysis, outcomes))
+
+
+def test_four_corner_pattern_group_is_accounted_for_by_exact_hole_sources():
+    part = Box(80, 100, 12)
+    for x in (-10, 10):
+        for y in (-15, 15):
+            part -= Pos(x, y, 0) * Cylinder(3, 12)
+    model, analysis = _detect_part_model_analysis(part)
+    (pattern,) = analysis.recognition.hole_patterns
+    assert isinstance(pattern, RectangularHoleSet)
+
+    catalog = _catalog(model, analysis)
+    member_ids = {id(hole) for hole in pattern.holes}
+    assert any(
+        row.family == "hole_patterns"
+        and {id(source) for source in row.source_records} == member_ids
+        for row in catalog.requirements
+    )

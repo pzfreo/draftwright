@@ -135,7 +135,7 @@ def test_automatic_hole_leaders_expose_nonempty_semantic_labels():
 
     assert len(leaders) == 2
     labels_by_diameter = {leader.covers_diameters[0]: leader.label for leader in leaders}
-    assert labels_by_diameter == {6.0: "4× ⌀6 THRU", 20.0: "⌀20 THRU"}
+    assert labels_by_diameter == {6.0: "4× ⌀6 THRU (2×2)", 20.0: "⌀20 THRU"}
     assert all(leader.label_bbox is not None for leader in leaders)
 
 

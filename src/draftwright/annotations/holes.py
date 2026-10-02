@@ -1013,15 +1013,15 @@ def _place_pitch_dim(
                 or bb[3] > page_box[3]
             ):
                 continue
-            exact_label_gate = drop_code == "pocket_pattern_dim_dropped"
+            exact_label_gate = drop_code in {
+                "pocket_pattern_dim_dropped",
+                "hole_pattern_dim_dropped",
+            }
             if not exact_label_gate and _box_hits(bb, obstacles):
                 continue
             # Inside the analytical page hull — build the real geometry ONCE and re-validate
-            # its placement. Pocket patterns use exact segment/label legibility: a single AABB
-            # around their diagonal dimension encloses large empty triangles and made every
-            # rotated arrangement look blocked. Existing hole/slot patterns retain their
-            # conservative whole-ink gate until their later-stage consumers participate in the
-            # same solve; relaxing those here can admit a pitch that a later callout crosses.
+            # its placement. Rotated grid dimension AABBs enclose empty triangles;
+            # exact pitch ink joins the later shared hole-leader assignment.
             if not exact_label_gate and ink_probes >= 8:
                 break
             probe = _make(offset, side_vec)

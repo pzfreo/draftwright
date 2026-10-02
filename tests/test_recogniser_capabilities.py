@@ -139,9 +139,9 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     _validate()
     package = recognition.capability_manifest(format_version=2)
     declaration = consumer_capability_declaration()
-    # Quiddity unifies seven former families into section-recesses: 33 - 7 + 1.
+    # The published 0.3.10 manifest has seven families beyond the 0.3.3 inventory.
     # Keep a literal count so a coupled omission on both sides still fails.
-    assert len(package["families"]) == len(declaration["families"]) == 29
+    assert len(package["families"]) == len(declaration["families"]) == 36
 
 
 def test_section_recess_family_covers_the_published_geometry_and_occurrence_contract() -> None:
@@ -159,7 +159,7 @@ def test_section_recess_family_covers_the_published_geometry_and_occurrence_cont
     assert not retired & package.keys()
     assert not retired & consumer.keys()
     family = package["section-recesses"]
-    assert INSTALLED_PACKAGE_VERSION == "0.3.3"
+    assert INSTALLED_PACKAGE_VERSION == "0.3.10"
     assert family["introduced_in"] == "0.2.0"
     assert family["census_output"] == "RecognitionResult.section_recesses"
     expected_fields = {
@@ -717,7 +717,7 @@ def test_circular_blind_steps_are_supported_at_every_consumer_boundary() -> None
 def test_paired_ramp_steps_are_supported_at_every_consumer_boundary() -> None:
     family = _families(consumer_capability_declaration())["paired-ramp-steps"]
 
-    assert family["record_schemas"] == {"PairedRampStep": [2]}
+    assert family["record_schemas"] == {"PairedRampStep": [3]}
     assert family["disposition"] == "supported"
     assert {
         family[boundary]["state"]
@@ -760,7 +760,7 @@ def test_quiddity_030_gusset_families_have_explicit_consumer_paths() -> None:
 def test_through_steps_are_supported_at_every_consumer_boundary() -> None:
     family = _families(consumer_capability_declaration())["through-steps"]
 
-    assert family["record_schemas"] == {"ThroughStep": [2]}
+    assert family["record_schemas"] == {"ThroughStep": [3]}
     assert family["disposition"] == "supported"
     assert {
         family[boundary]["state"]
@@ -1322,7 +1322,7 @@ def test_only_reviewed_records_accept_non_v1_schemas() -> None:
         ("fillets", "Fillet"): [3],
         ("grooves", "Groove"): [2],
         ("plates", "Plate"): [2],
-        ("paired-ramp-steps", "PairedRampStep"): [2],
+        ("paired-ramp-steps", "PairedRampStep"): [3],
         ("rectangular-pads", "RaisedPad"): [2],
         ("risers", "RiserEvidence"): [3],
         ("section-recesses", "PassageSection"): [2],
@@ -1335,7 +1335,12 @@ def test_only_reviewed_records_accept_non_v1_schemas() -> None:
         ("section-recesses", "SectionRecessGeometry"): [3],
         ("section-recesses", "SectionRecessDocument"): [4],
         ("slots", "Slot"): [2],
-        ("through-steps", "ThroughStep"): [2],
+        ("through-steps", "ThroughStep"): [3],
+        ("sheet-metal-bodies", "FlatPatternPlan"): [2],
+        ("sheet-metal-bodies", "SheetMetalBody"): [2],
+        ("thin-wall-bodies", "ShellHistoryHint"): [2],
+        ("thin-wall-bodies", "ThinWallBody"): [3],
+        ("thin-wall-bodies", "WallFacePair"): [2],
         ("turned-steps", "TurnedProfile"): [2],
         ("turned-steps", "TurnedProfileKey"): [2],
         ("turned-steps", "TurnedStep"): [2],

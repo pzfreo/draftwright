@@ -70,9 +70,27 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
-### Quiddity 0.3.3 runtime contract
+### Quiddity 0.3.10 runtime contract
 
-The runtime pins the published `quiddity==0.3.3` package. This release adds material-side
+The runtime pins the published `quiddity==0.3.10` package. Its 36-family manifest adds
+circular-face patterns, freeform surfaces, interior voids, oblique through steps, oriented
+chamfers, sheet-metal bodies, and thin-wall bodies to the 0.3.3 inventory. Draftwright
+records each new family as deferred: no reviewed IR, declaration, drawing, or completeness
+contract yet gives it drafting meaning. The consumer decision remains tracked by
+[#1365](https://github.com/pzfreo/draftwright/issues/1365), with sheet-metal drawings
+tracked by [#1557](https://github.com/pzfreo/draftwright/issues/1557). Recognition remains
+provider-owned and one-run; no new family is silently converted into an existing feature.
+
+`RectangularHoleSet` is a new record in the supported hole-pattern family. Its four corners
+lower to the existing 2×2 grid grammar, carrying the provider's long and short spans as
+column and row pitches. This states two measured pitches rather than a derived bolt circle.
+The added `PairedRampStep.half_widths` and `ThroughStep.endpoint_scopes` fields advance those
+records to schema 3; their existing Draftwright callouts use the unchanged angle/length and
+section/length facts. The new fields do not create a new drawing claim.
+
+### Quiddity 0.3.3 historical contract
+
+The 0.3.3 release added material-side
 reconstruction facts to fillets, planar chamfers and angled steps, paired ramps, and open-section
 profiles. Draftwright consumes these records to describe and annotate the recognised part; it does
 not reconstruct a cut solid from them, so the new `side`, `corner`, `opening_direction`,
@@ -124,7 +142,7 @@ and untested. Its public `quiddity`, `quiddity.evidence` and
 reads. There is one recognition aggregate per build; consumers project that result rather than
 calling the document builder to obtain another run.
 
-The manifest has 29 families. The `gusset-ribs` family proves rib thickness, support legs and
+The 0.3.3 manifest had 29 families. The `gusset-ribs` family proves rib thickness, support legs and
 body occurrence, while `gusset-rib-patterns` relates accepted ribs as arrays or mirror pairs.
 Draftwright preserves those exact member relations in dedicated `GussetRibFeature` IR, exposes
 the same facts through `Sheet.gusset_rib(...)` and generated scripts, and places one correlated

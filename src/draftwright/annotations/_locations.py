@@ -37,6 +37,18 @@ from draftwright.model.ir import CircularChannelFeature, HoleFeature, SlotFeatur
 from draftwright.model.ir_foundation import Point
 
 
+def _pattern_centre_ordinates(refs: list, axis: str) -> set[float]:
+    """Leave approved pattern centres for the corridor to space across its tiers."""
+    coordinate = 0 if axis == "x" else 1
+    parameter = f"location_pattern.location.centre.{axis}"
+    return {
+        ref[coordinate]
+        for ref in refs
+        if ref[6]
+        and any(entry.id is not None and entry.id.parameter == parameter for entry in ref[6])
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class _CircularChannelLocationGeometry:
     dwg: Any
@@ -539,9 +551,11 @@ def render_locations(
             )
     x_refs = _discard_short_refs(x_refs, 0, datum_x, "plan")
     _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
-    _kept_x, _n_x_close = _legible_locations(_x_drawable, a.SCALE)
+    centre_x = _pattern_centre_ordinates(x_refs, "x")
+    _kept_x, _n_x_close = _legible_locations(_x_drawable - centre_x, a.SCALE)
+    _kept_x_set = set(_kept_x) | centre_x
     if _n_x_close:
-        dropped_x = [r for r in x_refs if r[0] in _x_drawable and r[0] not in set(_kept_x)]
+        dropped_x = [r for r in x_refs if r[0] in _x_drawable and r[0] not in _kept_x_set]
         ctx.record_issue(
             "warning",
             "location_ref_dropped",
@@ -553,14 +567,12 @@ def render_locations(
             ),
         )
         ctx.escalations.append(Escalation("location", "plan", None, "illegible"))
-    _kept_x_set = set(_kept_x)
     x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
-    # Register X-location dims into the shared plan-above corridor (ADR 2 (was 0009) end state),
-    # so the slot pass feeds the SAME strip: a single solve_corridor drain
-    # dedups a coincident slot-position line and orders the whole ladder — instead of each
-    # pass carving around the other and interleaving. No alternate view for a plan-X
-    # location, so a corridor-blocked dim is force-kept (policy B), not relocated; only a
-    # physically full strip drops (→ location_ref_dropped, escalates the hole table).
+    # Register X locations with slot dimensions in the shared plan-above corridor;
+    # this dedups coincident slot positions and orders the whole ladder instead
+    # of passes carving around each other. A plan-X location has no alternate
+    # view, so Policy B force-keeps a blocked dim; only a physically full strip
+    # drops (location_ref_dropped) and escalates the hole table.
     for i, (rx, ry, feat, pin_ref, mids, location_facts, location_entries) in enumerate(
         sorted(x_refs, key=lambda r: abs(r[0] - datum_x))
     ):
@@ -710,9 +722,14 @@ def _register_y_locations(
             )
     y_refs = _discard_short_refs(y_refs, 1, datum_y, "side" if side_planned else "plan")
     _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}
-    _kept_y, _n_y_close = _legible_locations(_y_drawable, a.SCALE)
+    # Pattern centres have their own compiled location claims. Close centre ordinates
+    # can use different corridor tiers; the scattered-hole spacing prefilter cannot
+    # decide their label clearance before the shared solve sees the full geometry.
+    centre_y = _pattern_centre_ordinates(y_refs, "y")
+    _kept_y, _n_y_close = _legible_locations(_y_drawable - centre_y, a.SCALE)
+    _kept_y_set = set(_kept_y) | centre_y
     if _n_y_close:
-        dropped_y = [r for r in y_refs if r[1] in _y_drawable and r[1] not in set(_kept_y)]
+        dropped_y = [r for r in y_refs if r[1] in _y_drawable and r[1] not in _kept_y_set]
         ctx.record_issue(
             "warning",
             "location_ref_dropped",
@@ -726,7 +743,6 @@ def _register_y_locations(
         ctx.escalations.append(
             Escalation("location", "side" if side_planned else "plan", None, "illegible")
         )
-    _kept_y_set = set(_kept_y)
     y_refs = [r for r in y_refs if r[1] not in _y_drawable or r[1] in _kept_y_set]
     # Cap the side-above strip below the iso view so Y-location dims never run under it
     # (the carve respects outer_limit); the dim_pitch_side dims are obstacles

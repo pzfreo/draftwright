@@ -78,14 +78,17 @@ relation unavailable. Restraint and manufacturing readiness remain explicitly un
 cannot silently become a pass.
 
 Two bounded CTC-01 real-part canaries exercise that loop before merge. The AP203 canary compares
-against its reviewed 79-claim geometry denominator. The AP242 Pareto canary is versioned to the
-Quiddity 0.3.3 evidence boundary and compares against a separately reviewed 80-claim denominator,
-with 12 unresolved PMI claims carried on both sides. It reads typed layout finding identities and
-remedies, applies only two public declaration-side overrides, then proves legibility-only Pareto
-dominance while certification remains unavailable. Both deliberately prove that deleting a
-carrier or substituting another recognised physical owner is rejected. Their counterfactuals
-operate on the two captured documents, so each CI case pays for exactly two CAD builds rather than
-rebuilding the part for every policy failure.
+against its reviewed 71-claim Quiddity 0.3.9 geometry denominator, including two four-hole
+grids and counterfactuals that delete a carrier or substitute another recognised physical
+owner. The AP242 Pareto canary pins the
+Quiddity 0.3.9 evidence boundary and checks a separately reviewed 69-claim denominator plus the
+absence of a resolved position-frame overlap. Its executed baseline has 15 PMI annotation
+measurements with unavailable identities (nine control frames, one angle, and five member-specific
+diameters); they remain explicit unknowns outside the geometry denominator.
+
+The AP242 denominator includes two physical four-hole grids (Ø25 at X±160/Y±45 and Ø35 at
+X±325/Y±175), each with two pitches and a centre location on both axes. It also retains the
+left slot's 55 mm location claim even if placement fails, so a missing mark fails the canary.
 
 Consumers may render the detailed finding messages and summaries as optional human-facing labels.
 Those strings are derived presentation: comparison identity, remediation selection, and Pareto
