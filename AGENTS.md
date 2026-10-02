@@ -83,8 +83,13 @@ Shared three-decimal correspondence rounding, exact built-in finite-real validat
 common profile/frame vector arithmetic live in
 the rank-0 `contract_values` leaf;
 shared outcome checks, exact three-coordinate point rounding, and blind-slot value
-validation live inside rank-2 `linting/_coverage_common`; `linting/_registry` owns the
+validation and section-recess source selection live inside rank-2
+`linting/_coverage_common`; `linting/_registry` owns the
 exact measurement-outcome index and named physical-requirement carrier record.
+`linting/_parameter_coverage` drives the shared chamfer, fillet, paired-ramp-step,
+circular-blind-step, rectangular-blind-slot, and round-bottom-blind-slot
+recognition-to-outcome join while each family retains its physical key and publicly
+named outcome record.
 Rank-0 `measurement_support` keeps the shared witness and location predicates without
 a package import.
 Within rank-7 `evaluation/`, `_turned_step_evidence.py` owns turned-step IR and drawing

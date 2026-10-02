@@ -8,7 +8,6 @@ each requirement to its drawing outcome without using labels or page coordinates
 
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass, field
 from math import hypot, isclose, isfinite
 from typing import Literal, cast
@@ -17,22 +16,15 @@ from quiddity import CircularBlindStep, RecognitionResult
 
 from draftwright._geometry import quantised_radius_agrees, quantised_span_agrees
 from draftwright.linting._coverage_common import rounded_point as _point
-from draftwright.linting._coverage_common import state as _state
-from draftwright.linting._registry import (
-    RequirementCarrier,
-    measurement_outcome_index,
-    with_measurement_carriers,
+from draftwright.linting._parameter_coverage import (
+    ParameterRequirementState as CircularBlindStepRequirementState,
 )
+from draftwright.linting._parameter_coverage import (
+    lint_parameter_coverage,
+    parameter_outcomes,
+)
+from draftwright.linting._registry import RequirementCarrier
 from draftwright.linting.issues import LintIssue
-
-CircularBlindStepRequirementState = Literal[
-    "placed",
-    "satisfied_by_structured_note",
-    "suppressed",
-    "dropped",
-    "missing",
-    "unverifiable",
-]
 
 
 @dataclass(frozen=True)
@@ -175,16 +167,6 @@ def _source_at(source) -> tuple[float, float, float]:
         return (float("nan"), float("nan"), float("nan"))
 
 
-def _has_parameters(feature) -> bool:
-    try:
-        return tuple(parameter.parameter_id for parameter in feature.parameters()) == (
-            "circular_step_radius.radius",
-            "circular_step_depth.length",
-        )
-    except (AttributeError, TypeError, ValueError, OverflowError):
-        return False
-
-
 def circular_blind_step_requirement_outcomes(
     recognition: RecognitionResult | None,
     features,
@@ -192,97 +174,30 @@ def circular_blind_step_requirement_outcomes(
     omissions=(),
 ) -> list[CircularBlindStepRequirementOutcome]:
     """Follow both requirements of every recognised circular blind step."""
-    if recognition is None:
-        return []
-    if not isinstance(recognition, RecognitionResult):
-        raise TypeError(
-            "circular_blind_step_requirement_outcomes() requires the run's RecognitionResult; "
-            f"got {type(recognition).__name__}"
-        )
-    sources = tuple(recognition.circular_blind_steps)
-    if not sources:
-        return []
-
-    keyed_sources: list[tuple[CircularBlindStep, tuple | None]] = []
-    source_counts: dict[tuple, int] = defaultdict(int)
-    for source in sources:
-        try:
-            if not isinstance(source, CircularBlindStep):
-                raise TypeError
-            key = circular_blind_step_key(source)
-        except (
+    return parameter_outcomes(
+        recognition,
+        features,
+        registry,
+        omissions,
+        source_inventory="circular_blind_steps",
+        kind="circular_blind_step",
+        key_fn=circular_blind_step_key,
+        feature_key_fn=lambda feature: circular_blind_step_key(feature, require_frame=True),
+        source_at_fn=_source_at,
+        source_type=CircularBlindStep,
+        key_errors=(
             AttributeError,
             IndexError,
             OverflowError,
             TypeError,
             ValueError,
             ZeroDivisionError,
-        ):
-            key = None
-        keyed_sources.append((source, key))
-        if key is not None:
-            source_counts[key] += 1
-
-    ir_by_key: dict[tuple, list] = defaultdict(list)
-    for feature in features:
-        if getattr(feature, "kind", None) != "circular_blind_step":
-            continue
-        try:
-            ir_by_key[circular_blind_step_key(feature, require_frame=True)].append(feature)
-        except (
-            AttributeError,
-            IndexError,
-            OverflowError,
-            TypeError,
-            ValueError,
-            ZeroDivisionError,
-        ):
-            continue
-
-    placed, satisfied, dropped = measurement_outcome_index(registry)
-    suppressed = {
-        (omission.feature, omission.parameter_id)
-        for omission in omissions
-        if omission.feature is not None and omission.authored
-    }
-    outcomes: list[CircularBlindStepRequirementOutcome] = []
-    parameters = ("circular_step_radius.radius", "circular_step_depth.length")
-    for source, key in keyed_sources:
-        matches = ir_by_key.get(key, ()) if key is not None else ()
-        feature = (
-            matches[0] if key is not None and len(matches) == source_counts[key] == 1 else None
-        )
-        if feature is None or not _has_parameters(feature):
-            outcomes.extend(
-                CircularBlindStepRequirementOutcome(
-                    _source_at(source),
-                    parameter,
-                    "unverifiable",
-                    source_records=(source,),
-                )
-                for parameter in parameters
-            )
-            continue
-        for parameter in parameters:
-            state: CircularBlindStepRequirementState = _state(
-                feature,
-                parameter,
-                placed=placed,
-                satisfied=satisfied,
-                suppressed=suppressed,
-                dropped=dropped,
-                registry=registry,
-            )
-            outcomes.append(
-                CircularBlindStepRequirementOutcome(
-                    _source_at(source),
-                    parameter,
-                    state,
-                    features=(feature,),
-                    source_records=(source,),
-                )
-            )
-    return with_measurement_carriers(outcomes, registry)
+        ),
+        parameter_errors=(AttributeError, TypeError, ValueError, OverflowError),
+        parameter_ids=("circular_step_radius.radius", "circular_step_depth.length"),
+        outcome_type=CircularBlindStepRequirementOutcome,
+        entrypoint="circular_blind_step_requirement_outcomes",
+    )
 
 
 def lint_circular_blind_step_coverage(
@@ -298,25 +213,13 @@ def lint_circular_blind_step_coverage(
     if assembly is None:
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
-    messages = {
-        "suppressed": "was deliberately omitted by the authored dimension set",
-        "missing": "has no placed, suppressed, or dropped callout outcome",
-        "unverifiable": "cannot be joined to measurement provenance without guessing",
-    }
-    issues = []
-    for outcome in circular_blind_step_requirement_outcomes(
-        recognition, features, registry, omissions
-    ):
-        if outcome.state in {"placed", "satisfied_by_structured_note", "dropped"}:
-            continue
-        issues.append(
-            LintIssue(
-                severity=severity,
-                code=f"circular_blind_step_requirement_{outcome.state}",
-                message=(
-                    f"circular blind step {outcome.parameter_id} at {outcome.source_at} "
-                    f"{messages[outcome.state]}"
-                ),
-            )
-        )
-    return issues
+    return lint_parameter_coverage(
+        circular_blind_step_requirement_outcomes(recognition, features, registry, omissions),
+        issue_factory=lambda outcome, reason: LintIssue(
+            severity=severity,
+            code=f"circular_blind_step_requirement_{outcome.state}",
+            message=(
+                f"circular blind step {outcome.parameter_id} at {outcome.source_at} {reason}"
+            ),
+        ),
+    )

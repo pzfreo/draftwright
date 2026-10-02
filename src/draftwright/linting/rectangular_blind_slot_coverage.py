@@ -9,33 +9,26 @@ views, projected geometry, leader tips and page coordinates are never correspond
 
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
 
 from quiddity import RecognitionResult, SectionRecess
 
-from draftwright.linting._coverage_common import index_evidence as _index_evidence
 from draftwright.linting._coverage_common import recess_point as _point
 from draftwright.linting._coverage_common import recess_positive as _positive
 from draftwright.linting._coverage_common import recess_source_at as _source_at
 from draftwright.linting._coverage_common import recess_span as _span
-from draftwright.linting._coverage_common import state as _state
-from draftwright.linting._registry import (
-    RequirementCarrier,
-    with_measurement_carriers,
+from draftwright.linting._coverage_common import section_recess_sources
+from draftwright.linting._parameter_coverage import (
+    ParameterRequirementState as RectangularBlindSlotRequirementState,
 )
+from draftwright.linting._parameter_coverage import (
+    lint_parameter_coverage,
+    parameter_outcomes,
+)
+from draftwright.linting._registry import RequirementCarrier
 from draftwright.linting.issues import LintIssue
-from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
-
-RectangularBlindSlotRequirementState = Literal[
-    "placed",
-    "satisfied_by_structured_note",
-    "suppressed",
-    "dropped",
-    "missing",
-    "unverifiable",
-]
+from draftwright.section_recess_contract import section_recess_fields
 
 _PARAMETERS = (
     "rectangular_blind_slot_width.length",
@@ -151,86 +144,23 @@ def rectangular_blind_slot_requirement_outcomes(
     omissions=(),
 ) -> list[RectangularBlindSlotRequirementOutcome]:
     """Follow all three requirements of every recognised rectangular blind slot."""
-
-    if recognition is None:
-        return []
-    if not isinstance(recognition, RecognitionResult):
-        raise TypeError(
-            "rectangular_blind_slot_requirement_outcomes() requires the run's "
-            f"RecognitionResult; got {type(recognition).__name__}"
-        )
-    if not isinstance(recognition.section_recesses, tuple):
-        raise TypeError("RecognitionResult.section_recesses must be an immutable tuple")
-    sources = recesses_with_kind(recognition.section_recesses, "rectangular_blind_slot")
-    if not sources:
-        return []
-
-    keyed_sources: list[tuple[SectionRecess, tuple | None]] = []
-    source_counts: dict[tuple, int] = defaultdict(int)
-    for source in sources:
-        try:
-            if not isinstance(source, SectionRecess):
-                raise TypeError
-            key = rectangular_blind_slot_key(source)
-        except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
-            key = None
-        keyed_sources.append((source, key))
-        if key is not None:
-            source_counts[key] += 1
-
-    ir_by_key: dict[tuple, list] = defaultdict(list)
-    for feature in features:
-        if getattr(feature, "kind", None) != "rectangular_blind_slot":
-            continue
-        try:
-            ir_by_key[rectangular_blind_slot_key(feature, require_frame=True)].append(feature)
-        except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
-            continue
-
-    placed, satisfied, dropped = _index_evidence(registry)
-    suppressed = {
-        (omission.feature, omission.parameter_id)
-        for omission in omissions
-        if omission.feature is not None and omission.authored
-    }
-    outcomes: list[RectangularBlindSlotRequirementOutcome] = []
-    for source, key in keyed_sources:
-        matches = ir_by_key.get(key, ()) if key is not None else ()
-        feature = (
-            matches[0] if key is not None and len(matches) == source_counts[key] == 1 else None
-        )
-        parameter_ids = _parameter_ids(feature, source) if feature is not None else None
-        if parameter_ids is None:
-            outcomes.extend(
-                RectangularBlindSlotRequirementOutcome(
-                    _source_at(source),
-                    parameter,
-                    "unverifiable",
-                    source_records=(source,),
-                )
-                for parameter in _PARAMETERS
-            )
-            continue
-        for parameter in parameter_ids:
-            state: RectangularBlindSlotRequirementState = _state(
-                feature,
-                parameter,
-                placed=placed,
-                satisfied=satisfied,
-                suppressed=suppressed,
-                dropped=dropped,
-                registry=registry,
-            )
-            outcomes.append(
-                RectangularBlindSlotRequirementOutcome(
-                    _source_at(source),
-                    parameter,
-                    state,
-                    features=(feature,),
-                    source_records=(source,),
-                )
-            )
-    return with_measurement_carriers(outcomes, registry)
+    return parameter_outcomes(
+        recognition,
+        features,
+        registry,
+        omissions,
+        sources_fn=lambda run: section_recess_sources(run, "rectangular_blind_slot"),
+        kind="rectangular_blind_slot",
+        key_fn=rectangular_blind_slot_key,
+        feature_key_fn=lambda feature: rectangular_blind_slot_key(feature, require_frame=True),
+        source_at_fn=_source_at,
+        source_type=SectionRecess,
+        key_errors=(AttributeError, IndexError, OverflowError, TypeError, ValueError),
+        parameter_ids=_PARAMETERS,
+        parameter_ids_fn=_parameter_ids,
+        outcome_type=RectangularBlindSlotRequirementOutcome,
+        entrypoint="rectangular_blind_slot_requirement_outcomes",
+    )
 
 
 def lint_rectangular_blind_slot_coverage(
@@ -247,25 +177,14 @@ def lint_rectangular_blind_slot_coverage(
     if assembly is None:
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
-    messages = {
-        "suppressed": "was deliberately omitted by the authored dimension set",
-        "missing": "has no placed, suppressed, or dropped measurement outcome",
-        "unverifiable": "cannot be joined to measurement provenance without guessing",
-    }
-    issues = []
-    for outcome in rectangular_blind_slot_requirement_outcomes(
-        recognition, features, registry, omissions
-    ):
-        if outcome.state in {"placed", "satisfied_by_structured_note", "dropped"}:
-            continue
-        issues.append(
-            LintIssue(
-                severity=severity,
-                code=f"rectangular_blind_slot_requirement_{outcome.state}",
-                message=(
-                    f"rectangular blind slot {outcome.parameter_id} at {outcome.source_at} "
-                    f"{messages[outcome.state]}"
-                ),
-            )
-        )
-    return issues
+    return lint_parameter_coverage(
+        rectangular_blind_slot_requirement_outcomes(recognition, features, registry, omissions),
+        missing_message="has no placed, suppressed, or dropped measurement outcome",
+        issue_factory=lambda outcome, reason: LintIssue(
+            severity=severity,
+            code=f"rectangular_blind_slot_requirement_{outcome.state}",
+            message=(
+                f"rectangular blind slot {outcome.parameter_id} at {outcome.source_at} {reason}"
+            ),
+        ),
+    )

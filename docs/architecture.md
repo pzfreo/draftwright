@@ -422,7 +422,11 @@ and re-exports the existing private helper names.
   owns linting): `orchestration.py` (ordered structural, physical, PMI, and build-issue
   critique over an explicit drawing context), `coverage.py` (`lint_feature_coverage` + `CoverageState`),
   `_coverage_common.py` (stable import of `_registry`'s exact measurement-outcome index,
-  shared outcome checks, exact three-coordinate point rounding, and blind-slot value validation),
+  shared outcome checks, exact three-coordinate point rounding, blind-slot value validation,
+  and section-recess source selection),
+  `_parameter_coverage.py` (the shared physical-key, exact-parameter and outcome driver for
+  chamfer, fillet, paired-ramp-step, circular-blind-step, rectangular-blind-slot, and
+  round-bottom-blind-slot coverage),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
   `angular.py` (degree claims and actual angular ink), `requirements.py` (the physical
   requirement join), `schedule_evidence.py` (verified table-cell carriers),

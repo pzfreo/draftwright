@@ -12,10 +12,17 @@ from draftwright.linting._registry import (
     satisfaction_of,
 )
 from draftwright.linting.issues import is_placement_drop
-from draftwright.section_recess_contract import section_recess_fields
+from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
 
 # Stable coverage import path; the registry evidence has one implementation owner.
 index_evidence = measurement_outcome_index
+
+
+def section_recess_sources(recognition, kind: str) -> tuple:
+    """Select one published recess grammar from an immutable recognition inventory."""
+    if not isinstance(recognition.section_recesses, tuple):
+        raise TypeError("RecognitionResult.section_recesses must be an immutable tuple")
+    return recesses_with_kind(recognition.section_recesses, kind)
 
 
 def index_pad_pocket_evidence(registry, *, family: Literal["pad", "pocket"], carriers=None):
