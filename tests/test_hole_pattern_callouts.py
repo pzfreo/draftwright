@@ -3,12 +3,55 @@
 import math
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Box, Cylinder, Pos, Rot, export_step
 from quiddity import RectangularHoleSet, recognise_hole_patterns, recognise_holes
 
 from draftwright import build_drawing
+
+
+def test_coincident_pattern_supports_get_absolute_face_names_without_a_build():
+    from draftwright.model import hole, pattern
+    from draftwright.model.callout import HoleCalloutBatch, _qualify_coincident_axial_patterns
+
+    def batch(z, diameter=8):
+        sites = ((10, 0, z), (-10, 0, z))
+        feature = pattern(
+            hole(diameter=diameter, at=sites[0], axis="z"),
+            kind="other",
+            count=2,
+            at=(0, 0, z),
+            members=sites,
+        )
+        return HoleCalloutBatch(
+            (SimpleNamespace(feature=feature, view="plan"),), sites, {"diameter": diameter}
+        )
+
+    for stations, expected in (
+        ((0, 20), ("LOWER FACE", "UPPER FACE")),
+        (
+            (0, 20, 40),
+            (
+                "FACE 1 OF 3 FROM LOWER END",
+                "FACE 2 OF 3 FROM LOWER END",
+                "FACE 3 OF 3 FROM LOWER END",
+            ),
+        ),
+    ):
+        batches = tuple(batch(z, 10 if z == 20 else 8) for z in reversed(stations))
+        assert len({tuple((x, y) for x, y, _z in item.locations) for item in batches}) == 1
+        qualified = _qualify_coincident_axial_patterns(list(batches))
+        assert {
+            item.groups[0].feature.frame.origin[2]: item.spec["site_suffix"] for item in qualified
+        } == dict(zip(stations, expected, strict=True))
+
+    duplicate = batch(0)
+    with pytest.raises(ValueError, match="no distinct axial stations"):
+        _qualify_coincident_axial_patterns([duplicate, batch(0)])
+    differently_sized = _qualify_coincident_axial_patterns([duplicate, batch(0, 10)])
+    assert all("site_suffix" not in item.spec for item in differently_sized)
 
 
 @pytest.mark.slow
