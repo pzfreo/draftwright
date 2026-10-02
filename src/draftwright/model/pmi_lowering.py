@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from decimal import Decimal
 from typing import Literal, cast
@@ -89,6 +89,54 @@ def _limit_bounds(dim: AuthoredDimension) -> tuple[float, float] | None:
     return (float(dim.lower_bound), float(dim.upper_bound))
 
 
+def _hole_tolerance_proposal(
+    dim: AuthoredDimension,
+    targets: Iterable[tuple[int, HoleFeature | PatternFeature]],
+) -> tuple[int, tuple[int, ...], ToleranceValue] | str:
+    """Correlate one source requirement, or give its exact fallback reason."""
+    if dim.ref_bbox is None:
+        return "unmatched hole correlation: source diameter has no referenced geometry"
+    if dim.dominant_axis not in ("X", "Y", "Z"):
+        return "unsupported hole correlation: source diameter has no principal bore axis"
+
+    matches: list[tuple[int, HoleFeature | PatternFeature, tuple[int, ...]]] = []
+    for owner_index, owner in targets:
+        if owner.frame.axis != dim.dominant_axis.lower():
+            continue
+        if abs(_diameter(owner) - float(dim.value)) > max(1e-6, abs(float(dim.value)) * 1e-6):
+            continue
+        member_indices = tuple(
+            member_index
+            for member_index, point in enumerate(_members(owner))
+            if _inside(point, dim.ref_bbox)
+        )
+        if member_indices:
+            matches.append((owner_index, owner, member_indices))
+
+    if not matches:
+        return (
+            f"unmatched hole correlation: no {_diameter_text(dim.value)} "
+            f"{dim.dominant_axis}-axis hole member lies in the source reference bounds"
+        )
+    if len(matches) != 1:
+        return (
+            f"ambiguous hole correlation: source reference bounds match {len(matches)} "
+            "canonical hole/pattern features"
+        )
+    owner_index, owner, member_indices = matches[0]
+    if isinstance(owner, PatternFeature) and len(member_indices) != len(_members(owner)):
+        return (
+            "unsupported hole correlation: AP242 requirement covers only part of a "
+            "canonical hole pattern"
+        )
+    try:
+        value = _requirement(dim)
+    except ValueError as exc:
+        return f"unsupported hole tolerance: {exc}"
+    assert value is not None
+    return owner_index, member_indices, value
+
+
 def lower_ap242_hole_tolerances(
     model: PartModel, *, feature_remap: FeatureRemap | None = None
 ) -> PartModel:
@@ -99,12 +147,11 @@ def lower_ap242_hole_tolerances(
     member.  Those rules preserve machining-spec identity instead of applying one member's
     tolerance to its untoleranced siblings or destroying pattern membership to make a match.
     """
-    targets: list[tuple[int, HoleFeature | PatternFeature]] = [
-        (index, feature)
+    targets: dict[int, HoleFeature | PatternFeature] = {
+        index: feature
         for index, feature in enumerate(model.features)
         if isinstance(feature, (HoleFeature, PatternFeature))
-    ]
-    target_by_index = dict(targets)
+    }
     dimensions = {
         index: feature
         for index, feature in enumerate(model.features)
@@ -131,61 +178,16 @@ def lower_ap242_hole_tolerances(
         if dim.lowering_blockers:
             blocked[dim_index] = ""
             continue
-        if dim.ref_bbox is None:
-            blocked[dim_index] = (
-                "unmatched hole correlation: source diameter has no referenced geometry"
-            )
-            continue
-        if dim.dominant_axis not in ("X", "Y", "Z"):
-            blocked[dim_index] = (
-                "unsupported hole correlation: source diameter has no principal bore axis"
-            )
-            continue
-        matches: list[tuple[int, tuple[int, ...]]] = []
-        for owner_index, owner in targets:
-            if owner.frame.axis != dim.dominant_axis.lower():
-                continue
-            if abs(_diameter(owner) - float(dim.value)) > max(1e-6, abs(float(dim.value)) * 1e-6):
-                continue
-            member_indices = tuple(
-                member_index
-                for member_index, point in enumerate(_members(owner))
-                if _inside(point, dim.ref_bbox)
-            )
-            if member_indices:
-                matches.append((owner_index, member_indices))
-        if not matches:
-            blocked[dim_index] = (
-                f"unmatched hole correlation: no {_diameter_text(dim.value)} "
-                f"{dim.dominant_axis}-axis hole member lies in the source reference bounds"
-            )
-            continue
-        if len(matches) != 1:
-            blocked[dim_index] = (
-                f"ambiguous hole correlation: source reference bounds match {len(matches)} "
-                "canonical hole/pattern features"
-            )
-            continue
-        owner_index, member_indices = matches[0]
-        owner = target_by_index[owner_index]
-        if isinstance(owner, PatternFeature) and len(member_indices) != len(_members(owner)):
-            blocked[dim_index] = (
-                "unsupported hole correlation: AP242 requirement covers only part of a "
-                "canonical hole pattern"
-            )
-            continue
-        try:
-            value = _requirement(dim)
-        except ValueError as exc:
-            blocked[dim_index] = f"unsupported hole tolerance: {exc}"
-            continue
-        assert value is not None
-        proposals[dim_index] = (owner_index, member_indices, value)
+        proposal = _hole_tolerance_proposal(dim, targets.items())
+        if isinstance(proposal, str):
+            blocked[dim_index] = proposal
+        else:
+            proposals[dim_index] = proposal
 
     # Existing authored ownership wins.  Silently replacing it with imported PMI would make
     # the same parameter have two sources and violate ADR 4 (was 0011)'s single-owner decoration map.
     for dim_index, (owner_index, _member_indices, _value) in tuple(proposals.items()):
-        owner = target_by_index[owner_index]
+        owner = targets[owner_index]
         if (owner, "diameter", "bore") in model.decorations or (
             owner,
             "diameter",
@@ -235,7 +237,7 @@ def lower_ap242_hole_tolerances(
 
         if isinstance(feature, PatternFeature):
             dim_indices = sorted({i for indices in member_requirements.values() for i in indices})
-            value = proposals[dim_indices[0]][2]
+            pattern_value = proposals[dim_indices[0]][2]
             ids = tuple(
                 dict.fromkeys(
                     source_id
@@ -245,7 +247,7 @@ def lower_ap242_hole_tolerances(
             )
             rebuilt.append(feature)
             decorations[(feature, "diameter", "bore")] = ToleranceDecoration(
-                value=value,
+                value=pattern_value,
                 source="ap242_pmi",
                 source_ids=ids,
                 limit_bounds=_limit_bounds(dimensions[dim_indices[0]]),
@@ -259,11 +261,8 @@ def lower_ap242_hole_tolerances(
             for key, value in tuple(decorations.items())
             if isinstance(key, tuple) and key and key[0] == feature
         ]
-        for key in [
-            key
-            for key in tuple(decorations)
-            if isinstance(key, tuple) and key and key[0] == feature
-        ]:
+        for tail, _value in inherited:
+            key = (feature, *tail)
             del decorations[key]
         # Group members by the requirement that owns them, retaining first-member order.
         # One source that references several members may truthfully keep a count× callout.

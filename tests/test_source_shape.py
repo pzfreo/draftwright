@@ -17,7 +17,7 @@ _MAX_FUNCTION_LINES = 300
 _LONG_FUNCTION_LIMIT = 200
 _FUNCTION_LENGTH_BASELINE = Path(__file__).with_name("_function_length_baseline.json")
 _BOOTSTRAP_FUNCTION_LENGTH_SHA256 = (
-    "84c56f21a973d61fb1f7096fde8b759bc749273bbb0d6ad0887163d5c40e2c25"
+    "16d1fce5f19497e71b5100ba61ac0d3d25a6eef7e503c4fd8a054ee8939cebdd"
 )
 _MAX_COMPLEXITY = 15
 _COMPLEXITY_BASELINE = Path(__file__).with_name("_complexity_baseline.json")
