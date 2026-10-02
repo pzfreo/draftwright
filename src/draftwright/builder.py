@@ -717,7 +717,6 @@ def _assembly_model(a: Analysis, model, decorations, requested, authored) -> Par
     return pm
 
 
-@observed_stage("assemble")
 def _resolve_title_document_defaults(a, features, hidden_source_annotations):
     """Set only un-authored title fields from one unambiguous source per field."""
     tolerance_source = None
@@ -741,6 +740,7 @@ def _resolve_title_document_defaults(a, features, hidden_source_annotations):
     return a, tolerance_source, material_source
 
 
+@observed_stage("assemble")
 def _assemble(
     a: Analysis,
     out,
