@@ -17,7 +17,6 @@
     "annotations/_diameters.py:_reroute_crossing_diameters": 18,
     "annotations/_diameters.py:render_diameters": 23,
     "annotations/_dimension_ink_repair.py:_InkConflictState.conflicts": 19,
-    "annotations/_dimension_ink_repair.py:_prevent_dimension_label_ink": 44,
     "annotations/_edge_callouts.py:_surface_normal_candidates": 17,
     "annotations/_gdt.py:_gdt_drop_callback": 16,
     "annotations/_gdt.py:render_gdt": 20,
