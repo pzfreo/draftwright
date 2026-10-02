@@ -563,17 +563,32 @@ def lint_pmi_rendering(
                 continue
             if value.is_finite():
                 values.append(value)
+        visual_text = getattr(annotation, "gdt_visual_tolerance", "")
+        try:
+            visual_value = Decimal(visual_text.removeprefix("Sø"))
+        except (AttributeError, InvalidOperation, TypeError):
+            visual_value = None
         # XCAF exposes a binary float without the source's lexical precision. The
         # compiler displays at most 13 significant digits, so accept only its
         # half-quantum rounding interval against the independent source record.
         display_bound = Decimal("0.5").scaleb(expected.adjusted() - 12)
-        if len(values) == 1 and abs(values[0] - expected) <= display_bound:
+        if (
+            len(values) == 1
+            and abs(values[0] - expected) <= display_bound
+            and visual_value is not None
+            and visual_value.is_finite()
+            and abs(visual_value - expected) <= display_bound
+        ):
             continue
         issues.append(
             LintIssue(
                 severity="error",
                 code="pmi_value_mismatch",
-                message=f"{name} states {values or 'no numeric value'} for AP242 source {source_id}; source tolerance is {expected}",
+                message=(
+                    f"{name} states PDF {values or 'no numeric value'} and visual "
+                    f"{visual_text or 'no numeric value'} for AP242 source {source_id}; "
+                    f"source tolerance is {expected}"
+                ),
                 source_ids=(source_id,),
                 annotation_name=name,
             )

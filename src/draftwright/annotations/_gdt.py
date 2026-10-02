@@ -180,6 +180,13 @@ def _gdt_pdf_text_specs(glyph, item, draft) -> tuple:
     return tuple(specs)
 
 
+def _attach_gdt_text_evidence(leader, glyph, item, draft) -> None:
+    """Keep the placed glyph's value beside PDF text for independent PMI lint."""
+    leader.pdf_text_relative_specs = _gdt_pdf_text_specs(glyph, item, draft)
+    if item.kind == "control_frame":
+        leader.gdt_visual_tolerance = glyph.tolerance_str
+
+
 def _gdt_drop_callback(
     dwg,
     ctx,
@@ -474,7 +481,7 @@ def render_gdt(
                     getattr(draft, "font", "Arial"),
                 )
             else:
-                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(g, _it, draft)
+                _attach_gdt_text_evidence(leader, g, _it, draft)
             return leader
 
         def _build_at(elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
@@ -496,7 +503,7 @@ def render_gdt(
                     getattr(draft, "font", "Arial"),
                 )
             else:
-                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(_g, _it, draft)
+                _attach_gdt_text_evidence(leader, _g, _it, draft)
             return leader
 
         def _build_routed(bends, elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
@@ -519,7 +526,7 @@ def render_gdt(
                     getattr(draft, "font", "Arial"),
                 )
             else:
-                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(_g, _it, draft)
+                _attach_gdt_text_evidence(leader, _g, _it, draft)
             return leader
 
         def _compact_candidates(

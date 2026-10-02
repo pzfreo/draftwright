@@ -8,6 +8,7 @@ import pytest
 from build123d import Box, Draft
 from build123d_drafting import FeatureControlFrame
 
+import draftwright.annotations._gdt as gdt_module
 import draftwright.pmi as pmi_module
 from draftwright.annotations._gdt import _gdt_glyph, _gdt_pdf_text_specs
 from draftwright.builder import build_drawing, detect_part_model
@@ -183,6 +184,7 @@ def test_flatness_source_magnitude_reaches_ink_and_lint_detects_a_wrong_value():
     )
     annotation = drawing.registry.named(name)
     assert annotation.pdf_text_relative_specs[0][0] == "0.05"
+    assert annotation.gdt_visual_tolerance == "0.05"
     report = PmiExtractionReport(records=(record,))
     assert lint_pmi_rendering(model.features, drawing.registry, "annotate", report=report) == []
 
@@ -216,6 +218,52 @@ def test_flatness_source_magnitude_reaches_ink_and_lint_detects_a_wrong_value():
     )
     assert annotation.pdf_text_relative_specs[0][0] == "0.1"
     issues = lint_pmi_rendering(model.features, drawing.registry, "annotate", report=report)
+    assert [(issue.code, issue.source_ids, issue.annotation_name) for issue in issues] == [
+        ("pmi_value_mismatch", (record.source_id,), name)
+    ]
+
+
+def test_flatness_lint_detects_visual_value_changed_after_source_lowering(monkeypatch):
+    part = Box(20, 20, 20)
+    record = replace(
+        _record(value=0.05),
+        kind="flatness",
+        type_code=7,
+        label="flatness 0.05",
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (feature,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(feature, ControlFrame) and feature.display_tolerance == "0.05"
+    model = detect_part_model(part)
+    model.features.append(feature)
+
+    original_glyph = gdt_module._gdt_glyph
+
+    def wrong_visual_glyph(item, draft):
+        if item.kind == "control_frame":
+            item = replace(item, display_tolerance="0.1")
+        return original_glyph(item, draft)
+
+    monkeypatch.setattr(gdt_module, "_gdt_glyph", wrong_visual_glyph)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name
+        for name in drawing.registry.names()
+        if drawing.registry.declaration_of(name) is feature
+    )
+    annotation = drawing.registry.named(name)
+    assert annotation.gdt_visual_tolerance == "0.1"
+    assert annotation.pdf_text_relative_specs[0][0] == "0.05"
+    assert drawing.registry.declaration_of(name) is feature
+
+    issues = lint_pmi_rendering(
+        model.features,
+        drawing.registry,
+        "annotate",
+        report=PmiExtractionReport(records=(record,)),
+    )
     assert [(issue.code, issue.source_ids, issue.annotation_name) for issue in issues] == [
         ("pmi_value_mismatch", (record.source_id,), name)
     ]
