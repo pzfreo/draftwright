@@ -18,7 +18,7 @@
     "annotations/holes.py:_place_pitch_dim": 260,
     "annotations/orchestrator.py:_maybe_tabulate_holes_impl": 284,
     "annotations/sections.py:_add_section_view": 209,
-    "annotations/sections.py:_render_detail": 267,
+    "annotations/sections.py:_render_detail": 254,
     "annotations/sections.py:_request_prismatic_detail": 212,
     "audit.py:compare_assessments": 277,
     "build_once.py:build_once": 252,

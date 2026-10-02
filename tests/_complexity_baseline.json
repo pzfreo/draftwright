@@ -44,7 +44,7 @@
     "annotations/orchestrator.py:_initial_annotation_stages": 17,
     "annotations/orchestrator.py:_maybe_tabulate_holes_impl": 18,
     "annotations/sections.py:_add_section_view": 22,
-    "annotations/sections.py:_render_detail": 31,
+    "annotations/sections.py:_render_detail": 28,
     "audit.py:compare_assessments": 21,
     "audit.py:compare_measurements": 20,
     "build_once.py:_resolve_views": 16,
