@@ -197,6 +197,57 @@ def test_structured_through_tap_lowers_without_a_prose_sentence_issue_2137():
     assert not any(isinstance(feature, PmiFeature) for feature in lowered.features)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    (
+        (
+            "tapping drill diameter",
+            0.0,
+            "structured manufacturing tapping drill diameter needs a positive length measure",
+        ),
+        (
+            "drill diameter",
+            1.6,
+            "structured manufacturing has both tapping drill diameter and drill diameter",
+        ),
+        ("hand", " ", "structured manufacturing hand needs descriptive text"),
+        ("tapping drill depth", 8.0, "structured through tap cannot declare a blind drill depth"),
+    ),
+)
+def test_structured_through_tap_refuses_unproved_fields_issue_2137(field, value, reason):
+    hole = HoleFeature(Frame((-20.0, 0.0, 0.0), "x"), 1.6, depth=None, through=True)
+    raw = replace(
+        _raw(
+            "internal_thread",
+            "internal thread",
+            _reference(1.6, (-20.0, 20.0), "internal"),
+            "#invalid_structured",
+        ),
+        structured_fields=(
+            ("thread side", "internal"),
+            ("designation", "M2x0.4"),
+            ("fit class", "6H"),
+            ("hand", "right"),
+            ("through", "true"),
+            ("tapping drill diameter", 1.6),
+        ),
+    )
+    accepted = lower_ap242_manufacturing_requirements(_model(hole, raw))
+    assert isinstance(accepted.features[0].thread, ThreadRequirement)
+    assert len(accepted.features) == 1
+    fields = dict(raw.structured_fields)
+    fields[field] = value
+    changed = replace(raw, structured_fields=tuple(fields.items()))
+    assert changed.structured_fields != raw.structured_fields
+
+    refused = lower_ap242_manufacturing_requirements(_model(hole, changed))
+
+    assert refused.features[0].thread is None
+    assert isinstance(refused.features[1], PmiFeature)
+    assert refused.features[1].source_id == raw.source_id
+    assert refused.features[1].lowering_blockers == (reason,)
+
+
 def test_structured_through_tap_refuses_full_thread_longer_than_source_issue_2137():
     hole = HoleFeature(Frame((-20.0, 0.0, 0.0), "x"), 1.6, depth=None, through=True)
     raw = replace(
