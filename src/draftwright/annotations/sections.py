@@ -926,37 +926,34 @@ def _render_detail(
     # the iso helper's square-default optimum can reject a wide, short detail even
     # when a different empty rectangle fits it (#915).
     cb = cropped.bounding_box()
-    if req.source_view == "side":
-        view_w, view_h = cb.max.Y - cb.min.Y, cb.max.Z - cb.min.Z
-    elif req.source_view == "plan":
-        view_w, view_h = cb.max.X - cb.min.X, cb.max.Y - cb.min.Y
-    else:
-        view_w, view_h = cb.max.X - cb.min.X, cb.max.Z - cb.min.Z
+    x_size = cb.max.X - cb.min.X
+    y_size = cb.max.Y - cb.min.Y
+    z_size = cb.max.Z - cb.min.Z
+    view_w, view_h = {
+        "side": (y_size, z_size),
+        "plan": (x_size, y_size),
+    }.get(req.source_view, (x_size, z_size))
     cap_h = 8.0
     caption_gap = min(a.DIM_PAD, 6.0) if req.kind == "turned-head" else a.DIM_PAD
 
     def _caption_text(s):
         return _detail_caption(req, letter, s, a.bb)
 
-    def _horizontal_extents(s):
-        """Space needed on each side of the view centre, including its caption."""
-        pad_right, _ = _pads(s)
+    def _layout_at(s):
+        """Footprint and offsets of the scaled view, annotation pads, and caption."""
+        pad_right, pad_top = req.pads(s) if req.pads is not None else (0.0, req.pad_top)
         half_view = view_w * s / 2
         caption_box = _anno_box(Note(_caption_text(s), (0, 0), dwg.draft))
+        left = max(half_view, -caption_box[0])
+        right = max(half_view + pad_right, caption_box[2])
         return (
-            max(half_view, -caption_box[0]),
-            max(half_view + pad_right, caption_box[2]),
+            (left + right, view_h * s + pad_top + caption_gap + cap_h),
+            left,
+            right,
+            pad_top,
         )
 
-    def _pads(s):  # annotation bands may depend on the scale (the prismatic ladder)
-        return req.pads(s) if req.pads is not None else (0.0, req.pad_top)
-
-    _, min_pad_top = _pads(min_detail_scale)
-    min_left, min_right = _horizontal_extents(min_detail_scale)
-    min_footprint = (
-        min_left + min_right,
-        view_h * min_detail_scale + min_pad_top + caption_gap + cap_h,
-    )
+    min_footprint = _layout_at(min_detail_scale)[0]
 
     # Placement: best empty rectangle for this footprint, avoiding placed views
     # and the title block.
@@ -982,12 +979,7 @@ def _render_detail(
         )
     )
     if reserved_box is None:
-        desired_left, desired_right = _horizontal_extents(detail_scale)
-        _, desired_pad_top = _pads(detail_scale)
-        desired_footprint = (
-            desired_left + desired_right,
-            view_h * detail_scale + desired_pad_top + caption_gap + cap_h,
-        )
+        desired_footprint = _layout_at(detail_scale)[0]
         rx0, ry0, rx1, ry1 = detail_space(
             drawable, obstacles, minimum_size=min_footprint, desired_size=desired_footprint
         )
@@ -1004,16 +996,12 @@ def _render_detail(
     }
 
     def _fits(s):
-        _, pt = _pads(s)
-        left, right = _horizontal_extents(s)
+        width, height = _layout_at(s)[0]
         # Compose and render do the same arithmetic through different centring
         # paths. A mathematically exact planned fit can differ by ~1e-13 mm in
         # floating point; that is not a real page-space shortfall.
         epsilon = 1e-6
-        return (
-            left + right <= rect_w + epsilon
-            and view_h * s + pt + caption_gap + cap_h <= rect_h + epsilon
-        )
+        return width <= rect_w + epsilon and height <= rect_h + epsilon
 
     # Fit continuously enough not to jump over a viable scale.  Subtracting a
     # whole sheet scale skipped 3:1 on a 2:1 sheet (4→2), even when 3:1 both fit
@@ -1038,8 +1026,7 @@ def _render_detail(
             rect_h,
         )
         return False
-    _, pad_top = _pads(detail_scale)
-    left, right = _horizontal_extents(detail_scale)
+    _, left, right, pad_top = _layout_at(detail_scale)
 
     # Centre the measured union of view, right annotation pad, and caption;
     # offset vertically for the top pad (annotations) vs the caption below.
