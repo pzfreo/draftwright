@@ -375,6 +375,30 @@ def _est_planned_bore_callout_width(
 
         n = len(token_w)
         max_w = max(max_w, sum(token_w) + max(n - 1, 0) * gap + pad_around_text)
+    z_steps = [
+        (group.feature.frame.origin, _fmt(dim.param.value, dim.display_decimals))
+        for group in groups
+        if group.feature_kind in {"step", "boss"} and group.feature.frame.axis == "z"
+        for dim in group.dims
+        if not dim.suppressed and dim.param.kind == "diameter"
+    ]
+    for group in groups:
+        if group.feature_kind != "rotational" or group.feature.frame.axis != "z":
+            continue
+        for dim in group.dims:
+            if dim.suppressed or dim.param.kind != "diameter" or dim.param.role != "bore":
+                continue
+            value_text = _fmt(dim.param.value, dim.display_decimals)
+            if any(
+                value_text == step_value
+                and all(
+                    abs(origin[index] - group.feature.frame.origin[index]) <= 1e-6
+                    for index in (0, 1)
+                )
+                for origin, step_value in z_steps
+            ):
+                label = f"ø{value_text}{_tol_suffix(dim.param.tolerance, draft)} BORE"
+                max_w = max(max_w, _text_size(label, font_size)[0] + pad_around_text)
     return max_w
 
 

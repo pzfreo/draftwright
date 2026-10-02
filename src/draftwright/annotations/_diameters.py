@@ -227,20 +227,27 @@ def _diameter_column_left(
     *trace* (#736): one ``pass_events`` record with a placed/dropped item per callout."""
     if not items:
         return 0
+    # Public feature callouts supply seven fields; counted automatic bands add count.
+    items = [(*item, 1) if len(item) == 7 else item for item in items]
     ev = trace.pass_event("diameter_column_left", view="front") if trace is not None else None
     draft = dwg.draft
     fx0, fy0, _, fy1 = dwg.view_bounds("front")
+
     # Real measured width, not the per-char estimate: a thread spec is arbitrary text,
     # so `len * 0.62 em` can underestimate a wide label and let it cross the margin
     # (annotation_out_of_bounds). Measure the completed label like the row-below path does.
+    def _label(value_text, dtol, thr, count):
+        prefix = f"{count}× " if count > 1 else ""
+        return prefix + f"ø{value_text}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else "")
+
     label_w = max(
         _text_size(
-            f"ø{value_text}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else ""),
+            _label(value_text, dtol, thr, count),
             draft.font_size,
             getattr(draft, "font_path", DEFAULT_FONT_PATH),
             getattr(draft, "font", "Arial"),
         )[0]
-        for _, _dia, value_text, _, dtol, thr, _ in items
+        for _, _dia, value_text, _, dtol, thr, _, count in items
     )
     elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
     # A left-directed leader hangs its label a shelf-length PAST the elbow, so the label's left
@@ -251,14 +258,14 @@ def _diameter_column_left(
         if ev is not None:
             ev["items"].extend(
                 {"label": f"ø{text}", "outcome": "dropped", "reason": "no_room_left"}
-                for _, _d, text, _, _, _, _ in items
+                for _, _d, text, _, _, _, _, _ in items
             )
         return 0
     specs = []  # (tip_page, dia, label, feature, mids), tip on the step's left silhouette,
-    for anchor, dia, value_text, feat, dtol, thr, mids in items:
+    for anchor, dia, value_text, feat, dtol, thr, mids, count in items:
         ax, ay, az = anchor
         tip = dwg.at("front", ax - dia / 2, ay, az)
-        label = f"ø{value_text}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else "")
+        label = _label(value_text, dtol, thr, count)
         specs.append((tip, dia, label, feat, mids))
     half_h = draft.font_size / 2 + draft.pad_around_text
     min_gap = 2 * half_h
@@ -278,6 +285,9 @@ def _diameter_column_left(
     placed = 0
     for i, ((tip, _dia, label, feat, mids), ly) in enumerate(zip(survivors, ys, strict=True)):
         ldr = Leader(tip=(tip[0], tip[1], 0), elbow=(elbow_x, ly, 0), label=label, draft=draft)
+        if len(mids) > 1:
+            ldr.source_features = tuple(dict.fromkeys(mid.feature for mid in mids))
+            ldr.indivisible_measurements = True
         if _box_hits(_anno_box(ldr), occupied):
             if ev is not None:
                 ev["items"].append(
@@ -355,6 +365,15 @@ def _manufacturing_suffix(
     if isinstance(knurl, KnurlRequirement) and include_source_pmi:
         terms.append(manufacturing_callout_suffix(knurl, manufacturing_tags))
     return "; ".join(terms) or None
+
+
+def _external_diameter_rider(
+    rider: str | None, value_text: str, axis: str, bore_values: set[str]
+) -> str | None:
+    """Name a Z-step OD when a bore prints the same nominal size in front view."""
+    if axis == "z" and value_text in bore_values:
+        return f"{rider} OD" if rider else "OD"
+    return rider
 
 
 _DIAMETER_LEAD_DIRS = {
@@ -536,6 +555,13 @@ def render_diameters(
     col_buckets: dict = {}  # Z-turned
     end_buckets: dict = {}  # Y-turned: radial leaders in the end-on front view
     include_source_pmi = not ctx.document_member or a.pmi_mode == "annotate"
+    bore_specs = [
+        (rotational.facts.frame.origin, dim.value_text)
+        for rotational in plan.of_kind("rotational")
+        if rotational.facts.frame.axis == "z"
+        for dim in rotational.dims
+        if dim.kind == "diameter" and dim.role == "bore"
+    ]
     for g in plan.of_kind("step", "boss"):
         if only is not None and g.ref not in only:  # recorded finalize subset
             continue
@@ -549,6 +575,12 @@ def render_diameters(
             include_source_pmi=include_source_pmi,
             manufacturing_tags=ctx.manufacturing_tags,
         )
+        bore_values = {
+            value
+            for origin, value in bore_specs
+            if all(abs(origin[index] - g.facts.frame.origin[index]) <= 1e-6 for index in (0, 1))
+        }
+        thr = _external_diameter_rider(thr, dpd.value_text, g.facts.frame.axis, bore_values)
         if dwg.registry.has_measurement(dpd.id):
             continue
         bucket = {"x": row_buckets, "y": end_buckets, "z": col_buckets}.get(g.facts.frame.axis)
@@ -575,35 +607,30 @@ def render_diameters(
             tuple(pd.id for gp in gs for pd in gp.dims if pd.kind == "diameter"),
         )
 
-    def _items(buckets, *, distinguish_axial_steps=False):
-        items = [_item(entry) for entry in buckets.values()]
-        if not distinguish_axial_steps:
-            return items
-        by_label: dict[str, list[int]] = {}
-        for index, (entry, item) in enumerate(zip(buckets.values(), items, strict=True)):
-            _anchor, _dia, value, _feature, tol, rider, _mids = item
+    def _column_items(buckets):
+        entries = list(buckets.values())
+        items = [(*_item(entry), 1) for entry in entries]
+        by_content: dict[tuple, list[int]] = {}
+        for index, (entry, item) in enumerate(zip(entries, items, strict=True)):
             if len(entry[6]) == 1 and entry[6][0].feature_kind == "step":
-                label = f"ø{value}{_tol_suffix(tol, dwg.draft)}" + (f" {rider}" if rider else "")
-                by_label.setdefault(label, []).append(index)
-        for indices in by_label.values():
-            if len(indices) != 2 or items[indices[0]][0][2] == items[indices[1]][0][2]:
-                continue
-            for index, qualifier in zip(
-                sorted(indices, key=lambda i: items[i][0][2]),
-                ("BOT", "TOP"),
-                strict=True,
-            ):
-                anchor, dia, value, feature, tol, rider, mids = items[index]
-                items[index] = (
-                    anchor,
-                    dia,
-                    value,
-                    feature,
-                    tol,
-                    f"{rider} {qualifier}" if rider else qualifier,
-                    mids,
+                # Equal printed text may hide unequal approved values or tolerances.
+                _anchor, dia, value, _feature, tol, rider, _mids, _count = item
+                by_content.setdefault((dia, value, _tol_suffix(tol, dwg.draft), rider), []).append(
+                    index
                 )
-        return items
+        removed = set()
+        for indices in by_content.values():
+            if (
+                len(indices) != 2
+                or items[indices[0]][0][2] == items[indices[1]][0][2]
+                or items[indices[0]][4] != items[indices[1]][4]
+            ):
+                continue
+            first, second = indices
+            anchor, dia, value, _feature, tol, rider, mids, _count = items[first]
+            items[first] = (anchor, dia, value, None, tol, rider, mids + items[second][6], 2)
+            removed.add(second)
+        return [item for index, item in enumerate(items) if index not in removed]
 
     # The placers name leaders m_dia_{x,z}{start+i} contiguously from one start.
     # The automatic pass uses start=0. Finalize may run after existing m_dia
@@ -684,7 +711,7 @@ def render_diameters(
     )
     placed += _diameter_column_left(
         dwg,
-        _items(col_buckets, distinguish_axial_steps=True),
+        _column_items(col_buckets),
         start=start_z,
         trace=trace,
         ctx=ctx,
@@ -874,6 +901,9 @@ def _reroute_crossing_diameters(dwg, *, ctx, material_penalty) -> int:
                 cand = Leader(
                     tip=(tip[0], tip[1], 0), elbow=(ex, ey, 0), label=ldr.label, draft=draft
                 )
+                for attr in ("source_features", "indivisible_measurements"):
+                    if hasattr(ldr, attr):
+                        setattr(cand, attr, getattr(ldr, attr))
                 box = _anno_box(cand)
                 if box is None or not _within_page(box) or _box_hits(box, obstacles):
                     continue

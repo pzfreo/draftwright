@@ -844,10 +844,30 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
     axis = g.facts.frame.axis
     od_dim = g.dim(kind="diameter", role="od")
     bore_dims = [d for d in g.dims if d.kind == "diameter" and d.role == "bore"]
+    step_diameters = {
+        dim.value_text
+        for step in plan.of_kind("step", "boss")
+        if step.facts.frame.axis == "z"
+        and all(
+            abs(step.facts.frame.origin[index] - g.facts.frame.origin[index]) <= 1e-6
+            for index in (0, 1)
+        )
+        if (dim := step.dim(kind="diameter")) is not None
+    }
 
     def _dia_label(dim):
         # Planner-fed value + authored tolerance/fit suffix.
-        return f"ø{dim.value_text}{_tol_suffix(dim.tolerance, draft)}"
+        label = f"ø{dim.value_text}{_tol_suffix(dim.tolerance, draft)}"
+        return (
+            label + " BORE" if dim.role == "bore" and dim.value_text in step_diameters else label
+        )
+
+    def _od_mark(first, second, side):
+        mark = _dim(first, second, side, 8, draft, label=_dia_label(od_dim))
+        if len(od_dim.equivalent_ids) > 1:
+            mark.source_features = tuple(identity.feature for identity in od_dim.equivalent_ids)
+            mark.indivisible_measurements = True
+        return mark
 
     def _place_axis_centerline(item, name, view):
         # Automatic view selection may omit one of a turned body's two equivalent profile
@@ -863,13 +883,10 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
         if od_dim is not None:
             od = od_dim.value
             ctx.place(
-                _dim(
+                _od_mark(
                     (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
                     (FX(a.cx + od / 2), FZ(a.bb.max.Z) + 2, 0),
                     "above",
-                    8,
-                    draft,
-                    label=_dia_label(od_dim),
                 ),
                 "dim_od",
                 view="front",
@@ -956,13 +973,10 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
         if od_dim is not None:
             od = od_dim.value
             ctx.place(
-                _dim(
+                _od_mark(
                     (FX(a.bb.min.X) - 2, FZ(a.cz - od / 2), 0),
                     (FX(a.bb.min.X) - 2, FZ(a.cz + od / 2), 0),
                     "left",
-                    8,
-                    draft,
-                    label=_dia_label(od_dim),
                 ),
                 "dim_od",
                 view="front",
@@ -992,13 +1006,10 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
         if od_dim is not None:
             od = od_dim.value
             ctx.place(
-                _dim(
+                _od_mark(
                     (SX(a.bb.min.Y) - 2, SZ(a.cz - od / 2), 0),
                     (SX(a.bb.min.Y) - 2, SZ(a.cz + od / 2), 0),
                     "left",
-                    8,
-                    draft,
-                    label=_dia_label(od_dim),
                 ),
                 "dim_od",
                 view="side",

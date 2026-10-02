@@ -2343,13 +2343,13 @@ def _consolidate_boss_heights(model, planned, groups, omissions, overall):
 
 
 def _share_unique_outer_diameter(groups: list[ApprovedGroup], planned) -> list[ApprovedGroup]:
-    """Let a global OD carry one unique coaxial maximum band's approved identity.
+    """Let a global OD carry matching coaxial maximum bands' approved identities.
 
     A global OD has no axial station or body token. It can therefore stand for
-    a native external diameter only when exactly one band supplies
-    that maximum on its axis line. Equal disjoint bands, bores and decorated
-    diameters keep their own measurements. The native entry remains available
-    if the global OD does not land.
+    one unique maximum band, or two plain step bands with exactly the same
+    approved size and tolerance. Bores and decorated diameters keep their own
+    measurements. The native entries remain available if the global OD does
+    not land.
     """
     result = []
     for group in groups:
@@ -2395,22 +2395,37 @@ def _share_unique_outer_diameter(groups: list[ApprovedGroup], planned) -> list[A
             if abs(diameter.value - od.value) <= 1e-6
         ]
         if (
-            len(matches) == 1
-            and sum(abs(value - od.value) <= 1e-6 for value in physical) == 1
+            len(matches) in (1, 2)
+            and sum(abs(value - od.value) <= 1e-6 for value in physical) == len(matches)
             and not any(value > od.value + 1e-6 for value in physical)
         ):
-            candidate, diameter = matches[0]
             if (
+                len(matches) == 1
+                or all(
+                    candidate.feature_kind == "step" and diameter.value == od.value
+                    for candidate, diameter in matches
+                )
+                and abs(
+                    matches[0][0].facts.frame.origin[axis] - matches[1][0].facts.frame.origin[axis]
+                )
+                > 1e-6
+            ) and all(
                 diameter.id is not None
                 and diameter.tolerance is None
                 and diameter.value_text == od.value_text
                 and candidate.facts.get("thread") is None
                 and candidate.facts.get("knurl") is None
+                for candidate, diameter in matches
             ):
                 group = replace(
                     group,
                     dims=tuple(
-                        replace(entry, equivalent_ids=(diameter.id,)) if entry is od else entry
+                        replace(
+                            entry,
+                            equivalent_ids=tuple(diameter.id for _candidate, diameter in matches),
+                        )
+                        if entry is od
+                        else entry
                         for entry in group.dims
                     ),
                 )

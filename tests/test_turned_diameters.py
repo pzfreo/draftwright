@@ -838,40 +838,77 @@ class TestTurnedDiameters:
         )
         assert abs(tip_x - origin_x) < 1e-6, "ø6 boss leader should anchor at its frame origin"
 
-    def test_equal_diameter_leaders_keep_each_disjoint_runs_own_support(self):
-        # The same diameter on two disjoint, unequal runs is independently
-        # editable. Each arrow must land on its own band's midpoint, never
-        # the convex-hull midpoint in the intervening larger-diameter band.
+    def test_disjoint_smaller_diameters_share_one_counted_leader(self):
+        # Two disjoint smaller bands have one counted leader; the middle band
+        # remains the maximum OD and must not absorb their identities.
         part = (
             Cylinder(10, 5)
             + Pos(0, 0, 7.5) * Cylinder(15, 10)
             + Pos(0, 0, 22.5) * Cylinder(10, 20)
         )
         dwg = build_drawing(part, number="X")
-        marks = [
-            (name, item)
-            for name, item in dwg.iter_annotations()
-            if str(getattr(item, "label", "")).startswith("ø20")
+        bands = [
+            feature
+            for feature in dwg.model().features
+            if feature.kind == "step" and feature.diameter == 20
         ]
-        assert len(marks) == 2
-        assert {item.label for _, item in marks} == {"ø20 BOT", "ø20 TOP"}
+        assert len(bands) == 2 and bands[0].frame.origin != bands[1].frame.origin
+        marks = [(name, item) for name, item in dwg.iter_annotations() if item.label == "2× ø20"]
+        assert len(marks) == 1 and marks[0][0].startswith("m_dia_z")
         assert dwg.scale == 1.0
         assert not [
             issue
             for issue in dwg.lint()
             if issue.code in {"annotation_overlap", "annotation_out_of_bounds"}
         ]
-        on_long = dwg.at("front", 0, 0, 22.5)[1]
-        on_short = dwg.at("front", 0, 0, 0)[1]
-        in_gap = dwg.at("front", 0, 0, 7.5)[1]
-        assert sorted(item.tip[1] for _, item in marks) == pytest.approx(
-            sorted((on_short, on_long))
+        name, item = marks[0]
+        owners = dwg.registry.features_of(name)
+        assert set(owners) == set(bands)
+        assert {identity.parameter for identity in dwg.registry.measurement_of(name)} == {
+            "step.diameter"
+        }
+        assert len(dwg.registry.measurement_of(name)) == 2
+        assert all(name in dwg.annotations_of(owner) for owner in owners)
+        band_ys = [dwg.at("front", *owner.frame.origin)[1] for owner in owners]
+        assert any(item.tip[1] == pytest.approx(y) for y in band_ys)
+        assert item.tip[1] != pytest.approx(dwg.at("front", 0, 0, 7.5)[1])
+        before = tuple(dwg.iter_annotations())
+        with pytest.raises(ValueError, match="also measures other features"):
+            dwg.drop(owners[0])
+        assert tuple(dwg.iter_annotations()) == before
+
+    def test_bore_matching_an_approved_step_gets_a_reserved_role_label(self):
+        from draftwright._core import _text_size
+        from draftwright.compose import _est_planned_bore_callout_width
+        from draftwright.model.planner import plan_dimensions
+
+        align = (Align.CENTER, Align.CENTER, Align.MIN)
+        part = (
+            Cylinder(65, 5, align=align)
+            + Pos(0, 0, 5) * Cylinder(35, 103, align=align)
+            + Pos(0, 0, 108) * Cylinder(65, 5, align=align)
         )
-        for name, item in marks:
-            owner = dwg.registry.feature_of(name)
-            assert owner is not None
-            assert item.tip[1] == pytest.approx(dwg.at("front", *owner.frame.origin)[1])
-            assert abs(item.tip[1] - in_gap) > 1e-6
+        part -= Pos(0, 0, 109) * Cylinder(35, 4, align=align)
+        drawing = build_drawing(part, scale=1, page="A2", scale_policy="permissive")
+        groups = plan_dimensions(drawing.model())
+        assert any(
+            group.feature_kind == "step" and group.feature.diameter == 70 for group in groups
+        )
+        assert any(
+            group.feature_kind == "rotational"
+            and any(dim.param.role == "bore" and dim.param.value == 70 for dim in group.dims)
+            for group in groups
+        )
+        assert drawing.get_annotation("ldr_z0").label == "ø70 BORE"
+        # The blind hole has a separate callout whose width would otherwise
+        # mask a missing rotational BORE reservation.
+        rotational_groups = tuple(
+            group for group in groups if group.feature_kind in {"step", "rotational"}
+        )
+        assert (
+            _est_planned_bore_callout_width(rotational_groups, drawing.draft)
+            >= _text_size("ø70 BORE", drawing.draft.font_size)[0]
+        )
 
     def test_z_column_leader_lands_on_the_left_edge(self):
         # Cover the Z-turned column placer too (mirror of the X row): its tips sit

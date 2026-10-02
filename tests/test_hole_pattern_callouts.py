@@ -42,9 +42,9 @@ def test_coincident_flange_patterns_and_diameters_name_both_supports_issue_2129(
 
     def same_support_claims(dwg):
         diameters = [
-            (name, annotation, dwg.registry.features_of(name)[0])
+            (name, annotation, dwg.registry.features_of(name))
             for name, annotation in dwg.iter_annotations()
-            if name.startswith("m_dia_z") and annotation.label.startswith("ø130")
+            if annotation.label == "ø130"
         ]
         patterns = [
             (name, annotation, dwg.registry.features_of(name)[0])
@@ -54,8 +54,8 @@ def test_coincident_flange_patterns_and_diameters_name_both_supports_issue_2129(
         # The fixture contains two different axial supports for each identical
         # measurement. Its two patterns coincide in plan projection, which is
         # precisely when equal text cannot tell the reader which face it names.
-        assert len(diameters) == len(patterns) == 2
-        assert sorted(feature.frame.origin[2] for _, _, feature in diameters) == [2.5, 110.5]
+        assert len(diameters) == 1 and len(patterns) == 2
+        assert sorted(feature.frame.origin[2] for feature in diameters[0][2]) == [2.5, 110.5]
         assert sorted(feature.frame.origin[2] for _, _, feature in patterns) == [5.0, 113.0]
         assert (
             len(
@@ -66,15 +66,19 @@ def test_coincident_flange_patterns_and_diameters_name_both_supports_issue_2129(
             )
             == 1
         )
-        assert all(dwg.registry.measurement_of(name) for name, _, _ in diameters + patterns)
-        assert {annotation.label for _, annotation, _ in diameters} == {
-            "ø130 BOT",
-            "ø130 TOP",
-        }
-        assert all(
-            annotation.label.endswith("BOT") == (feature.frame.origin[2] == 2.5)
-            for _, annotation, feature in diameters
+        assert diameters[0][0] == "dim_od"
+        assert len(dwg.registry.measurement_of(diameters[0][0])) == 3
+        assert all(dwg.registry.measurement_of(name) for name, _, _ in patterns)
+        assert not any(
+            name.startswith("m_dia_z") and "ø130" in str(getattr(annotation, "label", ""))
+            for name, annotation in dwg.iter_annotations()
         )
+        assert all(diameters[0][0] in dwg.annotations_of(feature) for feature in diameters[0][2])
+        before = tuple(dwg.iter_annotations())
+        with pytest.raises(ValueError, match="also measures other features"):
+            dwg.drop(diameters[0][2][0])
+        assert tuple(dwg.iter_annotations()) == before
+        assert len(dwg.registry.measurement_of(diameters[0][0])) == 3
         assert {annotation.label for _, annotation, _ in patterns} == {
             "12× ⌀8 THRU EQ SP ON ø110 BC LOWER FACE",
             "12× ⌀8 THRU EQ SP ON ø110 BC UPPER FACE",
