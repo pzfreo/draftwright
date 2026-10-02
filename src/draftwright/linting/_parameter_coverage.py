@@ -39,6 +39,21 @@ def _has_parameters(
         return False
 
 
+def _source_key(
+    source,
+    source_type: type | None,
+    key_fn: Callable[[object], tuple],
+    key_errors: tuple[type[Exception], ...],
+) -> tuple | None:
+    """Keep a rejected physical source distinct from a valid correspondence key."""
+    try:
+        if source_type is not None and not isinstance(source, source_type):
+            raise TypeError
+        return key_fn(source)
+    except key_errors:
+        return None
+
+
 def parameter_outcomes(
     recognition: RecognitionResult | None,
     features,
@@ -79,12 +94,7 @@ def parameter_outcomes(
     keyed_sources: list[tuple[object, tuple | None]] = []
     source_counts: dict[tuple, int] = defaultdict(int)
     for source in sources:
-        try:
-            if source_type is not None and not isinstance(source, source_type):
-                raise TypeError
-            key = key_fn(source)
-        except key_errors:
-            key = None
+        key = _source_key(source, source_type, key_fn, key_errors)
         keyed_sources.append((source, key))
         if key is not None:
             source_counts[key] += 1
