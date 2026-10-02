@@ -148,6 +148,13 @@ def _slot_position_ink_candidates(original, *, strip, build, tier):
         yield build(inner + strip.direction * distance)
 
 
+def _slot_position_retries(slot, kind, strip, build, tier):
+    """Offer bounded exact-ink retries for an unplaced slot position."""
+    if slot.kind == "slot" and kind == "pos":
+        return partial(_slot_position_ink_candidates, strip=strip, build=build, tier=tier)
+    return None
+
+
 def _record_slot_drop(
     ctx,
     kind,
@@ -220,17 +227,14 @@ def _place_slot_dimension(
     sfx="",
 ):
     vw, zn, ha, hp, vp, idx = view, zones, h_axis, h_proj, v_proj, i
-    # The approved entry supplies the printed value; feature fields only locate
-    # witnesses. The compiler has already formatted any authored tolerance.
+    # The compiled value supplies the label; feature fields only locate witnesses.
     lbl = approved.value_text + sfx
     shared_key = _shared_width_key(s, approved) if s.kind == "slot" and kind == "width" else None
     shared_owners = tuple(shared_widths.get(shared_key, ())) if shared_key else ()
     if len(shared_owners) > 1:
         lbl = f"{len(shared_owners)}× {lbl}"
-    # Raw (pre-snap) endpoints — the dedup key must share a basis with the
-    # hole-location key (which uses the raw ref), else the ~0.05 mm snap gap can
-    # push a coincident span into an adjacent 0.1 mm page bin and the
-    # duplicate survives.
+    # Keep raw witnesses for hole-location dedup; snapping can move coincident
+    # spans into adjacent 0.1 mm page bins.
     raw_lo, raw_hi = p_lo, p_hi
     # Snap the geometric span to the displayed (1-dp) value so drawn length
     # matches the label (else label-vs-measured lint trips).
@@ -387,6 +391,7 @@ def _place_slot_dimension(
         far_or_drop(cname)
         return True
 
+    near_build = _cand_for(near_side, near_hi)[1]
     register_corridor(
         ctx,
         (vw[0], near_side),
@@ -396,7 +401,7 @@ def _place_slot_dimension(
         tier,
         CorridorCandidate(
             name=cname,
-            build=_cand_for(near_side, near_hi)[1],
+            build=near_build,
             # A position nests in the datum-distance location ladder; a size dim
             # forms the inner run, ordered left-to-right by its span midpoint.
             order=(
@@ -411,18 +416,7 @@ def _place_slot_dimension(
             precedence=1 if is_pos else 0,
             force=False,
             feature=s,  # provenance (ADR 5 (was 0010)): this dim belongs to the slot
-            # Grid-pitch witness boxes can carve every tier despite an exact clear
-            # slot-position label. The shared postsolve validates real segments and labels.
-            compact_candidates=(
-                partial(
-                    _slot_position_ink_candidates,
-                    strip=near_strip,
-                    build=_cand_for(near_side, near_hi)[1],
-                    tier=tier,
-                )
-                if s.kind == "slot" and kind == "pos"
-                else None
-            ),
+            compact_candidates=_slot_position_retries(s, kind, near_strip, near_build, tier),
         ),
     )
     return True  # deferred — the callback owns the drop; caller's else must not fire

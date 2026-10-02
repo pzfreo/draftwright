@@ -551,8 +551,6 @@ def render_locations(
             )
     x_refs = _discard_short_refs(x_refs, 0, datum_x, "plan")
     _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
-    # Pattern centres have compiled claims, and the shared corridor can put close
-    # ordinates on separate tiers. The scattered-hole spacing prefilter cannot.
     centre_x = _pattern_centre_ordinates(x_refs, "x")
     _kept_x, _n_x_close = _legible_locations(_x_drawable - centre_x, a.SCALE)
     _kept_x_set = set(_kept_x) | centre_x
@@ -570,12 +568,11 @@ def render_locations(
         )
         ctx.escalations.append(Escalation("location", "plan", None, "illegible"))
     x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
-    # Register X-location dims into the shared plan-above corridor (ADR 2 (was 0009) end state),
-    # so the slot pass feeds the SAME strip: a single solve_corridor drain
-    # dedups a coincident slot-position line and orders the whole ladder — instead of each
-    # pass carving around the other and interleaving. No alternate view for a plan-X
-    # location, so a corridor-blocked dim is force-kept (policy B), not relocated; only a
-    # physically full strip drops (→ location_ref_dropped, escalates the hole table).
+    # Register X locations with slot dimensions in the shared plan-above corridor;
+    # this dedups coincident slot positions and orders the whole ladder instead
+    # of passes carving around each other. A plan-X location has no alternate
+    # view, so Policy B force-keeps a blocked dim; only a physically full strip
+    # drops (location_ref_dropped) and escalates the hole table.
     for i, (rx, ry, feat, pin_ref, mids, location_facts, location_entries) in enumerate(
         sorted(x_refs, key=lambda r: abs(r[0] - datum_x))
     ):

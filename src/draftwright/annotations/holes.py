@@ -1020,9 +1020,8 @@ def _place_pitch_dim(
             if not exact_label_gate and _box_hits(bb, obstacles):
                 continue
             # Inside the analytical page hull — build the real geometry ONCE and re-validate
-            # its placement. Rotated pocket and hole grids use exact segment/label legibility:
-            # a single AABB around their diagonal dimension encloses large empty triangles.
-            # Hole leaders join the later shared assignment against this settled pitch ink.
+            # its placement. Rotated grid dimension AABBs enclose empty triangles;
+            # exact pitch ink joins the later shared hole-leader assignment.
             if not exact_label_gate and ink_probes >= 8:
                 break
             probe = _make(offset, side_vec)
