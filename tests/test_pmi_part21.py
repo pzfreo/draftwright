@@ -13,6 +13,7 @@ from draftwright._pmi_part21 import (
     GeometricToleranceFact,
     ManufacturingRequirementFact,
     MaterialFact,
+    StructuredManufacturingFact,
     SurfaceLabelFact,
     match_common_label,
     match_datum_occurrence,
@@ -28,6 +29,7 @@ from draftwright._pmi_part21 import (
     read_geometric_tolerances,
     read_manufacturing_requirements,
     read_material_properties,
+    read_structured_manufacturing_requirements,
     read_surface_labels,
 )
 
@@ -184,6 +186,118 @@ def _read_requirements(tmp_path, name: str, *instances: str):
     step = tmp_path / f"{name}.step"
     step.write_text(_step(*instances), encoding="utf-8")
     return read_manufacturing_requirements(step)
+
+
+def test_structured_manufacturing_attributes_keep_units_and_source_support_issue_2137(tmp_path):
+    instances = (
+        "#1=SHAPE_ASPECT('internal thread','',#50,.T.);",
+        "#2=GEOMETRIC_ITEM_SPECIFIC_USAGE('internal thread','',#1,#51,#52);",
+        "#3=GENERAL_PROPERTY('','user defined attribute',$);",
+        "#4=PROPERTY_DEFINITION('internal thread','pmi-assist',#1);",
+        "#5=GENERAL_PROPERTY_ASSOCIATION('',$,#3,#4);",
+        "#6=PROPERTY_DEFINITION_REPRESENTATION(#4,#7);",
+        "#7=REPRESENTATION('internal thread',(#8,#9,#10),#53);",
+        "#8=DESCRIPTIVE_REPRESENTATION_ITEM('thread side','internal');",
+        "#9=DESCRIPTIVE_REPRESENTATION_ITEM('through','true');",
+        "#10=MEASURE_REPRESENTATION_ITEM('pitch',LENGTH_MEASURE(0.8),#11);",
+        "#11=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));",
+        "#50=PRODUCT_DEFINITION_SHAPE('','',#51);",
+        "#20=PROPERTY_DEFINITION('default tolerances','',#50);",
+        "#21=PROPERTY_DEFINITION_REPRESENTATION(#20,#22);",
+        "#22=REPRESENTATION('default tolerances',(#23),#53);",
+        "#23=DESCRIPTIVE_REPRESENTATION_ITEM('tolerance class','ISO 2768-m');",
+    )
+    assert any("GENERAL_PROPERTY_ASSOCIATION" in row for row in instances)
+    assert any("LENGTH_MEASURE" in row for row in instances)
+    path = tmp_path / "structured.step"
+    path.write_text(_step(*instances), encoding="utf-8")
+
+    facts = read_structured_manufacturing_requirements(path)
+
+    assert len(facts) == 2
+    thread, default = facts
+    assert (thread.entity_id, thread.kind, thread.reference_item_ids, thread.reason) == (
+        "#4",
+        "internal_thread",
+        ("#52",),
+        "",
+    )
+    assert dict(thread.fields) == {"thread side": "internal", "through": "true", "pitch": 0.8}
+    assert (default.entity_id, default.kind, default.fields, default.reason) == (
+        "#20",
+        "general_tolerances",
+        (("tolerance class", "ISO 2768-m"),),
+        "",
+    )
+
+
+def test_prose_and_structured_sources_pair_once_by_kind_and_support_issue_2137(monkeypatch):
+    import draftwright.pmi as pmi
+
+    prose = ManufacturingRequirementFact(
+        entity_id="#prose",
+        semantic_name="internal thread",
+        text="M2 x 0.4-6H RH, full thread through; DIA 1.6 tapping drill through",
+        shape_aspect_ids=("#prose_aspect",),
+        reference_item_ids=("#same_face",),
+    )
+    structured = StructuredManufacturingFact(
+        entity_id="#uda",
+        kind="internal_thread",
+        fields=(("thread side", "internal"), ("pitch", 0.4)),
+        shape_aspect_ids=("#uda_aspect",),
+        reference_item_ids=("#same_face",),
+    )
+    monkeypatch.setattr(pmi, "read_manufacturing_requirements", lambda _path: (prose,))
+    monkeypatch.setattr(
+        pmi, "read_structured_manufacturing_requirements", lambda _path: (structured,)
+    )
+    assert prose.reference_item_ids == structured.reference_item_ids
+
+    sources, records = pmi._manufacturing_requirement_projection("unused.step")
+
+    assert len(records) == 1
+    assert records[0].source_ids == (
+        "manufacturing_requirement:#prose",
+        "manufacturing_requirement:#uda",
+    )
+    assert records[0].structured_fields == structured.fields
+    assert records[0].shape_aspect_ids == ("#prose_aspect", "#uda_aspect")
+    assert {source.source_id for source in sources} == set(records[0].source_ids)
+
+
+def test_equal_manufacturing_values_on_distinct_support_stay_separate_issue_2137(monkeypatch):
+    import draftwright.pmi as pmi
+
+    prose = ManufacturingRequirementFact(
+        entity_id="#prose",
+        semantic_name="internal thread",
+        text="M2 x 0.4-6H RH, full thread through; DIA 1.6 tapping drill through",
+        reference_item_ids=("#face_a",),
+    )
+    structured = StructuredManufacturingFact(
+        entity_id="#uda",
+        kind="internal_thread",
+        fields=(("thread side", "internal"), ("designation", "M2x0.4"), ("pitch", 0.4)),
+        reference_item_ids=("#face_b",),
+    )
+    monkeypatch.setattr(pmi, "read_manufacturing_requirements", lambda _path: (prose,))
+    monkeypatch.setattr(
+        pmi, "read_structured_manufacturing_requirements", lambda _path: (structured,)
+    )
+    assert prose.reference_item_ids != structured.reference_item_ids
+
+    sources, records = pmi._manufacturing_requirement_projection("unused.step")
+
+    assert len(records) == 2
+    assert records[0].source_id == "manufacturing_requirement:#prose"
+    assert records[0].source_ids == () and records[0].structured_fields == ()
+    assert records[1].source_id == "manufacturing_requirement:#uda"
+    assert records[1].source_ids == () and records[1].structured_fields == structured.fields
+    assert {source.source_id for source in sources} == {
+        "manufacturing_requirement:#prose",
+        "manufacturing_requirement:#uda",
+    }
 
 
 def _read_surface_labels(tmp_path, name: str, *instances: str):

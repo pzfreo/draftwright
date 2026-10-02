@@ -2303,6 +2303,7 @@ class PmiFeature:
     shape_aspect_ids: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
     reference_bboxes: tuple[tuple[float, float, float, float, float, float], ...] = ()
+    structured_fields: tuple[tuple[str, str | float], ...] = ()
     kind: ClassVar[str] = "pmi"
 
     def parameters(self) -> list[DimParameter]:
@@ -2321,6 +2322,7 @@ class GeneralTolerance:
     statement: str = ""
     source_id: str = ""
     part21_id: str = ""
+    source_ids: tuple[str, ...] = ()
     kind: ClassVar[str] = "general_tolerance"
 
     def __post_init__(self) -> None:

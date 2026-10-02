@@ -69,6 +69,7 @@ from draftwright._pmi_part21 import (
     read_geometric_tolerances,
     read_manufacturing_requirements,
     read_material_properties,
+    read_structured_manufacturing_requirements,
     read_surface_labels,
 )
 from draftwright._pmi_schema import (
@@ -221,6 +222,7 @@ class PmiRecord:
     circular_refs: tuple[CircularReference, ...] = ()
     angular_references: tuple[AngularReference, ...] = ()
     source_value_blockers: tuple[str, ...] = ()
+    structured_fields: tuple[tuple[str, str | float], ...] = ()
 
 
 PmiExtractionOutcome = Literal[
@@ -1548,13 +1550,60 @@ def _manufacturing_requirement_projection(
         _log.debug("PMI manufacturing-requirement inventory unavailable: %s", exc)
         return tuple(sources), ()
 
+    try:
+        structured_facts = read_structured_manufacturing_requirements(step_file)
+    except Exception as exc:
+        reason = f"Part21 structured manufacturing read failed: {_failure_reason(exc)}"
+        sources.append(
+            PmiSourceEntity(
+                source_id="manufacturing_requirement:structured_part21",
+                category="manufacturing_requirement",
+                type_code=None,
+                outcome="not_extracted",
+                reason=reason,
+            )
+        )
+        structured_facts = ()
+
+    paired: set[str] = set()
+
+    def paired_structured(requirement):
+        kind = "_".join(requirement.semantic_name.casefold().split())
+        if kind == "general_tolerances":
+            candidates = [
+                fact
+                for fact in structured_facts
+                if fact.kind == kind and fact.entity_id not in paired
+            ]
+        else:
+            support = set(requirement.reference_item_ids)
+            candidates = [
+                fact
+                for fact in structured_facts
+                if fact.kind == kind
+                and support
+                and support == set(fact.reference_item_ids)
+                and fact.entity_id not in paired
+            ]
+        return candidates[0] if len(candidates) == 1 else None
+
     for requirement in requirement_facts:
         source_id = f"manufacturing_requirement:{requirement.entity_id}"
         if requirement.text:
+            structured = paired_structured(requirement)
+            if structured is not None:
+                paired.add(structured.entity_id)
             kind = (
                 "_".join(requirement.semantic_name.lower().split()) or "manufacturing_requirement"
             )
-            blockers = (requirement.reason,) if requirement.reason else ()
+            blockers = tuple(
+                reason
+                for reason in (
+                    requirement.reason,
+                    structured.reason if structured is not None else "",
+                )
+                if reason
+            )
             records.append(
                 PmiRecord(
                     kind=kind,
@@ -1567,7 +1616,20 @@ def _manufacturing_requirement_projection(
                     lowering_blockers=blockers,
                     reference_item_ids=requirement.reference_item_ids,
                     semantic_name=requirement.semantic_name,
-                    shape_aspect_ids=requirement.shape_aspect_ids,
+                    shape_aspect_ids=tuple(
+                        dict.fromkeys(
+                            (
+                                *requirement.shape_aspect_ids,
+                                *(structured.shape_aspect_ids if structured is not None else ()),
+                            )
+                        )
+                    ),
+                    source_ids=(
+                        (source_id, f"manufacturing_requirement:{structured.entity_id}")
+                        if structured is not None
+                        else ()
+                    ),
+                    structured_fields=structured.fields if structured is not None else (),
                 )
             )
         sources.append(
@@ -1583,6 +1645,39 @@ def _manufacturing_requirement_projection(
                     else "not_extracted"
                 ),
                 reason=requirement.reason,
+            )
+        )
+
+    for fact in structured_facts:
+        source_id = f"manufacturing_requirement:{fact.entity_id}"
+        if fact.entity_id not in paired:
+            label = (
+                str(dict(fact.fields).get("tolerance class", ""))
+                if fact.kind == "general_tolerances"
+                else fact.kind.replace("_", " ")
+            )
+            records.append(
+                PmiRecord(
+                    kind=fact.kind,
+                    type_code=None,
+                    value=0.0,
+                    label=label,
+                    source_id=source_id,
+                    part21_id=fact.entity_id,
+                    source_category="manufacturing_requirement",
+                    lowering_blockers=(fact.reason,) if fact.reason else (),
+                    reference_item_ids=fact.reference_item_ids,
+                    shape_aspect_ids=fact.shape_aspect_ids,
+                    structured_fields=fact.fields,
+                )
+            )
+        sources.append(
+            PmiSourceEntity(
+                source_id=source_id,
+                category="manufacturing_requirement",
+                type_code=None,
+                outcome="partially_extracted" if fact.reason else "extracted",
+                reason=fact.reason,
             )
         )
     return tuple(sources), tuple(records)

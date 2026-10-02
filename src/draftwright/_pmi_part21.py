@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from steputils import p21
 
@@ -209,6 +210,17 @@ class MaterialFact:
     def source_id(self) -> str:
         return f"material:{self.entity_id}"
 
+
+@dataclass(frozen=True)
+class StructuredManufacturingFact:
+    """One CAx-IF property with typed values and exact Part21 support identity."""
+
+    entity_id: str
+    kind: str
+    fields: tuple[tuple[str, str | float], ...]
+    shape_aspect_ids: tuple[str, ...] = ()
+    reference_item_ids: tuple[str, ...] = ()
+    reason: str = ""
 
 @dataclass(frozen=True)
 class SurfaceLabelFact:
@@ -650,6 +662,127 @@ def read_manufacturing_requirements(
                 callout_ids=tuple(dict.fromkeys(callout_ids)),
                 shape_aspect_ids=shape_aspect_ids,
                 reference_item_ids=reference_item_ids,
+                reason="; ".join(dict.fromkeys(reasons)),
+            )
+        )
+    return tuple(facts)
+
+
+def read_structured_manufacturing_requirements(
+    step_file: str | Path,
+) -> tuple[StructuredManufacturingFact, ...]:
+    """Read CAx-IF user attributes and document defaults as named, unit-aware facts."""
+    if _PROPERTY_DEFINITION_MARKER.search(Path(step_file).read_bytes()) is None:
+        return ()
+    step = _readfile(step_file)
+    definitions: list[tuple[str, Any]] = []
+    representations: dict[str, list[str]] = {}
+    aspect_items: dict[str, list[str]] = {}
+    uda_properties: set[str] = set()
+    for section in step.data:
+        for entity_id, instance in section.instances.items():
+            definition = _entity_named(instance, "PROPERTY_DEFINITION")
+            if definition is not None and len(definition.params) >= 3:
+                definitions.append((entity_id, definition))
+            link = _entity_named(instance, "PROPERTY_DEFINITION_REPRESENTATION")
+            if link is not None and len(link.params) >= 2:
+                left, right = link.params[:2]
+                if isinstance(left, p21.Reference) and isinstance(right, p21.Reference):
+                    representations.setdefault(str(left), []).append(str(right))
+            usage = _entity_named(instance, "GEOMETRIC_ITEM_SPECIFIC_USAGE")
+            if usage is not None and len(usage.params) >= 5:
+                aspect = usage.params[2]
+                if isinstance(aspect, p21.Reference):
+                    aspect_items.setdefault(str(aspect), []).extend(_references(usage.params[4]))
+            association = _entity_named(instance, "GENERAL_PROPERTY_ASSOCIATION")
+            if association is not None and len(association.params) >= 4:
+                general, prop = association.params[2:4]
+                if isinstance(general, p21.Reference) and isinstance(prop, p21.Reference):
+                    category = _entity_named(step.get(str(general)), "GENERAL_PROPERTY")
+                    if (
+                        category is not None
+                        and len(category.params) >= 2
+                        and _text(category.params[1]).casefold() == "user defined attribute"
+                    ):
+                        uda_properties.add(str(prop))
+
+    facts: list[StructuredManufacturingFact] = []
+    for entity_id, definition in definitions:
+        name = _text(definition.params[0]).casefold().replace(" ", "_")
+        is_default = name == "default_tolerances"
+        if not is_default and (
+            name not in {"internal_thread", "external_thread", "knurl"}
+            or _text(definition.params[1]) != "pmi-assist"
+            or entity_id not in uda_properties
+        ):
+            continue
+        reasons: list[str] = []
+        aspect_ids: tuple[str, ...] = ()
+        reference_ids: tuple[str, ...] = ()
+        if is_default:
+            target = definition.params[2]
+            if not isinstance(target, p21.Reference) or not _instance_is(
+                step, str(target), "PRODUCT_DEFINITION_SHAPE"
+            ):
+                reasons.append("structured default tolerances have no product shape")
+        else:
+            target = definition.params[2]
+            if not isinstance(target, p21.Reference) or not _instance_is(
+                step, str(target), "SHAPE_ASPECT"
+            ):
+                reasons.append("structured manufacturing property has no shape aspect")
+            else:
+                aspect_ids = (str(target),)
+                reference_ids = tuple(dict.fromkeys(aspect_items.get(str(target), ())))
+                if not reference_ids:
+                    reasons.append("structured manufacturing shape aspect has no geometry items")
+        links = tuple(dict.fromkeys(representations.get(entity_id, ())))
+        if len(links) != 1:
+            reasons.append(f"structured manufacturing property has {len(links)} representations")
+        fields: list[tuple[str, str | float]] = []
+        if len(links) == 1:
+            representation = _entity_named(step.get(links[0]), "REPRESENTATION")
+            if representation is None or len(representation.params) < 2:
+                reasons.append("structured manufacturing representation is malformed")
+            else:
+                for item_id in _references(representation.params[1]):
+                    item = step.get(item_id)
+                    descriptive = _entity_named(item, "DESCRIPTIVE_REPRESENTATION_ITEM")
+                    measure = _entity_named(item, "MEASURE_REPRESENTATION_ITEM")
+                    if descriptive is not None and len(descriptive.params) >= 2:
+                        fields.append(
+                            (_text(descriptive.params[0]).casefold(), _text(descriptive.params[1]))
+                        )
+                    elif measure is not None and len(measure.params) >= 3:
+                        label, typed, unit = measure.params[:3]
+                        if (
+                            not isinstance(typed, p21.TypedParameter)
+                            or typed.type_name != "LENGTH_MEASURE"
+                            or not isinstance(unit, p21.Reference)
+                        ):
+                            reasons.append(f"structured measure {item_id} is not a length")
+                            continue
+                        factor, reason = _unit_factor_mm(step, str(unit))
+                        try:
+                            value = float(typed.param)
+                        except (TypeError, ValueError):
+                            value = float("nan")
+                        if factor is None or not math.isfinite(value) or value <= 0:
+                            reasons.append(reason or f"structured measure {item_id} is invalid")
+                            continue
+                        fields.append((_text(label).casefold(), value * factor))
+                    else:
+                        reasons.append(f"structured representation item {item_id} is unsupported")
+        names = [name for name, _ in fields]
+        if len(names) != len(set(names)) or not all(names):
+            reasons.append("structured manufacturing fields have duplicate or empty names")
+        facts.append(
+            StructuredManufacturingFact(
+                entity_id=entity_id,
+                kind="general_tolerances" if is_default else name,
+                fields=tuple(fields),
+                shape_aspect_ids=aspect_ids,
+                reference_item_ids=reference_ids,
                 reason="; ".join(dict.fromkeys(reasons)),
             )
         )

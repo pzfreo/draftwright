@@ -8,6 +8,7 @@ an explicit reason.  It deliberately knows nothing about annotation coordinates 
 
 from __future__ import annotations
 
+import math
 import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -746,7 +747,7 @@ def _requirement_source_ids(feature: PmiFeature) -> tuple[str, ...]:
     )
 
 
-def _thread_requirement(feature: PmiFeature) -> ThreadRequirement:
+def _text_thread_requirement(feature: PmiFeature) -> ThreadRequirement:
     pattern = _EXTERNAL_THREAD if feature.pmi_kind == "external_thread" else _INTERNAL_THREAD
     match = pattern.fullmatch(feature.label.strip())
     if match is None:
@@ -785,7 +786,7 @@ def _thread_requirement(feature: PmiFeature) -> ThreadRequirement:
     )
 
 
-def _knurl_requirement(feature: PmiFeature) -> KnurlRequirement:
+def _text_knurl_requirement(feature: PmiFeature) -> KnurlRequirement:
     match = _KNURL.fullmatch(feature.label.strip())
     if match is None:
         raise ValueError("unsupported knurl requirement syntax")
@@ -803,6 +804,185 @@ def _knurl_requirement(feature: PmiFeature) -> KnurlRequirement:
         shape_aspect_ids=feature.shape_aspect_ids,
         reference_item_ids=feature.reference_item_ids,
         cylindrical_refs=feature.cylindrical_refs,
+    )
+
+
+def _structured_number(fields: dict[str, str | float], name: str) -> float:
+    value = fields.get(name)
+    if not isinstance(value, float) or not math.isfinite(value) or value <= 0:
+        raise ValueError(f"structured manufacturing {name} needs a positive length measure")
+    return value
+
+
+def _structured_text(fields: dict[str, str | float], name: str) -> str:
+    value = fields.get(name)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"structured manufacturing {name} needs descriptive text")
+    return value.strip()
+
+
+def _structured_thread_requirement(feature: PmiFeature) -> ThreadRequirement:
+    fields = dict(feature.structured_fields)
+    application = _structured_text(fields, "thread side").casefold()
+    if application not in ("internal", "external") or feature.pmi_kind != f"{application}_thread":
+        raise ValueError("structured thread side disagrees with requirement kind")
+    nominal_text = _structured_text(fields, "nominal size")
+    nominal_match = re.fullmatch(r"M(\d+(?:\.\d+)?)", nominal_text, re.IGNORECASE)
+    designation_text = _structured_text(fields, "designation")
+    designation_match = re.fullmatch(
+        r"M(?P<nominal>\d+(?:\.\d+)?)\s*x\s*(?P<pitch>\d+(?:\.\d+)?)",
+        designation_text,
+        re.IGNORECASE,
+    )
+    if nominal_match is None or designation_match is None:
+        raise ValueError("structured thread designation or nominal size is unsupported")
+    nominal = float(nominal_match.group(1))
+    pitch = _structured_number(fields, "pitch")
+    if not _same_number(nominal, float(designation_match["nominal"])) or not _same_number(
+        pitch, float(designation_match["pitch"])
+    ):
+        raise ValueError("structured thread designation disagrees with nominal size or pitch")
+    tolerance_class = _structured_text(fields, "fit class")
+    if re.fullmatch(r"[A-Za-z0-9]+", tolerance_class) is None:
+        raise ValueError("structured thread fit class is unsupported")
+    hand_value = _structured_text(fields, "hand").casefold()
+    if hand_value not in ("right", "left", "rh", "lh"):
+        raise ValueError("structured thread hand is unsupported")
+    hand: Literal["RH", "LH"] = "RH" if hand_value in ("right", "rh") else "LH"
+    through_value = fields.get("through")
+    if through_value is None:
+        through = False
+    elif isinstance(through_value, str) and through_value.casefold() in ("true", "yes"):
+        through = True
+    elif isinstance(through_value, str) and through_value.casefold() in ("false", "no"):
+        through = False
+    else:
+        raise ValueError("structured thread through flag is unsupported")
+    designation = f"M{nominal:g} x {pitch:g}-{tolerance_class} {hand}"
+    drill: float | None = None
+    depth: float | None = None
+    full: float | None = None
+    length: float | None = None
+    if application == "internal":
+        drill = _structured_number(fields, "tapping drill diameter")
+        depth = None if through else _structured_number(fields, "tapping drill depth")
+        if through and "tapping drill depth" in fields:
+            raise ValueError("structured through tap cannot declare a blind drill depth")
+        full = (
+            _structured_number(fields, "minimum full thread")
+            if "minimum full thread" in fields
+            else None
+        )
+    else:
+        if through:
+            raise ValueError("structured external thread cannot be a through tap")
+        length = _structured_number(fields, "thread length")
+        if len(feature.cylindrical_refs) != 1 or not _same_number(
+            feature.cylindrical_refs[0].axial_interval[1]
+            - feature.cylindrical_refs[0].axial_interval[0],
+            length,
+            abs_tol=0.01,
+        ):
+            raise ValueError("structured thread length disagrees with source cylinder")
+    return ThreadRequirement(
+        application=cast(Literal["external", "internal"], application),
+        designation=designation,
+        nominal_diameter=nominal,
+        pitch=pitch,
+        tolerance_class=tolerance_class,
+        hand=hand,
+        text=feature.label,
+        source_ids=_requirement_source_ids(feature),
+        part21_id=feature.part21_id,
+        shape_aspect_ids=feature.shape_aspect_ids,
+        reference_item_ids=feature.reference_item_ids,
+        cylindrical_refs=feature.cylindrical_refs,
+        full_available_length=length is not None,
+        minimum_full_thread=full,
+        drill_diameter=drill,
+        drill_depth=depth,
+        through=through,
+    )
+
+
+def _thread_requirement(feature: PmiFeature) -> ThreadRequirement:
+    if not feature.structured_fields:
+        return _text_thread_requirement(feature)
+    structured = _structured_thread_requirement(feature)
+    try:
+        prose = _text_thread_requirement(feature)
+    except ValueError as exc:
+        if len(feature.source_ids) > 1:
+            raise ValueError("structured thread cannot reconcile with prose") from exc
+        return structured
+    shared = (
+        "application",
+        "nominal_diameter",
+        "pitch",
+        "tolerance_class",
+        "hand",
+        "minimum_full_thread",
+        "drill_diameter",
+        "drill_depth",
+        "through",
+        "full_available_length",
+    )
+    numeric = {"nominal_diameter", "pitch", "minimum_full_thread", "drill_diameter", "drill_depth"}
+    if any(
+        (
+            not _same_number(left, right)
+            if name in numeric and left is not None and right is not None
+            else left != right
+        )
+        for name in shared
+        for left, right in ((getattr(structured, name), getattr(prose, name)),)
+    ):
+        raise ValueError("structured thread values disagree with prose")
+    return replace(structured, drill_point_angle=prose.drill_point_angle)
+
+
+def _structured_knurl_requirement(feature: PmiFeature) -> KnurlRequirement:
+    fields = dict(feature.structured_fields)
+    pattern = _structured_text(fields, "pattern").casefold()
+    if pattern not in ("straight", "diamond"):
+        raise ValueError("structured knurl pattern is unsupported")
+    return KnurlRequirement(
+        pattern=cast(Literal["straight", "diamond"], pattern),
+        pitch=_structured_number(fields, "diametral pitch"),
+        full_width=False,
+        maximum_diameter=_structured_number(fields, "major diameter"),
+        text=feature.label,
+        source_ids=_requirement_source_ids(feature),
+        part21_id=feature.part21_id,
+        shape_aspect_ids=feature.shape_aspect_ids,
+        reference_item_ids=feature.reference_item_ids,
+        cylindrical_refs=feature.cylindrical_refs,
+    )
+
+
+def _knurl_requirement(feature: PmiFeature) -> KnurlRequirement:
+    if not feature.structured_fields:
+        return _text_knurl_requirement(feature)
+    structured = _structured_knurl_requirement(feature)
+    try:
+        prose = _text_knurl_requirement(feature)
+    except ValueError as exc:
+        if len(feature.source_ids) > 1:
+            raise ValueError("structured knurl cannot reconcile with prose") from exc
+        return structured
+    if (
+        structured.pattern != prose.pattern
+        or not _same_number(structured.pitch, prose.pitch)
+        or structured.maximum_diameter is None
+        or prose.maximum_diameter is None
+        or not _same_number(structured.maximum_diameter, prose.maximum_diameter)
+    ):
+        raise ValueError("structured knurl values disagree with prose")
+    return replace(
+        structured,
+        full_width=prose.full_width,
+        edge_chamfer=prose.edge_chamfer,
+        processes=prose.processes,
     )
 
 
@@ -1329,9 +1509,20 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
     elif tolerance_candidates:
         index, feature = tolerance_candidates[0]
         designation = feature.label.split(";", 1)[0].strip()
-        if not designation:
+        conflict = ""
+        if feature.structured_fields:
+            structured = dict(feature.structured_fields).get("tolerance class")
+            if not isinstance(structured, str) or not structured.strip():
+                conflict = "structured general-tolerance class is missing"
+            elif feature.label != "general tolerances" and designation != structured:
+                conflict = "structured general-tolerance class disagrees with prose"
+            else:
+                designation = structured
+        if conflict or not designation:
             features = list(model.features)
-            features[index] = _block_requirement(feature, "general-tolerance designation is empty")
+            features[index] = _block_requirement(
+                feature, conflict or "general-tolerance designation is empty"
+            )
             model = replace(model, features=features)
         else:
             tolerance_requirement = GeneralTolerance(
@@ -1340,6 +1531,7 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
                 statement=feature.label,
                 source_id=feature.source_id,
                 part21_id=feature.part21_id,
+                source_ids=feature.source_ids,
             )
             model = replace(
                 model,

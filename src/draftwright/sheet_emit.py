@@ -245,6 +245,8 @@ def _feature_line(
             kwargs.append(f"source_id={f.source_id!r}")
         if f.part21_id:
             kwargs.append(f"part21_id={f.part21_id!r}")
+        if f.source_ids:
+            kwargs.append(f"source_ids={f.source_ids!r}")
         suffix = f", {', '.join(kwargs)}" if kwargs else ""
         return f"sheet.general_tolerance({f.designation!r}{suffix})"
     if k == "default_surface_finish":
