@@ -2440,7 +2440,12 @@ class ControlFrame:
     # tolerance string exact; AP242 lowering retains the source magnitude in ``tolerance``
     # while deciding the sheet-normalized text once, before rendering.
     display_tolerance: str | None = None
+    spherical_diameter: bool = False  # S⌀ prefix on the tolerance zone
     kind: ClassVar[str] = "control_frame"
+
+    def __post_init__(self) -> None:
+        if self.diameter and self.spherical_diameter:
+            raise ValueError("a tolerance zone cannot be both diametral and spherical diametral")
 
     def parameters(self) -> list[DimParameter]:
         return []

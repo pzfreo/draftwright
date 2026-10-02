@@ -472,6 +472,7 @@ def build_pmi_features(
                     source_id=r.source_id,
                     part21_id=r.part21_id,
                     display_tolerance=_fmt_pmi_magnitude(r.value),
+                    spherical_diameter="spherical_diameter_zone" in r.gtol_modifiers,
                 )
             )
             continue

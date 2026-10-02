@@ -460,6 +460,8 @@ def _control_frame_line(f, origin_ref: str | None = None) -> str:
         kw.append(f"datums={f.datums!r}")
     if f.diameter:
         kw.append("diameter=True")
+    if f.spherical_diameter:
+        kw.append("spherical_diameter=True")
     if f.modifier is not None:
         kw.append(f"modifier={f.modifier!r}")
     if f.all_around:

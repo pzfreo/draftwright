@@ -1496,7 +1496,7 @@ class TestExtractPmi:
         )
         assert pmi_module._geometric_tolerance_qualifiers(qualifiers(2, 0)) == (
             ("spherical_diameter_zone",),
-            ("geometric-tolerance spherical-diameter zone is not supported",),
+            (),
         )
         assert pmi_module._geometric_tolerance_qualifiers(qualifiers(99, 98)) == (
             (),

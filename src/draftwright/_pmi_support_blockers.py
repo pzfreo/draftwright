@@ -136,8 +136,6 @@ def _geometric_tolerance_qualifiers(obj) -> tuple[tuple[str, ...], tuple[str, ..
             reasons.append(f"geometric-tolerance {description} {code} is unknown")
             continue
         names.append(name)
-        if name == "spherical_diameter_zone":
-            reasons.append("geometric-tolerance spherical-diameter zone is not supported")
     return tuple(names), tuple(reasons)
 
 

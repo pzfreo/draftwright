@@ -83,6 +83,8 @@ def _gdt_glyph(item, draft):
     must not alias a shared object across the strip solve's repeated probe builds."""
     if item.kind == "control_frame":
         tolerance = item.display_tolerance or item.tolerance
+        if item.spherical_diameter:
+            tolerance = "Sø" + tolerance
         return FeatureControlFrame(
             item.characteristic,
             tolerance,
@@ -149,10 +151,18 @@ def _gdt_pdf_text_specs(glyph, item, draft) -> tuple:
         add("ø", diameter_cx, H / 2.0)
         x = diameter_cx + diameter_radius + pad
     tolerance = item.display_tolerance or item.tolerance
-    tolerance_width = _text_size(tolerance, h, font_path, font_name)[0]
-    tolerance_cx = x + tolerance_width / 2.0
-    add(tolerance, tolerance_cx, H / 2.0)
-    x = tolerance_cx + tolerance_width / 2.0 + pad
+    if item.spherical_diameter:
+        prefix_width = _text_size("Sø", h, font_path, font_name)[0]
+        tolerance_width = _text_size("Sø" + tolerance, h, font_path, font_name)[0]
+        value_width = _text_size(tolerance, h, font_path, font_name)[0]
+        add("Sø", x + prefix_width / 2.0, H / 2.0)
+        add(tolerance, x + tolerance_width - value_width / 2.0, H / 2.0)
+        x += tolerance_width + pad
+    else:
+        tolerance_width = _text_size(tolerance, h, font_path, font_name)[0]
+        tolerance_cx = x + tolerance_width / 2.0
+        add(tolerance, tolerance_cx, H / 2.0)
+        x = tolerance_cx + tolerance_width / 2.0 + pad
     if item.modifier:
         modifier_cx = x + modifier_radius
         add(item.modifier.upper(), modifier_cx, H / 2.0, size=0.8 * h)

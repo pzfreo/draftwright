@@ -269,6 +269,78 @@ def test_generated_sheet_round_trips_imported_zone_and_material_qualifiers():
     assert restored.origin.gtol_modifiers == modifiers
 
 
+def test_spherical_diameter_zone_is_drawn_with_numeric_source_check_issue_2156(tmp_path):
+    import pypdfium2 as pdfium
+
+    part = Box(20, 20, 20)
+    record = replace(
+        _record(modifiers=("spherical_diameter_zone",)),
+        datum_refs=(),
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (frame,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(frame, ControlFrame)
+    assert frame.spherical_diameter and not frame.diameter
+    assert frame.display_tolerance == "0.5"
+    with pytest.raises(ValueError, match="both diametral and spherical"):
+        replace(frame, diameter=True)
+
+    draft = Draft(font_size=3.0)
+    glyph = _gdt_glyph(frame, draft)
+    assert isinstance(glyph, FeatureControlFrame)
+    assert glyph.tolerance_str == "Sø0.5"
+    assert tuple(spec[0] for spec in _gdt_pdf_text_specs(glyph, frame, draft))[:2] == (
+        "Sø",
+        "0.5",
+    )
+
+    restored = _execute_feature_line(frame)
+    assert isinstance(restored, ControlFrame)
+    assert restored.spherical_diameter and restored.origin.gtol_modifiers == record.gtol_modifiers
+    replay_glyph = _gdt_glyph(restored, draft)
+    assert replay_glyph.tolerance_str == glyph.tolerance_str
+    assert tuple(spec[0] for spec in _gdt_pdf_text_specs(replay_glyph, restored, draft))[:2] == (
+        "Sø",
+        "0.5",
+    )
+
+    model = detect_part_model(part)
+    model.features.append(frame)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name for name in drawing.registry.names() if drawing.registry.declaration_of(name) is frame
+    )
+    annotation = drawing.registry.named(name)
+    assert tuple(spec[0] for spec in annotation.pdf_text_relative_specs)[:2] == ("Sø", "0.5")
+    pdf_path = drawing.export(str(tmp_path / "spherical-zone"), formats=("pdf",))["pdf"]
+    pdf = pdfium.PdfDocument(pdf_path)
+    try:
+        page = pdf[0]
+        text_page = page.get_textpage()
+        try:
+            text = text_page.get_text_range()
+            assert "Sø" in text and "0.5" in text
+        finally:
+            text_page.close()
+    finally:
+        pdf.close()
+    report = PmiExtractionReport(records=(record,))
+    assert lint_pmi_rendering(model.features, drawing.registry, "annotate", report=report) == []
+    annotation.pdf_text_relative_specs = (
+        *annotation.pdf_text_relative_specs[:1],
+        ("0.6", *annotation.pdf_text_relative_specs[1][1:]),
+        *annotation.pdf_text_relative_specs[2:],
+    )
+    assert [
+        issue.code
+        for issue in lint_pmi_rendering(
+            model.features, drawing.registry, "annotate", report=report
+        )
+    ] == ["pmi_value_mismatch"]
+
+
 def test_xcaf_diametral_position_survives_glyph_pdf_and_sheet_issue_2156():
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader
