@@ -2620,6 +2620,7 @@ def _extract_xcaf_datums(
                 f"datum imported-topology map is unavailable ({_failure_reason(exc)})"
             )
     datum_records: list[PmiRecord] = []
+    mismatched_definitions: set[str] = set()
     for index in range(1, datums.Length() + 1):
         label = datums.Value(index)
         source_id = _source_id("datum", label)
@@ -2673,6 +2674,7 @@ def _extract_xcaf_datums(
                             ref_bbox, reference_axis, matched_bbox, matched_axis
                         )
                     ):
+                        mismatched_definitions.add(definition.datum_feature_id)
                         geometry_reasons = tuple(
                             dict.fromkeys(
                                 (*geometry_reasons, "datum definition support disagrees with XCAF")
@@ -2747,6 +2749,8 @@ def _extract_xcaf_datums(
             continue
         source_id = f"datum_definition:{definition.datum_id}"
         definition_blockers = [definition.reason] if definition.reason else []
+        if definition_id in mismatched_definitions:
+            definition_blockers.append("datum definition support disagrees with XCAF")
         definition_points: tuple[tuple[float, float, float], ...] = ()
         definition_bbox = None
         definition_axis = ""

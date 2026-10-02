@@ -528,6 +528,21 @@ def test_datum_definition_refuses_a_different_physical_support_issue_2128(monkey
     assert any(
         "datum definition support disagrees with XCAF" in source.reason for source in a_sources
     )
+    definition_source_id = f"datum_definition:{a_definition.datum_id}"
+    (definition_source,) = [
+        source for source in report.sources if source.source_id == definition_source_id
+    ]
+    assert definition_source.outcome == "partially_extracted"
+    assert "datum definition support disagrees with XCAF" in definition_source.reason
+    definition_records = [
+        record for record in report.records if definition_source_id in record.source_ids
+    ]
+    assert definition_records
+    assert all(record.lowering_blockers for record in definition_records)
+    assert not any(
+        isinstance(feature, DatumRef) and definition_source_id in feature.source_ids
+        for feature in build_pmi_features(report.records, Box(20, 20, 20).bounding_box())
+    )
 
 
 def test_generated_sheet_line_round_trips_imported_datum_and_nested_provenance():
