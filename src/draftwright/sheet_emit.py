@@ -217,6 +217,18 @@ def inspection_sidecar_path(py_path: str) -> str:
     return f"{py_path.removesuffix('.py')}{_INSPECTION_SUFFIX}"
 
 
+def _general_tolerance_line(feature) -> str:
+    kwargs = [f"statement={feature.statement!r}"] if feature.statement else []
+    if feature.source_id:
+        kwargs.append(f"source_id={feature.source_id!r}")
+    if feature.part21_id:
+        kwargs.append(f"part21_id={feature.part21_id!r}")
+    if feature.source_ids:
+        kwargs.append(f"source_ids={feature.source_ids!r}")
+    suffix = f", {', '.join(kwargs)}" if kwargs else ""
+    return f"sheet.general_tolerance({feature.designation!r}{suffix})"
+
+
 def _feature_line(
     f,
     part_envelope=None,
@@ -240,15 +252,7 @@ def _feature_line(
     if k == "pmi":
         return _raw_pmi_line(f)
     if k == "general_tolerance":
-        kwargs = [f"statement={f.statement!r}"] if f.statement else []
-        if f.source_id:
-            kwargs.append(f"source_id={f.source_id!r}")
-        if f.part21_id:
-            kwargs.append(f"part21_id={f.part21_id!r}")
-        if f.source_ids:
-            kwargs.append(f"source_ids={f.source_ids!r}")
-        suffix = f", {', '.join(kwargs)}" if kwargs else ""
-        return f"sheet.general_tolerance({f.designation!r}{suffix})"
+        return _general_tolerance_line(f)
     if k == "default_surface_finish":
         kwargs = [f"statement={f.statement!r}"] if f.statement else []
         if f.source_id:
