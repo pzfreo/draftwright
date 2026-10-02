@@ -276,7 +276,10 @@ CONTRACT_GROUPS = {
     ),
     "ir_foundation": ContractGroup(
         ("src/draftwright/model/ir_foundation.py",),
-        ("test_issue_1298_manufacturing_requirements.py",),
+        (
+            "test_issue_1298_manufacturing_requirements.py",
+            "test_manufacturing_pmi_lowering.py",
+        ),
     ),
     "slot_rendering": ContractGroup(
         ("src/draftwright/annotations/_slots.py",),
@@ -776,7 +779,10 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_turned_diameters.py",
     ),
     "src/draftwright/model/manufacturing_schedule.py": ("test_manufacturing_schedule.py",),
-    "src/draftwright/model/pmi_lowering.py": ("test_nominal_step_pmi.py",),
+    "src/draftwright/model/pmi_lowering.py": (
+        "test_manufacturing_pmi_lowering.py",
+        "test_nominal_step_pmi.py",
+    ),
     "src/draftwright/pmi.py": (
         "test_issue_1336_grm03_ap242_pmi_fixture.py",
         "test_issue_1563_sheet_pmi_reconciliation.py",
