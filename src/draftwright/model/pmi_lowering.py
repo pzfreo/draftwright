@@ -716,15 +716,18 @@ _EXTERNAL_THREAD = re.compile(
 _INTERNAL_THREAD = re.compile(
     r"^(?P<designation>M(?P<nominal>\d+(?:\.\d+)?)\s*x\s*"
     r"(?P<pitch>\d+(?:\.\d+)?)-(?P<class>[A-Za-z0-9]+)\s+"
-    r"(?P<hand>RH|LH)),\s*(?P<full>\d+(?:\.\d+)?)\s*mm minimum full thread;\s*"
+    r"(?P<hand>RH|LH)),\s*(?:"
+    r"(?P<full>\d+(?:\.\d+)?)\s*mm minimum full thread;\s*"
     r"DIA\s+(?P<drill>\d+(?:\.\d+)?)\s+tapping drill\s+x\s+"
-    r"(?P<depth>\d+(?:\.\d+)?)\s*mm full-diameter depth;\s*conventional\s+"
-    r"(?P<angle>\d+(?:\.\d+)?)\s+degree drill point$",
+    r"(?P<depth>\d+(?:\.\d+)?)\s*mm full-diameter depth"
+    r"(?:;\s*conventional\s+(?P<angle>\d+(?:\.\d+)?)\s+degree drill point)?"
+    r"|(?P<through>full thread through);\s*DIA\s+"
+    r"(?P<through_drill>\d+(?:\.\d+)?)\s+tapping drill through)$",
     re.IGNORECASE,
 )
 _KNURL = re.compile(
     r"^(?P<pattern>Straight|Diamond) knurl,\s*(?P<pitch>\d+(?:\.\d+)?)\s*mm pitch,\s*"
-    r"full width between C(?P<chamfer>\d+(?:\.\d+)?) chamfers,\s*DIA\s+"
+    r"(?:full width between C(?P<chamfer>\d+(?:\.\d+)?) chamfers,\s*)?DIA\s+"
     r"(?P<diameter>\d+(?:\.\d+)?)\s*mm maximum after knurling;\s*"
     r"(?P<processes>cut or formed) process permitted$",
     re.IGNORECASE,
@@ -771,9 +774,14 @@ def _thread_requirement(feature: PmiFeature) -> ThreadRequirement:
         cylindrical_refs=feature.cylindrical_refs,
         full_available_length=application == "external",
         minimum_full_thread=(float(values["full"]) if values.get("full") else None),
-        drill_diameter=(float(values["drill"]) if values.get("drill") else None),
+        drill_diameter=(
+            float(values["drill"] or values["through_drill"])
+            if values.get("drill") or values.get("through_drill")
+            else None
+        ),
         drill_depth=(float(values["depth"]) if values.get("depth") else None),
         drill_point_angle=(float(values["angle"]) if values.get("angle") else None),
+        through=bool(values.get("through")),
     )
 
 
@@ -785,8 +793,8 @@ def _knurl_requirement(feature: PmiFeature) -> KnurlRequirement:
     return KnurlRequirement(
         pattern=cast(Literal["straight", "diamond"], values["pattern"].lower()),
         pitch=float(values["pitch"]),
-        full_width=True,
-        edge_chamfer=float(values["chamfer"]),
+        full_width=values.get("chamfer") is not None,
+        edge_chamfer=(float(values["chamfer"]) if values.get("chamfer") else None),
         maximum_diameter=float(values["diameter"]),
         processes=("cut", "formed"),
         text=feature.label,
@@ -811,6 +819,25 @@ def _manufacturing_owner_matches(requirement, feature, bbox) -> bool:
         return False
     reference = references[0]
     if isinstance(requirement, ThreadRequirement) and requirement.application == "internal":
+        if requirement.through:
+            if isinstance(feature, PatternFeature):
+                hole = feature.member
+                members = tuple(feature.members) or (hole.frame.origin,)
+                return (
+                    len(members) == 1
+                    and hole.through
+                    and _internal_member_matches(reference, hole, members[0], bbox)
+                )
+            return (
+                isinstance(feature, HoleFeature)
+                and feature.through
+                and _internal_member_matches(
+                    reference,
+                    feature,
+                    (tuple(feature.members) or (feature.frame.origin,))[0],
+                    bbox,
+                )
+            )
         if isinstance(feature, PatternFeature):
             hole = feature.member
             members = tuple(feature.members) or (hole.frame.origin,)
@@ -925,6 +952,7 @@ def lower_ap242_manufacturing_requirements(
         if (
             isinstance(requirement, ThreadRequirement)
             and requirement.application == "internal"
+            and not requirement.through
             and (
                 requirement.drill_depth is None
                 or not _same_number(

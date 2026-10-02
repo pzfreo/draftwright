@@ -600,8 +600,16 @@ def hole_callout_spec(
     if isinstance(thread, ThreadRequirement) and not include_source_pmi:
         thread = None
     thread_source_ids = thread.source_ids if isinstance(thread, ThreadRequirement) else ()
+    through_indicator = resolved_through_indicator(hole)
+    thread_states_through = isinstance(thread, ThreadRequirement) and thread.through
     if isinstance(thread, ThreadRequirement):
-        thread = manufacturing_callout_suffix(thread, manufacturing_tags)
+        rendered_thread = manufacturing_callout_suffix(thread, manufacturing_tags)
+        if thread_states_through and rendered_thread == thread.callout_suffix:
+            # The typed thread's THRU states the complete fact; the ordinary bore token
+            # would print it twice. A schedule reference still needs the bore token.
+            if through_indicator == "THRU":
+                through_indicator = ""
+        thread = rendered_thread
     elif isinstance(thread, ThreadOperation):
         thread = thread.callout_suffix
     profile_suffix = None
@@ -628,7 +636,8 @@ def hole_callout_spec(
         "diameter_decimals": _display_decimals(group, "diameter", "bore"),
         "count": count if count and count > 1 else None,
         "through": hole.through,  # the feature's fact, not the param list's shape (#868)
-        "through_indicator": resolved_through_indicator(hole),
+        "through_indicator": through_indicator,
+        "thread_states_through": thread_states_through,
         "depth": depth,
         "depth_decimals": _display_decimals(group, "depth", "bore"),
         # counterbore precedence, spotface fallback — the engine's mapping
@@ -674,7 +683,7 @@ def hole_callout_spec(
             for requirement, shown in (
                 (
                     "bore.through",
-                    hole.through and bool(resolved_through_indicator(hole)),
+                    hole.through and (bool(through_indicator) or thread_states_through),
                 ),
                 ("grouping.count", bool(count and count > 1)),
             )

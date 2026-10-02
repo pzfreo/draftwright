@@ -123,7 +123,8 @@ def _thread_requirement_expr(requirement: ThreadRequirement) -> str:
         f"full_available_length={requirement.full_available_length!r}, "
         f"minimum_full_thread={requirement.minimum_full_thread!r}, "
         f"drill_diameter={requirement.drill_diameter!r}, drill_depth={requirement.drill_depth!r}, "
-        f"drill_point_angle={requirement.drill_point_angle!r}, source={requirement.source!r})"
+        f"drill_point_angle={requirement.drill_point_angle!r}, "
+        f"through={requirement.through!r}, source={requirement.source!r})"
     )
 
 

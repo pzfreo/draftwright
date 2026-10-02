@@ -424,7 +424,14 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     callout.covers_hole_requirements = tuple(
         requirement
         for requirement, covered in (
-            ("bore.through", spec["through"] and bool(spec.get("through_indicator", "THRU"))),
+            (
+                "bore.through",
+                spec["through"]
+                and (
+                    bool(spec.get("through_indicator", "THRU"))
+                    or spec.get("thread_states_through", False)
+                ),
+            ),
             ("grouping.count", bool(count and count > 1)),
         )
         if covered
