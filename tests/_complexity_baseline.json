@@ -50,7 +50,6 @@
     "build_once.py:_resolve_views": 16,
     "builder.py:_assemble": 17,
     "compose.py:_place_orthographic_layout": 17,
-    "compose.py:_reserve_measured_anno_corridors": 46,
     "compose.py:choose_scale": 26,
     "evaluation/_flat_polygonal_evidence.py:_polygonal_stock_drawing_outcomes": 16,
     "evaluation/_hole_family_evidence.py:_pattern_drawing_outcomes": 21,

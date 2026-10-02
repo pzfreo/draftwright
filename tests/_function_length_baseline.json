@@ -28,7 +28,6 @@
     "compose.py:_pack_auxiliary_layout": 201,
     "compose.py:_place_orthographic_layout": 248,
     "compose.py:_prepare_layout_blocks": 228,
-    "compose.py:_reserve_measured_anno_corridors": 219,
     "compose.py:choose_scale": 279,
     "evaluation/_turned_step_evidence.py:_turned_step_drawing_outcomes": 269,
     "evaluation/step_analysis.py:_stock_observers": 217,
