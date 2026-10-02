@@ -659,7 +659,7 @@ def test_issue915_candidate_covers_hole_routing_on_the_fixed_sheet(monkeypatch, 
 
 
 @pytest.mark.scheduled
-def test_ctc05_public_selector_retains_hole_claims_when_trials_lose_requirements_on_a2():
+def test_ctc05_selector_retains_hole_claims_when_trials_fail_parity_on_a2():
     from draftwright import build_drawing
 
     drawing = build_drawing(
@@ -680,10 +680,17 @@ def test_ctc05_public_selector_retains_hole_claims_when_trials_lose_requirements
     assert decision["trials"]
     assert all(trial["verdict"] == "ineligible" for trial in decision["trials"])
     assert all(not trial["semantic_parity"] for trial in decision["trials"])
+    trials = {trial["name"]: trial for trial in decision["trials"]}
+    assert set(trials) == {"planned", "legacy-depth", "columns"}
+    baseline_key = decision["baseline_quality_key"]
     assert all(
-        trial["quality_key"][1] > decision["baseline_quality_key"][1]
-        for trial in decision["trials"]
+        trials[name]["quality_key"][1] > baseline_key[1] for name in ("planned", "legacy-depth")
     )
+    # Columns has fewer required-outcome drops but adds interior dimensions.
+    # ADR 2 invariant 18 keeps that trial ineligible.
+    assert trials["columns"]["quality_key"][1] < baseline_key[1]
+    assert trials["columns"]["quality_key"][3] > baseline_key[3]
+    assert trials["columns"]["missing_annotations"] == 0
     assert any(
         trial["quality_key"][4] < decision["baseline_quality_key"][4]
         for trial in decision["trials"]
