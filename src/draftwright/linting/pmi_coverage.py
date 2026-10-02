@@ -476,7 +476,17 @@ def _lint_pmi_frame_values(report: PmiExtractionReport, registry) -> list[LintIs
     # Read the emitted frame's text, not its IR display hint: a formatter or renderer
     # can change the value after extraction while the source census stays correct.
     source_values = {
-        record.source_id: Decimal(str(record.value))
+        record.source_id: (
+            Decimal(str(record.value)),
+            next(
+                (
+                    zone
+                    for zone in ("spherical_diameter_zone", "diameter_zone")
+                    if zone in record.gtol_modifiers
+                ),
+                "",
+            ),
+        )
         for record in report.records
         if record.source_category == "geometric_tolerance" and record.value > 0
     }
@@ -486,9 +496,10 @@ def _lint_pmi_frame_values(report: PmiExtractionReport, registry) -> list[LintIs
         if getattr(declaration, "kind", None) != "control_frame":
             continue
         source_id = getattr(declaration, "source_id", "")
-        expected = source_values.get(source_id)
-        if expected is None:
+        source = source_values.get(source_id)
+        if source is None:
             continue
+        expected, expected_zone = source
         values = []
         for spec in getattr(annotation, "pdf_text_relative_specs", ()):
             try:
@@ -498,6 +509,7 @@ def _lint_pmi_frame_values(report: PmiExtractionReport, registry) -> list[LintIs
             if value.is_finite():
                 values.append(value)
         visual_text = getattr(annotation, "gdt_visual_tolerance", "")
+        visual_zone = getattr(annotation, "gdt_visual_zone", "")
         try:
             visual_value = Decimal(visual_text.removeprefix("Sø"))
         except (AttributeError, InvalidOperation, TypeError):
@@ -512,6 +524,7 @@ def _lint_pmi_frame_values(report: PmiExtractionReport, registry) -> list[LintIs
             and visual_value is not None
             and visual_value.is_finite()
             and abs(visual_value - expected) <= display_bound
+            and visual_zone == expected_zone
         ):
             continue
         issues.append(
@@ -520,8 +533,9 @@ def _lint_pmi_frame_values(report: PmiExtractionReport, registry) -> list[LintIs
                 code="pmi_value_mismatch",
                 message=(
                     f"{name} states PDF {values or 'no numeric value'} and visual "
-                    f"{visual_text or 'no numeric value'} for AP242 source {source_id}; "
-                    f"source tolerance is {expected}"
+                    f"{visual_text or 'no numeric value'} with zone "
+                    f"{visual_zone or 'none'} for AP242 source {source_id}; "
+                    f"source tolerance is {expected} with zone {expected_zone or 'none'}"
                 ),
                 source_ids=(source_id,),
                 annotation_name=name,

@@ -180,11 +180,40 @@ def _gdt_pdf_text_specs(glyph, item, draft) -> tuple:
     return tuple(specs)
 
 
+def _gdt_visual_zone(glyph, draft) -> str:
+    """Read the zone qualifier from the rendered frame glyph, not its IR spec."""
+    if glyph.tolerance_str.startswith("Sø"):
+        return "spherical_diameter_zone"
+
+    # The helper draws a diametral-zone sign as a ring and diagonal stroke in
+    # the tolerance cell. Its text label omits that sign, so inspect the actual
+    # sketch ink as well as the stroke path before recording visual evidence.
+    h = draft.font_size
+    radius = 0.42 * h
+    center = ((2.0 + 0.6 + 0.42) * h, h)
+    first = (center[0] + 0.9 * radius, center[1] - 0.9 * radius)
+    second = (center[0] - 0.9 * radius, center[1] + 0.9 * radius)
+
+    def near(left, right):
+        return all(abs(a - b) <= 1e-4 for a, b in zip(left, right, strict=True))
+
+    slash = any(
+        (near(a, first) and near(b, second)) or (near(a, second) and near(b, first))
+        for a, b in glyph.segments
+    )
+    if slash and all(
+        glyph.is_inside((center[0], center[1] + sign * radius, 0.0)) for sign in (-1, 1)
+    ):
+        return "diameter_zone"
+    return ""
+
+
 def _attach_gdt_text_evidence(leader, glyph, item, draft) -> None:
     """Keep the placed glyph's value beside PDF text for independent PMI lint."""
     leader.pdf_text_relative_specs = _gdt_pdf_text_specs(glyph, item, draft)
     if item.kind == "control_frame":
         leader.gdt_visual_tolerance = glyph.tolerance_str
+        leader.gdt_visual_zone = _gdt_visual_zone(glyph, draft)
 
 
 def _gdt_drop_callback(
