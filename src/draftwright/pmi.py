@@ -103,6 +103,12 @@ from draftwright._pmi_support_blockers import (
     _without_direct_xcaf_diameter_failures,
     _without_direct_xcaf_reference_failures,
 )
+from draftwright._pmi_topology import (
+    _CommonLabelTopologyResolver,
+    _DatumTopologyResolver,
+    _DimensionSupportResolver,
+    _SurfaceLabelTopologyResolver,
+)
 from draftwright.model.ir import (
     AngularReference,
     CircularReference,
@@ -270,7 +276,6 @@ try:
     from OCP.TDF import TDF_LabelSequence, TDF_Tool
     from OCP.TDocStd import TDocStd_Document
     from OCP.TopAbs import (
-        TopAbs_COMPOUND,
         TopAbs_EDGE,
         TopAbs_FACE,
         TopAbs_FORWARD,
@@ -1058,8 +1063,8 @@ def _datum_geometry_from_shapes(shapes, frame: PartFrame | None = None):
     return tuple(points), ref_bbox, reference_axis, tuple(dict.fromkeys(reasons))
 
 
-def _datum_reference_geometry(label, shape_tool, frame: PartFrame | None = None):
-    """Measure datum faces reached through the direct XCAF relationship."""
+def _datum_reference_shapes(label, shape_tool):
+    """Keep the exact XCAF supports for the Part21 correspondence check."""
     first_refs = TDF_LabelSequence()
     second_refs = TDF_LabelSequence()
     XCAFDoc_DimTolTool.GetRefShapeLabel_s(label, first_refs, second_refs)
@@ -1067,214 +1072,15 @@ def _datum_reference_geometry(label, shape_tool, frame: PartFrame | None = None)
     for refs in (first_refs, second_refs):
         for index in range(1, refs.Length() + 1):
             shapes.append(shape_tool.GetShape_s(refs.Value(index)))
+    return tuple(shapes)
+
+
+def _datum_reference_geometry(label, shape_tool, frame: PartFrame | None = None):
+    """Measure datum faces reached through the direct XCAF relationship."""
+    shapes = _datum_reference_shapes(label, shape_tool)
     if frame is None:
         return _datum_geometry_from_shapes(shapes)
     return _datum_geometry_from_shapes(shapes, frame)
-
-
-class _DatumTopologyResolver:
-    """Resolve Part21 face labels through OCCT's native transfer binders.
-
-    ``TransferOne(rank)`` stays inside C++, avoiding the OCP wrapper's loss of pointer
-    identity when a STEP entity is returned to Python.  It reuses the existing transfer
-    binder.  ``FindIndex`` then proves that result is ``IsSame`` to a face in the original
-    imported topology; no geometric comparison participates in correspondence.
-    """
-
-    _dynamic_type = "StepShape_AdvancedFace"
-    _part21_noun = "advanced face"
-    _shape_noun = "face"
-    _exclusive_claims = True
-
-    def _expected_shape_type(self):
-        return TopAbs_FACE
-
-    def __init__(self, step_reader, imported_faces):
-        self._reader = step_reader
-        self._model = step_reader.StepModel()
-        self._imported_faces = imported_faces
-        self._items: dict[str, tuple[object, int]] = {}
-        self._definitions: dict[str, tuple[object, ...]] = {}
-        self._claims: dict[int, str] = {}
-
-    def _transfer_face(self, item_id: str):
-        cached = self._items.get(item_id)
-        if cached is not None:
-            return cached, ""
-        rank = self._model.NextNumberForLabel(item_id, 0, True)
-        if rank <= 0:
-            return None, f"Part21 representation item {item_id} is unavailable"
-        entity = self._model.Value(rank)
-        if entity.DynamicType().Name() != self._dynamic_type:
-            return None, f"Part21 representation item {item_id} is not an {self._part21_noun}"
-        before = self._reader.NbShapes()
-        try:
-            transferred = self._reader.TransferOne(rank)
-        except Exception as exc:
-            return None, (
-                f"Part21 representation item {item_id} could not be transferred "
-                f"({_failure_reason(exc)})"
-            )
-        after = self._reader.NbShapes()
-        if not transferred or after != before + 1:
-            return None, f"Part21 representation item {item_id} could not be transferred"
-        shape = self._reader.Shape(after)
-        if shape is None or shape.IsNull() or shape.ShapeType() != self._expected_shape_type():
-            return None, (
-                f"Part21 representation item {item_id} did not transfer to one {self._shape_noun}"
-            )
-        face_index = self._imported_faces.FindIndex(shape)
-        if face_index <= 0:
-            return None, (
-                f"Part21 representation item {item_id} is not a {self._shape_noun} in the "
-                "imported topology"
-            )
-        result = (shape, face_index)
-        self._items[item_id] = result
-        return result, ""
-
-    def resolve(
-        self,
-        definition_id: str,
-        item_ids: tuple[str, ...],
-        *,
-        noun: str = "datum feature",
-    ):
-        """Return exact imported faces, or reasons that make the definition unsafe."""
-        cached = self._definitions.get(definition_id)
-        if cached is not None:
-            return cached, ()
-        if not item_ids:
-            return (), (f"{noun} has no Part21 representation items",)
-
-        resolved = []
-        reasons: list[str] = []
-        for item_id in item_ids:
-            result, reason = self._transfer_face(item_id)
-            if reason:
-                reasons.append(reason)
-            elif result is not None:
-                resolved.append(result)
-        if reasons:
-            return (), tuple(dict.fromkeys(reasons))
-
-        indices = [face_index for _shape, face_index in resolved]
-        if len(set(indices)) != len(indices):
-            return (), (
-                f"{noun} representation items resolve to the same imported {self._shape_noun}",
-            )
-        if self._exclusive_claims:
-            for face_index in indices:
-                owner = self._claims.get(face_index)
-                if owner is not None and owner != definition_id:
-                    reasons.append(
-                        f"one imported {self._shape_noun} is already claimed by {noun} {owner}"
-                    )
-            if reasons:
-                return (), tuple(dict.fromkeys(reasons))
-
-        shapes = tuple(shape for shape, _face_index in resolved)
-        if self._exclusive_claims:
-            for face_index in indices:
-                self._claims[face_index] = definition_id
-        self._definitions[definition_id] = shapes
-        return shapes, ()
-
-
-class _SurfaceLabelTopologyResolver(_DatumTopologyResolver):
-    """Resolve surface-label edge items through the same identity-proof boundary."""
-
-    _dynamic_type = "StepShape_EdgeCurve"
-    _part21_noun = "edge curve"
-    _shape_noun = "edge"
-    _exclusive_claims = False
-
-    def _expected_shape_type(self):
-        return TopAbs_EDGE
-
-
-class _CommonLabelTopologyResolver(_DatumTopologyResolver):
-    """Resolve common-label face items without claiming them away from other PMI."""
-
-    _exclusive_claims = False
-
-
-class _DimensionSupportResolver:
-    """Transfer exact dimension supports and prove B-rep items belong to the imported part."""
-
-    def __init__(self, step_reader):
-        self._reader = step_reader
-        self._model = step_reader.StepModel()
-        self._faces = TopTools_IndexedMapOfShape()
-        self._edges = TopTools_IndexedMapOfShape()
-        TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_FACE, self._faces)
-        TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_EDGE, self._edges)
-        self._items: dict[str, object] = {}
-        self._groups: dict[str, tuple[tuple[str, ...], tuple[object, ...]]] = {}
-
-    def _transfer(self, item_id: str):
-        cached = self._items.get(item_id)
-        if cached is not None:
-            return cached, ""
-        rank = self._model.NextNumberForLabel(item_id, 0, True)
-        if rank <= 0:
-            return None, f"Part21 dimension support item {item_id} is unavailable"
-        entity = self._model.Value(rank)
-        dynamic_type = entity.DynamicType().Name()
-        expected = {
-            "StepShape_AdvancedFace": (TopAbs_FACE, self._faces, "face"),
-            "StepShape_EdgeCurve": (TopAbs_EDGE, self._edges, "edge"),
-            "StepShape_GeometricCurveSet": (TopAbs_COMPOUND, None, "geometric curve set"),
-        }.get(dynamic_type)
-        if expected is None:
-            return None, (
-                f"Part21 dimension support item {item_id} has unsupported type {dynamic_type}"
-            )
-        before = self._reader.NbShapes()
-        try:
-            transferred = self._reader.TransferOne(rank)
-        except Exception as exc:
-            return None, (
-                f"Part21 dimension support item {item_id} could not be transferred "
-                f"({_failure_reason(exc)})"
-            )
-        after = self._reader.NbShapes()
-        if not transferred or after != before + 1:
-            return None, f"Part21 dimension support item {item_id} could not be transferred"
-        shape = self._reader.Shape(after)
-        expected_type, imported, noun = expected
-        if shape is None or shape.IsNull() or shape.ShapeType() != expected_type:
-            return None, f"Part21 dimension support item {item_id} did not transfer to one {noun}"
-        # Faces and edge curves are topology claims, so identity with the imported solid is
-        # mandatory. A geometric-curve-set is authored construction geometry rather than a
-        # B-rep subshape; its exact Part21 identity and successful transfer are the evidence.
-        if imported is not None and imported.FindIndex(shape) <= 0:
-            return None, f"Part21 dimension support item {item_id} is not in the imported topology"
-        self._items[item_id] = shape
-        return shape, ""
-
-    def resolve_group(self, aspect_id: str, item_ids: tuple[str, ...]):
-        cached = self._groups.get(aspect_id)
-        if cached is not None:
-            cached_item_ids, cached_shapes = cached
-            if cached_item_ids != item_ids:
-                return (), (f"dimension support group {aspect_id} has conflicting Part21 items",)
-            return cached_shapes, ()
-        if not item_ids:
-            return (), (f"dimension support group {aspect_id} has no Part21 items",)
-        shapes = []
-        reasons = []
-        for item_id in item_ids:
-            shape, reason = self._transfer(item_id)
-            if reason:
-                reasons.append(reason)
-            elif shape is not None:
-                shapes.append(shape)
-        if reasons:
-            return (), tuple(dict.fromkeys(reasons))
-        result = tuple(shapes)
-        self._groups[aspect_id] = (item_ids, result)
-        return result, ()
 
 
 def _datum_letter(label) -> tuple[str, str]:
@@ -1303,6 +1109,39 @@ def _datum_context(label, dim_tol_tool) -> tuple[str, str]:
     return (context, "") if context else ("", "datum occurrence has no tolerance context")
 
 
+def _datum_definition(
+    letter: str, definitions: tuple[DatumDefinitionFact, ...]
+) -> tuple[DatumDefinitionFact | None, str]:
+    """Use a datum's own complete Part21 definition, independent of its tolerance uses."""
+    matches = [definition for definition in definitions if definition.letter == letter]
+    if len(matches) > 1:
+        return None, f"Part21 has {len(matches)} datum definitions for letter {letter!r}"
+    if matches and not matches[0].reason and matches[0].datum_feature_id:
+        return matches[0], ""
+    return None, ""
+
+
+def _same_datum_support(
+    xcaf_shapes, part21_shapes, xcaf_bbox, xcaf_axis, part21_bbox, part21_axis
+) -> bool:
+    """Require identical imported faces, even when distinct faces coincide geometrically."""
+    return bool(
+        xcaf_shapes
+        and part21_shapes
+        and all(shape is not None and not shape.IsNull() for shape in xcaf_shapes)
+        and all(shape is not None and not shape.IsNull() for shape in part21_shapes)
+        and all(any(shape.IsSame(other) for other in part21_shapes) for shape in xcaf_shapes)
+        and all(any(shape.IsSame(other) for other in xcaf_shapes) for shape in part21_shapes)
+        and xcaf_bbox is not None
+        and part21_bbox is not None
+        and xcaf_axis not in ("", "?")
+        and xcaf_axis == part21_axis
+        and all(
+            abs(left - right) <= 1e-5 for left, right in zip(xcaf_bbox, part21_bbox, strict=True)
+        )
+    )
+
+
 def _coalesce_datum_records(records: list[PmiRecord]) -> list[PmiRecord]:
     """Project occurrence records onto authored datum-feature definitions."""
     grouped: dict[str, list[PmiRecord]] = {}
@@ -1315,7 +1154,9 @@ def _coalesce_datum_records(records: list[PmiRecord]) -> list[PmiRecord]:
         letters = {record.label for record in group if record.label}
         item_ids = {record.reference_item_ids for record in group}
         geometry = next((record for record in group if record.ref_bbox is not None), group[0])
-        blockers = list(geometry.lowering_blockers)
+        blockers = list(
+            dict.fromkeys(reason for record in group for reason in record.lowering_blockers)
+        )
         if len(letters) != 1:
             blockers.append("datum feature occurrences disagree about the datum letter")
         if len(item_ids) != 1:
@@ -2557,16 +2398,20 @@ def _extract_xcaf_tolerances(
     return records, sources, tolerances.Length()
 
 
-def _extract_xcaf_datums(
-    step_file: str | Path,
-    dt: XCAFDoc_DimTolTool,
-    shape_tool: Any,
-    reader: STEPCAFControl_Reader,
-    frame: PartFrame | None,
-) -> tuple[list[PmiRecord], list[PmiSourceEntity]]:
-    """Extract datum occurrences and unrepresented definitions."""
-    sources: list[PmiSourceEntity] = []
-    # ---- Datums ------------------------------------------------------------
+@dataclass(frozen=True)
+class _DatumExtractionState:
+    dt: XCAFDoc_DimTolTool
+    shape_tool: Any
+    frame: PartFrame | None
+    facts: tuple[DatumOccurrenceFact, ...]
+    definitions: tuple[DatumDefinitionFact, ...]
+    part21_error: str
+    topology: Any
+    topology_error: str
+
+
+def _datum_extraction_state(step_file, dt, shape_tool, reader, frame):
+    """Read datum source facts and prepare their one imported-topology resolver."""
     datums = TDF_LabelSequence()
     dt.GetDatumLabels(datums)
     datum_facts: tuple[DatumOccurrenceFact, ...] = ()
@@ -2594,69 +2439,202 @@ def _extract_xcaf_datums(
             datum_topology_error = (
                 f"datum imported-topology map is unavailable ({_failure_reason(exc)})"
             )
+    return datums, _DatumExtractionState(
+        dt,
+        shape_tool,
+        frame,
+        datum_facts,
+        datum_definitions,
+        datum_part21_error,
+        datum_topology,
+        datum_topology_error,
+    )
+
+
+def _xcaf_datum_occurrence(label, source_id: str, state: _DatumExtractionState):
+    """Correlate one XCAF occurrence with its Part21 definition and exact support."""
+    letter, letter_reason = _datum_letter(label)
+    definition, definition_reason = (
+        _datum_definition(letter, state.definitions) if not letter_reason else (None, "")
+    )
+    fact: DatumOccurrenceFact | DatumDefinitionFact | None = definition
+    context, context_reason = "", ""
+    correspondence_reason = definition_reason
+    contexts: tuple[str, ...] = ()
+    if definition is not None:
+        # Context is optional provenance. A writer may attach this same datum to
+        # several tolerances (or none), and their names are not its identity.
+        context, _ignored_context_reason = _datum_context(label, state.dt)
+        contexts = (context,) if context else ()
+    elif not definition_reason:
+        # Older files can have an incomplete standalone definition but an exact
+        # named use. Retain that correspondence as a compatibility fallback.
+        context, context_reason = _datum_context(label, state.dt)
+        correspondence_reason = state.part21_error
+        if not correspondence_reason and not letter_reason and not context_reason:
+            fact, correspondence_reason = match_datum_occurrence(state.facts, context, letter)
+        contexts = (context,) if context else ()
+    if state.frame is None:
+        datum_geometry = _datum_reference_geometry(label, state.shape_tool)
+    else:
+        datum_geometry = _datum_reference_geometry(label, state.shape_tool, state.frame)
+    xcaf_shapes = _datum_reference_shapes(label, state.shape_tool)
+    points, ref_bbox, reference_axis, geometry_reasons = datum_geometry
+    mismatch_id = ""
+    if fact is not None and fact.reference_item_ids:
+        if state.topology is None:
+            topology_shapes = ()
+            topology_reasons = (state.topology_error or state.part21_error,)
+        else:
+            topology_shapes, topology_reasons = state.topology.resolve(
+                fact.datum_feature_id, fact.reference_item_ids
+            )
+        if topology_shapes:
+            if state.frame is None:
+                datum_geometry = _datum_geometry_from_shapes(topology_shapes)
+            else:
+                datum_geometry = _datum_geometry_from_shapes(topology_shapes, state.frame)
+            matched_points, matched_bbox, matched_axis, matched_reasons = datum_geometry
+            # An XCAF occurrence with no face claim can use its unique authored
+            # Part21 definition. A present but unmeasurable XCAF face cannot.
+            unlocated_correspondence = not xcaf_shapes
+            if not unlocated_correspondence and not _same_datum_support(
+                xcaf_shapes,
+                topology_shapes,
+                ref_bbox,
+                reference_axis,
+                matched_bbox,
+                matched_axis,
+            ):
+                if (
+                    ref_bbox is None
+                    or reference_axis in ("", "?")
+                    or matched_bbox is None
+                    or matched_axis in ("", "?")
+                ):
+                    reason = "datum occurrence support cannot be matched to Part21 definition"
+                else:
+                    mismatch_id = fact.datum_feature_id
+                    reason = (
+                        "datum definition support disagrees with XCAF"
+                        if definition is not None
+                        else "datum occurrence support disagrees with XCAF"
+                    )
+                geometry_reasons = tuple(
+                    dict.fromkeys((*geometry_reasons, *matched_reasons, reason))
+                )
+                fact = None
+            else:
+                points, ref_bbox, reference_axis = matched_points, matched_bbox, matched_axis
+                geometry_reasons = (
+                    matched_reasons
+                    if unlocated_correspondence
+                    else tuple(dict.fromkeys((*geometry_reasons, *matched_reasons)))
+                )
+        else:
+            geometry_reasons = tuple(dict.fromkeys((*geometry_reasons, *topology_reasons)))
+    blockers = tuple(
+        dict.fromkeys(
+            reason
+            for reason in (letter_reason, context_reason, correspondence_reason, *geometry_reasons)
+            if reason
+        )
+    )
+    record = PmiRecord(
+        kind="datum",
+        type_code=None,
+        value=0.0,
+        ref_pts=points,
+        ref_bbox=ref_bbox,
+        dominant_axis=reference_axis or "?",
+        label=letter,
+        source_id=source_id,
+        part21_id=fact.datum_feature_id if fact is not None else "",
+        source_category="datum",
+        lowering_blockers=blockers,
+        source_ids=(source_id,),
+        datum_contexts=contexts,
+        reference_item_ids=fact.reference_item_ids if fact is not None else (),
+        reference_axis=reference_axis,
+    )
+    return record, mismatch_id
+
+
+def _unrepresented_datum_definition(
+    definition: DatumDefinitionFact, state: _DatumExtractionState, mismatched: set[str]
+):
+    """Retain a definition that no XCAF occurrence represented, including its blockers."""
+    definition_id = definition.datum_feature_id or definition.datum_id
+    source_id = f"datum_definition:{definition.datum_id}"
+    definition_blockers = [definition.reason] if definition.reason else []
+    if definition_id in mismatched:
+        definition_blockers.append("datum definition support disagrees with XCAF")
+    definition_points: tuple[tuple[float, float, float], ...] = ()
+    definition_bbox = None
+    definition_axis = ""
+    if not definition_blockers:
+        if state.topology is None:
+            definition_blockers.append(state.topology_error or state.part21_error)
+        else:
+            topology_shapes, topology_reasons = state.topology.resolve(
+                definition_id, definition.reference_item_ids
+            )
+            definition_blockers.extend(topology_reasons)
+            if topology_shapes:
+                if state.frame is None:
+                    datum_geometry = _datum_geometry_from_shapes(topology_shapes)
+                else:
+                    datum_geometry = _datum_geometry_from_shapes(topology_shapes, state.frame)
+                definition_points, definition_bbox, definition_axis, geometry_reasons = (
+                    datum_geometry
+                )
+                definition_blockers.extend(geometry_reasons)
+    if not definition.letter:
+        definition_blockers.append("datum definition has no letter")
+    unique_blockers = tuple(dict.fromkeys(reason for reason in definition_blockers if reason))
+    record = PmiRecord(
+        kind="datum",
+        type_code=None,
+        value=0.0,
+        ref_pts=definition_points,
+        ref_bbox=definition_bbox,
+        dominant_axis=definition_axis or "?",
+        label=definition.letter,
+        source_id=source_id,
+        part21_id=definition_id,
+        source_category="datum",
+        lowering_blockers=unique_blockers,
+        source_ids=(source_id,),
+        reference_item_ids=definition.reference_item_ids,
+        reference_axis=definition_axis,
+    )
+    source = PmiSourceEntity(
+        source_id,
+        "datum",
+        None,
+        "partially_extracted" if unique_blockers else "extracted",
+        "; ".join(unique_blockers),
+    )
+    return record, source
+
+
+def _extract_xcaf_datums(
+    step_file: str | Path,
+    dt: XCAFDoc_DimTolTool,
+    shape_tool: Any,
+    reader: STEPCAFControl_Reader,
+    frame: PartFrame | None,
+) -> tuple[list[PmiRecord], list[PmiSourceEntity]]:
+    """Extract datum occurrences and unrepresented definitions."""
+    datums, state = _datum_extraction_state(step_file, dt, shape_tool, reader, frame)
+    sources: list[PmiSourceEntity] = []
     datum_records: list[PmiRecord] = []
+    mismatched_definitions: set[str] = set()
     for index in range(1, datums.Length() + 1):
         label = datums.Value(index)
         source_id = _source_id("datum", label)
         try:
-            letter, letter_reason = _datum_letter(label)
-            context, context_reason = _datum_context(label, dt)
-            fact: DatumOccurrenceFact | None = None
-            correspondence_reason = datum_part21_error
-            if not correspondence_reason and not letter_reason and not context_reason:
-                fact, correspondence_reason = match_datum_occurrence(datum_facts, context, letter)
-            if frame is None:
-                datum_geometry = _datum_reference_geometry(label, shape_tool)
-            else:
-                datum_geometry = _datum_reference_geometry(label, shape_tool, frame)
-            points, ref_bbox, reference_axis, geometry_reasons = datum_geometry
-            if fact is not None and fact.reference_item_ids:
-                if datum_topology is None:
-                    topology_shapes = ()
-                    topology_reasons = (datum_topology_error or datum_part21_error,)
-                else:
-                    topology_shapes, topology_reasons = datum_topology.resolve(
-                        fact.datum_feature_id, fact.reference_item_ids
-                    )
-                if topology_shapes:
-                    if frame is None:
-                        datum_geometry = _datum_geometry_from_shapes(topology_shapes)
-                    else:
-                        datum_geometry = _datum_geometry_from_shapes(topology_shapes, frame)
-                    points, ref_bbox, reference_axis, geometry_reasons = datum_geometry
-                else:
-                    geometry_reasons = tuple(dict.fromkeys((*geometry_reasons, *topology_reasons)))
-            blockers = tuple(
-                dict.fromkeys(
-                    reason
-                    for reason in (
-                        letter_reason,
-                        context_reason,
-                        correspondence_reason,
-                        *geometry_reasons,
-                    )
-                    if reason
-                )
-            )
-            datum_records.append(
-                PmiRecord(
-                    kind="datum",
-                    type_code=None,
-                    value=0.0,
-                    ref_pts=points,
-                    ref_bbox=ref_bbox,
-                    dominant_axis=reference_axis or "?",
-                    label=letter,
-                    source_id=source_id,
-                    part21_id=fact.datum_feature_id if fact is not None else "",
-                    source_category="datum",
-                    lowering_blockers=blockers,
-                    source_ids=(source_id,),
-                    datum_contexts=(context,) if context else (),
-                    reference_item_ids=fact.reference_item_ids if fact is not None else (),
-                    reference_axis=reference_axis,
-                )
-            )
+            record, mismatch_id = _xcaf_datum_occurrence(label, source_id, state)
         except Exception as exc:
             sources.append(
                 PmiSourceEntity(
@@ -2669,6 +2647,10 @@ def _extract_xcaf_datums(
             )
             _log.debug("PMI %s not extracted: %s", source_id, exc)
         else:
+            datum_records.append(record)
+            if mismatch_id:
+                mismatched_definitions.add(mismatch_id)
+            blockers = record.lowering_blockers
             sources.append(
                 PmiSourceEntity(
                     source_id,
@@ -2679,62 +2661,13 @@ def _extract_xcaf_datums(
                 )
             )
     represented_definitions = {record.part21_id for record in datum_records if record.part21_id}
-    for definition in datum_definitions:
+    for definition in state.definitions:
         definition_id = definition.datum_feature_id or definition.datum_id
         if definition_id in represented_definitions:
             continue
-        source_id = f"datum_definition:{definition.datum_id}"
-        definition_blockers = [definition.reason] if definition.reason else []
-        definition_points: tuple[tuple[float, float, float], ...] = ()
-        definition_bbox = None
-        definition_axis = ""
-        if not definition_blockers:
-            if datum_topology is None:
-                definition_blockers.append(datum_topology_error or datum_part21_error)
-            else:
-                topology_shapes, topology_reasons = datum_topology.resolve(
-                    definition_id, definition.reference_item_ids
-                )
-                definition_blockers.extend(topology_reasons)
-                if topology_shapes:
-                    if frame is None:
-                        datum_geometry = _datum_geometry_from_shapes(topology_shapes)
-                    else:
-                        datum_geometry = _datum_geometry_from_shapes(topology_shapes, frame)
-                    definition_points, definition_bbox, definition_axis, geometry_reasons = (
-                        datum_geometry
-                    )
-                    definition_blockers.extend(geometry_reasons)
-        if not definition.letter:
-            definition_blockers.append("datum definition has no letter")
-        unique_blockers = tuple(dict.fromkeys(reason for reason in definition_blockers if reason))
-        datum_records.append(
-            PmiRecord(
-                kind="datum",
-                type_code=None,
-                value=0.0,
-                ref_pts=definition_points,
-                ref_bbox=definition_bbox,
-                dominant_axis=definition_axis or "?",
-                label=definition.letter,
-                source_id=source_id,
-                part21_id=definition_id,
-                source_category="datum",
-                lowering_blockers=unique_blockers,
-                source_ids=(source_id,),
-                reference_item_ids=definition.reference_item_ids,
-                reference_axis=definition_axis,
-            )
-        )
-        sources.append(
-            PmiSourceEntity(
-                source_id,
-                "datum",
-                None,
-                "partially_extracted" if unique_blockers else "extracted",
-                "; ".join(unique_blockers),
-            )
-        )
+        record, source = _unrepresented_datum_definition(definition, state, mismatched_definitions)
+        datum_records.append(record)
+        sources.append(source)
     records = list(_coalesce_datum_records(datum_records))
 
     return records, sources

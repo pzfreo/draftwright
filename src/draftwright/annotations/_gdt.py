@@ -463,6 +463,153 @@ def _gdt_drop_callback(
     return _drop
 
 
+def _gdt_candidate_builders(
+    item, draft, leader_ctor, fallback_glyph, px, py, horizontal, strip, size, tier
+):
+    """Build one glyph's primary and fallback leaders plus bounded strip retries."""
+
+    def _build(pos, _px=px, _py=py, _hz=horizontal, _it=item):
+        g = _gdt_glyph(_it, draft)
+        tip = (_px, _py)
+        # A zero-length leader shaft (the projected site coincides with the solved tier —
+        # `pos == py` above/below, `pos == px` left/right) makes OCC's edge builder raise,
+        # which would crash the whole build on a public-IR declaration. Guarantee a
+        # minimum shaft along the stacking axis (nudge outward; 0.05 mm is invisible) so
+        # `_build` is total — the drop-don't-crash invariant holds for every build call.
+        if _hz:
+            dy = pos - _py
+            pos = pos if abs(dy) >= _MIN_LEADER else _py + math.copysign(_MIN_LEADER, dy or 1.0)
+            elbow = (_px, pos)
+        else:
+            dx = pos - _px
+            pos = pos if abs(dx) >= _MIN_LEADER else _px + math.copysign(_MIN_LEADER, dx or 1.0)
+            elbow = (pos, _py)
+        leader = leader_ctor(
+            tip=tip,
+            elbow=elbow,
+            label="",
+            draft=draft,
+            callout=g,
+            all_around=getattr(_it, "all_around", False),
+            all_over=getattr(_it, "all_over", False),
+        )
+        if _it.kind == "note":
+            # The outer leader intentionally has label="" because the visible
+            # payload is a TextBlock callout. Preserve the authored note and measure
+            # the embedded Text renderer's face-dependent newline pitch for PDF.
+            leader.pdf_text = _font_safe_text(_it.text)
+            leader.pdf_text_font_style = "REGULAR"
+            leader.pdf_text_line_spacing = _text_line_spacing_em(
+                draft.font_size,
+                getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                getattr(draft, "font", "Arial"),
+            )
+        else:
+            _attach_gdt_text_evidence(leader, g, _it, draft)
+        return leader
+
+    def _build_at(elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
+        leader = leader_ctor(
+            tip=(_px, _py),
+            elbow=(*elbow, 0),
+            label="",
+            draft=draft,
+            callout=_g,
+            all_around=getattr(_it, "all_around", False),
+            all_over=getattr(_it, "all_over", False),
+        )
+        if _it.kind == "note":
+            leader.pdf_text = _font_safe_text(_it.text)
+            leader.pdf_text_font_style = "REGULAR"
+            leader.pdf_text_line_spacing = _text_line_spacing_em(
+                draft.font_size,
+                getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                getattr(draft, "font", "Arial"),
+            )
+        else:
+            _attach_gdt_text_evidence(leader, _g, _it, draft)
+        return leader
+
+    def _build_routed(bends, elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
+        leader = RoutedLeader(
+            (_px, _py),
+            bends,
+            elbow,
+            "",
+            draft,
+            callout=_g,
+            all_around=getattr(_it, "all_around", False),
+            all_over=getattr(_it, "all_over", False),
+        )
+        if _it.kind == "note":
+            leader.pdf_text = _font_safe_text(_it.text)
+            leader.pdf_text_font_style = "REGULAR"
+            leader.pdf_text_line_spacing = _text_line_spacing_em(
+                draft.font_size,
+                getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                getattr(draft, "font", "Arial"),
+            )
+        else:
+            _attach_gdt_text_evidence(leader, _g, _it, draft)
+        return leader
+
+    def _compact_candidates(
+        original,
+        _build=_build,
+        _strip=strip,
+        _size=size,
+        _horizontal=horizontal,
+    ):
+        """Nearest-first same-strip landings checked later against exact ink.
+
+        Dimension extension lines make their conservative boxes intentionally
+        broad.  A GD&T leader may pass through the empty part of such a box, so
+        the corridor result is an upper bound rather than necessarily the best
+        landing.  Keep this search finite and inside the requested strip.
+        """
+        if original is None:
+            return
+        original_pos = original.elbow[1 if _horizontal else 0]
+        extent = _size[1 if _horizontal else 0]
+        near = _strip.anchor + _strip.direction * (_strip.gap + extent / 2.0)
+        distance = (original_pos - near) * _strip.direction
+        if distance <= 1e-6:
+            return
+        step = max(tier + _strip.spacing, 1.0)
+        count = min(64, int(math.ceil(distance / step)) + 1)
+        for index in range(count):
+            travel = min(distance, index * step)
+            pos = near + _strip.direction * travel
+            if abs(pos - original_pos) <= 1e-6:
+                return
+            yield _build(pos)
+
+    def _ink_repair_candidates(
+        original,
+        _build=_build,
+        _strip=strip,
+        _size=size,
+        _horizontal=horizontal,
+    ):
+        """Bounded outward tiers for a frame whose complete ink still conflicts.
+
+        Inward exact-ink contraction has already run. This is the same
+        corridor's remaining feature-relative space, not a raw page position.
+        The shared placer checks each rebuilt frame and shaft against dimensions,
+        leaders, other frames, page bounds, and fixed furniture before commit.
+        """
+        original_pos = original.elbow[1 if _horizontal else 0]
+        extent = _size[1 if _horizontal else 0]
+        outward_extent = extent / 2.0 if _horizontal else extent
+        outer = _strip.outer_limit - _strip.direction * outward_extent
+        available = (outer - original_pos) * _strip.direction
+        step = max(tier + _strip.spacing, 1.0)
+        for index in range(1, min(9, int(available // step) + 1)):
+            yield _build(original_pos + _strip.direction * index * step)
+
+    return _build, _build_at, _build_routed, _compact_candidates, _ink_repair_candidates
+
+
 def render_gdt(
     dwg, model, a: Analysis, *, ctx, leader_ctor, carve_position, sheet_fallback, source_ids_for
 ) -> int:
@@ -531,6 +678,26 @@ def render_gdt(
         px, py = hproj(o[hi]), vproj(o[vi])
         horizontal = item.side in ("above", "below")  # frame stacks along y
         axis = "y" if horizontal else "x"
+        # Coincident projected datum shafts can cover the nearer datum's tip.
+        # Prefer the one nearest this strip's anchor; the farther datum retains
+        # the ordinary side/sheet fallback if its first corridor becomes full.
+        datum_stem_rank = 0
+        if item.kind == "datum_ref":
+            perp, stack = (px, py) if horizontal else (py, px)
+            distance = abs(stack - strip.anchor)
+            for other in items:
+                if other is item or other.kind != "datum_ref":
+                    continue
+                if (other.view, other.side) != (item.view, item.side):
+                    continue
+                other_origin = other.frame.origin
+                other_perp = hproj(other_origin[hi]) if horizontal else vproj(other_origin[vi])
+                other_stack = vproj(other_origin[vi]) if horizontal else hproj(other_origin[hi])
+                if (
+                    abs(other_perp - perp) <= 1e-6
+                    and abs(other_stack - strip.anchor) > distance + 1e-6
+                ):
+                    datum_stem_rank += 1
         # The IR is public input (ADR 4 (was 0011)), so an invalid glyph spec (a mistyped
         # characteristic, a bad tolerance) must drop THIS item with a warning — never crash
         # the whole drawing build. The helper raises on a bad spec; catch it at the measure
@@ -551,148 +718,15 @@ def render_gdt(
             continue
         size = (gb.X, gb.Y)
 
-        def _build(pos, _px=px, _py=py, _hz=horizontal, _it=item):
-            g = _gdt_glyph(_it, draft)
-            tip = (_px, _py)
-            # A zero-length leader shaft (the projected site coincides with the solved tier —
-            # `pos == py` above/below, `pos == px` left/right) makes OCC's edge builder raise,
-            # which would crash the whole build on a public-IR declaration. Guarantee a
-            # minimum shaft along the stacking axis (nudge outward; 0.05 mm is invisible) so
-            # `_build` is total — the drop-don't-crash invariant holds for every build call.
-            if _hz:
-                dy = pos - _py
-                pos = (
-                    pos if abs(dy) >= _MIN_LEADER else _py + math.copysign(_MIN_LEADER, dy or 1.0)
-                )
-                elbow = (_px, pos)
-            else:
-                dx = pos - _px
-                pos = (
-                    pos if abs(dx) >= _MIN_LEADER else _px + math.copysign(_MIN_LEADER, dx or 1.0)
-                )
-                elbow = (pos, _py)
-            leader = leader_ctor(
-                tip=tip,
-                elbow=elbow,
-                label="",
-                draft=draft,
-                callout=g,
-                all_around=getattr(_it, "all_around", False),
-                all_over=getattr(_it, "all_over", False),
-            )
-            if _it.kind == "note":
-                # The outer leader intentionally has label="" because the visible
-                # payload is a TextBlock callout. Preserve the authored note and measure
-                # the embedded Text renderer's face-dependent newline pitch for PDF.
-                leader.pdf_text = _font_safe_text(_it.text)
-                leader.pdf_text_font_style = "REGULAR"
-                leader.pdf_text_line_spacing = _text_line_spacing_em(
-                    draft.font_size,
-                    getattr(draft, "font_path", DEFAULT_FONT_PATH),
-                    getattr(draft, "font", "Arial"),
-                )
-            else:
-                _attach_gdt_text_evidence(leader, g, _it, draft)
-            return leader
-
-        def _build_at(elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
-            leader = leader_ctor(
-                tip=(_px, _py),
-                elbow=(*elbow, 0),
-                label="",
-                draft=draft,
-                callout=_g,
-                all_around=getattr(_it, "all_around", False),
-                all_over=getattr(_it, "all_over", False),
-            )
-            if _it.kind == "note":
-                leader.pdf_text = _font_safe_text(_it.text)
-                leader.pdf_text_font_style = "REGULAR"
-                leader.pdf_text_line_spacing = _text_line_spacing_em(
-                    draft.font_size,
-                    getattr(draft, "font_path", DEFAULT_FONT_PATH),
-                    getattr(draft, "font", "Arial"),
-                )
-            else:
-                _attach_gdt_text_evidence(leader, _g, _it, draft)
-            return leader
-
-        def _build_routed(bends, elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
-            leader = RoutedLeader(
-                (_px, _py),
-                bends,
-                elbow,
-                "",
-                draft,
-                callout=_g,
-                all_around=getattr(_it, "all_around", False),
-                all_over=getattr(_it, "all_over", False),
-            )
-            if _it.kind == "note":
-                leader.pdf_text = _font_safe_text(_it.text)
-                leader.pdf_text_font_style = "REGULAR"
-                leader.pdf_text_line_spacing = _text_line_spacing_em(
-                    draft.font_size,
-                    getattr(draft, "font_path", DEFAULT_FONT_PATH),
-                    getattr(draft, "font", "Arial"),
-                )
-            else:
-                _attach_gdt_text_evidence(leader, _g, _it, draft)
-            return leader
-
-        def _compact_candidates(
-            original,
-            _build=_build,
-            _strip=strip,
-            _size=size,
-            _horizontal=horizontal,
-        ):
-            """Nearest-first same-strip landings checked later against exact ink.
-
-            Dimension extension lines make their conservative boxes intentionally
-            broad.  A GD&T leader may pass through the empty part of such a box, so
-            the corridor result is an upper bound rather than necessarily the best
-            landing.  Keep this search finite and inside the requested strip.
-            """
-            if original is None:
-                return
-            original_pos = original.elbow[1 if _horizontal else 0]
-            extent = _size[1 if _horizontal else 0]
-            near = _strip.anchor + _strip.direction * (_strip.gap + extent / 2.0)
-            distance = (original_pos - near) * _strip.direction
-            if distance <= 1e-6:
-                return
-            step = max(tier + _strip.spacing, 1.0)
-            count = min(64, int(math.ceil(distance / step)) + 1)
-            for index in range(count):
-                travel = min(distance, index * step)
-                pos = near + _strip.direction * travel
-                if abs(pos - original_pos) <= 1e-6:
-                    return
-                yield _build(pos)
-
-        def _ink_repair_candidates(
-            original,
-            _build=_build,
-            _strip=strip,
-            _size=size,
-            _horizontal=horizontal,
-        ):
-            """Bounded outward tiers for a frame whose complete ink still conflicts.
-
-            Inward exact-ink contraction has already run. This is the same
-            corridor's remaining feature-relative space, not a raw page position.
-            The shared placer checks each rebuilt frame and shaft against dimensions,
-            leaders, other frames, page bounds, and fixed furniture before commit.
-            """
-            original_pos = original.elbow[1 if _horizontal else 0]
-            extent = _size[1 if _horizontal else 0]
-            outward_extent = extent / 2.0 if _horizontal else extent
-            outer = _strip.outer_limit - _strip.direction * outward_extent
-            available = (outer - original_pos) * _strip.direction
-            step = max(tier + _strip.spacing, 1.0)
-            for index in range(1, min(9, int(available // step) + 1)):
-                yield _build(original_pos + _strip.direction * index * step)
+        (
+            _build,
+            _build_at,
+            _build_routed,
+            _compact_candidates,
+            _ink_repair_candidates,
+        ) = _gdt_candidate_builders(
+            item, draft, leader_ctor, fallback_glyph, px, py, horizontal, strip, size, tier
+        )
 
         _drop = _gdt_drop_callback(
             dwg,
@@ -728,7 +762,9 @@ def render_gdt(
                 on_drop=_drop,
                 dedup=None,
                 precedence=0,
-                priority=_GDT_CORRIDOR_PRIORITY,  # authored intent outranks auto dims
+                priority=(
+                    _GDT_CORRIDOR_PRIORITY + datum_stem_rank * PRIORITY.AUTHORED_DATUM_STEM_STEP
+                ),
                 # A declared frame has no alternate view — force-keep (policy B) rather than
                 # drop a user-authored annotation; only a physically full strip drops.
                 force=True,

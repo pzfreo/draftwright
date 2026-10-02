@@ -1,12 +1,15 @@
 """AP242 datum occurrence correspondence and concept lowering (#1099)."""
 
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box
+from build123d import Axis, Box
 
 import draftwright.pmi as pmi_module
+from draftwright import _pmi_topology as topology_module
+from draftwright._pmi_part21 import read_datum_definitions, read_datum_occurrences
 from draftwright.linting import lint_pmi_lowering
 from draftwright.model import DatumRef, PmiFeature, build_pmi_features
 from draftwright.model.ir import Frame
@@ -127,7 +130,7 @@ def test_complete_datum_definition_lowers_once_for_all_source_occurrences():
 def test_datum_topology_resolution_uses_part21_labels_and_exact_imported_identity(monkeypatch):
     imported = (_Face("left"), _Face("right"))
     reader = _StepReader({"#839": 7, "#840": 11}, {7: imported[0], 11: imported[1]})
-    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+    monkeypatch.setattr(topology_module, "TopAbs_FACE", "face")
     resolver = pmi_module._DatumTopologyResolver(reader, _ImportedFaces(*imported))
 
     shapes, reasons = resolver.resolve("#36", ("#839", "#840"))
@@ -157,7 +160,7 @@ def test_datum_topology_resolution_uses_part21_labels_and_exact_imported_identit
 def test_datum_topology_resolution_fails_closed_for_missing_unimported_or_collapsed_faces(
     monkeypatch, ranks, results, imported, expected
 ):
-    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+    monkeypatch.setattr(topology_module, "TopAbs_FACE", "face")
     resolver = pmi_module._DatumTopologyResolver(
         _StepReader(ranks, results), _ImportedFaces(*imported)
     )
@@ -169,7 +172,7 @@ def test_datum_topology_resolution_fails_closed_for_missing_unimported_or_collap
 
 
 def test_datum_topology_resolution_rejects_empty_nonface_and_transfer_exception(monkeypatch):
-    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+    monkeypatch.setattr(topology_module, "TopAbs_FACE", "face")
 
     resolver = pmi_module._DatumTopologyResolver(_StepReader({}, {}), _ImportedFaces())
     assert resolver.resolve("#36", ())[1] == ("datum feature has no Part21 representation items",)
@@ -197,7 +200,7 @@ def test_datum_topology_resolution_rejects_two_definitions_claiming_one_face(mon
         {"#839": 7, "#840": 11, "#853": 13},
         {7: imported[0], 11: imported[1], 13: imported[0]},
     )
-    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+    monkeypatch.setattr(topology_module, "TopAbs_FACE", "face")
     resolver = pmi_module._DatumTopologyResolver(reader, _ImportedFaces(*imported))
 
     assert resolver.resolve("#36", ("#839", "#840"))[1] == ()
@@ -220,7 +223,7 @@ def test_surface_labels_may_share_one_exact_imported_edge(monkeypatch):
         {7: imported},
         entity_type="StepShape_EdgeCurve",
     )
-    monkeypatch.setattr(pmi_module, "TopAbs_EDGE", "face")
+    monkeypatch.setattr(topology_module, "TopAbs_EDGE", "face")
     resolver = pmi_module._SurfaceLabelTopologyResolver(reader, _ImportedFaces(imported))
 
     first, first_reasons = resolver.resolve("#316", ("#1850",), noun="surface label")
@@ -428,6 +431,295 @@ def test_lowering_reconciliation_counts_every_occurrence_represented_by_one_feat
         (SOURCE_IDS[0],),
         (SOURCE_IDS[1],),
     }
+
+
+def test_datum_definitions_do_not_require_one_named_tolerance_context_issue_2128(monkeypatch):
+    step = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    definitions = read_datum_definitions(step)
+    occurrences = read_datum_occurrences(step)
+    # The fixture contains several authored tolerance uses of datum A and one physical A.
+    (a_definition,) = [definition for definition in definitions if definition.letter == "A"]
+    assert (
+        len(
+            {
+                occurrence.tolerance_id
+                for occurrence in occurrences
+                if occurrence.datum_feature_id == a_definition.datum_feature_id
+            }
+        )
+        > 1
+    )
+
+    # Simulate the XCAF writer presenting zero/multiple unnamed contexts on each label.
+    # The physical datum's own Part21 definition still names its letter and support.
+    monkeypatch.setattr(
+        pmi_module,
+        "_datum_context",
+        lambda *_args: ("", "datum occurrence has no unique named tolerance context"),
+    )
+    report = pmi_module.extract_pmi_report(step)
+    datums = [record for record in report.records if record.source_category == "datum"]
+    assert {record.label for record in datums} == {"A", "B", "C"}
+    assert len(datums) == 3
+    assert sum(len(record.source_ids) for record in datums) == 11
+    assert all(not record.lowering_blockers for record in datums)
+    assert not [
+        source
+        for source in report.sources
+        if source.category == "datum" and source.outcome != "extracted"
+    ]
+
+
+def test_complete_datum_definition_survives_occurrence_reader_failure_issue_2128(monkeypatch):
+    step = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    definitions = read_datum_definitions(step)
+    assert {definition.letter for definition in definitions} == {"A", "B", "C"}
+
+    def failed_occurrence_reader(_step):
+        raise ValueError("occurrence reader unavailable")
+
+    monkeypatch.setattr(pmi_module, "read_datum_occurrences", failed_occurrence_reader)
+    report = pmi_module.extract_pmi_report(step)
+    datums = [record for record in report.records if record.source_category == "datum"]
+    assert {record.label for record in datums} == {"A", "B", "C"}
+    assert len(datums) == 3
+    assert sum(len(record.source_ids) for record in datums) == 11
+    assert not [
+        source
+        for source in report.sources
+        if source.category == "datum" and source.outcome != "extracted"
+    ]
+
+
+def test_datum_definition_refuses_a_different_physical_support_issue_2128(monkeypatch):
+    step = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    definitions = read_datum_definitions(step)
+    (a_definition,) = [definition for definition in definitions if definition.letter == "A"]
+    (b_definition,) = [definition for definition in definitions if definition.letter == "B"]
+    baseline = pmi_module.extract_pmi_report(step)
+    a = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "A"
+    )
+    b = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "B"
+    )
+    assert a.ref_bbox is not None and not a.lowering_blockers
+    assert b.ref_bbox is not None and b.ref_bbox != a.ref_bbox
+
+    original = pmi_module._DatumTopologyResolver.resolve
+
+    def wrong_support(self, feature_id, item_ids):
+        if feature_id == a_definition.datum_feature_id:
+            return original(self, b_definition.datum_feature_id, b_definition.reference_item_ids)
+        return original(self, feature_id, item_ids)
+
+    monkeypatch.setattr(pmi_module._DatumTopologyResolver, "resolve", wrong_support)
+    report = pmi_module.extract_pmi_report(step)
+    a_sources = [
+        source
+        for source in report.sources
+        if source.category == "datum" and source.source_id in a.source_ids
+    ]
+    assert len(a_sources) == len(a.source_ids)
+    assert any(source.outcome == "partially_extracted" for source in a_sources)
+    assert any(
+        "datum definition support disagrees with XCAF" in source.reason for source in a_sources
+    )
+    definition_source_id = f"datum_definition:{a_definition.datum_id}"
+    (definition_source,) = [
+        source for source in report.sources if source.source_id == definition_source_id
+    ]
+    assert definition_source.outcome == "partially_extracted"
+    assert "datum definition support disagrees with XCAF" in definition_source.reason
+    definition_records = [
+        record for record in report.records if definition_source_id in record.source_ids
+    ]
+    assert definition_records
+    assert all(record.lowering_blockers for record in definition_records)
+    assert not any(
+        isinstance(feature, DatumRef) and definition_source_id in feature.source_ids
+        for feature in build_pmi_features(report.records, Box(20, 20, 20).bounding_box())
+    )
+
+
+def test_coincident_distinct_datum_faces_do_not_share_a_definition_issue_2128():
+    first = Box(10, 10, 10).faces().sort_by(Axis.Z)[-1].wrapped
+    second = Box(10, 10, 10).faces().sort_by(Axis.Z)[-1].wrapped
+    assert not first.IsSame(second)
+    first_geometry = pmi_module._datum_geometry_from_shapes((first,))
+    second_geometry = pmi_module._datum_geometry_from_shapes((second,))
+    assert first_geometry[1:3] == second_geometry[1:3]
+    assert pmi_module._same_datum_support(
+        (first,), (first,), first_geometry[1], first_geometry[2], *first_geometry[1:3]
+    )
+    assert not pmi_module._same_datum_support(
+        (first,), (second,), first_geometry[1], first_geometry[2], *second_geometry[1:3]
+    )
+
+
+def test_occurrence_fallback_refuses_a_different_physical_support_issue_2128(monkeypatch):
+    step = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    facts = read_datum_occurrences(step)
+    a_fact = next(fact for fact in facts if fact.letter == "A" and fact.reference_item_ids)
+    b_fact = next(fact for fact in facts if fact.letter == "B" and fact.reference_item_ids)
+    monkeypatch.setattr(pmi_module, "read_datum_definitions", lambda _step: ())
+    baseline = pmi_module.extract_pmi_report(step)
+    a = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "A"
+    )
+    b = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "B"
+    )
+    assert a.ref_bbox is not None and b.ref_bbox is not None
+    assert a.ref_bbox != b.ref_bbox and not a.lowering_blockers
+
+    original = pmi_module._DatumTopologyResolver.resolve
+
+    def wrong_support(self, feature_id, item_ids):
+        if feature_id == a_fact.datum_feature_id:
+            return original(self, b_fact.datum_feature_id, b_fact.reference_item_ids)
+        return original(self, feature_id, item_ids)
+
+    monkeypatch.setattr(pmi_module._DatumTopologyResolver, "resolve", wrong_support)
+    report = pmi_module.extract_pmi_report(step)
+    a_sources = [
+        source
+        for source in report.sources
+        if source.category == "datum" and source.source_id in a.source_ids
+    ]
+    assert len(a_sources) == len(a.source_ids)
+    assert all(source.outcome == "partially_extracted" for source in a_sources)
+    assert all(
+        "datum occurrence support disagrees with XCAF" in source.reason for source in a_sources
+    )
+    assert not any(
+        isinstance(feature, DatumRef) and set(feature.source_ids) & set(a.source_ids)
+        for feature in build_pmi_features(report.records, Box(20, 20, 20).bounding_box())
+    )
+
+
+@pytest.mark.parametrize("geometry_reasons", ((), ("probe XCAF datum geometry failure",)))
+def test_unmeasurable_xcaf_datum_occurrence_keeps_its_source_partial_issue_2128(
+    monkeypatch, geometry_reasons
+):
+    step = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    baseline = pmi_module.extract_pmi_report(step)
+    datum_a = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "A"
+    )
+    assert len(datum_a.source_ids) > 1 and datum_a.ref_bbox is not None
+    source_id = datum_a.source_ids[0]
+    original = pmi_module._datum_reference_geometry
+
+    def unreadable_support(label, *args):
+        geometry = original(label, *args)
+        if pmi_module._source_id("datum", label) == source_id:
+            assert geometry[1] is not None
+            return geometry[0], None, "", geometry_reasons
+        return geometry
+
+    monkeypatch.setattr(pmi_module, "_datum_reference_geometry", unreadable_support)
+    report = pmi_module.extract_pmi_report(step)
+    (source,) = [item for item in report.sources if item.source_id == source_id]
+    assert source.outcome == "partially_extracted"
+    assert "support cannot be matched" in source.reason
+    assert not any(
+        source_id in record.source_ids and not record.lowering_blockers
+        for record in report.records
+    )
+    assert any(record.label == "A" and not record.lowering_blockers for record in report.records)
+
+
+@pytest.mark.parametrize(
+    ("xcaf_shapes", "expected_outcome"),
+    (((), "extracted"), ((None,), "partially_extracted")),
+)
+def test_only_absent_xcaf_datum_references_can_use_part21_support_issue_2128(
+    monkeypatch, xcaf_shapes, expected_outcome
+):
+    step = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    baseline = pmi_module.extract_pmi_report(step)
+    datum_a = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "A"
+    )
+    assert len(datum_a.source_ids) > 1 and datum_a.ref_bbox is not None
+    source_id = datum_a.source_ids[0]
+    direct_geometry = pmi_module._datum_geometry_from_shapes(xcaf_shapes)
+    assert direct_geometry[:3] == ((), None, "")
+    assert ("one referenced shape is unavailable" in direct_geometry[3]) == bool(xcaf_shapes)
+    original = pmi_module._datum_reference_shapes
+
+    def direct_support(label, shape_tool):
+        if pmi_module._source_id("datum", label) == source_id:
+            return xcaf_shapes
+        return original(label, shape_tool)
+
+    monkeypatch.setattr(pmi_module, "_datum_reference_shapes", direct_support)
+    report = pmi_module.extract_pmi_report(step)
+    (source,) = [item for item in report.sources if item.source_id == source_id]
+    assert source.outcome == expected_outcome
+    if xcaf_shapes:
+        assert "support cannot be matched" in source.reason
+        assert not any(
+            source_id in record.source_ids and not record.lowering_blockers
+            for record in report.records
+        )
+    else:
+        assert not source.reason
+
+
+def test_coalesced_datum_keeps_a_partial_sibling_occurrence_issue_2128(monkeypatch):
+    step = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    baseline = pmi_module.extract_pmi_report(step)
+    datum_a = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "A"
+    )
+    assert len(datum_a.source_ids) > 1 and datum_a.ref_bbox is not None
+    assert datum_a.lowering_blockers == ()
+    source_id = datum_a.source_ids[-1]
+    assert (
+        next(source for source in baseline.sources if source.source_id == source_id).outcome
+        == "extracted"
+    )
+    original = pmi_module._datum_reference_geometry
+
+    def partial_support(label, *args):
+        geometry = original(label, *args)
+        if pmi_module._source_id("datum", label) == source_id:
+            assert geometry[0] and geometry[1] is not None and geometry[2]
+            return (*geometry[:3], (*geometry[3], "probe XCAF partial support"))
+        return geometry
+
+    monkeypatch.setattr(pmi_module, "_datum_reference_geometry", partial_support)
+    report = pmi_module.extract_pmi_report(step)
+    (source,) = [item for item in report.sources if item.source_id == source_id]
+    assert source.outcome == "partially_extracted"
+    assert "probe XCAF partial support" in source.reason
+    (coalesced,) = [
+        record
+        for record in report.records
+        if record.source_category == "datum" and source_id in record.source_ids
+    ]
+    assert set(coalesced.source_ids) == set(datum_a.source_ids)
+    assert "probe XCAF partial support" in coalesced.lowering_blockers
+    assert not any(
+        isinstance(feature, DatumRef) and source_id in feature.source_ids
+        for feature in build_pmi_features(report.records, Box(20, 20, 20).bounding_box())
+    )
 
 
 def test_generated_sheet_line_round_trips_imported_datum_and_nested_provenance():

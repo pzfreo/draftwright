@@ -165,6 +165,21 @@ def test_datum_and_finish_place():
     assert placed == {"m_gdt0", "m_gdt1"}
 
 
+def test_projected_datum_stem_keeps_both_near_and_far_datums_issue_2128():
+    part = Box(80, 50, 20)
+    near = DatumRef(frame=Frame((0, 0, -10), "z"), letter="A", view="front", side="below")
+    far = DatumRef(frame=Frame((0, 0, 10), "z"), letter="B", view="front", side="below")
+    # These different physical faces project onto the same front-view shaft.
+    assert near.frame.origin[0] == far.frame.origin[0]
+    assert near.frame.origin[2] != far.frame.origin[2]
+
+    dwg = _build(near, far, part=part, page="A3", scale=1.0, scale_policy="permissive")
+
+    assert {"m_gdt0", "m_gdt1"} <= set(dwg.annotations())
+    assert not [issue for issue in dwg.registry.issues if issue.code == "gdt_dropped"]
+    assert not [issue for issue in dwg.lint() if issue.code == "annotation_ink_overlap"]
+
+
 def test_datum_compacts_through_empty_part_of_conservative_obstacle(monkeypatch):
     """A broad obstacle box must not force remote GD&T ink when its real ink is clear."""
     from draftwright.annotations import _common

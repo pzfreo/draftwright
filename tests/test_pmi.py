@@ -1631,13 +1631,14 @@ class TestExtractPmi:
         )
         assert all(record.value == 0.0 and record.part21_id == "" for record in records)
 
-    def test_part21_failure_keeps_each_xcaf_datum_occurrence_explicitly_partial(self, monkeypatch):
+    def test_both_part21_datum_readers_failure_keeps_xcaf_occurrences_partial(self, monkeypatch):
         import draftwright.pmi as pmi_module
 
         def fail(_step_file):
             raise RuntimeError("mutation: Part21 datum parser failed")
 
         monkeypatch.setattr(pmi_module, "read_datum_occurrences", fail)
+        monkeypatch.setattr(pmi_module, "read_datum_definitions", fail)
         report = pmi_module.extract_pmi_report(CTC01)
         sources = [source for source in report.sources if source.category == "datum"]
         records = [record for record in report.records if record.source_category == "datum"]
@@ -1661,8 +1662,7 @@ class TestExtractPmi:
         assert all(
             record.part21_id == "" and len(record.source_ids) == 1 for record in occurrence_records
         )
-        assert len(definition_sources) == 3
-        assert all(source.outcome == "extracted" for source in definition_sources)
+        assert definition_sources == []
 
     def test_a_failed_exact_topology_guard_keeps_all_datum_definitions_raw(self, monkeypatch):
         import draftwright.pmi as pmi_module
