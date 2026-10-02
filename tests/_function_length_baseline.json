@@ -2,8 +2,7 @@
   "limit": 200,
   "functions": {
     "analysis.py:_prepare_source": 216,
-    "annotations/_common.py:_drain_interior_dimensions": 280,
-    "annotations/_common.py:solve_corridor": 289,
+    "annotations/_common.py:solve_corridor": 265,
     "annotations/_diameters.py:render_diameters": 242,
     "annotations/_dimension_ink_repair.py:_prevent_dimension_label_ink": 291,
     "annotations/_gdt.py:render_gdt": 286,
