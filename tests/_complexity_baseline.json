@@ -114,7 +114,6 @@
     "model/pmi_lowering.py:lower_ap242_manufacturing_requirements": 19,
     "model/pmi_lowering.py:lower_ap242_nominal_diameters": 16,
     "oriented_slot_contract.py:oriented_slot_provider_key": 19,
-    "pdf_text.py:_TextRotation.angle": 44,
     "pdf_text.py:pdf_text_runs": 27,
     "pmi.py:_angular_reference_from_shapes": 18,
     "pmi.py:_dimension_record": 29,
