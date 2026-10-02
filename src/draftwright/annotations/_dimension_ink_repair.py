@@ -464,14 +464,12 @@ def _prevent_dimension_label_ink(
         for conflict in conflicts:
             if conflict[0] == "arrow":
                 involved.update((conflict[1], conflict[3]))  # source + crossed label
-            elif conflict[0] == "line":
-                involved.update((conflict[1], conflict[2]))  # source + crossed label
             elif conflict[0] == "fixed":
                 involved.add(conflict[2])
             elif conflict[0] == "view":
                 involved.add(conflict[1])
-            else:  # label/label
-                involved.update((conflict[1], conflict[2]))
+            else:  # line/label or label/label
+                involved.update((conflict[1], conflict[2]))  # source + crossed label
         best = None
         for index in sorted(involved):
             name, _dim_obj = original[index]
