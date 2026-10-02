@@ -33,6 +33,8 @@ _TESTS = Path(__file__).resolve().parent
 # Independent owner probes: the full roster guard cannot tell whether a test is
 # routed from the source whose behavior it checks.
 SOURCE_OWNER_ROUTES = (
+    ("src/draftwright/family_table.py", "test_family_table.py"),
+    ("src/draftwright/recognition_ownership.py", "test_family_table.py"),
     ("src/draftwright/layout_scheme.py", "test_layout_scheme.py"),
     ("src/draftwright/fits.py", "test_fits.py"),
     ("src/draftwright/builder.py", "test_repack_geometry_seam.py"),
