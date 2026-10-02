@@ -324,6 +324,9 @@ def test_declared_lane_that_straddles_the_view_boundary_fails_closed(monkeypatch
             )
         ]
     )
+    ctx.place = lambda _annotation, _name, **_kwargs: pytest.fail(
+        "a boundary-straddling lane reached the placement boundary"
+    )
     drawing = SimpleNamespace(view_bounds=lambda _view: (0.0, 0.0, 40.0, 40.0))
 
     monkeypatch.setattr(_common, "_drawing_bounds", lambda _drawing: (0.0, 0.0, 50.0, 50.0))
