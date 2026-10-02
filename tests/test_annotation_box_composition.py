@@ -124,3 +124,46 @@ class TestComposeAnnoBoxes:
 
         # No bands at all → zero depths, but the left floor still applies.
         assert _footprint_from_boxes([]) == StripDepths(right=0.0, left=_DIM_PAD, pv_halo=0.0)
+
+
+@pytest.mark.parametrize("family", ["angle", "through_step", "axial_boss"])
+def test_measured_reservation_requires_owning_model_family_issue_2139(family):
+    """An inconsistent plan cannot create a measured corridor without its model family."""
+    from types import SimpleNamespace as Record
+
+    from draftwright.compose import _reserve_measured_anno_corridors
+    from draftwright.model.ir import Frame, ThroughStepFeature
+
+    if family == "angle":
+        feature = Record(kind="angle")
+        reference = Record(vertex=(0, 0, 0), first=(1, 0, 0), second=(0, 1, 0), sector="minor")
+        dimension = Record(
+            suppressed=False,
+            param=Record(angular_reference=reference, value=90, tolerance=None),
+            display_decimals=1,
+        )
+        group = Record(feature=feature, view="plan", dims=(dimension,))
+        owned_features = (feature,)
+    elif family == "through_step":
+        feature = ThroughStepFeature(Frame((0, 0, 0), "z"), "z", 10, ((5, 0), (0, 0), (0, 8)))
+        dimension = Record(
+            suppressed=False, param=Record(role="through_step_leg", discriminator="x")
+        )
+        group = Record(feature=feature, view="plan", dims=(dimension,))
+        owned_features = (feature,)
+    else:
+        feature = Record(kind="boss", frame=Record(axis="x"))
+        dimension = Record(suppressed=False, param=Record(role="boss_height"))
+        group = Record(feature=feature, view="front", dims=(dimension,))
+        owned_features = (feature, Record(kind="step", frame=Record(axis="x")))
+
+    def reserve(features):
+        model = Record(features=features, bbox=Record(center=lambda: (0, 0, 0)))
+        boxes = []
+        corridors = _reserve_measured_anno_corridors(
+            model, boxes, (group,), 2.5, 2.0, 1.2, "outside", "aligned"
+        )
+        return corridors, boxes
+
+    assert reserve(owned_features) != ({}, [])  # The planned group demands space.
+    assert reserve(()) == ({}, [])

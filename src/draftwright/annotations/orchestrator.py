@@ -562,6 +562,33 @@ class _AutoAnnotationRun:
     detail_reservations: dict
 
 
+def _render_step_lengths_or_contingency(run: _AutoAnnotationRun) -> None:
+    """Release the reserved overall-height ladder only when the step chain cannot place."""
+    a, dwg, ctx = run.analysis, run.dwg, run.ctx
+    if not a.profiles:
+        return
+    placed = render_step_lengths(dwg, run.compiled, ctx=ctx)
+    if placed != 0:
+        return
+    released = run.runtime_plan.release_contingency("step_length")
+    if released is run.runtime_plan:
+        return
+    run.runtime_plan = released
+    render_height_ladder(
+        dwg,
+        ladder_plan_for(run.runtime_plan, step_height=False, overall=True),
+        layout_frame(a),
+        ctx=ctx,
+        detail_view=run.detail_view,
+    )
+
+
+def _locate_off_axis_stage(run: _AutoAnnotationRun, *, which: str) -> None:
+    """Register a side-drilled location only when the hole inventory exists."""
+    if run.feature_keys:
+        _locate_off_axis_holes(run.dwg, run.ctx, run.analysis, which=which, plan=run.compiled)
+
+
 def _initial_annotation_stages(run: _AutoAnnotationRun) -> dict:
     """Reserve derived views and place the early structural annotations."""
     dwg, a, ctx = run.dwg, run.analysis, run.ctx
@@ -672,7 +699,7 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
     """Register feature dimensions and callouts before the corridor drain."""
     dwg, a, ctx = run.dwg, run.analysis, run.ctx
     _compiled = run.compiled
-    feature_keys, detail_view = run.feature_keys, run.detail_view
+    detail_view = run.detail_view
 
     def _s_chamfers():
         # Chamfer callouts: C{leg} / {leg}×{angle}° via a leader off each chamfer face.
@@ -758,8 +785,7 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
         # the overall envelope depth. They now queue into the same batch; the envelope's
         # later subchain + mandatory priority keeps ISO outermost stacking and prevents
         # best-effort locations from starving the principal depth dimension.
-        if feature_keys:
-            _locate_off_axis_holes(dwg, ctx, a, which="across", plan=_compiled)
+        _locate_off_axis_stage(run, which="across")
 
     def _s_envelope():
         # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
@@ -802,27 +828,14 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
         # X-turned head queues an enlarged detail request instead of
         # cramming; the envelope dim along the turning axis was suppressed so the chain
         # does not double-dimension the length.
-        if a.profiles:
-            placed = render_step_lengths(dwg, _compiled, ctx=ctx)
-            if placed == 0:
-                released = run.runtime_plan.release_contingency("step_length")
-                if released is not run.runtime_plan:
-                    run.runtime_plan = released
-                    render_height_ladder(
-                        dwg,
-                        ladder_plan_for(run.runtime_plan, step_height=False, overall=True),
-                        layout_frame(a),
-                        ctx=ctx,
-                        detail_view=detail_view,
-                    )
+        _render_step_lengths_or_contingency(run)
 
     def _s_off_axis_along():
         # Side-drilled (X/Y-axis) hole HEIGHT locations — queued after the mandatory
         # envelope candidates so below/right corridors solve them together with GD&T/PMI
         # at the drain. The front-right height ladder's leapfrog witness chain
         # remains inside its candidates' build closures; nothing here places immediately.
-        if feature_keys:
-            _locate_off_axis_holes(dwg, ctx, a, which="along", plan=_compiled)
+        _locate_off_axis_stage(run, which="along")
 
     def _s_slots():
         # Non-cylindrical machined features: slots and reduced across-flats sections.

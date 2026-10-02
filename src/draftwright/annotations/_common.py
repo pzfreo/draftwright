@@ -790,6 +790,122 @@ class InteriorDimensionCandidate:
     region: DimensionCandidateRegion = DimensionCandidateRegion.INTERIOR
 
 
+def _dimension_region(label, bounds, side) -> DimensionCandidateRegion | None:
+    """Classify the complete label against its owning view before placement or commit."""
+    if (
+        label[0] >= bounds[0]
+        and label[1] >= bounds[1]
+        and label[2] <= bounds[2]
+        and label[3] <= bounds[3]
+    ):
+        return DimensionCandidateRegion.INTERIOR
+    if _dimension_exterior(label, bounds, side):
+        return DimensionCandidateRegion.EXTERIOR
+    return None
+
+
+def _dimension_exterior(label, bounds, side) -> bool:
+    """Require a label to sit wholly beyond its selected view boundary."""
+    return bool(
+        {
+            "above": label[1] >= bounds[3],
+            "below": label[3] <= bounds[1],
+            "right": label[0] >= bounds[2],
+            "left": label[2] <= bounds[0],
+        }[side]
+    )
+
+
+def _interior_dimension_geometry(job, position, axis):
+    """Build one lane's complete annotation through its available geometry seam."""
+    if job.analytical_geometry is not None and job.interior_build is not None:
+        dimension = job.analytical_geometry(position)
+        label = None if dimension is None else dimension.label_bbox
+        box = None if dimension is None else dimension.box
+    elif job.explicit_position is not None and job.interior_build is not None:
+        dimension = job.interior_build(position)
+        label = getattr(dimension, "label_bbox", None)
+        box = _geom_box(dimension)
+    else:
+        # Compatibility path for direct/internal callers without analytical intent.
+        # Production candidates carry it, so rejected lanes never construct OCC.
+        specimen = job.build(position)
+        spec = specimen.placement_spec if isinstance(specimen, PlacedDimension) else None
+        if spec is None:
+            return None
+        opposite = {
+            "above": "below",
+            "below": "above",
+            "right": "left",
+            "left": "right",
+        }[job.side]
+        base = (float(spec.p1[axis]) + float(spec.p2[axis])) / 2.0
+        dimension = _dim(
+            spec.p1,
+            spec.p2,
+            opposite,
+            abs(position - base),
+            spec.draft,
+            **spec.kwargs,
+        )
+        for attr, value in vars(specimen).items():
+            if attr.startswith("covers_"):
+                setattr(dimension, attr, value)
+        _copy_dimension_spec_riders(specimen, dimension)
+        label = getattr(dimension, "label_bbox", None)
+        box = _geom_box(dimension)
+    return dimension, label, box
+
+
+def _record_interior_dimension_trace(
+    trace_event, rejections, job, candidates, costs, choice, outcome, reason=None
+) -> None:
+    """Record the chosen lane beside the complete candidate inventory."""
+    if trace_event is None:
+        return
+    trace_event["items"].append(
+        {
+            "name": job.name,
+            "outcome": outcome,
+            "reason": reason,
+            "priority": job.priority,
+            "rejections": sorted(rejections[id(job)]),
+            "candidate_inventory": [
+                {
+                    "view": job.view,
+                    "region": candidate.region.value,
+                    "position": candidate.position,
+                    "cost": cost,
+                    "outcome": (
+                        ("selected" if outcome == "placed" else "failed_commit")
+                        if index == choice
+                        else "available"
+                    ),
+                }
+                for index, (candidate, cost) in enumerate(zip(candidates, costs, strict=True))
+            ],
+        }
+    )
+
+
+def _interior_dimension_conflicts(dwg, jobs, candidates_by_job):
+    """Enumerate pairs whose complete dimension ink cannot coexist in one view."""
+    conflicts: list[tuple[int, int, int, int]] = []
+    for right_job, right_candidates in enumerate(candidates_by_job):
+        for left_job in range(right_job):
+            if jobs[left_job].view != jobs[right_job].view:
+                continue
+            for left_index, left_candidate in enumerate(candidates_by_job[left_job]):
+                for right_index, right_candidate in enumerate(right_candidates):
+                    if not annotation_ink_clear(
+                        dwg,
+                        left_candidate.annotation,
+                        additional=(right_candidate.annotation,),
+                    ):
+                        conflicts.append((left_job, left_index, right_job, right_index))
+    return conflicts
+
+
 def _ordered_corridor_candidates(cands, *, ctx, key, trace):
     """Keep dedup and lane order separate to meet #1956's function-size limit."""
     # Dedup: keep the highest-precedence candidate per coincidence key (tie-break on name,
@@ -855,6 +971,52 @@ def _ordered_corridor_candidates(cands, *, ctx, key, trace):
                 trace.record_outcome(loser.name, "deduped", winner=winners[dk].name)
 
     return kept, losers
+
+
+def _queue_interior_corridor_retry(
+    candidate, lane_step, ctx, losers, group_owners, group_measurements, restore_identity, trace
+) -> bool:
+    """Queue a complete interior fallback only after an eligible exterior failure."""
+    interior_jobs = getattr(ctx, "interior_dimensions", None)
+    displaced = losers.get(candidate.dedup, ()) if candidate.dedup is not None else ()
+    if (
+        (ctx is not None and ctx.exterior_dimensions_only)
+        or interior_jobs is None
+        or candidate.interior_view is None
+        or candidate.interior_side is None
+        or displaced
+    ):
+        return False
+    owners = group_owners(candidate)
+    measurements = group_measurements(candidate)
+
+    def _interior_placed(_name, _candidate=candidate):
+        _candidate.on_place(_name)
+
+    def _interior_dropped(_name, _candidate=candidate):
+        _candidate.on_drop(_name)
+        restore_identity(_candidate)
+
+    interior_jobs.append(
+        InteriorDimensionJob(
+            name=candidate.name,
+            view=candidate.interior_view,
+            side=candidate.interior_side,
+            build=candidate.build,
+            on_place=_interior_placed,
+            on_drop=_interior_dropped,
+            lane_step=lane_step,
+            priority=candidate.priority,
+            feature=owners[0] if len(owners) == 1 else None,
+            measurement=measurements or candidate.measurement,
+            measurement_span=candidate.measurement_span,
+            interior_build=candidate.interior_build,
+            analytical_geometry=candidate.interior_geometry,
+        )
+    )
+    if trace is not None:
+        trace.record_outcome(candidate.name, "deferred", reason="interior_retry")
+    return True
 
 
 def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, key=None, ctx=None):
@@ -940,51 +1102,18 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 trace.record_outcome(loser.name, "promoted")
             break
 
-    def _defer_interior(candidate, lane_step) -> bool:
-        interior_jobs = getattr(ctx, "interior_dimensions", None)
-        displaced = losers.get(candidate.dedup, ()) if candidate.dedup is not None else ()
-        if (
-            (ctx is not None and ctx.exterior_dimensions_only)
-            or interior_jobs is None
-            or candidate.interior_view is None
-            or candidate.interior_side is None
-            or displaced
-        ):
-            return False
-        owners = _group_owners(candidate)
-        measurements = _group_measurements(candidate)
-
-        def _interior_placed(_name, _candidate=candidate):
-            _candidate.on_place(_name)
-
-        def _interior_dropped(_name, _candidate=candidate):
-            _candidate.on_drop(_name)
-            _restore_shared_identity(_candidate)
-
-        interior_jobs.append(
-            InteriorDimensionJob(
-                name=candidate.name,
-                view=candidate.interior_view,
-                side=candidate.interior_side,
-                build=candidate.build,
-                on_place=_interior_placed,
-                on_drop=_interior_dropped,
-                lane_step=lane_step,
-                priority=candidate.priority,
-                feature=owners[0] if len(owners) == 1 else None,
-                measurement=measurements or candidate.measurement,
-                measurement_span=candidate.measurement_span,
-                interior_build=candidate.interior_build,
-                analytical_geometry=candidate.interior_geometry,
-            )
-        )
-        if trace is not None:
-            trace.record_outcome(candidate.name, "deferred", reason="interior_retry")
-        return True
-
     if strip is None:  # no such strip on this drawing — every candidate drops
         for c in kept:
-            if _defer_interior(c, tier + _STRIP_SPACING):
+            if _queue_interior_corridor_retry(
+                c,
+                tier + _STRIP_SPACING,
+                ctx,
+                losers,
+                _group_owners,
+                _group_measurements,
+                _restore_shared_identity,
+                trace,
+            ):
                 continue
             c.on_drop(c.name)
             _restore_shared_identity(c)
@@ -1117,7 +1246,16 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             if trace is not None:
                 trace.record_outcome(c.name, "placed")
         else:
-            if _defer_interior(c, tier + getattr(strip, "spacing", _STRIP_SPACING)):
+            if _queue_interior_corridor_retry(
+                c,
+                tier + getattr(strip, "spacing", _STRIP_SPACING),
+                ctx,
+                losers,
+                _group_owners,
+                _group_measurements,
+                _restore_shared_identity,
+                trace,
+            ):
                 continue
             pending = ctx.post_drain if ctx is not None else None
             n_deferred = len(pending) if pending is not None else 0
@@ -1389,33 +1527,15 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
             trace_rejections[id(job)].add(reason)
 
     def record(job, job_candidates, job_costs, choice, outcome, reason=None) -> None:
-        if trace_event is None:
-            return
-        assert trace_rejections is not None
-        trace_event["items"].append(
-            {
-                "name": job.name,
-                "outcome": outcome,
-                "reason": reason,
-                "priority": job.priority,
-                "rejections": sorted(trace_rejections[id(job)]),
-                "candidate_inventory": [
-                    {
-                        "view": job.view,
-                        "region": candidate.region.value,
-                        "position": candidate.position,
-                        "cost": cost,
-                        "outcome": (
-                            ("selected" if outcome == "placed" else "failed_commit")
-                            if index == choice
-                            else "available"
-                        ),
-                    }
-                    for index, (candidate, cost) in enumerate(
-                        zip(job_candidates, job_costs, strict=True)
-                    )
-                ],
-            }
+        _record_interior_dimension_trace(
+            trace_event,
+            trace_rejections,
+            job,
+            job_candidates,
+            job_costs,
+            choice,
+            outcome,
+            reason,
         )
 
     for job in jobs:
@@ -1451,67 +1571,19 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
             if job.explicit_position is None and not bounds[axis] < position < bounds[axis + 2]:
                 break
             try:
-                if job.analytical_geometry is not None and job.interior_build is not None:
-                    dimension = job.analytical_geometry(position)
-                    label = None if dimension is None else dimension.label_bbox
-                    box = None if dimension is None else dimension.box
-                elif job.explicit_position is not None and job.interior_build is not None:
-                    dimension = job.interior_build(position)
-                    label = getattr(dimension, "label_bbox", None)
-                    box = _geom_box(dimension)
-                else:
-                    # Compatibility path for direct/internal callers that have not
-                    # supplied the analytical intent. Production candidates carry it,
-                    # so rejected lanes never construct OCC geometry.
-                    specimen = job.build(position)
-                    spec = (
-                        specimen.placement_spec if isinstance(specimen, PlacedDimension) else None
-                    )
-                    if spec is None:
-                        continue
-                    opposite = {
-                        "above": "below",
-                        "below": "above",
-                        "right": "left",
-                        "left": "right",
-                    }[job.side]
-                    base = (float(spec.p1[axis]) + float(spec.p2[axis])) / 2.0
-                    dimension = _dim(
-                        spec.p1,
-                        spec.p2,
-                        opposite,
-                        abs(position - base),
-                        spec.draft,
-                        **spec.kwargs,
-                    )
-                    for attr, value in vars(specimen).items():
-                        if attr.startswith("covers_"):
-                            setattr(dimension, attr, value)
-                    _copy_dimension_spec_riders(specimen, dimension)
-                    label = getattr(dimension, "label_bbox", None)
-                    box = _geom_box(dimension)
+                geometry = _interior_dimension_geometry(job, position, axis)
             except Exception:  # noqa: BLE001 — an optional lane must fail closed
                 reject(job, "candidate_construction_failed")
                 continue
+            if geometry is None:
+                continue
+            dimension, label, box = geometry
             if label is None or box is None:
                 reject(job, "candidate_geometry_unavailable")
                 continue
             label = tuple(float(value) for value in label)
-            if (
-                label[0] >= bounds[0]
-                and label[1] >= bounds[1]
-                and label[2] <= bounds[2]
-                and label[3] <= bounds[3]
-            ):
-                region = DimensionCandidateRegion.INTERIOR
-            elif {
-                "above": label[1] >= bounds[3],
-                "below": label[3] <= bounds[1],
-                "right": label[0] >= bounds[2],
-                "left": label[2] <= bounds[0],
-            }[job.side]:
-                region = DimensionCandidateRegion.EXTERIOR
-            else:
+            region = _dimension_region(label, bounds, job.side)
+            if region is None:
                 reject(job, "view_boundary_straddle")
                 continue
             if box[0] < page[0] or box[1] < page[1] or box[2] > page[2] or box[3] > page[3]:
@@ -1532,22 +1604,9 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
         candidates_by_job.append(tuple(candidates))
         costs_by_job.append(tuple(costs))
 
-    conflicts: list[tuple[int, int, int, int]] = []
-    for right_job, right_candidates in enumerate(candidates_by_job):
-        for left_job in range(right_job):
-            if jobs[left_job].view != jobs[right_job].view:
-                continue
-            for left_index, left_candidate in enumerate(candidates_by_job[left_job]):
-                for right_index, right_candidate in enumerate(right_candidates):
-                    if not annotation_ink_clear(
-                        dwg,
-                        left_candidate.annotation,
-                        additional=(right_candidate.annotation,),
-                    ):
-                        conflicts.append((left_job, left_index, right_job, right_index))
     assignment = _assign_leader_candidates(
         costs_by_job,
-        conflicts,
+        _interior_dimension_conflicts(dwg, jobs, candidates_by_job),
         priorities=[job.priority for job in jobs],
     )
     for job, job_candidates, job_costs, choice in zip(
@@ -1593,22 +1652,16 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
                 or box[3] > page[3]
                 or (
                     selected_region is DimensionCandidateRegion.INTERIOR
-                    and (
-                        label[0] < selected_bounds[0]
-                        or label[1] < selected_bounds[1]
-                        or label[2] > selected_bounds[2]
-                        or label[3] > selected_bounds[3]
-                        or not selected_label_clear(label)
-                    )
+                    and _dimension_region(label, selected_bounds, job.side)
+                    is not DimensionCandidateRegion.INTERIOR
                 )
                 or (
                     selected_region is DimensionCandidateRegion.EXTERIOR
-                    and not {
-                        "above": label[1] >= selected_bounds[3],
-                        "below": label[3] <= selected_bounds[1],
-                        "right": label[0] >= selected_bounds[2],
-                        "left": label[2] <= selected_bounds[0],
-                    }[job.side]
+                    and not _dimension_exterior(label, selected_bounds, job.side)
+                )
+                or (
+                    selected_region is DimensionCandidateRegion.INTERIOR
+                    and not selected_label_clear(label)
                 )
                 or not annotation_ink_clear(dwg, dimension)
             ):

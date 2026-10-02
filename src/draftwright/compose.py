@@ -679,7 +679,47 @@ def _base_anno_bands(
     return boxes, n_boss_h
 
 
-def _reserve_measured_anno_corridors(
+def _reserve_corridor(corridors: dict[tuple[str, str], int], view: str, side: str) -> None:
+    key = (view, side)
+    corridors[key] = corridors.get(key, 0) + 1
+
+
+def _reserve_angle(
+    model,
+    boxes: list[AnnoBox],
+    font_size: float,
+    arrow_length: float,
+    pad_around_text: float,
+    text_position: str,
+    text_orientation: str,
+    reference,
+    view: str,
+    label: str,
+) -> None:
+    draft = draft_preset(font_size=font_size, decimal_precision=1)
+    style = AngularStyle(
+        arrow_length=arrow_length,
+        extension_gap=draft.extension_gap,
+        pad_around_text=pad_around_text,
+        line_width=draft.line_width,
+        text_position=text_position,
+        text_orientation=text_orientation,
+    )
+    axes = {"plan": (0, 1), "front": (0, 2), "side": (1, 2)}[view]
+    centre = tuple(model.bbox.center())
+    points = tuple(
+        tuple(point[index] - centre[index] for index in axes)
+        for point in (reference.vertex, reference.first, reference.second)
+    )
+    measured = _text_size(label, font_size, PLEX_MONO, draft.font, draft.font_style)
+    boxes.append(
+        AnnoBox(
+            "angular", 0.0, AngularReservation(view, points, reference.sector, measured, style)
+        )
+    )
+
+
+def _reserve_planned_angles(
     model,
     boxes: list[AnnoBox],
     planned_groups,
@@ -688,41 +728,7 @@ def _reserve_measured_anno_corridors(
     pad_around_text: float,
     text_position: str,
     text_orientation: str,
-) -> dict[tuple[str, str], int]:
-    """Collect authored and feature-owned corridor demand before packing."""
-    # Measured placement hints are semantic corridor requirements and therefore part of
-    # compose-before-pack, not merely renderer filters. Resolve every valid explicit route;
-    # a view-only hint conservatively reserves both supported sides, while the legacy
-    # no-hint Z-linear path keeps its established both-side reservation (#562).
-    authored_corridors: dict[tuple[str, str], int] = {}
-
-    def _reserve(view: str, side: str) -> None:
-        key = (view, side)
-        authored_corridors[key] = authored_corridors.get(key, 0) + 1
-
-    def reserve_angle(reference, view, label):
-        draft = draft_preset(font_size=font_size, decimal_precision=1)
-        style = AngularStyle(
-            arrow_length=arrow_length,
-            extension_gap=draft.extension_gap,
-            pad_around_text=pad_around_text,
-            line_width=draft.line_width,
-            text_position=text_position,
-            text_orientation=text_orientation,
-        )
-        axes = {"plan": (0, 1), "front": (0, 2), "side": (1, 2)}[view]
-        centre = tuple(model.bbox.center())
-        points = tuple(
-            tuple(point[index] - centre[index] for index in axes)
-            for point in (reference.vertex, reference.first, reference.second)
-        )
-        measured = _text_size(label, font_size, PLEX_MONO, draft.font, draft.font_style)
-        boxes.append(
-            AnnoBox(
-                "angular", 0.0, AngularReservation(view, points, reference.sector, measured, style)
-            )
-        )
-
+) -> None:
     if any(feature.kind == "angle" for feature in model.features):
         # Sizing reads planned content without executing the compiler: the same
         # compose path also serves read-only inspection. Share the complete text
@@ -735,7 +741,14 @@ def _reserve_measured_anno_corridors(
             for planned in group.dims:
                 if not planned.suppressed:
                     parameter = planned.param
-                    reserve_angle(
+                    _reserve_angle(
+                        model,
+                        boxes,
+                        font_size,
+                        arrow_length,
+                        pad_around_text,
+                        text_position,
+                        text_orientation,
                         parameter.angular_reference,
                         group.view,
                         shared_label
@@ -744,6 +757,21 @@ def _reserve_measured_anno_corridors(
                         ),
                     )
 
+
+def _reserve_authored_dimensions(
+    model,
+    boxes: list[AnnoBox],
+    corridors: dict[tuple[str, str], int],
+    font_size: float,
+    arrow_length: float,
+    pad_around_text: float,
+    text_position: str,
+    text_orientation: str,
+) -> None:
+    # Measured placement hints are semantic corridor requirements and therefore part of
+    # compose-before-pack, not merely renderer filters. Resolve every valid explicit route;
+    # a view-only hint conservatively reserves both supported sides, while the legacy
+    # no-hint Z-linear path keeps its established both-side reservation (#562).
     for feature in model.features:
         if getattr(feature, "kind", None) != "authored_dimension":
             continue
@@ -764,15 +792,26 @@ def _reserve_measured_anno_corridors(
             if kind == "linear" and axis == "?" and target_view is not None:
                 pass
             elif kind not in ("diameter", "radius", "angular") and axis == "Z":
-                _reserve("front", "left")
-                _reserve("front", "right")
+                _reserve_corridor(corridors, "front", "left")
+                _reserve_corridor(corridors, "front", "right")
                 continue
             else:
                 continue
         if target_view is None:
             continue
         if angular_reference is not None:
-            reserve_angle(angular_reference, target_view, feature.label)
+            _reserve_angle(
+                model,
+                boxes,
+                font_size,
+                arrow_length,
+                pad_around_text,
+                text_position,
+                text_orientation,
+                angular_reference,
+                target_view,
+                feature.label,
+            )
             continue
         sides: tuple[str, ...]
         if side_hint is not None:
@@ -788,8 +827,10 @@ def _reserve_measured_anno_corridors(
         else:
             sides = ("left", "right")
         for target_side in sides:
-            _reserve(target_view, target_side)
+            _reserve_corridor(corridors, target_view, target_side)
 
+
+def _reserve_side_normal_pads(model, corridors: dict[tuple[str, str], int]) -> None:
     # A side-normal pad contributes up to two footprint and two in-plane-location candidates
     # in its end-on view.  They consume the ordinary strips and therefore must participate in
     # the compose-before-pack footprint.  In an authored set, however, omission is suppression
@@ -822,16 +863,18 @@ def _reserve_measured_anno_corridors(
             ("pad_length.length", feature.long_axis),
         ):
             if _pad_parameter_is_authored(parameter_id):
-                _reserve(view, "above" if axis == horizontal_axis else "right")
+                _reserve_corridor(corridors, view, "above" if axis == horizontal_axis else "right")
         if model.authored_dimensions is None or any(
             request.feature is feature and request.role == "location"
             for request in model.authored_dimensions
         ):
             # One authored location intent compiles to the two independently observable
             # in-plane ordinates, one in each strip.
-            _reserve(view, "above")
-            _reserve(view, "right")
+            _reserve_corridor(corridors, view, "above")
+            _reserve_corridor(corridors, view, "right")
 
+
+def _reserve_seat_offsets(model, corridors: dict[tuple[str, str], int]) -> None:
     # Seat-axis offsets occupy profile ladders, including the axis height above stock.
     # Reserve each distinct physical ordinate that the renderer can share.
     seat_corridors = set()
@@ -846,8 +889,12 @@ def _reserve_measured_anno_corridors(
             if abs(end - start) > 1e-9:
                 seat_corridors.add((view, side, start, end))
     for view, side, _start, _end in seat_corridors:
-        _reserve(view, side)
+        _reserve_corridor(corridors, view, side)
 
+
+def _reserve_through_step_legs(
+    model, planned_groups, corridors: dict[tuple[str, str], int]
+) -> None:
     # A through-step owns its two orthogonal legs after the adapter removes matching
     # raw face levels/plates. Reserve those approved legs directly; a phantom legacy
     # height ladder must not be what happens to give them room (#1592).
@@ -864,8 +911,12 @@ def _reserve_measured_anno_corridors(
                     side = "above" if outside[vertical] > 0 else "below"
                 else:
                     side = "right" if outside[horizontal] > 0 else "left"
-                _reserve(group.view, side)
+                _reserve_corridor(corridors, group.view, side)
 
+
+def _reserve_axial_boss_sizes(
+    model, planned_groups, corridors: dict[tuple[str, str], int]
+) -> None:
     # Axial boss sizes occupy the same profile corridors on detected and declared parts.
     # Include them before view packing; a turned chain does not convey its end caps.
     axial_corridors = set()
@@ -887,7 +938,7 @@ def _reserve_measured_anno_corridors(
                 "boss_height",
                 "stock_length",
             ):
-                _reserve(view, "above")
+                _reserve_corridor(corridors, view, "above")
                 axial_corridors.add(view)
     # The existing axial step chain already consumes one row in these corridors.
     for view in sorted(axial_corridors):
@@ -895,9 +946,46 @@ def _reserve_measured_anno_corridors(
         if any(
             feature.kind == "step" and feature.frame.axis == axis for feature in model.features
         ):
-            _reserve(view, "above")
+            _reserve_corridor(corridors, view, "above")
 
-    return authored_corridors
+
+def _reserve_measured_anno_corridors(
+    model,
+    boxes: list[AnnoBox],
+    planned_groups,
+    font_size: float,
+    arrow_length: float,
+    pad_around_text: float,
+    text_position: str,
+    text_orientation: str,
+) -> dict[tuple[str, str], int]:
+    """Collect authored and feature-owned corridor demand before packing."""
+    corridors: dict[tuple[str, str], int] = {}
+    _reserve_planned_angles(
+        model,
+        boxes,
+        planned_groups,
+        font_size,
+        arrow_length,
+        pad_around_text,
+        text_position,
+        text_orientation,
+    )
+    _reserve_authored_dimensions(
+        model,
+        boxes,
+        corridors,
+        font_size,
+        arrow_length,
+        pad_around_text,
+        text_position,
+        text_orientation,
+    )
+    _reserve_side_normal_pads(model, corridors)
+    _reserve_seat_offsets(model, corridors)
+    _reserve_through_step_legs(model, planned_groups, corridors)
+    _reserve_axial_boss_sizes(model, planned_groups, corridors)
+    return corridors
 
 
 def _append_anno_corridor_bands(

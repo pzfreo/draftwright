@@ -21,32 +21,106 @@ def _placement_spec(dim):
 
 
 class _InkConflictState:
-    """Shared conflict and candidate arithmetic for one bounded dimension batch."""
+    """Metadata, conflict arithmetic, and candidate search for one dimension batch."""
 
     def __init__(
         self,
         *,
         original,
-        infos,
-        box,
-        segments,
-        arrow_tips,
+        immutable,
         obstacles,
-        natural_obstacle_hits,
         label_clear,
-        natural_centres,
         page,
+        perpendicular_step,
+        dimension_builder,
     ):
         self.original = original
-        self.infos = infos
-        self.box = box
-        self.segments = segments
-        self.arrow_tips = arrow_tips
-        self.obstacles = obstacles
-        self.natural_obstacle_hits = natural_obstacle_hits
+        self.immutable = set(immutable)
+        self.obstacles = tuple(obstacles)
         self.label_clear = label_clear
-        self.natural_centres = natural_centres
         self.page = page
+        self.perpendicular_step = perpendicular_step
+        self.dimension_builder = dimension_builder
+        self.infos = [self.axis_info(dim) for _name, dim in original]
+        self._box_cache: dict[int, Any] = {}
+        self._segments_cache: dict[int, Any] = {}
+        self._tips_cache: dict[int, Any] = {}
+        self._candidate_cache: dict[tuple[int, float, float], Any] = {}
+        if not any(info is not None for info in self.infos):
+            return
+        self.natural_obstacle_hits = [
+            frozenset(
+                obstacle_index
+                for obstacle_index, obstacle in enumerate(self.obstacles)
+                if label is not None and _boxes_overlap(label, obstacle)
+            )
+            for _name, dim in original
+            for label in (self.box(dim),)
+        ]
+        self.natural_centres = []
+        for (_name, dim), info in zip(original, self.infos, strict=True):
+            label = self.box(dim)
+            self.natural_centres.append(
+                None
+                if info is None or label is None
+                else (label[info[0]] + label[info[0] + 2]) / 2.0
+            )
+
+    @staticmethod
+    def axis_info(dim):
+        spec = _placement_spec(dim)
+        label = getattr(dim, "label_bbox", None)
+        if spec is None or label is None:
+            return None
+        dx = float(spec.p2[0]) - float(spec.p1[0])
+        dy = float(spec.p2[1]) - float(spec.p1[1])
+        if min(abs(dx), abs(dy)) > 0.1 or max(abs(dx), abs(dy)) <= 1e-9:
+            return None  # rotated labels need polygonal motion, not an AABB-axis solve
+        axis = 1 if abs(dy) > abs(dx) else 0
+        other = 1 - axis
+        return axis, other, spec
+
+    def box(self, dim):
+        key = id(dim)
+        if key in self._box_cache:
+            return self._box_cache[key]
+        raw = getattr(dim, "label_bbox", None)
+        self._box_cache[key] = tuple(float(value) for value in raw) if raw is not None else None
+        return self._box_cache[key]
+
+    def segments(self, dim):
+        key = id(dim)
+        if key in self._segments_cache:
+            return self._segments_cache[key]
+        try:
+            self._segments_cache[key] = tuple(
+                (
+                    (float(first[0]), float(first[1])),
+                    (float(second[0]), float(second[1])),
+                )
+                for first, second in (getattr(dim, "segments", ()) or ())
+            )
+        except Exception:  # noqa: BLE001 — optional metadata fails closed to lint
+            self._segments_cache[key] = ()
+        return self._segments_cache[key]
+
+    def arrow_tips(self, dim, info):
+        """Dimension terminator tips from measured endpoints and dim-line ordinate."""
+        key = id(dim)
+        if key in self._tips_cache:
+            return self._tips_cache[key]
+        if info is None or (label := self.box(dim)) is None:
+            return ()
+        axis, other, spec = info
+        line = (label[other] + label[other + 2]) / 2.0
+        result = []
+        for point in (spec.p1, spec.p2):
+            tip = [0.0, 0.0]
+            tip[axis] = float(point[axis])
+            tip[other] = line
+            result.append(tuple(tip))
+        self._tips_cache[key] = tuple(result)
+        return self._tips_cache[key]
 
     DEPENDENT_POSITIONS = {
         "view": (1,),
@@ -229,167 +303,13 @@ class _InkConflictState:
         nearest = sorted(bounded, key=lambda value: (abs(value - current_centre), value))[:16]
         return tuple(dict.fromkeys([*nearest, lo, hi]))
 
-
-def _prevent_dimension_label_ink(
-    dimensions,
-    *,
-    page=None,
-    immutable=(),
-    obstacles=(),
-    perpendicular_step=None,
-    label_clear=None,
-    dimension_builder,
-):
-    """Choose small along-line label offsets for a just-built dimension batch.
-
-    Corridor candidates used to reserve only their stacking tier while they were being
-    solved.  Their *eventual* decomposed ink became an obstacle after commit, but siblings
-    built in the same batch could therefore put an extension line or an external-arrow tip
-    through one another's labels (#1334).  Immediate step-length chains have the identical
-    gap: they build the whole row before any member is visible to strip occupancy.
-
-    This is the shared, bounded candidate-selection seam for both producers.  It inspects
-    the same public ``segments``/exact-label-region arithmetic as the lint backstop.
-    A clean batch returns the same objects immediately.  Only a conflicting batch explores
-    a bounded set of analytically-derived label centres, rebuilding the selected survivors
-    through their ``placement_spec``.  No full lint scan and no CAD boolean participates.
-
-    The label *centre* normally stays within half a millimetre of its measured span
-    (rather than requiring the whole label to fit inside it). For a short dimension
-    whose text is wider than the span, conventional outside-label positions are also
-    tried; this can clear a foreign witness through the span midpoint. If the bounded
-    choices cannot improve the batch, the natural deterministic
-    placement survives and the normal ``annotation_ink_overlap`` lint remains explicit
-    evidence of the infeasible fallback.  Names in *immutable* are never shifted (pins win).
-    When ``perpendicular_step`` is supplied, a conflicting dimension may also move one
-    established stacking tier away from the view. This is the generic fallback for a chain
-    whose line-work cannot be cleared by moving labels along their measured spans.
-    Fixed *obstacles* do not make an existing contact this local batch's responsibility, but
-    no selected move may introduce a new label contact with one.
-    ``label_clear`` optionally checks labels against projected part ink. Unlike
-    pre-existing annotation contacts, these are conflicts to resolve in this batch.
-
-    Returns ``[(name, dimension), ...]`` in input order.
-    """
-
-    original = list(dimensions)
-    if not original or (len(original) < 2 and label_clear is None):
-        return original
-    immutable = set(immutable)
-    obstacles = tuple(obstacles)
-
-    def _axis_info(dim):
-        spec = _placement_spec(dim)
-        label = getattr(dim, "label_bbox", None)
-        if spec is None or label is None:
-            return None
-        dx = float(spec.p2[0]) - float(spec.p1[0])
-        dy = float(spec.p2[1]) - float(spec.p1[1])
-        if min(abs(dx), abs(dy)) > 0.1 or max(abs(dx), abs(dy)) <= 1e-9:
-            return None  # rotated labels need polygonal motion, not an AABB-axis solve
-        axis = 1 if abs(dy) > abs(dx) else 0
-        other = 1 - axis
-        return axis, other, spec
-
-    infos = [_axis_info(dim) for _name, dim in original]
-    if not any(info is not None for info in infos):
-        return original
-
-    box_cache: dict[int, Any] = {}
-    segments_cache: dict[int, Any] = {}
-    tips_cache: dict[int, Any] = {}
-
-    def _box(dim):
-        key = id(dim)
-        if key in box_cache:
-            return box_cache[key]
-        raw = getattr(dim, "label_bbox", None)
-        box_cache[key] = tuple(float(value) for value in raw) if raw is not None else None
-        return box_cache[key]
-
-    def _segments(dim):
-        key = id(dim)
-        if key in segments_cache:
-            return segments_cache[key]
-        try:
-            segments_cache[key] = tuple(
-                (
-                    (float(first[0]), float(first[1])),
-                    (float(second[0]), float(second[1])),
-                )
-                for first, second in (getattr(dim, "segments", ()) or ())
-            )
-        except Exception:  # noqa: BLE001 — optional metadata fails closed to lint
-            segments_cache[key] = ()
-        return segments_cache[key]
-
-    def _arrow_tips(dim, info):
-        """Dimension terminator tips from its measured endpoints and dim-line ordinate.
-
-        Helpers expose line pieces but not the filled arrow triangles.  Their tips remain
-        exactly the two measured ordinates on the label's dimension line; treating the tip
-        attachment as label-blocking catches the short-span arrow-through-digit case without
-        inflating every shaft into a coarse full-geometry box.
-        """
-        key = id(dim)
-        if key in tips_cache:
-            return tips_cache[key]
-        if info is None or (label := _box(dim)) is None:
-            return ()
-        axis, other, spec = info
-        line = (label[other] + label[other + 2]) / 2.0
-        result = []
-        for point in (spec.p1, spec.p2):
-            tip = [0.0, 0.0]
-            tip[axis] = float(point[axis])
-            tip[other] = line
-            result.append(tuple(tip))
-        tips_cache[key] = tuple(result)
-        return tips_cache[key]
-
-    natural_obstacle_hits = [
-        frozenset(
-            obstacle_index
-            for obstacle_index, obstacle in enumerate(obstacles)
-            if label is not None and _boxes_overlap(label, obstacle)
-        )
-        for _name, dim in original
-        for label in (_box(dim),)
-    ]
-
-    natural_centres = []
-    for (_name, dim), info in zip(original, infos, strict=True):
-        label = _box(dim)
-        natural_centres.append(
-            None if info is None or label is None else (label[info[0]] + label[info[0] + 2]) / 2.0
-        )
-
-    state = _InkConflictState(
-        original=original,
-        infos=infos,
-        box=_box,
-        segments=_segments,
-        arrow_tips=_arrow_tips,
-        obstacles=obstacles,
-        natural_obstacle_hits=natural_obstacle_hits,
-        label_clear=label_clear,
-        natural_centres=natural_centres,
-        page=page,
-    )
-    current = list(original)
-    current_objective, conflicts = state.objective(current)
-    if not conflicts:
-        return current  # overwhelmingly common path: no extra Dimension construction
-
-    cache: dict[tuple[int, float, float], Any] = {}
-
-    def _rebuild(index, centre, distance_delta=0.0):
+    def rebuild(self, index, centre, distance_delta=0.0):
         key = (index, round(centre, 6), round(distance_delta, 6))
-        if key in cache:
-            return cache[key]
-        name, dim = original[index]
-        info = infos[index]
-        natural = natural_centres[index]
+        if key in self._candidate_cache:
+            return self._candidate_cache[key]
+        name, dim = self.original[index]
+        info = self.infos[index]
+        natural = self.natural_centres[index]
         if info is None or natural is None:
             return dim
         axis, _other, spec = info
@@ -439,7 +359,7 @@ def _prevent_dimension_label_ink(
                     ),
                 )
         if rebuilt is None:
-            rebuilt = dimension_builder(
+            rebuilt = self.dimension_builder(
                 spec.p1,
                 spec.p2,
                 spec.side,
@@ -454,70 +374,133 @@ def _prevent_dimension_label_ink(
                 if attr.startswith("covers_"):
                     setattr(rebuilt, attr, value)
             _copy_dimension_spec_riders(dim, rebuilt)
-        cache[key] = rebuilt
+        self._candidate_cache[key] = rebuilt
         return rebuilt
 
-    # Deterministic steepest descent.  Every accepted move strictly improves the
-    # lexicographic objective, so it terminates even when the layout is infeasible.
-    for _iteration in range(max(1, 2 * len(current))):
-        involved: set[int] = set()
-        for conflict in conflicts:
-            if conflict[0] == "arrow":
-                involved.update((conflict[1], conflict[3]))  # source + crossed label
-            elif conflict[0] == "line":
-                involved.update((conflict[1], conflict[2]))  # source + crossed label
-            elif conflict[0] == "fixed":
-                involved.add(conflict[2])
-            elif conflict[0] == "view":
-                involved.add(conflict[1])
-            else:  # label/label
-                involved.update((conflict[1], conflict[2]))
-        best = None
-        for index in sorted(involved):
-            name, _dim_obj = original[index]
-            if name in immutable or infos[index] is None:
-                continue
-            distances = (0.0,) if perpendicular_step is None else (0.0, perpendicular_step)
-            for distance_delta in distances:
-                for centre in state.centres_for(index, current):
-                    rebuilt = _rebuild(index, centre, distance_delta)
-                    if page is not None:
-                        box = _anno_box(rebuilt)
-                        if box is not None and not (
-                            page[0] <= box[0]
-                            and box[2] <= page[2]
-                            and page[1] <= box[1]
-                            and box[3] <= page[3]
-                        ):
-                            continue
-                    trial = list(current)
-                    trial[index] = (name, rebuilt)
-                    objective, trial_conflicts = state.objective(
-                        trial, changed_index=index, previous=conflicts
-                    )
-                    key = (
-                        objective,
-                        index,
-                        round(distance_delta, 9),
-                        round(centre, 9),
-                    )
-                    if objective < current_objective and (best is None or key < best[0]):
-                        best = (key, trial, objective, trial_conflicts)
-        if best is None:
-            break
-        _key, current, current_objective, conflicts = best
+    def solve(self):
+        if not any(info is not None for info in self.infos):
+            return self.original
+        current = list(self.original)
+        current_objective, conflicts = self.objective(current)
         if not conflicts:
-            break
-    for index, (name, candidate) in enumerate(current):
-        if not isinstance(candidate, _DimensionInkProbe):
-            continue
-        spec = candidate.spec
-        rendered = dimension_builder(
-            spec.p1, spec.p2, spec.side, spec.distance, spec.draft, **spec.kwargs
-        )
-        for attr, value in vars(original[index][1]).items():
-            if attr.startswith("covers_"):
-                setattr(rendered, attr, value)
-        _copy_dimension_spec_riders(original[index][1], rendered)
-        current[index] = (name, rendered)
-    return current
+            return current  # overwhelmingly common path: no extra Dimension construction
+
+        # Deterministic steepest descent.  Every accepted move strictly improves the
+        # lexicographic objective, so it terminates even when the layout is infeasible.
+        for _iteration in range(max(1, 2 * len(current))):
+            involved: set[int] = set()
+            for conflict in conflicts:
+                involved.update(
+                    conflict[position] for position in self.DEPENDENT_POSITIONS[conflict[0]]
+                )
+            best = None
+            for index in sorted(involved):
+                name, _dim_obj = self.original[index]
+                if name in self.immutable or self.infos[index] is None:
+                    continue
+                distances = (
+                    (0.0,) if self.perpendicular_step is None else (0.0, self.perpendicular_step)
+                )
+                for distance_delta in distances:
+                    for centre in self.centres_for(index, current):
+                        rebuilt = self.rebuild(index, centre, distance_delta)
+                        if self.page is not None:
+                            box = _anno_box(rebuilt)
+                            if box is not None and not (
+                                self.page[0] <= box[0]
+                                and box[2] <= self.page[2]
+                                and self.page[1] <= box[1]
+                                and box[3] <= self.page[3]
+                            ):
+                                continue
+                        trial = list(current)
+                        trial[index] = (name, rebuilt)
+                        objective, trial_conflicts = self.objective(
+                            trial, changed_index=index, previous=conflicts
+                        )
+                        key = (
+                            objective,
+                            index,
+                            round(distance_delta, 9),
+                            round(centre, 9),
+                        )
+                        if objective < current_objective and (best is None or key < best[0]):
+                            best = (key, trial, objective, trial_conflicts)
+            if best is None:
+                break
+            _key, current, current_objective, conflicts = best
+            if not conflicts:
+                break
+        return self.render_selected(current)
+
+    def render_selected(self, current):
+        for index, (name, candidate) in enumerate(current):
+            if not isinstance(candidate, _DimensionInkProbe):
+                continue
+            spec = candidate.spec
+            rendered = self.dimension_builder(
+                spec.p1, spec.p2, spec.side, spec.distance, spec.draft, **spec.kwargs
+            )
+            for attr, value in vars(self.original[index][1]).items():
+                if attr.startswith("covers_"):
+                    setattr(rendered, attr, value)
+            _copy_dimension_spec_riders(self.original[index][1], rendered)
+            current[index] = (name, rendered)
+        return current
+
+
+def _prevent_dimension_label_ink(
+    dimensions,
+    *,
+    page=None,
+    immutable=(),
+    obstacles=(),
+    perpendicular_step=None,
+    label_clear=None,
+    dimension_builder,
+):
+    """Choose small along-line label offsets for a just-built dimension batch.
+
+    Corridor candidates used to reserve only their stacking tier while they were being
+    solved.  Their *eventual* decomposed ink became an obstacle after commit, but siblings
+    built in the same batch could therefore put an extension line or an external-arrow tip
+    through one another's labels (#1334).  Immediate step-length chains have the identical
+    gap: they build the whole row before any member is visible to strip occupancy.
+
+    This is the shared, bounded candidate-selection seam for both producers.  It inspects
+    the same public ``segments``/exact-label-region arithmetic as the lint backstop.
+    A clean batch returns the same objects immediately.  Only a conflicting batch explores
+    a bounded set of analytically-derived label centres, rebuilding the selected survivors
+    through their ``placement_spec``.  No full lint scan and no CAD boolean participates.
+
+    The label *centre* normally stays within half a millimetre of its measured span
+    (rather than requiring the whole label to fit inside it). For a short dimension
+    whose text is wider than the span, conventional outside-label positions are also
+    tried; this can clear a foreign witness through the span midpoint. If the bounded
+    choices cannot improve the batch, the natural deterministic
+    placement survives and the normal ``annotation_ink_overlap`` lint remains explicit
+    evidence of the infeasible fallback.  Names in *immutable* are never shifted (pins win).
+    When ``perpendicular_step`` is supplied, a conflicting dimension may also move one
+    established stacking tier away from the view. This is the generic fallback for a chain
+    whose line-work cannot be cleared by moving labels along their measured spans.
+    Fixed *obstacles* do not make an existing contact this local batch's responsibility, but
+    no selected move may introduce a new label contact with one.
+    ``label_clear`` optionally checks labels against projected part ink. Unlike
+    pre-existing annotation contacts, these are conflicts to resolve in this batch.
+
+    Returns ``[(name, dimension), ...]`` in input order.
+    """
+
+    original = list(dimensions)
+    if not original or (len(original) < 2 and label_clear is None):
+        return original
+    state = _InkConflictState(
+        original=original,
+        immutable=immutable,
+        obstacles=obstacles,
+        label_clear=label_clear,
+        page=page,
+        perpendicular_step=perpendicular_step,
+        dimension_builder=dimension_builder,
+    )
+    return state.solve()
