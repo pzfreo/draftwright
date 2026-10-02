@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 
+import pytest
 from build123d import Box
 from build123d_drafting.helpers import Draft
 
@@ -194,6 +195,71 @@ def test_structured_through_tap_lowers_without_a_prose_sentence_issue_2137():
     assert thread.callout_suffix == "M2 x 0.4-6H RH; THRU"
     assert thread.source_ids == ("manufacturing_requirement:#structured",)
     assert not any(isinstance(feature, PmiFeature) for feature in lowered.features)
+
+
+@pytest.mark.parametrize("kind", ("internal_thread", "knurl", "general_tolerances"))
+@pytest.mark.parametrize("extra", ("unknown", "duplicate"))
+def test_structured_manufacturing_field_schema_rejects_unclaimed_meaning_issue_2137(kind, extra):
+    if kind == "internal_thread":
+        owner = HoleFeature(Frame((-20.0, 0.0, 0.0), "x"), 1.6, depth=None, through=True)
+        raw = replace(
+            _raw(kind, "internal thread", _reference(1.6, (-20.0, 20.0), "internal"), "#thread"),
+            structured_fields=(
+                ("thread side", "internal"),
+                ("designation", "M2x0.4"),
+                ("nominal size", "M2"),
+                ("pitch", 0.4),
+                ("fit class", "6H"),
+                ("hand", "right"),
+                ("through", "true"),
+                ("tapping drill diameter", 1.6),
+            ),
+        )
+    elif kind == "knurl":
+        owner = StepFeature(
+            frame=Frame((1.0, 0.0, 0.0), "x"),
+            length=2.0,
+            diameter=10.0,
+            span=((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
+        )
+        raw = replace(
+            _raw(kind, "knurl", _reference(10.0, (0.2, 1.8), "external"), "#knurl"),
+            structured_fields=(
+                ("pattern", "straight"),
+                ("diametral pitch", 1.0),
+                ("major diameter", 10.0),
+            ),
+        )
+    else:
+        owner = None
+        raw = PmiFeature(
+            frame=Frame((0.0, 0.0, 0.0), "z"),
+            pmi_kind=kind,
+            value=0.0,
+            label="general tolerances",
+            dominant_axis="?",
+            source_id="manufacturing_requirement:#default",
+            source_category="manufacturing_requirement",
+            structured_fields=(("tolerance class", "ISO 2768-m"),),
+        )
+    lower = (
+        lower_ap242_document_requirements
+        if kind == "general_tolerances"
+        else lower_ap242_manufacturing_requirements
+    )
+    model = _model(*(feature for feature in (owner, raw) if feature is not None))
+    assert raw.structured_fields and raw.pmi_kind == kind
+    baseline = lower(model)
+    assert not any(isinstance(feature, PmiFeature) for feature in baseline.features)
+
+    extra_field = ("number of starts", 2.0) if extra == "unknown" else raw.structured_fields[0]
+    changed = replace(raw, structured_fields=(*raw.structured_fields, extra_field))
+    assert len(changed.structured_fields) == len(raw.structured_fields) + 1
+    rejected = lower(_model(*(feature for feature in (owner, changed) if feature is not None)))
+    fallback = next(feature for feature in rejected.features if isinstance(feature, PmiFeature))
+    assert (
+        "unsupported structured manufacturing fields" if extra == "unknown" else "duplicate"
+    ) in (fallback.lowering_blockers[0])
 
 
 def test_structured_and_prose_thread_disagreement_is_explicit_issue_2137():

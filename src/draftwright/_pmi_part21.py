@@ -222,6 +222,7 @@ class StructuredManufacturingFact:
     reference_item_ids: tuple[str, ...] = ()
     reason: str = ""
 
+
 @dataclass(frozen=True)
 class SurfaceLabelFact:
     """One descriptive label authored against an exact surface-group shape aspect."""
@@ -682,7 +683,7 @@ def read_structured_manufacturing_requirements(
     for section in step.data:
         for entity_id, instance in section.instances.items():
             definition = _entity_named(instance, "PROPERTY_DEFINITION")
-            if definition is not None and len(definition.params) >= 3:
+            if definition is not None and definition.params:
                 definitions.append((entity_id, definition))
             link = _entity_named(instance, "PROPERTY_DEFINITION_REPRESENTATION")
             if link is not None and len(link.params) >= 2:
@@ -710,23 +711,26 @@ def read_structured_manufacturing_requirements(
     for entity_id, definition in definitions:
         name = _text(definition.params[0]).casefold().replace(" ", "_")
         is_default = name == "default_tolerances"
-        if not is_default and (
-            name not in {"internal_thread", "external_thread", "knurl"}
-            or _text(definition.params[1]) != "pmi-assist"
-            or entity_id not in uda_properties
-        ):
+        is_pmi_assist = len(definition.params) >= 2 and _text(definition.params[1]) == "pmi-assist"
+        if not is_default and not is_pmi_assist:
             continue
         reasons: list[str] = []
+        if is_pmi_assist and name not in {"internal_thread", "external_thread", "knurl"}:
+            reasons.append("structured manufacturing property kind is unsupported")
+        if is_pmi_assist and entity_id not in uda_properties:
+            reasons.append(
+                "structured manufacturing property has no valid user-defined attribute association"
+            )
         aspect_ids: tuple[str, ...] = ()
         reference_ids: tuple[str, ...] = ()
         if is_default:
-            target = definition.params[2]
+            target = definition.params[2] if len(definition.params) >= 3 else None
             if not isinstance(target, p21.Reference) or not _instance_is(
                 step, str(target), "PRODUCT_DEFINITION_SHAPE"
             ):
                 reasons.append("structured default tolerances have no product shape")
         else:
-            target = definition.params[2]
+            target = definition.params[2] if len(definition.params) >= 3 else None
             if not isinstance(target, p21.Reference) or not _instance_is(
                 step, str(target), "SHAPE_ASPECT"
             ):

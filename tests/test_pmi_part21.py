@@ -231,6 +231,108 @@ def test_structured_manufacturing_attributes_keep_units_and_source_support_issue
     )
 
 
+@pytest.mark.parametrize(
+    ("definition", "association", "expected_kind", "reason_part"),
+    [
+        (
+            "#4=PROPERTY_DEFINITION('internal thread','pmi-assist',#1);",
+            None,
+            "internal_thread",
+            "association",
+        ),
+        (
+            "#4=PROPERTY_DEFINITION('internal thread','pmi-assist',#1);",
+            "#5=GENERAL_PROPERTY_ASSOCIATION('',$,$,#4);",
+            "internal_thread",
+            "association",
+        ),
+        (
+            "#4=PROPERTY_DEFINITION('internal thread','pmi-assist');",
+            "#5=GENERAL_PROPERTY_ASSOCIATION('',$,#3,#4);",
+            "internal_thread",
+            "shape aspect",
+        ),
+        (
+            "#4=PROPERTY_DEFINITION('unknown process','pmi-assist',#1);",
+            "#5=GENERAL_PROPERTY_ASSOCIATION('',$,#3,#4);",
+            "unknown_process",
+            "unsupported",
+        ),
+    ],
+)
+def test_identifiable_malformed_pmi_assist_property_remains_a_partial_fact_issue_2137(
+    tmp_path, definition, association, expected_kind, reason_part
+):
+    instances = (
+        "#1=SHAPE_ASPECT('internal thread','',#50,.T.);",
+        "#2=GEOMETRIC_ITEM_SPECIFIC_USAGE('internal thread','',#1,#50,#51);",
+        "#3=GENERAL_PROPERTY('','user defined attribute',$);",
+        definition,
+        *(() if association is None else (association,)),
+        "#6=PROPERTY_DEFINITION_REPRESENTATION(#4,#7);",
+        "#7=REPRESENTATION('internal thread',(#8),#50);",
+        "#8=DESCRIPTIVE_REPRESENTATION_ITEM('thread side','internal');",
+        "#50=PRODUCT_DEFINITION_SHAPE('','',#51);",
+    )
+    assert "pmi-assist" in definition
+    path = tmp_path / "partial.step"
+    path.write_text(_step(*instances), encoding="utf-8")
+
+    facts = read_structured_manufacturing_requirements(path)
+
+    assert len(facts) == 1
+    assert facts[0].entity_id == "#4" and facts[0].kind == expected_kind
+    assert reason_part in facts[0].reason
+    assert facts[0].fields == (("thread side", "internal"),)
+    import draftwright.pmi as pmi
+
+    sources, records = pmi._manufacturing_requirement_projection(path)
+    structured_source = next(
+        source for source in sources if source.source_id == "manufacturing_requirement:#4"
+    )
+    assert structured_source.outcome == "partially_extracted"
+    assert reason_part in structured_source.reason
+    assert any(
+        record.source_id == structured_source.source_id
+        and reason_part in record.lowering_blockers[0]
+        for record in records
+    )
+
+
+def test_unrelated_property_is_not_manufacturing_pmi_issue_2137(tmp_path):
+    definition = "#4=PROPERTY_DEFINITION('internal thread','unrelated',#1);"
+    path = tmp_path / "unrelated.step"
+    path.write_text(_step(definition), encoding="utf-8")
+    assert "pmi-assist" not in definition
+    assert read_structured_manufacturing_requirements(path) == ()
+
+
+def test_structured_facts_survive_prose_reader_failure_issue_2137(monkeypatch):
+    import draftwright.pmi as pmi
+
+    fact = StructuredManufacturingFact(
+        entity_id="#uda",
+        kind="general_tolerances",
+        fields=(("tolerance class", "ISO 2768-m"),),
+    )
+
+    def broken_prose(_path):
+        raise ValueError("prose unavailable")
+
+    monkeypatch.setattr(pmi, "read_manufacturing_requirements", broken_prose)
+    monkeypatch.setattr(pmi, "read_structured_manufacturing_requirements", lambda _path: (fact,))
+    assert fact.fields
+
+    sources, records = pmi._manufacturing_requirement_projection("unused.step")
+
+    assert len(sources) == 2
+    assert sources[0].outcome == "not_extracted"
+    assert "prose unavailable" in sources[0].reason
+    assert sources[1].source_id == "manufacturing_requirement:#uda"
+    assert len(records) == 1
+    assert records[0].structured_fields == fact.fields
+
+
 def test_prose_and_structured_sources_pair_once_by_kind_and_support_issue_2137(monkeypatch):
     import draftwright.pmi as pmi
 

@@ -1548,7 +1548,7 @@ def _manufacturing_requirement_projection(
             )
         )
         _log.debug("PMI manufacturing-requirement inventory unavailable: %s", exc)
-        return tuple(sources), ()
+        requirement_facts = ()
 
     try:
         structured_facts = read_structured_manufacturing_requirements(step_file)

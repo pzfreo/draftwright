@@ -821,8 +821,49 @@ def _structured_text(fields: dict[str, str | float], name: str) -> str:
     return value.strip()
 
 
+_STRUCTURED_MANUFACTURING_FIELDS = {
+    "internal_thread": frozenset(
+        {
+            "thread side",
+            "designation",
+            "nominal size",
+            "pitch",
+            "fit class",
+            "hand",
+            "through",
+            "tapping drill diameter",
+            "tapping drill depth",
+            "minimum full thread",
+        }
+    ),
+    "external_thread": frozenset(
+        {
+            "thread side",
+            "designation",
+            "nominal size",
+            "pitch",
+            "fit class",
+            "hand",
+            "thread length",
+        }
+    ),
+    "knurl": frozenset({"pattern", "diametral pitch", "major diameter"}),
+    "general_tolerances": frozenset({"tolerance class"}),
+}
+
+
+def _structured_fields(feature: PmiFeature) -> dict[str, str | float]:
+    names = [name for name, _value in feature.structured_fields]
+    if len(names) != len(set(names)) or not all(names):
+        raise ValueError("structured manufacturing fields have duplicate or empty names")
+    unsupported = sorted(set(names) - _STRUCTURED_MANUFACTURING_FIELDS[feature.pmi_kind])
+    if unsupported:
+        raise ValueError(f"unsupported structured manufacturing fields: {', '.join(unsupported)}")
+    return dict(feature.structured_fields)
+
+
 def _structured_thread_requirement(feature: PmiFeature) -> ThreadRequirement:
-    fields = dict(feature.structured_fields)
+    fields = _structured_fields(feature)
     application = _structured_text(fields, "thread side").casefold()
     if application not in ("internal", "external") or feature.pmi_kind != f"{application}_thread":
         raise ValueError("structured thread side disagrees with requirement kind")
@@ -942,7 +983,7 @@ def _thread_requirement(feature: PmiFeature) -> ThreadRequirement:
 
 
 def _structured_knurl_requirement(feature: PmiFeature) -> KnurlRequirement:
-    fields = dict(feature.structured_fields)
+    fields = _structured_fields(feature)
     pattern = _structured_text(fields, "pattern").casefold()
     if pattern not in ("straight", "diamond"):
         raise ValueError("structured knurl pattern is unsupported")
@@ -1511,12 +1552,20 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
         designation = feature.label.split(";", 1)[0].strip()
         conflict = ""
         if feature.structured_fields:
-            structured = dict(feature.structured_fields).get("tolerance class")
-            if not isinstance(structured, str) or not structured.strip():
+            try:
+                structured = _structured_fields(feature).get("tolerance class")
+            except ValueError as exc:
+                conflict = str(exc)
+                structured = None
+            if not conflict and (not isinstance(structured, str) or not structured.strip()):
                 conflict = "structured general-tolerance class is missing"
-            elif feature.label != "general tolerances" and designation != structured:
+            elif (
+                not conflict
+                and feature.label != "general tolerances"
+                and designation != structured
+            ):
                 conflict = "structured general-tolerance class disagrees with prose"
-            else:
+            elif not conflict and isinstance(structured, str):
                 designation = structured
         if conflict or not designation:
             features = list(model.features)
