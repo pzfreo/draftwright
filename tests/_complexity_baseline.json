@@ -38,7 +38,7 @@
     "annotations/holes.py:add_feature_location": 20,
     "annotations/leaders.py:_measure": 18,
     "annotations/leaders.py:_select_greedy_job": 18,
-    "annotations/orchestrator.py:_feature_annotation_stages": 35,
+    "annotations/orchestrator.py:_feature_annotation_stages": 30,
     "annotations/orchestrator.py:_final_annotation_stages": 21,
     "annotations/orchestrator.py:_initial_annotation_stages": 17,
     "annotations/orchestrator.py:_maybe_tabulate_holes_impl": 18,
