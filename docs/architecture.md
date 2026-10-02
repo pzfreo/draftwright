@@ -12,7 +12,8 @@ top: strict rank-0 package leaves: `progress.py`, `layout.py` (including
 semantic survival order), `registry.py`, `fonts/`,
 `_geometry.py`,
 `fits.py`,
-`contract_values.py`, `measurement_support.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
+`contract_values.py`, `measurement_support.py`, `sheet_metadata.py`,
+`angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary →
 the rank-1 `model/` IR waist, `recognition_ownership.py`, `profile_angles.py`,
@@ -460,6 +461,9 @@ and re-exports the existing private helper names.
   implementation is owned by `measurement_support.py` and this path is not deprecated.
 - **`plate_correspondence.py`** — pure shared Plate-record/final-IR correspondence predicates.
 - **`contract_values.py`** — shared three-decimal correspondence rounding, exact built-in finite-real validation, and the common compensated dot product and 3D cross product used by profile and frame checks.
+- **`sheet_metadata.py`** — the frozen, dependency-free carrier for the title, display,
+  border, and title-block inputs forwarded through analysis. Public defaults and the
+  existing validation paths remain at their current entry and layout owners.
 - **`section_recess_contract.py`** — the published `SectionRecess` grammar interpreted in
   Draftwright's drafting vocabulary (pocket, channel and hex fields) and the exact inventory
   pattern joins, shared by detection and independent completeness lint.
@@ -577,6 +581,8 @@ and re-exports the existing private helper names.
 - **`analysis.py`** — the `_analyse` stage: solid classification, the one-shot
   feature-inventory detection (ADR 1 (was 0015)), view sizing, and the strip/zone
   model (`fv_zones`/`pv_zones`/`sv_zones`) that ADR 2 (was 0014) placement reads.
+  Its internal request carries one `SheetMetadata` record and flattens those values
+  back into the established `Analysis` fields after sizing and validation.
 - **`projection.py`** — HLR projection and view-coordinate transforms
   (`_assemble`'s geometry half; #161). Also the #798 **material lowering**:
   `part_material_mesh` tessellates the part once per build and

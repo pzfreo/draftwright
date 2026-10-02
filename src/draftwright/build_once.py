@@ -491,32 +491,13 @@ def build_once(
     requested = options.requested
     authored = options.authored
     trace = options.trace
-    material = options.material
-    date = options.date
-    revision = options.revision
-    company = options.company
-    frame = options.frame
-    projection = options.projection
-    projection_symbol = options.projection_symbol
-    zones = options.zones
     framed_recognition = options.framed_recognition
-    text_position = options.text_position
-    text_orientation = options.text_orientation
     _views = options._views
     _include_iso = options._include_iso
     _view_constraints = options._view_constraints
     _required_tables = options._required_tables
     _document_input = options._document_input
     source = options.source
-    approved_by = options.approved_by
-    document_type = options.document_type
-    sheet = options.sheet
-    margin_left = options.margin_left
-    margin_right = options.margin_right
-    margin_top = options.margin_top
-    margin_bottom = options.margin_bottom
-    title_block_width = options.title_block_width
-    leader_region = options.leader_region
     stem = "drawing" if isinstance(step_file, Shape) else Path(step_file).stem
     out = out or stem
     for _ext in (".svg", ".dxf"):
@@ -524,6 +505,7 @@ def build_once(
             out = out[: -len(_ext)]
             break
     title = title or stem.replace("_", " ").upper()
+    sheet_metadata = options.sheet_metadata(title=title)
     tracer = _resolve_trace(trace, out)
 
     if model is None and (requested or authored is not None):
@@ -562,25 +544,7 @@ def build_once(
             decorations=decorations,
             authored=authored,
             requested=requested,
-            material=material,
-            date=date,
-            revision=revision,
-            company=company,
-            approved_by=approved_by,
-            document_type=document_type,
-            sheet=sheet,
-            margin_left=margin_left,
-            margin_right=margin_right,
-            margin_top=margin_top,
-            margin_bottom=margin_bottom,
-            title_block_width=title_block_width,
-            frame=frame,
-            projection=projection,
-            projection_symbol=projection_symbol,
-            text_position=text_position,
-            text_orientation=text_orientation,
-            leader_region=leader_region,
-            zones=zones,
+            _sheet_metadata=sheet_metadata,
             _reuse=reuse,
             _required_tables=_required_tables,
             _arrangements=(
