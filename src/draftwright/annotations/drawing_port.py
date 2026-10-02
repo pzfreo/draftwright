@@ -20,6 +20,12 @@ if TYPE_CHECKING:
     from draftwright.registry import AnnotationRegistry
 
 
+class ViewCoordinateMap(Protocol):
+    """The typed projection operation used by drawing and annotation passes."""
+
+    def pp(self, x: float, y: float, z: float) -> tuple[float, float]: ...
+
+
 class DrawingPort(Protocol):
     """The current rank-4 pass vocabulary over a rank-5 Drawing."""
 
@@ -69,7 +75,7 @@ class DrawingPort(Protocol):
 
     def at(self, view: str, x: float, y: float, z: float) -> tuple[float, float, float]: ...
 
-    def coords(self, view: str) -> Any: ...
+    def coords(self, view: str) -> ViewCoordinateMap: ...
 
     def view_bounds(self, view: str) -> tuple[float, float, float, float] | None: ...
 
@@ -86,7 +92,7 @@ class DrawingPort(Protocol):
         bounds_cache: Any = None,
     ) -> Any: ...
 
-    def _set_view_coordinates(self, view: str, coords: Any) -> None: ...
+    def _set_view_coordinates(self, view: str, coords: ViewCoordinateMap) -> None: ...
 
     def add_table(
         self,
