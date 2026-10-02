@@ -501,6 +501,71 @@ def test_dropped_diameter_slash_cannot_claim_a_visual_zone_issue_2156(monkeypatc
     ] == [("pmi_value_mismatch", (record.source_id,), name)]
 
 
+@pytest.mark.parametrize(
+    "case", ("numeric_text_missing", "spherical_text_missing", "spherical_prefix_missing")
+)
+def test_missing_finished_tolerance_text_is_reported_issue_2156(monkeypatch, case):
+    part = Box(20, 20, 20)
+    spherical = case.startswith("spherical")
+    record = replace(
+        _record(value=0.05, modifiers=("spherical_diameter_zone",) if spherical else ()),
+        datum_refs=(),
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (frame,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(frame, ControlFrame) and frame.spherical_diameter is spherical
+    draft = Draft(font_size=3.0)
+    baseline = _gdt_glyph(frame, draft)
+    assert baseline.tolerance_str == ("Sø0.05" if spherical else "0.05")
+
+    if case != "spherical_prefix_missing":
+        original_cell = drafting_helpers._gdt_tol_cell
+
+        def missing_text_faces(*args, **kwargs):
+            strokes, text_faces = original_cell(*args, **kwargs)
+            assert text_faces, "the fixture must remove actual tolerance text"
+            return strokes, []
+
+        monkeypatch.setattr(drafting_helpers, "_gdt_tol_cell", missing_text_faces)
+    else:
+        original_text = drafting_helpers._gdt_text
+
+        def missing_prefix(draft, text, size):
+            if text == "Sø0.05":
+                return original_text(draft, "0.05", size)
+            return original_text(draft, text, size)
+
+        monkeypatch.setattr(drafting_helpers, "_gdt_text", missing_prefix)
+
+    damaged = _gdt_glyph(frame, draft)
+    assert damaged.tolerance_str == baseline.tolerance_str
+    assert len(damaged.faces()) < len(baseline.faces())
+    model = detect_part_model(part)
+    model.features.append(frame)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name for name in drawing.registry.names() if drawing.registry.declaration_of(name) is frame
+    )
+    annotation = drawing.registry.named(name)
+    expected_specs = ("Sø", "0.05") if spherical else ("0.05",)
+    assert tuple(spec[0] for spec in annotation.pdf_text_relative_specs)[
+        : len(expected_specs)
+    ] == (expected_specs)
+    assert annotation.gdt_visual_tolerance == ""
+    assert annotation.gdt_visual_zone == ""
+    assert [
+        (issue.code, issue.source_ids, issue.annotation_name)
+        for issue in lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(record,)),
+        )
+    ] == [("pmi_value_mismatch", (record.source_id,), name)]
+
+
 def test_xcaf_diametral_position_survives_glyph_pdf_and_sheet_issue_2156():
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader

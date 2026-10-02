@@ -211,12 +211,43 @@ def _gdt_visual_zone(glyph, draft) -> str:
     return ""
 
 
+def _gdt_visual_tolerance(glyph, draft, zone: str) -> str:
+    """Trust a tolerance label only when its complete text is in the glyph ink."""
+    text = str(glyph.tolerance_str)
+    h = draft.font_size
+    font_path = getattr(draft, "font_path", DEFAULT_FONT_PATH)
+    font_name = getattr(draft, "font", "Arial")
+    left = (2.0 + 0.6) * h
+    if zone == "diameter_zone":
+        left += (2.0 * 0.42 + 0.6) * h
+    right = left + _text_size(text, h, font_path, font_name)[0]
+    tolerance = max(1e-3, h * 1e-3)
+    faces = []
+    for face in glyph.faces():
+        box = face.bounding_box()
+        if (
+            box.min.X >= left - tolerance
+            and box.max.X <= right + tolerance
+            and box.min.Y > 0.1 * h
+            and box.max.Y < 1.9 * h
+        ):
+            faces.append(box)
+    if (
+        len(faces) >= len(text.replace(" ", ""))
+        and min((box.min.X for box in faces), default=float("inf")) <= left + tolerance
+        and max((box.max.X for box in faces), default=float("-inf")) >= right - tolerance
+    ):
+        return text
+    return ""
+
+
 def _attach_gdt_text_evidence(leader, glyph, item, draft) -> None:
     """Keep the placed glyph's value beside PDF text for independent PMI lint."""
     leader.pdf_text_relative_specs = _gdt_pdf_text_specs(glyph, item, draft)
     if item.kind == "control_frame":
-        leader.gdt_visual_tolerance = glyph.tolerance_str
-        leader.gdt_visual_zone = _gdt_visual_zone(glyph, draft)
+        zone = _gdt_visual_zone(glyph, draft)
+        leader.gdt_visual_tolerance = _gdt_visual_tolerance(glyph, draft, zone)
+        leader.gdt_visual_zone = zone if leader.gdt_visual_tolerance else ""
 
 
 def _gdt_drop_callback(
