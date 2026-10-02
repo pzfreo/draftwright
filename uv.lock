@@ -753,7 +753,7 @@ requires-dist = [
     { name = "ocp-gordon", specifier = "<0.3" },
     { name = "pillow", specifier = ">=10" },
     { name = "pypdfium2", specifier = ">=4" },
-    { name = "quiddity", specifier = "==0.3.9" },
+    { name = "quiddity", specifier = "==0.3.10" },
     { name = "reportlab", specifier = ">=4.0" },
     { name = "rich", specifier = ">=10.11" },
     { name = "steputils", specifier = "==0.1" },
@@ -2584,7 +2584,7 @@ wheels = [
 
 [[package]]
 name = "quiddity"
-version = "0.3.9"
+version = "0.3.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
@@ -2594,9 +2594,9 @@ dependencies = [
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8c/6a/c987d28e5e2eb8b2a59e8c569cf239e3d4fecf423bff43682b7ce56273bb/quiddity-0.3.9.tar.gz", hash = "sha256:28c42e1d42801af95bbc604ede7594e29651806bf00f57f708faf5beacb84bc1", size = 26711069, upload-time = "2026-10-01T08:25:57.979Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/67/0b/c740b15d86eba7004e3160abfdf22e9c946ebe4d0730ba1d18e89502448b/quiddity-0.3.10.tar.gz", hash = "sha256:8dea40980531b27b62c3e12ceedde08e149db3b88e229fa53549cf302ec6516d", size = 26711538, upload-time = "2026-10-02T13:29:58.672Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/db/27fa9f09f54b385c423799613c55ef64f77a4abe15f2dc6525623d45bc42/quiddity-0.3.9-py3-none-any.whl", hash = "sha256:c7c07d79447110b43475b7a01c4acb04b82c5b81d8ca37e6a8863f7937867da0", size = 584325, upload-time = "2026-10-01T08:25:55.998Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/05/c2da260d55496f5735bd764001ffe71a892ccf223a3d219672d8c0a3702d/quiddity-0.3.10-py3-none-any.whl", hash = "sha256:d83efed74bb5467f89c33bf6ed7453098f3dd9426035a6887284bc3278ee068d", size = 584390, upload-time = "2026-10-02T13:29:56.102Z" },
 ]
 
 [[package]]

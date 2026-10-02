@@ -70,9 +70,9 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
-### Quiddity 0.3.9 runtime contract
+### Quiddity 0.3.10 runtime contract
 
-The runtime pins the published `quiddity==0.3.9` package. Its 36-family manifest adds
+The runtime pins the published `quiddity==0.3.10` package. Its 36-family manifest adds
 circular-face patterns, freeform surfaces, interior voids, oblique through steps, oriented
 chamfers, sheet-metal bodies, and thin-wall bodies to the 0.3.3 inventory. Draftwright
 records each new family as deferred: no reviewed IR, declaration, drawing, or completeness

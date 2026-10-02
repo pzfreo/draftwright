@@ -146,7 +146,7 @@ def test_ctc01_resolved_gdt_finding_is_not_offered_to_the_pareto_loop(
         encoding="utf-8",
     )
     baseline = _run(baseline_script, tmp_path / "baseline-trace")
-    assert baseline["producer"]["quiddity"] == "0.3.9"
+    assert baseline["producer"]["quiddity"] == "0.3.10"
     assert baseline["source"]["sha256"] == _FIXTURE_SHA256
 
     # #1756 resolves this exact finding during ordinary placement. A Pareto loop must

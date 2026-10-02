@@ -139,7 +139,7 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     _validate()
     package = recognition.capability_manifest(format_version=2)
     declaration = consumer_capability_declaration()
-    # The published 0.3.9 manifest has seven families beyond the 0.3.3 inventory.
+    # The published 0.3.10 manifest has seven families beyond the 0.3.3 inventory.
     # Keep a literal count so a coupled omission on both sides still fails.
     assert len(package["families"]) == len(declaration["families"]) == 36
 
@@ -159,7 +159,7 @@ def test_section_recess_family_covers_the_published_geometry_and_occurrence_cont
     assert not retired & package.keys()
     assert not retired & consumer.keys()
     family = package["section-recesses"]
-    assert INSTALLED_PACKAGE_VERSION == "0.3.9"
+    assert INSTALLED_PACKAGE_VERSION == "0.3.10"
     assert family["introduced_in"] == "0.2.0"
     assert family["census_output"] == "RecognitionResult.section_recesses"
     expected_fields = {

@@ -15,6 +15,7 @@ from quiddity import (
     BoltCircle,
     HoleRecord,
     LinearArray,
+    RectangularHoleSet,
     RectGrid,
     recognise_hole_patterns,
     recognise_oriented_slot_patterns,
@@ -34,7 +35,7 @@ from draftwright.progress import stage
 class DetectionInventory:
     holes: Sequence[HoleRecord] | None
     double_d_bores: Any
-    patterns: Sequence[BoltCircle | LinearArray | RectGrid] | None
+    patterns: Sequence[BoltCircle | LinearArray | RectGrid | RectangularHoleSet] | None
     bosses: Any
     polygonal_bosses: Any
     polygonal_stock: Any

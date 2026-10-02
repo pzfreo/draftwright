@@ -159,7 +159,7 @@ out in the issue/PR/review, not after merge.
 - `build123d>=0.9.0,<0.11 ; python_full_version < '3.13'` and
   `build123d>=0.11,<0.12 ; python_full_version >= '3.13'` (Apache 2.0),
   `build123d-drafting-helpers>=0.15.5` (Apache 2.0), and
-  `quiddity==0.3.9` (Apache 2.0). `pyproject.toml` is the dependency authority.
+  `quiddity==0.3.10` (Apache 2.0). `pyproject.toml` is the dependency authority.
 - Export render chain: `reportlab` + `svglib` (PDF), `pypdfium2` + `pillow` (PNG) —
   all pure-wheel, no native cairo; svglib is the one weak-copyleft (LGPL) member.
 - The 1D strip solve is dependency-free PAVA (`_solve_strip_1d_pava`); `kiwisolver`
