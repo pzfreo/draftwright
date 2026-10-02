@@ -271,8 +271,8 @@ def test_thread_and_knurl_aspects_on_one_owner_lower_independently_issue_2137():
         _raw("knurl", "knurl", _reference(10.0, (0.2, 1.8), "external"), "#knurl"),
         structured_fields=(
             ("pattern", "straight"),
-            ("diametral pitch", 1.0),
-            ("major diameter", 10.0),
+            ("pitch", 1.0),
+            ("maximum diameter", 10.0),
         ),
     )
     remaps = []
@@ -446,8 +446,8 @@ def test_structured_manufacturing_field_schema_rejects_unclaimed_meaning_issue_2
             _raw(kind, "knurl", _reference(10.0, (0.2, 1.8), "external"), "#knurl"),
             structured_fields=(
                 ("pattern", "straight"),
-                ("diametral pitch", 1.0),
-                ("major diameter", 10.0),
+                ("pitch", 1.0),
+                ("maximum diameter", 10.0),
             ),
         )
     else:
@@ -546,8 +546,8 @@ def test_structured_knurl_and_default_tolerance_need_no_prose_issue_2137():
         _raw("knurl", "knurl", _reference(10.0, (0.2, 1.8), "external"), "#knurl"),
         structured_fields=(
             ("pattern", "straight"),
-            ("diametral pitch", 1.0),
-            ("major diameter", 10.0),
+            ("pitch", 1.0),
+            ("maximum diameter", 10.0),
         ),
     )
     raw_default = PmiFeature(
@@ -600,3 +600,53 @@ def test_structured_knurl_and_default_tolerance_need_no_prose_issue_2137():
     restored_default = namespace["sheet"].model().features[0]
     assert restored_default.designation == "ISO 2768-m"
     assert restored_default.source_ids == paired.source_ids
+
+
+@pytest.mark.parametrize(
+    "fields",
+    (
+        (("pattern", "straight"), ("diametral pitch", 1.0), ("maximum diameter", 10.0)),
+        (("pattern", "straight"), ("pitch", 1.0), ("major diameter", 10.0)),
+        (("pattern", "straight"), ("diametral pitch", 1.0), ("major diameter", 10.0)),
+    ),
+)
+def test_structured_knurl_aliases_need_prose_for_their_drawing_meaning_issue_2137(fields):
+    head = StepFeature(
+        frame=Frame((1.0, 0.0, 0.0), "x"),
+        length=2.0,
+        diameter=10.0,
+        span=((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
+    )
+    raw = replace(
+        _raw("knurl", "knurl", _reference(10.0, (0.2, 1.8), "external"), "#uda"),
+        structured_fields=fields,
+    )
+    assert raw.label == "knurl" and raw.structured_fields == fields
+    assert {name for name, _value in fields} & {"diametral pitch", "major diameter"}
+
+    refused = lower_ap242_manufacturing_requirements(_model(head, raw))
+
+    assert refused.features[0].knurl is None
+    fallback = refused.features[1]
+    assert isinstance(fallback, PmiFeature)
+    assert fallback.source_id == raw.source_id
+    assert fallback.structured_fields == fields
+    assert fallback.lowering_blockers == (
+        "structured knurl aliases need a matching prose requirement",
+    )
+
+    paired = replace(
+        raw,
+        label=UNCHAMFERED_KNURL,
+        source_id="manufacturing_requirement:#prose",
+        part21_id="#prose",
+        source_ids=("manufacturing_requirement:#prose", raw.source_id),
+    )
+    assert "1 mm pitch" in paired.label and "maximum after knurling" in paired.label
+    lowered = lower_ap242_manufacturing_requirements(_model(head, paired))
+
+    assert len(lowered.features) == 1
+    knurl = lowered.features[0].knurl
+    assert isinstance(knurl, KnurlRequirement)
+    assert (knurl.pitch, knurl.maximum_diameter) == (1.0, 10.0)
+    assert knurl.source_ids == paired.source_ids

@@ -1032,11 +1032,17 @@ def _thread_requirement(feature: PmiFeature) -> ThreadRequirement:
     return replace(structured, drill_point_angle=prose.drill_point_angle)
 
 
-def _structured_knurl_requirement(feature: PmiFeature) -> KnurlRequirement:
+def _structured_knurl_requirement(
+    feature: PmiFeature, prose: KnurlRequirement | None
+) -> KnurlRequirement:
     fields = _structured_fields(feature)
     pattern = _structured_text(fields, "pattern").casefold()
     if pattern not in ("straight", "diamond"):
         raise ValueError("structured knurl pattern is unsupported")
+    if prose is None and ("diametral pitch" in fields or "major diameter" in fields):
+        # These source labels alone do not establish linear pitch or a maximum
+        # after knurling; an explicit prose requirement must give them that meaning.
+        raise ValueError("structured knurl aliases need a matching prose requirement")
     return KnurlRequirement(
         pattern=cast(Literal["straight", "diamond"], pattern),
         pitch=_structured_number_alias(fields, "diametral pitch", "pitch"),
@@ -1054,12 +1060,14 @@ def _structured_knurl_requirement(feature: PmiFeature) -> KnurlRequirement:
 def _knurl_requirement(feature: PmiFeature) -> KnurlRequirement:
     if not feature.structured_fields:
         return _text_knurl_requirement(feature)
-    structured = _structured_knurl_requirement(feature)
     try:
         prose = _text_knurl_requirement(feature)
     except ValueError as exc:
         if len(feature.source_ids) > 1:
             raise ValueError("structured knurl cannot reconcile with prose") from exc
+        prose = None
+    structured = _structured_knurl_requirement(feature, prose)
+    if prose is None:
         return structured
     if (
         structured.pattern != prose.pattern
