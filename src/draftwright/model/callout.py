@@ -186,10 +186,10 @@ def hole_callout_batches(
                 spec,
             )
         )
-    # Two axial faces can carry congruent patterns whose end-view members project
-    # onto the same ink. Keep both physical owners, and name which face each
-    # complete callout describes. The spec is shared with the width estimator, so
-    # this wording is reserved before the placement solve.
+    # Axial faces can carry congruent patterns whose end-view members project
+    # onto the same ink. Keep each physical owner, and name its axial station.
+    # The spec is shared with the width estimator, so this wording is reserved
+    # before the placement solve.
     coincident: dict[tuple, list[tuple[int, float]]] = {}
     nonprinting = {
         "measurements",
@@ -223,11 +223,20 @@ def hole_callout_batches(
             (index, feature.frame.origin[2])
         )
     for sites in coincident.values():
-        if len(sites) != 2 or sites[0][1] == sites[1][1]:
+        if len(sites) < 2:
             continue
-        for (index, _station), qualifier in zip(
-            sorted(sites, key=lambda site: site[1]), ("LOWER FACE", "UPPER FACE"), strict=True
-        ):
+        if len({station for _index, station in sites}) != len(sites):
+            raise ValueError("coincident hole patterns have no distinct axial stations")
+        ordered_sites = sorted(sites, key=lambda site: (site[1], site[0]))
+        qualifiers = (
+            ("LOWER FACE", "UPPER FACE")
+            if len(sites) == 2
+            else tuple(
+                f"FACE {ordinal} OF {len(sites)} FROM LOWER END"
+                for ordinal in range(1, len(sites) + 1)
+            )
+        )
+        for (index, _station), qualifier in zip(ordered_sites, qualifiers, strict=True):
             callout_batch = result[index]
             result[index] = replace(
                 callout_batch, spec={**callout_batch.spec, "site_suffix": qualifier}

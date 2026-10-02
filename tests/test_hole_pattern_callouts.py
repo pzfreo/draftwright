@@ -1,6 +1,7 @@
 """Grouped hole-pattern callout behavior."""
 
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -107,6 +108,69 @@ def test_coincident_flange_patterns_and_diameters_name_both_supports_issue_2129(
     script = generate_sheet_script(source, out=str(tmp_path / "flanged"), **options)
     exec(compile(Path(script).read_text(encoding="utf-8"), script, "exec"), {})
     assert same_support_claims(captured["drawing"]) == direct_labels
+
+
+@pytest.mark.slow
+def test_three_coincident_flange_patterns_name_each_axial_support_issue_2129():
+    from draftwright.annotations.from_model import callout_from_spec
+    from draftwright.compose import _est_planned_bore_callout_width
+    from draftwright.model.callout import hole_callout_batches
+    from draftwright.model.planner import plan_dimensions
+
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = Cylinder(65, 5, align=align) + Pos(0, 0, 5) * Cylinder(35, 103, align=align)
+    for z in (54, 108):
+        part += Pos(0, 0, z) * Cylinder(65, 5, align=align)
+    for z in (0, 54, 108):
+        for index in range(12):
+            angle = 2 * math.pi * index / 12
+            part -= Pos(55 * math.cos(angle), 55 * math.sin(angle), z) * Cylinder(
+                4, 5, align=align
+            )
+    drawing = build_drawing(part, scale=1, page="A2", scale_policy="permissive")
+    patterns = [
+        (name, annotation, drawing.registry.features_of(name)[0])
+        for name, annotation in drawing.iter_annotations()
+        if name.startswith("hc_plan") and annotation.label.startswith("12× ⌀8")
+    ]
+    assert len(patterns) == 3
+    assert sorted(feature.frame.origin[2] for _name, _annotation, feature in patterns) == [
+        5.0,
+        59.0,
+        113.0,
+    ]
+    assert (
+        len(
+            {
+                tuple(sorted((point[0], point[1]) for point in feature.members))
+                for _name, _annotation, feature in patterns
+            }
+        )
+        == 1
+    )
+    assert {
+        feature.frame.origin[2]: annotation.label.rsplit(" FACE ", 1)[-1]
+        for _name, annotation, feature in patterns
+    } == {
+        5.0: "1 OF 3 FROM LOWER END",
+        59.0: "2 OF 3 FROM LOWER END",
+        113.0: "3 OF 3 FROM LOWER END",
+    }
+    assert all(drawing.registry.measurement_of(name) for name, _ann, _feature in patterns)
+
+    groups = plan_dimensions(drawing.model())
+    batches = [batch for batch in hole_callout_batches(groups) if batch.spec["count"] == 12]
+    assert len(batches) == 3
+    rendered = [callout_from_spec(batch.spec, drawing.draft, 12) for batch in batches]
+    assert _est_planned_bore_callout_width(groups, drawing.draft) >= max(
+        callout.callout_width for callout in rendered
+    )
+    original_group = batches[0].groups[0]
+    duplicate_group = replace(original_group, feature=replace(original_group.feature))
+    assert duplicate_group.feature is not original_group.feature
+    assert duplicate_group.feature.frame.origin[2] == original_group.feature.frame.origin[2]
+    with pytest.raises(ValueError, match="no distinct axial stations"):
+        hole_callout_batches((original_group, duplicate_group))
 
 
 class TestHolePatternCallouts:
