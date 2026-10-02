@@ -34,7 +34,6 @@
     "explicit_scale.py:resolve_explicit_scale": 219,
     "intent_drain.py:_feature_stages": 215,
     "intent_routing.py:classify_intents": 220,
-    "layout.py:_assign_leader_candidates": 298,
     "linting/coverage.py:_supported_inner_profile": 205,
     "linting/coverage.py:lint_feature_coverage": 222,
     "linting/hole_coverage.py:hole_requirement_outcomes": 214,

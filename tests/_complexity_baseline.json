@@ -62,7 +62,7 @@
     "intent_drain.py:_dimension_stages": 17,
     "intent_drain.py:_feature_stages": 29,
     "layout.py:_assign_balloon_bands": 22,
-    "layout.py:_assign_leader_candidates": 42,
+    "layout.py:_assign_leader_candidates": 22,
     "layout.py:_solve_guarded_strip_1d": 29,
     "layout_safety.py:_recognition_occurrence_gaps": 18,
     "layout_selection.py:annotation_demand_carrier_evidence": 17,

@@ -395,35 +395,12 @@ def _leader_semantic_weights(job_count, obligation_classes) -> tuple[int, ...]:
     return tuple(semantic_base ** obligation_rank(classification) for classification in classes)
 
 
-def _assign_leader_candidates(
-    costs_by_job,
-    conflicts=(),
-    *,
-    priorities=None,
-    penalties_by_job=None,
-    obligation_classes=None,
-    max_states: int = _LEADER_ASSIGN_MAX_STATES,
-) -> _LeaderAssignment:
-    """Assign at most one candidate per leader job (#740).
-
-    The objectives are lexicographic: maximum placed required jobs, then unknown
-    jobs, then optional jobs; maximum summed job priority; minimum fixed-obstacle
-    Policy-B penalty; minimum total leader length; then stable input candidate
-    order. With no classes supplied every job is unknown, preserving #740's
-    original count-first objective and tie convention. Priorities and penalties
-    default to zero. ``conflicts`` contains incompatible candidate index pairs;
-    the caller derives them from page geometry.
-
-    General candidate-conflict assignment is combinatorial.  The search is
-    therefore explicitly bounded. Before searching, the function constructs a
-    deterministic class-first greedy incumbent. If the budget is reached, that
-    incumbent (or a strictly better one found so far) is returned with
-    ``optimal=False``. With uniform classes this is the pre-#740 greedy floor;
-    mixed classes protect required meaning even if fewer optional jobs fit.
-    """
-
-    if max_states <= 0:
-        raise ValueError("max_states must be positive")
+def _normalise_leader_assignment_inputs(
+    costs_by_job, priorities, penalties_by_job, obligation_classes
+) -> tuple[
+    tuple[tuple[int, ...], ...], tuple[int, ...], tuple[tuple[int, ...], ...], tuple[int, ...]
+]:
+    """Validate and quantise the four inputs to the assignment objective."""
     raw_costs = tuple(tuple(float(cost) for cost in job) for job in costs_by_job)
     if any(not math.isfinite(cost) or cost < 0 for job in raw_costs for cost in job):
         raise ValueError("leader candidate costs must be finite and non-negative")
@@ -453,7 +430,11 @@ def _assign_leader_candidates(
             raise ValueError("leader penalties must match the candidate-cost shape")
         if any(value < 0 for job in penalties for value in job):
             raise ValueError("leader penalties must be non-negative")
+    return costs, job_priorities, penalties, semantic_weights
 
+
+def _leader_conflict_graph(costs, conflicts) -> tuple[tuple[int, ...], list[set[int]]]:
+    """Validate pairs and index their cross-job exclusions by candidate."""
     offsets = []
     candidate_count = 0
     for job in costs:
@@ -477,35 +458,17 @@ def _assign_leader_candidates(
         right = offsets[job_b] + candidate_b
         adjacency[left].add(right)
         adjacency[right].add(left)
+    return tuple(offsets), adjacency
 
-    # With no cross-job conflicts, each job is independent and the exact answer
-    # is simply its cheapest stable candidate. This is the common sparse-drawing
-    # path and avoids entering the combinatorial search at all.
-    if not any(adjacency):
-        independent = tuple(
-            (
-                min(
-                    range(len(job)),
-                    key=lambda candidate: (
-                        penalties[job_index][candidate],
-                        job[candidate],
-                        candidate,
-                    ),
-                )
-                if job
-                else None
-            )
-            for job_index, job in enumerate(costs)
-        )
-        return _LeaderAssignment(independent, True, 1)
 
-    # Remove candidates that can never improve any complete assignment.  Within
-    # one job, candidate A dominates B when A conflicts with a subset of B's
-    # neighbours and has a better local objective tuple.  Replacing B with A
-    # then preserves every other selected job while improving penalty, length,
-    # or the stable candidate-order tie-break.  Dense geometric producers often
-    # generate many such equivalent rays; retaining all of them turns the exact
-    # search into a Cartesian product for no semantic gain.
+def _undominated_leader_options(
+    costs, penalties, offsets, adjacency
+) -> tuple[tuple[int, ...], ...]:
+    """Retain candidates whose quality or conflict set can improve a solution."""
+    # Within one job, candidate A dominates B when A conflicts with a subset
+    # of B's neighbours and has a better local objective tuple. Replacing B
+    # with A then preserves every other selected job while improving penalty,
+    # length, or the stable candidate-order tie-break.
     candidate_options = []
     for job_index, job in enumerate(costs):
         options = []
@@ -532,6 +495,84 @@ def _assign_leader_candidates(
             if not dominated:
                 options.append(candidate_index)
         candidate_options.append(tuple(options))
+    return tuple(candidate_options)
+
+
+def _leader_assignment_suffix_bounds(costs, priorities, penalties, semantic_weights, options):
+    """Give the search optimistic remaining objective totals without conflicts."""
+    suffix_semantic = [0] * (len(costs) + 1)
+    suffix_priority = [0] * (len(costs) + 1)
+    suffix_min_penalty = [0] * (len(costs) + 1)
+    suffix_min_cost = [0] * (len(costs) + 1)
+    for index in range(len(costs) - 1, -1, -1):
+        suffix_semantic[index] = suffix_semantic[index + 1] + (
+            semantic_weights[index] if options[index] else 0
+        )
+        suffix_priority[index] = suffix_priority[index + 1] + (
+            max(0, priorities[index]) if options[index] else 0
+        )
+        suffix_min_penalty[index] = suffix_min_penalty[index + 1] + (
+            min(penalties[index][candidate] for candidate in options[index])
+            if options[index]
+            else 0
+        )
+        suffix_min_cost[index] = suffix_min_cost[index + 1] + (
+            min(costs[index][candidate] for candidate in options[index]) if options[index] else 0
+        )
+    return suffix_semantic, suffix_priority, suffix_min_penalty, suffix_min_cost
+
+
+def _assign_leader_candidates(
+    costs_by_job,
+    conflicts=(),
+    *,
+    priorities=None,
+    penalties_by_job=None,
+    obligation_classes=None,
+    max_states: int = _LEADER_ASSIGN_MAX_STATES,
+) -> _LeaderAssignment:
+    """Assign at most one candidate per leader job (#740).
+
+    Maximise placed required, unknown, then optional jobs and summed priority;
+    minimise fixed-obstacle penalty and leader length; break ties by stable
+    candidate order. Unspecified classes are unknown and numeric extras zero.
+    ``conflicts`` contains incompatible candidate index pairs from page geometry.
+
+    The bounded search starts from a class-first greedy floor and returns its
+    best incumbent with ``optimal=False`` if the state budget fires.
+    """
+
+    if max_states <= 0:
+        raise ValueError("max_states must be positive")
+    costs, job_priorities, penalties, semantic_weights = _normalise_leader_assignment_inputs(
+        costs_by_job, priorities, penalties_by_job, obligation_classes
+    )
+    offsets, adjacency = _leader_conflict_graph(costs, conflicts)
+
+    # With no cross-job conflicts, each job is independent and the exact answer
+    # is simply its cheapest stable candidate. This is the common sparse-drawing
+    # path and avoids entering the combinatorial search at all.
+    if not any(adjacency):
+        independent = tuple(
+            (
+                min(
+                    range(len(job)),
+                    key=lambda candidate: (
+                        penalties[job_index][candidate],
+                        job[candidate],
+                        candidate,
+                    ),
+                )
+                if job
+                else None
+            )
+            for job_index, job in enumerate(costs)
+        )
+        return _LeaderAssignment(independent, True, 1)
+
+    # Prune rays that cannot improve score or conflict feasibility before the
+    # exact search.
+    candidate_options = _undominated_leader_options(costs, penalties, offsets, adjacency)
 
     # Seed the bounded search with a semantic floor: higher classes visit first,
     # then original job order. Uniform classes retain the pre-#740 first-clear floor.
@@ -581,27 +622,11 @@ def _assign_leader_candidates(
 
     # Optimistic semantic and cost bounds ignore conflicts; that makes them
     # cheap and safe. One suffix sum per objective term keeps storage linear.
-    suffix_semantic = [0] * (len(costs) + 1)
-    suffix_priority = [0] * (len(costs) + 1)
-    suffix_min_penalty = [0] * (len(costs) + 1)
-    suffix_min_cost = [0] * (len(costs) + 1)
-    for index in range(len(costs) - 1, -1, -1):
-        suffix_semantic[index] = suffix_semantic[index + 1] + (
-            semantic_weights[index] if candidate_options[index] else 0
+    suffix_semantic, suffix_priority, suffix_min_penalty, suffix_min_cost = (
+        _leader_assignment_suffix_bounds(
+            costs, job_priorities, penalties, semantic_weights, candidate_options
         )
-        suffix_priority[index] = suffix_priority[index + 1] + (
-            max(0, job_priorities[index]) if candidate_options[index] else 0
-        )
-        suffix_min_penalty[index] = suffix_min_penalty[index + 1] + (
-            min(penalties[index][candidate] for candidate in candidate_options[index])
-            if candidate_options[index]
-            else 0
-        )
-        suffix_min_cost[index] = suffix_min_cost[index + 1] + (
-            min(costs[index][candidate] for candidate in candidate_options[index])
-            if candidate_options[index]
-            else 0
-        )
+    )
 
     states = 0
     exhausted = False
