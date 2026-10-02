@@ -95,8 +95,14 @@ def test_slanted_blind_step_gets_reconstructable_dimension_plan(slanted_blind_st
     names = set(dwg.annotations())
     recognition = dwg.recognition()
     assert recognition is not None
+    bounds = slanted_blind_step.bounding_box()
+    assert (round(bounds.size.X, 6), round(bounds.size.Z, 6)) == (50.0, 25.0)
     assert [step.section for step in recognition.through_steps] == [
-        ((40.0, 19.0), (40.0, 14.0), (50.0, 14.0))
+        (
+            (bounds.max.X - 10.0, bounds.min.Z + 19.0),
+            (bounds.max.X - 10.0, bounds.min.Z + 14.0),
+            (bounds.max.X, bounds.min.Z + 14.0),
+        )
     ]
 
     assert "m_env_width" in names
