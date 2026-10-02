@@ -1140,7 +1140,9 @@ def _coalesce_datum_records(records: list[PmiRecord]) -> list[PmiRecord]:
         letters = {record.label for record in group if record.label}
         item_ids = {record.reference_item_ids for record in group}
         geometry = next((record for record in group if record.ref_bbox is not None), group[0])
-        blockers = list(geometry.lowering_blockers)
+        blockers = list(
+            dict.fromkeys(reason for record in group for reason in record.lowering_blockers)
+        )
         if len(letters) != 1:
             blockers.append("datum feature occurrences disagree about the datum letter")
         if len(item_ids) != 1:
@@ -2481,7 +2483,11 @@ def _xcaf_datum_occurrence(label, source_id: str, state: _DatumExtractionState):
             # An XCAF occurrence with no face claim can use its unique authored
             # Part21 definition. A present but unmeasurable XCAF face cannot.
             unlocated_correspondence = bool(
-                definition is not None and not points and ref_bbox is None
+                definition is not None
+                and not points
+                and ref_bbox is None
+                and geometry_reasons
+                == ("referenced geometry is unavailable", "datum reference surface is unavailable")
             )
             if (
                 definition is not None

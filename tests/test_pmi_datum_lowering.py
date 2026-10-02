@@ -580,6 +580,88 @@ def test_unmeasurable_xcaf_datum_occurrence_keeps_its_source_partial_issue_2128(
     assert any(record.label == "A" and not record.lowering_blockers for record in report.records)
 
 
+@pytest.mark.parametrize(
+    ("xcaf_shapes", "expected_outcome"),
+    (((), "extracted"), ((None,), "partially_extracted")),
+)
+def test_only_absent_xcaf_datum_references_can_use_part21_support_issue_2128(
+    monkeypatch, xcaf_shapes, expected_outcome
+):
+    step = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    baseline = pmi_module.extract_pmi_report(step)
+    datum_a = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "A"
+    )
+    assert len(datum_a.source_ids) > 1 and datum_a.ref_bbox is not None
+    source_id = datum_a.source_ids[0]
+    direct_geometry = pmi_module._datum_geometry_from_shapes(xcaf_shapes)
+    assert direct_geometry[:3] == ((), None, "")
+    assert ("one referenced shape is unavailable" in direct_geometry[3]) == bool(xcaf_shapes)
+    original = pmi_module._datum_reference_geometry
+
+    def direct_support(label, *args):
+        if pmi_module._source_id("datum", label) == source_id:
+            return direct_geometry
+        return original(label, *args)
+
+    monkeypatch.setattr(pmi_module, "_datum_reference_geometry", direct_support)
+    report = pmi_module.extract_pmi_report(step)
+    (source,) = [item for item in report.sources if item.source_id == source_id]
+    assert source.outcome == expected_outcome
+    if xcaf_shapes:
+        assert "support cannot be matched" in source.reason
+        assert not any(
+            source_id in record.source_ids and not record.lowering_blockers
+            for record in report.records
+        )
+    else:
+        assert not source.reason
+
+
+def test_coalesced_datum_keeps_a_partial_sibling_occurrence_issue_2128(monkeypatch):
+    step = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    baseline = pmi_module.extract_pmi_report(step)
+    datum_a = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "A"
+    )
+    assert len(datum_a.source_ids) > 1 and datum_a.ref_bbox is not None
+    assert datum_a.lowering_blockers == ()
+    source_id = datum_a.source_ids[-1]
+    assert (
+        next(source for source in baseline.sources if source.source_id == source_id).outcome
+        == "extracted"
+    )
+    original = pmi_module._datum_reference_geometry
+
+    def partial_support(label, *args):
+        geometry = original(label, *args)
+        if pmi_module._source_id("datum", label) == source_id:
+            assert geometry[0] and geometry[1] is not None and geometry[2]
+            return (*geometry[:3], (*geometry[3], "probe XCAF partial support"))
+        return geometry
+
+    monkeypatch.setattr(pmi_module, "_datum_reference_geometry", partial_support)
+    report = pmi_module.extract_pmi_report(step)
+    (source,) = [item for item in report.sources if item.source_id == source_id]
+    assert source.outcome == "partially_extracted"
+    assert "probe XCAF partial support" in source.reason
+    (coalesced,) = [
+        record
+        for record in report.records
+        if record.source_category == "datum" and source_id in record.source_ids
+    ]
+    assert set(coalesced.source_ids) == set(datum_a.source_ids)
+    assert "probe XCAF partial support" in coalesced.lowering_blockers
+    assert not any(
+        isinstance(feature, DatumRef) and source_id in feature.source_ids
+        for feature in build_pmi_features(report.records, Box(20, 20, 20).bounding_box())
+    )
+
+
 def test_generated_sheet_line_round_trips_imported_datum_and_nested_provenance():
     (feature,) = build_pmi_features((_record(),), Box(20, 20, 20).bounding_box())
     captured = []
