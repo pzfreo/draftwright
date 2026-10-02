@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from build123d import Align, Location, Mode, Sketch, Text, Vector
+from build123d import Align, Location, Mode, ShapeList, Sketch, Text, Vector
 from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
 from build123d_drafting.helpers import DEFAULT_FONT_PATH
 
@@ -212,6 +212,13 @@ def _gdt_visual_zone(glyph, draft) -> str:
     return ""
 
 
+def _cut_area(result: Any) -> float:
+    """Account for OCC cuts that return one shape or several pieces."""
+    if isinstance(result, ShapeList):
+        return sum(float(piece.area) for piece in result)
+    return float(result.area)
+
+
 def _gdt_visual_tolerance(glyph, draft, zone: str, *, modifier: bool = False) -> str:
     """Trust a tolerance label only when its finished ink matches the font text."""
     text = str(glyph.tolerance_str)
@@ -271,8 +278,8 @@ def _gdt_visual_tolerance(glyph, draft, zone: str, *, modifier: bool = False) ->
         actual = Sketch(children=faces)
         area_tolerance = max(1e-8, h * h * 1e-8)
         if (
-            expected.cut(actual).area <= area_tolerance
-            and actual.cut(expected).area <= area_tolerance
+            _cut_area(expected.cut(actual)) <= area_tolerance
+            and _cut_area(actual.cut(expected)) <= area_tolerance
         ):
             return text
     except Exception:
