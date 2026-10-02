@@ -186,8 +186,9 @@ def _gdt_visual_zone(glyph, draft) -> str:
         return "spherical_diameter_zone"
 
     # The helper draws a diametral-zone sign as a ring and diagonal stroke in
-    # the tolerance cell. Its text label omits that sign, so inspect the actual
-    # sketch ink as well as the stroke path before recording visual evidence.
+    # the tolerance cell. Its text label omits that sign, and `segments` keeps
+    # pretrace strokes even when the helper drops a failed stroke. Require ink
+    # at the slash centre as well as the two ring poles in the finished sketch.
     h = draft.font_size
     radius = 0.42 * h
     center = ((2.0 + 0.6 + 0.42) * h, h)
@@ -201,8 +202,10 @@ def _gdt_visual_zone(glyph, draft) -> str:
         (near(a, first) and near(b, second)) or (near(a, second) and near(b, first))
         for a, b in glyph.segments
     )
-    if slash and all(
-        glyph.is_inside((center[0], center[1] + sign * radius, 0.0)) for sign in (-1, 1)
+    if (
+        slash
+        and glyph.is_inside((center[0], center[1], 0.0))
+        and all(glyph.is_inside((center[0], center[1] + sign * radius, 0.0)) for sign in (-1, 1))
     ):
         return "diameter_zone"
     return ""

@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
+import build123d_drafting.helpers as drafting_helpers
 import pytest
 from build123d import Box, Draft
 from build123d_drafting import FeatureControlFrame
@@ -430,6 +431,65 @@ def test_source_zone_qualifier_survives_visual_glyph_issue_2156(monkeypatch, zon
         "ø" if zone == "diameter_zone" else "Sø",
         "0.05",
     )
+    assert [
+        (issue.code, issue.source_ids, issue.annotation_name)
+        for issue in lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(record,)),
+        )
+    ] == [("pmi_value_mismatch", (record.source_id,), name)]
+
+
+def test_dropped_diameter_slash_cannot_claim_a_visual_zone_issue_2156(monkeypatch):
+    part = Box(20, 20, 20)
+    record = replace(
+        _record(value=0.05, modifiers=("diameter_zone",)),
+        datum_refs=(),
+        ref_pts=((0.0, 0.0, 10.0),),
+        ref_bbox=(-10.0, -10.0, 10.0, 10.0, 10.0, 10.0),
+        dominant_axis="Z",
+    )
+    (frame,) = build_pmi_features((record,), part.bounding_box())
+    assert isinstance(frame, ControlFrame) and frame.diameter
+    original_trace = drafting_helpers.trace
+    dropped = []
+
+    def fail_only_zone_slash(edges, *args, **kwargs):
+        edge = edges[0]
+        box = edge.bounding_box()
+        mid_x = (box.min.X + box.max.X) / 2
+        mid_y = (box.min.Y + box.max.Y) / 2
+        if (
+            edge.geom_type.name == "LINE"
+            and box.size.X > 1.0
+            and abs(box.size.X - box.size.Y) <= 1e-6
+            and mid_y > 0
+            and abs(mid_x - 3.02 * mid_y) <= 1e-5
+        ):
+            dropped.append(edge)
+            raise RuntimeError("probe dropped Ø slash during trace")
+        return original_trace(edges, *args, **kwargs)
+
+    monkeypatch.setattr(drafting_helpers, "trace", fail_only_zone_slash)
+    draft = Draft(font_size=3.0)
+    glyph = _gdt_glyph(frame, draft)
+    center = (3.02 * draft.font_size, draft.font_size, 0.0)
+    assert dropped and glyph.segments
+    assert glyph.is_inside((center[0], center[1] + 0.42 * draft.font_size, 0.0))
+    assert not glyph.is_inside(center), "the final Ø slash must actually be absent"
+    assert _gdt_visual_zone(glyph, draft) == ""
+
+    model = detect_part_model(part)
+    model.features.append(frame)
+    drawing = build_drawing(part, model=model)
+    (name,) = (
+        name for name in drawing.registry.names() if drawing.registry.declaration_of(name) is frame
+    )
+    annotation = drawing.registry.named(name)
+    assert tuple(spec[0] for spec in annotation.pdf_text_relative_specs)[:2] == ("ø", "0.05")
+    assert annotation.gdt_visual_zone == ""
     assert [
         (issue.code, issue.source_ids, issue.annotation_name)
         for issue in lint_pmi_rendering(
