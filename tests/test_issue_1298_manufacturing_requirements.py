@@ -1396,10 +1396,15 @@ def test_lowering_rejects_duplicate_claims_and_existing_authored_aspects():
     )
     second = replace(first, source_id="manufacturing_requirement:#2001", part21_id="#2001")
     duplicate = lower_ap242_manufacturing_requirements(_model(step, first, second))
-    raw = next(feature for feature in duplicate.features if isinstance(feature, PmiFeature))
-    assert "already claimed" in raw.lowering_blockers[0]
+    raw = [feature for feature in duplicate.features if isinstance(feature, PmiFeature)]
+    assert len(raw) == 2
+    assert all(
+        "multiple manufacturing requirements" in feature.lowering_blockers[0] for feature in raw
+    )
 
     threaded_step = duplicate.features[0]
+    assert threaded_step.thread is None
+    threaded_step = lower_ap242_manufacturing_requirements(_model(step, first)).features[0]
     assert isinstance(threaded_step.thread, ThreadRequirement)
     third = replace(first, source_id="manufacturing_requirement:#2002", part21_id="#2002")
     existing_thread = lower_ap242_manufacturing_requirements(_model(threaded_step, third))

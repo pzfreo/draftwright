@@ -480,6 +480,7 @@ class ThreadRequirement:
     drill_depth: float | None = None
     drill_point_angle: float | None = None
     source: str = "ap242_pmi"
+    through: bool = False
 
     def __post_init__(self) -> None:
         if self.application not in ("external", "internal"):
@@ -506,6 +507,12 @@ class ThreadRequirement:
             and self.minimum_full_thread > self.drill_depth
         ):
             raise ValueError("thread minimum full thread cannot exceed drill depth")
+        if self.through and (
+            self.application != "internal"
+            or self.drill_depth is not None
+            or self.drill_point_angle is not None
+        ):
+            raise ValueError("through thread must be internal without drill depth or point")
         if not str(self.text).strip():
             raise ValueError("thread source text must be non-empty")
         if not str(self.part21_id).strip():
@@ -523,6 +530,8 @@ class ThreadRequirement:
             length = ", FULL AVAILABLE LENGTH" if self.full_available_length else ""
             return f"{self.designation}{length}"
         terms = [self.designation]
+        if self.through:
+            terms.append("THRU")
         if self.minimum_full_thread is not None:
             terms.append(f"{_fmt(self.minimum_full_thread)} MIN FULL THREAD")
         if self.drill_point_angle is not None:

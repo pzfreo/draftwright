@@ -529,15 +529,20 @@ def _declared_feature_keys(groups, a: Analysis) -> set:
     #448), so a caller-declared hole/pattern renders at its declared position even where
     detection missed it. Mirrors the member source (``feat.members or g.anchor``) and the
     rotational concentric-bore exclusion of the ``_annotate_holes`` filter so the callout
-    gate matches exactly — an on-axis bore stays excluded (dimensioned by the ldr_z
-    centreline)."""
+    gate matches exactly — only an on-axis through bore stays with its ldr_z
+    centreline; a blind bore keeps its depth-bearing callout."""
     keys: set = set()
     for g in groups:
         feat = g.feature
         if not isinstance(feat, HoleFeature | PatternFeature):
             continue
         for m in feat.members or (g.anchor,):
-            if a.is_rotational and feat.frame.axis == "z" and _concentric_with_axis(a, m[0], m[1]):
+            if (
+                a.is_rotational
+                and feat.frame.axis == "z"
+                and (feat.member.through if isinstance(feat, PatternFeature) else feat.through)
+                and _concentric_with_axis(a, m[0], m[1])
+            ):
                 continue
             keys.add(HoleRef.of(m))
     return keys

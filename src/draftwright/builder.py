@@ -46,7 +46,12 @@ from draftwright._core import (
 )
 from draftwright._geometry import BOUNDS_ROUNDOFF, _boxes_overlap, _scale_world
 from draftwright._warnings import ScaleCompletenessWarning
-from draftwright.analysis import Analysis, _analyse, _apply_principal_view_pins
+from draftwright.analysis import (
+    Analysis,
+    _analyse,
+    _apply_principal_view_pins,
+    _with_blind_axial_bore_support,
+)
 from draftwright.annotation_layout_profile import (
     AnnotationLayoutProfile,
     annotation_layout_policy,
@@ -714,7 +719,7 @@ def _assembly_model(a: Analysis, model, decorations, requested, authored) -> Par
                         else ()
                     ),
                 )
-    return pm
+    return _with_blind_axial_bore_support(pm, a.cyls)
 
 
 def _resolve_title_document_defaults(a, features, hidden_source_annotations):

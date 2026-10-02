@@ -2041,6 +2041,15 @@ class RotationalFeature:
 
 
 @dataclass(frozen=True)
+class BlindAxialBoreSupport:
+    """One cached complete cylinder proves a hole and turned bore share a surface."""
+
+    hole: HoleFeature
+    rotational: RotationalFeature
+    cylinder_interval: tuple[float, float]
+
+
+@dataclass(frozen=True)
 class AngleFeature:
     """One included-angle requirement derived from explicit oriented supports."""
 
@@ -2303,6 +2312,7 @@ class PmiFeature:
     shape_aspect_ids: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
     reference_bboxes: tuple[tuple[float, float, float, float, float, float], ...] = ()
+    structured_fields: tuple[tuple[str, str | float], ...] = ()
     kind: ClassVar[str] = "pmi"
 
     def parameters(self) -> list[DimParameter]:
@@ -2321,6 +2331,7 @@ class GeneralTolerance:
     statement: str = ""
     source_id: str = ""
     part21_id: str = ""
+    source_ids: tuple[str, ...] = ()
     kind: ClassVar[str] = "general_tolerance"
 
     def __post_init__(self) -> None:
@@ -2832,6 +2843,9 @@ class PartModel:
     # preserve positional PartModel construction.  The feature carries the resolved side;
     # this ledger records why that side differs from the authored/generated default (#1757).
     layout_overrides: tuple[LayoutOverride, ...] = ()
+    # Derived from the build's cached cylinder substrate before planning. It carries
+    # physical correspondence, not a rendering decision or a second feature inventory.
+    blind_axial_bore_supports: tuple[BlindAxialBoreSupport, ...] = ()
 
     def __post_init__(self) -> None:
         if self.declaration_identities and len(self.declaration_identities) != len(self.features):

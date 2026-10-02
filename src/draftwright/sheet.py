@@ -1999,6 +1999,7 @@ class Sheet(_SheetViewMethods):
         statement: str = "",
         source_id: str = "",
         part21_id: str = "",
+        source_ids: tuple[str, ...] = (),
     ) -> _Params:
         """Declare the document-wide general tolerance printed in the title block."""
         bbox = self._part.bounding_box()
@@ -2010,6 +2011,7 @@ class Sheet(_SheetViewMethods):
                 statement=statement,
                 source_id=source_id,
                 part21_id=part21_id,
+                source_ids=source_ids,
             )
         )
         return _Params(self, len(self._features) - 1)

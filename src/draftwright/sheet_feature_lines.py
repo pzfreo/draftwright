@@ -123,7 +123,8 @@ def _thread_requirement_expr(requirement: ThreadRequirement) -> str:
         f"full_available_length={requirement.full_available_length!r}, "
         f"minimum_full_thread={requirement.minimum_full_thread!r}, "
         f"drill_diameter={requirement.drill_diameter!r}, drill_depth={requirement.drill_depth!r}, "
-        f"drill_point_angle={requirement.drill_point_angle!r}, source={requirement.source!r})"
+        f"drill_point_angle={requirement.drill_point_angle!r}, "
+        f"through={requirement.through!r}, source={requirement.source!r})"
     )
 
 
@@ -428,6 +429,11 @@ def _raw_pmi_expr(f) -> str:
     reference_bboxes = (
         f", reference_bboxes={f.reference_bboxes!r}" if getattr(f, "reference_bboxes", ()) else ""
     )
+    structured_fields = (
+        f", structured_fields={f.structured_fields!r}"
+        if getattr(f, "structured_fields", ())
+        else ""
+    )
     return (
         "PmiFeature("
         f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
@@ -436,7 +442,7 @@ def _raw_pmi_expr(f) -> str:
         f"ref_pts=tuple({_pts_arg(f.ref_pts)}){source_id}{datum_refs}{part21_id}"
         f"{source_category}{gtol_modifiers}{lowering_blockers}{source_ids}{datum_contexts}"
         f"{reference_item_ids}{reference_axis}{semantic_name}{shape_aspect_ids}{cylindrical_refs}"
-        f"{reference_bboxes}"
+        f"{reference_bboxes}{structured_fields}"
         ")"
     )
 
