@@ -36,6 +36,8 @@ What actually lives here today:
 - :func:`fit_box` — the 2D free-rectangle placer for tables/GD&T frames/BOM
   blocks (#93), the one part of the original `LayoutSolver` surface that is
   genuinely shared.
+- :func:`_largest_empty_rect` — the compressed-coordinate rectangle sweep for
+  ISO and detail-view free space, formerly housed in ``_core`` (#1634).
 - :func:`_assign_leader_candidates` — the bounded within-pass assignment for
   post-drain machined-feature leaders (#740).  The annotation layer lowers
   measured alternatives to numeric costs and pairwise conflicts; this leaf
@@ -52,12 +54,18 @@ non-linear) stays deferred (#94) and may never be needed — see that ADR's
 from __future__ import annotations
 
 import heapq
+import logging
 import math
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from typing import Literal, NamedTuple, cast
 
 Axis = Literal["x", "y"]
 ObligationClass = Literal["required", "optional", "unknown"]
+
+# Keep the existing category for the no-gap diagnostic after moving the solver
+# out of _core. Consumers may configure that logger specifically.
+_empty_rect_log = logging.getLogger("draftwright._core")
 
 # Product policy, not an ISO/ASME hierarchy: unknown placement ink must remain
 # distinct from explicitly optional ink.
@@ -1013,6 +1021,198 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
 # ---------------------------------------------------------------------------
 # 2D free-rectangle box placement (ADR 2 (was 0003), #93)
 # ---------------------------------------------------------------------------
+
+
+class _FreeRunIndex:
+    """Range-covered Y coordinates with the longest remaining free run.
+
+    Coordinate points are represented as zero-length cells between the ordinary
+    intervals.  That lets a degenerate obstacle split a gap exactly as the open
+    AABB overlap predicate does, without assigning the point any physical width.
+    """
+
+    def __init__(self, coordinates):
+        self.coordinates = coordinates
+        lengths = []
+        for i, value in enumerate(coordinates):
+            lengths.append(0.0)
+            if i + 1 < len(coordinates):
+                lengths.append(coordinates[i + 1] - value)
+        self._lengths = lengths
+        self._n = len(lengths)
+        size = 4 * self._n
+        self._cover = [0] * size
+        self._total = [0.0] * size
+        self._prefix = [0.0] * size
+        self._suffix = [0.0] * size
+        self._longest = [0.0] * size
+        self._all_free = [True] * size
+        self._build(1, 0, self._n)
+
+    def _build(self, node, lo, hi):
+        if hi - lo == 1:
+            length = self._lengths[lo]
+            self._total[node] = length
+            self._prefix[node] = length
+            self._suffix[node] = length
+            self._longest[node] = length
+            return
+        mid = (lo + hi) // 2
+        self._build(node * 2, lo, mid)
+        self._build(node * 2 + 1, mid, hi)
+        self._pull(node)
+
+    def _pull(self, node):
+        if self._cover[node]:
+            self._all_free[node] = False
+            self._prefix[node] = self._suffix[node] = self._longest[node] = 0.0
+            return
+        left, right = node * 2, node * 2 + 1
+        self._total[node] = self._total[left] + self._total[right]
+        self._all_free[node] = self._all_free[left] and self._all_free[right]
+        self._prefix[node] = self._prefix[left]
+        if self._all_free[left]:
+            self._prefix[node] += self._prefix[right]
+        self._suffix[node] = self._suffix[right]
+        if self._all_free[right]:
+            self._suffix[node] += self._suffix[left]
+        self._longest[node] = max(
+            self._longest[left],
+            self._suffix[left] + self._prefix[right],
+            self._longest[right],
+        )
+
+    @property
+    def longest(self):
+        return self._longest[1]
+
+    def block(self, lo, hi):
+        """Add one obstacle interval in coordinate space."""
+        first = bisect_left(self.coordinates, lo)
+        last = bisect_left(self.coordinates, hi)
+        if lo == hi:
+            unit_lo, unit_hi = 2 * first, 2 * first + 1
+        else:
+            # Block the open span but not its endpoints: touching an obstacle is
+            # permitted by the placement AABB predicate.
+            unit_lo, unit_hi = 2 * first + 1, 2 * last
+        self._block(1, 0, self._n, unit_lo, unit_hi)
+
+    def _block(self, node, lo, hi, block_lo, block_hi):
+        if block_lo <= lo and hi <= block_hi:
+            self._cover[node] += 1
+            self._pull(node)
+            return
+        mid = (lo + hi) // 2
+        if block_lo < mid:
+            self._block(node * 2, lo, mid, block_lo, block_hi)
+        if mid < block_hi:
+            self._block(node * 2 + 1, mid, hi, block_lo, block_hi)
+        self._pull(node)
+
+    def first_run(self, minimum):
+        """Lowest-Y free run at least *minimum* long."""
+        return self._first_run(1, 0, self._n, self.coordinates[0], minimum)
+
+    def _first_run(self, node, lo, hi, origin, minimum):
+        if hi - lo == 1:
+            return origin
+        left, right = node * 2, node * 2 + 1
+        mid = (lo + hi) // 2
+        if self._longest[left] >= minimum:
+            return self._first_run(left, lo, mid, origin, minimum)
+        if self._suffix[left] + self._prefix[right] >= minimum:
+            return origin + self._total[left] - self._suffix[left]
+        return self._first_run(
+            right,
+            mid,
+            hi,
+            origin + self._total[left],
+            minimum,
+        )
+
+
+def _largest_empty_rect(drawable, obstacles, *, target_size=None, warn: bool = True):
+    """Largest axis-aligned empty rectangle in *drawable* avoiding *obstacles*.
+
+    *drawable* and each obstacle are ``(x0, y0, x1, y1)`` page-mm boxes.  Returns
+    the empty sub-rectangle of *drawable* (overlapping no obstacle) that maximises
+    the uniform scale of *target_size*. The default ``(1, 1)`` maximises the side
+    of the largest square it can hold, preserving the iso-view policy. A caller
+    placing a wide or tall fixed-aspect footprint can supply its minimum
+    ``(width, height)`` instead.
+
+    Every maximal empty rectangle has edges drawn from the drawable bounds and
+    the obstacle bounds.  Sweep candidate X strips while adding their blocking Y
+    intervals to a compressed-coordinate free-run index.  This is equivalent to
+    enumerating every pair of Y edges, without the quartic blow-up when a detail
+    view includes hundreds of decomposed annotation segments (#1065).
+    """
+    target_w, target_h = target_size or (1.0, 1.0)
+    if not (math.isfinite(target_w) and target_w > 0 and math.isfinite(target_h) and target_h > 0):
+        raise ValueError("target_size must contain finite positive dimensions")
+
+    dx0, dy0, dx1, dy1 = drawable
+    xs = sorted({dx0, dx1, *(c for o in obstacles for c in (o[0], o[2]) if dx0 < c < dx1)})
+    ys = sorted({dy0, dy1, *(c for o in obstacles for c in (o[1], o[3]) if dy0 < c < dy1)})
+
+    events = []
+    for ox0, oy0, ox1, oy1 in obstacles:
+        block_lo = max(dy0, oy0)
+        block_hi = min(dy1, oy1)
+        if block_hi < dy0 or block_lo > dy1:
+            continue
+        events.append((ox0, ox1, block_lo, block_hi))
+    events.sort(key=lambda event: event[0])
+
+    # The score is min(width / target_w, height / target_h), so any candidate whose
+    # width or height cannot exceed the corresponding scaled target cannot beat the
+    # best found so far. This is the same exact prune as the square-default path,
+    # normalized by the requested footprint.
+    best = None
+    best_score = 0.0
+    nx = len(xs)
+    for i in range(nx - 1):
+        rx0 = xs[i]
+        if xs[-1] - rx0 <= best_score * target_w:
+            break  # widest strip from here on can't beat best (rx0 only grows)
+        free_y = _FreeRunIndex(ys)
+        event_index = 0
+        for j in range(bisect_right(xs, rx0 + best_score * target_w), nx):
+            rx1 = xs[j]
+            width = rx1 - rx0
+            while event_index < len(events) and events[event_index][0] < rx1:
+                _, ox1, block_lo, block_hi = events[event_index]
+                if rx0 < ox1:
+                    free_y.block(block_lo, block_hi)
+                event_index += 1
+
+            height = free_y.longest
+            score = min(width / target_w, height / target_h)
+            if score <= best_score:
+                continue
+
+            # If width caps the score, select the first global Y edge that makes
+            # the target fit.  Otherwise select the end of the first tallest gap.
+            # These are the same deterministic winners as the exhaustive search.
+            needed_height = min(width * target_h / target_w, height)
+            ry0 = free_y.first_run(needed_height)
+            edge = bisect_left(ys, ry0 + needed_height)
+            ry1 = ys[min(edge, len(ys) - 1)]
+            best_score = score
+            best = (rx0, ry0, rx1, ry1)
+    if best is None:
+        # No empty rectangle exists (obstacles cover the drawable area). This
+        # is unreachable in practice — choose_scale always leaves a gap — but
+        # if it ever happens the iso would render over the other views, so flag
+        # it rather than fail silently.
+        if warn:
+            _empty_rect_log.warning(
+                "No empty rectangle found for the iso view; obstacles fill the "
+                "drawable area — iso may overlap other views"
+            )
+        return drawable
+    return best
 
 
 @dataclass(frozen=True)
