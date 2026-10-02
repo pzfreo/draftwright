@@ -108,6 +108,25 @@ def test_step_title_lint_reports_disagreement_without_replacing_authored_values(
         ("step_material_disagreement", ("material:#4",)),
         ("step_general_tolerance_disagreement", ("manufacturing_requirement:#9",)),
     ]
+    paired_record = replace(
+        report.records[0],
+        source_ids=("manufacturing_requirement:#9", "manufacturing_requirement:#10"),
+    )
+    paired_issues = lint_step_title_defaults(
+        replace(report, records=(paired_record,)),
+        registry,
+        material_authored="OTHER",
+        tolerance_authored="ISO 2768-f",
+        pmi_mode="annotate",
+    )
+    assert (
+        next(
+            issue.source_ids
+            for issue in paired_issues
+            if issue.code == "step_general_tolerance_disagreement"
+        )
+        == paired_record.source_ids
+    )
     assert (
         lint_step_title_defaults(
             report, registry, material_authored="", tolerance_authored="", pmi_mode="annotate"

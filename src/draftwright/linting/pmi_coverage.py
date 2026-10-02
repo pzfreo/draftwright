@@ -718,7 +718,7 @@ def lint_step_title_defaults(
                             f"Title-block general tolerance {fields.get('general_tolerance', '')!r} "
                             f"differs from STEP general tolerance {designation!r}"
                         ),
-                        source_ids=(record.source_id,),
+                        source_ids=record.source_ids or (record.source_id,),
                     )
                 )
     return issues
