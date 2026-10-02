@@ -2660,9 +2660,9 @@ def _prepare_detection_run(
 def build_part_model(
     part,
     *,
-    holes=None,
+    holes: Sequence[HoleRecord] | None = None,
     double_d_bores=None,
-    patterns=None,
+    patterns: Sequence[BoltCircle | LinearArray | RectGrid] | None = None,
     bosses=None,
     polygonal_bosses=None,
     polygonal_stock=None,

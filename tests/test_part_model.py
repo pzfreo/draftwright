@@ -140,6 +140,8 @@ class TestBuildPartModel:
         assert params[("diameter", "bolt_circle")] == 50.0  # BCD
 
     def test_linear_array_carries_pitch_and_arrangement(self):
+        from quiddity import recognise_holes
+
         part = Box(100, 20, 10)
         for x in (-30, -10, 10, 30):
             part -= Pos(x, 0, 0) * Cylinder(3, 20)
@@ -149,6 +151,18 @@ class TestBuildPartModel:
         assert p.pattern == "linear" and p.pitch == 20.0
         # arrangement geometry the renderer needs is NOT discarded:
         assert p.direction is not None and len(p.members) == 4
+        holes = tuple(recognise_holes(part))
+        assert len(holes) == 4
+
+        # The caller's partial inventory must win over the aggregate's four-hole pattern.
+        supplied_model = build_part_model(part, holes=holes[:3])
+        patterns = [
+            feature for feature in supplied_model.features if isinstance(feature, PatternFeature)
+        ]
+        assert len(patterns) == 1
+        assert patterns[0].pattern == "linear"
+        assert patterns[0].pitch == 20.0
+        assert len(patterns[0].members) == 3
 
     def test_rect_grid_carries_pitches_and_lattice(self):
         part = Box(80, 80, 10)
