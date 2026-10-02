@@ -1,12 +1,15 @@
 """Geometric-tolerance modifier preservation and concept lowering (#1095)."""
 
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box
+from build123d import Box, Draft
+from build123d_drafting import FeatureControlFrame
 
 import draftwright.pmi as pmi_module
+from draftwright.annotations._gdt import _gdt_glyph, _gdt_pdf_text_specs
 from draftwright.builder import build_drawing, detect_part_model
 from draftwright.linting.pmi_coverage import lint_pmi_rendering
 from draftwright.model import build_pmi_features
@@ -264,6 +267,70 @@ def test_generated_sheet_round_trips_imported_zone_and_material_qualifiers():
     assert restored.display_tolerance == feature.display_tolerance == "0.5"
     assert isinstance(restored.origin, PmiFeature)
     assert restored.origin.gtol_modifiers == modifiers
+
+
+def test_xcaf_diametral_position_survives_glyph_pdf_and_sheet_issue_2156():
+    from OCP.IFSelect import IFSelect_RetDone
+    from OCP.STEPCAFControl import STEPCAFControl_Reader
+    from OCP.TCollection import TCollection_ExtendedString
+    from OCP.TDF import TDF_LabelSequence
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.XCAFDoc import XCAFDoc_DocumentTool, XCAFDoc_GeomTolerance
+
+    step = Path(__file__).parent / "fixtures/nist_ctc_03_asme1_ap242.stp"
+    reader = STEPCAFControl_Reader()
+    reader.SetGDTMode(True)
+    reader.SetNameMode(True)
+    assert reader.ReadFile(str(step)) == IFSelect_RetDone
+    document = TDocStd_Document(TCollection_ExtendedString("XCAF"))
+    assert reader.Transfer(document)
+    labels = TDF_LabelSequence()
+    XCAFDoc_DocumentTool.DimTolTool_s(document.Main()).GetGeomToleranceLabels(labels)
+    raw_positions = []
+    for index in range(1, labels.Length() + 1):
+        label = labels.Value(index)
+        tolerance = XCAFDoc_GeomTolerance.Set_s(label).GetObject()
+        if int(tolerance.GetTypeOfValue()) == 1 and int(tolerance.GetType()) == 10:
+            raw_positions.append(label)
+    assert raw_positions, "the fixture must contain an XCAF diameter-zone position"
+    source_id = pmi_module._source_id("geometric_tolerance", raw_positions[0])
+
+    report = pmi_module.extract_pmi_report(step)
+    (source,) = [source for source in report.sources if source.source_id == source_id]
+    (record,) = [record for record in report.records if record.source_id == source_id]
+    assert source.outcome == "extracted" and record.lowering_blockers == ()
+    assert record.kind == "position" and "diameter_zone" in record.gtol_modifiers
+
+    (frame,) = build_pmi_features((record,), Box(100, 100, 100).bounding_box())
+    assert isinstance(frame, ControlFrame)
+    assert frame.diameter is True and frame.source_id == source_id
+    draft = Draft(font_size=3.0)
+    glyph = _gdt_glyph(frame, draft)
+    assert isinstance(glyph, FeatureControlFrame)
+    assert glyph.tolerance_str == frame.display_tolerance
+    plain_glyph = FeatureControlFrame(
+        frame.characteristic,
+        frame.display_tolerance,
+        datums=frame.datums,
+        draft=draft,
+        modifier=frame.modifier,
+    )
+    assert glyph.bounding_box().size.X > plain_glyph.bounding_box().size.X + 1.0
+    assert tuple(spec[0] for spec in _gdt_pdf_text_specs(glyph, frame, draft))[:2] == (
+        "ø",
+        frame.display_tolerance,
+    )
+
+    restored = _execute_feature_line(frame)
+    assert isinstance(restored, ControlFrame)
+    assert restored.diameter is True and restored.source_id == source_id
+    assert restored.origin.gtol_modifiers == record.gtol_modifiers
+    replay_glyph = _gdt_glyph(restored, draft)
+    assert replay_glyph.bounding_box().size.X == pytest.approx(glyph.bounding_box().size.X)
+    assert tuple(spec[0] for spec in _gdt_pdf_text_specs(replay_glyph, restored, draft))[:2] == (
+        "ø",
+        frame.display_tolerance,
+    )
 
 
 def test_lowering_does_not_round_the_source_tolerance_magnitude():
