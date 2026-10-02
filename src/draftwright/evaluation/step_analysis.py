@@ -2144,132 +2144,93 @@ def _turned_profile_observers() -> Mapping[str, _PreparedObserver]:
     }
 
 
+def _edge_observer(
+    family: str,
+    identity_of: Callable[..., tuple],
+    parameters_of: Callable[..., Mapping[str, Value]],
+    model_outcomes: Callable[..., list[Outcome]],
+    declared_model: Callable[..., Any],
+    drawing_outcomes: Callable[..., list[Outcome]],
+) -> _PreparedObserver:
+    """Keep the shared edge-profile observation flow and each family's evidence separate."""
+
+    def observe(part: object, *, build: _BuildAttempt | None = None) -> Sequence[ObservedFact]:
+        try:
+            drawing = _drawing_for_observation(part, build=build)
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring %s as unknown", exc, family
+            )
+            raise ObservationError(family, f"drawing build failed: {exc}") from exc
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            sources = tuple(getattr(recognition, family))
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no %s", exc, family
+            )
+            raise ObservationError(family, f"recognition access failed: {exc}") from exc
+        observed_boundary = _boundary_observer(
+            len(sources), counted_as=f"physical {family}", scored_as=family
+        )
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: model_outcomes(sources, recognition, drawing.model().features),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: model_outcomes(
+                    sources, recognition, declared_model(part, sources).features
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: model_outcomes(
+                    sources, recognition, _generated_sheet_model(part, drawing.model()).features
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer", lambda: drawing_outcomes(sources, drawing)
+            ),
+        }
+        return tuple(
+            ObservedFact(
+                family=family,
+                identity={"axis": identity[0], "location": identity[1], "turned": identity[2]},
+                parameters=parameters_of(source),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, source in enumerate(sources)
+            for identity in (identity_of(source),)
+        )
+
+    return observe
+
+
 def _edge_observers() -> Mapping[str, _PreparedObserver]:
-    def observe_chamfers(
-        part: object, *, build: _BuildAttempt | None = None
-    ) -> Sequence[ObservedFact]:
-
-        try:
-            drawing = _drawing_for_observation(part, build=build)
-        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
-            _log.warning("evaluation: drawing build failed (%s); scoring chamfers as unknown", exc)
-            raise ObservationError("chamfers", f"drawing build failed: {exc}") from exc
-        try:
-            recognition = drawing.recognition()
-            if recognition is None:
-                raise ValueError("detected build has no build-owned recognition result")
-            chamfers = tuple(recognition.chamfers)
-        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
-            _log.warning("evaluation: recognition access failed (%s); observing no chamfers", exc)
-            raise ObservationError("chamfers", f"recognition access failed: {exc}") from exc
-        observed_boundary = _boundary_observer(
-            len(chamfers), counted_as="physical chamfers", scored_as="chamfers"
-        )
-
-        boundary_outcomes = {
-            "ir_adapter": observed_boundary(
-                "ir_adapter",
-                lambda: _chamfer_model_outcomes(chamfers, recognition, drawing.model().features),
-            ),
-            "dsl_declaration": observed_boundary(
-                "dsl_declaration",
-                lambda: _chamfer_model_outcomes(
-                    chamfers,
-                    recognition,
-                    _declared_chamfer_model(part, chamfers).features,
-                ),
-            ),
-            "generated_code": observed_boundary(
-                "generated_code",
-                lambda: _chamfer_model_outcomes(
-                    chamfers,
-                    recognition,
-                    _generated_sheet_model(part, drawing.model()).features,
-                ),
-            ),
-            "drawing_consumer": observed_boundary(
-                "drawing_consumer", lambda: _chamfer_drawing_outcomes(chamfers, drawing)
-            ),
-        }
-
-        return tuple(
-            ObservedFact(
-                family="chamfers",
-                identity={"axis": identity[0], "location": identity[1], "turned": identity[2]},
-                parameters=_chamfer_parameters(chamfer),
-                downstream={
-                    boundary: boundary_outcomes[boundary][index]
-                    for boundary in _DOWNSTREAM_BOUNDARIES
-                },
-            )
-            for index, chamfer in enumerate(chamfers)
-            for identity in (_chamfer_identity(chamfer),)
-        )
-
-    def observe_fillets(
-        part: object, *, build: _BuildAttempt | None = None
-    ) -> Sequence[ObservedFact]:
-
-        try:
-            drawing = _drawing_for_observation(part, build=build)
-        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
-            _log.warning("evaluation: drawing build failed (%s); scoring fillets as unknown", exc)
-            raise ObservationError("fillets", f"drawing build failed: {exc}") from exc
-        try:
-            recognition = drawing.recognition()
-            if recognition is None:
-                raise ValueError("detected build has no build-owned recognition result")
-            fillets = tuple(recognition.fillets)
-        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
-            _log.warning("evaluation: recognition access failed (%s); observing no fillets", exc)
-            raise ObservationError("fillets", f"recognition access failed: {exc}") from exc
-        observed_boundary = _boundary_observer(
-            len(fillets), counted_as="physical fillets", scored_as="fillets"
-        )
-
-        boundary_outcomes = {
-            "ir_adapter": observed_boundary(
-                "ir_adapter",
-                lambda: _fillet_model_outcomes(fillets, recognition, drawing.model().features),
-            ),
-            "dsl_declaration": observed_boundary(
-                "dsl_declaration",
-                lambda: _fillet_model_outcomes(
-                    fillets,
-                    recognition,
-                    _declared_fillet_model(part, fillets).features,
-                ),
-            ),
-            "generated_code": observed_boundary(
-                "generated_code",
-                lambda: _fillet_model_outcomes(
-                    fillets,
-                    recognition,
-                    _generated_sheet_model(part, drawing.model()).features,
-                ),
-            ),
-            "drawing_consumer": observed_boundary(
-                "drawing_consumer", lambda: _fillet_drawing_outcomes(fillets, drawing)
-            ),
-        }
-
-        return tuple(
-            ObservedFact(
-                family="fillets",
-                identity={"axis": identity[0], "location": identity[1], "turned": identity[2]},
-                parameters=_fillet_parameters(fillet),
-                downstream={
-                    boundary: boundary_outcomes[boundary][index]
-                    for boundary in _DOWNSTREAM_BOUNDARIES
-                },
-            )
-            for index, fillet in enumerate(fillets)
-            for identity in (_fillet_identity(fillet),)
-        )
-
     return {
-        "chamfers": observe_chamfers,
-        "fillets": observe_fillets,
+        "chamfers": _edge_observer(
+            "chamfers",
+            _chamfer_identity,
+            _chamfer_parameters,
+            _chamfer_model_outcomes,
+            _declared_chamfer_model,
+            _chamfer_drawing_outcomes,
+        ),
+        "fillets": _edge_observer(
+            "fillets",
+            _fillet_identity,
+            _fillet_parameters,
+            _fillet_model_outcomes,
+            _declared_fillet_model,
+            _fillet_drawing_outcomes,
+        ),
     }
 
 
