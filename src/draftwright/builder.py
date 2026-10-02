@@ -718,6 +718,29 @@ def _assembly_model(a: Analysis, model, decorations, requested, authored) -> Par
 
 
 @observed_stage("assemble")
+def _resolve_title_document_defaults(a, features, hidden_source_annotations):
+    """Set only un-authored title fields from one unambiguous source per field."""
+    tolerance_source = None
+    if a.tolerance is None:
+        defaults = [
+            feature
+            for feature in features
+            if feature.kind == "general_tolerance" and id(feature) not in hidden_source_annotations
+        ]
+        if len(defaults) == 1:
+            tolerance_source = defaults[0]
+            a = replace(a, tolerance=getattr(tolerance_source, "designation"))  # noqa: B009
+
+    material_source = None
+    material_facts = tuple(getattr(a.pmi_report, "material_facts", ()))
+    if a.material is None and len(material_facts) == 1 and not material_facts[0].reason:
+        material_source = material_facts[0]
+        a = replace(a, material=material_source.designation)
+    elif a.material is None:
+        a = replace(a, material="")
+    return a, tolerance_source, material_source
+
+
 def _assemble(
     a: Analysis,
     out,
@@ -785,22 +808,14 @@ def _assemble(
     pm = _assembly_model(a, model, decorations, requested, authored)
     # A source-proven document default uses the existing title-block carrier when the caller
     # did not explicitly author one. An explicit tolerance, including the blank string, wins.
-    general_tolerance_source = None
     hidden_source_annotations = (
         {id(feature) for feature in a.document_source_annotations}
         if a.document_member and a.pmi_mode != "annotate"
         else set()
     )
-    if a.tolerance is None:
-        defaults = [
-            feature
-            for feature in pm.features
-            if feature.kind == "general_tolerance" and id(feature) not in hidden_source_annotations
-        ]
-        if len(defaults) == 1:
-            general_tolerance_source = defaults[0]
-            # The feature union does not expose this kind-specific attribute.
-            a = replace(a, tolerance=getattr(general_tolerance_source, "designation"))  # noqa: B009
+    a, general_tolerance_source, material_source = _resolve_title_document_defaults(
+        a, pm.features, hidden_source_annotations
+    )
 
     # ADR 1 (was 0005 §2): the one build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.
@@ -822,6 +837,7 @@ def _assemble(
     )
     dwg._build.part_model = pm
     dwg._build.general_tolerance_source = general_tolerance_source
+    dwg._build.material_source = material_source
     default_finishes = [
         feature
         for feature in pm.features
@@ -2628,7 +2644,7 @@ def build_drawing(
     requested: tuple | None = None,
     authored: tuple | None = None,
     trace: str | Path | bool | None = None,
-    material: str = "",
+    material: str | None = None,
     date: str = "",
     revision: str = "A",
     company: str = "",
@@ -2752,7 +2768,7 @@ def make_drawing(
     detail_view: bool = True,
     pmi: Literal["off", "report", "annotate"] | None = None,
     assembly: bool | None = None,
-    material: str = "",
+    material: str | None = None,
     date: str = "",
     revision: str = "A",
     company: str = "",
@@ -2794,9 +2810,12 @@ def make_drawing(
         title: Part title for the title block (default: stem uppercased).
         number: Drawing number (e.g. ``"DWG-042"``).
         tolerance: General tolerance string (e.g. ``"ISO 2768-m"``). ``None`` (the
-            default) states none: the title block says the tolerance is unspecified
-            rather than inventing a manufacturing requirement the source never
-            carried (#1157). ``""`` requests a blank cell.
+            default) accepts one supported source-proven STEP general tolerance in
+            ``pmi="annotate"`` mode, or states unspecified when none exists (#1157).
+            ``""`` requests a blank cell even when the STEP states a tolerance.
+        material: Material designation for the title block. ``None`` accepts one
+            unambiguous product-owned STEP material; ``""`` deliberately leaves the
+            cell blank. An explicit designation wins and a disagreement is reported.
         drawn_by: Designer name for the title block.
         scale: Drawing-scale override (e.g. ``5`` for 5:1, ``0.5`` for 1:2).
             Default: chosen automatically by :func:`choose_scale`.

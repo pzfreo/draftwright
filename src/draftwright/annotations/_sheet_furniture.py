@@ -153,7 +153,7 @@ def _make_title_block(dwg, a: Analysis):
     number = _font_safe_text(a.number)
     tolerance = _font_safe_text(_TOLERANCE_UNSPECIFIED if a.tolerance is None else a.tolerance)
     designed_by = _font_safe_text(_attribution_author(a.drawn_by))
-    material = _font_safe_text(a.material)
+    material = _font_safe_text(a.material or "")
     # Stripped, because the TitleBlock strips these two before deciding which
     # cells to draw. Left unstripped they disagree: a whitespace revision is no
     # revision to the block (which then draws the date in the shared cell) but a
@@ -310,6 +310,8 @@ def _add_title_block(dwg, a: Analysis):
     # Candidate drawings may share the build cache. The placed annotation owns a
     # separate wrapper so edits/removal on one candidate cannot alter another.
     tb = copy(prototype)
+    if dwg.material_source is not None:
+        tb.source_features = (dwg.material_source,)
 
     # Record that cell's page-space rectangle so export() can place a clickable
     # draftwright hyperlink over the "… / draftwright" author text. The build-frame

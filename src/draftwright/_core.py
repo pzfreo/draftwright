@@ -1318,7 +1318,7 @@ class Analysis:
     # non-default fields above. Defaults preserve the prior output: revision "A", the rest
     # blank (the TitleBlock helper's own defaults).
     layout_advisories: tuple[tuple[str, str], ...] = ()
-    material: str = ""
+    material: str | None = None
     date: str = ""
     revision: str = "A"
     company: str = ""

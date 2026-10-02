@@ -1102,17 +1102,14 @@ class Sheet(_SheetViewMethods):
         )
         if _replayed_scale is not None:
             self._opts["_replayed_scale"] = _replayed_scale
-        # drawn_by / tolerance (title block) forward to build_drawing only when set, so an
-        # unset value keeps build_drawing's own defaults rather than None. The
-        # tolerance default IS None — an unauthored general tolerance is stated as unspecified
-        # instead of silently becoming ISO 2768-m — so this branch now carries only an explicit
-        # choice, including `tolerance=""` for a deliberately blank cell.
+        # Forward only explicit title fields, including `tolerance=""` for an
+        # intentionally blank cell; None permits a source-proven document default.
         if drawn_by is not None:
             self._opts["drawn_by"] = drawn_by
         if tolerance is not None:
             self._opts["tolerance"] = tolerance
         # Standing ISO 7200 title-block fields — forward only when set, so an unset
-        # value keeps build_drawing's defaults ("" / revision "A").
+        # value keeps build_drawing's defaults (source-resolved material / revision "A").
         # AP242 PMI reconciliation. A Sheet holds an in-memory solid, which carries no
         # AP242 document, so until now no script-built drawing reconciled source PMI at all —
         # not even to report that it had not. `source` names the STEP the solid was read from

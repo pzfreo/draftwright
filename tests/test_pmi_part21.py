@@ -12,6 +12,7 @@ from draftwright._pmi_part21 import (
     DimensionAssociationFact,
     GeometricToleranceFact,
     ManufacturingRequirementFact,
+    MaterialFact,
     SurfaceLabelFact,
     match_common_label,
     match_datum_occurrence,
@@ -26,6 +27,7 @@ from draftwright._pmi_part21 import (
     read_dimension_length_factor,
     read_geometric_tolerances,
     read_manufacturing_requirements,
+    read_material_properties,
     read_surface_labels,
 )
 
@@ -62,6 +64,82 @@ def _read_datums(tmp_path, name: str, *instances: str):
     step = tmp_path / f"{name}.step"
     step.write_text(_step(*instances), encoding="utf-8")
     return read_datum_occurrences(step)
+
+
+def test_grm03_material_name_is_owned_by_its_product():
+    fixture = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    (fact,) = read_material_properties(fixture)
+    assert fact == MaterialFact(
+        entity_id="#1996",
+        designation="CZ121 / CW614N / CuZn39Pb3",
+        common_name="Free-machining leaded brass",
+        product_definition_id="#5",
+        representation_id="#1994",
+        descriptive_item_id="#1995",
+    )
+    assert fact.source_id == "material:#1996"
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected_reason", "expected_count"),
+    [
+        (("#8=PRODUCT_DEFINITION('other','',#6,#9);",), "shaped source product", 1),
+        (("#7=PROPERTY_DEFINITION('material property','material name',#99);",), "", 2),
+        (("#8=PROPERTY_DEFINITION_REPRESENTATION(#4,#9);",), "2 representations", 1),
+        (
+            (
+                "#8=PRODUCT_DEFINITION('other','',#6,#9);",
+                "#9=PRODUCT_DEFINITION('third','',#6,#9);",
+            ),
+            "shaped source product",
+            1,
+        ),
+    ],
+)
+def test_material_reader_never_guesses_ambiguous_product_or_link(
+    tmp_path, extra, expected_reason, expected_count
+):
+    step = tmp_path / "material.step"
+    step.write_text(
+        _step(
+            "#5=PRODUCT_DEFINITION('part','',#6,#9);",
+            "#10=PRODUCT_DEFINITION_SHAPE('','',#5);",
+            "#11=SHAPE_DEFINITION_REPRESENTATION(#10,#12);",
+            "#4=PROPERTY_DEFINITION('material property','material name',#5);",
+            "#3=PROPERTY_DEFINITION_REPRESENTATION(#4,#2);",
+            "#2=REPRESENTATION('material name',(#1),#9);",
+            "#1=DESCRIPTIVE_REPRESENTATION_ITEM('CW614N','Leaded brass');",
+            *extra,
+        ),
+        encoding="utf-8",
+    )
+    facts = read_material_properties(step)
+    assert len(facts) == expected_count
+    if "representations" not in expected_reason:
+        assert facts[0].designation == "CW614N"
+    else:
+        assert facts[0].designation == ""
+    if expected_reason:
+        assert expected_reason in facts[0].reason
+
+
+def test_material_reader_refuses_a_property_of_a_foreign_or_malformed_owner(tmp_path):
+    step = tmp_path / "foreign.step"
+    step.write_text(
+        _step(
+            "#5=PRODUCT_DEFINITION('part','',#6,#9);",
+            "#10=PRODUCT_DEFINITION_SHAPE('','',#5);",
+            "#11=SHAPE_DEFINITION_REPRESENTATION(#10,#12);",
+            "#4=PROPERTY_DEFINITION('material property','material name',#99);",
+            "#3=PROPERTY_DEFINITION_REPRESENTATION(#4,#2);",
+            "#2=REPRESENTATION('material name',(#1),#9);",
+            "#1=DESCRIPTIVE_REPRESENTATION_ITEM('CW614N','Leaded brass');",
+        ),
+        encoding="utf-8",
+    )
+    (fact,) = read_material_properties(step)
+    assert fact.designation == "CW614N"
+    assert "shaped source product" in fact.reason
 
 
 def _read_datum_definitions(tmp_path, name: str, *instances: str):

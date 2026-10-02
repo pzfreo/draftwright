@@ -67,6 +67,8 @@ class BuildState:
     #: Imported document default selected as the title-block tolerance carrier. ``None``
     #: when the caller supplied any explicit value, even identical display text.
     general_tolerance_source: object | None = None
+    #: Product-owned STEP material carried by the measured title block, if selected.
+    material_source: object | None = None
     #: Imported document-wide surface finish rendered as title-block furniture.
     default_surface_finish_source: object | None = None
     #: Per-view filled projected material (#798) as ``{id(view_shape): (shape, field)}``.

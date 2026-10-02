@@ -1,18 +1,190 @@
 """The standard title block states the drawing units and effective sheet format."""
 
 from collections import Counter
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from _parts import dense_plate
 from build123d import Box, Location
 
 from draftwright import Sheet, build_drawing
+from draftwright._pmi_part21 import MaterialFact
+from draftwright.builder import _resolve_title_document_defaults
+from draftwright.linting.pmi_coverage import lint_step_title_defaults
+from draftwright.pmi import PmiExtractionReport, PmiRecord
 
 
 def _fields(drawing) -> dict[str, str]:
     block = drawing.get_annotation("title_block")
     return {field: value for field, value, _size, _font in block.title_field_specs}
+
+
+@dataclass(frozen=True)
+class _TitleInputs:
+    material: str | None
+    tolerance: str | None
+    pmi_report: PmiExtractionReport
+
+
+def _source_defaults(material="CW614N", reason=""):
+    fact = MaterialFact("#4", material, "Leaded brass", "#5", "#2", "#1", reason)
+    tolerance = SimpleNamespace(kind="general_tolerance", designation="ISO 2768-m")
+    return fact, tolerance
+
+
+def test_step_title_defaults_respect_omitted_blank_explicit_and_ambiguity():
+    material, tolerance = _source_defaults()
+    inputs = _TitleInputs(None, None, PmiExtractionReport(material_facts=(material,)))
+    resolved, tolerance_source, material_source = _resolve_title_document_defaults(
+        inputs, (tolerance,), set()
+    )
+    assert (resolved.material, resolved.tolerance) == ("CW614N", "ISO 2768-m")
+    assert (material_source, tolerance_source) == (material, tolerance)
+
+    blank, tolerance_source, material_source = _resolve_title_document_defaults(
+        replace(inputs, material="", tolerance=""), (tolerance,), set()
+    )
+    assert (blank.material, blank.tolerance) == ("", "")
+    assert (material_source, tolerance_source) == (None, None)
+
+    authored, tolerance_source, material_source = _resolve_title_document_defaults(
+        replace(inputs, material="OTHER", tolerance="ISO 2768-f"), (tolerance,), set()
+    )
+    assert (authored.material, authored.tolerance) == ("OTHER", "ISO 2768-f")
+    assert (material_source, tolerance_source) == (None, None)
+
+    other = replace(material, entity_id="#6", designation="STEEL")
+    ambiguous, _tol_source, material_source = _resolve_title_document_defaults(
+        replace(inputs, pmi_report=PmiExtractionReport(material_facts=(material, other))),
+        (tolerance,),
+        set(),
+    )
+    assert ambiguous.material == "" and material_source is None
+    malformed, _tol_source, material_source = _resolve_title_document_defaults(
+        replace(
+            inputs,
+            pmi_report=PmiExtractionReport(
+                material_facts=(replace(material, reason="foreign product"),)
+            ),
+        ),
+        (tolerance,),
+        set(),
+    )
+    assert malformed.material == "" and material_source is None
+
+
+def test_step_title_lint_reports_disagreement_without_replacing_authored_values():
+    material, _tolerance = _source_defaults()
+    report = PmiExtractionReport(
+        material_facts=(material,),
+        records=(
+            PmiRecord(
+                kind="general_tolerances",
+                type_code=None,
+                value=0,
+                label="ISO 2768-m; per ISO GPS",
+                source_id="manufacturing_requirement:#9",
+                source_category="manufacturing_requirement",
+            ),
+        ),
+    )
+    title = SimpleNamespace(
+        title_field_specs=(
+            ("material", "OTHER", 1, "font"),
+            ("general_tolerance", "ISO 2768-f", 1, "font"),
+        )
+    )
+    registry = SimpleNamespace(named=lambda name: title if name == "title_block" else None)
+    issues = lint_step_title_defaults(
+        report,
+        registry,
+        material_authored="OTHER",
+        tolerance_authored="ISO 2768-f",
+        pmi_mode="annotate",
+    )
+    assert [(issue.code, issue.source_ids) for issue in issues] == [
+        ("step_material_disagreement", ("material:#4",)),
+        ("step_general_tolerance_disagreement", ("manufacturing_requirement:#9",)),
+    ]
+    assert (
+        lint_step_title_defaults(
+            report, registry, material_authored="", tolerance_authored="", pmi_mode="annotate"
+        )
+        == []
+    )
+    assert [
+        issue.code
+        for issue in lint_step_title_defaults(
+            report, registry, material_authored=None, tolerance_authored=None, pmi_mode="annotate"
+        )
+    ] == ["step_material_mismatch"]
+    ambiguous = replace(
+        report,
+        material_facts=(material, replace(material, entity_id="#7", designation="STEEL")),
+    )
+    assert [
+        issue.code
+        for issue in lint_step_title_defaults(
+            ambiguous,
+            registry,
+            material_authored=None,
+            tolerance_authored=None,
+            pmi_mode="annotate",
+        )
+    ] == ["step_material_ambiguous"]
+    malformed = replace(report, material_facts=(replace(material, reason="foreign product"),))
+    assert [
+        issue.code
+        for issue in lint_step_title_defaults(
+            malformed,
+            registry,
+            material_authored=None,
+            tolerance_authored=None,
+            pmi_mode="annotate",
+        )
+    ] == ["step_material_unavailable"]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    ("material", "tolerance", "expected_codes"),
+    [
+        ("", "", set()),
+        (
+            "OTHER",
+            "ISO 2768-f",
+            {"step_material_disagreement", "step_general_tolerance_disagreement"},
+        ),
+    ],
+)
+def test_step_title_explicit_values_win_and_remain_source_auditable(
+    material, tolerance, expected_codes
+):
+    source = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    drawing = build_drawing(
+        source,
+        pmi="annotate",
+        material=material,
+        tolerance=tolerance,
+        auto_dims=False,
+        scale=2,
+        page="A3",
+    )
+    fields = _fields(drawing)
+    assert fields.get("material", "") == material
+    assert fields.get("general_tolerance", "") == tolerance
+    assert drawing.material_source is None
+    assert drawing.general_tolerance_source is None
+    observed = {issue.code for issue in drawing.lint() if issue.code.startswith("step_")}
+    assert observed == expected_codes
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.code == "pmi_not_rendered"
+        and "manufacturing_requirement:#2016" in issue.source_ids
+    ]
 
 
 @pytest.mark.parametrize("page", ("A4", "A2", "A0"))

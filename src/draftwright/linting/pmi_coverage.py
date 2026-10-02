@@ -545,7 +545,13 @@ def _lint_pmi_frame_values(report: PmiExtractionReport, registry) -> list[LintIs
 
 
 def lint_pmi_rendering(
-    features, registry, mode: str, *, decorations=None, report: PmiExtractionReport | None = None
+    features,
+    registry,
+    mode: str,
+    *,
+    decorations=None,
+    report: PmiExtractionReport | None = None,
+    overridden_general_tolerance=False,
 ) -> list[LintIssue]:
     """Reconcile source-bearing typed PMI with surviving annotation ink.
 
@@ -568,6 +574,8 @@ def lint_pmi_rendering(
     }
     by_source: dict[str, list[object]] = {}
     for feature in features:
+        if overridden_general_tolerance and getattr(feature, "kind", None) == "general_tolerance":
+            continue
         # Model-only metadata has no drawing carrier. A redundant datum-scheme
         # statement may take that path only while every proven substitute symbol
         # remains on the finished sheet; removing a datum reopens its source gap.
@@ -612,4 +620,105 @@ def lint_pmi_rendering(
     ]
     if report is not None:
         issues.extend(_lint_pmi_frame_values(report, registry))
+    return issues
+
+
+def lint_step_title_defaults(
+    report: PmiExtractionReport | None,
+    registry,
+    *,
+    material_authored: str | None,
+    tolerance_authored: str | None,
+    pmi_mode: str,
+) -> list[LintIssue]:
+    """Compare source document defaults with settled title-block text.
+
+    The source census, not a compiled plan or a parsed annotation name, supplies
+    the expected value and identity. An explicit empty value intentionally clears
+    its cell; a nonempty caller override remains visible and gets a disagreement
+    finding when it differs from the source.
+    """
+    if report is None:
+        return []
+    title = registry.named("title_block")
+    fields = (
+        {field: value for field, value, _size, _font in getattr(title, "title_field_specs", ())}
+        if title is not None
+        else {}
+    )
+    issues = []
+    if report.material_error:
+        issues.append(
+            LintIssue(
+                severity="warning",
+                code="step_material_unavailable",
+                message=f"STEP material could not be read: {report.material_error}",
+            )
+        )
+    materials = report.material_facts
+    if len(materials) > 1:
+        issues.append(
+            LintIssue(
+                severity="warning",
+                code="step_material_ambiguous",
+                message="STEP contains multiple material properties; no material was selected",
+                source_ids=tuple(fact.source_id for fact in materials),
+            )
+        )
+    elif materials:
+        fact = materials[0]
+        if fact.reason:
+            issues.append(
+                LintIssue(
+                    severity="warning",
+                    code="step_material_unavailable",
+                    message=f"STEP material {fact.source_id} is unusable: {fact.reason}",
+                    source_ids=(fact.source_id,),
+                )
+            )
+        elif (
+            material_authored not in (None, "") and fields.get("material", "") != fact.designation
+        ):
+            issues.append(
+                LintIssue(
+                    severity="warning",
+                    code="step_material_disagreement",
+                    message=(
+                        f"Title-block material {fields.get('material', '')!r} differs from "
+                        f"STEP material {fact.designation!r}"
+                    ),
+                    source_ids=(fact.source_id,),
+                )
+            )
+        elif material_authored is None and fields.get("material", "") != fact.designation:
+            issues.append(
+                LintIssue(
+                    severity="error",
+                    code="step_material_mismatch",
+                    message=f"Title block does not state STEP material {fact.designation!r}",
+                    source_ids=(fact.source_id,),
+                )
+            )
+    if pmi_mode == "annotate" and tolerance_authored not in (None, ""):
+        tolerances = [
+            record
+            for record in report.records
+            if record.source_category == "manufacturing_requirement"
+            and record.kind == "general_tolerances"
+        ]
+        if len(tolerances) == 1:
+            record = tolerances[0]
+            designation = record.label.split(";", 1)[0].strip()
+            if designation and fields.get("general_tolerance", "") != designation:
+                issues.append(
+                    LintIssue(
+                        severity="warning",
+                        code="step_general_tolerance_disagreement",
+                        message=(
+                            f"Title-block general tolerance {fields.get('general_tolerance', '')!r} "
+                            f"differs from STEP general tolerance {designation!r}"
+                        ),
+                        source_ids=(record.source_id,),
+                    )
+                )
     return issues
