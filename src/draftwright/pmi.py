@@ -2478,21 +2478,37 @@ def _xcaf_datum_occurrence(label, source_id: str, state: _DatumExtractionState):
             else:
                 datum_geometry = _datum_geometry_from_shapes(topology_shapes, state.frame)
             matched_points, matched_bbox, matched_axis, matched_reasons = datum_geometry
+            # An XCAF occurrence with no face claim can use its unique authored
+            # Part21 definition. A present but unmeasurable XCAF face cannot.
+            unlocated_correspondence = bool(
+                definition is not None and not points and ref_bbox is None
+            )
             if (
                 definition is not None
-                and ref_bbox is not None
+                and not unlocated_correspondence
                 and not _same_datum_support(ref_bbox, reference_axis, matched_bbox, matched_axis)
             ):
-                mismatch_id = definition.datum_feature_id
+                if (
+                    ref_bbox is None
+                    or reference_axis in ("", "?")
+                    or matched_bbox is None
+                    or matched_axis in ("", "?")
+                ):
+                    reason = "datum occurrence support cannot be matched to Part21 definition"
+                else:
+                    mismatch_id = definition.datum_feature_id
+                    reason = "datum definition support disagrees with XCAF"
                 geometry_reasons = tuple(
-                    dict.fromkeys(
-                        (*geometry_reasons, "datum definition support disagrees with XCAF")
-                    )
+                    dict.fromkeys((*geometry_reasons, *matched_reasons, reason))
                 )
                 fact = None
             else:
                 points, ref_bbox, reference_axis = matched_points, matched_bbox, matched_axis
-                geometry_reasons = matched_reasons
+                geometry_reasons = (
+                    matched_reasons
+                    if unlocated_correspondence
+                    else tuple(dict.fromkeys((*geometry_reasons, *matched_reasons)))
+                )
         else:
             geometry_reasons = tuple(dict.fromkeys((*geometry_reasons, *topology_reasons)))
     blockers = tuple(

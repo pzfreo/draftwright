@@ -546,6 +546,40 @@ def test_datum_definition_refuses_a_different_physical_support_issue_2128(monkey
     )
 
 
+@pytest.mark.parametrize("geometry_reasons", ((), ("probe XCAF datum geometry failure",)))
+def test_unmeasurable_xcaf_datum_occurrence_keeps_its_source_partial_issue_2128(
+    monkeypatch, geometry_reasons
+):
+    step = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    baseline = pmi_module.extract_pmi_report(step)
+    datum_a = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "A"
+    )
+    assert len(datum_a.source_ids) > 1 and datum_a.ref_bbox is not None
+    source_id = datum_a.source_ids[0]
+    original = pmi_module._datum_reference_geometry
+
+    def unreadable_support(label, *args):
+        geometry = original(label, *args)
+        if pmi_module._source_id("datum", label) == source_id:
+            assert geometry[1] is not None
+            return geometry[0], None, "", geometry_reasons
+        return geometry
+
+    monkeypatch.setattr(pmi_module, "_datum_reference_geometry", unreadable_support)
+    report = pmi_module.extract_pmi_report(step)
+    (source,) = [item for item in report.sources if item.source_id == source_id]
+    assert source.outcome == "partially_extracted"
+    assert "support cannot be matched" in source.reason
+    assert not any(
+        source_id in record.source_ids and not record.lowering_blockers
+        for record in report.records
+    )
+    assert any(record.label == "A" and not record.lowering_blockers for record in report.records)
+
+
 def test_generated_sheet_line_round_trips_imported_datum_and_nested_provenance():
     (feature,) = build_pmi_features((_record(),), Box(20, 20, 20).bounding_box())
     captured = []
