@@ -67,7 +67,7 @@ class TestExtractPmi:
 
         assert frames["#56"].datums == ("A", "B", "C")
         assert frames["#82"].tolerance == "0.254000000000003"
-        assert frames["#82"].display_tolerance == "0.254000000000003"
+        assert frames["#82"].display_tolerance == "0.254"
 
     def test_ctc03_length_nominals_are_normalized_before_geometry_checks(
         self, ctc03_extraction_report
@@ -103,8 +103,16 @@ class TestExtractPmi:
     def test_unqualified_size_deviation_label_keeps_source_magnitude(self):
         from draftwright.pmi import _make_label
 
+        assert 0.05 != 0.05004
+        assert 9.95 != 10.05
         assert _make_label("diameter", 10.0, 0.09, None) == "ø10 +0.09"
         assert _make_label("diameter", 10.0, 0.09, 0.0) == "ø10 +0.09/-0.0"
+        assert _make_label("diameter", 10.0, 0.05, 0.05004) == "ø10 +0.05/-0.05004"
+        assert _make_label("diameter", 10.0, 0.05, 0.05) == "ø10 ±0.05"
+        assert (
+            _make_label("diameter", 10.0, None, None, lower_bound=9.95, upper_bound=10.05)
+            == "ø9.95 - ø10.05"
+        )
 
     @pytest.mark.parametrize(
         ("step_file", "source_id", "authored_field", "failed_getter", "reason_name"),
@@ -389,7 +397,9 @@ class TestExtractPmi:
         )
         source = next(source for source in report.sources if source.source_id == record.source_id)
 
-        assert record.label == f"ø2 ±{record.upper_tol}"
+        from draftwright._geometry import _fmt_pmi_magnitude
+
+        assert record.label == f"ø2 ±{_fmt_pmi_magnitude(record.upper_tol)}"
         assert "inch" not in record.label
         assert source.outcome == "partially_extracted"
         assert "multiple unit scales" in source.reason

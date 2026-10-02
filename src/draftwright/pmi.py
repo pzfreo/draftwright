@@ -416,8 +416,8 @@ def _make_label(
     base = f"{prefix}{_fmt(value, value_decimals)}"
     if lower_bound is not None and upper_bound is not None:
         base = (
-            f"{prefix}{_fmt(lower_bound, value_decimals)} - "
-            f"{prefix}{_fmt(upper_bound, value_decimals)}"
+            f"{prefix}{_fmt_pmi_magnitude(lower_bound, value_decimals)} - "
+            f"{prefix}{_fmt_pmi_magnitude(upper_bound, value_decimals)}"
         )
         return f"{base} {unit_name}" if unit_name else base
     # OCCT returns tolerances as positive magnitudes regardless of sign
@@ -425,7 +425,7 @@ def _make_label(
     # the - deviation stored as a positive magnitude.  We add explicit signs
     # so the label is unambiguous on the drawing.
     if upper_tol is not None and lower_tol is not None:
-        if abs(abs(upper_tol) - abs(lower_tol)) < 1e-4:
+        if abs(upper_tol) == abs(lower_tol):
             base += f" ±{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
         else:
             base += (

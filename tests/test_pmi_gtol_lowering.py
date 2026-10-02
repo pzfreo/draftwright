@@ -130,7 +130,28 @@ def test_imported_control_frame_keeps_source_magnitude_precision():
 
     assert isinstance(feature, ControlFrame)
     assert feature.tolerance == "0.254000000000003"
-    assert feature.display_tolerance == "0.254000000000003"
+    assert feature.display_tolerance == "0.254"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0.254000000000003, "0.254"),
+        (0.050000000000003, "0.05"),
+        (0.05, "0.05"),
+        (0.00000000000001, "0.00000000000001"),
+    ],
+)
+def test_xcaf_display_fallback_has_bounded_significant_digits(value, expected):
+    from decimal import Decimal
+
+    from draftwright._geometry import _fmt_pmi_magnitude
+
+    text = _fmt_pmi_magnitude(value)
+    assert text == expected
+    source = Decimal(str(value))
+    assert abs(Decimal(text) - source) <= Decimal("0.5").scaleb(source.adjusted() - 12)
+    assert _fmt_pmi_magnitude(value, 3) == f"{source:.3f}"
 
 
 def test_flatness_source_magnitude_reaches_ink_and_lint_detects_a_wrong_value():
@@ -161,6 +182,30 @@ def test_flatness_source_magnitude_reaches_ink_and_lint_detects_a_wrong_value():
     assert annotation.pdf_text_relative_specs[0][0] == "0.05"
     report = PmiExtractionReport(records=(record,))
     assert lint_pmi_rendering(model.features, drawing.registry, "annotate", report=report) == []
+
+    # The independent source may carry binary transfer noise; the printed 0.05
+    # remains within the documented 13-digit interval, but a value just beyond it
+    # must be reported even though both would round to 0.05 at two decimals.
+    noisy = replace(record, value=0.050000000000003)
+    assert (
+        lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(noisy,)),
+        )
+        == []
+    )
+    outside = replace(record, value=0.05000000000001)
+    assert [
+        issue.code
+        for issue in lint_pmi_rendering(
+            model.features,
+            drawing.registry,
+            "annotate",
+            report=PmiExtractionReport(records=(outside,)),
+        )
+    ] == ["pmi_value_mismatch"]
 
     annotation.pdf_text_relative_specs = (
         ("0.1", *annotation.pdf_text_relative_specs[0][1:]),

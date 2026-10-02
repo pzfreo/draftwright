@@ -563,7 +563,11 @@ def lint_pmi_rendering(
                 continue
             if value.is_finite():
                 values.append(value)
-        if values == [expected]:
+        # XCAF exposes a binary float without the source's lexical precision. The
+        # compiler displays at most 13 significant digits, so accept only its
+        # half-quantum rounding interval against the independent source record.
+        display_bound = Decimal("0.5").scaleb(expected.adjusted() - 12)
+        if len(values) == 1 and abs(values[0] - expected) <= display_bound:
             continue
         issues.append(
             LintIssue(
