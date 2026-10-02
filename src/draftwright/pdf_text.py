@@ -149,6 +149,170 @@ def _centred_runs(
     return runs
 
 
+def _upright(angle: float) -> float:
+    angle = (angle + 90.0) % 180.0 - 90.0
+    if math.isclose(angle, -90.0, abs_tol=1e-6):
+        return 90.0
+    return angle
+
+
+def _basic_span_axis(annotation) -> float | None:
+    # The keep-clear polygon is an axis-aligned frame, not rotated text ink.
+    # Helper span order puts a surviving shaft before witnesses.
+    segments = list(getattr(annotation, "segments", ()))
+    ink = segments[:-4] if len(segments) >= 4 else segments
+    if len(ink) == 2:
+        (a0, a1), (b0, b1) = ink
+        dx, dy = a1[0] - a0[0], a1[1] - a0[1]
+        angle = math.degrees(math.atan2(dy, dx))
+        bx, by = b1[0] - b0[0], b1[1] - b0[1]
+        if abs(dx * by - dy * bx) > 1e-7:
+            return angle
+        separation = dx * (b0[1] - a0[1]) - dy * (b0[0] - a0[0])
+        return angle if abs(separation) < 1e-7 else angle + 90.0
+    for start, end in ink:
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        if math.hypot(dx, dy) > 1e-9:
+            return math.degrees(math.atan2(dy, dx))
+    return None
+
+
+def _glyph_faces_inside_label(annotation, fs):
+    label_box = getattr(annotation, "label_bbox", None)
+    if not label_box:
+        return None
+    x0, y0, x1, y1 = label_box
+    inset = 0.05 * fs
+    faces = []
+    centres = []
+    for face in annotation.faces():
+        box = face.bounding_box()
+        if (
+            box.min.X >= x0 + inset
+            and box.max.X <= x1 - inset
+            and box.min.Y >= y0 + inset
+            and box.max.Y <= y1 - inset
+        ):
+            centre = face.center()
+            centres.append((centre.X, centre.Y))
+            faces.append(face)
+    if faces:
+        min_area = max(face.area for face in faces) * 0.01
+        faces = [face for face in faces if face.area >= min_area]
+        centres = [(face.center().X, face.center().Y) for face in faces]
+    return faces, centres
+
+
+def _face_ratio(face):
+    box = face.oriented_bounding_box()
+    sizes = sorted((box.size.X, box.size.Y, box.size.Z), reverse=True)
+    return sizes[0] / max(sizes[1], 1e-12)
+
+
+def _line_directions(face):
+    directions = []
+    for edge in face.edges():
+        if getattr(edge.geom_type, "name", "") != "LINE":
+            continue
+        tangent = edge.tangent_at(0.5)
+        directions.append((math.degrees(math.atan2(tangent.Y, tangent.X)) % 180.0, edge.length))
+    return directions
+
+
+def _direction_stats(directions, angle):
+    matching = [
+        weight
+        for direction, weight in directions
+        if abs((direction - angle + 90.0) % 180.0 - 90.0) < 1e-5
+    ]
+    return sum(matching), len(matching)
+
+
+def _single_face_direction_match(source_face, target_face):
+    source_directions = _line_directions(source_face)
+    target_directions = _line_directions(target_face)
+    source_horizontal, source_horizontal_count = _direction_stats(source_directions, 0.0)
+    source_vertical, source_vertical_count = _direction_stats(source_directions, 90.0)
+    source_axis_total = source_horizontal + source_vertical
+    if source_axis_total <= 1e-9 or not target_directions:
+        return None
+    axis_matches = []
+    source_share = source_horizontal / source_axis_total
+    for direction, _weight in target_directions:
+        for angle in (direction, direction - 90.0):
+            target_horizontal, target_horizontal_count = _direction_stats(target_directions, angle)
+            target_vertical, target_vertical_count = _direction_stats(
+                target_directions, angle + 90.0
+            )
+            target_axis_total = target_horizontal + target_vertical
+            if target_axis_total > 1e-9:
+                error = abs(source_share - target_horizontal / target_axis_total) + (
+                    abs(source_horizontal_count - target_horizontal_count)
+                    + abs(source_vertical_count - target_vertical_count)
+                ) / max(1, source_horizontal_count + source_vertical_count)
+                axis_matches.append((error, angle))
+    return min(axis_matches) if axis_matches else None
+
+
+def _major_face_axes(face):
+    obb = face.oriented_bounding_box()
+    return sorted(
+        (
+            (obb.size.X, obb.plane.x_dir),
+            (obb.size.Y, obb.plane.y_dir),
+            (obb.size.Z, obb.plane.z_dir),
+        ),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+
+
+def _single_face_obb_match(source_face, target_face):
+    source_axes, target_axes = _major_face_axes(source_face), _major_face_axes(target_face)
+    if min(source_axes[1][0], target_axes[1][0]) < 1e-9:
+        return None
+    source_ratio = source_axes[0][0] / source_axes[1][0]
+    target_ratio = target_axes[0][0] / target_axes[1][0]
+    aspect_error = abs(math.log(source_ratio / target_ratio))
+    source_dir, target_dir = source_axes[0][1], target_axes[0][1]
+    dot = source_dir.X * target_dir.X + source_dir.Y * target_dir.Y
+    cross = source_dir.X * target_dir.Y - source_dir.Y * target_dir.X
+    return aspect_error, math.degrees(math.atan2(cross, dot))
+
+
+def _multi_face_match(source_faces, target_faces, target_points):
+    source_points = [(face.center().X, face.center().Y) for face in source_faces]
+    source_mean = (
+        sum(point[0] for point in source_points) / len(source_points),
+        sum(point[1] for point in source_points) / len(source_points),
+    )
+    target_mean = (
+        sum(point[0] for point in target_points) / len(target_points),
+        sum(point[1] for point in target_points) / len(target_points),
+    )
+    dot = cross = 0.0
+    for source, target in zip(source_points, target_points, strict=True):
+        sx, sy = source[0] - source_mean[0], source[1] - source_mean[1]
+        tx, ty = target[0] - target_mean[0], target[1] - target_mean[1]
+        dot += sx * tx + sy * ty
+        cross += sx * ty - sy * tx
+    if math.hypot(dot, cross) < 1e-9:
+        return None
+    angle = math.atan2(cross, dot)
+    cos_angle, sin_angle = math.cos(angle), math.sin(angle)
+    error = 0.0
+    for source, target in zip(source_points, target_points, strict=True):
+        sx, sy = source[0] - source_mean[0], source[1] - source_mean[1]
+        predicted = (
+            target_mean[0] + cos_angle * sx - sin_angle * sy,
+            target_mean[1] + sin_angle * sx + cos_angle * sy,
+        )
+        error += math.dist(predicted, target) ** 2
+    for source_face, target_face in zip(source_faces, target_faces, strict=True):
+        error += (source_face.area - target_face.area) ** 2
+    return error, math.degrees(angle)
+
+
 class _TextRotation:
     """Recover the final label angle from authored specs or live helper ink."""
 
@@ -162,13 +326,84 @@ class _TextRotation:
         self.raw_basic_unresolved: set[int] = set()
         self.dimension_specs: dict[int, DimensionPlacementSpec | RegisteredDimensionSpec] = {}
 
-    def angle(self, annotation) -> float:
-        def upright(angle: float) -> float:
-            angle = (angle + 90.0) % 180.0 - 90.0
-            if math.isclose(angle, -90.0, abs_tol=1e-6):
-                return 90.0
-            return angle
+    def _source_face_options(self, candidate, glyph_faces):
+        options = []
+        for font_path in dict.fromkeys((self.drawing_font_path, DEFAULT_FONT_PATH)):
+            faces = Text(
+                txt=candidate,
+                font_size=self.fs,
+                font=self.drawing_font_name,
+                font_style=self.draft.font_style,
+                font_path=font_path,
+                align=(Align.CENTER, Align.CENTER),
+                mode=Mode.PRIVATE,
+            ).faces()
+            if len(faces) != len(glyph_faces) or not faces:
+                continue
+            source_area = sum(face.area for face in faces)
+            target_area = sum(face.area for face in glyph_faces)
+            font_error = sum(
+                abs(source.area / source_area - target.area / target_area)
+                + abs(math.log(_face_ratio(source) / _face_ratio(target)))
+                for source, target in zip(faces, glyph_faces, strict=True)
+            )
+            options.append((font_error, faces))
+        return options
 
+    def _shape_matches(self, annotation, glyph_faces, centres, raw_label):
+        matches = []
+        for candidate in _raw_dimension_candidates(annotation, raw_label, self.draft):
+            options = self._source_face_options(candidate, glyph_faces)
+            if not options:
+                continue
+            if len(candidate) == 1:
+                for _font_error, exact_faces in options:
+                    exact_rotation = _exact_face_rotation(exact_faces, glyph_faces)
+                    if exact_rotation is not None:
+                        self.raw_basic_exact_matches.add(id(annotation))
+                        matches.append((0.0, candidate, exact_rotation))
+                        break
+                else:
+                    exact_rotation = None
+                if exact_rotation is not None:
+                    continue
+            _font_error, source_faces = min(options, key=lambda item: item[0])
+            if len(source_faces) == 1:
+                match = _single_face_direction_match(source_faces[0], glyph_faces[0])
+                if match is None:
+                    match = _single_face_obb_match(source_faces[0], glyph_faces[0])
+            else:
+                match = _multi_face_match(source_faces, glyph_faces, centres)
+            if match is not None:
+                error, angle = match
+                matches.append((error, candidate, angle))
+        return matches
+
+    def _raw_basic_angle(self, annotation, live_rotation: float) -> float | None:
+        if match := self.raw_basic_matches.get(id(annotation)):
+            return match[1]
+        # Helper geometry absorbs constructor rotation; segments include live rotation.
+        transform_rotation = float(getattr(annotation, "_init_rot", 0.0)) + live_rotation
+        if (axis := _basic_span_axis(annotation)) is not None:
+            return _upright(axis - transform_rotation) + transform_rotation
+        # A wide label can consume all spans; use its glyph faces as the last resort.
+        glyphs = _glyph_faces_inside_label(annotation, self.fs)
+        if glyphs is None:
+            return None
+        glyph_faces, centres = glyphs
+        raw_label = str(getattr(annotation, "label", ""))
+        matches = self._shape_matches(annotation, glyph_faces, centres, raw_label)
+        if len(raw_label) == 1 and id(annotation) not in self.raw_basic_exact_matches:
+            # A guessed face may put selectable text far from custom-font ink.
+            self.raw_basic_unresolved.add(id(annotation))
+        if matches:
+            _error, matched_text, matched_angle = min(matches)
+            angle = _upright(matched_angle - transform_rotation) + transform_rotation
+            self.raw_basic_matches[id(annotation)] = (matched_text, angle)
+            return angle
+        return None
+
+    def angle(self, annotation) -> float:
         live_rotation = float(getattr(annotation.location.orientation, "Z", 0.0))
         explicit = getattr(annotation, "pdf_text_rotation", None)
         if explicit is not None:
@@ -181,7 +416,7 @@ class _TextRotation:
                 # applies constructor/live transforms to the whole annotation. Do not
                 # upright-normalise again after those transforms: 120° must remain 120°.
                 return (
-                    upright(math.degrees(math.atan2(dy, dx)))
+                    _upright(math.degrees(math.atan2(dy, dx)))
                     + (
                         spec.rotation
                         if isinstance(spec, RegisteredDimensionSpec)
@@ -190,260 +425,9 @@ class _TextRotation:
                     + live_rotation
                 )
         if getattr(annotation, "is_basic", False):
-            if match := self.raw_basic_matches.get(id(annotation)):
-                return match[1]
-            # Raw helper geometry has already absorbed its constructor rotation; live
-            # location transforms are reflected by ``segments`` too. Match the helper's
-            # operation order: upright the pre-transform axis, then reapply both.
-            transform_rotation = float(getattr(annotation, "_init_rot", 0.0)) + live_rotation
-
-            def raw_basic_text_angle(final_axis: float) -> float:
-                return upright(final_axis - transform_rotation) + transform_rotation
-
-            # A basic dimension's keep-clear polygon is its axis-aligned frame,
-            # not its rotated text. For short labels, distinguish collinear shaft spans,
-            # parallel witness
-            # lines, and the mixed one-shaft/one-witness case. Helper span order puts
-            # a surviving shaft before witnesses.
-            segments = list(getattr(annotation, "segments", ()))
-            ink = segments[:-4] if len(segments) >= 4 else segments
-            if len(ink) == 2:
-                (a0, a1), (b0, b1) = ink
-                dx, dy = a1[0] - a0[0], a1[1] - a0[1]
-                angle = math.degrees(math.atan2(dy, dx))
-                bx, by = b1[0] - b0[0], b1[1] - b0[1]
-                if abs(dx * by - dy * bx) > 1e-7:
-                    return raw_basic_text_angle(angle)
-                separation = dx * (b0[1] - a0[1]) - dy * (b0[0] - a0[0])
-                axis = angle if abs(separation) < 1e-7 else angle + 90.0
-                return raw_basic_text_angle(axis)
-            for start, end in ink:
-                dx, dy = end[0] - start[0], end[1] - start[1]
-                if math.hypot(dx, dy) > 1e-9:
-                    return raw_basic_text_angle(math.degrees(math.atan2(dy, dx)))
-            # An extremely wide label can consume every shaft and witness span. Recover
-            # angle magnitude from the rotated text AABB (the frame adds a known pad),
-            # using glyph-face covariance only for the sign.
-            if label_box := getattr(annotation, "label_bbox", None):
-                x0, y0, x1, y1 = label_box
-                inset = 0.05 * self.fs
-                centres = []
-                glyph_faces = []
-                for face in annotation.faces():
-                    face_box = face.bounding_box()
-                    if (
-                        face_box.min.X >= x0 + inset
-                        and face_box.max.X <= x1 - inset
-                        and face_box.min.Y >= y0 + inset
-                        and face_box.max.Y <= y1 - inset
-                    ):
-                        centre = face.center()
-                        centres.append((centre.X, centre.Y))
-                        glyph_faces.append(face)
-                if glyph_faces:
-                    min_area = max(face.area for face in glyph_faces) * 0.01
-                    glyph_faces = [face for face in glyph_faces if face.area >= min_area]
-                    centres = [(face.center().X, face.center().Y) for face in glyph_faces]
-                shape_matches: list[tuple[float, str, float]] = []
-                raw_label = str(getattr(annotation, "label", ""))
-                for candidate in _raw_dimension_candidates(annotation, raw_label, self.draft):
-                    source_face_options = []
-                    for font_path in dict.fromkeys((self.drawing_font_path, DEFAULT_FONT_PATH)):
-                        faces = Text(
-                            txt=candidate,
-                            font_size=self.fs,
-                            font=self.drawing_font_name,
-                            font_style=self.draft.font_style,
-                            font_path=font_path,
-                            align=(Align.CENTER, Align.CENTER),
-                            mode=Mode.PRIVATE,
-                        ).faces()
-                        if len(faces) != len(glyph_faces) or not faces:
-                            continue
-
-                        def face_ratio(face):
-                            box = face.oriented_bounding_box()
-                            sizes = sorted((box.size.X, box.size.Y, box.size.Z), reverse=True)
-                            return sizes[0] / max(sizes[1], 1e-12)
-
-                        source_area = sum(face.area for face in faces)
-                        target_area = sum(face.area for face in glyph_faces)
-                        font_error = sum(
-                            abs(source.area / source_area - target.area / target_area)
-                            + abs(math.log(face_ratio(source) / face_ratio(target)))
-                            for source, target in zip(faces, glyph_faces, strict=True)
-                        )
-                        source_face_options.append((font_error, faces))
-                    if not source_face_options:
-                        continue
-                    if len(candidate) == 1:
-                        for _font_error, exact_faces in source_face_options:
-                            exact_rotation = _exact_face_rotation(exact_faces, glyph_faces)
-                            if exact_rotation is not None:
-                                self.raw_basic_exact_matches.add(id(annotation))
-                                shape_matches.append((0.0, candidate, exact_rotation))
-                                break
-                        else:
-                            exact_rotation = None
-                        if exact_rotation is not None:
-                            continue
-                    _font_error, source_faces = min(source_face_options, key=lambda item: item[0])
-                    if len(source_faces) == 1:
-
-                        def line_directions(face):
-                            directions = []
-                            for edge in face.edges():
-                                if getattr(edge.geom_type, "name", "") != "LINE":
-                                    continue
-                                tangent = edge.tangent_at(0.5)
-                                directions.append(
-                                    (
-                                        math.degrees(math.atan2(tangent.Y, tangent.X)) % 180.0,
-                                        edge.length,
-                                    )
-                                )
-                            return directions
-
-                        def direction_stats(directions, angle):
-                            matching = [
-                                weight
-                                for direction, weight in directions
-                                if abs((direction - angle + 90.0) % 180.0 - 90.0) < 1e-5
-                            ]
-                            return sum(matching), len(matching)
-
-                        source_directions = line_directions(source_faces[0])
-                        target_directions = line_directions(glyph_faces[0])
-                        source_horizontal, source_horizontal_count = direction_stats(
-                            source_directions, 0.0
-                        )
-                        source_vertical, source_vertical_count = direction_stats(
-                            source_directions, 90.0
-                        )
-                        source_axis_total = source_horizontal + source_vertical
-                        if source_axis_total > 1e-9 and target_directions:
-                            axis_matches = []
-                            source_share = source_horizontal / source_axis_total
-                            for direction, _weight in target_directions:
-                                for angle in (direction, direction - 90.0):
-                                    target_horizontal, target_horizontal_count = direction_stats(
-                                        target_directions, angle
-                                    )
-                                    target_vertical, target_vertical_count = direction_stats(
-                                        target_directions, angle + 90.0
-                                    )
-                                    target_axis_total = target_horizontal + target_vertical
-                                    if target_axis_total > 1e-9:
-                                        axis_matches.append(
-                                            (
-                                                abs(
-                                                    source_share
-                                                    - target_horizontal / target_axis_total
-                                                )
-                                                + (
-                                                    abs(
-                                                        source_horizontal_count
-                                                        - target_horizontal_count
-                                                    )
-                                                    + abs(
-                                                        source_vertical_count
-                                                        - target_vertical_count
-                                                    )
-                                                )
-                                                / max(
-                                                    1,
-                                                    source_horizontal_count
-                                                    + source_vertical_count,
-                                                ),
-                                                angle,
-                                            )
-                                        )
-                            if axis_matches:
-                                error, angle = min(axis_matches)
-                                shape_matches.append((error, candidate, angle))
-                                continue
-                        source_obb = source_faces[0].oriented_bounding_box()
-                        target_obb = glyph_faces[0].oriented_bounding_box()
-                        source_axes = sorted(
-                            (
-                                (source_obb.size.X, source_obb.plane.x_dir),
-                                (source_obb.size.Y, source_obb.plane.y_dir),
-                                (source_obb.size.Z, source_obb.plane.z_dir),
-                            ),
-                            key=lambda item: item[0],
-                            reverse=True,
-                        )
-                        target_axes = sorted(
-                            (
-                                (target_obb.size.X, target_obb.plane.x_dir),
-                                (target_obb.size.Y, target_obb.plane.y_dir),
-                                (target_obb.size.Z, target_obb.plane.z_dir),
-                            ),
-                            key=lambda item: item[0],
-                            reverse=True,
-                        )
-                        if min(source_axes[1][0], target_axes[1][0]) < 1e-9:
-                            continue
-                        source_ratio = source_axes[0][0] / source_axes[1][0]
-                        target_ratio = target_axes[0][0] / target_axes[1][0]
-                        aspect_error = abs(math.log(source_ratio / target_ratio))
-                        source_dir = source_axes[0][1]
-                        target_dir = target_axes[0][1]
-                        dot = source_dir.X * target_dir.X + source_dir.Y * target_dir.Y
-                        cross = source_dir.X * target_dir.Y - source_dir.Y * target_dir.X
-                        shape_matches.append(
-                            (
-                                aspect_error,
-                                candidate,
-                                math.degrees(math.atan2(cross, dot)),
-                            )
-                        )
-                        continue
-                    else:
-                        source_points = [
-                            (face.center().X, face.center().Y) for face in source_faces
-                        ]
-                        target_points = centres
-                    source_mean = (
-                        sum(point[0] for point in source_points) / len(source_points),
-                        sum(point[1] for point in source_points) / len(source_points),
-                    )
-                    target_mean = (
-                        sum(point[0] for point in target_points) / len(target_points),
-                        sum(point[1] for point in target_points) / len(target_points),
-                    )
-                    dot = cross = 0.0
-                    for source, target in zip(source_points, target_points, strict=True):
-                        sx, sy = source[0] - source_mean[0], source[1] - source_mean[1]
-                        tx, ty = target[0] - target_mean[0], target[1] - target_mean[1]
-                        dot += sx * tx + sy * ty
-                        cross += sx * ty - sy * tx
-                    if math.hypot(dot, cross) < 1e-9:
-                        continue
-                    angle = math.atan2(cross, dot)
-                    cos_angle, sin_angle = math.cos(angle), math.sin(angle)
-                    error = 0.0
-                    for source, target in zip(source_points, target_points, strict=True):
-                        sx, sy = source[0] - source_mean[0], source[1] - source_mean[1]
-                        predicted = (
-                            target_mean[0] + cos_angle * sx - sin_angle * sy,
-                            target_mean[1] + sin_angle * sx + cos_angle * sy,
-                        )
-                        error += math.dist(predicted, target) ** 2
-                    for source_face, target_face in zip(source_faces, glyph_faces, strict=True):
-                        error += (source_face.area - target_face.area) ** 2
-                    shape_matches.append((error, candidate, math.degrees(angle)))
-                if len(raw_label) == 1 and id(annotation) not in self.raw_basic_exact_matches:
-                    # External helpers discard their construction Draft.  A guessed
-                    # face can put selectable text far from custom-font ink, so retain
-                    # the helper's visible vector glyph unless its outline proves the
-                    # semantic face and rotation exactly.
-                    self.raw_basic_unresolved.add(id(annotation))
-                if shape_matches:
-                    _error, matched_text, matched_angle = min(shape_matches)
-                    matched_angle = raw_basic_text_angle(matched_angle)
-                    self.raw_basic_matches[id(annotation)] = (matched_text, matched_angle)
-                    return matched_angle
+            angle = self._raw_basic_angle(annotation, live_rotation)
+            if angle is not None:
+                return angle
         polygon = getattr(annotation, "label_polygon", None)
         if polygon and len(polygon) >= 2:
             (x0, y0), (x1, y1) = polygon[:2]

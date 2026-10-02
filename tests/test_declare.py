@@ -1823,6 +1823,65 @@ class TestAuthoredDimension:
         via_facade = next(f for f in sheet.features if f.kind == "authored_dimension")
         assert measured_dimension(**self._KW) == via_facade
 
+    def test_measured_anchor_prefers_bbox_then_topology_then_reference_points(self):
+        from draftwright.model import (
+            AngularReference,
+            CircularReference,
+            CylindricalReference,
+            measured_dimension,
+        )
+
+        bbox = (-1, -1, -1, 1, 1, 1)
+        cylinder = CylindricalReference((20, 0, 0), (0, 0, 1), 5, (0, 10), "external")
+        circle = CircularReference((40, 0, 0), (0, 0, 1), 5)
+        angles = (
+            AngularReference((80, 0, 0), (81, 0, 0), (80, 1, 0)),
+            AngularReference((82, 0, 0), (83, 0, 0), (82, 1, 0)),
+        )
+        diameter = dict(
+            kind="diameter",
+            value=10,
+            label="ø10",
+            dominant_axis="Z",
+            ref_pts=((60, 0, 0), (62, 0, 0)),
+        )
+        angular = dict(
+            kind="angular",
+            value=90,
+            label="90°",
+            dominant_axis="Z",
+            ref_pts=((100, 0, 0), (102, 0, 0)),
+        )
+        # Every source names a different point, so a lower-priority choice is visible.
+        assert cylinder.midpoint == (20, 0, 5)
+        source_centers = (
+            (0, 0, 0),
+            cylinder.midpoint,
+            circle.center,
+            (61, 0, 0),
+            (81, 0, 0),
+            (101, 0, 0),
+        )
+        assert len(set(source_centers)) == len(source_centers)
+
+        diameter_cases = (
+            (
+                {"ref_bbox": bbox, "cylindrical_refs": (cylinder,), "circular_refs": (circle,)},
+                (0, 0, 0),
+            ),
+            ({"cylindrical_refs": (cylinder,), "circular_refs": (circle,)}, (20, 0, 5)),
+            ({"circular_refs": (circle,)}, (40, 0, 0)),
+            ({}, (61, 0, 0)),
+        )
+        angular_cases = (
+            ({"ref_bbox": bbox, "angular_references": angles}, (0, 0, 0)),
+            ({"angular_references": angles}, (81, 0, 0)),
+            ({}, (101, 0, 0)),
+        )
+        for base, cases in ((diameter, diameter_cases), (angular, angular_cases)):
+            for references, expected in cases:
+                assert measured_dimension(**base, **references).frame.origin == expected
+
     def test_the_measured_call_shape_is_refused_by_name(self):
         """#720 removed the transitional dispatch at 0.4.0, so `dimension` means one thing.
 
