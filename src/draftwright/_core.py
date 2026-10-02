@@ -1285,7 +1285,7 @@ class Analysis:
     #: and none was sourced — a distinct state from an explicitly authored string, because a
     #: general tolerance is a manufacturing requirement and defaulting one invents intent
     #: the source model may not carry. ``""`` is the explicit request for a blank
-    #: cell. `_make_title_block` renders `None` as `_TOLERANCE_UNSPECIFIED`.
+    #: cell. The sheet-furniture renderer displays `None` as "UNSPECIFIED".
     tolerance: str | None
     drawn_by: str
     out: str
