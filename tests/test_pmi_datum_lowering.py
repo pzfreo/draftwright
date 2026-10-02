@@ -8,6 +8,7 @@ import pytest
 from build123d import Box
 
 import draftwright.pmi as pmi_module
+from draftwright import _pmi_topology as topology_module
 from draftwright._pmi_part21 import read_datum_definitions, read_datum_occurrences
 from draftwright.linting import lint_pmi_lowering
 from draftwright.model import DatumRef, PmiFeature, build_pmi_features
@@ -129,7 +130,7 @@ def test_complete_datum_definition_lowers_once_for_all_source_occurrences():
 def test_datum_topology_resolution_uses_part21_labels_and_exact_imported_identity(monkeypatch):
     imported = (_Face("left"), _Face("right"))
     reader = _StepReader({"#839": 7, "#840": 11}, {7: imported[0], 11: imported[1]})
-    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+    monkeypatch.setattr(topology_module, "TopAbs_FACE", "face")
     resolver = pmi_module._DatumTopologyResolver(reader, _ImportedFaces(*imported))
 
     shapes, reasons = resolver.resolve("#36", ("#839", "#840"))
@@ -159,7 +160,7 @@ def test_datum_topology_resolution_uses_part21_labels_and_exact_imported_identit
 def test_datum_topology_resolution_fails_closed_for_missing_unimported_or_collapsed_faces(
     monkeypatch, ranks, results, imported, expected
 ):
-    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+    monkeypatch.setattr(topology_module, "TopAbs_FACE", "face")
     resolver = pmi_module._DatumTopologyResolver(
         _StepReader(ranks, results), _ImportedFaces(*imported)
     )
@@ -171,7 +172,7 @@ def test_datum_topology_resolution_fails_closed_for_missing_unimported_or_collap
 
 
 def test_datum_topology_resolution_rejects_empty_nonface_and_transfer_exception(monkeypatch):
-    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+    monkeypatch.setattr(topology_module, "TopAbs_FACE", "face")
 
     resolver = pmi_module._DatumTopologyResolver(_StepReader({}, {}), _ImportedFaces())
     assert resolver.resolve("#36", ())[1] == ("datum feature has no Part21 representation items",)
@@ -199,7 +200,7 @@ def test_datum_topology_resolution_rejects_two_definitions_claiming_one_face(mon
         {"#839": 7, "#840": 11, "#853": 13},
         {7: imported[0], 11: imported[1], 13: imported[0]},
     )
-    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+    monkeypatch.setattr(topology_module, "TopAbs_FACE", "face")
     resolver = pmi_module._DatumTopologyResolver(reader, _ImportedFaces(*imported))
 
     assert resolver.resolve("#36", ("#839", "#840"))[1] == ()
@@ -222,7 +223,7 @@ def test_surface_labels_may_share_one_exact_imported_edge(monkeypatch):
         {7: imported},
         entity_type="StepShape_EdgeCurve",
     )
-    monkeypatch.setattr(pmi_module, "TopAbs_EDGE", "face")
+    monkeypatch.setattr(topology_module, "TopAbs_EDGE", "face")
     resolver = pmi_module._SurfaceLabelTopologyResolver(reader, _ImportedFaces(imported))
 
     first, first_reasons = resolver.resolve("#316", ("#1850",), noun="surface label")

@@ -709,6 +709,8 @@ and re-exports the existing private helper names.
   principal projection before the PMI extractor lowers dimensions.
 - **`_pmi_support_blockers.py`** — pure XCAF source-support and geometric-tolerance
   blocker policy, with exact Part21-overlay filters used by the PMI extractor.
+- **`_pmi_topology.py`** — exact Part21 support resolvers that verify transferred
+  faces and edges belong to the imported topology before PMI correlation.
 - **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
   Defines the public record and source-census types at their established import path,
   owns the XCAF source census, and overlays `_pmi_part21` facts only after exact
