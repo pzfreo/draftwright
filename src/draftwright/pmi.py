@@ -1063,8 +1063,8 @@ def _datum_geometry_from_shapes(shapes, frame: PartFrame | None = None):
     return tuple(points), ref_bbox, reference_axis, tuple(dict.fromkeys(reasons))
 
 
-def _datum_reference_geometry(label, shape_tool, frame: PartFrame | None = None):
-    """Measure datum faces reached through the direct XCAF relationship."""
+def _datum_reference_shapes(label, shape_tool):
+    """Keep the exact XCAF supports for the Part21 correspondence check."""
     first_refs = TDF_LabelSequence()
     second_refs = TDF_LabelSequence()
     XCAFDoc_DimTolTool.GetRefShapeLabel_s(label, first_refs, second_refs)
@@ -1072,6 +1072,12 @@ def _datum_reference_geometry(label, shape_tool, frame: PartFrame | None = None)
     for refs in (first_refs, second_refs):
         for index in range(1, refs.Length() + 1):
             shapes.append(shape_tool.GetShape_s(refs.Value(index)))
+    return tuple(shapes)
+
+
+def _datum_reference_geometry(label, shape_tool, frame: PartFrame | None = None):
+    """Measure datum faces reached through the direct XCAF relationship."""
+    shapes = _datum_reference_shapes(label, shape_tool)
     if frame is None:
         return _datum_geometry_from_shapes(shapes)
     return _datum_geometry_from_shapes(shapes, frame)
@@ -1115,10 +1121,18 @@ def _datum_definition(
     return None, ""
 
 
-def _same_datum_support(xcaf_bbox, xcaf_axis, part21_bbox, part21_axis) -> bool:
-    """Require the authored definition to resolve to the same physical support."""
+def _same_datum_support(
+    xcaf_shapes, part21_shapes, xcaf_bbox, xcaf_axis, part21_bbox, part21_axis
+) -> bool:
+    """Require identical imported faces, even when distinct faces coincide geometrically."""
     return bool(
-        xcaf_bbox is not None
+        xcaf_shapes
+        and part21_shapes
+        and all(shape is not None and not shape.IsNull() for shape in xcaf_shapes)
+        and all(shape is not None and not shape.IsNull() for shape in part21_shapes)
+        and all(any(shape.IsSame(other) for other in part21_shapes) for shape in xcaf_shapes)
+        and all(any(shape.IsSame(other) for other in xcaf_shapes) for shape in part21_shapes)
+        and xcaf_bbox is not None
         and part21_bbox is not None
         and xcaf_axis not in ("", "?")
         and xcaf_axis == part21_axis
@@ -2464,6 +2478,7 @@ def _xcaf_datum_occurrence(label, source_id: str, state: _DatumExtractionState):
         datum_geometry = _datum_reference_geometry(label, state.shape_tool)
     else:
         datum_geometry = _datum_reference_geometry(label, state.shape_tool, state.frame)
+    xcaf_shapes = _datum_reference_shapes(label, state.shape_tool)
     points, ref_bbox, reference_axis, geometry_reasons = datum_geometry
     mismatch_id = ""
     if fact is not None and fact.reference_item_ids:
@@ -2482,17 +2497,14 @@ def _xcaf_datum_occurrence(label, source_id: str, state: _DatumExtractionState):
             matched_points, matched_bbox, matched_axis, matched_reasons = datum_geometry
             # An XCAF occurrence with no face claim can use its unique authored
             # Part21 definition. A present but unmeasurable XCAF face cannot.
-            unlocated_correspondence = bool(
-                definition is not None
-                and not points
-                and ref_bbox is None
-                and geometry_reasons
-                == ("referenced geometry is unavailable", "datum reference surface is unavailable")
-            )
-            if (
-                definition is not None
-                and not unlocated_correspondence
-                and not _same_datum_support(ref_bbox, reference_axis, matched_bbox, matched_axis)
+            unlocated_correspondence = not xcaf_shapes
+            if not unlocated_correspondence and not _same_datum_support(
+                xcaf_shapes,
+                topology_shapes,
+                ref_bbox,
+                reference_axis,
+                matched_bbox,
+                matched_axis,
             ):
                 if (
                     ref_bbox is None
@@ -2502,8 +2514,12 @@ def _xcaf_datum_occurrence(label, source_id: str, state: _DatumExtractionState):
                 ):
                     reason = "datum occurrence support cannot be matched to Part21 definition"
                 else:
-                    mismatch_id = definition.datum_feature_id
-                    reason = "datum definition support disagrees with XCAF"
+                    mismatch_id = fact.datum_feature_id
+                    reason = (
+                        "datum definition support disagrees with XCAF"
+                        if definition is not None
+                        else "datum occurrence support disagrees with XCAF"
+                    )
                 geometry_reasons = tuple(
                     dict.fromkeys((*geometry_reasons, *matched_reasons, reason))
                 )

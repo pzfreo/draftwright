@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box
+from build123d import Axis, Box
 
 import draftwright.pmi as pmi_module
 from draftwright import _pmi_topology as topology_module
@@ -546,6 +546,66 @@ def test_datum_definition_refuses_a_different_physical_support_issue_2128(monkey
     )
 
 
+def test_coincident_distinct_datum_faces_do_not_share_a_definition_issue_2128():
+    first = Box(10, 10, 10).faces().sort_by(Axis.Z)[-1].wrapped
+    second = Box(10, 10, 10).faces().sort_by(Axis.Z)[-1].wrapped
+    assert not first.IsSame(second)
+    first_geometry = pmi_module._datum_geometry_from_shapes((first,))
+    second_geometry = pmi_module._datum_geometry_from_shapes((second,))
+    assert first_geometry[1:3] == second_geometry[1:3]
+    assert pmi_module._same_datum_support(
+        (first,), (first,), first_geometry[1], first_geometry[2], *first_geometry[1:3]
+    )
+    assert not pmi_module._same_datum_support(
+        (first,), (second,), first_geometry[1], first_geometry[2], *second_geometry[1:3]
+    )
+
+
+def test_occurrence_fallback_refuses_a_different_physical_support_issue_2128(monkeypatch):
+    step = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
+    facts = read_datum_occurrences(step)
+    a_fact = next(fact for fact in facts if fact.letter == "A" and fact.reference_item_ids)
+    b_fact = next(fact for fact in facts if fact.letter == "B" and fact.reference_item_ids)
+    monkeypatch.setattr(pmi_module, "read_datum_definitions", lambda _step: ())
+    baseline = pmi_module.extract_pmi_report(step)
+    a = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "A"
+    )
+    b = next(
+        record
+        for record in baseline.records
+        if record.source_category == "datum" and record.label == "B"
+    )
+    assert a.ref_bbox is not None and b.ref_bbox is not None
+    assert a.ref_bbox != b.ref_bbox and not a.lowering_blockers
+
+    original = pmi_module._DatumTopologyResolver.resolve
+
+    def wrong_support(self, feature_id, item_ids):
+        if feature_id == a_fact.datum_feature_id:
+            return original(self, b_fact.datum_feature_id, b_fact.reference_item_ids)
+        return original(self, feature_id, item_ids)
+
+    monkeypatch.setattr(pmi_module._DatumTopologyResolver, "resolve", wrong_support)
+    report = pmi_module.extract_pmi_report(step)
+    a_sources = [
+        source
+        for source in report.sources
+        if source.category == "datum" and source.source_id in a.source_ids
+    ]
+    assert len(a_sources) == len(a.source_ids)
+    assert all(source.outcome == "partially_extracted" for source in a_sources)
+    assert all(
+        "datum occurrence support disagrees with XCAF" in source.reason for source in a_sources
+    )
+    assert not any(
+        isinstance(feature, DatumRef) and set(feature.source_ids) & set(a.source_ids)
+        for feature in build_pmi_features(report.records, Box(20, 20, 20).bounding_box())
+    )
+
+
 @pytest.mark.parametrize("geometry_reasons", ((), ("probe XCAF datum geometry failure",)))
 def test_unmeasurable_xcaf_datum_occurrence_keeps_its_source_partial_issue_2128(
     monkeypatch, geometry_reasons
@@ -599,14 +659,14 @@ def test_only_absent_xcaf_datum_references_can_use_part21_support_issue_2128(
     direct_geometry = pmi_module._datum_geometry_from_shapes(xcaf_shapes)
     assert direct_geometry[:3] == ((), None, "")
     assert ("one referenced shape is unavailable" in direct_geometry[3]) == bool(xcaf_shapes)
-    original = pmi_module._datum_reference_geometry
+    original = pmi_module._datum_reference_shapes
 
-    def direct_support(label, *args):
+    def direct_support(label, shape_tool):
         if pmi_module._source_id("datum", label) == source_id:
-            return direct_geometry
-        return original(label, *args)
+            return xcaf_shapes
+        return original(label, shape_tool)
 
-    monkeypatch.setattr(pmi_module, "_datum_reference_geometry", direct_support)
+    monkeypatch.setattr(pmi_module, "_datum_reference_shapes", direct_support)
     report = pmi_module.extract_pmi_report(step)
     (source,) = [item for item in report.sources if item.source_id == source_id]
     assert source.outcome == expected_outcome
