@@ -9,7 +9,7 @@ optional value, not optional presence on a real Drawing.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 if TYPE_CHECKING:
@@ -46,6 +46,12 @@ class DrawingPort(Protocol):
 
     @property
     def pmi_mode(self) -> str: ...
+
+    @property
+    def general_tolerance_source(self) -> object | None: ...
+
+    @property
+    def default_surface_finish_source(self) -> object | None: ...
 
     def model(self) -> PartModel | None: ...
 
@@ -99,6 +105,10 @@ class DrawingPort(Protocol):
     ) -> Any: ...
 
     def material_fields(self) -> dict[Any, Any]: ...
+
+    def title_block_for(
+        self, key: object, factory: Callable[[], tuple[Any, Any]]
+    ) -> tuple[Any, Any]: ...
 
     def pin(self, name: str) -> Any: ...
 
