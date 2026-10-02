@@ -133,21 +133,26 @@ def feature_hole_keys(model, a: Analysis) -> set[HoleRef]:
 
     Sourced from the **IR** (``model.features`` — the hole/pattern features detection or
     a declared model produced), not recogniser records, so no ``HoleRecord`` crosses into
-    the renderers (ADR 1 (was 0008 Am6) / #584 WP1). A turned part's concentric axial bores
-    (dimensioned by the centreline leaders, not a callout) are excluded; every other hole
-    — singleton or pattern member — is kept."""
+    the renderers (ADR 1 (was 0008 Am6) / #584 WP1). A turned part's concentric through
+    bores retain their centreline leaders. Blind axial holes need a compound callout for
+    depth and thread, so they retain their end-view membership."""
     keys: set[HoleRef] = set()
     for f in model.features:
         if f.kind == "hole":
-            axis, positions = f.frame.axis, (f.members or (f.frame.origin,))
+            axis, positions, through = f.frame.axis, (f.members or (f.frame.origin,)), f.through
         elif f.kind == "pattern":
-            axis, positions = f.member.frame.axis, (f.members or (f.member.frame.origin,))
+            axis, positions, through = (
+                f.member.frame.axis,
+                (f.members or (f.member.frame.origin,)),
+                f.member.through,
+            )
         else:
             continue
         for pos in positions:
             if (
                 a.is_rotational
                 and axis == "z"
+                and through
                 and math.hypot(pos[0] - a.cx, pos[1] - a.cy) <= _CONCENTRIC_TOL_MM
             ):
                 continue

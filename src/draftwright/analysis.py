@@ -85,10 +85,13 @@ from draftwright.compose import (
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.detect import _build_part_model_from_recognition
 from draftwright.model.ir import (
+    BlindAxialBoreSupport,
     Datum,
     DocumentNote,
     GrooveFeature,
+    HoleFeature,
     PartModel,
+    RotationalFeature,
     StepFeature,
     StepLevelFeature,
 )
@@ -1480,6 +1483,87 @@ def _prepare_source(r: _AnalysisRequest) -> _SourceState:
     )
 
 
+def _with_blind_axial_bore_support(model: PartModel, cyls) -> PartModel:
+    """Carry unique same-cylinder hole/turned-bore correspondence into the IR waist.
+
+    The input is the build's already captured cylinder inventory. A value or centre
+    match alone cannot establish one physical bore; a full internal cylinder must
+    also supply the hole mouth and its finite blind depth.
+    """
+    holes = [feature for feature in model.features if isinstance(feature, HoleFeature)]
+    rotational = [feature for feature in model.features if isinstance(feature, RotationalFeature)]
+    if not holes or not rotational or not cyls:
+        return (
+            model
+            if not model.blind_axial_bore_supports
+            else replace(model, blind_axial_bore_supports=())
+        )
+    substrate = [
+        cylinder
+        for cylinder in full_cylinders(list(cyls[0]))
+        if cylinder["axis"] == "z" and not cylinder["external"]
+    ]
+    tolerance = 1e-3
+    links: list[BlindAxialBoreSupport] = []
+    for owner in rotational:
+        if owner.frame.axis != "z":
+            continue
+        for bore in owner.bores:
+            if sum(abs(diameter - bore) <= tolerance for diameter in owner.bores) != 1:
+                continue
+            support = [
+                cylinder
+                for cylinder in substrate
+                if abs(cylinder["diameter"] - bore) <= tolerance
+                and math.hypot(
+                    cylinder["axis_xyz"][0] - owner.frame.origin[0],
+                    cylinder["axis_xyz"][1] - owner.frame.origin[1],
+                )
+                <= tolerance
+            ]
+            if len(support) != 1:
+                continue
+            cylinder = support[0]
+            interval = (cylinder["s_lo"], cylinder["s_hi"])
+            direction = cylinder["dir_xyz"]
+            matches = [
+                hole
+                for hole in holes
+                if hole.frame.axis == "z"
+                and not hole.through
+                and hole.profile is None
+                and hole.depth is not None
+                and abs(hole.diameter - bore) <= tolerance
+                and abs(hole.depth - (interval[1] - interval[0])) <= tolerance
+                and math.hypot(
+                    hole.frame.origin[0] - owner.frame.origin[0],
+                    hole.frame.origin[1] - owner.frame.origin[1],
+                )
+                <= tolerance
+                and min(
+                    abs(
+                        sum(
+                            coordinate * component
+                            for coordinate, component in zip(
+                                hole.frame.origin, direction, strict=True
+                            )
+                        )
+                        - endpoint
+                    )
+                    for endpoint in interval
+                )
+                <= tolerance
+            ]
+            if len(matches) == 1:
+                links.append(BlindAxialBoreSupport(matches[0], owner, interval))
+    result = tuple(links)
+    return (
+        model
+        if result == model.blind_axial_bore_supports
+        else replace(model, blind_axial_bore_supports=result)
+    )
+
+
 def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
     text_position = r.metadata.text_position
     text_orientation = r.metadata.text_orientation
@@ -1646,6 +1730,7 @@ def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
             cyls=shared_cyls,
         )
     )
+    sizing_model = _with_blind_axial_bore_support(sizing_model, shared_cyls)
     recognition_ownership = (
         None
         if layout_model is not None

@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Literal
 
-from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef, _fmt_angle
+from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef, _fmt, _fmt_angle
 from draftwright.measurement_support import pocket_location_reference
 from draftwright.model.ir import (
     PLACEMENT_SIDES,
@@ -58,6 +58,7 @@ from draftwright.model.ir import (
     Point,
     RectangularBlindSlotFeature,
     RequestedDimension,
+    RotationalFeature,
     RoundBottomBlindSlotFeature,
     ScheduleRow,
     SlotFeature,
@@ -480,6 +481,7 @@ _PLANE_TOL = 1e-6
 #: The reason a feature-local extent carries when an overall extent already states the
 #: same two support planes.
 _CONSOLIDATED = "the overall extent already measures these two support planes"
+_BLIND_BORE_CONSOLIDATED = "the blind axial hole callout states this physical bore"
 
 
 def _support_planes(param: DimParameter) -> tuple[str, float, float] | None:
@@ -674,6 +676,33 @@ def _consolidated_owner(model: PartModel, feature: Feature, param: DimParameter)
     return None
 
 
+def _blind_axial_bore_owner(model: PartModel, feature: Feature, param: DimParameter):
+    """The hole head that states an undecorated turned bore on the same cylinder."""
+    if (
+        not isinstance(feature, RotationalFeature)
+        or param.parameter_id != "bore.diameter"
+        or param.tolerance is not None
+        or model.authored_dimensions is not None
+        or model.requested_dimensions
+        or model.schedules
+    ):
+        return None
+    links = [
+        link
+        for link in model.blind_axial_bore_supports
+        if link.rotational is feature
+        and any(link.hole is candidate for candidate in model.features)
+        and abs(link.hole.diameter - param.value) <= 1e-3
+    ]
+    if len(links) != 1:
+        return None
+    hole = links[0].hole
+    diameter = _decorated(model, hole, hole.parameters()[0])
+    if diameter.tolerance is not None or _fmt(diameter.value) != _fmt(param.value):
+        return None
+    return DimensionId(hole, diameter.parameter_id)
+
+
 def _owner_drawn(model: PartModel, envelope: Feature, extent: DimParameter) -> bool:
     """Whether the extent about to take ownership of a fact is itself drawn.
 
@@ -771,6 +800,9 @@ def _suppression(model: PartModel, feature: Feature, param: DimParameter):
     if feature.kind == "envelope":
         suppressed, reason = _envelope_suppression(model, param)
         return suppressed, reason, None
+    bore_owner = _blind_axial_bore_owner(model, feature, param)
+    if bore_owner is not None:
+        return True, _BLIND_BORE_CONSOLIDATED, bore_owner
     owner = _consolidated_owner(model, feature, param)
     if owner is not None:
         return True, _CONSOLIDATED, owner

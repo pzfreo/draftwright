@@ -1,13 +1,204 @@
 """Automatic hole and hole-pattern annotations."""
 
 import math
+from dataclasses import replace
 
 import pytest
-from build123d import Box, Cylinder, Pos
+from build123d import Align, Box, Cone, Cylinder, Pos
 from build123d_drafting import HoleCallout
 
-from draftwright import build_drawing
+from draftwright import Sheet, build_drawing
+from draftwright.builder import detect_part_model
 from draftwright.linting import lint_feature_coverage
+from draftwright.model.compiled import FeatureRef, compile_dimensions
+from draftwright.model.ir import CylindricalReference, ThreadRequirement
+
+
+@pytest.fixture(scope="module")
+def blind_axial_pin():
+    bottom = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = Cylinder(3, 12, align=bottom) + Pos(0, 0, 12) * Cylinder(5, 20, align=bottom)
+    tap_drill = Pos(0, 0, 24) * Cylinder(2.1, 8, align=bottom)
+    drill_point = Pos(0, 0, 22.738) * Cone(0, 2.1, 1.262, align=bottom)
+    return part - (tap_drill + drill_point)
+
+
+def test_blind_axial_hole_owns_one_approved_bore_and_depth_issue_2134(blind_axial_pin):
+    sizing_model = detect_part_model(blind_axial_pin)
+    assert len(sizing_model.blind_axial_bore_supports) == 1
+    sizing_rotational = next(
+        feature for feature in sizing_model.features if feature.kind == "rotational"
+    )
+    sizing_group = compile_dimensions(sizing_model).group_for(FeatureRef(sizing_rotational))
+    assert sizing_group is not None
+    assert sizing_group.dim(kind="diameter", role="bore") is None
+
+    drawing = build_drawing(blind_axial_pin)
+    model = drawing.model()
+    hole = next(feature for feature in model.features if feature.kind == "hole")
+    rotational = next(feature for feature in model.features if feature.kind == "rotational")
+    assert hole.frame.origin == (0.0, 0.0, 32.0)
+    assert hole.diameter == 4.2 and hole.depth == 8.0 and not hole.through
+    assert rotational.bores == (4.2,)
+    assert len(model.blind_axial_bore_supports) == 1
+    support = model.blind_axial_bore_supports[0]
+    assert support.hole is hole and support.rotational is rotational
+    assert support.cylinder_interval == (24.0, 32.0)
+
+    plan = compile_dimensions(model)
+    hole_group = plan.group_for(FeatureRef(hole))
+    rotational_group = plan.group_for(FeatureRef(rotational))
+    assert hole_group is not None and rotational_group is not None
+    hole_diameter = hole_group.dim(kind="diameter", role="bore")
+    hole_depth = hole_group.dim(kind="depth", role="bore")
+    assert hole_diameter is not None and hole_depth is not None
+    assert rotational_group.dim(kind="diameter", role="bore") is None
+    omission = next(
+        item
+        for item in plan.diagnostics
+        if item.feature is rotational and item.parameter_id == "bore.diameter"
+    )
+    assert omission.conveyed_by == hole_diameter.id
+
+    assert drawing.registry.named("hc_plan0").label == "⌀4.2 ↧ 8"
+    assert not [name for name in drawing.annotations() if name.startswith("ldr_z")]
+    assert set(drawing.registry.measurement_of("hc_plan0")) == {
+        hole_diameter.id,
+        hole_depth.id,
+    }
+    assert "hc_plan0" in drawing.annotations_of(hole)
+    assert "hc_plan0" not in drawing.annotations_of(rotational)
+    assert not [issue for issue in drawing.lint() if issue.code == "hole_requirement_missing"]
+
+
+def test_blind_axial_bore_support_is_required_for_consolidation_issue_2134(blind_axial_pin):
+    model = build_drawing(blind_axial_pin).model()
+    hole = next(feature for feature in model.features if feature.kind == "hole")
+    rotational = next(feature for feature in model.features if feature.kind == "rotational")
+    assert hole.diameter == rotational.bores[0] == 4.2
+    assert len(model.blind_axial_bore_supports) == 1
+    without_proof = replace(model, blind_axial_bore_supports=())
+    group = compile_dimensions(without_proof).group_for(FeatureRef(rotational))
+    assert group is not None and group.dim(kind="diameter", role="bore") is not None
+
+    # A declared hole can claim the same diameter and centre but the wrong depth.
+    # The cached cylinder must refuse that value-only resemblance before planning.
+    wrong_depth = replace(
+        model,
+        features=[
+            replace(feature, depth=7.0) if feature is hole else feature
+            for feature in model.features
+        ],
+    )
+    wrong_hole = next(feature for feature in wrong_depth.features if feature.kind == "hole")
+    assert wrong_hole.diameter == rotational.bores[0] == 4.2
+    assert wrong_hole.frame.origin == hole.frame.origin
+    assert (
+        wrong_hole.depth
+        == 7.0
+        != model.blind_axial_bore_supports[0].cylinder_interval[1]
+        - model.blind_axial_bore_supports[0].cylinder_interval[0]
+    )
+    drawing = build_drawing(blind_axial_pin, model=wrong_depth)
+    assert drawing.model().blind_axial_bore_supports == ()
+    assert drawing.registry.named("hc_plan0").label == "⌀4.2 ↧ 7"
+    assert drawing.registry.named("ldr_z0").label == "ø4.2"
+
+
+@pytest.mark.parametrize("toleranced_owner", ["hole", "rotational"])
+def test_blind_axial_tolerances_keep_both_measurement_owners_issue_2134(
+    blind_axial_pin, toleranced_owner
+):
+    model = build_drawing(blind_axial_pin).model()
+    hole = next(feature for feature in model.features if feature.kind == "hole")
+    rotational = next(feature for feature in model.features if feature.kind == "rotational")
+    assert len(model.blind_axial_bore_supports) == 1
+    owner = hole if toleranced_owner == "hole" else rotational
+    typed = replace(model, decorations={(owner, "diameter", "bore"): 0.05})
+    approved = compile_dimensions(typed).group_for(FeatureRef(owner))
+    assert approved is not None
+    bore = approved.dim(kind="diameter", role="bore")
+    assert bore is not None and bore.tolerance == 0.05
+
+    drawing = build_drawing(blind_axial_pin, model=typed)
+    assert drawing.registry.named("hc_plan0").label == (
+        "⌀4.2 ±0.05 ↧ 8" if toleranced_owner == "hole" else "⌀4.2 ↧ 8"
+    )
+    assert drawing.registry.named("ldr_z0").label == (
+        "ø4.2" if toleranced_owner == "hole" else "ø4.2 ±0.05"
+    )
+    carrier = "hc_plan0" if toleranced_owner == "hole" else "ldr_z0"
+    other = "ldr_z0" if toleranced_owner == "hole" else "hc_plan0"
+    assert bore.id in drawing.registry.measurement_of(carrier)
+    assert bore.id not in drawing.registry.measurement_of(other)
+
+
+@pytest.mark.parametrize("removed_kind", ["hole", "rotational"])
+def test_blind_axial_drop_removes_only_its_plan_owner_issue_2134(blind_axial_pin, removed_kind):
+    drawing = build_drawing(blind_axial_pin)
+    hole = next(feature for feature in drawing.model().features if feature.kind == "hole")
+    rotational = next(
+        feature for feature in drawing.model().features if feature.kind == "rotational"
+    )
+    removed = hole if removed_kind == "hole" else rotational
+    before = set(drawing.annotations_of(removed))
+    assert "hc_plan0" in before if removed_kind == "hole" else "hc_plan0" not in before
+    assert set(drawing.drop(removed)) == before
+    assert not drawing.annotations_of(removed)
+    assert ("hc_plan0" in drawing.annotations()) == (removed_kind == "rotational")
+    if removed_kind == "hole":
+        assert any(issue.code == "hole_requirement_missing" for issue in drawing.lint())
+
+
+def test_blind_axial_sheet_and_typed_thread_keep_compound_callout_issue_2134(
+    blind_axial_pin,
+):
+    sheet = Sheet.from_part(blind_axial_pin).auto_dimensions()
+    replay = sheet.build()
+    assert replay.registry.named("hc_plan0").label == "⌀4.2 ↧ 8"
+    assert not [name for name in replay.annotations() if name.startswith("ldr_z")]
+
+    model = build_drawing(blind_axial_pin).model()
+    thread = ThreadRequirement(
+        application="internal",
+        designation="M5 x 0.8-6H RH",
+        nominal_diameter=5.0,
+        pitch=0.8,
+        tolerance_class="6H",
+        hand="RH",
+        text="M5 x 0.8-6H RH, 6 mm minimum full thread; DIA 4.2 tapping drill x 8 mm full-diameter depth; conventional 118 degree drill point",
+        source_ids=("manufacturing_requirement:#test",),
+        part21_id="#test",
+        shape_aspect_ids=("#aspect",),
+        reference_item_ids=("#cylinder",),
+        cylindrical_refs=(
+            CylindricalReference(
+                axis_origin=(0.0, 0.0, 0.0),
+                axis_direction=(0.0, 0.0, 1.0),
+                radius=2.1,
+                axial_interval=(24.0, 32.0),
+                sense="internal",
+            ),
+        ),
+        minimum_full_thread=6.0,
+        drill_diameter=4.2,
+        drill_depth=8.0,
+        drill_point_angle=118.0,
+    )
+    typed = replace(
+        model,
+        features=[
+            replace(feature, thread=thread) if feature.kind == "hole" else feature
+            for feature in model.features
+        ],
+    )
+    drawing = build_drawing(blind_axial_pin, model=typed, pmi="annotate")
+    label = drawing.registry.named("hc_plan0").label
+    assert label.startswith("⌀4.2 ↧ 8")
+    assert "M5 x 0.8-6H RH" in label
+    assert "118° CONVENTIONAL DRILL POINT" in label
+    assert not [name for name in drawing.annotations() if name.startswith("ldr_z")]
+    assert not [issue for issue in drawing.lint() if issue.code == "pmi_not_rendered"]
 
 
 @pytest.fixture(scope="module")
