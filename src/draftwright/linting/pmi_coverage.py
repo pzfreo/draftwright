@@ -629,6 +629,7 @@ def lint_step_title_defaults(
     *,
     material_authored: str | None,
     tolerance_authored: str | None,
+    tolerance_source_selected: bool = False,
     pmi_mode: str,
 ) -> list[LintIssue]:
     """Compare source document defaults with settled title-block text.
@@ -699,7 +700,9 @@ def lint_step_title_defaults(
                     source_ids=(fact.source_id,),
                 )
             )
-    if pmi_mode == "annotate" and tolerance_authored not in (None, ""):
+    if pmi_mode == "annotate" and (
+        tolerance_source_selected or tolerance_authored not in (None, "")
+    ):
         tolerances = [
             record
             for record in report.records
@@ -710,10 +713,15 @@ def lint_step_title_defaults(
             record = tolerances[0]
             designation = record.label.split(";", 1)[0].strip()
             if designation and fields.get("general_tolerance", "") != designation:
+                selected = tolerance_source_selected and tolerance_authored is None
                 issues.append(
                     LintIssue(
-                        severity="warning",
-                        code="step_general_tolerance_disagreement",
+                        severity="error" if selected else "warning",
+                        code=(
+                            "step_general_tolerance_mismatch"
+                            if selected
+                            else "step_general_tolerance_disagreement"
+                        ),
                         message=(
                             f"Title-block general tolerance {fields.get('general_tolerance', '')!r} "
                             f"differs from STEP general tolerance {designation!r}"

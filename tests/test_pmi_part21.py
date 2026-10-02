@@ -142,6 +142,26 @@ def test_material_reader_refuses_a_property_of_a_foreign_or_malformed_owner(tmp_
     assert "shaped source product" in fact.reason
 
 
+def test_material_reader_refuses_dangling_shaped_owner_even_with_one_product(tmp_path):
+    step = tmp_path / "dangling-owner.step"
+    step.write_text(
+        _step(
+            "#6=PRODUCT_DEFINITION('part','',#7,#9);",
+            "#10=PRODUCT_DEFINITION_SHAPE('','',#5);",
+            "#11=SHAPE_DEFINITION_REPRESENTATION(#10,#12);",
+            "#4=PROPERTY_DEFINITION('material property','material name',#5);",
+            "#3=PROPERTY_DEFINITION_REPRESENTATION(#4,#2);",
+            "#2=REPRESENTATION('material name',(#1),#9);",
+            "#1=DESCRIPTIVE_REPRESENTATION_ITEM('CW614N','Leaded brass');",
+        ),
+        encoding="utf-8",
+    )
+    (fact,) = read_material_properties(step)
+    assert fact.product_definition_id == "#5"
+    assert fact.designation == "CW614N"
+    assert "shaped source product" in fact.reason
+
+
 def _read_datum_definitions(tmp_path, name: str, *instances: str):
     step = tmp_path / f"{name}.step"
     step.write_text(_step(*instances), encoding="utf-8")

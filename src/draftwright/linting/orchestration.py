@@ -640,6 +640,7 @@ def _lint_pmi(ctx: LintContext) -> list:
         tolerance_authored=(
             ctx.analysis.tolerance if ctx.build.general_tolerance_source is None else None
         ),
+        tolerance_source_selected=ctx.build.general_tolerance_source is not None,
         pmi_mode=ctx.analysis.pmi_mode,
     )
     # The two directions the four checks above cannot cover, because each of them

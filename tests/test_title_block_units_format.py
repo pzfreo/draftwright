@@ -127,6 +127,20 @@ def test_step_title_lint_reports_disagreement_without_replacing_authored_values(
         )
         == paired_record.source_ids
     )
+    # A source-selected default must still agree with the settled title field.
+    selected_issues = lint_step_title_defaults(
+        replace(report, records=(paired_record,)),
+        registry,
+        material_authored="",
+        tolerance_authored=None,
+        tolerance_source_selected=True,
+        pmi_mode="annotate",
+    )
+    assert title.title_field_specs[1][1] == "ISO 2768-f"
+    assert paired_record.label.startswith("ISO 2768-m")
+    assert [(issue.severity, issue.code, issue.source_ids) for issue in selected_issues] == [
+        ("error", "step_general_tolerance_mismatch", paired_record.source_ids)
+    ]
     assert (
         lint_step_title_defaults(
             report, registry, material_authored="", tolerance_authored="", pmi_mode="annotate"

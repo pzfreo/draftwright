@@ -476,7 +476,7 @@ def read_material_properties(step_file: str | Path) -> tuple[MaterialFact, ...]:
         reasons: list[str] = []
         owner = definition.params[2] if len(definition.params) >= 3 else None
         owner_id = str(owner) if isinstance(owner, p21.Reference) else ""
-        if len(product_ids) != 1 or shaped_products != {owner_id}:
+        if product_ids != {owner_id} or shaped_products != {owner_id}:
             reasons.append("material is not owned by the single shaped source product definition")
         representation_ids = tuple(dict.fromkeys(links.get(entity_id, ())))
         representation_id = representation_ids[0] if len(representation_ids) == 1 else ""
