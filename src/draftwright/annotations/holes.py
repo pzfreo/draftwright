@@ -860,7 +860,7 @@ def _place_pitch_dim(
     # A uniform array's ± applies to each identical gap, so `4× 20 ±0.05` is coherent; that is
     # unlike the STEP representative, whose levels merely fall within 10% of each other, where
     # a ± would claim the tolerance of values that differ.
-    label = pitch_text if n == 2 else f"{n - 1}× {pitch_text}"
+    label = str(pitch_text) if n == 2 else f"{n - 1}× {pitch_text}"
 
     def _make(off, side_vec=side, label_offset_x=0.0):
         return _dim(
