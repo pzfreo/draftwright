@@ -62,6 +62,10 @@ def _merge_member_pattern_batches(batches: list[HoleCalloutBatch]) -> list[HoleC
     for batch in batches:
         key = (
             id(batch.groups[0].feature),
+            any(
+                measurement.parameter.startswith("bore.diameter.member_")
+                for _source_id, measurement in batch.spec["source_measurements"]
+            ),
             tuple((name, value) for name, value in batch.spec.items() if name not in excluded),
         )
         grouped.setdefault(key, []).append(batch)

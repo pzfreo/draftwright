@@ -241,6 +241,86 @@ def test_toleranced_external_diameter_joins_the_recognized_step_once_issue_2172(
     assert diameter.source_ids == ("dimension:test",)
 
 
+def test_nominal_pattern_member_joins_once_and_keeps_other_member_generic_issue_2172():
+    from draftwright.model.callout import hole_callout_batches
+
+    members = ((0.0, -5.0, 0.0), (0.0, 5.0, 0.0))
+    hole = HoleFeature(Frame(members[0], "x"), 4.0, 20.0, True)
+    pattern = PatternFeature(
+        frame=Frame((0.0, 0.0, 0.0), "x"),
+        pattern="linear",
+        count=2,
+        member=hole,
+        members=members,
+        pitch=10.0,
+        direction=(0.0, 1.0, 0.0),
+    )
+    first = _cylinder(interval=(-10.0, 10.0), axis_origin=members[0], sense="internal")
+    source = _dimension(first, "dimension:first-member")
+    lowered = lower_ap242_nominal_diameters(
+        PartModel(Box(20, 20, 20).bounding_box(), "x", [pattern, source])
+    )
+
+    (owned,) = lowered.features
+    assert isinstance(owned, PatternFeature)
+    assert owned.member_size_requirements == (
+        NominalRequirement(4.0, "ap242_pmi", ("dimension:first-member",)),
+        None,
+    )
+    batches = hole_callout_batches(plan_dimensions(lowered))
+    assert [(batch.locations, batch.spec["source_ids"]) for batch in batches] == [
+        ((members[0],), ("dimension:first-member",)),
+        ((members[1],), ()),
+    ]
+
+    source_script = emit_sheet_script(lowered, "part", "nominal_members", title="P", number="N")
+    namespace = {"part": Box(20, 20, 20)}
+    exec(  # noqa: S102
+        compile(
+            source_script[: source_script.index("drawing = sheet.build()")], "<members>", "exec"
+        ),
+        namespace,
+    )
+    restored = next(
+        feature
+        for feature in namespace["sheet"].model().features
+        if isinstance(feature, PatternFeature)
+    )
+    assert restored.member_size_requirements == owned.member_size_requirements
+
+
+def test_group_nominal_coowns_members_after_one_member_gains_tolerance_issue_2172():
+    members = ((0.0, -5.0, 0.0), (0.0, 5.0, 0.0))
+    hole = HoleFeature(Frame(members[0], "x"), 4.0, 20.0, True)
+    pattern = PatternFeature(
+        frame=Frame((0.0, 0.0, 0.0), "x"),
+        pattern="linear",
+        count=2,
+        member=hole,
+        members=members,
+        pitch=10.0,
+        direction=(0.0, 1.0, 0.0),
+        member_size_requirements=(
+            ToleranceDecoration(0.1, "ap242_pmi", ("dimension:tolerance",)),
+            None,
+        ),
+    )
+    references = tuple(
+        _cylinder(interval=(-10.0, 10.0), axis_origin=member, sense="internal")
+        for member in members
+    )
+    source = replace(_dimension(references[0], "dimension:group"), cylindrical_refs=references)
+    lowered = lower_ap242_nominal_diameters(
+        PartModel(Box(20, 20, 20).bounding_box(), "x", [pattern, source])
+    )
+
+    (owned,) = lowered.features
+    assert owned.member_size_requirements == (
+        ToleranceDecoration(0.1, "ap242_pmi", ("dimension:tolerance", "dimension:group")),
+        NominalRequirement(4.0, "ap242_pmi", ("dimension:group",)),
+    )
+
+
 def test_nominal_hole_ownership_coexists_with_bore_tolerance_and_round_trips():
     hole = HoleFeature(Frame((0.0, 0.0, 0.0), "x"), 4.0, 10.0, True)
     nominal = _dimension(
