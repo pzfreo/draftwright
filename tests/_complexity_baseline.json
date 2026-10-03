@@ -18,7 +18,6 @@
     "annotations/_diameters.py:render_diameters": 21,
     "annotations/_dimension_ink_repair.py:_InkConflictState.conflicts": 19,
     "annotations/_edge_callouts.py:_surface_normal_candidates": 17,
-    "annotations/_gdt.py:_gdt_drop_callback": 16,
     "annotations/_leader_fixed_ink.py:_annotation_fixed_ink": 27,
     "annotations/_locations.py:render_locations": 20,
     "annotations/_machined_leaders.py:_MachinedJobContext.lower": 21,

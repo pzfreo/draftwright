@@ -280,6 +280,7 @@ def test_pmi_support_change_runs_source_and_rendering_contracts():
     source = "src/draftwright/_pmi_support_blockers.py"
     assert selected_groups([source]) == {"pmi_support"}
     assert selected_groups(["src/draftwright/pmi.py"]) == {"pmi_support"}
+    assert selected_groups(["src/draftwright/_pmi_datum_geometry.py"]) == {"pmi_support"}
     selected = set(pr_modules(_TESTS, [source]))
     assert {
         "test_issue_1209_linear_pmi_witnesses.py",
@@ -287,6 +288,10 @@ def test_pmi_support_change_runs_source_and_rendering_contracts():
         "test_pmi_gtol_lowering.py",
         "test_pmi_records.py",
     } <= selected
+    assert {
+        "test_pmi_datum_lowering.py",
+        "test_issue_1357_pmi_frame.py",
+    } <= set(pr_modules(_TESTS, ["src/draftwright/_pmi_datum_geometry.py"]))
 
 
 def test_pocket_evidence_change_runs_both_occurrence_contracts():

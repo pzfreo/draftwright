@@ -175,8 +175,26 @@ def test_real_ap242_geometry_is_expressed_in_the_requested_frame(fixture):
             getattr(source_record, field) for field in scalar_fields
         )
         assert len(local_record.ref_pts) == len(source_record.ref_pts)
-        for actual, point in zip(local_record.ref_pts, source_record.ref_pts, strict=True):
-            _assert_point(actual, _expected_point(point))
+        if source_record.source_category == "datum":
+            # Datum attachment samples the exact face for the requested projection.
+            # Rotating the frame can choose another point on that same face.
+            assert source_record.reference_surface_kind == local_record.reference_surface_kind
+            for point in local_record.ref_pts:
+                assert local_record.ref_bbox is not None
+                assert all(
+                    local_record.ref_bbox[index] - 1e-8
+                    <= point[index]
+                    <= local_record.ref_bbox[index + 3] + 1e-8
+                    for index in range(3)
+                )
+            if source_record.reference_normal:
+                _assert_point(
+                    local_record.reference_normal,
+                    _expected_vector(source_record.reference_normal),
+                )
+        else:
+            for actual, point in zip(local_record.ref_pts, source_record.ref_pts, strict=True):
+                _assert_point(actual, _expected_point(point))
         if source_record.ref_bbox is None:
             assert local_record.ref_bbox is None
         else:

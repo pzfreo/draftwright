@@ -198,6 +198,32 @@ def test_partial_cylindrical_datum_attaches_to_trimmed_face():
     assert distance.IsDone() and distance.Value() <= 1e-6
 
 
+def test_cross_hole_datum_uses_intact_cylinder_station():
+    shaft = Cylinder(5, 40) - Pos(0, 0, 10) * Rot(Y=90) * Cylinder(2, 20)
+    face = next(
+        face
+        for face in shaft.faces()
+        if face.geom_type == GeomType.CYLINDER and face.bounding_box().size.Z > 35
+    )
+    for x in (-5, 5):
+        upper = BRepExtrema_DistShapeShape(
+            BRepBuilderAPI_MakeVertex(gp_Pnt(x, 0, 10)).Vertex(), face.wrapped
+        )
+        upper.Perform()
+        assert upper.IsDone() and upper.Value() > 1e-6
+
+    points, _bbox, axis, reasons = pmi_module._datum_geometry_from_shapes((face.wrapped,))
+
+    assert not reasons and axis == "Z"
+    (site,) = points
+    assert site[2] == pytest.approx(0)
+    exact = BRepExtrema_DistShapeShape(
+        BRepBuilderAPI_MakeVertex(gp_Pnt(*site)).Vertex(), face.wrapped
+    )
+    exact.Perform()
+    assert exact.IsDone() and exact.Value() <= 1e-6
+
+
 def test_thin_annular_datum_still_has_an_interior_attachment():
     ring = Rot(Y=90) * (Cylinder(5, 1) - Cylinder(4.99, 1))
     face = next(face for face in ring.faces() if face.geom_type == GeomType.PLANE)
