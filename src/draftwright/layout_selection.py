@@ -42,6 +42,14 @@ def choose_pre_render_profile(
     scheme = strips.scheme
     demand_count = len(scheme.demands) if scheme is not None else 0
     under_reserved_count = len(report.under_reserved)
+    only_unroutable_raw_pmi = (
+        scheme is not None
+        and bool(scheme.unplanned)
+        and all(
+            item.family == "pmi" and item.reason == "raw PMI has no typed corridor"
+            for item in scheme.unplanned
+        )
+    )
     missing_views = (
         sorted({demand.view for demand in scheme.demands} - set(views))
         if scheme is not None
@@ -87,6 +95,16 @@ def choose_pre_render_profile(
         # can displace the required mark even though the original strip fits it.
         # Keep those strips while allowing the ISO to use free space.
         profile, reason = "iso-growth", "sparse_authored_corridor"
+    elif (
+        demand_count <= 25
+        and under_reserved_count >= 3
+        and 6 * under_reserved_count >= demand_count
+        and only_unroutable_raw_pmi
+    ):
+        # Raw source PMI with no drawable carrier has no corridor to protect.
+        # When several typed corridors are short of space, reserve their planned
+        # depths before rendering the single normal build.
+        profile, reason = "planned", "sparse_typed_corridor_pressure"
     elif demand_count <= 25 and report.unplanned_count <= 5 and 0 < under_reserved_count <= 3:
         # Sparse uncertain routes keep baseline annotation placement while
         # granting the isometric view any sheet slack it can safely consume.

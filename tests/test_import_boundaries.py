@@ -151,6 +151,7 @@ _LAYERS: dict[str, int] = {
     "drawing_export": 2,  # export orchestration over public Drawing operations and explicit callbacks
     "document_evidence": 2,
     "_pmi_schema": 2,
+    "_pmi_datum_geometry": 2,
     "_pmi_linear_geometry": 2,
     "_pmi_support_blockers": 2,
     "_pmi_topology": 2,

@@ -479,11 +479,52 @@ def build_pmi_features(
             continue
         if r.source_category == "datum" and not r.lowering_blockers and r.reference_axis:
             edge_view = {"X": "front", "Y": "side", "Z": "front"}[r.reference_axis]
-            vertical_index = 2 if edge_view in ("front", "side") else 1
             center = bbox.center()
-            center_coord = (center.X, center.Y, center.Z)[vertical_index]
-            side = "above" if pmi_origin[vertical_index] >= center_coord else "below"
-            datum_item = datum(r.label, raw, view=edge_view, side=side)
+            center_point = (center.X, center.Y, center.Z)
+            site = r.ref_pts[0] if r.ref_pts else pmi_origin
+            axial_index = "XYZ".index(r.reference_axis)
+            surface_kind = r.reference_surface_kind
+            if not surface_kind:
+                # Compatibility for hand-constructed records predating exact kind.
+                surface_kind = (
+                    "plane"
+                    if r.ref_bbox is not None
+                    and r.ref_bbox[axial_index + 3] - r.ref_bbox[axial_index] < 1e-4
+                    else "cylinder"
+                )
+            planar = surface_kind == "plane"
+            # A plane's leader follows its normal in the edge-on view. A
+            # cylindrical datum instead attaches radially to its profile.
+            if planar and axial_index < 2:
+                side_index = axial_index
+                low_side, high_side = "left", "right"
+            elif not planar and axial_index == 2:
+                side_index = 0
+                low_side, high_side = "left", "right"
+            else:
+                side_index = 2
+                low_side, high_side = "below", "above"
+            if len(r.reference_normal) == 3 and abs(r.reference_normal[side_index]) < 0.9:
+                out.append(
+                    replace(
+                        raw,
+                        lowering_blockers=(
+                            "datum surface normal cannot be shown by an axial leader in this view",
+                        ),
+                    )
+                )
+                continue
+            if len(r.reference_normal) == 3:
+                side = high_side if r.reference_normal[side_index] > 0 else low_side
+            else:
+                side = high_side if site[side_index] >= center_point[side_index] else low_side
+            datum_item = datum(
+                r.label,
+                replace(raw, frame=Frame(origin=site, axis=ax)),
+                view=edge_view,
+                side=side,
+            )
+            datum_item = replace(datum_item, reference_surface_kind=surface_kind)
             out.append(
                 replace(
                     datum_item,

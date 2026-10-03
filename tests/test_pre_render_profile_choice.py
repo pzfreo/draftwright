@@ -173,6 +173,27 @@ def test_sparse_under_reserved_demand_chooses_iso_growth():
     assert choice["reason"] == "bounded_sparse_demand"
 
 
+def test_sparse_under_reserved_typed_demand_without_raw_pmi_keeps_iso_growth():
+    strips = _strips()
+    demand = strips.scheme.demands[0]
+    strips.scheme = AnnotationScheme((demand,) * 6, ())
+    shadow = AnnotationSchemeShadowReport(
+        1.0,
+        tuple(
+            CorridorDepthComparison("front", side, 12.0, 10.0)
+            for side in ("left", "right", "above")
+        ),
+        0,
+    )
+
+    choice = choose_pre_render_profile(
+        strips, shadow, page=(297.0, 210.0), views=("front",), auto_dims=True
+    )
+
+    assert choice["profile"] == "iso-growth"
+    assert choice["reason"] == "bounded_sparse_demand"
+
+
 def test_typed_corridor_pressure_chooses_planned_without_large_unplanned_tail():
     strips = _strips(unplanned=True)
     demand = strips.scheme.demands[0]
@@ -266,6 +287,35 @@ def test_bounded_sparse_demand_keeps_annotation_layout_and_grows_iso():
 
     assert choice["profile"] == "iso-growth"
     assert choice["reason"] == "bounded_sparse_demand"
+
+
+def test_sparse_typed_pressure_ignores_only_raw_pmi_without_a_corridor():
+    strips = _strips(unplanned=True)
+    demand = strips.scheme.demands[0]
+    raw = replace(strips.scheme.unplanned[0], reason="raw PMI has no typed corridor")
+    strips.scheme = AnnotationScheme((demand,) * 17, (raw, raw))
+    shadow = AnnotationSchemeShadowReport(
+        1.0,
+        tuple(
+            CorridorDepthComparison("front", side, 12.0, 10.0)
+            for side in ("left", "right", "above")
+        ),
+        2,
+    )
+
+    choice = choose_pre_render_profile(
+        strips, shadow, page=(297.0, 210.0), views=("front",), auto_dims=True
+    )
+
+    assert (choice["profile"], choice["reason"]) == (
+        "planned",
+        "sparse_typed_corridor_pressure",
+    )
+    strips.scheme = AnnotationScheme((demand,) * 17, (replace(raw, reason="unknown route"), raw))
+    uncertain = choose_pre_render_profile(
+        strips, shadow, page=(297.0, 210.0), views=("front",), auto_dims=True
+    )
+    assert uncertain["profile"] == "iso-growth"
 
 
 def test_absent_view_cannot_be_solved_by_a_layout_profile():

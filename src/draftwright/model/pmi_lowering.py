@@ -916,14 +916,9 @@ def _structured_thread_extent(
         if through:
             raise ValueError("structured external thread cannot be a through tap")
         if "thread length" in fields:
-            length = _structured_number(fields, "thread length")
-            if len(feature.cylindrical_refs) != 1 or not _same_number(
-                feature.cylindrical_refs[0].axial_interval[1]
-                - feature.cylindrical_refs[0].axial_interval[0],
-                length,
-                abs_tol=0.01,
-            ):
-                raise ValueError("structured thread length disagrees with source cylinder")
+            _structured_number(fields, "thread length")
+            # A tip chamfer can shorten the source face. Check its full owner span
+            # only after a unique geometric owner match is established.
         elif prose is None or not prose.full_available_length:
             raise ValueError("structured external thread has no length requirement")
     return (
@@ -1184,7 +1179,51 @@ def _remap_model_features(model: PartModel, replacements: dict[int, Feature]) ->
     )
 
 
-def _manufacturing_proposal(feature: PmiFeature, owners, bbox):
+def _turned_tip_chamfers_cover_gap(
+    reference: CylindricalReference,
+    owner: StepFeature | BossFeature,
+    chamfers: tuple[ChamferFeature, ...],
+) -> bool:
+    """Require recognised equal-leg end chamfers for a shortened source cylinder."""
+    span = owner.span
+    if span is None:
+        return False
+    axis_index = "xyz".index(owner.frame.axis)
+    owner_lo, owner_hi = sorted((span[0][axis_index], span[1][axis_index]))
+    source_lo, source_hi = reference.axial_interval
+    gaps = ((owner_lo, source_lo), (source_hi, owner_hi))
+    found_gap = False
+    for gap_lo, gap_hi in gaps:
+        gap = gap_hi - gap_lo
+        if gap <= 0.01:
+            continue
+        found_gap = True
+        station = (gap_lo + gap_hi) / 2
+        if not any(
+            chamfer.turned
+            and chamfer.axis == owner.frame.axis
+            and _same_number(chamfer.leg1, gap, abs_tol=0.01)
+            and _same_number(chamfer.leg2, gap, abs_tol=0.01)
+            and _same_number(chamfer.angle, 45.0, abs_tol=0.01)
+            and _same_number(chamfer.frame.origin[axis_index], station, abs_tol=0.01)
+            and _same_number(
+                math.sqrt(
+                    sum(
+                        (chamfer.frame.origin[index] - reference.axis_origin[index]) ** 2
+                        for index in range(3)
+                        if index != axis_index
+                    )
+                ),
+                reference.radius - gap / 2,
+                abs_tol=0.01,
+            )
+            for chamfer in chamfers
+        ):
+            return False
+    return found_gap
+
+
+def _manufacturing_proposal(feature: PmiFeature, owners, chamfers, bbox):
     """Validate one source against its exact cylinder and unique canonical owner."""
     requirement = (
         _knurl_requirement(feature)
@@ -1226,7 +1265,31 @@ def _manufacturing_proposal(feature: PmiFeature, owners, bbox):
             if not matches
             else f"ambiguous manufacturing requirement: source topology matches {len(matches)} canonical features"
         )
-    return matches[0], requirement
+    owner = matches[0]
+    if (
+        isinstance(requirement, ThreadRequirement)
+        and requirement.application == "external"
+        and isinstance(owner, (StepFeature, BossFeature))
+        and "thread length" in dict(feature.structured_fields)
+    ):
+        length = _structured_number(dict(feature.structured_fields), "thread length")
+        source_length = reference.axial_interval[1] - reference.axial_interval[0]
+        span = owner.span
+        if span is None:
+            raise ValueError("external thread owner has no axial span")
+        axis_index = "xyz".index(owner.frame.axis)
+        owner_length = abs(span[1][axis_index] - span[0][axis_index])
+        if not (
+            _same_number(source_length, length, abs_tol=0.01)
+            or (
+                _same_number(owner_length, length, abs_tol=0.01)
+                and _turned_tip_chamfers_cover_gap(reference, owner, chamfers)
+            )
+        ):
+            raise ValueError(
+                "structured thread length disagrees with source cylinder or evidenced owner span"
+            )
+    return owner, requirement
 
 
 def lower_ap242_manufacturing_requirements(
@@ -1248,6 +1311,7 @@ def lower_ap242_manufacturing_requirements(
         for feature in model.features
         if isinstance(feature, (StepFeature, BossFeature, HoleFeature, PatternFeature))
     ]
+    chamfers = tuple(feature for feature in model.features if isinstance(feature, ChamferFeature))
     replacements: dict[int, Feature] = {}
     consumed: set[int] = set()
     blocked: dict[int, str] = {}
@@ -1265,7 +1329,7 @@ def lower_ap242_manufacturing_requirements(
         if feature.lowering_blockers:
             continue
         try:
-            owner, requirement = _manufacturing_proposal(feature, owners, model.bbox)
+            owner, requirement = _manufacturing_proposal(feature, owners, chamfers, model.bbox)
         except ValueError as exc:
             blocked[index] = str(exc)
             continue

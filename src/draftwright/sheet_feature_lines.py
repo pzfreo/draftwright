@@ -505,6 +505,8 @@ def _datum_ref_line(f, origin_ref: str | None = None) -> str:
         kw.append(f"source_ids={f.source_ids!r}")
     if f.part21_id:
         kw.append(f"part21_id={f.part21_id!r}")
+    if f.reference_surface_kind:
+        kw.append(f"reference_surface_kind={f.reference_surface_kind!r}")
     if origin_ref is not None:
         kw.append(f"origin={origin_ref}")
     elif getattr(f.origin, "kind", None) == "pmi":

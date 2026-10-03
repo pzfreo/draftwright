@@ -705,6 +705,8 @@ and re-exports the existing private helper names.
   Imports `_core`, `audit`, and `registry`.
 - **`_pmi_schema.py`** — OCCT dimension and geometric-tolerance type-code tables used by
   the AP242 extractor.
+- **`_pmi_datum_geometry.py`** — exact imported datum face attachment sites and
+  oriented normals in the source or recognition frame.
 - **`_pmi_linear_geometry.py`** — proves authored linear reference stations and their
   principal projection before the PMI extractor lowers dimensions.
 - **`_pmi_support_blockers.py`** — pure XCAF source-support and geometric-tolerance

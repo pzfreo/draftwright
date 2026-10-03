@@ -67,6 +67,7 @@ CONTRACT_GROUPS = {
     "pmi_support": ContractGroup(
         (
             "src/draftwright/pmi.py",
+            "src/draftwright/_pmi_datum_geometry.py",
             "src/draftwright/_pmi_support_blockers.py",
         ),
         (
@@ -787,6 +788,10 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_issue_1336_grm03_ap242_pmi_fixture.py",
         "test_issue_1563_sheet_pmi_reconciliation.py",
         "test_pmi_datum_lowering.py",
+    ),
+    "src/draftwright/_pmi_datum_geometry.py": (
+        "test_pmi_datum_lowering.py",
+        "test_issue_1357_pmi_frame.py",
     ),
     "src/draftwright/profile_angles.py": ("test_profile_angles.py",),
     "src/draftwright/projection.py": (

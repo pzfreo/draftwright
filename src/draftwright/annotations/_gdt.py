@@ -298,6 +298,72 @@ def _attach_gdt_text_evidence(leader, glyph, item, draft) -> None:
         leader.gdt_visual_zone = zone if leader.gdt_visual_tolerance else ""
 
 
+def _gdt_retry_sides(side: str, *, normal_side_only: bool) -> tuple[str, ...]:
+    """Imported datums keep their proven outward side; other glyphs may relax."""
+    if normal_side_only:
+        return (side,)
+    return {
+        "above": ("below", "right", "left"),
+        "below": ("above", "right", "left"),
+        "left": ("right", "above", "below"),
+        "right": ("left", "above", "below"),
+    }[side]
+
+
+def _gdt_retry_geometry(state, tier, alt):
+    """Give the deferred carve its strip and glyph extent."""
+    alt_strip = getattr(state.zones, alt, None)
+    if alt_strip is None:
+        return None
+    hz = alt in ("above", "below")
+    axis = "y" if hz else "x"
+    extent = state.size[1] if hz else state.size[0]
+    perp = (
+        (state.px, state.px + state.size[0])
+        if hz
+        else (state.py - state.size[1] / 2, state.py + state.size[1] / 2)
+    )
+    return alt_strip, hz, axis, max(tier, extent), perp
+
+
+def _gdt_retry_blocker(dwg, state, dim) -> str | None:
+    """Check a post-drain glyph against the title block and settled ink."""
+    if _box_hits(_anno_box(dim), (state.title_block_box,)):
+        return "title_block_conflict"
+    if not annotation_ink_clear(dwg, dim):
+        return "ink_conflict"
+    return None
+
+
+def _gdt_retry_trace(ctx, state, nm):
+    """Start one optional trace entry for the deferred retry."""
+    trace = getattr(ctx, "trace", None)
+    event = (
+        trace.pass_event("gdt_post_drain_fallback", view=state.view, requested_side=state.side)
+        if trace is not None
+        else None
+    )
+    trace_item = {"name": nm, "outcome": "unmet", "attempts": []} if event is not None else None
+    if event is not None:
+        event["items"].append(trace_item)
+    return trace_item
+
+
+def _gdt_retry_unmet(ctx, state, nm, normal_side_only):
+    """Record why a required glyph could not stay on its legal corridor."""
+    ctx.record_issue(
+        "warning",
+        "pmi_dropped" if state.source_ids else "gdt_dropped",
+        (
+            f"{nm} not placed (no legible room on its surface-normal {state.side} strip)"
+            if normal_side_only
+            else f"{nm} not placed (no legible room in any {state.view} strip or sheet fallback)"
+        ),
+        source=state.source_ids,
+        outcome_stage="placement",
+    )
+
+
 def _gdt_drop_callback(
     dwg,
     ctx,
@@ -318,7 +384,6 @@ def _gdt_drop_callback(
     build_routed,
 ):
     """Return the deferred shared-solver fallback for one declared GD&T candidate."""
-
     state = _GdtDropState(
         view=item.view,
         side=item.side,
@@ -337,72 +402,24 @@ def _gdt_drop_callback(
     )
 
     def _drop(nm):
-        # Fallthrough: the declared/derived side is full — try the OPPOSITE side of
-        # the same view before dropping, so a congested default still places somewhere
-        # legible rather than vanishing. DEFERRED via ctx.post_drain (the plate
-        # pattern): the carve then runs after EVERY corridor has drained, so it cannot
-        # preempt a corner a later sibling's force candidate needs. Force semantics
-        # (no corridor-cross check) match the primary path, BUT reject a spot over the
-        # (not-yet-placed) title block — a below/right strip runs into it, and the
-        # carve can't see it.
         def _retry():
-            trace = getattr(ctx, "trace", None)
-            event = (
-                trace.pass_event(
-                    "gdt_post_drain_fallback", view=state.view, requested_side=state.side
-                )
-                if trace is not None
-                else None
-            )
-            trace_item = (
-                {"name": nm, "outcome": "unmet", "attempts": []} if event is not None else None
-            )
-            if event is not None:
-                event["items"].append(trace_item)
-
-            # Relax the requested side when its strip is full, so
-            # try the OPPOSITE side, then the two PERPENDICULAR sides, placing on the first
-            # with room. A note the caller asked to see should appear somewhere legible
-            # rather than vanish; when the requested strip has no room, an explicit `side=`
-            # is a preference, not a hard constraint. A perpendicular side flips the leader
-            # orientation (`state.build(pos, _hz=hz)`). If the placement lands on a side other than
-            # requested, record an INFO issue so the relaxation is visible.
-            # A requested annotation must never be silently lost.
-            relax_order = {
-                "above": ("below", "right", "left"),
-                "below": ("above", "right", "left"),
-                "left": ("right", "above", "below"),
-                "right": ("left", "above", "below"),
-            }[state.side]
-            for alt in relax_order:
-                alt_strip = getattr(state.zones, alt, None)
-                if alt_strip is None:
+            trace_item = _gdt_retry_trace(ctx, state, nm)
+            normal_side_only = item.kind == "datum_ref" and bool(item.reference_surface_kind)
+            for alt in _gdt_retry_sides(state.side, normal_side_only=normal_side_only):
+                geometry = _gdt_retry_geometry(state, tier, alt)
+                if geometry is None:
                     continue
-                hz = alt in ("above", "below")  # perpendicular sides flip the leader axis
-                axis2 = "y" if hz else "x"
-                extent = (
-                    state.size[1] if axis2 == "y" else state.size[0]
-                )  # the glyph's stacking-axis size
-                perp = (
-                    (state.px, state.px + state.size[0])
-                    if hz
-                    else (state.py - state.size[1] / 2, state.py + state.size[1] / 2)
-                )
-                pos = carve_position(dwg, alt_strip, state.view, axis2, max(tier, extent), perp)
+                strip, hz, axis, extent, perp = geometry
+                pos = carve_position(dwg, strip, state.view, axis, extent, perp)
                 if pos is None:
                     if trace_item is not None:
                         trace_item["attempts"].append({"side": alt, "outcome": "no_free_position"})
                     continue
                 dim = state.build(pos, _hz=hz)
-                if _box_hits(_anno_box(dim), (state.title_block_box,)):
+                blocker = _gdt_retry_blocker(dwg, state, dim)
+                if blocker:
                     if trace_item is not None:
-                        trace_item["attempts"].append(
-                            {"side": alt, "outcome": "title_block_conflict"}
-                        )
-                    continue
-                if not annotation_ink_clear(dwg, dim):
-                    if trace_item is not None:
-                        trace_item["attempts"].append({"side": alt, "outcome": "ink_conflict"})
+                        trace_item["attempts"].append({"side": alt, "outcome": blocker})
                     continue
                 ctx.place(
                     dim,
@@ -411,23 +428,28 @@ def _gdt_drop_callback(
                     feature=state.feature,
                     satisfaction=state.satisfaction,
                     declaration=state.declaration,
-                )  # relaxed side
-                ctx.record_issue(
-                    "info",
-                    "gdt_side_relaxed",
-                    f"{nm}: the {state.view} {state.side} strip was full — placed on {alt} instead",
                 )
+                if alt != state.side:
+                    ctx.record_issue(
+                        "info",
+                        "gdt_side_relaxed",
+                        f"{nm}: the {state.view} {state.side} strip was full — placed on {alt} instead",
+                    )
                 if trace_item is not None:
                     trace_item["attempts"].append({"side": alt, "outcome": "placed"})
                     trace_item.update(outcome="placed", side=alt)
                 return
-            fallback = sheet_fallback(
-                dwg,
-                (state.px, state.py),
-                state.view,
-                state.build_at,
-                state.build_routed,
-                state.size,
+            fallback = (
+                sheet_fallback(
+                    dwg,
+                    (state.px, state.py),
+                    state.view,
+                    state.build_at,
+                    state.build_routed,
+                    state.size,
+                )
+                if not normal_side_only
+                else None
             )
             if fallback is not None:
                 ctx.place(
@@ -448,15 +470,9 @@ def _gdt_drop_callback(
                     trace_item["attempts"].append({"side": "sheet", "outcome": "placed"})
                     trace_item.update(outcome="placed", side="sheet")
                 return
-            if trace_item is not None:
+            if trace_item is not None and not normal_side_only:
                 trace_item["attempts"].append({"side": "sheet", "outcome": "no_clear_route"})
-            ctx.record_issue(
-                "warning",
-                "pmi_dropped" if state.source_ids else "gdt_dropped",
-                f"{nm} not placed (no legible room in any {state.view} strip or sheet fallback)",
-                source=state.source_ids,
-                outcome_stage="placement",
-            )
+            _gdt_retry_unmet(ctx, state, nm, normal_side_only)
 
         ctx.post_drain.append(_retry)
 

@@ -5,7 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Axis, Box
+from build123d import Axis, Box, Cylinder, GeomType, Pos, Rot
+from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+from OCP.gp import gp_Pnt
 
 import draftwright.pmi as pmi_module
 from draftwright import _pmi_topology as topology_module
@@ -109,6 +112,7 @@ def _record(*, blockers=(), axis="Z") -> PmiRecord:
         datum_contexts=("Position.1", "Perpendicularity.1"),
         reference_item_ids=("#861",),
         reference_axis=axis,
+        reference_surface_kind="plane",
     )
 
 
@@ -122,9 +126,143 @@ def test_complete_datum_definition_lowers_once_for_all_source_occurrences():
     assert feature.source_id == SOURCE_IDS[0]
     assert feature.source_ids == SOURCE_IDS
     assert feature.part21_id == "#34"
+    assert feature.reference_surface_kind == "plane"
+    assert "reference_surface_kind='plane'" in _feature_line(feature)
     assert isinstance(feature.origin, PmiFeature)
     assert feature.origin.datum_contexts == ("Position.1", "Perpendicularity.1")
     assert feature.origin.reference_item_ids == ("#861",)
+
+
+def test_annular_end_face_datum_uses_material_site_and_axial_leader():
+    annulus = Rot(Y=90) * (Cylinder(5, 1) - Cylinder(2, 1))
+    face = next(
+        face
+        for face in annulus.faces()
+        if face.geom_type == GeomType.PLANE and face.center().X < 0
+    )
+    points, bbox, axis, reasons = pmi_module._datum_geometry_from_shapes((face.wrapped,))
+    assert not reasons and axis == "X" and bbox is not None
+    assert bbox[1] + bbox[4] == pytest.approx(0.0)
+    assert bbox[2] + bbox[5] == pytest.approx(0.0)
+    (site,) = points
+    # The bbox centre is in the bore; the chosen attachment is on the annular material.
+    assert 2 < (site[1] ** 2 + site[2] ** 2) ** 0.5 < 5
+    record = replace(
+        _record(axis="X"),
+        ref_pts=points,
+        ref_bbox=bbox,
+        lowering_blockers=(),
+    )
+
+    (datum,) = build_pmi_features((record,), annulus.bounding_box())
+
+    assert (datum.frame.origin, datum.view, datum.side) == (site, "front", "left")
+
+
+@pytest.mark.parametrize("radius", (5, 50))
+def test_cylindrical_datum_attaches_to_profile_not_axis(radius):
+    shaft = Rot(Y=90) * Cylinder(radius, 20)
+    face = next(face for face in shaft.faces() if face.geom_type == GeomType.CYLINDER)
+    points, bbox, axis, reasons = pmi_module._datum_geometry_from_shapes((face.wrapped,))
+    assert not reasons and axis == "X" and bbox is not None
+    (site,) = points
+    assert site[1:] == pytest.approx((0.0, -radius))
+    record = replace(
+        _record(axis="X"),
+        ref_pts=points,
+        ref_bbox=bbox,
+        reference_surface_kind="cylinder",
+    )
+
+    (datum,) = build_pmi_features((record,), shaft.bounding_box())
+
+    assert (datum.frame.origin, datum.view, datum.side) == (site, "front", "below")
+
+
+def test_partial_cylindrical_datum_attaches_to_trimmed_face():
+    shaft = Rot(X=90) * Rot(Y=90) * Cylinder(5, 20, arc_size=90)
+    face = next(face for face in shaft.faces() if face.geom_type == GeomType.CYLINDER)
+    assert face.bounding_box().min.Z == pytest.approx(-2.5)
+    assert face.bounding_box().max.Z == pytest.approx(2.5)
+
+    points, bbox, axis, reasons = pmi_module._datum_geometry_from_shapes((face.wrapped,))
+
+    assert not reasons and axis == "X" and bbox is not None
+    (site,) = points
+    assert site[2] == pytest.approx(2.5)
+    assert bbox[2] <= site[2] <= bbox[5]
+    distance = BRepExtrema_DistShapeShape(
+        BRepBuilderAPI_MakeVertex(gp_Pnt(*site)).Vertex(), face.wrapped
+    )
+    distance.Perform()
+    assert distance.IsDone() and distance.Value() <= 1e-6
+
+
+def test_cross_hole_datum_uses_intact_cylinder_station():
+    shaft = Cylinder(5, 40) - Pos(0, 0, 10) * Rot(Y=90) * Cylinder(2, 20)
+    face = next(
+        face
+        for face in shaft.faces()
+        if face.geom_type == GeomType.CYLINDER and face.bounding_box().size.Z > 35
+    )
+    for x in (-5, 5):
+        upper = BRepExtrema_DistShapeShape(
+            BRepBuilderAPI_MakeVertex(gp_Pnt(x, 0, 10)).Vertex(), face.wrapped
+        )
+        upper.Perform()
+        assert upper.IsDone() and upper.Value() > 1e-6
+
+    points, _bbox, axis, reasons = pmi_module._datum_geometry_from_shapes((face.wrapped,))
+
+    assert not reasons and axis == "Z"
+    (site,) = points
+    assert site[2] == pytest.approx(0)
+    exact = BRepExtrema_DistShapeShape(
+        BRepBuilderAPI_MakeVertex(gp_Pnt(*site)).Vertex(), face.wrapped
+    )
+    exact.Perform()
+    assert exact.IsDone() and exact.Value() <= 1e-6
+
+
+def test_thin_annular_datum_still_has_an_interior_attachment():
+    ring = Rot(Y=90) * (Cylinder(5, 1) - Cylinder(4.99, 1))
+    face = next(face for face in ring.faces() if face.geom_type == GeomType.PLANE)
+
+    points, _bbox, axis, reasons = pmi_module._datum_geometry_from_shapes((face.wrapped,))
+
+    assert not reasons and axis == "X"
+    (site,) = points
+    assert 4.99 < (site[1] ** 2 + site[2] ** 2) ** 0.5 < 5
+
+
+def test_tilted_datum_is_not_claimed_axis_aligned():
+    tilted = Rot(Y=5) * Box(1, 20, 20)
+    face = max(tilted.faces(), key=lambda face: abs(face.normal_at().X))
+
+    _points, _bbox, axis, reasons = pmi_module._datum_geometry_from_shapes((face.wrapped,))
+
+    assert axis == ""
+    assert "one datum reference surface is not axis-aligned" in reasons
+
+
+def test_recessed_planar_datum_uses_face_normal_not_part_centre():
+    part = Box(20, 20, 20) - Pos(8, 0, 0) * Box(24, 10, 10)
+    face = next(face for face in part.faces() if abs(face.center().X + 4) < 1e-6)
+    points, bbox, axis, reasons = pmi_module._datum_geometry_from_shapes((face.wrapped,))
+    normal, normal_reason = pmi_module._datum_reference_normal((face.wrapped,), points, None)
+    assert not reasons and not normal_reason and axis == "X" and bbox is not None
+    assert normal == pytest.approx((1, 0, 0))
+    assert points[0][0] < part.bounding_box().center().X
+    record = replace(
+        _record(axis="X"),
+        ref_pts=points,
+        ref_bbox=bbox,
+        reference_normal=normal,
+    )
+
+    (datum,) = build_pmi_features((record,), part.bounding_box())
+
+    assert (datum.view, datum.side) == ("front", "right")
 
 
 def test_datum_topology_resolution_uses_part21_labels_and_exact_imported_identity(monkeypatch):
