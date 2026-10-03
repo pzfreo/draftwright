@@ -27,9 +27,12 @@ def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
 
     rows: list[tuple[str, str]] = []
     # The physical four-hole lattices are Ø25 at X±160/Y±45 and Ø35 at
-    # X±325/Y±175. Quiddity #791 gives each proved rectangle one grid owner.
+    # X±325/Y±175. Quiddity #791 gives each proved rectangle one grid owner;
+    # #2172 keeps its four source-sized members distinct within that owner.
     for declaration in (1, 2):
-        rows.append((f"declaration:{declaration}", "bore.diameter"))
+        rows.extend(
+            (f"declaration:{declaration}", f"bore.diameter.member_{member}") for member in range(4)
+        )
         rows.extend(
             (f"declaration:{declaration}", parameter)
             for parameter in (
@@ -74,7 +77,7 @@ def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
     rows.extend((f"declaration:{declaration}", "chamfer.length") for declaration in range(10, 13))
     rows.extend((f"declaration:{declaration}", "fillet.radius") for declaration in range(13, 20))
     rows.extend((f"declaration:{declaration}", "blend.radius") for declaration in range(20, 48))
-    assert len(rows) == 69
+    assert len(rows) == 75
     return tuple(ExpectedRequirement(*row) for row in rows)
 
 
@@ -167,4 +170,4 @@ def test_ctc01_resolved_gdt_finding_is_not_offered_to_the_pareto_loop(
     assert {
         (row["declaration_id"], row["parameter_id"]) for row in baseline["measurements"]["entries"]
     } == expected
-    assert len(baseline["measurements"]["entries"]) == 69
+    assert len(baseline["measurements"]["entries"]) == 75
