@@ -310,11 +310,11 @@ def _gdt_retry_sides(side: str, *, normal_side_only: bool) -> tuple[str, ...]:
     }[side]
 
 
-def _gdt_try_retry_side(dwg, ctx, state, tier, carve_position, nm, alt, trace_item) -> bool:
-    """Try one post-drain corridor with settled ink and title-block clearance."""
+def _gdt_retry_geometry(state, tier, alt):
+    """Give the deferred carve its strip and glyph extent."""
     alt_strip = getattr(state.zones, alt, None)
     if alt_strip is None:
-        return False
+        return None
     hz = alt in ("above", "below")
     axis = "y" if hz else "x"
     extent = state.size[1] if hz else state.size[0]
@@ -323,42 +323,20 @@ def _gdt_try_retry_side(dwg, ctx, state, tier, carve_position, nm, alt, trace_it
         if hz
         else (state.py - state.size[1] / 2, state.py + state.size[1] / 2)
     )
-    pos = carve_position(dwg, alt_strip, state.view, axis, max(tier, extent), perp)
-    if pos is None:
-        if trace_item is not None:
-            trace_item["attempts"].append({"side": alt, "outcome": "no_free_position"})
-        return False
-    dim = state.build(pos, _hz=hz)
+    return alt_strip, hz, axis, max(tier, extent), perp
+
+
+def _gdt_retry_blocker(dwg, state, dim) -> str | None:
+    """Check a post-drain glyph against the title block and settled ink."""
     if _box_hits(_anno_box(dim), (state.title_block_box,)):
-        if trace_item is not None:
-            trace_item["attempts"].append({"side": alt, "outcome": "title_block_conflict"})
-        return False
+        return "title_block_conflict"
     if not annotation_ink_clear(dwg, dim):
-        if trace_item is not None:
-            trace_item["attempts"].append({"side": alt, "outcome": "ink_conflict"})
-        return False
-    ctx.place(
-        dim,
-        nm,
-        view=state.view,
-        feature=state.feature,
-        satisfaction=state.satisfaction,
-        declaration=state.declaration,
-    )
-    if alt != state.side:
-        ctx.record_issue(
-            "info",
-            "gdt_side_relaxed",
-            f"{nm}: the {state.view} {state.side} strip was full — placed on {alt} instead",
-        )
-    if trace_item is not None:
-        trace_item["attempts"].append({"side": alt, "outcome": "placed"})
-        trace_item.update(outcome="placed", side=alt)
-    return True
+        return "ink_conflict"
+    return None
 
 
-def _gdt_retry_drop(dwg, ctx, state, tier, carve_position, sheet_fallback, nm):
-    """Retry a declared glyph after every corridor drains, then report an honest drop."""
+def _gdt_retry_trace(ctx, state, nm):
+    """Start one optional trace entry for the deferred retry."""
     trace = getattr(ctx, "trace", None)
     event = (
         trace.pass_event("gdt_post_drain_fallback", view=state.view, requested_side=state.side)
@@ -368,47 +346,11 @@ def _gdt_retry_drop(dwg, ctx, state, tier, carve_position, sheet_fallback, nm):
     trace_item = {"name": nm, "outcome": "unmet", "attempts": []} if event is not None else None
     if event is not None:
         event["items"].append(trace_item)
+    return trace_item
 
-    normal_side_only = state.declaration.kind == "datum_ref" and bool(
-        state.declaration.reference_surface_kind
-    )
-    for alt in _gdt_retry_sides(state.side, normal_side_only=normal_side_only):
-        if _gdt_try_retry_side(dwg, ctx, state, tier, carve_position, nm, alt, trace_item):
-            return
 
-    fallback = (
-        sheet_fallback(
-            dwg,
-            (state.px, state.py),
-            state.view,
-            state.build_at,
-            state.build_routed,
-            state.size,
-        )
-        if not normal_side_only
-        else None
-    )
-    if fallback is not None:
-        ctx.place(
-            fallback,
-            nm,
-            view=state.view,
-            feature=state.feature,
-            satisfaction=state.satisfaction,
-            declaration=state.declaration,
-        )
-        ctx.record_issue(
-            "info",
-            "gdt_sheet_fallback",
-            f"{nm}: adjacent {state.view} strips were full — placed in clear sheet space",
-            source=state.source_ids,
-        )
-        if trace_item is not None:
-            trace_item["attempts"].append({"side": "sheet", "outcome": "placed"})
-            trace_item.update(outcome="placed", side="sheet")
-        return
-    if trace_item is not None and not normal_side_only:
-        trace_item["attempts"].append({"side": "sheet", "outcome": "no_clear_route"})
+def _gdt_retry_unmet(ctx, state, nm, normal_side_only):
+    """Record why a required glyph could not stay on its legal corridor."""
     ctx.record_issue(
         "warning",
         "pmi_dropped" if state.source_ids else "gdt_dropped",
@@ -461,7 +403,76 @@ def _gdt_drop_callback(
 
     def _drop(nm):
         def _retry():
-            _gdt_retry_drop(dwg, ctx, state, tier, carve_position, sheet_fallback, nm)
+            trace_item = _gdt_retry_trace(ctx, state, nm)
+            normal_side_only = item.kind == "datum_ref" and bool(item.reference_surface_kind)
+            for alt in _gdt_retry_sides(state.side, normal_side_only=normal_side_only):
+                geometry = _gdt_retry_geometry(state, tier, alt)
+                if geometry is None:
+                    continue
+                strip, hz, axis, extent, perp = geometry
+                pos = carve_position(dwg, strip, state.view, axis, extent, perp)
+                if pos is None:
+                    if trace_item is not None:
+                        trace_item["attempts"].append({"side": alt, "outcome": "no_free_position"})
+                    continue
+                dim = state.build(pos, _hz=hz)
+                blocker = _gdt_retry_blocker(dwg, state, dim)
+                if blocker:
+                    if trace_item is not None:
+                        trace_item["attempts"].append({"side": alt, "outcome": blocker})
+                    continue
+                ctx.place(
+                    dim,
+                    nm,
+                    view=state.view,
+                    feature=state.feature,
+                    satisfaction=state.satisfaction,
+                    declaration=state.declaration,
+                )
+                if alt != state.side:
+                    ctx.record_issue(
+                        "info",
+                        "gdt_side_relaxed",
+                        f"{nm}: the {state.view} {state.side} strip was full — placed on {alt} instead",
+                    )
+                if trace_item is not None:
+                    trace_item["attempts"].append({"side": alt, "outcome": "placed"})
+                    trace_item.update(outcome="placed", side=alt)
+                return
+            fallback = (
+                sheet_fallback(
+                    dwg,
+                    (state.px, state.py),
+                    state.view,
+                    state.build_at,
+                    state.build_routed,
+                    state.size,
+                )
+                if not normal_side_only
+                else None
+            )
+            if fallback is not None:
+                ctx.place(
+                    fallback,
+                    nm,
+                    view=state.view,
+                    feature=state.feature,
+                    satisfaction=state.satisfaction,
+                    declaration=state.declaration,
+                )
+                ctx.record_issue(
+                    "info",
+                    "gdt_sheet_fallback",
+                    f"{nm}: adjacent {state.view} strips were full — placed in clear sheet space",
+                    source=state.source_ids,
+                )
+                if trace_item is not None:
+                    trace_item["attempts"].append({"side": "sheet", "outcome": "placed"})
+                    trace_item.update(outcome="placed", side="sheet")
+                return
+            if trace_item is not None and not normal_side_only:
+                trace_item["attempts"].append({"side": "sheet", "outcome": "no_clear_route"})
+            _gdt_retry_unmet(ctx, state, nm, normal_side_only)
 
         ctx.post_drain.append(_retry)
 

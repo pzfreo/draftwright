@@ -173,6 +173,27 @@ def test_sparse_under_reserved_demand_chooses_iso_growth():
     assert choice["reason"] == "bounded_sparse_demand"
 
 
+def test_sparse_under_reserved_typed_demand_without_raw_pmi_keeps_iso_growth():
+    strips = _strips()
+    demand = strips.scheme.demands[0]
+    strips.scheme = AnnotationScheme((demand,) * 6, ())
+    shadow = AnnotationSchemeShadowReport(
+        1.0,
+        tuple(
+            CorridorDepthComparison("front", side, 12.0, 10.0)
+            for side in ("left", "right", "above")
+        ),
+        0,
+    )
+
+    choice = choose_pre_render_profile(
+        strips, shadow, page=(297.0, 210.0), views=("front",), auto_dims=True
+    )
+
+    assert choice["profile"] == "iso-growth"
+    assert choice["reason"] == "bounded_sparse_demand"
+
+
 def test_typed_corridor_pressure_chooses_planned_without_large_unplanned_tail():
     strips = _strips(unplanned=True)
     demand = strips.scheme.demands[0]

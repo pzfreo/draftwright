@@ -42,9 +42,13 @@ def choose_pre_render_profile(
     scheme = strips.scheme
     demand_count = len(scheme.demands) if scheme is not None else 0
     under_reserved_count = len(report.under_reserved)
-    only_unroutable_raw_pmi = scheme is not None and all(
-        item.family == "pmi" and item.reason == "raw PMI has no typed corridor"
-        for item in scheme.unplanned
+    only_unroutable_raw_pmi = (
+        scheme is not None
+        and bool(scheme.unplanned)
+        and all(
+            item.family == "pmi" and item.reason == "raw PMI has no typed corridor"
+            for item in scheme.unplanned
+        )
     )
     missing_views = (
         sorted({demand.view for demand in scheme.demands} - set(views))
