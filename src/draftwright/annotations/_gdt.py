@@ -368,12 +368,18 @@ def _gdt_drop_callback(
             # orientation (`state.build(pos, _hz=hz)`). If the placement lands on a side other than
             # requested, record an INFO issue so the relaxation is visible.
             # A requested annotation must never be silently lost.
-            relax_order = {
+            relax_order: tuple[str, ...] = {
                 "above": ("below", "right", "left"),
                 "below": ("above", "right", "left"),
                 "left": ("right", "above", "below"),
                 "right": ("left", "above", "below"),
             }[state.side]
+            normal_side_only = item.kind == "datum_ref" and bool(item.reference_surface_kind)
+            if normal_side_only:
+                # An imported datum must remain on its outward, surface-normal
+                # side. A post-drain carve can still find a later clear spot
+                # on that same strip after the shared solver could not place it.
+                relax_order = (state.side,)
             for alt in relax_order:
                 alt_strip = getattr(state.zones, alt, None)
                 if alt_strip is None:
@@ -412,22 +418,27 @@ def _gdt_drop_callback(
                     satisfaction=state.satisfaction,
                     declaration=state.declaration,
                 )  # relaxed side
-                ctx.record_issue(
-                    "info",
-                    "gdt_side_relaxed",
-                    f"{nm}: the {state.view} {state.side} strip was full — placed on {alt} instead",
-                )
+                if alt != state.side:
+                    ctx.record_issue(
+                        "info",
+                        "gdt_side_relaxed",
+                        f"{nm}: the {state.view} {state.side} strip was full — placed on {alt} instead",
+                    )
                 if trace_item is not None:
                     trace_item["attempts"].append({"side": alt, "outcome": "placed"})
                     trace_item.update(outcome="placed", side=alt)
                 return
-            fallback = sheet_fallback(
-                dwg,
-                (state.px, state.py),
-                state.view,
-                state.build_at,
-                state.build_routed,
-                state.size,
+            fallback = (
+                sheet_fallback(
+                    dwg,
+                    (state.px, state.py),
+                    state.view,
+                    state.build_at,
+                    state.build_routed,
+                    state.size,
+                )
+                if not normal_side_only
+                else None
             )
             if fallback is not None:
                 ctx.place(
@@ -448,12 +459,16 @@ def _gdt_drop_callback(
                     trace_item["attempts"].append({"side": "sheet", "outcome": "placed"})
                     trace_item.update(outcome="placed", side="sheet")
                 return
-            if trace_item is not None:
+            if trace_item is not None and not normal_side_only:
                 trace_item["attempts"].append({"side": "sheet", "outcome": "no_clear_route"})
             ctx.record_issue(
                 "warning",
                 "pmi_dropped" if state.source_ids else "gdt_dropped",
-                f"{nm} not placed (no legible room in any {state.view} strip or sheet fallback)",
+                (
+                    f"{nm} not placed (no legible room on its surface-normal {state.side} strip)"
+                    if normal_side_only
+                    else f"{nm} not placed (no legible room in any {state.view} strip or sheet fallback)"
+                ),
                 source=state.source_ids,
                 outcome_stage="placement",
             )

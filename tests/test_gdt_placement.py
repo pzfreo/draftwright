@@ -20,7 +20,7 @@ from build123d import Box, Cylinder, Draft, Pos
 from build123d_drafting import FeatureControlFrame
 
 from draftwright.builder import build_drawing, detect_part_model
-from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame, Note
+from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame, Note, PmiFeature
 
 
 def _part():
@@ -163,6 +163,84 @@ def test_datum_and_finish_place():
     dwg = _build(datum, finish)
     placed = {n for n in dwg.annotations() if n.startswith("m_gdt")}
     assert placed == {"m_gdt0", "m_gdt1"}
+
+
+def test_imported_planar_datum_leader_stays_normal_to_end_face():
+    part = Box(80, 50, 20)
+    site = (-40.0, 0.0, 5.0)
+    origin = PmiFeature(
+        frame=Frame(site, "x"),
+        pmi_kind="datum",
+        value=0.0,
+        label="A",
+        dominant_axis="X",
+        ref_bbox=(-40.0, -25.0, -10.0, -40.0, 25.0, 10.0),
+        source_category="datum",
+        reference_axis="X",
+    )
+    datum = DatumRef(
+        frame=Frame(site, "x"),
+        letter="A",
+        view="front",
+        side="left",
+        origin=origin,
+        reference_surface_kind="plane",
+    )
+
+    dwg = _build(datum, part=part, page="A3", scale=1.0, scale_policy="permissive")
+
+    leader = dwg.get_annotation("m_gdt0")
+    assert leader.tip[1] == pytest.approx(leader.elbow[1])
+    assert leader.tip[0] > leader.elbow[0]
+
+
+def test_imported_datum_refuses_a_wrong_side_fallback(monkeypatch, tmp_path):
+    import draftwright.annotations._gdt as gdt
+    import draftwright.annotations.from_model as from_model
+
+    def reject_primary(*args):
+        candidate = args[-1]
+        candidate.on_drop(candidate.name)
+
+    monkeypatch.setattr(gdt, "register_corridor", reject_primary)
+    monkeypatch.setattr(from_model, "carve_free_position", lambda *_args, **_kwargs: None)
+
+    def forbidden_sheet_route(*_args, **_kwargs):
+        raise AssertionError("an imported datum cannot switch to a diagonal sheet route")
+
+    monkeypatch.setattr(from_model, "_sheet_leader_fallback", forbidden_sheet_route)
+    site = (-40.0, 0.0, 5.0)
+    origin = PmiFeature(
+        frame=Frame(site, "x"),
+        pmi_kind="datum",
+        value=0.0,
+        label="A",
+        dominant_axis="X",
+        ref_bbox=(-40.0, -25.0, -10.0, -40.0, 25.0, 10.0),
+        source_category="datum",
+        reference_axis="X",
+    )
+    datum = DatumRef(
+        frame=Frame(site, "x"),
+        letter="A",
+        view="front",
+        side="left",
+        origin=origin,
+        source_id="datum:fixture",
+        reference_surface_kind="plane",
+    )
+    trace_path = tmp_path / "datum-normal-fallback.json"
+
+    dwg = _build(datum, part=Box(80, 50, 20), trace=trace_path)
+
+    assert "m_gdt0" not in dwg.annotations()
+    assert any(issue.code == "pmi_dropped" for issue in dwg.registry.issues)
+    events = [
+        event
+        for event in json.loads(trace_path.read_text())["pass_events"]
+        if event["label"] == "gdt_post_drain_fallback"
+    ]
+    assert [attempt["side"] for attempt in events[0]["items"][0]["attempts"]] == ["left"]
 
 
 def test_projected_datum_stem_keeps_both_near_and_far_datums_issue_2128():

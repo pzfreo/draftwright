@@ -150,8 +150,9 @@ class PmiRecord:
         ref_pts:        Reference stations in the extraction coordinate space: global STEP
                         space by default, or frame-local when extraction receives a
                         :class:`PartFrame`. For a linear or thickness dimension these are the
-                        centroids of its authored reference groups; other records retain the
-                        per-shape bounding-box centroids.
+                        centroids of its authored reference groups. Datum records use
+                        sampled interior points on the exact referenced faces; other
+                        records retain per-shape bounding-box centroids.
         ref_bbox:       Combined axis-aligned bbox of ALL referenced shapes:
                         ``(xmin, ymin, zmin, xmax, ymax, zmax)``. Linear rendering uses
                         it for transverse witness support only; the authored stations,
@@ -172,7 +173,9 @@ class PmiRecord:
         datum_contexts: Tolerance semantic names in which a datum definition is referenced.
         reference_item_ids: Exact Part21 representation items bound to a datum feature.
         reference_item_groups: Ordered Part21 support groups bound to a dimension.
-        reference_axis: Axis normal to a proven datum reference plane.
+        reference_axis: Axis normal to a planar datum support or along a cylindrical one.
+        reference_surface_kind: Proven datum support type, ``plane`` or ``cylinder``.
+        reference_normal: Outward normal of a planar datum; empty for cylindrical supports.
         semantic_name: Stable source name for a semantic manufacturing requirement.
         shape_aspect_ids: Part21 shape aspects associating a semantic requirement to geometry.
         cylindrical_refs: Canonical finite-cylinder topology referenced by a Size_Diameter
@@ -212,6 +215,7 @@ class PmiRecord:
     datum_contexts: tuple[str, ...] = ()
     reference_item_ids: tuple[str, ...] = ()
     reference_axis: str = ""
+    reference_surface_kind: str = ""
     semantic_name: str = ""
     shape_aspect_ids: tuple[str, ...] = ()
     # Kept separate from ``lowering_blockers``: an imported requirement may fail to enrich a
@@ -223,6 +227,7 @@ class PmiRecord:
     reference_item_groups: tuple[tuple[str, ...], ...] = ()
     circular_refs: tuple[CircularReference, ...] = ()
     angular_references: tuple[AngularReference, ...] = ()
+    reference_normal: tuple[float, ...] = ()
     source_value_blockers: tuple[str, ...] = ()
     structured_fields: tuple[tuple[str, str | float], ...] = ()
 
@@ -272,8 +277,11 @@ try:
     from OCP.BRep import BRep_Tool
     from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
     from OCP.BRepBndLib import BRepBndLib
+    from OCP.BRepClass import BRepClass_FaceClassifier
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.BRepTools import BRepTools
     from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cone, GeomAbs_Cylinder, GeomAbs_Plane
-    from OCP.gp import gp_Trsf
+    from OCP.gp import gp_Pnt, gp_Pnt2d, gp_Trsf
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader
     from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
@@ -283,6 +291,7 @@ try:
         TopAbs_EDGE,
         TopAbs_FACE,
         TopAbs_FORWARD,
+        TopAbs_IN,
         TopAbs_REVERSED,
         TopAbs_VERTEX,
     )
@@ -929,6 +938,68 @@ def _circular_references_from_shapes(
     return tuple(unique.values()), tuple(dict.fromkeys(reasons))
 
 
+def _datum_face_site(shape, bbox, kind, axis_index, frame):
+    """Choose an interior point of the referenced face, including annular faces."""
+    face = TopoDS.Face_s(shape)
+    u0, u1, v0, v1 = BRepTools.UVBounds_s(face)
+    surface = BRepAdaptor_Surface(face)
+    classifier = BRepClass_FaceClassifier()
+    centre = _bbox_centroid(bbox)
+    candidates = []
+    if all(math.isfinite(value) for value in (u0, u1, v0, v1)):
+        for ui in range(13):
+            u = u0 + (ui + 0.5) * (u1 - u0) / 13
+            for vi in range(13):
+                v = v0 + (vi + 0.5) * (v1 - v0) / 13
+                classifier.Perform(face, gp_Pnt2d(u, v), 1e-7)
+                if classifier.State() == TopAbs_IN:
+                    point = surface.Value(u, v)
+                    candidates.append((point.X(), point.Y(), point.Z()))
+    if not candidates:
+        # A narrow ring can lie entirely between grid samples. Mesh triangles
+        # cover the trimmed face, and their centroids supply interior sites.
+        for deflection in (0.1, 0.01, 0.001, 0.0001):
+            BRepMesh_IncrementalMesh(face, deflection, False, 0.5, False).Perform()
+            location = TopLoc_Location()
+            mesh = BRep_Tool.Triangulation_s(face, location)
+            if mesh is None:
+                continue
+            transform = location.Transformation()
+            for index in range(1, mesh.NbTriangles() + 1):
+                vertices = mesh.Triangle(index).Get()
+                nodes = [mesh.Node(vertex).Transformed(transform) for vertex in vertices]
+                point = tuple(sum(node.Coord()[axis] for node in nodes) / 3 for axis in range(3))
+                classifier.Perform(face, gp_Pnt(*point), 1e-7)
+                if classifier.State() == TopAbs_IN:
+                    candidates.append(point)
+            if candidates:
+                break
+    sites = []
+    for point in candidates:
+        site = _frame_point(point, frame)
+        key: tuple[float, ...]
+        if kind == "cylinder":
+            # Keep a projected cylindrical datum on the visible profile edge.
+            # X/Y axes use the lower Z silhouette; Z uses the right X one.
+            if axis_index < 2:
+                hidden = 1 - axis_index
+                key = (
+                    round(abs(site[axis_index] - centre[axis_index]), 6),
+                    site[2],
+                    abs(site[hidden] - centre[hidden]),
+                )
+            else:
+                key = (round(abs(site[2] - centre[2]), 6), -site[0], abs(site[1] - centre[1]))
+        else:
+            hidden = 0 if axis_index == 1 else 1
+            key = (
+                abs(site[hidden] - centre[hidden]),
+                sum((site[i] - centre[i]) ** 2 for i in range(3)),
+            )
+        sites.append((key, site))
+    return min(sites)[1] if sites else None
+
+
 def _datum_geometry_from_shapes(shapes, frame: PartFrame | None = None):
     """Measure exact datum faces and require one compatible axis-aligned surface."""
     points: list[tuple[float, float, float]] = []
@@ -963,7 +1034,7 @@ def _datum_geometry_from_shapes(shapes, frame: PartFrame | None = None):
             axis_index = max(range(3), key=components.__getitem__)
             if (
                 components[axis_index] < 1e-6
-                or sum(components) - components[axis_index] > 0.1 * components[axis_index]
+                or sum(components) - components[axis_index] > 1e-6 * components[axis_index]
             ):
                 reasons.append("one datum reference surface is not axis-aligned")
                 continue
@@ -979,6 +1050,11 @@ def _datum_geometry_from_shapes(shapes, frame: PartFrame | None = None):
             axes.append("XYZ"[axis_index])
             surface_kinds.append(kind)
             supports.append(support)
+            site = _datum_face_site(shape, bbox, kind, axis_index, frame)
+            if site is None:
+                reasons.append("one datum reference face has no proven interior attachment point")
+            else:
+                points[-1] = site
         except Exception as exc:
             reasons.append(f"one datum reference surface is unavailable ({_failure_reason(exc)})")
     if not shapes:
@@ -1001,6 +1077,54 @@ def _datum_geometry_from_shapes(shapes, frame: PartFrame | None = None):
     else:
         reference_axis = axes[0]
     return tuple(points), ref_bbox, reference_axis, tuple(dict.fromkeys(reasons))
+
+
+def _datum_reference_surface_kind(shapes) -> str:
+    """Retain the exact planar/cylindrical distinction after support matching."""
+    kinds = {
+        BRepAdaptor_Surface(TopoDS.Face_s(shape)).GetType()
+        for shape in shapes
+        if shape is not None and not shape.IsNull()
+    }
+    if kinds == {GeomAbs_Plane}:
+        return "plane"
+    if kinds == {GeomAbs_Cylinder}:
+        return "cylinder"
+    return ""
+
+
+def _datum_reference_normal(shapes, points, frame) -> tuple[tuple[float, ...], str]:
+    """Measure a planar datum's oriented outward normal."""
+    normals = []
+    for shape, _site in zip(shapes, points, strict=True):
+        face = TopoDS.Face_s(shape)
+        surface = BRepAdaptor_Surface(face)
+        kind = surface.GetType()
+        if kind == GeomAbs_Cylinder:
+            continue
+        if kind != GeomAbs_Plane:
+            return (), "datum reference surface has no supported oriented normal"
+        direction = surface.Plane().Axis().Direction()
+        vector: tuple[float, ...] = _frame_vector(
+            (direction.X(), direction.Y(), direction.Z()), frame
+        )
+        orientation = face.Orientation()
+        if orientation == TopAbs_REVERSED:
+            vector = tuple(-component for component in vector)
+        elif orientation != TopAbs_FORWARD:
+            return (), "datum reference surface has no outward orientation"
+        magnitude = math.sqrt(sum(component * component for component in vector))
+        if magnitude < 1e-9:
+            return (), "datum reference surface has no usable normal"
+        normals.append(tuple(component / magnitude for component in vector))
+    if not normals:
+        return (), ""
+    if any(
+        sum(a * b for a, b in zip(normals[0], normal, strict=True)) < 0.999
+        for normal in normals[1:]
+    ):
+        return (), "datum reference faces disagree about outward normal"
+    return normals[0], ""
 
 
 def _datum_reference_shapes(label, shape_tool):
@@ -1102,7 +1226,12 @@ def _coalesce_datum_records(records: list[PmiRecord]) -> list[PmiRecord]:
         if len(item_ids) != 1:
             blockers.append("datum feature occurrences disagree about referenced Part21 items")
         geometry_signatures = {
-            (record.ref_bbox, record.reference_axis)
+            (
+                record.ref_bbox,
+                record.reference_axis,
+                record.reference_surface_kind,
+                record.reference_normal,
+            )
             for record in group
             if record.ref_bbox is not None
         }
@@ -1127,6 +1256,8 @@ def _coalesce_datum_records(records: list[PmiRecord]) -> list[PmiRecord]:
                 ),
                 reference_item_ids=group[0].reference_item_ids,
                 reference_axis=geometry.reference_axis,
+                reference_surface_kind=geometry.reference_surface_kind,
+                reference_normal=geometry.reference_normal,
             )
         )
     return projected
@@ -2512,6 +2643,7 @@ def _xcaf_datum_occurrence(label, source_id: str, state: _DatumExtractionState):
     else:
         datum_geometry = _datum_reference_geometry(label, state.shape_tool, state.frame)
     xcaf_shapes = _datum_reference_shapes(label, state.shape_tool)
+    support_shapes = xcaf_shapes
     points, ref_bbox, reference_axis, geometry_reasons = datum_geometry
     mismatch_id = ""
     if fact is not None and fact.reference_item_ids:
@@ -2559,6 +2691,7 @@ def _xcaf_datum_occurrence(label, source_id: str, state: _DatumExtractionState):
                 fact = None
             else:
                 points, ref_bbox, reference_axis = matched_points, matched_bbox, matched_axis
+                support_shapes = topology_shapes
                 geometry_reasons = (
                     matched_reasons
                     if unlocated_correspondence
@@ -2566,6 +2699,13 @@ def _xcaf_datum_occurrence(label, source_id: str, state: _DatumExtractionState):
                 )
         else:
             geometry_reasons = tuple(dict.fromkeys((*geometry_reasons, *topology_reasons)))
+    reference_normal: tuple[float, ...] = ()
+    if not geometry_reasons and len(points) == len(support_shapes):
+        reference_normal, normal_reason = _datum_reference_normal(
+            support_shapes, points, state.frame
+        )
+        if normal_reason:
+            geometry_reasons = (*geometry_reasons, normal_reason)
     blockers = tuple(
         dict.fromkeys(
             reason
@@ -2589,6 +2729,10 @@ def _xcaf_datum_occurrence(label, source_id: str, state: _DatumExtractionState):
         datum_contexts=contexts,
         reference_item_ids=fact.reference_item_ids if fact is not None else (),
         reference_axis=reference_axis,
+        reference_surface_kind=(
+            _datum_reference_surface_kind(support_shapes) if not blockers else ""
+        ),
+        reference_normal=reference_normal if not blockers else (),
     )
     return record, mismatch_id
 
@@ -2605,6 +2749,8 @@ def _unrepresented_datum_definition(
     definition_points: tuple[tuple[float, float, float], ...] = ()
     definition_bbox = None
     definition_axis = ""
+    definition_surface_kind = ""
+    definition_normal: tuple[float, ...] = ()
     if not definition_blockers:
         if state.topology is None:
             definition_blockers.append(state.topology_error or state.part21_error)
@@ -2621,6 +2767,13 @@ def _unrepresented_datum_definition(
                 definition_points, definition_bbox, definition_axis, geometry_reasons = (
                     datum_geometry
                 )
+                definition_surface_kind = _datum_reference_surface_kind(topology_shapes)
+                if not geometry_reasons and len(definition_points) == len(topology_shapes):
+                    definition_normal, normal_reason = _datum_reference_normal(
+                        topology_shapes, definition_points, state.frame
+                    )
+                    if normal_reason:
+                        definition_blockers.append(normal_reason)
                 definition_blockers.extend(geometry_reasons)
     if not definition.letter:
         definition_blockers.append("datum definition has no letter")
@@ -2640,6 +2793,8 @@ def _unrepresented_datum_definition(
         source_ids=(source_id,),
         reference_item_ids=definition.reference_item_ids,
         reference_axis=definition_axis,
+        reference_surface_kind=definition_surface_kind if not unique_blockers else "",
+        reference_normal=definition_normal if not unique_blockers else (),
     )
     source = PmiSourceEntity(
         source_id,

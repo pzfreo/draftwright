@@ -2480,6 +2480,7 @@ class DatumRef:
     source_id: str = ""
     source_ids: tuple[str, ...] = ()
     part21_id: str = ""
+    reference_surface_kind: str = ""
     kind: ClassVar[str] = "datum_ref"
 
     def parameters(self) -> list[DimParameter]:
