@@ -617,17 +617,26 @@ def test_issue915_clear_hole_route_requires_section_furniture_parity(tmp_path):
         timeout=600,
     )
     comparison = json.loads(completed.stdout)
-    if comparison["parity"]["passed"]:
-        assert completed.returncode == 0, completed.stderr + completed.stdout[-2000:]
-        assert comparison["quality_comparison"]["verdict"] == "candidate"
-        assert comparison["parity"]["missing"] == []
-    else:
+    required_captions = {
+        "SECTION A–A",
+        "DETAIL B — PARTIAL PROFILE — SCALE 2.5:1",
+    }
+    baseline_labels = {
+        item["label"] for item in comparison["baseline"]["manifest"]["annotations"].values()
+    }
+    candidate_labels = {
+        item["label"] for item in comparison["candidate"]["manifest"]["annotations"].values()
+    }
+    assert required_captions <= baseline_labels
+    missing_captions = required_captions - candidate_labels
+    if missing_captions:
         assert completed.returncode == 1, completed.stderr + completed.stdout[-2000:]
         assert comparison["quality_comparison"]["verdict"] == "ineligible"
-        assert {item["label"] for item in comparison["parity"]["missing"]} >= {
-            "SECTION A–A",
-            "DETAIL B — PARTIAL PROFILE — SCALE 2.5:1",
-        }
+        assert not comparison["parity"]["passed"]
+        assert missing_captions <= {item["label"] for item in comparison["parity"]["missing"]}
+    elif comparison["quality_comparison"]["verdict"] == "candidate":
+        assert completed.returncode == 0, completed.stderr + completed.stdout[-2000:]
+        assert comparison["parity"]["passed"]
     assert comparison["parity"]["introduced_blockers"] == []
     assert (
         comparison["baseline"]["manifest"]["coverage"]

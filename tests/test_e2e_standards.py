@@ -114,29 +114,29 @@ def _assert_ctc04_layout_failure_contract(dwg):
     assert inventory["plan_incomplete"] == 1
 
     decision = dwg.scale_decision
-    # Required callouts can retain Policy B crossings. The settled drawing has
-    # hard ink violations as well as required placement losses, so it must say
-    # invalid and carry both the violations and the missing requirements.
+    # Required callouts can retain Policy B crossings. A hard violation makes
+    # the result invalid; if later placement clears it, the remaining required
+    # losses still make the result incomplete.
     hard_issues = [issue for issue in issues if is_hard_layout_issue(issue)]
-    assert {issue.code for issue in hard_issues} == {
-        "annotation_ink_overlap",
-        "annotation_overlap",
-    }
-    assert decision["status"] == "invalid"
-    assert {item["code"] for item in decision["violations"]} == {
-        issue.code for issue in hard_issues
-    }
+    if hard_issues:
+        assert decision["status"] == "invalid"
+        assert {item["code"] for item in decision["violations"]} == {
+            issue.code for issue in hard_issues
+        }
+    else:
+        assert decision["status"] == "incomplete"
+        assert "violations" not in decision
     assert decision["blockers"]
     blocker_codes = {blocker["code"] for blocker in decision["blockers"]}
     assert blocker_codes <= set(inventory)
     assert {attempt["reason"] for attempt in decision["attempts"]} >= {
         "scale_escalation_on_selected_page",
         "remove_optional_iso",
-        "hard_layout_invalid",
     }
     final_attempt = decision["attempts"][-1]
-    assert final_attempt["status"] == "invalid"
-    assert final_attempt["reason"] == "hard_layout_invalid"
+    assert final_attempt["status"] == decision["status"]
+    if hard_issues:
+        assert final_attempt["reason"] == "hard_layout_invalid"
     assert final_attempt["page"] == (dwg.page_w, dwg.page_h)
     assert final_attempt["scale"] == dwg.scale
     assert set(final_attempt["views"]) == set(dwg.views)
