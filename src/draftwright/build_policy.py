@@ -432,15 +432,34 @@ def _preserve_requirements_under_arrangement(drawing, chosen, build, blockers_fo
     # the default preserved A. That is the opposite of "preserve every supported requirement
     # or reject the candidate" (#1130).
     #
-    # The rule is therefore one-sided, and deliberately so: the alternative may not introduce
-    # any blocker the preferred result did not already have. It is free to preserve MORE, and
-    # it does not have to beat the historical arrangement on volume — that arrangement
-    # was the comparison floor before this local choice existed, so an alternative
-    # earns its place by costing nothing, not by costing less.
+    # The comparison is one-sided for ordinary losses: the alternative may not introduce
+    # a different blocker merely to reduce the number lost. The exception below applies
+    # only when both drawings are incomplete and the alternative preserves a strict
+    # superset of source-authored requirements without losing another source requirement
+    # or introducing a warning/error-level inferred loss.
     introduced = collections.Counter(map(_blocker_identity, blockers)) - collections.Counter(
         map(_blocker_identity, preferred_blockers)
     )
-    if introduced:
+    # Neither arrangement can be called complete when both have blockers. In that
+    # case, a candidate that preserves strictly more source-authored requirements
+    # may still win despite losing informational inferred measurements. Keep the losses visible
+    # on the chosen drawing; a different source loss never trades for this gain.
+    candidate_source = collections.Counter(
+        _blocker_identity(blocker) for blocker in blockers if blocker.get("source_ids")
+    )
+    preferred_source = collections.Counter(
+        _blocker_identity(blocker) for blocker in preferred_blockers if blocker.get("source_ids")
+    )
+    preserves_more_source = (
+        not candidate_source - preferred_source
+        and bool(preferred_source - candidate_source)
+        and all(
+            blocker.get("severity") == "info"
+            for blocker in blockers
+            if _blocker_identity(blocker) in introduced
+        )
+    )
+    if introduced and not preserves_more_source:
         return _record(
             preferred,
             [

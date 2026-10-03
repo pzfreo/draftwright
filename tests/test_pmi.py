@@ -1867,6 +1867,15 @@ def _single_source_dimension_drawing(**opts):
 
 
 class TestBuildDrawingPmi:
+    def test_ctc01_reconciled_pmi_keeps_automatic_a3_sheet(self, ctc01_annotated):
+        drawing = ctc01_annotated
+        assert (drawing.page_w, drawing.page_h, drawing.scale) == (420.0, 297.0, 0.2)
+        assert drawing.arrangement_decision["chosen"] == "staggered-side"
+        assert all(
+            "geometric_tolerance:0:1:4:5" not in blocker["source_ids"]
+            for blocker in drawing.scale_decision.get("blockers", ())
+        )
+
     def test_explicit_pmi_off_reports_one_ignored_inventory_without_render_failures(
         self, tmp_path
     ):
