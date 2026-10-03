@@ -330,14 +330,20 @@ def test_member_pmi_policy_controls_all_rendered_source_requirements(pmi_source)
     annotated_names = drawings["gdt"].annotations()
     annotated_text = rendered_text(drawings["gdt"])
     assert "default_surface_finish" in annotated_names
-    assert "general_notes" not in annotated_names
-    assert any(name.startswith("m_gdt") for name in annotated_names)
+    # At this permissive A3 scale, refused source-normal datum symbols must
+    # leave their authored explanation on the sheet as a document note.
+    assert "general_notes" in annotated_names
     assert "manufacturing_requirements" in annotated_names
     assert not [issue for issue in drawings["gdt"].lint() if issue.code == "pmi_not_rendered"]
     assert any(name.startswith("m_chamfer") for name in annotated_names)
     for expected in ("ISO 2768-m", "KNURL", "M3 x 0.5", "Ra 3.2"):
         assert expected in annotated_text
-    assert "GENERAL NOTES" not in annotated_text
+    assert "GENERAL NOTES" in annotated_text
+    assert "Datum A is the axis derived from DIA 5" in annotated_text
+    assert any(
+        issue.code == "pmi_dropped" and "surface-normal" in issue.message
+        for issue in drawings["gdt"].lint()
+    )
 
     for name in ("report", "dimensions"):
         drawing = drawings[name]
