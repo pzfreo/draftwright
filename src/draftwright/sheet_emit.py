@@ -1514,6 +1514,15 @@ def _declaration_metadata(model, source_feature_ids, source_detected, declaratio
     return declaration_metadata
 
 
+def _pattern_requirement_imports(model) -> set[str]:
+    return {
+        type(requirement).__name__
+        for feature in model.features
+        for requirement in getattr(feature, "member_size_requirements", ())
+        if isinstance(requirement, ToleranceDecoration | NominalRequirement)
+    }
+
+
 def _model_constructor_imports(model):
     """Find constructor names potentially used by the emitted feature declarations."""
     # Every constructor a member template can name has to be listed here. The pattern verbs
@@ -1526,18 +1535,7 @@ def _model_constructor_imports(model):
         model_imports.add("AngularReference")
     if any(f.kind in ("hole", "pattern") for f in model.features):
         model_imports.add("hole")
-    if any(
-        isinstance(requirement, ToleranceDecoration)
-        for feature in model.features
-        for requirement in getattr(feature, "member_size_requirements", ())
-    ):
-        model_imports.add("ToleranceDecoration")
-    if any(
-        isinstance(requirement, NominalRequirement)
-        for feature in model.features
-        for requirement in getattr(feature, "member_size_requirements", ())
-    ):
-        model_imports.add("NominalRequirement")
+    model_imports.update(_pattern_requirement_imports(model))
     if any(
         f.kind == "pattern" and getattr(f.member, "profile", None) == "double_d"
         for f in model.features

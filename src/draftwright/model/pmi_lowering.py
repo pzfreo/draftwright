@@ -194,6 +194,38 @@ def _lower_pattern_member_sizes(
     return replacement
 
 
+def _is_internal_toleranced_diameter(feature: AuthoredDimension) -> bool:
+    """Select AP242 bore limits without sending external cylinders to the hole join."""
+    return (
+        feature.dimension_kind == "diameter"
+        and feature.source == "ap242_pmi"
+        and (
+            not feature.cylindrical_refs
+            or all(reference.sense == "internal" for reference in feature.cylindrical_refs)
+        )
+        and any(
+            value is not None
+            for value in (
+                feature.lower_tol,
+                feature.upper_tol,
+                feature.lower_bound,
+                feature.upper_bound,
+            )
+        )
+    )
+
+
+def _hole_ownership_conflict(
+    owner: HoleFeature | PatternFeature, member_indices: tuple[int, ...], decorations: dict
+) -> str | None:
+    if (owner, "diameter", "bore") in decorations or (owner, "diameter") in decorations:
+        return "ambiguous hole tolerance ownership: bore already has a tolerance"
+    if isinstance(owner, PatternFeature) and owner.member_size_requirements:
+        if any(owner.member_size_requirements[index] is not None for index in member_indices):
+            return "ambiguous hole tolerance ownership: member already has a source requirement"
+    return None
+
+
 def lower_ap242_hole_tolerances(
     model: PartModel, *, feature_remap: FeatureRemap | None = None
 ) -> PartModel:
@@ -211,22 +243,7 @@ def lower_ap242_hole_tolerances(
     dimensions = {
         index: feature
         for index, feature in enumerate(model.features)
-        if isinstance(feature, AuthoredDimension)
-        and feature.dimension_kind == "diameter"
-        and feature.source == "ap242_pmi"
-        and (
-            not feature.cylindrical_refs
-            or all(reference.sense == "internal" for reference in feature.cylindrical_refs)
-        )
-        and any(
-            value is not None
-            for value in (
-                feature.lower_tol,
-                feature.upper_tol,
-                feature.lower_bound,
-                feature.upper_bound,
-            )
-        )
+        if isinstance(feature, AuthoredDimension) and _is_internal_toleranced_diameter(feature)
     }
     if not dimensions:
         return model
@@ -248,19 +265,9 @@ def lower_ap242_hole_tolerances(
     # the same parameter have two sources and violate ADR 4 (was 0011)'s single-owner decoration map.
     for dim_index, (owner_index, _member_indices, _value) in tuple(proposals.items()):
         owner = targets[owner_index]
-        if (owner, "diameter", "bore") in model.decorations or (
-            owner,
-            "diameter",
-        ) in model.decorations:
-            blocked[dim_index] = "ambiguous hole tolerance ownership: bore already has a tolerance"
+        if conflict := _hole_ownership_conflict(owner, _member_indices, model.decorations):
+            blocked[dim_index] = conflict
             del proposals[dim_index]
-            continue
-        if isinstance(owner, PatternFeature) and owner.member_size_requirements:
-            if any(owner.member_size_requirements[index] is not None for index in _member_indices):
-                blocked[dim_index] = (
-                    "ambiguous hole tolerance ownership: member already has a source requirement"
-                )
-                del proposals[dim_index]
 
     # A member cannot carry two different imported requirements.  Equal repeats are one
     # requirement with multiple source identities; conflicting ones remain explicit.

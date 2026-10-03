@@ -700,6 +700,12 @@ def _stock_feature_line(
     raise AssertionError(f"unexpected stock feature kind: {k}")
 
 
+def _pattern_member_size_arguments(feature) -> tuple[str, ...]:
+    if not feature.member_size_requirements:
+        return ()
+    return (f"member_size_requirements={feature.member_size_requirements!r}",)
+
+
 def _machined_feature_line(f, *, exact_parameter: str | None) -> str:
     """Emit machined features and their repeated arrangements."""
     k = f.kind
@@ -822,8 +828,7 @@ def _machined_feature_line(f, *, exact_parameter: str | None) -> str:
                 parts.append(f"angle={_n(f.angle)}")
         if f.members:
             parts.append("members=[" + ", ".join(_pt(p) for p in f.members) + "]")
-        if f.member_size_requirements:
-            parts.append(f"member_size_requirements={f.member_size_requirements!r}")
+        parts.extend(_pattern_member_size_arguments(f))
         return (
             f"sheet.pattern({_member_hole_str(f.member, exact_parameter=exact_parameter)}, "
             + ", ".join(parts)
