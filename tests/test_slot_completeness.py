@@ -35,10 +35,10 @@ def test_ctc_left_slot_position_survives_grid_pitch_carve(monkeypatch):
         for row in (0, 1)
         for col in (0, 1)
     } == {
-        "1× 90",
-        "1× 320",
-        "1× 350",
-        "1× 650",
+        "90",
+        "320",
+        "350",
+        "650",
     }
     assert {
         drawing.get_annotation(name).label
