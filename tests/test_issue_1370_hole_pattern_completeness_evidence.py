@@ -169,9 +169,8 @@ def test_wrong_placed_grid_pitch_ink_loses_drawing_credit(monkeypatch) -> None:
         assert names, "fixture must place pitch dimensions"
         for name in names:
             dimension = drawing.registry.named(name)
-            prefix, _nominal = dimension.label.split(" ", 1)
-            assert prefix.endswith("×")
-            dimension.label = f"{prefix} 9999 WRONG"
+            assert dimension.label in {"20", "2× 15"}
+            dimension.label = "9999 WRONG"
         return drawing
 
     monkeypatch.setattr(builder, "build_drawing", with_wrong_pitch_ink)
@@ -218,20 +217,20 @@ def test_wrong_linear_pitch_on_compound_part_loses_its_drawing_credit(
 
 
 def test_wrong_placed_grid_interval_count_loses_drawing_credit(monkeypatch) -> None:
-    import re
-
     import draftwright.builder as builder
 
     original = builder.build_drawing
 
     def with_wrong_interval_count(*args, **kwargs):
         drawing = original(*args, **kwargs)
-        names = [name for name in drawing.annotations() if name.startswith("dim_pitch_")]
-        assert names, "fixture must place pitch dimensions"
-        for name in names:
-            dimension = drawing.registry.named(name)
-            assert re.match(r"^\d+× ", dimension.label)
-            dimension.label = re.sub(r"^\d+× ", "9× ", dimension.label)
+        pitches = [
+            drawing.registry.named(name)
+            for name in drawing.annotations()
+            if name.startswith("dim_pitch_")
+        ]
+        assert {pitch.label for pitch in pitches} == {"20", "2× 15"}
+        single_gap = next(pitch for pitch in pitches if pitch.label == "20")
+        single_gap.label = "9× 20"
         return drawing
 
     monkeypatch.setattr(builder, "build_drawing", with_wrong_interval_count)
