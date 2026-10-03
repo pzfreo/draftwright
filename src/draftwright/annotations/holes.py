@@ -823,10 +823,9 @@ def _place_pitch_dim(
     *,
     ctx,
 ):
-    """Pitch dimension between two hole-centre *locations* ``loc1``→``loc2``, labelled
-    ``(n-1)× pitch`` for repeated gaps or just ``pitch`` for one gap. Place it outside
-    the view on the row's outward perpendicular (#92). *feature* attributes it to the
-    source pattern (#408)."""
+    """Pitch between hole centres: ``pitch`` for one gap, else ``(n-1)× pitch``.
+    Place it outside the view on the row's outward perpendicular (#92); *feature*
+    attributes it to the source pattern (#408)."""
     p1 = to_page(loc1)
     p2 = to_page(loc2)
     ux, uy = p2[0] - p1[0], p2[1] - p1[1]
