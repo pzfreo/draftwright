@@ -277,6 +277,7 @@ class TestTheReportedFixture:
     """
 
     @pytest.mark.slow
+    @pytest.mark.timeout(900)
     def test_no_claim_on_the_reported_fixture_is_unconfirmed(self):
         drawing = build_drawing(_CTC02, title="T", number="N-1")
         outcomes = verify_measurement_claims(drawing.registry, compile_dimensions(drawing.model()))

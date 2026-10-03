@@ -326,6 +326,7 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
         return _sweep(self._corpus(self.FIXTURES, parts=True))
 
     @pytest.mark.slow
+    @pytest.mark.timeout(900)
     @pytest.mark.parametrize(
         "fixture",
         [
@@ -392,6 +393,7 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
             )
 
     @pytest.mark.slow
+    @pytest.mark.timeout(900)
     def test_the_furniture_really_is_silent(self):
         # The other side of the same claim: on nist_ctc_02 the silent annotations are
         # centre marks, notes, the projection symbol and the title block.

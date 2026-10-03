@@ -610,16 +610,14 @@ class TestTheCaseStudy:
         assert (reduced.page_w, reduced.page_h) == (594.0, 420.0)
         assert reduced.scale == full.scale
 
-        # And this is why nothing selects it automatically yet. The smaller sheet loses
-        # annotations, so a requirement gate weighing this candidate would reject it. The
-        # remaining work is re-homing those to the axial view — not the layout, which now
-        # does its part. This test is written to change shape when that lands.
+        # The omitted plan centerline and ISO caption are furniture, not requirements.
+        # Independent lint confirms that the smaller view set keeps supported meaning.
         assert len(reduced.annotations()) < len(full.annotations())
-        assert {
-            "callout_dropped",
-            "annotation_out_of_bounds",
-            "hole_requirement_missing",
-        } & _lint(reduced)
+        assert set(full.annotations()) - set(reduced.annotations()) == {
+            "centerline_plan",
+            "note_iso_nts",
+        }
+        assert _lint(reduced) == set()
 
     @pytest.mark.slow
     def test_dropping_the_front_view_refuses_by_name_rather_than_crashing(self):
