@@ -6,6 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 from build123d import Axis, Box, Cylinder, GeomType, Pos, Rot
+from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+from OCP.gp import gp_Pnt
 
 import draftwright.pmi as pmi_module
 from draftwright import _pmi_topology as topology_module
@@ -156,13 +159,14 @@ def test_annular_end_face_datum_uses_material_site_and_axial_leader():
     assert (datum.frame.origin, datum.view, datum.side) == (site, "front", "left")
 
 
-def test_cylindrical_datum_attaches_to_profile_not_axis():
-    shaft = Rot(Y=90) * Cylinder(5, 20)
+@pytest.mark.parametrize("radius", (5, 50))
+def test_cylindrical_datum_attaches_to_profile_not_axis(radius):
+    shaft = Rot(Y=90) * Cylinder(radius, 20)
     face = next(face for face in shaft.faces() if face.geom_type == GeomType.CYLINDER)
     points, bbox, axis, reasons = pmi_module._datum_geometry_from_shapes((face.wrapped,))
     assert not reasons and axis == "X" and bbox is not None
     (site,) = points
-    assert site[2] < -4.5
+    assert site[1:] == pytest.approx((0.0, -radius))
     record = replace(
         _record(axis="X"),
         ref_pts=points,
@@ -173,6 +177,25 @@ def test_cylindrical_datum_attaches_to_profile_not_axis():
     (datum,) = build_pmi_features((record,), shaft.bounding_box())
 
     assert (datum.frame.origin, datum.view, datum.side) == (site, "front", "below")
+
+
+def test_partial_cylindrical_datum_attaches_to_trimmed_face():
+    shaft = Rot(X=90) * Rot(Y=90) * Cylinder(5, 20, arc_size=90)
+    face = next(face for face in shaft.faces() if face.geom_type == GeomType.CYLINDER)
+    assert face.bounding_box().min.Z == pytest.approx(-2.5)
+    assert face.bounding_box().max.Z == pytest.approx(2.5)
+
+    points, bbox, axis, reasons = pmi_module._datum_geometry_from_shapes((face.wrapped,))
+
+    assert not reasons and axis == "X" and bbox is not None
+    (site,) = points
+    assert site[2] == pytest.approx(2.5)
+    assert bbox[2] <= site[2] <= bbox[5]
+    distance = BRepExtrema_DistShapeShape(
+        BRepBuilderAPI_MakeVertex(gp_Pnt(*site)).Vertex(), face.wrapped
+    )
+    distance.Perform()
+    assert distance.IsDone() and distance.Value() <= 1e-6
 
 
 def test_thin_annular_datum_still_has_an_interior_attachment():

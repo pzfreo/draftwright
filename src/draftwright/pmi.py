@@ -277,7 +277,9 @@ try:
     from OCP.BRep import BRep_Tool
     from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
     from OCP.BRepBndLib import BRepBndLib
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
     from OCP.BRepClass import BRepClass_FaceClassifier
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
     from OCP.BRepTools import BRepTools
     from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cone, GeomAbs_Cylinder, GeomAbs_Plane
@@ -939,12 +941,35 @@ def _circular_references_from_shapes(
 
 
 def _datum_face_site(shape, bbox, kind, axis_index, frame):
-    """Choose an interior point of the referenced face, including annular faces."""
+    """Choose a proven face site, on the projected silhouette for cylinders."""
     face = TopoDS.Face_s(shape)
     u0, u1, v0, v1 = BRepTools.UVBounds_s(face)
     surface = BRepAdaptor_Surface(face)
     classifier = BRepClass_FaceClassifier()
     centre = _bbox_centroid(bbox)
+    if kind == "cylinder":
+        cylinder = surface.Cylinder()
+        location = cylinder.Axis().Location()
+        axis_site = _frame_point((location.X(), location.Y(), location.Z()), frame)
+        radial_index = 2 if axis_index < 2 else 0
+        preferred_signs = (-1, 1) if axis_index < 2 else (1, -1)
+        for sign in preferred_signs:
+            silhouette = list(axis_site)
+            silhouette[axis_index] = centre[axis_index]
+            silhouette[radial_index] += sign * cylinder.Radius()
+            local_site = tuple(silhouette)
+            if not all(
+                bbox[index] - 1e-6 <= local_site[index] <= bbox[index + 3] + 1e-6
+                for index in range(3)
+            ):
+                continue
+            world_site = local_site if frame is None else frame.to_world(local_site)
+            vertex = BRepBuilderAPI_MakeVertex(gp_Pnt(*world_site)).Vertex()
+            distance = BRepExtrema_DistShapeShape(vertex, face)
+            distance.Perform()
+            if distance.IsDone() and distance.Value() <= 1e-6:
+                return local_site
+        return None
     candidates = []
     if all(math.isfinite(value) for value in (u0, u1, v0, v1)):
         for ui in range(13):
@@ -977,25 +1002,11 @@ def _datum_face_site(shape, bbox, kind, axis_index, frame):
     sites = []
     for point in candidates:
         site = _frame_point(point, frame)
-        key: tuple[float, ...]
-        if kind == "cylinder":
-            # Keep a projected cylindrical datum on the visible profile edge.
-            # X/Y axes use the lower Z silhouette; Z uses the right X one.
-            if axis_index < 2:
-                hidden = 1 - axis_index
-                key = (
-                    round(abs(site[axis_index] - centre[axis_index]), 6),
-                    site[2],
-                    abs(site[hidden] - centre[hidden]),
-                )
-            else:
-                key = (round(abs(site[2] - centre[2]), 6), -site[0], abs(site[1] - centre[1]))
-        else:
-            hidden = 0 if axis_index == 1 else 1
-            key = (
-                abs(site[hidden] - centre[hidden]),
-                sum((site[i] - centre[i]) ** 2 for i in range(3)),
-            )
+        hidden = 0 if axis_index == 1 else 1
+        key = (
+            abs(site[hidden] - centre[hidden]),
+            sum((site[i] - centre[i]) ** 2 for i in range(3)),
+        )
         sites.append((key, site))
     return min(sites)[1] if sites else None
 
