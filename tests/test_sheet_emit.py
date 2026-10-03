@@ -572,16 +572,15 @@ class TestEmit:
         ast.parse(src)
         # `measured_dimension` since #873: a generated script must not emit the
         # transitional overload, or every regenerated AP242 script arrives deprecated.
-        # #1116/#1652: seven diameter tolerance sources enrich canonical hole features,
-        # including two independently owned limit dimensions; only the unrelated angular
-        # requirement remains materialised.
-        assert src.count("sheet.measured_dimension(") == 1
+        # Five member-specific tolerances cover only part of recognised patterns, so they
+        # remain explicit; two other diameter tolerances enrich independent holes.
+        assert src.count("sheet.measured_dimension(") == 6
         assert (
             sum(".tolerance(" in line for line in src.splitlines() if " = sheet.hole(" in line)
-            == 7
+            == 2
         )
-        assert src.count("limit_bounds=(34.8, 35.2)") == 2
-        assert "source_ids=('dimension:0:1:4:29',)" in src
+        assert src.count("lower_bound=34.8, upper_bound=35.2") == 2
+        assert "source_id='dimension:0:1:4:29'" in src
         # The transitional MEASURED overload (`dimension(kind=…, value=…)`), not the
         # referential verb: a regenerated AP242 script must not arrive pre-deprecated (#873).
         # Bare `sheet.dimension(` stopped meaning that when #938 made every script mirror the

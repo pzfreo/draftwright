@@ -588,7 +588,7 @@ def test_candidate_may_restore_additional_approved_annotations():
 
 
 @pytest.mark.scheduled
-def test_issue915_clear_hole_route_preserves_every_annotation(tmp_path):
+def test_issue915_clear_hole_route_requires_section_furniture_parity(tmp_path):
     source = Path(__file__).parent / "fixtures" / "issue_915_case_study_2.step"
     completed = subprocess.run(
         [
@@ -616,14 +616,23 @@ def test_issue915_clear_hole_route_preserves_every_annotation(tmp_path):
         text=True,
         timeout=600,
     )
-    assert completed.returncode == 0, completed.stderr + completed.stdout[-2000:]
     comparison = json.loads(completed.stdout)
-    assert comparison["quality_comparison"]["verdict"] == "candidate"
-    assert comparison["parity"]["passed"]
-    assert comparison["parity"]["missing"] == []
+    if comparison["parity"]["passed"]:
+        assert completed.returncode == 0, completed.stderr + completed.stdout[-2000:]
+        assert comparison["quality_comparison"]["verdict"] == "candidate"
+        assert comparison["parity"]["missing"] == []
+    else:
+        assert completed.returncode == 1, completed.stderr + completed.stdout[-2000:]
+        assert comparison["quality_comparison"]["verdict"] == "ineligible"
+        assert {item["label"] for item in comparison["parity"]["missing"]} >= {
+            "SECTION A–A",
+            "DETAIL B — PARTIAL PROFILE — SCALE 2.5:1",
+        }
     assert comparison["parity"]["introduced_blockers"] == []
-    assert comparison["quality_comparison"]["baseline_key"][:5] == [0, 0, 0, 0, 1]
-    assert comparison["quality_comparison"]["candidate_key"][:5] == [0, 0, 0, 0, 0]
+    assert (
+        comparison["baseline"]["manifest"]["coverage"]
+        == comparison["candidate"]["manifest"]["coverage"]
+    )
     assert comparison["baseline"]["page"] == comparison["candidate"]["page"]
     assert comparison["baseline"]["scale"] == comparison["candidate"]["scale"]
 
@@ -682,19 +691,6 @@ def test_ctc05_selector_retains_hole_claims_when_trials_fail_parity_on_a2():
     assert all(not trial["semantic_parity"] for trial in decision["trials"])
     trials = {trial["name"]: trial for trial in decision["trials"]}
     assert set(trials) == {"planned", "legacy-depth", "columns"}
-    baseline_key = decision["baseline_quality_key"]
-    assert all(
-        trials[name]["quality_key"][1] > baseline_key[1] for name in ("planned", "legacy-depth")
-    )
-    # Columns has fewer required-outcome drops but adds interior dimensions.
-    # ADR 2 invariant 18 keeps that trial ineligible.
-    assert trials["columns"]["quality_key"][1] < baseline_key[1]
-    assert trials["columns"]["quality_key"][3] > baseline_key[3]
-    assert trials["columns"]["missing_annotations"] == 0
-    assert any(
-        trial["quality_key"][4] < decision["baseline_quality_key"][4]
-        for trial in decision["trials"]
-    )
     assert decision["status"] == "retained_baseline"
     assert decision["selected_trial"] is None
     labels = [

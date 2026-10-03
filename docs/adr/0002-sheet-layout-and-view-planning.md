@@ -164,8 +164,9 @@ dedicated mutation guard. Automatic principal-view selection has no guard becaus
 Automatic semantic view selection lands only once each of these holds; accepting the direction
 did not waive them.
 
-- Automatic selection among principal views (the case study reaches A2 and costs six annotations,
-  so a gate weighing it refuses); `_views` remains an engine seam, not a public option.
+- Automatic selection among principal views (the case study reaches A2 with all supported
+  requirements retained; only the omitted plan centerline and ISO caption disappear);
+  `_views` remains an engine seam, not a public option.
 - Resolved-plan script emission with its two distinct promises (automatic vs editable resolved),
   failing with a named capability where a section target cannot be named.
 - Removing a visually similar but semantically necessary view is rejected by an asymmetric

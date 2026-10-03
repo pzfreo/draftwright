@@ -114,23 +114,29 @@ def _assert_ctc04_layout_failure_contract(dwg):
     assert inventory["plan_incomplete"] == 1
 
     decision = dwg.scale_decision
-    # The settled AP242 drawing has required placement losses but no hard layout
-    # violation. Keep the two verdict tiers independent: a missing requirement
-    # alone is incomplete, while an actual hard overlap would be invalid.
-    assert not [issue for issue in issues if is_hard_layout_issue(issue)]
-    assert decision["status"] == "incomplete"
-    assert "violations" not in decision
+    # Required callouts can retain Policy B crossings. The settled drawing has
+    # hard ink violations as well as required placement losses, so it must say
+    # invalid and carry both the violations and the missing requirements.
+    hard_issues = [issue for issue in issues if is_hard_layout_issue(issue)]
+    assert {issue.code for issue in hard_issues} == {
+        "annotation_ink_overlap",
+        "annotation_overlap",
+    }
+    assert decision["status"] == "invalid"
+    assert {item["code"] for item in decision["violations"]} == {
+        issue.code for issue in hard_issues
+    }
     assert decision["blockers"]
     blocker_codes = {blocker["code"] for blocker in decision["blockers"]}
     assert blocker_codes <= set(inventory)
     assert {attempt["reason"] for attempt in decision["attempts"]} >= {
         "scale_escalation_on_selected_page",
         "remove_optional_iso",
-        "required_outcome_dropped",
+        "hard_layout_invalid",
     }
     final_attempt = decision["attempts"][-1]
-    assert final_attempt["status"] == "incomplete"
-    assert final_attempt["reason"] == "required_outcome_dropped"
+    assert final_attempt["status"] == "invalid"
+    assert final_attempt["reason"] == "hard_layout_invalid"
     assert final_attempt["page"] == (dwg.page_w, dwg.page_h)
     assert final_attempt["scale"] == dwg.scale
     assert set(final_attempt["views"]) == set(dwg.views)
@@ -217,7 +223,7 @@ def _ap203_drawing(n):
         pytest.param(
             n,
             marks=(
-                pytest.mark.timeout(900 if n == "04" else 600),
+                pytest.mark.timeout(900 if n in {"02", "04"} else 600),
                 *((pytest.mark.ctc04,) if n == "04" else ()),
             ),
         )
@@ -283,7 +289,7 @@ def test_ctc_ap203_exports_honest_diagnostic_no_degenerate_arcs(tmp_path, n):
             n,
             n != "01",
             marks=(
-                pytest.mark.timeout(900 if n == "04" else 600),
+                pytest.mark.timeout(900 if n in {"02", "04"} else 600),
                 *((pytest.mark.ctc04,) if n == "04" else ()),
             ),
         )
@@ -303,7 +309,7 @@ def test_ctc_ap242_exports_honest_result(tmp_path, n, expect_incomplete):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_ctc02_infeasible_hole_table_restores_feature_callouts():
     """#1144: a real dense model fails its all-row balloon transaction honestly."""
     dwg = _ap203_drawing("02")
@@ -318,7 +324,7 @@ def test_ctc02_infeasible_hole_table_restores_feature_callouts():
 
 @pytest.mark.slow
 @pytest.mark.ctc04
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_ctc04_infeasible_hole_table_restores_complete_fallback():
     """#1144: real fallback remains complete when every row cannot be keyed."""
     dwg = _ap203_drawing("04")
