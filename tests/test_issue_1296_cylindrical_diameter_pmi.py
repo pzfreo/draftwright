@@ -215,6 +215,32 @@ def test_finite_span_and_axis_line_disambiguate_equal_nominal_steps():
     )
 
 
+def test_toleranced_external_diameter_joins_the_recognized_step_once_issue_2172():
+    step = StepFeature(
+        frame=Frame((-1.6, 0.0, 0.0), "x"),
+        length=3.2,
+        diameter=4.0,
+        span=((-3.2, 0.0, 0.0), (0.0, 0.0, 0.0)),
+    )
+    source = replace(
+        _dimension(_cylinder()),
+        label="ø4 +0.2/-0.1",
+        lower_tol=0.1,
+        upper_tol=0.2,
+    )
+    model = PartModel(Box(20, 10, 10).bounding_box(), "x", [step, source])
+    lowered = lower_ap242_dimensions(model)
+
+    assert lowered.features == [step], "the source and geometry still make one measurement"
+    assert lowered.decorations[(step, "diameter", "step")] == ToleranceDecoration(
+        (0.1, 0.2), "ap242_pmi", ("dimension:test",)
+    )
+    group = next(group for group in plan_dimensions(lowered) if group.feature is step)
+    diameter = next(pd.param for pd in group.dims if pd.param.parameter_id == "step.diameter")
+    assert diameter.tolerance == (0.1, 0.2)
+    assert diameter.source_ids == ("dimension:test",)
+
+
 def test_nominal_hole_ownership_coexists_with_bore_tolerance_and_round_trips():
     hole = HoleFeature(Frame((0.0, 0.0, 0.0), "x"), 4.0, 10.0, True)
     nominal = _dimension(

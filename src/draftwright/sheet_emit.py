@@ -1527,6 +1527,18 @@ def _model_constructor_imports(model):
     if any(f.kind in ("hole", "pattern") for f in model.features):
         model_imports.add("hole")
     if any(
+        isinstance(requirement, ToleranceDecoration)
+        for feature in model.features
+        for requirement in getattr(feature, "member_size_requirements", ())
+    ):
+        model_imports.add("ToleranceDecoration")
+    if any(
+        isinstance(requirement, NominalRequirement)
+        for feature in model.features
+        for requirement in getattr(feature, "member_size_requirements", ())
+    ):
+        model_imports.add("NominalRequirement")
+    if any(
         f.kind == "pattern" and getattr(f.member, "profile", None) == "double_d"
         for f in model.features
     ):

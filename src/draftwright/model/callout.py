@@ -46,6 +46,56 @@ class HoleCalloutBatch:
     spec: dict
 
 
+def _merge_member_pattern_batches(batches: list[HoleCalloutBatch]) -> list[HoleCalloutBatch]:
+    """Use one callout for members with identical complete printed requirements."""
+    excluded = {
+        "count",
+        "measurements",
+        "source_measurements",
+        "geometry_measurements",
+        "geometry_qualifiers",
+        "source_ids",
+        "source_features",
+        "owner_counts",
+    }
+    grouped: dict[tuple, list[HoleCalloutBatch]] = {}
+    for batch in batches:
+        key = (
+            id(batch.groups[0].feature),
+            tuple((name, value) for name, value in batch.spec.items() if name not in excluded),
+        )
+        grouped.setdefault(key, []).append(batch)
+    result = []
+    for siblings in grouped.values():
+        first = siblings[0]
+        feature = first.groups[0].feature
+        locations = tuple(location for sibling in siblings for location in sibling.locations)
+        spec = dict(first.spec)
+        spec["count"] = len(locations) if len(locations) > 1 else None
+        for field in (
+            "measurements",
+            "source_measurements",
+            "geometry_measurements",
+            "source_ids",
+        ):
+            spec[field] = tuple(
+                dict.fromkeys(item for sibling in siblings for item in sibling.spec[field])
+            )
+        qualifiers = tuple(
+            dict.fromkeys(
+                item for sibling in siblings for item in sibling.spec["geometry_qualifiers"]
+            )
+        )
+        spec["geometry_qualifiers"] = (
+            (*qualifiers, "grouping.count") if len(locations) > 1 else qualifiers
+        )
+        spec["owner_counts"] = ((feature, len(locations)),)
+        result.append(
+            HoleCalloutBatch(tuple(sibling.groups[0] for sibling in siblings), locations, spec)
+        )
+    return result
+
+
 def bore_callout_value(spec: dict, tolerance_suffix=lambda _value: "") -> str:
     """Format the bore value after the callout's leading diameter symbol."""
     if limits := spec.get("diameter_limits"):
@@ -77,10 +127,48 @@ def hole_callout_batches(
     member sites. Pattern furniture and profiled supports remain independent. A
     batch never combines overlapping member sites or incomplete count inventories.
     """
+    member_batches: list[HoleCalloutBatch] = []
     buckets: dict[tuple, list[list]] = {}
     ordered: list[list] = []
     for group in groups:
         feature = group.feature
+        if isinstance(feature, PatternFeature) and feature.member_size_requirements:
+            complete = tuple(feature.members or (group.anchor,))
+            locations = (
+                complete if member_locations is None else member_locations.get(id(feature), ())
+            )
+            for index, point in enumerate(complete):
+                if point not in locations:
+                    continue
+                member_id = f"bore.diameter.member_{index}"
+                member_group = replace(
+                    group,
+                    units=tuple(
+                        unit
+                        for unit in group.units
+                        if unit.id == member_id
+                        or not str(unit.id).startswith("bore.diameter.member_")
+                    ),
+                )
+                spec = hole_callout_spec(
+                    member_group,
+                    include_source_pmi=include_source_pmi,
+                    manufacturing_tags=manufacturing_tags,
+                )
+                if spec is None:
+                    continue
+                spec["count"] = None
+                spec["pattern_suffix"] = None
+                spec["geometry_qualifiers"] = tuple(
+                    qualifier
+                    for qualifier in spec["geometry_qualifiers"]
+                    if qualifier != "grouping.count"
+                )
+                spec["suffix"] = hole_callout_suffix(spec)
+                spec["source_features"] = (feature,)
+                spec["owner_counts"] = ((feature, 1),)
+                member_batches.append(HoleCalloutBatch((member_group,), (point,), spec))
+            continue
         spec = hole_callout_spec(
             group,
             include_source_pmi=include_source_pmi,
@@ -186,7 +274,9 @@ def hole_callout_batches(
                 spec,
             )
         )
-    return _qualify_coincident_axial_patterns(result)
+    return _qualify_coincident_axial_patterns(
+        [*_merge_member_pattern_batches(member_batches), *result]
+    )
 
 
 def _qualify_coincident_axial_patterns(

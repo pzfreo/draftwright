@@ -1972,7 +1972,7 @@ class TestBuildDrawingPmi:
         }
 
     def test_pmi_annotate_adds_dims(self, ctc01_annotated):
-        """Singleton PMI uses bore callouts; patterned members retain distinct source marks."""
+        """Source sizes ride the exact recognized member instead of a second dimension."""
         from draftwright.model.ir import AuthoredDimension, PatternFeature, ToleranceDecoration
 
         requirements = [
@@ -1984,7 +1984,7 @@ class TestBuildDrawingPmi:
             "dimension:0:1:4:23",
             "dimension:0:1:4:24",
         }
-        standalone_ids = {
+        member_ids = {
             "dimension:0:1:4:21",
             "dimension:0:1:4:22",
             "dimension:0:1:4:25",
@@ -1994,53 +1994,41 @@ class TestBuildDrawingPmi:
         standalone = [
             feature
             for feature in ctc01_annotated.model().features
-            if isinstance(feature, AuthoredDimension) and feature.source_id in standalone_ids
+            if isinstance(feature, AuthoredDimension) and feature.source_id in member_ids
         ]
-        assert {feature.source_id for feature in standalone} == standalone_ids
+        assert standalone == []
         patterns = [
             feature
             for feature in ctc01_annotated.model().features
             if isinstance(feature, PatternFeature)
         ]
         assert len(patterns) == 2
-        for dimension in standalone:
-            assert dimension.ref_bbox is not None
-            assert (
-                sum(
-                    pattern.member.diameter == dimension.value
-                    and sum(
-                        all(
-                            dimension.ref_bbox[index] - 1e-6
-                            <= member[index]
-                            <= dimension.ref_bbox[index + 3] + 1e-6
-                            for index in range(3)
-                        )
-                        for member in pattern.members
-                    )
-                    == 1
-                    for pattern in patterns
-                )
-                == 1
-            )
-        assert all(
-            feature.lowering_blockers
-            == (
-                "unsupported hole correlation: AP242 requirement covers only part of a canonical hole pattern",
-            )
-            for feature in standalone
-        )
-        assert all(ctc01_annotated.registry.names_for_feature(owner) for owner, _ in requirements)
-        assert all(
-            len(ctc01_annotated.registry.names_for_feature(feature)) == 1 for feature in standalone
-        )
-        pmi_names = {name for name in ctc01_annotated.annotations() if name.startswith("pmi_")}
-        assert len(pmi_names) == 6
-        assert any(name.startswith("pmi_angle_") for name in pmi_names)
         assert {
-            name
-            for feature in standalone
-            for name in ctc01_annotated.registry.names_for_feature(feature)
-        } == {name for name in pmi_names if name.startswith("pmi_d_")}
+            source_id
+            for pattern in patterns
+            for requirement in pattern.member_size_requirements
+            if requirement is not None
+            for source_id in requirement.source_ids
+        } == member_ids
+        assert all(ctc01_annotated.registry.names_for_feature(owner) for owner, _ in requirements)
+        annotations = dict(ctc01_annotated.iter_annotations())
+        for source_id in member_ids:
+            claims = [
+                annotations[name]
+                for pattern in patterns
+                for name in ctc01_annotated.registry.names_for_feature(pattern)
+                if source_id
+                in {
+                    source
+                    for source, _measurement in getattr(
+                        annotations[name], "source_measurements", ()
+                    )
+                }
+            ]
+            assert len(claims) == 1
+        pmi_names = {name for name in ctc01_annotated.annotations() if name.startswith("pmi_")}
+        assert len(pmi_names) == 1
+        assert next(iter(pmi_names)).startswith("pmi_angle_")
 
     def test_pmi_annotate_places_each_source_surface_label_once(self, ctc01_annotated):
         from draftwright.model.ir import Note
@@ -2068,35 +2056,33 @@ class TestBuildDrawingPmi:
     def test_pmi_annotate_keeps_equal_symmetric_nist_range_requirements_distinct(
         self, ctc01_annotated
     ):
-        from draftwright.model.ir import AuthoredDimension, PatternFeature, ToleranceDecoration
+        from draftwright.model.ir import PatternFeature
 
         source_ids = {"dimension:0:1:4:25", "dimension:0:1:4:26"}
-        requirements = [
+        pattern = next(
             feature
             for feature in ctc01_annotated.model().features
-            if isinstance(feature, AuthoredDimension) and feature.source_id in source_ids
-        ]
+            if isinstance(feature, PatternFeature) and feature.member.diameter == 35
+        )
         annotations = dict(ctc01_annotated.iter_annotations())
 
-        assert len(requirements) == 2
-        assert {requirement.source_id for requirement in requirements} == source_ids
-        assert all(requirement.value == 35.0 for requirement in requirements)
-        assert all(
-            (requirement.lower_bound, requirement.upper_bound) == (34.8, 35.2)
-            for requirement in requirements
-        )
-        assert not [
-            value
-            for (owner, *_tail), value in ctc01_annotated.model().decorations.items()
-            if isinstance(owner, PatternFeature) and isinstance(value, ToleranceDecoration)
+        requirements = pattern.member_size_requirements[2:]
+        assert [requirement.source_ids for requirement in requirements] == [
+            ("dimension:0:1:4:25",),
+            ("dimension:0:1:4:26",),
         ]
-        assert all(
-            any(
-                annotations[name].label == "ø34.8 - ø35.2"
-                for name in ctc01_annotated.registry.names_for_feature(requirement)
-            )
-            for requirement in requirements
-        )
+        assert all(requirement.limit_bounds == (34.8, 35.2) for requirement in requirements)
+        callouts = [
+            annotations[name]
+            for name in ctc01_annotated.registry.names_for_feature(pattern)
+            if source_ids
+            == {
+                source
+                for source, _measurement in getattr(annotations[name], "source_measurements", ())
+            }
+        ]
+        assert len(callouts) == 1
+        assert callouts[0].label.startswith("2× ⌀35 ±0.2 THRU")
 
     def test_pmi_callouts_distinguish_source_dimensions_from_geometry_qualifiers(
         self, ctc01_annotated
@@ -2242,14 +2228,8 @@ class TestBuildDrawingPmi:
         }
         dropped = all_dropped & {feature.source_id for feature in authored}
 
-        # `dimension:0:1:4:17` is an ANGULAR dimension (label '60 ±0.5'). It used to render
-        # through the linear path, producing an annotation whose label states an angle and
-        # whose geometry states a length — the #1177 defect, present in a real NIST AP242
-        # fixture. Its extracted planar supports now route it through the angular renderer,
-        # preserving the authored tolerance label. Two singleton diameter records are
-        # consumed as canonical bore decorations. Five member-specific diameter records
-        # retain their typed standalone render path because their canonical owners are
-        # four-member patterns with different source requirements per member.
+        # The angular source stays typed. All seven diameter sources now ride canonical
+        # bores: two singleton decorations and five exact pattern-member requirements.
         refused = {
             source_id
             for issue in ctc01_annotated.registry.issues
@@ -2259,8 +2239,8 @@ class TestBuildDrawingPmi:
         angular = {
             feature.source_id for feature in authored if feature.dimension_kind == "angular"
         }
-        assert len(authored) == 6
-        assert rendered == angular | {f"dimension:0:1:4:{index}" for index in (21, 22, 25, 26, 29)}
+        assert len(authored) == 1
+        assert rendered == angular
         assert len(dropped) == 0
         assert refused == set()
         assert rendered.isdisjoint(dropped) and rendered.isdisjoint(refused)
@@ -2279,8 +2259,7 @@ class TestBuildDrawingPmi:
             },
             "extracted": 31,
             "lowered": 27,
-            # Two diameter sources ride canonical bore owners, five member-specific
-            # diameter sources render as typed standalone PMI, the angular record renders
+            # Seven diameter sources ride canonical bores, the angular record renders
             # from its planar supports, and four raw location records remain unlowered.
             # Crowded GD&T and datum candidates may be dropped, but the source census must
             # account for them explicitly rather than report them as rendered.
@@ -2450,6 +2429,12 @@ class TestDeclaredModelPmi:
                 source_id
                 for value in drawing.model().decorations.values()
                 for source_id in getattr(value, "source_ids", ())
+            )
+            ids.update(
+                source_id
+                for feature in drawing.model().features
+                for requirement in getattr(feature, "member_size_requirements", ())
+                for source_id in getattr(requirement, "source_ids", ())
             )
             return ids
 

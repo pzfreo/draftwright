@@ -235,7 +235,10 @@ def test_pattern_wide_requirement_preserves_pattern_identity_and_membership():
     )
 
 
-def test_partial_pattern_and_ambiguous_matches_fall_back_with_explicit_reasons():
+def test_partial_pattern_keeps_member_scope_and_ambiguous_matches_fall_back():
+    from draftwright.model.callout import hole_callout_batches
+    from draftwright.model.planner import plan_dimensions
+
     members = ((-10.0, 0.0, 0.0), (10.0, 0.0, 0.0))
     pattern = PatternFeature(
         frame=Frame((0.0, 0.0, 0.0), "z"),
@@ -252,23 +255,27 @@ def test_partial_pattern_and_ambiguous_matches_fall_back_with_explicit_reasons()
         bbox=(-15.1, -5.1, -0.1, -4.9, 5.1, 8.1),
     )
     partial_model = lower_ap242_hole_tolerances(_model(pattern, partial))
-    fallback = next(f for f in partial_model.features if f.kind == "authored_dimension")
-    assert fallback.lowering_blockers == (
-        "unsupported hole correlation: AP242 requirement covers only part of a canonical hole pattern",
+    (owned_pattern,) = partial_model.features
+    assert owned_pattern.member_size_requirements == (
+        ToleranceDecoration(0.1, "ap242_pmi", ("dimension:test",)),
+        None,
     )
+    batches = hole_callout_batches(plan_dimensions(partial_model))
+    assert [(batch.locations, batch.spec["source_ids"]) for batch in batches] == [
+        ((members[0],), ("dimension:test",)),
+        ((members[1],), ()),
+    ]
     source = emit_sheet_script(partial_model, "part", "fallback", title="P", number="N")
-    assert "lowering_blockers=('unsupported hole correlation:" in source
+    assert source.count("dimension:test") == 1
     namespace = {"part": Box(40, 40, 10)}
     exec(  # noqa: S102
         compile(source[: source.index("drawing = sheet.build()")], "<fallback-emit>", "exec"),
         namespace,
     )
     restored = next(
-        feature
-        for feature in namespace["sheet"].model().features
-        if feature.kind == "authored_dimension"
+        feature for feature in namespace["sheet"].model().features if feature.kind == "pattern"
     )
-    assert restored.lowering_blockers == fallback.lowering_blockers
+    assert restored.member_size_requirements == owned_pattern.member_size_requirements
 
     duplicate = replace(_hole(), frame=Frame((0.0, 0.0, 0.0), "z"))
     ambiguous_model = lower_ap242_hole_tolerances(
@@ -276,6 +283,19 @@ def test_partial_pattern_and_ambiguous_matches_fall_back_with_explicit_reasons()
     )
     fallback = next(f for f in ambiguous_model.features if f.kind == "authored_dimension")
     assert fallback.lowering_blockers[0].startswith("ambiguous hole correlation:")
+
+    existing = replace(
+        pattern,
+        member_size_requirements=(
+            ToleranceDecoration(0.2, "declared", ("source:declared",)),
+            None,
+        ),
+    )
+    conflict = lower_ap242_hole_tolerances(_model(existing, partial))
+    assert conflict.features[0] == existing
+    assert conflict.features[1].lowering_blockers == (
+        "ambiguous hole tolerance ownership: member already has a source requirement",
+    )
 
 
 def test_unmatched_requirement_without_any_hole_owner_keeps_an_explicit_reason():
@@ -427,15 +447,20 @@ def test_ctc01_consumes_all_hole_tolerances_once_and_emits_provenance():
 
     assert [(feature.dimension_kind, feature.source_id) for feature in authored] == [
         ("angular", "dimension:0:1:4:17"),
-        *(("diameter", f"dimension:0:1:4:{index}") for index in (21, 22, 25, 26, 29)),
     ]
-    assert all(
-        feature.lowering_blockers
-        == (
-            "unsupported hole correlation: AP242 requirement covers only part of a canonical hole pattern",
-        )
-        for feature in authored[1:]
-    )
+    patterns = {
+        feature.member.diameter: feature
+        for feature in model.features
+        if isinstance(feature, PatternFeature)
+    }
+    assert [
+        requirement.source_ids if requirement is not None else ()
+        for requirement in patterns[35.0].member_size_requirements
+    ] == [(f"dimension:0:1:4:{index}",) for index in (21, 22, 25, 26)]
+    assert [
+        requirement.source_ids if requirement is not None else ()
+        for requirement in patterns[25.0].member_size_requirements
+    ] == [(), (), ("dimension:0:1:4:29",), ()]
     tolerance_source_ids = {
         "dimension:0:1:4:21",
         "dimension:0:1:4:22",
@@ -449,12 +474,16 @@ def test_ctc01_consumes_all_hole_tolerances_once_and_emits_provenance():
         source_id for requirement in requirements for source_id in requirement.source_ids
     }
     assert decorated_source_ids == {"dimension:0:1:4:23", "dimension:0:1:4:24"}
-    assert (
-        decorated_source_ids | {feature.source_id for feature in authored[1:]}
-        == tolerance_source_ids
-    )
+    member_source_ids = {
+        source_id
+        for pattern in patterns.values()
+        for requirement in pattern.member_size_requirements
+        if requirement is not None
+        for source_id in requirement.source_ids
+    }
+    assert decorated_source_ids | member_source_ids == tolerance_source_ids
     source = emit_sheet_script(model, "part", "ctc01", title="CTC01", number="N")
-    assert source.count("sheet.measured_dimension(") == 6
+    assert source.count("sheet.measured_dimension(") == 1
     expected_source_ids = tolerance_source_ids | {"dimension:0:1:4:17"}
     assert source.count("source='ap242_pmi'") == len(expected_source_ids)
     assert all(source.count(repr(source_id)) == 1 for source_id in expected_source_ids)

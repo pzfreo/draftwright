@@ -6,7 +6,7 @@ serialized models. This leaf owns their constructors and validation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import atan2, cos, hypot, isfinite, pi, radians, sin
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
@@ -845,8 +845,8 @@ class PatternFeature:
     ``count`` × a `member` hole arranged by the pattern. It composes the member
     `HoleFeature` (so the member's bore + counterbore/spotface/depth all come
     along — a counterbored bolt circle keeps its counterbore) and adds the
-    pattern-defining dims (BCD / pitch / grid pitches). The member holes are NOT
-    emitted individually (the engine's grouped ``n× ø`` callout)."""
+    pattern-defining dims (BCD / pitch / grid pitches). Uniform members share a
+    grouped callout; member-specific source requirements retain their own scope."""
 
     #: The compiled stem this feature's position is minted under — see
     #: :attr:`HoleFeature.LOCATION_STEM` for why it is declared here (#966).
@@ -864,10 +864,45 @@ class PatternFeature:
     rows: int | None = None
     cols: int | None = None
     angle: float | None = None  # grid lattice rotation (degrees)
+    # Source size requirements addressed to individual physical members. Empty means the
+    # established uniform group callout; a populated tuple has one entry per member.
+    member_size_requirements: tuple[ToleranceDecoration | NominalRequirement | None, ...] = ()
     kind: ClassVar[str] = "pattern"
+
+    def __post_init__(self) -> None:
+        if self.member_size_requirements and len(self.member_size_requirements) != self.count:
+            raise ValueError("member_size_requirements must have one entry per pattern member")
+        if self.member_size_requirements and self.pattern not in ("grid", "linear"):
+            raise ValueError("member size requirements need a grid or linear pattern")
+        if self.member_size_requirements and len(self.members) != self.count:
+            raise ValueError("member size requirements need every physical member location")
+        if any(
+            requirement is not None
+            and not isinstance(requirement, ToleranceDecoration | NominalRequirement)
+            for requirement in self.member_size_requirements
+        ):
+            raise ValueError("member size requirements must be typed source requirements")
 
     def parameters(self) -> list[DimParameter]:
         ps = list(self.member.parameters())  # bore (+ counterbore / spotface / depth)
+        if self.member_size_requirements:
+            bore = ps.pop(0)
+            ps[:0] = [
+                replace(
+                    bore,
+                    discriminator=f"member_{index}",
+                    tolerance=(
+                        requirement.value if isinstance(requirement, ToleranceDecoration) else None
+                    ),
+                    source_ids=requirement.source_ids if requirement is not None else (),
+                    limit_bounds=(
+                        requirement.limit_bounds
+                        if isinstance(requirement, ToleranceDecoration)
+                        else None
+                    ),
+                )
+                for index, requirement in enumerate(self.member_size_requirements)
+            ]
         if self.bcd is not None:
             ps.append(DimParameter("diameter", "bolt_circle", self.bcd))
         if self.pitch is not None:

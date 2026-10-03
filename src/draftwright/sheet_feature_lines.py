@@ -822,6 +822,8 @@ def _machined_feature_line(f, *, exact_parameter: str | None) -> str:
                 parts.append(f"angle={_n(f.angle)}")
         if f.members:
             parts.append("members=[" + ", ".join(_pt(p) for p in f.members) + "]")
+        if f.member_size_requirements:
+            parts.append(f"member_size_requirements={f.member_size_requirements!r}")
         return (
             f"sheet.pattern({_member_hole_str(f.member, exact_parameter=exact_parameter)}, "
             + ", ".join(parts)
