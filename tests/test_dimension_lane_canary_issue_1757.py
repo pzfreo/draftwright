@@ -16,7 +16,9 @@ from draftwright.audit import ExpectedRequirement, compare_assessments
 from draftwright.replay_assessment import assessment_sidecar_path
 from draftwright.sheet_emit import generate_sheet_script
 
-pytestmark = [pytest.mark.slow, pytest.mark.real_part_canary, pytest.mark.timeout(120)]
+# Two generated scripts each have a 100-second subprocess bound; allow both
+# runs plus generation before the whole-test timeout fires.
+pytestmark = [pytest.mark.slow, pytest.mark.real_part_canary, pytest.mark.timeout(240)]
 
 _FIXTURE = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
 _FIXTURE_SHA256 = "85a5752da05f53c456ca3a9e038c90358e1d5a3141d1f0d6e5f0970f2356e821"
