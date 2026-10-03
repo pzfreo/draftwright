@@ -9,6 +9,7 @@ from build123d_drafting.helpers import Draft
 from draftwright.annotations.from_model import callout_from_spec
 from draftwright.model.callout import hole_callout_spec
 from draftwright.model.ir import (
+    ChamferFeature,
     CylindricalReference,
     Frame,
     HoleFeature,
@@ -378,6 +379,62 @@ def test_thread_and_knurl_aspects_on_one_owner_lower_independently_issue_2137():
     assert lowered.features[0].thread is not None
     assert lowered.features[0].knurl is not None
     assert remaps == [(head, (lowered.features[0],), None)]
+
+
+@pytest.mark.parametrize(
+    ("source_interval", "thread_length", "has_tip_chamfer", "expected_lowered"),
+    [
+        ((0.0, 19.5), 20.0, True, True),
+        ((0.0, 19.5), 20.0, False, False),
+        ((9.0, 9.5), 20.0, True, False),
+        ((0.0, 19.5), 19.5, False, True),
+        ((0.0, 19.5), 21.0, True, False),
+    ],
+)
+def test_external_thread_length_can_name_chamfered_owner_span(
+    source_interval, thread_length, has_tip_chamfer, expected_lowered
+):
+    owner = StepFeature(
+        frame=Frame((10.0, 0.0, 0.0), "x"),
+        length=20.0,
+        diameter=3.0,
+        span=((0.0, 0.0, 0.0), (20.0, 0.0, 0.0)),
+    )
+    reference = _reference(3.0, source_interval, "external")
+    assert reference.axial_interval[1] - reference.axial_interval[0] < 20.0
+    assert owner.span[1][0] - owner.span[0][0] == 20.0
+    tip_chamfer = ChamferFeature(Frame((19.75, 0.0, 1.25), "x"), "x", 0.5, 0.5, 45.0, turned=True)
+    raw = replace(
+        _raw(
+            "external_thread",
+            "M3 x 0.5-6g RH, full available length on nominal DIA 3 region",
+            reference,
+            "#thread",
+        ),
+        structured_fields=(
+            ("thread side", "external"),
+            ("designation", "M3x0.5"),
+            ("nominal size", "M3"),
+            ("pitch", 0.5),
+            ("fit class", "6g"),
+            ("hand", "right"),
+            ("thread length", thread_length),
+        ),
+    )
+
+    lowered = lower_ap242_manufacturing_requirements(
+        _model(owner, raw, *((tip_chamfer,) if has_tip_chamfer else ()))
+    )
+
+    if expected_lowered:
+        assert not any(isinstance(feature, PmiFeature) for feature in lowered.features)
+        assert lowered.features[0].thread.nominal_diameter == 3.0
+        assert lowered.features[0].thread.pitch == 0.5
+    else:
+        assert lowered.features[0].thread is None
+        assert lowered.features[1].lowering_blockers == (
+            "structured thread length disagrees with source cylinder or evidenced owner span",
+        )
 
 
 def test_source_shaped_paired_manufacturing_fields_lower_with_explicit_prose_issue_2137():
