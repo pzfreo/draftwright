@@ -399,6 +399,15 @@ def _pattern_model_outcomes(patterns, recognition, features) -> list[Outcome]:
     return result
 
 
+def _pitch_interval_label_matches(label: object, expected: int) -> bool:
+    """A single gap has a bare value; longer spans state their interval count."""
+    text = str(label or "")
+    if expected == 1:
+        return re.match(r"^\s*\d+(?:\.\d+)?(?:\s|$)", text) is not None
+    match = re.match(r"^\s*(\d+)\s*[×x]\s", text)
+    return match is not None and int(match.group(1)) == expected
+
+
 def _pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
     """Per recognised pattern: did its grouping grammar reach the placed drawing?"""
     from draftwright.linting.evidence import verify_measurement_claims
@@ -455,10 +464,7 @@ def _pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
             label = getattr(annotation, "label", None) or getattr(
                 annotation, "_annotate_label", None
             )
-            if expected == 1 and re.match(r"^\s*\d+(?:\.\d+)?(?:\s|$)", str(label or "")):
-                return True
-            match = re.match(r"^\s*(\d+)\s*[×x]\s", str(label or ""))
-            if match is not None and int(match.group(1)) == expected:
+            if _pitch_interval_label_matches(label, expected):
                 return True
         return False
 
