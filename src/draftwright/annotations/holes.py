@@ -77,7 +77,6 @@ from draftwright.annotations.from_model import (
     _diameter_column_left,
     _diameter_row_below,
     callout_from_spec,
-    hole_callout_spec,
 )
 from draftwright.annotations.hole_leader_candidates import (
     FrontHoleLeaderCandidateAdapter,
@@ -116,6 +115,37 @@ from draftwright.model.ir import HoleFeature, PatternFeature
 _AXIS_ALIGN_COS = 0.9996
 
 
+def _editable_hole_callout_batches(
+    feature, model, views, *, include_source_pmi, manufacturing_tags=None
+):
+    """Read one edit verb through the same member-aware batches as automatic ink."""
+    from draftwright.model.callout import hole_callout_batches
+
+    group = next(
+        (
+            candidate
+            for candidate in plan_dimensions(model, planned_views=views)
+            if candidate.feature is feature
+        ),
+        None,
+    )
+    batches = (
+        hole_callout_batches(
+            (group,),
+            include_source_pmi=include_source_pmi,
+            manufacturing_tags=manufacturing_tags,
+        )
+        if group is not None
+        else ()
+    )
+    if len(batches) > 1:
+        raise ValueError(
+            "callout(): this pattern needs separate member callouts; "
+            "one editable callout would lose member requirements"
+        )
+    return group, batches
+
+
 def add_feature_callout(
     dwg,
     feature,
@@ -129,9 +159,10 @@ def add_feature_callout(
     """Add a hole/pattern ø-depth **leader callout** for *feature* — the #414 add verb,
     the callout-mechanism half of the editable surface (symmetric with :meth:`Drawing.drop`).
 
-    Funnels into the same :func:`hole_callout_spec` / :func:`callout_from_spec` the
-    auto-pass uses, so the callout text (ø, ``n×``, through/depth, cbore, pattern suffix)
-    is identical. Placement is a single reasonable leader beside the feature's end-on view
+    Funnels into the same batching and :func:`callout_from_spec` the auto-pass uses,
+    so the callout text (ø, ``n×``, through/depth, cbore, pattern suffix) is identical.
+    A pattern needing separate member callouts raises instead of losing requirements.
+    Placement is a single reasonable leader beside the feature's end-on view
     — not the auto-pass's whole-set priority solve (byte-identity is not a goal, #400 Ph2):
     a lone added callout goes into free strip space and leans on :meth:`Drawing.repair` /
     the coverage lint for the rest. The leader is tagged with *feature* so :meth:`drop` /
@@ -147,22 +178,14 @@ def add_feature_callout(
             "callout(): feature is not from this drawing's model — "
             "pass one from dwg.model().features"
         )
-    group = next(
-        (
-            g
-            for g in plan_dimensions(model, planned_views=tuple(dwg.views))
-            if g.feature is feature
-        ),
-        None,
+    group, batches = _editable_hole_callout_batches(
+        feature,
+        model,
+        tuple(dwg.views),
+        include_source_pmi=not ctx.document_member or cast(Analysis, a).pmi_mode == "annotate",
+        manufacturing_tags=getattr(ctx, "manufacturing_tags", None),
     )
-    spec = (
-        hole_callout_spec(
-            group,
-            include_source_pmi=not ctx.document_member or cast(Analysis, a).pmi_mode == "annotate",
-        )
-        if group is not None
-        else None
-    )
+    spec = batches[0].spec if batches else None
     if spec is None:
         if any(o.feature is feature and o.authored for o in compile_dimensions(model).diagnostics):
             # "Exposes none" would be a false claim: the feature exposes a bore ⌀ and was
@@ -181,11 +204,10 @@ def add_feature_callout(
             f"{type(feature).__name__} exposes none — use dimension() for a linear param"
         )
     draft = dwg.draft
-    members = feature.members or (feature.frame.origin,)
-    # count comes from the spec (== feat.count) — the same source the auto-pass's
-    # bare path uses — not re-derived from len(members).
+    members = batches[0].locations
+    # The batch, not the feature, owns the count represented by this callout.
     callout = callout_from_spec(spec, draft, spec["count"])
-    assert callout is not None  # spec is non-None here, so callout_from_spec returns one
+    assert callout is not None
     view = view or (group.view if group is not None else _END_ON[feature.frame.axis])
     if view not in (*_END_ON.values(), "rear") or (view == "rear" and feature.frame.axis != "y"):
         raise ValueError(f"callout(): view {view!r} is not a hole-callout view for this axis")

@@ -9,7 +9,7 @@ import pytest
 from build123d import Box, import_step
 
 from draftwright import Sheet
-from draftwright.builder import detect_part_model
+from draftwright.builder import build_drawing, detect_part_model
 from draftwright.model.ir import (
     AuthoredDimension,
     Frame,
@@ -296,6 +296,40 @@ def test_partial_pattern_keeps_member_scope_and_ambiguous_matches_fall_back():
     assert conflict.features[1].lowering_blockers == (
         "ambiguous hole tolerance ownership: member already has a source requirement",
     )
+
+
+def test_editable_callout_refuses_a_mixed_member_tolerance_pattern():
+    from draftwright.model.callout import hole_callout_batches
+    from draftwright.model.planner import plan_dimensions
+
+    members = ((-10.0, 0.0, 0.0), (10.0, 0.0, 0.0))
+    pattern = PatternFeature(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        pattern="linear",
+        count=2,
+        member=_hole(at=members[0], diameter=4.0),
+        members=members,
+        pitch=20.0,
+        direction=(1.0, 0.0, 0.0),
+        member_size_requirements=(
+            ToleranceDecoration(0.1, "ap242_pmi", ("member:0",)),
+            ToleranceDecoration(0.2, "ap242_pmi", ("member:1",)),
+        ),
+    )
+    drawing = build_drawing(Box(40, 40, 10), model=_model(pattern), auto_dims=False)
+    owner = drawing.model().features[0]
+    batches = hole_callout_batches(plan_dimensions(drawing.model()))
+    assert [(batch.spec["count"], batch.spec["tolerance"]) for batch in batches] == [
+        (None, 0.1),
+        (None, 0.2),
+    ]
+
+    with pytest.raises(ValueError, match="separate member callouts"):
+        drawing.callout(owner)
+    with pytest.raises(ValueError, match="separate member callouts"):
+        with drawing.deferred():
+            drawing.callout(owner)
+    assert not [name for name in drawing.annotations() if name.startswith("hc_")]
 
 
 def test_unmatched_requirement_without_any_hole_owner_keeps_an_explicit_reason():
