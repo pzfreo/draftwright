@@ -72,7 +72,7 @@ def test_grid_pattern_renders_both_pitch_dims():
         "6× 8 × 8 × 4 DEEP"
     ]
     pitch_labels = sorted(dwg.get_annotation(n).label for n in names if "pitch" in n)
-    assert pitch_labels == ["1× 30", "2× 40"]  # (rows-1)× row_pitch, (cols-1)× col_pitch
+    assert pitch_labels == ["2× 40", "30"]  # one gap reads directly; repeated gaps retain count
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
 

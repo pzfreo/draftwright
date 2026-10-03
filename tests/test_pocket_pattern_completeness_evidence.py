@@ -552,7 +552,7 @@ def test_legitimate_pitch_tolerance_survives_exact_drawing_observation() -> None
         for name in drawing.registry.names()
         if name.startswith("dim_pocketpat_pitch")
     }
-    assert labels == {"1× 32 ±0.2", "2× 24 ±0.2"}
+    assert labels == {"32 ±0.2", "2× 24 ±0.2"}
     assert _pocket_pattern_drawing_outcomes(
         tuple(drawing.recognition().section_recess_patterns), drawing
     ) == ["supported"]

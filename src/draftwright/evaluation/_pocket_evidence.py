@@ -506,7 +506,8 @@ def _pocket_pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
                     round(gap, drawing.draft.decimal_precision) == nominal for gap in gaps
                 ):
                     suffix = _tol_suffix(approved.tolerance, drawing.draft)
-            pitch_labels[(feature, parameter)] = f"{intervals}× {approved.value_text}{suffix}"
+            prefix = f"{intervals}× " if intervals > 1 else ""
+            pitch_labels[(feature, parameter)] = f"{prefix}{approved.value_text}{suffix}"
 
     location_labels: dict[tuple[object, str], str] = {}
     for approved in plan.locations:

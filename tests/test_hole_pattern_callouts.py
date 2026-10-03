@@ -299,7 +299,7 @@ class TestHolePatternCallouts:
             annotation.label
             for name, annotation in drawing.iter_annotations()
             if name.startswith("dim_pitch_")
-        } == {"1× 20", "1× 30"}
+        } == {"20", "30"}
         assert drawing.lint() == []
 
     @pytest.mark.parametrize("variant", ("a", "b"))
@@ -315,7 +315,7 @@ class TestHolePatternCallouts:
         grid_pitches = [
             annotation
             for name, annotation in drawing.iter_annotations()
-            if name.startswith("dim_pitch_plan") and annotation.label == "1× 22.6"
+            if name.startswith("dim_pitch_plan") and annotation.label == "22.6"
         ]
         assert len(grid_pitches) == 2
         assert not any(issue.code == "hole_pattern_dim_dropped" for issue in drawing.lint())
@@ -336,9 +336,9 @@ class TestHolePatternCallouts:
         assert len(hc) == 1, f"expected one grouped callout, got {hc}"
         assert named[hc[0]].covers_count == 8
         assert named[hc[0]].covers_diameters == (8.0,)
-        # both grid pitch dimensions, labelled (n-1)× pitch
+        # Both grid pitches survive; one gap prints its value without a multiplier.
         assert len(pitch) == 2, f"expected two pitch dims, got {pitch}"
-        assert {named[n].label for n in pitch} == {"1× 20", "3× 25"}
+        assert {named[n].label for n in pitch} == {"20", "3× 25"}
         # each dim runs ALONG one lattice axis — its endpoints share a coordinate
         # — not diagonally across the grid; and the two are perpendicular.
         axes = set()
@@ -373,8 +373,8 @@ class TestHolePatternCallouts:
             dim = dwg.get_annotation(n)
             sp = dim.placement_spec
             span = math.hypot(sp.p2[0] - sp.p1[0], sp.p2[1] - sp.p1[1]) / scale
-            k, p = dim.label.split("× ")
-            expected = int(k) * float(p)
+            parts = dim.label.split("× ")
+            expected = float(parts[0]) if len(parts) == 1 else int(parts[0]) * float(parts[1])
             assert abs(span - expected) < 1.0, (
                 f"{n} ({dim.label!r}) endpoint span {span:.1f} ≠ {expected:.1f} — drawn diagonally"
             )
@@ -398,7 +398,7 @@ class TestHolePatternCallouts:
 
         assert len(pitch) == 2, f"expected two side-grid pitch dims, got {pitch}"
         assert {dwg.view_of(name) for name in pitch} == {"side"}
-        assert {dwg.get_annotation(name).label for name in pitch} == {"1× 10", "4× 45"}
+        assert {dwg.get_annotation(name).label for name in pitch} == {"10", "4× 45"}
         assert "hole_pattern_dim_dropped" not in {issue.code for issue in dwg.lint()}
 
     @pytest.mark.timeout(120)
