@@ -823,9 +823,9 @@ def _place_pitch_dim(
     *,
     ctx,
 ):
-    """Pitch dimension between two hole-centre *locations* ``loc1``→``loc2``, labelled
-    ``(n-1)× pitch``, placed just outside the view on the side of the row's
-    outward perpendicular (#92). *feature* attributes it to the source pattern (#408)."""
+    """Pitch between hole centres: ``pitch`` for one gap, else ``(n-1)× pitch``.
+    Place it outside the view on the row's outward perpendicular (#92); *feature*
+    attributes it to the source pattern (#408)."""
     p1 = to_page(loc1)
     p2 = to_page(loc2)
     ux, uy = p2[0] - p1[0], p2[1] - p1[1]
@@ -860,7 +860,7 @@ def _place_pitch_dim(
     # A uniform array's ± applies to each identical gap, so `4× 20 ±0.05` is coherent; that is
     # unlike the STEP representative, whose levels merely fall within 10% of each other, where
     # a ± would claim the tolerance of values that differ.
-    label = f"{n - 1}× {pitch_text}"
+    label = str(pitch_text) if n == 2 else f"{n - 1}× {pitch_text}"
 
     def _make(off, side_vec=side, label_offset_x=0.0):
         return _dim(

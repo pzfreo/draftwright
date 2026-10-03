@@ -105,7 +105,7 @@ def test_grid_pattern_accounts_for_both_pitch_dimensions():
         "6× SLOT 6 × 12"
     ]
     pitch_labels = sorted(dwg.get_annotation(n).label for n in names if "slotpat_pitch" in n)
-    assert pitch_labels == ["1× 30"]
+    assert pitch_labels == ["30"]
     pattern = next(feature for feature in dwg.model().features if feature.kind == "slot_pattern")
     assert [
         parameter.value for parameter in pattern.parameters() if parameter.role == "grid_pitch"
