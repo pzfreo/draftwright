@@ -443,7 +443,7 @@ def _pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
         return False
 
     def rendered_interval_count(outcome, expected: int) -> bool:
-        """Whether the exact pitch dimension renders its required interval multiplier."""
+        """Whether the exact pitch dimension renders its required interval count."""
         for name, annotation in drawing.registry.iter_named():
             owns_pitch = any(
                 getattr(measurement, "feature", None) in outcome.features
@@ -455,6 +455,8 @@ def _pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
             label = getattr(annotation, "label", None) or getattr(
                 annotation, "_annotate_label", None
             )
+            if expected == 1 and re.match(r"^\s*\d+(?:\.\d+)?(?:\s|$)", str(label or "")):
+                return True
             match = re.match(r"^\s*(\d+)\s*[×x]\s", str(label or ""))
             if match is not None and int(match.group(1)) == expected:
                 return True
