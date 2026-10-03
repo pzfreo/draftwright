@@ -290,6 +290,8 @@ def _gdt_visual_tolerance(glyph, draft, zone: str, *, modifier: bool = False) ->
 def _attach_gdt_text_evidence(leader, glyph, item, draft) -> None:
     """Keep the placed glyph's value beside PDF text for independent PMI lint."""
     leader.pdf_text_relative_specs = _gdt_pdf_text_specs(glyph, item, draft)
+    if item.kind == "finish":
+        leader.gdt_visual_finish = glyph.label
     if item.kind == "control_frame":
         zone = _gdt_visual_zone(glyph, draft)
         leader.gdt_visual_tolerance = _gdt_visual_tolerance(

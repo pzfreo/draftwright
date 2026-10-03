@@ -16,9 +16,8 @@ ambiguous correspondence retains the complete detected numeric declaration.
 Kinds with no declarative verb are flagged inline — never silently dropped — and left to the
 auto-pass that runs over the declared model on re-run. Every *geometric* kind now has one
 (``rotational`` was the last, #945, keyword-only — see :func:`draftwright.model.rotational`);
-what remains on the comment floor is the aspect kinds a detector never emits (``finish``,
-``note``), so the branch is a live guard against a NEW kind
-arriving unemitted rather than a standing gap. Imported authored
+an unsupported kind stays an explicit comment, so the branch guards against a new kind
+arriving unemitted. Imported authored
 dimensions, including AP242 dimensional PMI, emit as Sheet ``measured_dimension(...)``
 declarations (#873 — never the transitional ``dimension`` overload, so a regenerated script is
 not born deprecated).
@@ -104,6 +103,9 @@ from draftwright.sheet_feature_lines import (
 )
 from draftwright.sheet_feature_lines import (
     _direction as _direction,
+)
+from draftwright.sheet_feature_lines import (
+    _finish_line as _finish_line,
 )
 from draftwright.sheet_feature_lines import (
     _hole_group_args as _hole_group_args,
@@ -276,6 +278,8 @@ def _feature_line(
         return _control_frame_line(f, origin_ref)
     if k == "datum_ref":
         return _datum_ref_line(f, origin_ref)
+    if k == "finish":
+        return _finish_line(f, origin_ref)
     if k == "note":
         return _note_line(f, origin_ref)
     if k in {
@@ -1555,6 +1559,8 @@ def _model_constructor_imports(model):
         model_imports.update(["ControlFrame", "Frame"])
     if any(f.kind == "datum_ref" for f in model.features):
         model_imports.update(["DatumRef", "Frame"])
+    if any(f.kind == "finish" for f in model.features):
+        model_imports.update(["Finish", "Frame"])
     if any(
         f.kind == "note"
         and (
@@ -1580,11 +1586,16 @@ def _model_constructor_imports(model):
     if any(isinstance(aspect, KnurlRequirement) for aspect in typed_aspects):
         model_imports.update(["CylindricalReference", "KnurlRequirement"])
     if any(
-        f.kind in ("control_frame", "datum_ref", "note")
+        f.kind in ("control_frame", "datum_ref", "finish", "note")
         and getattr(getattr(f, "origin", None), "kind", None) == "pmi"
         for f in model.features
     ):
         model_imports.add("PmiFeature")
+    if any(
+        f.kind == "finish" and getattr(getattr(f, "origin", None), "cylindrical_refs", ())
+        for f in model.features
+    ):
+        model_imports.add("CylindricalReference")
     return model_imports
 
 

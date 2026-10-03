@@ -16,6 +16,7 @@ from dataclasses import replace
 from decimal import Decimal
 from typing import Literal, cast
 
+from draftwright._geometry import _EDGE_ON, _radial_axis_in_view
 from draftwright.model.ir import (
     AuthoredDimension,
     BossFeature,
@@ -25,6 +26,8 @@ from draftwright.model.ir import (
     DefaultSurfaceFinish,
     DocumentNote,
     Feature,
+    Finish,
+    Frame,
     GeneralTolerance,
     HoleFeature,
     KnurlRequirement,
@@ -1705,6 +1708,53 @@ def lower_ap242_manufacturing_requirements(
     return replace(lowered, features=rebuilt)
 
 
+_FACE_FINISH = re.compile(r"\s*Ra\s+(?P<ra>\d+(?:\.\d+)?)\s*(?:um|µm|μm)\s*", re.IGNORECASE)
+
+
+def lower_ap242_face_finishes(model: PartModel) -> PartModel:
+    """Attach a source-authored finish only to its one proved external cylinder."""
+    features = list(model.features)
+    for index, feature in enumerate(features):
+        if not (
+            isinstance(feature, PmiFeature)
+            and feature.source_category == "manufacturing_requirement"
+            and feature.pmi_kind == "surface_finish"
+            and not feature.lowering_blockers
+        ):
+            continue
+        match = _FACE_FINISH.fullmatch(feature.label)
+        if match is None:
+            features[index] = _block_requirement(feature, "unsupported face-specific Ra syntax")
+            continue
+        if len(feature.reference_item_ids) != 1 or len(feature.cylindrical_refs) != 1:
+            features[index] = _block_requirement(
+                feature, "face-specific finish needs one exact cylindrical face reference"
+            )
+            continue
+        cylinder = feature.cylindrical_refs[0]
+        axis = cylinder.principal_axis.lower()
+        if cylinder.sense != "external" or axis not in "xyz":
+            features[index] = _block_requirement(
+                feature, "face-specific finish needs an orthographic external cylinder"
+            )
+            continue
+        view = _EDGE_ON[axis]
+        radial = _radial_axis_in_view(axis, view)
+        side = "above" if radial == "z" else "right"
+        site = list(cylinder.midpoint)
+        site["xyz".index(radial)] += cylinder.radius
+        features[index] = Finish(
+            frame=Frame((site[0], site[1], site[2]), axis),
+            ra=match.group("ra"),
+            view=view,
+            side=side,
+            origin=feature,
+            source_id=feature.source_id,
+            part21_id=feature.part21_id,
+        )
+    return replace(model, features=features)
+
+
 def _turned_chamfer_matches_box(feature: ChamferFeature, box) -> bool:
     if not feature.turned or feature.axis not in "xyz":
         return False
@@ -2088,7 +2138,7 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
                 ],
             )
 
-    document_kinds = {"datum_scheme", "model_representation"}
+    document_kinds = {"datum_scheme", "model_representation", "edge_condition"}
     features = list(model.features)
     for index, item in enumerate(features):
         if not (
@@ -2100,6 +2150,13 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
             continue
         if not item.label.strip():
             features[index] = _block_requirement(item, "document requirement text is empty")
+            continue
+        if item.pmi_kind == "edge_condition" and (
+            item.reference_item_ids or item.shape_aspect_ids
+        ):
+            features[index] = _block_requirement(
+                item, "face-specific edge condition cannot be a document-wide note"
+            )
             continue
         represented_by = (
             _datum_scheme_represented_by_symbols(model, item.label)
@@ -2132,4 +2189,4 @@ def lower_ap242_dimensions(
     )
     manufacturing = lower_ap242_manufacturing_requirements(dimensions, feature_remap=feature_remap)
     chamfers = lower_ap242_chamfer_requirements(manufacturing, feature_remap=feature_remap)
-    return lower_ap242_document_requirements(chamfers)
+    return lower_ap242_document_requirements(lower_ap242_face_finishes(chamfers))

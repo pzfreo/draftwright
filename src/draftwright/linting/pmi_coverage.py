@@ -13,7 +13,9 @@ from draftwright._geometry import _fmt_pmi_magnitude
 from draftwright.linting.issues import LintIssue
 from draftwright.pmi import PmiExtractionReport
 
-_SUPPORTED_MANUFACTURING_REQUIREMENTS = frozenset(("external_thread", "internal_thread", "knurl"))
+_SUPPORTED_MANUFACTURING_REQUIREMENTS = frozenset(
+    ("external_thread", "internal_thread", "knurl", "edge_condition", "surface_finish")
+)
 _MANUFACTURING_REF = re.compile(r"\bSEE (MFG [1-9][0-9]*)\b")
 _DIAMETER_TOKEN = re.compile(r"ø(\d+(?:\.\d+)?)")
 _KNURL_MAX_TOKEN = re.compile(r"ø(\d+(?:\.\d+)?)\s+MAX AFTER KNURL\b")
@@ -616,6 +618,100 @@ def _lint_pmi_frame_values(report: PmiExtractionReport, registry) -> list[LintIs
     return issues
 
 
+def _printed_document_notes(table) -> tuple[str, ...]:
+    """Read numbered note text back from the placed general-notes table."""
+    notes: list[str] = []
+    for row in getattr(table, "table_rows", ()):
+        if len(row) != 1:
+            return ()
+        line = row[0]
+        if match := re.fullmatch(r"([1-9][0-9]*)  (.*)", line):
+            if int(match.group(1)) != len(notes) + 1:
+                return ()
+            notes.append(match.group(2))
+        elif line.startswith("   ") and notes:
+            notes[-1] += " " + line.strip()
+        elif line != "GENERAL NOTES":
+            return ()
+    return tuple(notes)
+
+
+def _lint_pmi_manufacturing_ink(report: PmiExtractionReport, registry) -> list[LintIssue]:
+    """Check two source-scoped manufacturing meanings against surviving content."""
+    source = {
+        record.source_id: record
+        for record in report.records
+        if record.source_category == "manufacturing_requirement"
+        and record.kind in {"edge_condition", "surface_finish"}
+    }
+    issues = []
+    table = registry.named("general_notes")
+    note_owners = (
+        tuple(
+            owner
+            for owner in registry.features_of("general_notes")
+            if getattr(owner, "kind", None) == "document_note"
+        )
+        if table is not None
+        else ()
+    )
+    printed_notes = _printed_document_notes(table)
+    for index, owner in enumerate(note_owners):
+        source_id = getattr(owner, "source_id", "")
+        record = source.get(source_id)
+        if record is None:
+            continue
+        if (
+            record.kind == "edge_condition"
+            and index < len(printed_notes)
+            and printed_notes[index] == record.label
+        ):
+            continue
+        issues.append(
+            LintIssue(
+                severity="error",
+                code="pmi_source_text_mismatch",
+                message=f"general_notes does not state AP242 edge condition {source_id} verbatim",
+                source_ids=(source_id,),
+                annotation_name="general_notes",
+            )
+        )
+
+    for name, annotation in registry.iter_named():
+        declaration = registry.declaration_of(name)
+        if getattr(declaration, "kind", None) != "finish":
+            continue
+        source_id = getattr(declaration, "source_id", "")
+        record = source.get(source_id)
+        if record is None:
+            continue
+        match = (
+            re.fullmatch(r"\s*Ra\s+(\d+(?:\.\d+)?)\s*(?:um|µm|μm)\s*", record.label, re.I)
+            if record.kind == "surface_finish"
+            else None
+        )
+        expected = Decimal(match.group(1)) if match else None
+        pdf_specs = tuple(getattr(annotation, "pdf_text_relative_specs", ()))
+        glyph_label = getattr(annotation, "gdt_visual_finish", None)
+        try:
+            pdf_value = Decimal(str(pdf_specs[0][0])) if len(pdf_specs) == 1 else None
+            glyph_value = Decimal(str(glyph_label))
+        except (InvalidOperation, IndexError, TypeError):
+            pdf_value = glyph_value = None
+        if expected is not None and pdf_value == expected and glyph_value == expected:
+            continue
+        issues.append(
+            LintIssue(
+                severity="error",
+                code="pmi_source_text_mismatch",
+                message=f"{name} does not state AP242 face finish {source_id} as {record.label}",
+                source_ids=(source_id,),
+                annotation_name=name,
+            )
+        )
+    return issues
+
+
 def lint_pmi_rendering(
     features,
     registry,
@@ -692,6 +788,7 @@ def lint_pmi_rendering(
     ]
     if report is not None:
         issues.extend(_lint_pmi_frame_values(report, registry))
+        issues.extend(_lint_pmi_manufacturing_ink(report, registry))
     return issues
 
 

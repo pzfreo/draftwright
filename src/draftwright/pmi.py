@@ -1706,7 +1706,9 @@ def _surface_label_projection(
     return tuple(sources), tuple(records)
 
 
-_CYLINDRICAL_REQUIREMENT_KINDS = frozenset(("external_thread", "internal_thread", "knurl"))
+_CYLINDRICAL_REQUIREMENT_KINDS = frozenset(
+    ("external_thread", "internal_thread", "knurl", "surface_finish")
+)
 
 
 def _chamfer_reference_bboxes(shapes, frame: PartFrame | None = None):
@@ -1737,6 +1739,9 @@ def _manufacturing_requirement_topology(
     imported_faces = TopTools_IndexedMapOfShape()
     TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_FACE, imported_faces)
     resolver = _DatumTopologyResolver(step_reader, imported_faces)
+    # A face finish can qualify a cylinder already carrying a thread or knurl;
+    # duplicate finish claims still fail within their own resolver.
+    finish_resolver = _DatumTopologyResolver(step_reader, imported_faces)
     projected = []
     for record in records:
         if (
@@ -1745,7 +1750,8 @@ def _manufacturing_requirement_topology(
         ):
             projected.append(record)
             continue
-        shapes, topology_reasons = resolver.resolve(
+        source_resolver = finish_resolver if record.kind == "surface_finish" else resolver
+        shapes, topology_reasons = source_resolver.resolve(
             record.part21_id,
             record.reference_item_ids,
             noun="manufacturing requirement",

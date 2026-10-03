@@ -517,6 +517,24 @@ def _datum_ref_line(f, origin_ref: str | None = None) -> str:
     )
 
 
+def _finish_line(f, origin_ref: str | None = None) -> str:
+    kw = [
+        f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r})",
+        f"ra={f.ra!r}",
+        f"view={f.view!r}",
+        f"side={f.side!r}",
+    ]
+    if f.source_id:
+        kw.append(f"source_id={f.source_id!r}")
+    if f.part21_id:
+        kw.append(f"part21_id={f.part21_id!r}")
+    if origin_ref is not None:
+        kw.append(f"origin={origin_ref}")
+    elif getattr(f.origin, "kind", None) == "pmi":
+        kw.append(f"origin={_raw_pmi_expr(f.origin)}")
+    return "sheet.add(Finish(" + ", ".join(kw) + "))"
+
+
 def _note_line(f, origin_ref: str | None = None) -> str:
     """Emit fluent authored notes and provenance-rich imported labels without loss."""
     raw_origin = getattr(f.origin, "kind", None) == "pmi"
