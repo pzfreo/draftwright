@@ -44,7 +44,7 @@ def _knurl():
         pattern="straight",
         pitch=1.0,
         full_width=True,
-        text="Straight knurl, full width between C0.3 chamfers",
+        text="Straight knurl, full width between C0.3 chamfers, DIA 10 mm maximum after knurling",
         source_ids=("manufacturing_requirement:#2",),
         part21_id="#2",
         shape_aspect_ids=("#2:aspect",),
@@ -78,7 +78,12 @@ def test_long_imported_requirements_get_stable_complete_keyed_rows():
             by_tag[current] = []
         by_tag[current].append(text)
     for entry in schedule.entries:
-        assert " ".join(by_tag[entry.tag]) == entry.requirement.callout_suffix
+        printed = " ".join(by_tag[entry.tag])
+        if isinstance(entry.requirement, KnurlRequirement):
+            assert "DIA 10 mm maximum after knurling" in entry.requirement.text
+            assert "ø10 MAX AFTER KNURL" in printed
+        else:
+            assert printed == entry.requirement.callout_suffix
 
 
 def test_one_requirement_or_pmi_off_keeps_direct_callouts():
@@ -93,6 +98,21 @@ def test_one_requirement_or_pmi_off_keeps_direct_callouts():
             SimpleNamespace(features=[thread_owner, knurl_owner]), include_source_pmi=False
         )
         is None
+    )
+
+
+def test_knurl_schedule_text_keeps_source_diameter_precision():
+    requirement = replace(
+        _knurl(),
+        maximum_diameter=10.05,
+        pitch=0.25,
+        edge_chamfer=0.05,
+        text="Straight knurl, 0.25 mm pitch, full width between C0.05 chamfers, DIA 10.05 mm maximum after knurling",
+    )
+    assert "0.25 mm pitch, full width between C0.05 chamfers, DIA 10.05 mm" in requirement.text
+    assert (
+        requirement.callout_text
+        == "ø10.05 MAX AFTER KNURL; STRAIGHT KNURL P0.25 FULL WIDTH TO C0.05 CHAMFERS; CUT/FORMED PERMITTED"
     )
 
 

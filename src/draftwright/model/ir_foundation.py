@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 from draftwright import contract_values
 from draftwright._geometry import (
     _fmt,
+    _fmt_pmi_magnitude,
     plane_axes,
 )
 from draftwright.feature_identity import (
@@ -538,6 +539,11 @@ class ThreadRequirement:
             terms.append(f"{_fmt(self.drill_point_angle)}° CONVENTIONAL DRILL POINT")
         return "; ".join(terms)
 
+    @property
+    def callout_text(self) -> str:
+        """Complete thread text when no feature diameter precedes it."""
+        return self.callout_suffix
+
 
 @dataclass(frozen=True)
 class ThreadOperation:
@@ -629,15 +635,22 @@ class KnurlRequirement:
         terms = []
         if self.maximum_diameter is not None:
             terms.append("MAX AFTER KNURL")
-        knurl = f"{self.pattern.upper()} KNURL P{_fmt(self.pitch)}"
+        knurl = f"{self.pattern.upper()} KNURL P{_fmt_pmi_magnitude(self.pitch)}"
         if self.full_width:
             knurl += " FULL WIDTH"
             if self.edge_chamfer is not None:
-                knurl += f" TO C{_fmt(self.edge_chamfer)} CHAMFERS"
+                knurl += f" TO C{_fmt_pmi_magnitude(self.edge_chamfer)} CHAMFERS"
         terms.append(knurl)
         if self.processes:
             terms.append("/".join(process.upper() for process in self.processes) + " PERMITTED")
         return "; ".join(terms)
+
+    @property
+    def callout_text(self) -> str:
+        """Complete knurl text when no feature diameter precedes it."""
+        if self.maximum_diameter is None:
+            return self.callout_suffix
+        return f"ø{_fmt_pmi_magnitude(self.maximum_diameter)} {self.callout_suffix}"
 
 
 def display(p: DimParameter) -> str:

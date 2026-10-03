@@ -900,7 +900,7 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
     assert table.table_rows[0] == ("REF", "MANUFACTURING REQUIREMENT")
     assert " ".join(cell for row in table.table_rows for cell in row if cell) == (
         "REF MANUFACTURING REQUIREMENT MFG 1 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH "
-        "MFG 2 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
+        "MFG 2 ø10 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
         "CUT/FORMED PERMITTED"
     )
     knurl_owner = next(
@@ -950,6 +950,16 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
         for issue in drawing.lint(physical=False)
         if issue.code == "manufacturing_reference_unresolved"
     } == {("manufacturing_requirement:#2000",)}
+    table.table_rows = intact_rows
+
+    table.table_rows = tuple(
+        (tag, requirement.replace("ø10 ", "")) for tag, requirement in intact_rows
+    )
+    assert {
+        issue.source_ids
+        for issue in drawing.lint(physical=False)
+        if issue.code == "manufacturing_reference_unresolved"
+    } == {("manufacturing_requirement:#2008",)}
     table.table_rows = intact_rows
 
     # A later curation edit must not leave apparently complete short references
@@ -1712,7 +1722,7 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         "REF MANUFACTURING REQUIREMENT "
         "MFG 1 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH "
         "MFG 2 M2 x 0.4-6H RH; 6 MIN FULL THREAD; 118° CONVENTIONAL DRILL POINT "
-        "MFG 3 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
+        "MFG 3 ø10 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
         "CUT/FORMED PERMITTED"
     )
     typed_occurrences = []
@@ -1725,6 +1735,10 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         expected_manufacturing
     )
     typed_owners = dict(typed_occurrences)
+    assert (
+        "DIA 10 mm maximum after knurling"
+        in typed_owners["manufacturing_requirement:#2008"].knurl.text
+    )
     for source_id, (expected_name, expected_label) in expected_manufacturing.items():
         owner = typed_owners[source_id]
         matches = [

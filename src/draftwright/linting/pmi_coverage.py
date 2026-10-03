@@ -101,7 +101,7 @@ def lint_manufacturing_references(registry) -> list[LintIssue]:
             claimed_sources = set(source_ids_by_tag.get(tag, ()))
             printed = " ".join(rows_by_tag.get(tag, ()))
             complete = bool(printed and claimed_sources) and any(
-                claimed_sources == set(aspect.source_ids) and printed == aspect.callout_suffix
+                claimed_sources == set(aspect.source_ids) and printed == aspect.callout_text
                 for aspect in aspects
             )
             if complete:
