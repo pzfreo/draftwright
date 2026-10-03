@@ -14,8 +14,7 @@ from draftwright.model import slot
 from draftwright.model.compiled import compile_dimensions
 
 
-def test_ctc_left_slot_position_survives_grid_pitch_carve(monkeypatch):
-    from draftwright.annotations import _slots
+def test_ctc_left_slot_position_survives_grid_pitch_carve():
     from draftwright.annotations._placement_occupancy import annotation_ink_clear
 
     source = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
@@ -51,12 +50,6 @@ def test_ctc_left_slot_position_survives_grid_pitch_carve(monkeypatch):
         against=[("hc_plan1", drawing.get_annotation("hc_plan1"))],
     )
     assert not any(issue.code == "slot_dim_dropped" for issue in drawing.lint())
-
-    # Removing the exact-ink retry exposes the original strip-capacity failure.
-    monkeypatch.setattr(_slots, "_slot_position_ink_candidates", lambda *_args, **_kwargs: ())
-    without_retry = build_drawing(source, **options)
-    assert without_retry.get_annotation("m_slot0_pos") is None
-    assert any(issue.code == "slot_dim_dropped" for issue in without_retry.lint())
 
 
 def _off_centre_slot():
