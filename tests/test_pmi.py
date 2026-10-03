@@ -2420,8 +2420,17 @@ class TestDeclaredModelPmi:
     import_step strips AP242 PMI.)"""
 
     def test_declared_model_annotate_matches_auto(self, tmp_path, ctc01_annotated):
+        # This checks source identity, not rendering parity. A fixed permissive
+        # sheet avoids a second automatic page search.
         declared = build_drawing(
-            str(CTC01), out=str(tmp_path / "d"), title="P", model=[], pmi="annotate"
+            str(CTC01),
+            out=str(tmp_path / "d"),
+            title="P",
+            model=[],
+            pmi="annotate",
+            page="A2",
+            scale=0.2,
+            scale_policy="permissive",
         )
 
         def source_ids(drawing):
