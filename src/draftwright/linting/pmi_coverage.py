@@ -6,12 +6,14 @@ import re
 from collections import Counter
 from decimal import Decimal, InvalidOperation
 from math import dist
+from types import SimpleNamespace
 from typing import Literal
 
 from build123d import Align, Location, Mode, Sketch, Text
 
 from draftwright._core import _font_safe_text, _table_metrics
 from draftwright._geometry import _cylindrical_finish_site, _fmt_pmi_magnitude
+from draftwright.auxiliary_layout import document_note_rows
 from draftwright.fonts import PLEX_MONO
 from draftwright.linting.issues import LintIssue
 from draftwright.pmi import PmiExtractionReport
@@ -779,9 +781,14 @@ def _lint_pmi_manufacturing_ink(
             continue
         if record.kind != "edge_condition":
             continue
+        # The shared wrapper may change spacing, so independently check words
+        # before comparing its rows and the finished glyphs.
+        source_rows = document_note_rows((SimpleNamespace(text=record.label),))[1:]
+        source_rows = ((f"{index + 1}  {source_rows[0][0][3:]}",), *source_rows[1:])
         if (
             index < len(printed_notes)
-            and printed_notes[index][0] == record.label
+            and printed_notes[index][0].split() == _font_safe_text(record.label).split()
+            and tuple(table.table_rows[i] for i in printed_notes[index][1]) == source_rows
             and _note_rows_have_finished_ink(table, drawing, printed_notes[index][1])
         ):
             continue
@@ -789,7 +796,7 @@ def _lint_pmi_manufacturing_ink(
             LintIssue(
                 severity="error",
                 code="pmi_source_text_mismatch",
-                message=f"general_notes does not state AP242 edge condition {source_id} verbatim",
+                message=f"general_notes does not state AP242 edge condition {source_id}",
                 source_ids=(source_id,),
                 annotation_name="general_notes",
             )

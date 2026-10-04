@@ -93,6 +93,28 @@ def test_document_edge_condition_is_printed_verbatim_and_covered(_case):
     ]
 
 
+def test_wrapped_source_edge_note_keeps_its_printed_meaning_issue_2176(tmp_path):
+    original = "Break sharp edges 0.2 max"
+    wrapped = "Break sharp edges and remove all burrs around  external corners 0.2 max"
+    step_text = _STEP.read_text()
+    assert step_text.count(original) == 1
+    step = tmp_path / "wrapped-edge-note.step"
+    step.write_text(step_text.replace(original, wrapped))
+    report = extract_pmi_report(step)
+    (edge,) = [record for record in report.records if record.kind == "edge_condition"]
+    assert edge.label == wrapped
+
+    drawing = build_drawing(step, pmi="annotate", out=None)
+    rows = drawing.get_annotation("general_notes").table_rows
+    assert ("1  Break sharp edges and remove all burrs around",) in rows
+    assert ("   external corners 0.2 max",) in rows
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.code == "pmi_source_text_mismatch" and edge.source_id in issue.source_ids
+    ]
+
+
 def test_face_finish_uses_its_referenced_cylinder_and_survives_on_sheet(_case):
     source, drawing = _case
     finishes = [
@@ -383,6 +405,42 @@ def test_independent_lint_rejects_changed_finished_manufacturing_text(_case):
         )
     finally:
         annotation.pdf_text_relative_specs = original_specs
+
+
+def test_edge_note_lint_catches_a_shared_formatter_dropping_source_words(monkeypatch):
+    import draftwright.annotations.from_model as from_model
+    import draftwright.linting.pmi_coverage as coverage
+
+    (edge,) = [
+        record for record in extract_pmi_report(_STEP).records if record.kind == "edge_condition"
+    ]
+    original = from_model.document_note_rows
+    changed = []
+
+    def omit_edge_value(notes):
+        altered = tuple(SimpleNamespace(text=note.text.replace(" 0.2 max", "")) for note in notes)
+        if any(
+            note.text != replacement.text for note, replacement in zip(notes, altered, strict=True)
+        ):
+            changed.append(True)
+        return original(altered)
+
+    monkeypatch.setattr(from_model, "document_note_rows", omit_edge_value)
+    monkeypatch.setattr(coverage, "document_note_rows", omit_edge_value)
+    sheet = Sheet(Box(12, 12, 12), source=str(_STEP), pmi="annotate")
+    sheet.authored_dimensions()
+    sheet.document_note(
+        edge.label, kind="edge_condition", source_id=edge.source_id, part21_id=edge.part21_id
+    )
+    drawing = sheet.build()
+    assert changed
+    rows = drawing.get_annotation("general_notes").table_rows
+    assert ("1  Break sharp edges",) in rows
+    assert not any("0.2 max" in row[0] for row in rows)
+    assert any(
+        issue.code == "pmi_source_text_mismatch" and edge.source_id in issue.source_ids
+        for issue in drawing.lint()
+    )
 
 
 @pytest.mark.parametrize(
