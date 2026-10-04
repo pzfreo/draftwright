@@ -340,6 +340,7 @@ def lint_drawing(
     annotation_specs: dict[int, DimensionPlacementSpec | RegisteredDimensionSpec | None]
     | None = None,
     annotation_views: dict[int, str] | None = None,
+    annotation_datums: set[int] | None = None,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
 
@@ -477,6 +478,9 @@ def lint_drawing(
         pair_tokens,
     )
     _lint_annotation_bounds(items, page_bbox, issues, box_cache, names)
+    _lint_datum_leader_locality(
+        items, issues, annotation_datums or set(), names, annotation_views or {}
+    )
 
     if view_shapes is not None:
         _lint_view_shapes(
@@ -510,6 +514,35 @@ def lint_drawing(
         annotation_specs=annotation_specs,
     )
     return issues
+
+
+def _lint_datum_leader_locality(items, issues, datum_ids, names, views) -> None:
+    """Judge a placed datum's normal shaft from its own visible glyph size."""
+    for item in items:
+        if id(item) not in datum_ids:
+            continue
+        tip, elbow = getattr(item, "tip", None), getattr(item, "elbow", None)
+        if tip is None or elbow is None:
+            continue
+        try:
+            x0, y0, x1, y1 = item.label_bbox
+            length = ((tip[0] - elbow[0]) ** 2 + (tip[1] - elbow[1]) ** 2) ** 0.5
+        except (AttributeError, IndexError, TypeError, ValueError):
+            continue
+        # Page-space distance is independent of drawing scale. A shaft longer
+        # than several glyphs makes the surface relationship hard to read.
+        limit = max(24.0, 2.5 * max(x1 - x0, y1 - y0))
+        if length > limit:
+            issues.append(
+                LintIssue(
+                    "warning",
+                    f"datum leader {names.get(id(item), '?')} is {length:.1f} mm from its surface",
+                    location=(elbow[0], elbow[1]),
+                    code="datum_leader_remote",
+                    annotation_name=names.get(id(item)),
+                    view=views.get(id(item)),
+                )
+            )
 
 
 def _lint_annotation_items(

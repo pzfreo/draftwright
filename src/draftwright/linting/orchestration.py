@@ -165,6 +165,12 @@ def _lint_structure(ctx: LintContext, aggregation: Any, display_decimals: Any) -
             for name, obj in ctx.registry.iter_named()
             if (view := ctx.registry.view_of(name)) is not None
         },
+        annotation_datums={
+            id(obj)
+            for name, obj in ctx.registry.iter_named()
+            if getattr(ctx.registry.declaration_of(name), "kind", None) == "datum_ref"
+            or getattr(ctx.registry.feature_of(name), "pmi_kind", None) == "datum"
+        },
         annotation_regions={
             id(obj): ctx.registry.candidate_region_of(name)
             for name, obj in ctx.registry.iter_named()
