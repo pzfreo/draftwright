@@ -40,19 +40,18 @@ def _five_step_grm_profile():
     return Rotation(0, 90, 0) * shaft
 
 
-def test_crowded_head_uses_a_detail_before_spending_the_sheet():
-    # The current crop guard keeps the short head stations in an enlarged detail,
-    # allowing the complete drawing to remain on A4. The 2.5 main-view dimension
-    # locates the whole head; its separate 0.5 and 2 lengths are in detail_a.
+def test_crowded_head_uses_larger_scale_before_spending_the_sheet():
+    # The settled 5:1 candidate keeps all shoulder lengths in the main view
+    # on A4, without needing a cropped detail.
     drawing = build_estimated_strips(_five_step_grm_profile(), pmi="off")
 
-    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
-    assert {"iso", "detail_a"} <= drawing.views.keys()
-    assert drawing.scale_decision["status"] == "automatic"
+    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 5.0)
+    assert "iso" in drawing.views and "detail_a" not in drawing.views
+    assert drawing.scale_decision["status"] == "automatic_replanned"
     assert all(attempt["page"] == (297.0, 210.0) for attempt in drawing.scale_decision["attempts"])
     assert {
         drawing.get_annotation(name).label for name in drawing.annotations() if "steplen" in name
-    } == {"3.2", "2.5", "0.5", "2", "3", "20"}
+    } == {"3.2", "0.5", "2", "3", "20"}
     assert not [
         issue
         for issue in drawing.lint()
@@ -949,13 +948,13 @@ def test_explicit_a4_remains_fixed_instead_of_escalating():
     assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
     assert all(attempt["page"] == (297.0, 210.0) for attempt in drawing.scale_decision["attempts"])
 
-    assert drawing.scale_decision["status"] == "automatic"
-    assert drawing.scale == 2.0
-    assert {"iso", "detail_a"} <= drawing.views.keys()
+    assert drawing.scale_decision["status"] == "automatic_replanned"
+    assert drawing.scale == 5.0
+    assert "iso" in drawing.views and "detail_a" not in drawing.views
     assert not drawing.lint()
     assert {
         drawing.get_annotation(name).label for name in drawing.annotations() if "steplen" in name
-    } == {"3.2", "2.5", "0.5", "2", "3", "20"}
+    } == {"3.2", "0.5", "2", "3", "20"}
 
 
 def test_exact_grm03_recovers_all_axial_stations_on_a4_with_pmi_off():

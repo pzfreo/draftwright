@@ -128,8 +128,19 @@ def register_height_ladder_candidates(
     _tolerances = {c[0]: c[8] for c in chain}
 
     names = [c[0] for c in chain]
+    side_right_space = (
+        frame.zones("side").right.outer_limit - frame.zones("side").right.anchor
+        if "side" in dwg.views
+        else float("inf")
+    )
+    overall_side = (
+        "left"
+        if side_right_space < frame.zones(view).right.outer_limit - frame.zones(view).right.anchor
+        and frame.zones(view).left.anchor - frame.zones(view).left.outer_limit >= tier
+        else "right"
+    )
     sides = {
-        name: (overall.rungs[0].side or "right")
+        name: (overall.rungs[0].side or overall_side)
         if name == "dim_height" and overall is not None
         else "right"
         for name in names

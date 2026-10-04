@@ -14,6 +14,7 @@ from typing import Any
 
 from build123d_drafting.helpers import DEFAULT_FONT_PATH
 
+from draftwright.annotations._placement_occupancy import label_clears_foreign_annotations
 from draftwright.annotations.leaders import (
     FeatureLeaderCandidate,
     FeatureLeaderJob,
@@ -39,7 +40,6 @@ class MachinedLeaderBindings:
     collect_feature_leader: Callable
     place_feature_leader_jobs: Callable[..., int]
     attribute_annotations: Callable
-    boxes_overlap: Callable
 
 
 @dataclass
@@ -75,14 +75,8 @@ class _MachinedJobContext:
                 for _name, owner, box, has_label in self.bindings.attribute_annotations(self.dwg)
                 if owner != view
             )
-        pad = self.dwg.draft.pad_around_text
-        padded = (label[0] - pad, label[1] - pad, label[2] + pad, label[3] + pad)
-        return not any(
-            self.bindings.boxes_overlap(
-                padded,
-                (box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad) if has_label else box,
-            )
-            for box, has_label in self.foreign_boxes_by_view[view]
+        return label_clears_foreign_annotations(
+            label, self.foreign_boxes_by_view[view], self.dwg.draft.pad_around_text
         )
 
     def lower(self, row) -> FeatureLeaderJob:

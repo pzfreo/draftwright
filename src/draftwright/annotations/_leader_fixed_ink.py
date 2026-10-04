@@ -371,6 +371,18 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
             ),
         )
 
+    if getattr(annotation, "table_rows", None) is not None:
+        # A table reserves its cells as a block. Individual glyph/line faces leave
+        # apparently free pockets where another annotation can cross a cell.
+        if max_components is not None and max_components < 1:
+            return _FIXED_INVENTORY_EXHAUSTED
+        box = _coerce_box(_geom_box(annotation, getattr(dwg, "box_cache", None)))
+        if box is None:
+            if max_components is not None:
+                return _FIXED_INVENTORY_EXHAUSTED
+            box = (0.0, 0.0, float(dwg.page_w), float(dwg.page_h))
+        return (_FixedInkComponent(f"{name}:table", box=box, kind="Table"),)
+
     components: list[_FixedInkComponent] = []
     owner = dwg.registry.feature_of(name)
     kind = type(annotation).__name__

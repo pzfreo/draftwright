@@ -73,6 +73,7 @@ from draftwright.annotations._patterns import (
 from draftwright.annotations._patterns import (
     _pitch_text,
 )
+from draftwright.annotations._placement_occupancy import label_clears_foreign_annotations
 from draftwright.annotations.from_model import (
     _diameter_column_left,
     _diameter_row_below,
@@ -99,6 +100,7 @@ from draftwright.annotations.leaders import (
     collect_feature_leader,
     feature_leader_candidates,
 )
+from draftwright.compose import _attribute_annotations
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.leader_policy import effective_leader_region_policy
 from draftwright.model import plan_dimensions
@@ -1670,6 +1672,18 @@ def _collect_shared_queue(
     to_page = sctx.to_page
     draft = sctx.draft
     projected_clear = view_label_clearance(dwg, view)
+    foreign_boxes = None
+
+    def foreign_label_clear(box):
+        nonlocal foreign_boxes
+        if foreign_boxes is None:
+            foreign_boxes = tuple(
+                (other, has_label)
+                for _name, owner, other, has_label in _attribute_annotations(dwg)
+                if owner != view
+            )
+        return label_clears_foreign_annotations(box, foreign_boxes, draft.pad_around_text)
+
     i = start_i
     for s in queue:
         locations, dia, callout, feat, _natural_y, _rep = s
@@ -1812,6 +1826,7 @@ def _collect_shared_queue(
                 interior_label_clear=(
                     projected_clear if region_policy is not LeaderRegionPolicy.EXTERIOR else None
                 ),
+                foreign_label_clear=foreign_label_clear if side == "left" else None,
                 allow_policy_b_fixed=True,
                 # A shaft-to-shaft crossing may remain a Policy-B fallback,
                 # but no compatibility floor may put a pitch witness through
@@ -2207,14 +2222,13 @@ def _place_planside_callouts(
     plan_left,
     side_right,
 ):
-    """Plan/side-view two-pass leader callout placement (#638): Pass 1 assigns each spec to the
-    nearer strip edge that fits the page; Pass 2 (``_place_queue``) solves Y placement +
-    over-capacity drop per edge, right then left with index continuity (``next_i``)."""
+    """Plan/side-view two-pass leader callout placement (#638): Pass 1 takes the nearer
+    fitting plan edge or the right side edge when it fits; Pass 2 (``_place_queue``)
+    solves Y placement and over-capacity drop per edge, right then left with index
+    continuity (``next_i``)."""
     edge_right = plan_right if view == "plan" else side_right
     edge_left = plan_left if view == "plan" else None
-    if view == "side" and any(
-        side_of_callout.get(id(callout)) == "left" for _, _, callout, _ in specs
-    ):
+    if view == "side":
         edge_left = a.proj.side_x(a.bb.min.Y)
 
     right_strip = a.pv_zones.right if view == "plan" else a.sv_zones.right
@@ -2319,7 +2333,7 @@ def _place_planside_callouts(
             continue
 
         # Natural Y is the bore's own row; keep-out-band avoidance is `_place_queue`'s carve.
-        if can_right and (not can_left or d_right <= d_left):
+        if can_right and (view == "side" or not can_left or d_right <= d_left):
             right_queue.append((locs, dia, callout, feat, centre_r[1], rep_r))
         else:
             left_queue.append((locs, dia, callout, feat, centre_l[1], rep_l))
