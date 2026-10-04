@@ -737,6 +737,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
     "src/draftwright/linting/suggest.py": ("test_lint_suggestions.py",),
     "src/draftwright/model/compiled.py": (
         "test_blind_slot_semantics.py",
+        "test_issue_1298_manufacturing_requirements.py",
         "test_issue_1511_turned_boss_heights.py",
         "test_issue_1517_through_indicator.py",
         "test_issue_1560_envelope_axes.py",

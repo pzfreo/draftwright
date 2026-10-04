@@ -29,6 +29,7 @@ from draftwright.model.ir import (
     PartModel,
     PatternFeature,
     PmiFeature,
+    RequestedDimension,
     StepFeature,
     ThreadRequirement,
 )
@@ -974,6 +975,59 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
         ("manufacturing_requirement:#2000",),
         ("manufacturing_requirement:#2008",),
     }
+
+
+@pytest.mark.parametrize("requested_decimals", [None, 1])
+def test_source_knurl_maximum_keeps_diameter_precision_in_placed_reference(requested_decimals):
+    part = Cylinder(10.05 / 2, 2, align=(Align.CENTER, Align.CENTER, Align.MIN)).rotate(
+        Axis.Y, 90
+    ) + (
+        Pos(2, 0, 0)
+        * Cylinder(1.5, 20, align=(Align.CENTER, Align.CENTER, Align.MIN)).rotate(Axis.Y, 90)
+    )
+    source_text = KNURL_TEXT.replace("DIA 10 mm", "DIA 10.05 mm")
+    assert "DIA 10.05 mm maximum after knurling" in source_text
+    model = lower_ap242_manufacturing_requirements(
+        PartModel(
+            part.bounding_box(),
+            "x",
+            [
+                _step(10.05, 0, 2),
+                _step(3, 2, 22),
+                _raw(
+                    "knurl",
+                    source_text,
+                    _reference(diameter=10.05, interval=(0.3, 1.7), sense="external"),
+                    "#2008",
+                ),
+                _raw(
+                    "external_thread",
+                    EXTERNAL_TEXT,
+                    _reference(diameter=3, interval=(2.5, 21.5), sense="external"),
+                    "#2000",
+                ),
+            ],
+        )
+    )
+    owner = next(feature for feature in model.features if getattr(feature, "knurl", None))
+    assert owner.knurl.maximum_diameter == 10.05
+    if requested_decimals is not None:
+        model = replace(
+            model,
+            requested_dimensions=(
+                RequestedDimension(owner, "step.diameter", display_decimals=requested_decimals),
+            ),
+        )
+
+    drawing = build_drawing(part, model=model, pmi="annotate", page="A2")
+    assert drawing.get_annotation("m_dia_x0").label == "ø10.05 SEE MFG 2"
+    table = drawing.get_annotation("manufacturing_requirements")
+    assert "ø10.05 MAX AFTER KNURL" in " ".join(cell for _, cell in table.table_rows)
+    assert not [
+        issue
+        for issue in drawing.lint(physical=False)
+        if issue.code == "manufacturing_reference_unresolved"
+    ]
 
 
 def test_unplaced_manufacturing_table_keeps_complete_direct_labels(monkeypatch):

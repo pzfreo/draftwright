@@ -462,6 +462,11 @@ def test_ir_foundation_change_runs_manufacturing_requirement_contract():
     assert "test_part_model.py" in selected
 
 
+def test_compiled_plan_change_runs_source_knurl_precision_contract():
+    selected = pr_modules(_TESTS, ["src/draftwright/model/compiled.py"])
+    assert "test_issue_1298_manufacturing_requirements.py" in selected
+
+
 def test_pmi_lowering_change_runs_source_diameter_ownership_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/model/pmi_lowering.py"])
     assert "test_issue_1296_cylindrical_diameter_pmi.py" in selected
