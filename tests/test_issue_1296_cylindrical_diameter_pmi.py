@@ -241,6 +241,46 @@ def test_toleranced_external_diameter_joins_the_recognized_step_once_issue_2172(
     assert diameter.source_ids == ("dimension:test",)
 
 
+def test_external_diameter_refuses_conflicting_source_tolerances_issue_2172():
+    step = StepFeature(Frame((-1.6, 0.0, 0.0), "x"), 3.2, 4.0, ((-3.2, 0.0, 0.0), (0.0, 0.0, 0.0)))
+    source = _dimension(_cylinder())
+    first = replace(source, source_id="dimension:first", lower_tol=0.1, upper_tol=0.2)
+    second = replace(source, source_id="dimension:second", lower_tol=0.1, upper_tol=0.3)
+    assert first.upper_tol != second.upper_tol
+    assert first.cylindrical_refs == second.cylindrical_refs
+    lowered = lower_ap242_dimensions(
+        PartModel(Box(20, 10, 10).bounding_box(), "x", [step, first, second])
+    )
+
+    assert (step, "diameter", "step") not in lowered.decorations
+    remaining = [feature for feature in lowered.features if isinstance(feature, AuthoredDimension)]
+    assert {feature.source_id for feature in remaining} == {
+        "dimension:first",
+        "dimension:second",
+    }
+    assert all(
+        feature.lowering_blockers == ("ambiguous external diameter tolerance ownership",)
+        for feature in remaining
+    )
+
+
+def test_external_diameter_refuses_invalid_limits_without_consuming_source_issue_2172():
+    step = StepFeature(Frame((-1.6, 0.0, 0.0), "x"), 3.2, 4.0, ((-3.2, 0.0, 0.0), (0.0, 0.0, 0.0)))
+    source = replace(_dimension(_cylinder()), lower_bound=5.0, upper_bound=6.0)
+    assert source.lower_bound > source.value
+    lowered = lower_ap242_dimensions(
+        PartModel(Box(20, 10, 10).bounding_box(), "x", [step, source])
+    )
+
+    assert lowered.features[0] is step
+    assert isinstance(lowered.features[1], AuthoredDimension)
+    assert lowered.features[1].source_id == source.source_id
+    assert lowered.features[1].lowering_blockers == (
+        "unsupported external diameter tolerance: negative deviation magnitude",
+    )
+    assert (step, "diameter", "step") not in lowered.decorations
+
+
 def test_nominal_pattern_member_joins_once_and_keeps_other_member_generic_issue_2172():
     from draftwright.model.callout import hole_callout_batches
 
@@ -287,6 +327,45 @@ def test_nominal_pattern_member_joins_once_and_keeps_other_member_generic_issue_
         if isinstance(feature, PatternFeature)
     )
     assert restored.member_size_requirements == owned.member_size_requirements
+
+
+def test_nominal_pattern_member_refuses_ambiguous_or_authored_ownership_issue_2172():
+    members = ((0.0, -5.0, 0.0), (0.0, 5.0, 0.0))
+    hole = HoleFeature(Frame(members[0], "x"), 4.0, 20.0, True)
+    pattern = PatternFeature(
+        frame=Frame((0.0, 0.0, 0.0), "x"),
+        pattern="linear",
+        count=2,
+        member=hole,
+        members=members,
+        pitch=10.0,
+        direction=(0.0, 1.0, 0.0),
+    )
+    source = _dimension(
+        _cylinder(interval=(-10.0, 10.0), axis_origin=members[0], sense="internal"),
+        "dimension:first-member",
+    )
+    assert source.cylindrical_refs[0].sense == "internal"
+    bbox = Box(20, 20, 20).bounding_box()
+
+    overlapping_owner = replace(pattern)
+    assert overlapping_owner is not pattern and overlapping_owner == pattern
+    ambiguous = lower_ap242_nominal_diameters(
+        PartModel(bbox, "x", [pattern, overlapping_owner, source])
+    )
+    assert [feature.member_size_requirements for feature in ambiguous.features[:2]] == [(), ()]
+    assert ambiguous.features[2].lowering_blockers == (
+        "ambiguous diameter ownership: source cylinders match multiple features",
+    )
+
+    authored = lower_ap242_nominal_diameters(
+        PartModel(bbox, "x", [pattern, source], decorations={(pattern, "diameter", "bore"): 0.2})
+    )
+    assert authored.features[0] is pattern
+    assert authored.features[1].lowering_blockers == (
+        "ambiguous diameter ownership: pattern bore has an authored aspect",
+    )
+    assert authored.decorations[(pattern, "diameter", "bore")] == 0.2
 
 
 def test_group_nominal_coowns_members_after_one_member_gains_tolerance_issue_2172():

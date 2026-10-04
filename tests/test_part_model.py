@@ -10,8 +10,9 @@ Proves the architecture's claims on real geometry:
 
 import inspect
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+import pytest
 from build123d import Box, Cylinder, Pos
 
 from draftwright.model import (
@@ -23,10 +24,39 @@ from draftwright.model import (
     PartModel,
     PatternFeature,
     StepFeature,
+    ToleranceDecoration,
     build_part_model,
     display,
     plan_dimensions,
 )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    (
+        ({"member_size_requirements": (ToleranceDecoration(0.1, "ap242_pmi"),)}, "one entry"),
+        ({"pattern": "bolt_circle"}, "grid or linear"),
+        ({"members": ()}, "every physical member"),
+        ({"member_size_requirements": ("not a requirement", None)}, "typed source"),
+    ),
+)
+def test_pattern_member_sizes_reject_incomplete_or_unaddressable_declarations_issue_2172(
+    changes, message
+):
+    members = ((-10.0, 0.0, 0.0), (10.0, 0.0, 0.0))
+    pattern = PatternFeature(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        pattern="linear",
+        count=2,
+        member=HoleFeature(Frame(members[0], "z"), 4.0, 8.0, True),
+        members=members,
+        pitch=20.0,
+        direction=(1.0, 0.0, 0.0),
+        member_size_requirements=(ToleranceDecoration(0.1, "ap242_pmi"), None),
+    )
+    assert len(pattern.members) == len(pattern.member_size_requirements) == pattern.count
+    with pytest.raises(ValueError, match=message):
+        replace(pattern, **changes)
 
 
 def test_dimension_intent_exports_keep_ir_pickle_and_source_paths():
