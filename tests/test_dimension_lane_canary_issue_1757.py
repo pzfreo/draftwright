@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,10 @@ def _run(script: Path, trace: Path) -> dict[str, Any]:
     trace.mkdir()
     environment = os.environ.copy()
     environment["DRAFTWRIGHT_TRACE"] = str(trace)
+    source_root = str(Path(__file__).resolve().parents[1] / "src")
+    environment["PYTHONPATH"] = os.pathsep.join(
+        part for part in (source_root, environment.get("PYTHONPATH", "")) if part
+    )
     result = subprocess.run(
         [sys.executable, str(script)],
         cwd=script.parent,
@@ -80,21 +85,23 @@ def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> No
         name: next(line for line in generated_source.splitlines() if line.startswith(f"{name} = "))
         for name in ("slot1", "slot2", "control_frame1", "control_frame6")
     }
+    identities = {}
+    for name, line in identified.items():
+        matches = re.findall(r"\.identify\('(declaration:\d+)'", line)
+        assert len(matches) == 1, f"{name} must have one declaration identity"
+        identities[name] = matches[0]
     assert "width=40, length=120" in identified["slot1"]
-    assert ".identify('declaration:5'" in identified["slot1"]
     assert "width=50, length=100" in identified["slot2"]
-    assert ".identify('declaration:6'" in identified["slot2"]
+    assert len(set(identities.values())) == len(identities)
     assert "source_id='geometric_tolerance:0:1:4:1'" in identified["control_frame1"]
-    assert ".identify('declaration:58'" in identified["control_frame1"]
     assert "source_id='geometric_tolerance:0:1:4:20'" in identified["control_frame6"]
-    assert ".identify('declaration:63'" in identified["control_frame6"]
     side_prefix = tmp_path / "side"
     side_script = _script_variant(
         generated_source,
         generated_prefix,
         side_prefix,
-        'sheet.layout_override("declaration:58", side="above")\n'
-        'sheet.layout_override("declaration:63", side="below")',
+        f'sheet.layout_override("{identities["control_frame1"]}", side="above")\n'
+        f'sheet.layout_override("{identities["control_frame6"]}", side="below")',
     )
     baseline = _run(side_script, tmp_path / "side-trace")
 
@@ -103,8 +110,8 @@ def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> No
         side_script.read_text(encoding="utf-8"),
         side_prefix,
         lane_prefix,
-        'sheet.layout_override("declaration:5", parameter="slot_width.length", lane=3)\n'
-        'sheet.layout_override("declaration:6", parameter="slot_width.length", lane=4)',
+        f'sheet.layout_override("{identities["slot1"]}", parameter="slot_width.length", lane=3)\n'
+        f'sheet.layout_override("{identities["slot2"]}", parameter="slot_width.length", lane=4)',
     )
     candidate = _run(lane_script, tmp_path / "lane-trace")
 
@@ -129,7 +136,7 @@ def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> No
         assert _annotation(baseline, name)["semantic"] == _annotation(candidate, name)["semantic"]
     assert candidate["drawing"]["layout"]["overrides"][-2:] == [
         {
-            "declaration_id": "declaration:5",
+            "declaration_id": identities["slot1"],
             "parameter_id": "slot_width.length",
             "control": "lane",
             "authored_value": 3,
@@ -138,7 +145,7 @@ def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> No
             "status": "applied",
         },
         {
-            "declaration_id": "declaration:6",
+            "declaration_id": identities["slot2"],
             "parameter_id": "slot_width.length",
             "control": "lane",
             "authored_value": 4,
@@ -157,8 +164,8 @@ def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> No
         candidate,
         expected_requirements=expected,
     )
-    assert comparison["pareto"]["relation"] == "equivalent"
-    assert comparison["pareto"]["improved_axes"] == []
+    assert comparison["pareto"]["relation"] == "dominates"
+    assert comparison["pareto"]["improved_axes"] == ["legibility"]
     assert comparison["pareto"]["regressed_axes"] == []
     assert comparison["axes"]["requirements"]["relation"] == "unchanged"
     assert comparison["axes"]["completeness"]["relation"] == "unchanged"

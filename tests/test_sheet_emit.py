@@ -572,15 +572,31 @@ class TestEmit:
         ast.parse(src)
         # `measured_dimension` since #873: a generated script must not emit the
         # transitional overload, or every regenerated AP242 script arrives deprecated.
-        # Five member-specific tolerances cover only part of recognised patterns, so they
-        # remain explicit; two other diameter tolerances enrich independent holes.
-        assert src.count("sheet.measured_dimension(") == 6
+        # Five source tolerances belong to individual pattern members (#2172), rather
+        # than separate measured dimensions that would repeat their bore callouts.
+        # The independent holes keep their fluent tolerances, and the angular PMI
+        # remains the one explicit measured dimension.
+        assert src.count("sheet.measured_dimension(") == 1
+        pattern1 = next(
+            line for line in src.splitlines() if line.startswith("pattern1 = sheet.pattern(")
+        )
+        pattern2 = next(
+            line for line in src.splitlines() if line.startswith("pattern2 = sheet.pattern(")
+        )
+        assert pattern1.count("ToleranceDecoration(") == 1
+        assert pattern2.count("ToleranceDecoration(") == 4
+        assert "source_ids=('dimension:0:1:4:29',)" in pattern1
+        assert all(
+            f"source_ids=('dimension:0:1:4:{member}',)" in pattern2 for member in (21, 22, 25, 26)
+        )
+        assert src.count('sheet.dimension(pattern1, "bore.diameter.member_') == 4
+        assert src.count('sheet.dimension(pattern2, "bore.diameter.member_') == 4
         assert (
             sum(".tolerance(" in line for line in src.splitlines() if " = sheet.hole(" in line)
             == 2
         )
-        assert src.count("lower_bound=34.8, upper_bound=35.2") == 2
-        assert "source_id='dimension:0:1:4:29'" in src
+        assert pattern2.count("limit_bounds=(34.8, 35.2)") == 2
+        assert "source_id='dimension:0:1:4:17'" in src
         # The transitional MEASURED overload (`dimension(kind=…, value=…)`), not the
         # referential verb: a regenerated AP242 script must not arrive pre-deprecated (#873).
         # Bare `sheet.dimension(` stopped meaning that when #938 made every script mirror the
