@@ -231,6 +231,9 @@ def _general_tolerance_line(feature) -> str:
     return f"sheet.general_tolerance({feature.designation!r}{suffix})"
 
 
+_SOURCE_NOTE_LINES = {"finish": _finish_line, "note": _note_line}
+
+
 def _feature_line(
     f,
     part_envelope=None,
@@ -278,10 +281,8 @@ def _feature_line(
         return _control_frame_line(f, origin_ref)
     if k == "datum_ref":
         return _datum_ref_line(f, origin_ref)
-    if k == "finish":
-        return _finish_line(f, origin_ref)
-    if k == "note":
-        return _note_line(f, origin_ref)
+    if k in _SOURCE_NOTE_LINES:
+        return _SOURCE_NOTE_LINES[k](f, origin_ref)
     if k in {
         "envelope",
         "step_level",
@@ -1527,6 +1528,17 @@ def _pattern_requirement_imports(model) -> set[str]:
     }
 
 
+def _finish_constructor_imports(model) -> set[str]:
+    imports: set[str] = set()
+    for feature in model.features:
+        if feature.kind != "finish":
+            continue
+        imports.update(("Finish", "Frame"))
+        if getattr(getattr(feature, "origin", None), "cylindrical_refs", ()):
+            imports.add("CylindricalReference")
+    return imports
+
+
 def _model_constructor_imports(model):
     """Find constructor names potentially used by the emitted feature declarations."""
     # Every constructor a member template can name has to be listed here. The pattern verbs
@@ -1559,8 +1571,7 @@ def _model_constructor_imports(model):
         model_imports.update(["ControlFrame", "Frame"])
     if any(f.kind == "datum_ref" for f in model.features):
         model_imports.update(["DatumRef", "Frame"])
-    if any(f.kind == "finish" for f in model.features):
-        model_imports.update(["Finish", "Frame"])
+    model_imports.update(_finish_constructor_imports(model))
     if any(
         f.kind == "note"
         and (
@@ -1591,11 +1602,6 @@ def _model_constructor_imports(model):
         for f in model.features
     ):
         model_imports.add("PmiFeature")
-    if any(
-        f.kind == "finish" and getattr(getattr(f, "origin", None), "cylindrical_refs", ())
-        for f in model.features
-    ):
-        model_imports.add("CylindricalReference")
     return model_imports
 
 

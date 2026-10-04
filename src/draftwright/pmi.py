@@ -529,10 +529,7 @@ def _reference_geometry_with_groups(label, shape_tool, frame: PartFrame | None =
 
 def _reference_geometry(label, shape_tool, frame: PartFrame | None = None):
     """Compatible flattened geometry projection shared by non-dimensional PMI."""
-    if frame is None:
-        geometry = _reference_geometry_with_groups(label, shape_tool)
-    else:
-        geometry = _reference_geometry_with_groups(label, shape_tool, frame)
+    geometry = _reference_geometry_with_groups(label, shape_tool, frame)
     points, ref_bbox, dominant_axis, reasons, _groups = geometry
     return points, ref_bbox, dominant_axis, reasons
 
@@ -1041,8 +1038,6 @@ def _datum_reference_shapes(label, shape_tool):
 def _datum_reference_geometry(label, shape_tool, frame: PartFrame | None = None):
     """Measure datum faces reached through the direct XCAF relationship."""
     shapes = _datum_reference_shapes(label, shape_tool)
-    if frame is None:
-        return _datum_geometry_from_shapes(shapes)
     return _datum_geometry_from_shapes(shapes, frame)
 
 
@@ -3000,6 +2995,4 @@ def extract_pmi(step_file: str | Path, *, frame: PartFrame | None = None) -> lis
     This compatibility surface deliberately remains a list. Callers that need to know what
     the source contained or why a record is absent must use :func:`extract_pmi_report`.
     """
-    if frame is None:
-        return list(extract_pmi_report(step_file).records)
     return list(extract_pmi_report(step_file, frame=frame).records)
