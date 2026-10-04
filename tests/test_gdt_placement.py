@@ -325,6 +325,42 @@ def test_imported_datum_refuses_a_wrong_side_fallback(monkeypatch, tmp_path):
     assert [attempt["side"] for attempt in events[0]["items"][0]["attempts"]] == ["left"]
 
 
+def test_imported_datum_on_absent_side_strip_drops_without_aborting_issue_2182(tmp_path):
+    datum = DatumRef(
+        frame=Frame((0.0, -25.0, 0.0), "y"),
+        letter="A",
+        view="side",
+        side="left",
+        source_id="datum:missing-side-strip",
+        reference_surface_kind="plane",
+    )
+    surviving_frame = ControlFrame(
+        frame=Frame((0.0, 0.0, 10.0), "z"),
+        characteristic="flatness",
+        tolerance="0.05",
+        view="plan",
+        side="above",
+        source_id="geometric_tolerance:survivor",
+    )
+    trace_path = tmp_path / "missing-side-strip.json"
+
+    dwg = _build(datum, surviving_frame, pmi="annotate", trace=trace_path)
+
+    assert "m_gdt0" not in dwg.annotations()
+    assert "m_gdt1" in dwg.annotations()
+    assert any(
+        issue.code == "pmi_dropped" and "m_gdt0" in issue.message for issue in dwg.registry.issues
+    )
+    solves = json.loads(trace_path.read_text())["solves"]
+    assert any(
+        solve["corridor"] == ["side", "left"]
+        and solve["strip"] is None
+        and {item["name"] for item in solve["candidates"]} == {"m_gdt0"}
+        and solve["outcomes"] == [{"name": "m_gdt0", "outcome": "dropped", "reason": "no_strip"}]
+        for solve in solves
+    )
+
+
 def test_projected_datum_stem_keeps_both_near_and_far_datums_issue_2128():
     part = Box(80, 50, 20)
     near = DatumRef(frame=Frame((0, 0, -10), "z"), letter="A", view="front", side="below")

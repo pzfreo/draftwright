@@ -787,7 +787,7 @@ def render_gdt(
         # Prefer the one nearest this strip's anchor; the farther datum retains
         # the ordinary side/sheet fallback if its first corridor becomes full.
         datum_stem_rank = 0
-        if item.kind == "datum_ref":
+        if item.kind == "datum_ref" and strip is not None:
             perp, stack = (px, py) if horizontal else (py, px)
             distance = abs(stack - strip.anchor)
             for other in items:
