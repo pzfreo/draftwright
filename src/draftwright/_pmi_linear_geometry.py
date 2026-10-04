@@ -14,7 +14,10 @@ _LINEAR_OBLIQUE_VALUE_ABS_TOL = 0.05
 
 
 def _linear_reference_stations(
-    stations: tuple[tuple[float, float, float] | None, ...], nominal: float
+    stations: tuple[tuple[float, float, float] | None, ...],
+    nominal: float,
+    *,
+    plane_axis: str | None = None,
 ) -> tuple[tuple[tuple[float, float, float], ...], str, tuple[str, ...]]:
     """Prove a truthful principal-axis span from the two authored reference groups.
 
@@ -35,14 +38,20 @@ def _linear_reference_stations(
     first, second = measurable
     delta = tuple(second[index] - first[index] for index in range(3))
     magnitudes = tuple(abs(value) for value in delta)
-    axis_index = max(range(3), key=magnitudes.__getitem__)
+    axis_index = (
+        "XYZ".index(plane_axis)
+        if plane_axis is not None
+        else max(range(3), key=magnitudes.__getitem__)
+    )
     primary = magnitudes[axis_index]
     if primary <= 1e-9:
         return measurable, "?", ("linear reference groups occupy the same station",)
 
     transverse = max(value for index, value in enumerate(magnitudes) if index != axis_index)
     direction_tol = max(_LINEAR_AXIS_ABS_TOL, primary * _LINEAR_AXIS_REL_TOL)
-    oblique = transverse > direction_tol
+    # Parallel planar supports establish their distance along the plane normal.
+    # Their finite face centres can be offset arbitrarily within either plane.
+    oblique = plane_axis is None and transverse > direction_tol
     if oblique and _linear_projection_view(measurable) is None:
         return (
             measurable,
@@ -69,3 +78,22 @@ def _linear_reference_stations(
             ),
         )
     return measurable, axis, ()
+
+
+def _dimension_reference_stations(
+    stations: tuple[tuple[float, float, float] | None, ...],
+    nominal: float,
+    kind: str,
+    *,
+    plane_axis: str | None = None,
+) -> tuple[tuple[tuple[float, float, float], ...], str, tuple[str, ...]]:
+    """Apply the dimension kind's wording to the shared station proof."""
+    points, axis, reasons = _linear_reference_stations(stations, nominal, plane_axis=plane_axis)
+    if kind == "thickness":
+        reasons = tuple(
+            reason.replace("linear dimension", "thickness dimension").replace(
+                "linear reference", "thickness reference"
+            )
+            for reason in reasons
+        )
+    return points, axis, reasons

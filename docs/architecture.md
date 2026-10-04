@@ -708,11 +708,12 @@ and re-exports the existing private helper names.
 - **`_pmi_datum_geometry.py`** — exact imported datum face attachment sites and
   oriented normals in the source or recognition frame.
 - **`_pmi_linear_geometry.py`** — proves authored linear reference stations and their
-  principal projection before the PMI extractor lowers dimensions.
+  principal projection before the PMI extractor lowers dimensions, including thickness wording.
 - **`_pmi_support_blockers.py`** — pure XCAF source-support and geometric-tolerance
-  blocker policy, with exact Part21-overlay filters used by the PMI extractor.
+  blocker policy, with direct-support completeness and exact Part21-overlay filters.
 - **`_pmi_topology.py`** — exact Part21 support resolvers that verify transferred
-  faces and edges belong to the imported topology before PMI correlation.
+  faces and edges belong to the imported topology before PMI correlation, and
+  planar-face normal and projected-witness evidence for linear PMI.
 - **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
   Defines the public record and source-census types at their established import path,
   owns the XCAF source census, and overlays `_pmi_part21` facts only after exact

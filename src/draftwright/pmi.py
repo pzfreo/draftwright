@@ -52,7 +52,10 @@ from draftwright._pmi_linear_geometry import (
     _LINEAR_VALUE_REL_TOL as _LINEAR_VALUE_REL_TOL,
 )
 from draftwright._pmi_linear_geometry import (
-    _linear_reference_stations,
+    _dimension_reference_stations,
+)
+from draftwright._pmi_linear_geometry import (
+    _linear_reference_stations as _linear_reference_stations,
 )
 from draftwright._pmi_part21 import (
     CommonLabelFact,
@@ -103,12 +106,10 @@ from draftwright._pmi_support_blockers import (
     _circular_diameter_blockers,
     _diameter_reference_blockers,
     _dimension_geometry_blockers,
+    _direct_xcaf_support_is_incomplete,
     _failure_reason,
     _geometric_tolerance_modifiers,
     _geometric_tolerance_qualifiers,
-    _is_direct_xcaf_angular_failure,
-    _is_direct_xcaf_diameter_failure,
-    _is_direct_xcaf_reference_failure,
     _unpreserved_geometric_tolerance_fields,
     _without_direct_xcaf_angular_failures,
     _without_direct_xcaf_diameter_failures,
@@ -119,6 +120,9 @@ from draftwright._pmi_topology import (
     _DatumTopologyResolver,
     _DimensionSupportResolver,
     _SurfaceLabelTopologyResolver,
+)
+from draftwright._pmi_topology import (
+    _parallel_planar_reference_support as _topology_parallel_planar_reference_support,
 )
 from draftwright.model.ir import (
     AngularReference,
@@ -238,6 +242,7 @@ class PmiRecord:
     structured_fields: tuple[tuple[str, str | float], ...] = ()
     reference_surface_kind: str = ""
     reference_normal: tuple[float, ...] = ()
+    view: str | None = None  # Witness view forced only when one Y projection has support.
 
 
 PmiExtractionOutcome = Literal[
@@ -398,23 +403,6 @@ def _dominant_from_bbox(bbox: tuple[float, float, float, float, float, float]) -
     return dom[0] if dom[1] > 1e-6 else "?"
 
 
-def _direct_xcaf_support_is_incomplete(record: PmiRecord) -> bool:
-    """Whether direct XCAF failed to supply all support geometry, independent of rendering."""
-    reasons = (*record.lowering_blockers, *record.rendering_blockers)
-    missing_groups = (
-        "linear dimension needs two measurable authored reference groups",
-        "thickness dimension needs two measurable authored reference groups",
-        "diameter dimension needs a measurable",
-    )
-    return any(
-        _is_direct_xcaf_reference_failure(reason)
-        or _is_direct_xcaf_diameter_failure(reason)
-        or _is_direct_xcaf_angular_failure(reason)
-        or reason.startswith(missing_groups)
-        for reason in reasons
-    )
-
-
 def _make_label(
     kind: str,
     value: float,
@@ -490,10 +478,12 @@ def _reference_geometry_with_groups(label, shape_tool, frame: PartFrame | None =
     points: list[tuple[float, float, float]] = []
     boxes: list[tuple[float, float, float, float, float, float]] = []
     group_stations: list[tuple[float, float, float] | None] = []
+    group_shapes: list[tuple] = []
     partial_reasons: list[str] = []
     reference_count = first_refs.Length() + second_refs.Length()
     for refs in (first_refs, second_refs):
         group_boxes: list[tuple[float, float, float, float, float, float]] = []
+        shapes = []
         for index in range(1, refs.Length() + 1):
             shape = shape_tool.GetShape_s(refs.Value(index))
             if shape is None or shape.IsNull():
@@ -505,6 +495,7 @@ def _reference_geometry_with_groups(label, shape_tool, frame: PartFrame | None =
                 point = _bbox_centroid(bbox)
                 points.append(point)
                 group_boxes.append(bbox)
+                shapes.append(shape)
             except Exception as exc:
                 partial_reasons.append(
                     f"one referenced shape could not be measured ({_failure_reason(exc)})"
@@ -513,6 +504,7 @@ def _reference_geometry_with_groups(label, shape_tool, frame: PartFrame | None =
         # merged-envelope centre is invariant to that segmentation; averaging item centres
         # would move merely because one face was split into two (#1209).
         group_stations.append(_bbox_centroid(_merge_bboxes(group_boxes)) if group_boxes else None)
+        group_shapes.append(tuple(shapes))
     if reference_count == 0:
         partial_reasons.append("referenced geometry is unavailable")
 
@@ -524,14 +516,22 @@ def _reference_geometry_with_groups(label, shape_tool, frame: PartFrame | None =
         dominant_axis,
         tuple(dict.fromkeys(partial_reasons)),
         tuple(group_stations),
+        tuple(group_shapes),
     )
 
 
 def _reference_geometry(label, shape_tool, frame: PartFrame | None = None):
     """Compatible flattened geometry projection shared by non-dimensional PMI."""
     geometry = _reference_geometry_with_groups(label, shape_tool, frame)
-    points, ref_bbox, dominant_axis, reasons, _groups = geometry
+    points, ref_bbox, dominant_axis, reasons, _groups, _shapes = geometry
     return points, ref_bbox, dominant_axis, reasons
+
+
+def _parallel_planar_reference_support(
+    groups: tuple[tuple, ...], frame: PartFrame | None = None
+) -> tuple[str | None, str | None]:
+    """Measure a planar support and its drawable view in the extraction frame."""
+    return _topology_parallel_planar_reference_support(groups, frame, _shape_bbox)
 
 
 def _angular_reference_from_planes(
@@ -1294,20 +1294,19 @@ def _dimension_record(
         reference_geometry = _reference_geometry_with_groups(label, shape_tool)
     else:
         reference_geometry = _reference_geometry_with_groups(label, shape_tool, frame)
-    points, ref_bbox, dominant_axis, reference_reasons, group_stations = reference_geometry
+    points, ref_bbox, dominant_axis, reference_reasons, group_stations, group_shapes = (
+        reference_geometry
+    )
     partial_reasons.extend(reference_reasons)
     rendering_blockers: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
     angular_reference: AngularReference | None = None
+    support_view = None
     if kind in ("linear", "thickness"):
-        points, dominant_axis, station_reasons = _linear_reference_stations(group_stations, value)
-        if kind == "thickness":
-            station_reasons = tuple(
-                reason.replace("linear dimension", "thickness dimension").replace(
-                    "linear reference", "thickness reference"
-                )
-                for reason in station_reasons
-            )
+        plane_axis, support_view = _parallel_planar_reference_support(group_shapes, frame)
+        points, dominant_axis, station_reasons = _dimension_reference_stations(
+            group_stations, value, kind, plane_axis=plane_axis
+        )
         rendering_blockers = _dimension_geometry_blockers(kind, reference_reasons, station_reasons)
     elif type_code == 15:  # XCAFDimTolObjects_DimensionType_Size_Diameter
         if frame is None:
@@ -1411,6 +1410,7 @@ def _dimension_record(
             source_value_blockers=tuple(dict.fromkeys(tolerance_read_reasons)),
             cylindrical_refs=cylindrical_refs,
             angular_reference=angular_reference,
+            view=support_view,
         ),
         blockers,
     )
@@ -2062,22 +2062,20 @@ def _dimension_support_topology(
             )
             continue
 
-        points, dominant_axis, station_reasons = _linear_reference_stations(
-            tuple(stations), record.value
+        plane_axis, support_view = _parallel_planar_reference_support(tuple(group_shapes), frame)
+        points, dominant_axis, station_reasons = _dimension_reference_stations(
+            tuple(stations),
+            record.value,
+            record.kind,
+            plane_axis=plane_axis,
         )
-        if record.kind == "thickness":
-            station_reasons = tuple(
-                reason.replace("linear dimension", "thickness dimension").replace(
-                    "linear reference", "thickness reference"
-                )
-                for reason in station_reasons
-            )
         projected.append(
             replace(
                 record,
                 ref_pts=points,
                 ref_bbox=ref_bbox,
                 dominant_axis=dominant_axis,
+                view=support_view,
                 lowering_blockers=tuple(
                     dict.fromkeys(
                         (
