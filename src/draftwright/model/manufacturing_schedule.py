@@ -56,7 +56,7 @@ class ManufacturingSchedule:
     def rows(self) -> tuple[tuple[str, str], ...]:
         rows = [("REF", "MANUFACTURING REQUIREMENT")]
         for entry in self.entries:
-            for index, line in enumerate(_wrap_requirement(entry.requirement.callout_suffix)):
+            for index, line in enumerate(_wrap_requirement(entry.requirement.callout_text)):
                 rows.append((entry.tag if index == 0 else "", line))
         return tuple(rows)
 

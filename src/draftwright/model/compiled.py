@@ -51,9 +51,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from draftwright._geometry import _fmt, _fmt_angle, _fmt_chamfer, _fmt_tolerance
+from draftwright._geometry import (
+    _fmt,
+    _fmt_angle,
+    _fmt_chamfer,
+    _fmt_pmi_magnitude,
+    _fmt_tolerance,
+)
 from draftwright.fits import FitClass
 from draftwright.measurement_support import coincident_location_axes
 from draftwright.model.callout import resolved_through_indicator
@@ -64,6 +70,7 @@ from draftwright.model.ir import (
     EnvelopeFeature,
     Feature,
     HoleFeature,
+    KnurlRequirement,
     Note,
     PadFeature,
     PartModel,
@@ -1814,6 +1821,42 @@ def _dimension_witness_span(feature, parameter):
     )
 
 
+def _group_display_decimals(feature, planned) -> int | None:
+    """Avoid rounding a knurl maximum beyond the table's numeric precision."""
+    knurl = getattr(feature, "knurl", None)
+    if (
+        planned.param.kind == "diameter"
+        and isinstance(knurl, KnurlRequirement)
+        and knurl.source == "ap242_pmi"
+        and knurl.maximum_diameter is not None
+    ):
+        # The schedule prints the imported maximum, which can differ slightly
+        # from the recognized solid and must survive a coarser authored policy.
+        source_places = len(_fmt_pmi_magnitude(knurl.maximum_diameter).partition(".")[2])
+        requested_places = cast(int | None, planned.display_decimals)
+        return max(source_places, requested_places or 0)
+    return cast(int | None, planned.display_decimals)
+
+
+def _group_value_text(feature, planned, flat_auto_decimals: int | None) -> str:
+    """Keep a source knurl's maximum readable in its approved diameter callout."""
+    decimals = _group_display_decimals(feature, planned)
+    knurl = getattr(feature, "knurl", None)
+    if (
+        planned.param.kind == "diameter"
+        and isinstance(knurl, KnurlRequirement)
+        and knurl.source == "ap242_pmi"
+        and knurl.maximum_diameter is not None
+    ):
+        return _fmt_pmi_magnitude(knurl.maximum_diameter, decimals)
+    decimals = (
+        planned.display_decimals
+        if planned.display_decimals is not None or feature.kind != "flat"
+        else flat_auto_decimals
+    )
+    return _fmt(planned.param.value, decimals)
+
+
 def _compile_groups(
     planned, *, restore_width: bool = False
 ) -> tuple[list[ApprovedGroup], list[Omission]]:
@@ -1884,12 +1927,7 @@ def _compile_groups(
                 id=DimensionId(g.feature, pd.param.parameter_id),
                 # DimParameter.value is a required float. Keep that invariant explicit at
                 # the boundary instead of implying a nullable state renderers cannot handle.
-                value_text=_fmt(
-                    pd.param.value,
-                    pd.display_decimals
-                    if pd.display_decimals is not None or g.feature_kind != "flat"
-                    else flat_auto_decimals,
-                ),
+                value_text=_group_value_text(g.feature, pd, flat_auto_decimals),
                 value=float(pd.param.value),
                 span=_dimension_witness_span(g.feature, pd.param),
                 ref=FeatureRef(g.feature),
@@ -1904,7 +1942,7 @@ def _compile_groups(
                     if pd.param.angular_reference is not None
                     else None
                 ),
-                display_decimals=pd.display_decimals,
+                display_decimals=_group_display_decimals(g.feature, pd),
                 view=pd.view,
                 side=pd.side,
                 lane=pd.lane,

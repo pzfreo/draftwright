@@ -29,6 +29,7 @@ from draftwright.model.ir import (
     PartModel,
     PatternFeature,
     PmiFeature,
+    RequestedDimension,
     StepFeature,
     ThreadRequirement,
 )
@@ -900,7 +901,7 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
     assert table.table_rows[0] == ("REF", "MANUFACTURING REQUIREMENT")
     assert " ".join(cell for row in table.table_rows for cell in row if cell) == (
         "REF MANUFACTURING REQUIREMENT MFG 1 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH "
-        "MFG 2 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
+        "MFG 2 ø10 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
         "CUT/FORMED PERMITTED"
     )
     knurl_owner = next(
@@ -952,6 +953,16 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
     } == {("manufacturing_requirement:#2000",)}
     table.table_rows = intact_rows
 
+    table.table_rows = tuple(
+        (tag, requirement.replace("ø10 ", "")) for tag, requirement in intact_rows
+    )
+    assert {
+        issue.source_ids
+        for issue in drawing.lint(physical=False)
+        if issue.code == "manufacturing_reference_unresolved"
+    } == {("manufacturing_requirement:#2008",)}
+    table.table_rows = intact_rows
+
     # A later curation edit must not leave apparently complete short references
     # after removing their full manufacturing carrier.
     drawing.remove("manufacturing_requirements")
@@ -964,6 +975,93 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
         ("manufacturing_requirement:#2000",),
         ("manufacturing_requirement:#2008",),
     }
+
+
+@pytest.mark.parametrize("requested_decimals", [None, 1])
+@pytest.mark.parametrize("owner_diameter", [10.05, 10.043])
+def test_source_knurl_maximum_keeps_diameter_precision_in_placed_reference(
+    requested_decimals, owner_diameter, monkeypatch
+):
+    part = Cylinder(owner_diameter / 2, 2, align=(Align.CENTER, Align.CENTER, Align.MIN)).rotate(
+        Axis.Y, 90
+    ) + (
+        Pos(2, 0, 0)
+        * Cylinder(1.5, 20, align=(Align.CENTER, Align.CENTER, Align.MIN)).rotate(Axis.Y, 90)
+    )
+    source_text = KNURL_TEXT.replace("DIA 10 mm", "DIA 10.05 mm")
+    assert "DIA 10.05 mm maximum after knurling" in source_text
+    model = lower_ap242_manufacturing_requirements(
+        PartModel(
+            part.bounding_box(),
+            "x",
+            [
+                _step(owner_diameter, 0, 2),
+                _step(3, 2, 22),
+                _raw(
+                    "knurl",
+                    source_text,
+                    _reference(diameter=10.05, interval=(0.3, 1.7), sense="external"),
+                    "#2008",
+                ),
+                _raw(
+                    "external_thread",
+                    EXTERNAL_TEXT,
+                    _reference(diameter=3, interval=(2.5, 21.5), sense="external"),
+                    "#2000",
+                ),
+            ],
+        )
+    )
+    owner = next(feature for feature in model.features if getattr(feature, "knurl", None))
+    assert owner.knurl.maximum_diameter == 10.05
+    if requested_decimals is not None:
+        model = replace(
+            model,
+            requested_dimensions=(
+                RequestedDimension(owner, "step.diameter", display_decimals=requested_decimals),
+            ),
+        )
+
+    drawing = build_drawing(part, model=model, pmi="annotate", page="A2")
+    assert drawing.get_annotation("m_dia_x0").label == "ø10.05 SEE MFG 2"
+    table = drawing.get_annotation("manufacturing_requirements")
+    assert "ø10.05 MAX AFTER KNURL" in " ".join(cell for _, cell in table.table_rows)
+    assert not [
+        issue
+        for issue in drawing.lint(physical=False)
+        if issue.code == "manufacturing_reference_unresolved"
+    ]
+    if owner_diameter == 10.043 and requested_decimals is None:
+        leader = drawing.get_annotation("m_dia_x0")
+        leader.label = "ø10.04 SEE MFG 2"
+        assert {
+            issue.source_ids
+            for issue in drawing.lint(physical=False)
+            if issue.code == "manufacturing_reference_unresolved"
+        } == {("manufacturing_requirement:#2008",)}
+        leader.label = "SEE MFG 2"
+        assert {
+            issue.source_ids
+            for issue in drawing.lint(physical=False)
+            if issue.code == "manufacturing_reference_unresolved"
+        } == {("manufacturing_requirement:#2008",)}
+        leader.label = "ø10.05 SEE MFG 2"
+
+        # Simulate a formatter regression before a fresh build: comparing the
+        # row with the same formatter would accept a missing source maximum.
+        monkeypatch.setattr(
+            KnurlRequirement, "callout_text", property(lambda self: self.callout_suffix)
+        )
+        table.table_rows = tuple(
+            (tag, text.replace("ø10.05 ", "")) for tag, text in table.table_rows
+        )
+        assert "MAX AFTER KNURL" in " ".join(cell for _, cell in table.table_rows)
+        assert "ø10.05" not in " ".join(cell for _, cell in table.table_rows)
+        assert {
+            issue.source_ids
+            for issue in drawing.lint(physical=False)
+            if issue.code == "manufacturing_reference_unresolved"
+        } == {("manufacturing_requirement:#2008",)}
 
 
 def test_unplaced_manufacturing_table_keeps_complete_direct_labels(monkeypatch):
@@ -1712,7 +1810,7 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         "REF MANUFACTURING REQUIREMENT "
         "MFG 1 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH "
         "MFG 2 M2 x 0.4-6H RH; 6 MIN FULL THREAD; 118° CONVENTIONAL DRILL POINT "
-        "MFG 3 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
+        "MFG 3 ø10 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
         "CUT/FORMED PERMITTED"
     )
     typed_occurrences = []
@@ -1725,6 +1823,10 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         expected_manufacturing
     )
     typed_owners = dict(typed_occurrences)
+    assert (
+        "DIA 10 mm maximum after knurling"
+        in typed_owners["manufacturing_requirement:#2008"].knurl.text
+    )
     for source_id, (expected_name, expected_label) in expected_manufacturing.items():
         owner = typed_owners[source_id]
         matches = [
