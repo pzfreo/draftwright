@@ -5,13 +5,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Cylinder, GeomType, Rot, Vertex
+from build123d import Align, Cylinder, GeomType, Rot, Vertex
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.TopoDS import TopoDS
 from quiddity import FrameGauge, PartFrame
 
 import draftwright.pmi as pmi
-from draftwright import build_drawing
+from draftwright import Sheet, build_drawing
 from draftwright._geometry import _cylindrical_finish_site
 from draftwright.analysis import _import_step
 from draftwright.linting.pmi_coverage import lint_pmi_lowering
@@ -114,7 +114,13 @@ def test_face_finish_uses_its_referenced_cylinder_and_survives_on_sheet(_case):
         for issue in drawing.lint()
         if source["surface_finish"].source_id in issue.source_ids
         and issue.code
-        in {"pmi_not_lowered", "pmi_not_rendered", "pmi_dropped", "pmi_source_text_mismatch"}
+        in {
+            "pmi_not_lowered",
+            "pmi_not_rendered",
+            "pmi_dropped",
+            "pmi_source_text_mismatch",
+            "pmi_source_site_mismatch",
+        }
     ]
 
 
@@ -163,6 +169,105 @@ def test_sourced_edge_and_face_finish_replay_as_declarations(_case):
     ]
 
 
+def test_declared_finish_replay_keeps_its_public_feature_origin():
+    part = Cylinder(5, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    sheet = Sheet(part, title="SHAFT", number="F1")
+    step = sheet.step(diameter=10, length=10, at=(0, 0, 0), axis="z")
+    sheet.add(
+        Finish(
+            frame=Frame((5, 0, 5), "z"),
+            ra="1.6",
+            view="front",
+            side="right",
+            origin=step,
+        )
+    )
+    step.thread("M10")  # A later public replacement must rebind the finish origin.
+    sheet.authored_dimensions()
+    model = sheet.model()
+    original_step = next(feature for feature in model.features if feature.kind == "step")
+    original_finish = next(feature for feature in model.features if isinstance(feature, Finish))
+    assert original_finish.origin is original_step
+    assert original_step.thread == "M10"
+
+    script = emit_sheet_script(model, "part", "shaft-finish", title="SHAFT", number="F1")
+    finish_line = next(line for line in script.splitlines() if "sheet.add(Finish(" in line)
+    assert "origin=" in finish_line
+    namespace = {"part": part}
+    build_end = script.index("drawing = sheet.build()") + len("drawing = sheet.build()")
+    exec(compile(script[:build_end], "<declared-finish-emit>", "exec"), namespace)  # noqa: S102
+    replayed = namespace["sheet"].model()
+    replayed_step = next(feature for feature in replayed.features if feature.kind == "step")
+    replayed_finish = next(feature for feature in replayed.features if isinstance(feature, Finish))
+    assert replayed_finish.origin is replayed_step
+    drawing = namespace["drawing"]
+    placed = drawing.annotations_of(replayed_finish)
+    assert len(placed) == 1
+    assert placed.keys() <= drawing.annotations_of(replayed_step).keys()
+    assert drawing.drop(replayed_finish) == list(placed)
+    assert drawing.annotations_of(replayed_finish) == {}
+    assert not [issue for issue in drawing.lint() if issue.code == "pmi_unreconciled"]
+
+
+def test_replayed_source_finish_refuses_a_different_face_site(_case):
+    source, drawing = _case
+    script = emit_sheet_script(
+        drawing.model(),
+        "part",
+        "grm03-edge-finish",
+        title="GRM-03",
+        number="GRM-03",
+        pmi="annotate",
+        pmi_source=str(_STEP.resolve()),
+    )
+    old = "Finish(frame=Frame((4, 0, 2.5), 'x')"
+    new = "Finish(frame=Frame((4, 0, 5), 'x')"
+    assert script.count(old) == 1  # The public declaration targets source face #138.
+    namespace = {"part": _import_step(str(_STEP))}
+    altered = script.replace(old, new)
+    build_end = altered.index("drawing = sheet.build()") + len("drawing = sheet.build()")
+    exec(compile(altered[:build_end], "<moved-source-finish>", "exec"), namespace)  # noqa: S102
+    moved = namespace["drawing"]
+    finish = next(
+        feature
+        for feature in moved.model().features
+        if isinstance(feature, Finish) and feature.source_id == source["surface_finish"].source_id
+    )
+    assert finish.frame.origin == (4, 0, 5)
+    assert finish.origin.reference_item_ids == ("#138",)
+    assert moved.annotations_of(finish)  # The false claim visibly reached the sheet.
+    assert any(
+        issue.code == "pmi_source_site_mismatch"
+        and source["surface_finish"].source_id in issue.source_ids
+        for issue in moved.lint()
+    )
+
+
+def test_source_claimed_finish_without_a_step_census_is_an_error():
+    part = Cylinder(5, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    sheet = Sheet(part, title="SHAFT", number="F2", pmi="annotate")
+    sheet.add(
+        Finish(
+            frame=Frame((5, 0, 5), "z"),
+            ra="1.6",
+            view="front",
+            side="right",
+            source_id="manufacturing_requirement:#missing",
+            part21_id="#missing",
+        )
+    )
+    sheet.authored_dimensions()
+    drawing = sheet.build()
+    finish = next(feature for feature in drawing.model().features if isinstance(feature, Finish))
+    assert drawing.annotations_of(finish)
+    assert any(
+        issue.code == "pmi_unreconciled"
+        and issue.severity == "error"
+        and finish.source_id in issue.source_ids
+        for issue in drawing.lint()
+    )
+
+
 def test_independent_lint_rejects_changed_finished_manufacturing_text(_case):
     source, drawing = _case
     table = drawing.get_annotation("general_notes")
@@ -199,6 +304,41 @@ def test_independent_lint_rejects_changed_finished_manufacturing_text(_case):
         )
     finally:
         annotation.pdf_text_relative_specs = original_specs
+
+
+def test_source_finish_lint_rejects_wrong_same_width_visible_digits(_case, monkeypatch):
+    import draftwright.annotations._gdt as gdt
+
+    source, _ = _case
+    original = gdt._gdt_glyph
+    changed = []
+
+    def wrong_ink(item, draft):
+        if item.kind != "finish" or item.source_id != source["surface_finish"].source_id:
+            return original(item, draft)
+        glyph = original(replace(item, ra="9.9"), draft)
+        assert glyph.label == "9.9"
+        glyph.label = item.ra  # The helper claims 0.8 while its vector faces spell 9.9.
+        changed.append(glyph)
+        return glyph
+
+    monkeypatch.setattr(gdt, "_gdt_glyph", wrong_ink)
+    drawing = build_drawing(_STEP, pmi="annotate", out=None)
+    assert changed  # Confirm the altered producer was used by the public build.
+    finish = next(
+        feature
+        for feature in drawing.model().features
+        if isinstance(feature, Finish) and feature.source_id == source["surface_finish"].source_id
+    )
+    (name,) = drawing.registry.names_for_feature(finish)
+    annotation = drawing.get_annotation(name)
+    assert annotation.pdf_text_relative_specs[0][0] == "0.8"
+    assert annotation.gdt_visual_finish == ""
+    assert any(
+        issue.code == "pmi_source_text_mismatch"
+        and source["surface_finish"].source_id in issue.source_ids
+        for issue in drawing.lint()
+    )
 
 
 def test_face_finish_can_share_an_exact_face_with_a_distinct_knurl_requirement(tmp_path):

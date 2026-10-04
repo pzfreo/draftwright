@@ -287,11 +287,48 @@ def _gdt_visual_tolerance(glyph, draft, zone: str, *, modifier: bool = False) ->
     return ""
 
 
+def _gdt_visual_finish(glyph, draft, value: str) -> str:
+    """Trust a finish value only when its glyph faces spell that value."""
+    try:
+        expected = Text(
+            value,
+            font_size=draft.font_size,
+            font=getattr(draft, "font", "Arial"),
+            font_path=getattr(draft, "font_path", DEFAULT_FONT_PATH),
+            align=(Align.MIN, Align.MIN),
+            mode=Mode.PRIVATE,
+        )
+        x0, y0, x1, y1 = glyph.label_bbox
+        box = expected.bounding_box()
+        expected = expected.moved(Location(Vector(x0 - box.min.X, y0 - box.min.Y, 0)))
+        tolerance = max(1e-3, draft.font_size * 1e-3)
+        faces = [
+            face
+            for face in glyph.faces()
+            if (face_box := face.bounding_box()).min.X >= x0 - tolerance
+            and face_box.max.X <= x1 + tolerance
+            and face_box.min.Y >= y0 - tolerance
+            and face_box.max.Y <= y1 + tolerance
+        ]
+        if not faces:
+            return ""
+        actual = Sketch(children=faces)
+        area_tolerance = max(1e-8, draft.font_size**2 * 1e-8)
+        if (
+            _cut_area(expected.cut(actual)) <= area_tolerance
+            and _cut_area(actual.cut(expected)) <= area_tolerance
+        ):
+            return value
+    except Exception:
+        return ""
+    return ""
+
+
 def _attach_gdt_text_evidence(leader, glyph, item, draft) -> None:
     """Keep the placed glyph's value beside PDF text for independent PMI lint."""
     leader.pdf_text_relative_specs = _gdt_pdf_text_specs(glyph, item, draft)
     if item.kind == "finish":
-        leader.gdt_visual_finish = glyph.label
+        leader.gdt_visual_finish = _gdt_visual_finish(glyph, draft, item.ra)
     if item.kind == "control_frame":
         zone = _gdt_visual_zone(glyph, draft)
         leader.gdt_visual_tolerance = _gdt_visual_tolerance(

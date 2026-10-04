@@ -286,6 +286,7 @@ _FIDELITY_CODES = frozenset(
         # provenance asserts a machinist can trace it to the model. A fabricated provenance
         # is worse than a missing one, because it reads as evidence.
         "pmi_source_unknown",
+        "pmi_source_site_mismatch",
         "pmi_value_mismatch",
         # A printed SEE MFG reference asserts a matching source-owned table row.
         # A missing or altered row makes that printed reference false.

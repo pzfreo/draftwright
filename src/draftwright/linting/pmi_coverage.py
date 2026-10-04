@@ -5,11 +5,12 @@ from __future__ import annotations
 import re
 from collections import Counter
 from decimal import Decimal, InvalidOperation
+from math import dist
 from typing import Literal
 
 from build123d import Align, Location, Mode, Sketch, Text
 
-from draftwright._geometry import _fmt_pmi_magnitude
+from draftwright._geometry import _cylindrical_finish_site, _fmt_pmi_magnitude
 from draftwright.linting.issues import LintIssue
 from draftwright.pmi import PmiExtractionReport
 
@@ -454,7 +455,8 @@ def lint_pmi_unreconciled(report, features, *, decorations=None) -> list[LintIss
 
     This runs on exactly that gap: content claiming an AP242 origin with no census behind it.
     It reports the claim as unverified, never as satisfied or as false — the honest outcome
-    when the evidence is absent rather than negative. Supply the document (``Sheet(...,
+    when the evidence is absent rather than negative. A source-linked finish is an error
+    because its face claim cannot be checked. Supply the document (``Sheet(...,
     source=…)`` or a STEP path) and the real reconciliation replaces this.
     """
     if report is not None:
@@ -463,11 +465,16 @@ def lint_pmi_unreconciled(report, features, *, decorations=None) -> list[LintIss
         source_id
         for feature in features
         for source_id in _source_ids(feature)
-        if getattr(feature, "source", "") == "ap242_pmi" or getattr(feature, "kind", None) == "pmi"
+        if getattr(feature, "source", "") == "ap242_pmi"
+        or getattr(feature, "kind", None) == "pmi"
+        or getattr(feature, "kind", None) == "finish"
     }
     for _key, source_ids in _decorated_source_features(decorations, features=features):
         unchecked.update(source_ids)
     raw = sum(1 for feature in features if getattr(feature, "kind", None) == "pmi")
+    source_finish = any(
+        getattr(feature, "kind", None) == "finish" and _source_ids(feature) for feature in features
+    )
     if not unchecked and not raw:
         return []
     detail = f"{len(unchecked)} AP242 source reference(s)"
@@ -475,7 +482,7 @@ def lint_pmi_unreconciled(report, features, *, decorations=None) -> list[LintIss
         detail += f", including {raw} raw PMI record(s) not lowered to a drafting concept"
     return [
         LintIssue(
-            severity="warning",
+            severity="error" if source_finish else "warning",
             code="pmi_unreconciled",
             message=(
                 f"this drawing declares {detail}, and no AP242 census was available to check "
@@ -491,7 +498,7 @@ def lint_pmi_source_unknown(report, features, *, decorations=None) -> list[LintI
     """Report declared AP242 provenance the census does not contain (#1563).
 
     `lint_pmi_lowering` walks the census and asks what became of each record. Nothing walked
-    the other way, so a declaration could claim ``source='ap242_pmi'`` with a `source_id` no
+    the other way, so a declaration or source-linked finish could claim a `source_id` no
     record carries and be accepted in silence — a fabricated provenance, which is a worse
     failure than a missing one because it reads as evidence.
     """
@@ -504,6 +511,7 @@ def lint_pmi_source_unknown(report, features, *, decorations=None) -> list[LintI
         if (
             getattr(feature, "source", "") != "ap242_pmi"
             and getattr(feature, "kind", None) != "pmi"
+            and getattr(feature, "kind", None) != "finish"
         ):
             continue
         for source_id in _source_ids(feature):
@@ -637,7 +645,7 @@ def _printed_document_notes(table) -> tuple[str, ...]:
 
 
 def _lint_pmi_manufacturing_ink(report: PmiExtractionReport, registry) -> list[LintIssue]:
-    """Check two source-scoped manufacturing meanings against surviving content."""
+    """Check source-scoped manufacturing text and face sites against surviving content."""
     source = {
         record.source_id: record
         for record in report.records
@@ -698,13 +706,36 @@ def _lint_pmi_manufacturing_ink(report: PmiExtractionReport, registry) -> list[L
             glyph_value = Decimal(str(glyph_label))
         except (InvalidOperation, IndexError, TypeError):
             pdf_value = glyph_value = None
-        if expected is not None and pdf_value == expected and glyph_value == expected:
+        if expected is None or pdf_value != expected or glyph_value != expected:
+            issues.append(
+                LintIssue(
+                    severity="error",
+                    code="pmi_source_text_mismatch",
+                    message=f"{name} does not state AP242 face finish {source_id} as {record.label}",
+                    source_ids=(source_id,),
+                    annotation_name=name,
+                )
+            )
+        site = (
+            _cylindrical_finish_site(record.cylindrical_refs[0])
+            if len(record.cylindrical_refs) == 1 and not record.lowering_blockers
+            else None
+        )
+        origin = getattr(declaration, "origin", None)
+        if (
+            site is not None
+            and dist(declaration.frame.origin, site[0]) <= 0.001
+            and declaration.view == site[1]
+            and declaration.side == site[2]
+            and tuple(getattr(origin, "reference_item_ids", ())) == record.reference_item_ids
+            and tuple(getattr(origin, "cylindrical_refs", ())) == record.cylindrical_refs
+        ):
             continue
         issues.append(
             LintIssue(
                 severity="error",
-                code="pmi_source_text_mismatch",
-                message=f"{name} does not state AP242 face finish {source_id} as {record.label}",
+                code="pmi_source_site_mismatch",
+                message=f"{name} is not anchored to the referenced face finish {source_id}",
                 source_ids=(source_id,),
                 annotation_name=name,
             )
@@ -730,7 +761,7 @@ def lint_pmi_rendering(
     frames are also checked against the independent extracted magnitude.
     """
     if mode != "annotate":
-        return []
+        return _lint_pmi_manufacturing_ink(report, registry) if report is not None else []
 
     features = tuple(features)
     placed_datums = {

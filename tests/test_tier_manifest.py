@@ -63,6 +63,19 @@ def test_source_owner_routes_its_behavior_contract(source, module):
     assert module in pr_modules(_TESTS, [source])
 
 
+@pytest.mark.parametrize(
+    "source",
+    (
+        "src/draftwright/_geometry.py",
+        "src/draftwright/annotations/_gdt.py",
+        "src/draftwright/registry.py",
+        "src/draftwright/sheet.py",
+    ),
+)
+def test_finish_source_owner_routes_manufacturing_contract(source):
+    assert "test_pmi_manufacturing_finish.py" in pr_modules(_TESTS, [source])
+
+
 def test_every_fast_module_has_a_pr_route():
     available = {path.name for path in _TESTS.glob("test_*.py")}
     routed = set(PR_CORE_MODULES) | set(PR_POLICY_MODULES) | set(UNIT_MODULES)

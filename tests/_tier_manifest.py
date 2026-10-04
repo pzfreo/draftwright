@@ -573,6 +573,7 @@ CONTRACT_GROUPS = {
 ADDITIONAL_SOURCE_CONTRACTS = {
     "src/draftwright/_build_profile.py": ("test_build_profile_harness.py",),
     "src/draftwright/_core.py": ("test_formatting.py",),
+    "src/draftwright/_geometry.py": ("test_pmi_manufacturing_finish.py",),
     "src/draftwright/_warnings.py": ("test_scale_policy.py",),
     "src/draftwright/analysis.py": (
         "test_analysis_geometry.py",
@@ -589,6 +590,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_view_blocks.py",
     ),
     "src/draftwright/annotations/_axial_render.py": ("test_issue_443_grm03_axial_coverage.py",),
+    "src/draftwright/annotations/_gdt.py": ("test_pmi_manufacturing_finish.py",),
     "src/draftwright/annotations/_envelope.py": (
         "test_envelope_view_route_issue_1813.py",
         "test_issue_1000_envelope_reuse.py",
@@ -823,6 +825,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_plate_ownership.py",
         "test_through_step_ownership.py",
     ),
+    "src/draftwright/registry.py": ("test_pmi_manufacturing_finish.py",),
     "src/draftwright/repair.py": (
         "test_issue_1153_contradictory_dimensions.py",
         "test_repair.py",
@@ -844,6 +847,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
     ),
     "src/draftwright/sheet_feature_lines.py": ("test_pmi_manufacturing_finish.py",),
     "src/draftwright/sheet.py": (
+        "test_pmi_manufacturing_finish.py",
         "test_sheet_of.py",
         "test_soft_deprecation.py",
     ),

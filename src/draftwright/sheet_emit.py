@@ -1053,7 +1053,7 @@ def _feature_block(
                 else None
             )
             exact_step_length = isinstance(step_length_nominal, NominalRequirement)
-            gdt_with_origin = f.kind in ("control_frame", "datum_ref", "note")
+            gdt_with_origin = f.kind in ("control_frame", "datum_ref", "finish", "note")
             origin_ref = names.get(id(f.origin)) if gdt_with_origin else None
             if (
                 gdt_with_origin
