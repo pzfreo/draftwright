@@ -490,6 +490,72 @@ def test_edge_note_without_a_source_is_authored_but_a_source_claim_needs_a_censu
     } == {(edge.source_id,)}
 
 
+@pytest.mark.parametrize("kind", ("finish", "document_note"))
+@pytest.mark.parametrize("with_census", (False, True))
+def test_printed_part21_claim_requires_a_source_id_issue_2176(_case, kind, with_census):
+    if with_census:
+        source, control = _case
+        script = emit_sheet_script(
+            control.model(),
+            "part",
+            "grm03-edge-finish",
+            title="GRM-03",
+            number="GRM-03",
+            pmi="annotate",
+            pmi_source=str(_STEP.resolve()),
+        )
+        record = source["surface_finish" if kind == "finish" else "edge_condition"]
+        tail = ", origin=" if kind == "finish" else ")"
+        old = f"source_id={record.source_id!r}, part21_id={record.part21_id!r}{tail}"
+        assert script.count(old) == 1
+        altered = script.replace(old, f"source_id='', part21_id={record.part21_id!r}{tail}")
+        namespace = {"part": _import_step(str(_STEP))}
+        build_end = altered.index("drawing = sheet.build()") + len("drawing = sheet.build()")
+        exec(compile(altered[:build_end], "<missing-source-id>", "exec"), namespace)  # noqa: S102
+        drawing = namespace["drawing"]
+    else:
+        record = None
+        part = Cylinder(5, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        sheet = Sheet(part, title="SHAFT", number="P21", pmi="annotate")
+        if kind == "finish":
+            sheet.add(
+                Finish(
+                    frame=Frame((5, 0, 5), "z"),
+                    ra="1.6",
+                    view="front",
+                    side="right",
+                    part21_id="#854",
+                )
+            )
+        else:
+            sheet.document_note(
+                "Break sharp edges 0.2 max", kind="edge_condition", part21_id="#854"
+            )
+            sheet.document_note("Authored note", kind="edge_condition")
+        sheet.authored_dimensions()
+        drawing = sheet.build()
+    part21_id = record.part21_id if record is not None else "#854"
+    claim = next(
+        feature
+        for feature in drawing.model().features
+        if feature.kind == kind and feature.part21_id == part21_id
+    )
+    assert claim.source_id == ""
+    if kind == "finish":
+        assert drawing.annotations_of(claim)
+    else:
+        rows = drawing.get_annotation("general_notes").table_rows
+        assert any("Break sharp edges 0.2 max" in row[0] for row in rows)
+        if not with_census:
+            assert any("Authored note" in row[0] for row in rows)
+    assert any(
+        issue.code == "pmi_source_site_mismatch"
+        and part21_id in issue.message
+        and "source_id" in issue.message
+        for issue in drawing.lint()
+    )
+
+
 def test_independent_lint_rejects_wrong_visible_edge_note_ink(_case, monkeypatch):
     source, control = _case
     original = drawing_tables._build_table

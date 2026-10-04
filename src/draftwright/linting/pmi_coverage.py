@@ -506,8 +506,22 @@ def lint_pmi_source_unknown(report, features, *, decorations=None) -> list[LintI
     record carries and be accepted in silence — a fabricated provenance, which is a worse
     failure than a missing one because it reads as evidence.
     """
+    missing_source = [
+        LintIssue(
+            severity="error",
+            code="pmi_source_site_mismatch",
+            message=(
+                f"{feature.kind} claims STEP entity {feature.part21_id} without a source_id; "
+                "the Part21 identity cannot be reconciled"
+            ),
+        )
+        for feature in features
+        if getattr(feature, "kind", None) in {"finish", "document_note"}
+        and feature.part21_id
+        and not feature.source_id
+    ]
     if report is None:
-        return []
+        return missing_source
     known = {source_id for record in report.records for source_id in _source_ids(record)}
     known.update(entity.source_id for entity in report.sources if getattr(entity, "source_id", ""))
     claimed: dict[str, object] = {}
@@ -524,7 +538,7 @@ def lint_pmi_source_unknown(report, features, *, decorations=None) -> list[LintI
     for _key, source_ids in _decorated_source_features(decorations, features=features):
         for source_id in source_ids:
             claimed.setdefault(source_id, None)
-    return [
+    return missing_source + [
         LintIssue(
             severity="error",
             code="pmi_source_unknown",
