@@ -1045,7 +1045,9 @@ def label_on_narrow_material(box, field: MaterialField) -> bool:
     A projected edge can miss a text box by a fraction of a millimetre while
     the glyphs still fill a thin shaft. A broad face keeps room around the box.
     Probe both centre lines and half the shorter label extent beyond each edge; the
-    material field is the same one used for leader routing.
+    material field is the same one used for leader routing. An edge of a broad
+    face alone is not a narrow shaft: the local material band across the label's
+    short axis must also be less than three short-axis extents.
     """
     if not field or field.box is None:
         return False
@@ -1060,7 +1062,15 @@ def label_on_narrow_material(box, field: MaterialField) -> bool:
         or material_span((x, y0), (x, y1), field) < height - MATERIAL_VISIBLE_FLOOR
     ):
         return False
-    margin = min(width, height) / 2.0
+    short = min(width, height)
+    band = (
+        ((field.box[0], y), (field.box[2], y))
+        if width <= height
+        else ((x, field.box[1]), (x, field.box[3]))
+    )
+    if material_span(band[0], band[1], field) >= 3.0 * short:
+        return False
+    margin = short / 2.0
     return any(
         material_span(p, q, field) < margin - MATERIAL_VISIBLE_FLOOR
         for p, q in (

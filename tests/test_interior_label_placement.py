@@ -30,15 +30,16 @@ def _rectangle_field(width, height):
 
 
 def test_interior_text_near_a_thin_material_edge_has_no_clear_margin():
-    narrow = _rectangle_field(30, 6)
-    upright = _rectangle_field(9, 30)
+    narrow = _rectangle_field(30, 5.5)
+    upright = _rectangle_field(5, 30)
     broad = _rectangle_field(30, 30)
     label = (10, 3.5, 17, 5.5)
 
     assert label_on_narrow_material(label, narrow)
-    assert label_on_narrow_material((1.5, 10, 8.5, 12), upright)
+    assert label_on_narrow_material((2.5, 10, 4.5, 17), upright)
     assert not label_on_narrow_material((10, 10, 17, 12), broad)
     assert not label_on_narrow_material((10, 15, 17, 17), broad)
+    assert not label_on_narrow_material((0.1, 10, 7.1, 12), broad)
     assert not label_on_narrow_material((31, 3.5, 38, 5.5), narrow)
 
 
