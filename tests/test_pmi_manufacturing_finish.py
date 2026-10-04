@@ -164,6 +164,8 @@ def test_sourced_edge_and_face_finish_replay_as_declarations(_case):
         pmi_source=str(_STEP.resolve()),
     )
     assert "sheet.add(Finish(" in script
+    finish_line = next(line for line in script.splitlines() if "sheet.add(Finish(" in line)
+    assert "provenance='pmi'" in finish_line
     assert "sheet.document_note('Break sharp edges 0.2 max', kind='edge_condition'" in script
     namespace = {"part": _import_step(str(_STEP))}
     build_end = script.index("drawing = sheet.build()") + len("drawing = sheet.build()")
@@ -221,6 +223,7 @@ def test_declared_finish_replay_keeps_its_public_feature_origin():
     script = emit_sheet_script(model, "part", "shaft-finish", title="SHAFT", number="F1")
     finish_line = next(line for line in script.splitlines() if "sheet.add(Finish(" in line)
     assert "origin=" in finish_line
+    assert "provenance='authored'" in finish_line
     namespace = {"part": part}
     build_end = script.index("drawing = sheet.build()") + len("drawing = sheet.build()")
     exec(compile(script[:build_end], "<declared-finish-emit>", "exec"), namespace)  # noqa: S102

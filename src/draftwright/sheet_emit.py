@@ -1502,6 +1502,11 @@ def _declaration_metadata(model, source_feature_ids, source_detected, declaratio
                 "document_note",
             }:
                 provenance = "pmi"
+            elif feature.kind == "finish" and (
+                feature.source_id
+                or getattr(getattr(feature, "origin", None), "kind", None) == "pmi"
+            ):
+                provenance = "pmi"
             elif feature.kind == "note":
                 provenance = "structured-note"
             elif source_detected:
