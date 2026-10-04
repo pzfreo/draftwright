@@ -2407,9 +2407,12 @@ class TestDeclaredModelPmi:
     reproduces on the declared path. (The emitted Sheet-script round-trip is a separate gap —
     import_step strips AP242 PMI.)"""
 
-    def test_declared_model_annotate_matches_auto(self, tmp_path, ctc01_annotated):
-        # This checks source identity, not rendering parity. A fixed permissive
-        # sheet avoids a second automatic page search.
+    def test_declared_model_annotate_matches_auto(self, tmp_path):
+        from draftwright.builder import detect_part_model
+
+        # This checks source identity, not rendering parity. Compare the
+        # automatic IR before layout so the test builds only the declared sheet.
+        automatic_model = detect_part_model(str(CTC01), pmi="annotate")
         declared = build_drawing(
             str(CTC01),
             out=str(tmp_path / "d"),
@@ -2421,10 +2424,10 @@ class TestDeclaredModelPmi:
             scale_policy="permissive",
         )
 
-        def source_ids(drawing):
+        def source_ids(model):
             ids = {
                 source_id
-                for feature in drawing.model().features
+                for feature in model.features
                 for source_id in (
                     tuple(getattr(feature, "source_ids", ()))
                     or (
@@ -2436,12 +2439,12 @@ class TestDeclaredModelPmi:
             }
             ids.update(
                 source_id
-                for value in drawing.model().decorations.values()
+                for value in model.decorations.values()
                 for source_id in getattr(value, "source_ids", ())
             )
             ids.update(
                 source_id
-                for feature in drawing.model().features
+                for feature in model.features
                 for requirement in getattr(feature, "member_size_requirements", ())
                 for source_id in getattr(requirement, "source_ids", ())
             )
@@ -2450,7 +2453,7 @@ class TestDeclaredModelPmi:
         # With geometry features available the automatic path correlates hole requirements;
         # an empty declared model cannot, so it keeps them materialised. Both still account for
         # every extracted source identity — #472's no-loss invariant.
-        assert source_ids(ctc01_annotated) == source_ids(declared)
+        assert source_ids(automatic_model) == source_ids(declared.model())
 
     def test_declared_model_pmi_off_stays_clean(self, tmp_path):
         # the synthesis is gated on pmi_mode == 'annotate' — a declared build without PMI stays 0
@@ -2479,6 +2482,9 @@ class TestDeclaredModelPmi:
             title="P",
             model=declared,
             pmi="annotate",
+            page="A2",
+            scale=0.2,
+            scale_policy="permissive",
         )
 
         lowered_identities = drawing.model().declaration_identities
