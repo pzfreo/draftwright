@@ -1241,7 +1241,6 @@ def _lint_view_shapes(
             edge_overlap = edges is None or _edges_intersect_rect(edges, ab)
             narrow_material = (
                 not edge_overlap
-                and owners.get(id(ann)) == vname
                 and label_box is not None
                 and vx0 <= label_box[0] <= label_box[2] <= vx1
                 and vy0 <= label_box[1] <= label_box[3] <= vy1
