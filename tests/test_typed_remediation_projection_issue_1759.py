@@ -212,3 +212,14 @@ def test_every_registered_non_axis_finding_has_a_bounded_domain() -> None:
             )
             == "importer-lowering"
         )
+
+
+def test_step_title_default_diagnostics_keep_source_responsibility() -> None:
+    expected = {
+        "step_general_tolerance_disagreement": "source-ambiguity",
+        "step_material_ambiguous": "source-ambiguity",
+        "step_material_disagreement": "source-ambiguity",
+        "step_material_unavailable": "evidence-unavailable",
+    }
+    for code, domain in expected.items():
+        assert _lint_remediation_domain({"code": code}, unclassified_codes=frozenset()) == domain

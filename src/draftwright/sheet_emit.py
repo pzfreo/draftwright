@@ -16,9 +16,8 @@ ambiguous correspondence retains the complete detected numeric declaration.
 Kinds with no declarative verb are flagged inline — never silently dropped — and left to the
 auto-pass that runs over the declared model on re-run. Every *geometric* kind now has one
 (``rotational`` was the last, #945, keyword-only — see :func:`draftwright.model.rotational`);
-what remains on the comment floor is the aspect kinds a detector never emits (``finish``,
-``note``), so the branch is a live guard against a NEW kind
-arriving unemitted rather than a standing gap. Imported authored
+an unsupported kind stays an explicit comment, so the branch guards against a new kind
+arriving unemitted. Imported authored
 dimensions, including AP242 dimensional PMI, emit as Sheet ``measured_dimension(...)``
 declarations (#873 — never the transitional ``dimension`` overload, so a regenerated script is
 not born deprecated).
@@ -104,6 +103,9 @@ from draftwright.sheet_feature_lines import (
 )
 from draftwright.sheet_feature_lines import (
     _direction as _direction,
+)
+from draftwright.sheet_feature_lines import (
+    _finish_line as _finish_line,
 )
 from draftwright.sheet_feature_lines import (
     _hole_group_args as _hole_group_args,
@@ -229,6 +231,9 @@ def _general_tolerance_line(feature) -> str:
     return f"sheet.general_tolerance({feature.designation!r}{suffix})"
 
 
+_SOURCE_NOTE_LINES = {"finish": _finish_line, "note": _note_line}
+
+
 def _feature_line(
     f,
     part_envelope=None,
@@ -276,8 +281,8 @@ def _feature_line(
         return _control_frame_line(f, origin_ref)
     if k == "datum_ref":
         return _datum_ref_line(f, origin_ref)
-    if k == "note":
-        return _note_line(f, origin_ref)
+    if k in _SOURCE_NOTE_LINES:
+        return _SOURCE_NOTE_LINES[k](f, origin_ref)
     if k in {
         "envelope",
         "step_level",
@@ -1049,7 +1054,7 @@ def _feature_block(
                 else None
             )
             exact_step_length = isinstance(step_length_nominal, NominalRequirement)
-            gdt_with_origin = f.kind in ("control_frame", "datum_ref", "note")
+            gdt_with_origin = f.kind in ("control_frame", "datum_ref", "finish", "note")
             origin_ref = names.get(id(f.origin)) if gdt_with_origin else None
             if (
                 gdt_with_origin
@@ -1497,6 +1502,11 @@ def _declaration_metadata(model, source_feature_ids, source_detected, declaratio
                 "document_note",
             }:
                 provenance = "pmi"
+            elif feature.kind == "finish" and (
+                feature.source_id
+                or getattr(getattr(feature, "origin", None), "kind", None) == "pmi"
+            ):
+                provenance = "pmi"
             elif feature.kind == "note":
                 provenance = "structured-note"
             elif source_detected:
@@ -1521,6 +1531,17 @@ def _pattern_requirement_imports(model) -> set[str]:
         for requirement in getattr(feature, "member_size_requirements", ())
         if isinstance(requirement, ToleranceDecoration | NominalRequirement)
     }
+
+
+def _finish_constructor_imports(model) -> set[str]:
+    imports: set[str] = set()
+    for feature in model.features:
+        if feature.kind != "finish":
+            continue
+        imports.update(("Finish", "Frame"))
+        if getattr(getattr(feature, "origin", None), "cylindrical_refs", ()):
+            imports.add("CylindricalReference")
+    return imports
 
 
 def _model_constructor_imports(model):
@@ -1555,6 +1576,7 @@ def _model_constructor_imports(model):
         model_imports.update(["ControlFrame", "Frame"])
     if any(f.kind == "datum_ref" for f in model.features):
         model_imports.update(["DatumRef", "Frame"])
+    model_imports.update(_finish_constructor_imports(model))
     if any(
         f.kind == "note"
         and (
@@ -1580,7 +1602,7 @@ def _model_constructor_imports(model):
     if any(isinstance(aspect, KnurlRequirement) for aspect in typed_aspects):
         model_imports.update(["CylindricalReference", "KnurlRequirement"])
     if any(
-        f.kind in ("control_frame", "datum_ref", "note")
+        f.kind in ("control_frame", "datum_ref", "finish", "note")
         and getattr(getattr(f, "origin", None), "kind", None) == "pmi"
         for f in model.features
     ):

@@ -261,6 +261,18 @@ def _radial_axis_in_view(axis: str, view: str) -> str:
         raise ValueError(f"no radial axis for shaft axis {axis!r} in view {view!r}") from e
 
 
+def _cylindrical_finish_site(reference):
+    """Preferred visible site for one external orthographic cylinder finish."""
+    axis = reference.principal_axis.lower()
+    if reference.sense != "external" or axis not in _EDGE_ON:
+        return None
+    view = _EDGE_ON[axis]
+    radial = _radial_axis_in_view(axis, view)
+    site = list(reference.midpoint)
+    site["xyz".index(radial)] += reference.radius
+    return (tuple(site), view, "above" if radial == "z" else "right")
+
+
 def _canonical_profile_site(site, centre, axis: str, view: str) -> tuple[float, float, float]:
     """Rotate a turned surface *site* about its shaft onto the selected profile plane.
 

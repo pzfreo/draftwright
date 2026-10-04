@@ -286,7 +286,13 @@ _FIDELITY_CODES = frozenset(
         # provenance asserts a machinist can trace it to the model. A fabricated provenance
         # is worse than a missing one, because it reads as evidence.
         "pmi_source_unknown",
+        "pmi_source_site_mismatch",
+        "pmi_source_text_mismatch",
         "pmi_value_mismatch",
+        # Source-selected title values and their finished ink contradict the
+        # reconciled STEP when these checks fire.
+        "step_general_tolerance_mismatch",
+        "step_material_mismatch",
         # A printed SEE MFG reference asserts a matching source-owned table row.
         # A missing or altered row makes that printed reference false.
         "manufacturing_reference_unresolved",
@@ -374,6 +380,12 @@ _UNSCORED_CODES = frozenset(
         # here rather than in fidelity, whose basis is a claim the source refutes — this one
         # reports that no source was consulted at all.
         "pmi_unreconciled",
+        # An unavailable/ambiguous source has no value to compare. A caller's
+        # explicit override may disagree with STEP without claiming to copy it.
+        "step_general_tolerance_disagreement",
+        "step_material_ambiguous",
+        "step_material_disagreement",
+        "step_material_unavailable",
         # The profile describes less of the body than the body has. An omission,
         # so not fidelity: nothing false is printed and nothing is misplaced. It scores
         # nowhere for the same reason the other *_missing codes do.

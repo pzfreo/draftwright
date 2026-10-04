@@ -68,6 +68,7 @@ from draftwright.model import (
     DimensionParameterId,
     DocumentNote,
     Feature,
+    Finish,
     Frame,
     GeneralTolerance,
 )
@@ -1214,7 +1215,7 @@ class Sheet(_SheetViewMethods):
         — ADR 4 (was 0016)'s own worked example — could not be written against a generated script.
         Naming would have been uniform across the verbs and silently absent for one feature
         in the middle of the file, which is worse than being absent everywhere. A raw
-        ``ControlFrame`` or ``DatumRef`` may name a handle as its ``origin``; ``add`` resolves
+        ``ControlFrame``, ``DatumRef``, or ``Finish`` may name a handle as its ``origin``; ``add`` resolves
         and token-binds that provenance exactly like the public GD&T verbs."""
         if not isinstance(feature, Feature):
             raise TypeError("add() requires an IR Feature")
@@ -1226,7 +1227,10 @@ class Sheet(_SheetViewMethods):
         if token is not None:
             return _Params(self, self._index_of_token(token))
         src_token = None
-        if isinstance(feature, (ControlFrame, DatumRef, Note)) and feature.origin is not None:
+        if (
+            isinstance(feature, (ControlFrame, DatumRef, Finish, Note))
+            and feature.origin is not None
+        ):
             src_token = self._declared_token(feature.origin, verb=f"add() {feature.kind} origin")
             if src_token is not None:
                 feature = replace(

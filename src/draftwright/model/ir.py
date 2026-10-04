@@ -2402,7 +2402,7 @@ class DocumentNote:
             raise ValueError("document note needs non-empty text")
         if self.text != self.text.strip():
             raise ValueError("document note text cannot contain surrounding whitespace")
-        if self.note_kind not in ("datum_scheme", "model_representation"):
+        if self.note_kind not in ("datum_scheme", "model_representation", "edge_condition"):
             raise ValueError(f"unsupported document-note kind {self.note_kind!r}")
         if not isinstance(self.on_drawing, bool):
             raise ValueError("document-note on_drawing must be a bool")
@@ -2501,6 +2501,8 @@ class Finish:
     view: str
     side: str
     origin: object | None = None
+    source_id: str = ""
+    part21_id: str = ""
     kind: ClassVar[str] = "finish"
 
     def parameters(self) -> list[DimParameter]:

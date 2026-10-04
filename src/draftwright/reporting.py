@@ -86,6 +86,9 @@ _SOURCE_AMBIGUITY_CODES = frozenset(
         "nominal_rounded",
         "pmi_unreconciled",
         "section_recess_recognition_refused",
+        "step_general_tolerance_disagreement",
+        "step_material_ambiguous",
+        "step_material_disagreement",
         "step_position_coincident_with_datum",
     }
 )
@@ -97,6 +100,7 @@ _EVIDENCE_UNAVAILABLE_CODES = frozenset(
         "diameter_row_obstacle_unverified",
         "gear_correspondence_unverifiable",
         "pad_footprint_not_defined",
+        "step_material_unavailable",
     }
 )
 _MISSING_CARRIER_CODES = frozenset(

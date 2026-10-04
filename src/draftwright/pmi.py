@@ -28,6 +28,7 @@ from typing import Any, Literal, cast
 
 from quiddity import PartFrame
 
+from draftwright._geometry import _cylindrical_finish_site
 from draftwright._pmi_datum_geometry import (
     _bbox_centroid,
     _datum_face_site,
@@ -528,10 +529,7 @@ def _reference_geometry_with_groups(label, shape_tool, frame: PartFrame | None =
 
 def _reference_geometry(label, shape_tool, frame: PartFrame | None = None):
     """Compatible flattened geometry projection shared by non-dimensional PMI."""
-    if frame is None:
-        geometry = _reference_geometry_with_groups(label, shape_tool)
-    else:
-        geometry = _reference_geometry_with_groups(label, shape_tool, frame)
+    geometry = _reference_geometry_with_groups(label, shape_tool, frame)
     points, ref_bbox, dominant_axis, reasons, _groups = geometry
     return points, ref_bbox, dominant_axis, reasons
 
@@ -1040,8 +1038,6 @@ def _datum_reference_shapes(label, shape_tool):
 def _datum_reference_geometry(label, shape_tool, frame: PartFrame | None = None):
     """Measure datum faces reached through the direct XCAF relationship."""
     shapes = _datum_reference_shapes(label, shape_tool)
-    if frame is None:
-        return _datum_geometry_from_shapes(shapes)
     return _datum_geometry_from_shapes(shapes, frame)
 
 
@@ -1706,7 +1702,30 @@ def _surface_label_projection(
     return tuple(sources), tuple(records)
 
 
-_CYLINDRICAL_REQUIREMENT_KINDS = frozenset(("external_thread", "internal_thread", "knurl"))
+_CYLINDRICAL_REQUIREMENT_KINDS = frozenset(
+    ("external_thread", "internal_thread", "knurl", "surface_finish")
+)
+
+
+def _face_finish_site_blocker(shape, reference, frame: PartFrame | None) -> str | None:
+    """Refuse a finish whose preferred tip is outside its exact trimmed source face."""
+    site = _cylindrical_finish_site(reference)
+    if site is None:
+        return None  # Lowering reports the unsupported cylinder orientation or sense.
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    from OCP.gp import gp_Pnt
+
+    world_site = site[0] if frame is None else frame.to_world(site[0])
+    try:
+        vertex = BRepBuilderAPI_MakeVertex(gp_Pnt(*world_site)).Vertex()
+        distance = BRepExtrema_DistShapeShape(vertex, shape)
+        distance.Perform()
+        if distance.IsDone() and distance.Value() <= 1e-6:
+            return None
+    except Exception:
+        pass
+    return "face-specific finish leader site is not proved on referenced trimmed face"
 
 
 def _chamfer_reference_bboxes(shapes, frame: PartFrame | None = None):
@@ -1737,6 +1756,9 @@ def _manufacturing_requirement_topology(
     imported_faces = TopTools_IndexedMapOfShape()
     TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_FACE, imported_faces)
     resolver = _DatumTopologyResolver(step_reader, imported_faces)
+    # A face finish can qualify a cylinder already carrying a thread or knurl;
+    # duplicate finish claims still fail within their own resolver.
+    finish_resolver = _DatumTopologyResolver(step_reader, imported_faces)
     projected = []
     for record in records:
         if (
@@ -1745,7 +1767,8 @@ def _manufacturing_requirement_topology(
         ):
             projected.append(record)
             continue
-        shapes, topology_reasons = resolver.resolve(
+        source_resolver = finish_resolver if record.kind == "surface_finish" else resolver
+        shapes, topology_reasons = source_resolver.resolve(
             record.part21_id,
             record.reference_item_ids,
             noun="manufacturing requirement",
@@ -1770,6 +1793,13 @@ def _manufacturing_requirement_topology(
         blockers = tuple(
             dict.fromkeys((*record.lowering_blockers, *topology_reasons, *geometry_reasons))
         )
+        if (
+            record.kind == "surface_finish"
+            and not blockers
+            and len(shapes) == len(references) == 1
+            and (site_blocker := _face_finish_site_blocker(shapes[0], references[0], frame))
+        ):
+            blockers = (site_blocker,)
         projected.append(replace(record, cylindrical_refs=references, lowering_blockers=blockers))
     return tuple(projected)
 
@@ -2965,6 +2995,4 @@ def extract_pmi(step_file: str | Path, *, frame: PartFrame | None = None) -> lis
     This compatibility surface deliberately remains a list. Callers that need to know what
     the source contained or why a record is absent must use :func:`extract_pmi_report`.
     """
-    if frame is None:
-        return list(extract_pmi_report(step_file).records)
     return list(extract_pmi_report(step_file, frame=frame).records)

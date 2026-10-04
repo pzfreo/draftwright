@@ -573,6 +573,7 @@ CONTRACT_GROUPS = {
 ADDITIONAL_SOURCE_CONTRACTS = {
     "src/draftwright/_build_profile.py": ("test_build_profile_harness.py",),
     "src/draftwright/_core.py": ("test_formatting.py",),
+    "src/draftwright/_geometry.py": ("test_pmi_manufacturing_finish.py",),
     "src/draftwright/_warnings.py": ("test_scale_policy.py",),
     "src/draftwright/analysis.py": (
         "test_analysis_geometry.py",
@@ -589,6 +590,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_view_blocks.py",
     ),
     "src/draftwright/annotations/_axial_render.py": ("test_issue_443_grm03_axial_coverage.py",),
+    "src/draftwright/annotations/_gdt.py": ("test_pmi_manufacturing_finish.py",),
     "src/draftwright/annotations/_envelope.py": (
         "test_envelope_view_route_issue_1813.py",
         "test_issue_1000_envelope_reuse.py",
@@ -708,8 +710,12 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_issue_1432_adoption.py",
         "test_issue_1432_boundary_failures.py",
     ),
+    "src/draftwright/linting/orchestration.py": ("test_pmi_manufacturing_finish.py",),
     "src/draftwright/linting/paired_ramp_step_coverage.py": ("test_paired_ramp_semantics.py",),
-    "src/draftwright/linting/pmi_coverage.py": ("test_manufacturing_schedule.py",),
+    "src/draftwright/linting/pmi_coverage.py": (
+        "test_manufacturing_schedule.py",
+        "test_pmi_manufacturing_finish.py",
+    ),
     "src/draftwright/linting/pocket_coverage.py": (
         "test_issue_1485_curved_pockets.py",
         "test_issue_1485_rounded_pockets.py",
@@ -771,6 +777,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
     ),
     "src/draftwright/model/detect_inventory.py": ("test_recogniser_step_inventory.py",),
     "src/draftwright/model/dimension_intent.py": ("test_dimension_intent_contract.py",),
+    "src/draftwright/model/__init__.py": ("test_pmi_manufacturing_finish.py",),
     "src/draftwright/model/ir.py": (
         "test_dimension_role_vocabulary.py",
         "test_issue_1006_measurement_comparison.py",
@@ -779,6 +786,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_issue_1357_pmi_frame.py",
         "test_issue_676_polygonal_boss.py",
         "test_parameter_id.py",
+        "test_pmi_manufacturing_finish.py",
         "test_turned_diameters.py",
     ),
     "src/draftwright/model/manufacturing_schedule.py": ("test_manufacturing_schedule.py",),
@@ -786,11 +794,13 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_issue_1296_cylindrical_diameter_pmi.py",
         "test_manufacturing_pmi_lowering.py",
         "test_nominal_step_pmi.py",
+        "test_pmi_manufacturing_finish.py",
     ),
     "src/draftwright/pmi.py": (
         "test_issue_1336_grm03_ap242_pmi_fixture.py",
         "test_issue_1563_sheet_pmi_reconciliation.py",
         "test_pmi_datum_lowering.py",
+        "test_pmi_manufacturing_finish.py",
     ),
     "src/draftwright/_pmi_datum_geometry.py": (
         "test_pmi_datum_lowering.py",
@@ -816,6 +826,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_plate_ownership.py",
         "test_through_step_ownership.py",
     ),
+    "src/draftwright/registry.py": ("test_pmi_manufacturing_finish.py",),
     "src/draftwright/repair.py": (
         "test_issue_1153_contradictory_dimensions.py",
         "test_repair.py",
@@ -835,7 +846,9 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_issue_958_cross_solid_recognition.py",
         "test_section_recess_contract.py",
     ),
+    "src/draftwright/sheet_feature_lines.py": ("test_pmi_manufacturing_finish.py",),
     "src/draftwright/sheet.py": (
+        "test_pmi_manufacturing_finish.py",
         "test_sheet_of.py",
         "test_soft_deprecation.py",
     ),
@@ -844,6 +857,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_issue_1536_title_overflow.py",
         "test_issue_1585_title_block_date.py",
         "test_projection_symbol_default.py",
+        "test_pmi_manufacturing_finish.py",
         "test_sheet_furniture.py",
         "test_sheet_generation_snapshot.py",
     ),
