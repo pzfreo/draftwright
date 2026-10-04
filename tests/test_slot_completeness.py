@@ -52,6 +52,26 @@ def test_ctc_left_slot_position_survives_grid_pitch_carve():
     assert not any(issue.code == "slot_dim_dropped" for issue in drawing.lint())
 
 
+def test_unplaced_slot_position_keeps_a_bounded_ink_retry_issue_2172():
+    from draftwright._core import Strip
+    from draftwright.annotations._placement_occupancy import strip_free_span
+    from draftwright.annotations._slots import _slot_position_retries
+
+    strip = Strip(anchor=40.0, outer_limit=70.0, gap=2.0, spacing=4.0)
+    tier = 5.0
+    lo, hi, _inner = strip_free_span(strip)
+    assert hi - lo - tier >= max(strip.spacing, 1.0)
+
+    retry = _slot_position_retries(
+        SimpleNamespace(kind="slot"), "pos", strip, lambda position: position, tier
+    )
+    assert retry is not None
+    candidates = tuple(retry(None))
+    assert candidates
+    assert all(lo <= position <= hi - tier for position in candidates)
+    assert tuple(retry(object())) == ()
+
+
 def _off_centre_slot():
     return Box(100, 70, 10) - Pos(22, -11, 0) * Box(30, 8, 20)
 
