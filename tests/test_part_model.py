@@ -21,6 +21,7 @@ from draftwright.model import (
     DimParameter,
     Frame,
     HoleFeature,
+    NominalRequirement,
     PartModel,
     PatternFeature,
     StepFeature,
@@ -38,6 +39,15 @@ from draftwright.model import (
         ({"pattern": "bolt_circle"}, "grid or linear"),
         ({"members": ()}, "every physical member"),
         ({"member_size_requirements": ("not a requirement", None)}, "typed source"),
+        (
+            {
+                "member_size_requirements": (
+                    NominalRequirement(99.0, "ap242_pmi", ("dimension:bogus",)),
+                    None,
+                )
+            },
+            "must agree with bore diameter",
+        ),
     ),
 )
 def test_pattern_member_sizes_reject_incomplete_or_unaddressable_declarations_issue_2172(

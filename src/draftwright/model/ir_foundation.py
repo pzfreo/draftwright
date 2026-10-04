@@ -882,6 +882,12 @@ class PatternFeature:
             for requirement in self.member_size_requirements
         ):
             raise ValueError("member size requirements must be typed source requirements")
+        if any(
+            isinstance(requirement, NominalRequirement)
+            and not requirement.agrees_with(self.member.diameter)
+            for requirement in self.member_size_requirements
+        ):
+            raise ValueError("member nominal requirement must agree with bore diameter")
 
     def parameters(self) -> list[DimParameter]:
         ps = list(self.member.parameters())  # bore (+ counterbore / spotface / depth)
