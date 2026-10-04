@@ -28,8 +28,6 @@ def _source_knurl_max_is_visible(label: str, printed: str, aspect) -> bool:
     row_match = _KNURL_MAX_TOKEN.search(printed)
     if row_match is None or Decimal(row_match.group(1)) != expected:
         return False
-    if "ø" not in label:
-        return True
     leader_match = _DIAMETER_TOKEN.search(label)
     return leader_match is not None and Decimal(leader_match.group(1)) == expected
 

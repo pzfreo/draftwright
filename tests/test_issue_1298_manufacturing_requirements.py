@@ -1039,6 +1039,12 @@ def test_source_knurl_maximum_keeps_diameter_precision_in_placed_reference(
             for issue in drawing.lint(physical=False)
             if issue.code == "manufacturing_reference_unresolved"
         } == {("manufacturing_requirement:#2008",)}
+        leader.label = "SEE MFG 2"
+        assert {
+            issue.source_ids
+            for issue in drawing.lint(physical=False)
+            if issue.code == "manufacturing_reference_unresolved"
+        } == {("manufacturing_requirement:#2008",)}
         leader.label = "ø10.05 SEE MFG 2"
 
         # Simulate a formatter regression before a fresh build: comparing the
