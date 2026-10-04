@@ -1843,7 +1843,7 @@ class TestExtractPmi:
 @pytest.fixture(scope="module")
 def ctc01_annotated(tmp_path_factory):
     """One ``pmi='annotate'`` build of CTC-01, shared **read-only** across the
-    annotate assertions below — each used to rebuild the ~18 s CTC AP242 import +
+    annotate assertions below — each used to rebuild the expensive CTC AP242 import +
     annotate just to check a different read-only property (#153). Any test that
     MUTATES the drawing (add/remove/pin/repair/export-to-a-new-path) must build its
     own, not use this fixture."""
@@ -1866,6 +1866,9 @@ def _single_source_dimension_drawing(**opts):
     return sheet.build()
 
 
+# The shared CTC-01 fixture already approached the global 300-second test timeout
+# on unchanged main under Python 3.11 CI. Keep a bounded setup margin (#2166).
+@pytest.mark.timeout(360)
 class TestBuildDrawingPmi:
     def test_ctc01_reconciled_pmi_keeps_automatic_a3_sheet(self, ctc01_annotated):
         drawing = ctc01_annotated

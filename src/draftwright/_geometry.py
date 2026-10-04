@@ -653,6 +653,11 @@ def _boxes_overlap(a, b) -> bool:
     return bool(a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1])
 
 
+def detail_caption_text_gap(font_size: float) -> float:
+    """Minimum page-space gap between a detail caption and another label."""
+    return font_size / 3.0
+
+
 def _segment_crosses_box(p1, p2, box) -> bool:
     """True when line segment *p1*-*p2* intersects axis-aligned *box*
     ``(x0, y0, x1, y1)`` — the precise counterpart of ``_box_hits`` for a
@@ -1036,6 +1041,62 @@ def material_span(p, q, field: MaterialField) -> float:
         length
         * sum(hi - lo for lo, hi in material_intervals(p, q, field))
         / (_MATERIAL_SPAN_TICKS)
+    )
+
+
+def label_on_narrow_material(box, field: MaterialField) -> bool:
+    """Whether text covers material too close to its projected boundary.
+
+    A projected edge can miss a text box by a fraction of a millimetre while
+    the glyphs still fill a thin shaft. A broad face keeps room around the box.
+    Probe both centre lines and half the shorter label extent beyond each edge; the
+    material field is the same one used for leader routing. An edge of a broad
+    face alone is not a narrow shaft: the local material band across the label's
+    short axis must also be less than three short-axis extents.
+    """
+    if not field or field.box is None:
+        return False
+    x0, y0, x1, y1 = box
+    width, height = x1 - x0, y1 - y0
+    if width <= 0.0 or height <= 0.0:
+        return False
+    x = (x0 + x1) / 2.0
+    y = (y0 + y1) / 2.0
+    if (
+        material_span((x0, y), (x1, y), field) < width - MATERIAL_VISIBLE_FLOOR
+        or material_span((x, y0), (x, y1), field) < height - MATERIAL_VISIBLE_FLOOR
+    ):
+        return False
+    short = min(width, height)
+    if width <= height:
+        p, q, centre = (field.box[0], y), (field.box[2], y), x
+        axis = 0
+    else:
+        p, q, centre = (x, field.box[1]), (x, field.box[3]), y
+        axis = 1
+    span = q[axis] - p[axis]
+    if span <= 0.0:
+        return False
+    centre_tick = round((centre - p[axis]) / span * _MATERIAL_SPAN_TICKS)
+    local_band = next(
+        (
+            span * (hi - lo) / _MATERIAL_SPAN_TICKS
+            for lo, hi in material_intervals(p, q, field)
+            if lo <= centre_tick <= hi
+        ),
+        None,
+    )
+    if local_band is None or local_band >= 3.0 * short:
+        return False
+    margin = short / 2.0
+    return any(
+        material_span(p, q, field) < margin - MATERIAL_VISIBLE_FLOOR
+        for p, q in (
+            ((x0 - margin, y), (x0, y)),
+            ((x1, y), (x1 + margin, y)),
+            ((x, y0 - margin), (x, y0)),
+            ((x, y1), (x, y1 + margin)),
+        )
     )
 
 

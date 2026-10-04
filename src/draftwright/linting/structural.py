@@ -23,6 +23,8 @@ from draftwright._geometry import (
     _boxes_overlap,
     _segment_clip_extent,
     _segment_clips_box,
+    detail_caption_text_gap,
+    label_on_narrow_material,
     material_reentry_span,
 )
 from draftwright.linting.angular import is_angular_label as _is_angular_label
@@ -340,6 +342,8 @@ def lint_drawing(
     annotation_specs: dict[int, DimensionPlacementSpec | RegisteredDimensionSpec | None]
     | None = None,
     annotation_views: dict[int, str] | None = None,
+    annotation_datums: set[int] | None = None,
+    caption_font_size: float = 3.0,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
 
@@ -475,8 +479,12 @@ def lint_drawing(
         warned_label_bbox,
         _aggregation,
         pair_tokens,
+        caption_font_size,
     )
     _lint_annotation_bounds(items, page_bbox, issues, box_cache, names)
+    _lint_datum_leader_locality(
+        items, issues, annotation_datums or set(), names, annotation_views or {}
+    )
 
     if view_shapes is not None:
         _lint_view_shapes(
@@ -510,6 +518,35 @@ def lint_drawing(
         annotation_specs=annotation_specs,
     )
     return issues
+
+
+def _lint_datum_leader_locality(items, issues, datum_ids, names, views) -> None:
+    """Judge a placed datum's normal shaft from its own visible glyph size."""
+    for item in items:
+        if id(item) not in datum_ids:
+            continue
+        tip, elbow = getattr(item, "tip", None), getattr(item, "elbow", None)
+        if tip is None or elbow is None:
+            continue
+        try:
+            x0, y0, x1, y1 = item.label_bbox
+            length = ((tip[0] - elbow[0]) ** 2 + (tip[1] - elbow[1]) ** 2) ** 0.5
+        except (AttributeError, IndexError, TypeError, ValueError):
+            continue
+        # Page-space distance is independent of drawing scale. A shaft longer
+        # than several glyphs makes the surface relationship hard to read.
+        limit = max(24.0, 2.5 * max(x1 - x0, y1 - y0))
+        if length > limit:
+            issues.append(
+                LintIssue(
+                    "warning",
+                    f"datum leader {names.get(id(item), '?')} is {length:.1f} mm from its surface",
+                    location=(elbow[0], elbow[1]),
+                    code="datum_leader_remote",
+                    annotation_name=names.get(id(item)),
+                    view=views.get(id(item)),
+                )
+            )
 
 
 def _lint_annotation_items(
@@ -550,6 +587,60 @@ def _lint_annotation_items(
             )
 
 
+def _lint_detail_caption_pair(
+    item_a,
+    item_b,
+    i,
+    j,
+    la_box,
+    lb_box,
+    ox,
+    oy,
+    names,
+    label_boxes,
+    caption_font_size,
+    issues,
+    aggregation,
+    pair_tokens,
+) -> None:
+    """Require readable clearance around a detail caption's settled text."""
+    name_a, name_b = names.get(id(item_a)), names.get(id(item_b))
+    caption, other, caption_box, other_box = (
+        (name_a, name_b, la_box, lb_box)
+        if name_a is not None and name_a.startswith("detail_caption_")
+        else (name_b, name_a, lb_box, la_box)
+    )
+    other_item = item_b if caption == name_a else item_a
+    other_index = j if caption == name_a else i
+    if (
+        caption is not None
+        and caption.startswith("detail_caption_")
+        and _item_label(other_item)
+        and label_boxes[other_index] is not None
+        and not (ox > 0.5 and oy > 0.5)
+    ):
+        x_gap = max(caption_box[0] - other_box[2], other_box[0] - caption_box[2], 0.0)
+        y_gap = max(caption_box[1] - other_box[3], other_box[1] - caption_box[3], 0.0)
+        minimum = detail_caption_text_gap(caption_font_size)
+        if x_gap < minimum and y_gap < minimum:
+            issue = LintIssue(
+                severity="warning",
+                code="detail_caption_clearance",
+                message=(
+                    f"detail caption '{caption}' and annotation '{other or '?'}' "
+                    f"have only {max(x_gap, y_gap):.2f} mm text clearance; "
+                    f"keep at least {minimum:.2f} mm"
+                ),
+                annotation_name=caption,
+                related_annotation_names=(other,) if other is not None else (),
+            )
+            issues.append(issue)
+            if aggregation is not None:
+                caption_token = pair_tokens.get(id(item_a if caption == name_a else item_b))
+                if caption_token is not None:
+                    aggregation.record_pair(issue, caption_token)
+
+
 def _lint_annotation_pairs(
     items,
     issues,
@@ -558,6 +649,7 @@ def _lint_annotation_pairs(
     warned_label_bbox,
     _aggregation,
     pair_tokens,
+    caption_font_size,
 ) -> None:
     """Measure label and line ink once, then inspect pairs in input order."""
 
@@ -670,6 +762,22 @@ def _lint_annotation_pairs(
                 continue
             ox = max(0.0, min(la_box[2], lb_box[2]) - max(la_box[0], lb_box[0]))
             oy = max(0.0, min(la_box[3], lb_box[3]) - max(la_box[1], lb_box[1]))
+            _lint_detail_caption_pair(
+                item_a,
+                item_b,
+                i,
+                j,
+                la_box,
+                lb_box,
+                ox,
+                oy,
+                names,
+                label_boxes,
+                caption_font_size,
+                issues,
+                _aggregation,
+                pair_tokens,
+            )
             if ox > 0.5 and oy > 0.5:
                 la = getattr(item_a, "label", "?")
                 lb = getattr(item_b, "label", "?")
@@ -718,27 +826,10 @@ def _lint_annotation_pairs(
                     related_annotation_names=named_pair[1:],
                 )
                 issues.append(overlap_issue)
-                # `annotation_overlap` deliberately does NOT enter #1147's ledger,
-                # and this branch must not put it there. Two revisions tried and
-                # both changed the score of a code that never participated,
-                # because `_primary_issues` keys on `(code, token)`: recording
-                # every overlap collapsed pairs that merely shared a subject
-                # (2 raw -> 1 primary, and which survived depended on `items`
-                # order), and restricting it to pairs that ALSO cross collapsed
-                # pairs that shared a *crossed* label (3 raw -> 2 primary against
-                # main's 3), so adding ink crossings to a sheet RAISED its
-                # legibility score.
-                #
-                # Collapsing by the crossed label is right for
-                # `annotation_ink_overlap`, where one unreadable label is one
-                # defect. It is wrong for `annotation_overlap`, which is about two
-                # labels colliding with each other and has no single subject.
-                #
-                # The cost is real and stays: a pair both overlapped and crossed
-                # reports only the overlap, so the reader loses which label is
-                # obscured, by what, and how far. #1333 owns that, and the fix is
-                # to carry the detail in the surviving message rather than to key
-                # a second code into the ledger.
+                # Do not ledger annotation_overlap: the defect belongs to the
+                # pair, while a ledger token names one obscured label. Collapsing
+                # pairs that share a token changes the legibility score. Carry
+                # line-crossing detail in the surviving message instead (#1333).
                 continue
 
             # The label boxes clear each other, which does not mean the
@@ -1125,6 +1216,110 @@ def _lint_title_fields(item, issues) -> None:
             )
 
 
+def _lint_view_annotation_overlap(
+    named_views,
+    view_shape_ids,
+    ann_items,
+    issues,
+    *,
+    annotation_names,
+    annotation_regions,
+    edge_cache,
+    box_cache,
+    warned,
+    material_fields,
+) -> None:
+    """Check annotation text against each projected view's settled edges."""
+    # #159 — view shape vs annotation overlaps. Line-work (witness lines,
+    # leader shafts, centrelines) legitimately enters the view, so test the
+    # label-text bbox where the annotation exposes one and skip centrelines
+    # entirely; only annotations without a label bbox fall back to their full
+    # bounding box. Within the view bbox, only a label that crosses the view's
+    # actual projected edges is a warning (#76) — on a large part the bbox is
+    # mostly blank face, where placing callouts is a legitimate convention —
+    # so a label over a blank region is reported as an info-level notice.
+    names = {} if annotation_names is None else annotation_names
+    regions = {} if annotation_regions is None else annotation_regions
+    cache = {} if edge_cache is None else edge_cache
+    ann_cache = box_cache if box_cache is not None else {}
+    for vname, vbb, vs in named_views:
+        vx0, vy0, vx1, vy1 = vbb
+        for ann in ann_items:
+            if id(ann) in view_shape_ids:
+                continue
+            if getattr(ann, "is_centerline", False):
+                continue  # a centreline must cross the feature it marks
+            if getattr(ann, "is_datum_target", False):
+                continue  # a datum target sits on the part face by definition
+            if getattr(ann, "is_section_hatch", False):
+                continue  # hatching is intentionally inside the section view
+            if getattr(ann, "is_sheet_frame", False) or getattr(ann, "is_zone_grid", False):
+                continue  # sheet border / zone ticks span the page, enclosing every view (#767/#768)
+            # #701: unguarded — _label_bbox/_ann_box/_view_edge_entries absorb the
+            # fragile reads; a bug in the check itself must fail loudly.
+            label_box = _label_bbox(ann, warned)
+            ab = label_box if label_box is not None else _ann_box(ann, ann_cache)
+            if ab is None:
+                continue
+            if not _boxes_overlap(vbb, ab):
+                continue
+            albl = getattr(ann, "label", None) or getattr(ann, "name", None) or type(ann).__name__
+            what = "label of annotation" if label_box is not None else "annotation"
+            edges = _view_edge_entries(vs, cache)
+            edge_overlap = edges is None or _edges_intersect_rect(edges, ab)
+            narrow_material = (
+                not edge_overlap
+                and label_box is not None
+                and vx0 <= label_box[0] <= label_box[2] <= vx1
+                and vy0 <= label_box[1] <= label_box[3] <= vy1
+                and (field := (material_fields or {}).get(id(vs))) is not None
+                and label_on_narrow_material(label_box, field)
+            )
+            if narrow_material:
+                issues.append(
+                    LintIssue(
+                        severity="warning",
+                        code="interior_label_on_narrow_material",
+                        message=(
+                            f"interior label '{albl}' in view '{vname}' lies too close "
+                            "to the projected material boundary"
+                        ),
+                        annotation_name=names.get(id(ann)),
+                        view=vname,
+                    )
+                )
+            if edge_overlap:
+                issues.append(
+                    LintIssue(
+                        severity="warning",
+                        message=(
+                            f"view '{vname}' line-work overlaps {what} '{albl}' "
+                            f"— increase view spacing or move the annotation"
+                        ),
+                        code="view_annotation_overlap",
+                    )
+                )
+            else:
+                # A typed interior candidate reached this point only after the shared
+                # solve proved its complete label clear of projected edges and fixed
+                # annotation ink.  Do not turn that deliberate result into the generic
+                # advisory emitted for unclassified annotations inside a view.  The
+                # warning path above remains active if projected edges do intersect it.
+                if regions.get(id(ann)) == "interior" or narrow_material:
+                    continue
+                issues.append(
+                    LintIssue(
+                        severity="info",
+                        message=(
+                            f"{what} '{albl}' lies inside view '{vname}' extents "
+                            f"[x={vx0:.1f}–{vx1:.1f}, y={vy0:.1f}–{vy1:.1f}] over a "
+                            f"blank region — legitimate for callouts on large faces"
+                        ),
+                        code="view_annotation_inside_extents",
+                    )
+                )
+
+
 def _lint_view_shapes(
     view_shapes,
     ann_items,
@@ -1166,75 +1361,22 @@ def _lint_view_shapes(
         named_views.append((name, bb, vs))
         view_shape_ids.add(id(vs))
 
-    # #159 — view shape vs annotation overlaps. Line-work (witness lines,
-    # leader shafts, centrelines) legitimately enters the view, so test the
-    # label-text bbox where the annotation exposes one and skip centrelines
-    # entirely; only annotations without a label bbox fall back to their full
-    # bounding box. Within the view bbox, only a label that crosses the view's
-    # actual projected edges is a warning (#76) — on a large part the bbox is
-    # mostly blank face, where placing callouts is a legitimate convention —
-    # so a label over a blank region is reported as an info-level notice.
-    names = {} if annotation_names is None else annotation_names
-    owners = {} if annotation_views is None else annotation_views
-    unreadable_shafts: set[int] = set()
-    regions = {} if annotation_regions is None else annotation_regions
-    cache = {} if edge_cache is None else edge_cache
-    ann_cache = box_cache if box_cache is not None else {}
-    for vname, vbb, vs in named_views:
-        vx0, vy0, vx1, vy1 = vbb
-        for ann in ann_items:
-            if id(ann) in view_shape_ids:
-                continue
-            if getattr(ann, "is_centerline", False):
-                continue  # a centreline must cross the feature it marks
-            if getattr(ann, "is_datum_target", False):
-                continue  # a datum target sits on the part face by definition
-            if getattr(ann, "is_section_hatch", False):
-                continue  # hatching is intentionally inside the section view
-            if getattr(ann, "is_sheet_frame", False) or getattr(ann, "is_zone_grid", False):
-                continue  # sheet border / zone ticks span the page, enclosing every view (#767/#768)
-            # #701: unguarded — _label_bbox/_ann_box/_view_edge_entries absorb the
-            # fragile reads; a bug in the check itself must fail loudly.
-            label_box = _label_bbox(ann, warned)
-            ab = label_box if label_box is not None else _ann_box(ann, ann_cache)
-            if ab is None:
-                continue
-            if not _boxes_overlap(vbb, ab):
-                continue
-            albl = getattr(ann, "label", None) or getattr(ann, "name", None) or type(ann).__name__
-            what = "label of annotation" if label_box is not None else "annotation"
-            edges = _view_edge_entries(vs, cache)
-            if edges is None or _edges_intersect_rect(edges, ab):
-                issues.append(
-                    LintIssue(
-                        severity="warning",
-                        message=(
-                            f"view '{vname}' line-work overlaps {what} '{albl}' "
-                            f"— increase view spacing or move the annotation"
-                        ),
-                        code="view_annotation_overlap",
-                    )
-                )
-            else:
-                # A typed interior candidate reached this point only after the shared
-                # solve proved its complete label clear of projected edges and fixed
-                # annotation ink.  Do not turn that deliberate result into the generic
-                # advisory emitted for unclassified annotations inside a view.  The
-                # warning path above remains active if projected edges do intersect it.
-                if regions.get(id(ann)) == "interior":
-                    continue
-                issues.append(
-                    LintIssue(
-                        severity="info",
-                        message=(
-                            f"{what} '{albl}' lies inside view '{vname}' extents "
-                            f"[x={vx0:.1f}–{vx1:.1f}, y={vy0:.1f}–{vy1:.1f}] over a "
-                            f"blank region — legitimate for callouts on large faces"
-                        ),
-                        code="view_annotation_inside_extents",
-                    )
-                )
+    _lint_view_annotation_overlap(
+        named_views,
+        view_shape_ids,
+        ann_items,
+        issues,
+        annotation_names=annotation_names,
+        annotation_regions=annotation_regions,
+        edge_cache=edge_cache,
+        box_cache=box_cache,
+        warned=warned,
+        material_fields=material_fields,
+    )
 
+    owners = {} if annotation_views is None else annotation_views
+    names = {} if annotation_names is None else annotation_names
+    unreadable_shafts: set[int] = set()
     # #796/#798 — leader shaft cuts back through the part body. Measured against the
     # build's FILLED projected material (`Drawing.material_fields`), the same lowering
     # ADR 2 (was 0014) leader routing solves against, so the notice and the router cannot reach

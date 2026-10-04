@@ -73,6 +73,7 @@ from draftwright.annotations._patterns import (
 from draftwright.annotations._patterns import (
     _pitch_text,
 )
+from draftwright.annotations._placement_occupancy import label_clears_foreign_annotations
 from draftwright.annotations.from_model import (
     _diameter_column_left,
     _diameter_row_below,
@@ -99,6 +100,7 @@ from draftwright.annotations.leaders import (
     collect_feature_leader,
     feature_leader_candidates,
 )
+from draftwright.compose import _attribute_annotations
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.leader_policy import effective_leader_region_policy
 from draftwright.model import plan_dimensions
@@ -1662,29 +1664,29 @@ def _collect_shared_queue(
     elbow_dx,
 ):
     """Register compatible hole leaders and staged furniture in the late solve."""
-    edge = sctx.edge
-    min_gap = sctx.min_gap
-    y_min = sctx.y_min
-    y_max = sctx.y_max
     a = sctx.a
     to_page = sctx.to_page
     draft = sctx.draft
     projected_clear = view_label_clearance(dwg, view)
+    foreign_boxes = None
+
+    def foreign_label_clear(box):
+        nonlocal foreign_boxes
+        if foreign_boxes is None:
+            foreign_boxes = tuple(
+                (other, has_label)
+                for _name, owner, other, has_label in _attribute_annotations(dwg)
+                if owner != view
+            )
+        return label_clears_foreign_annotations(box, foreign_boxes, draft.pad_around_text)
+
     i = start_i
     for s in queue:
         locations, dia, callout, feat, _natural_y, _rep = s
         owner = _callout_member_owner(callout, _rep, feat_of_callout.get(id(callout)))
         requested_side = side_of_callout.get(id(callout))
-        # Hole callouts are one explicitly interior-capable semantic family.
-        # The shared adapter still proves each candidate clear and retains the
-        # established exterior inventory, so this is eligibility rather than a
-        # family-specific placement rule.  In particular, recognised repeated
-        # holes commonly remain a HoleFeature with several members rather than a
-        # PatternFeature; class-testing here would silently exclude those patterns.
-        #
-        # An authored side is different from automatic family eligibility: it is
-        # a placement constraint. Keep that job in the exterior inventory so an
-        # interior candidate cannot silently defeat ``side="left"``/``"right"``.
+        # Include repeated HoleFeatures in the interior-capable family; the shared
+        # adapter still proves clearance. An authored side fixes an exterior edge.
         family_region_policy = (
             LeaderRegionPolicy.AUTO if requested_side is None else LeaderRegionPolicy.EXTERIOR
         )
@@ -1693,7 +1695,7 @@ def _collect_shared_queue(
             getattr(a, "leader_region", "auto"),
         )
         callout_box = _geom_box(callout, cache)
-        winner_y, rows = strip_plan.rows_for(s, y_min, y_max, obstacle_intervals)
+        winner_y, rows = strip_plan.rows_for(s, sctx.y_min, sctx.y_max, obstacle_intervals)
         adapter = HoleLeaderCandidateAdapter(
             entry=s,
             locations=tuple(locations or ()),
@@ -1705,12 +1707,12 @@ def _collect_shared_queue(
             callout_box=callout_box,
             projected_clear=projected_clear,
             column_bands=leader_column_bands,
-            edge=edge,
+            edge=sctx.edge,
             side=side,
             view_bounds=vb,
-            y_min=y_min,
-            y_max=y_max,
-            min_gap=min_gap,
+            y_min=sctx.y_min,
+            y_max=sctx.y_max,
+            min_gap=sctx.min_gap,
             to_page=to_page,
             elbow_dx=elbow_dx,
             draft=draft,
@@ -1722,15 +1724,10 @@ def _collect_shared_queue(
             expand_regions=feature_leader_candidates,
             build_leader=_profiled_callout_leader,
         )
-        _raw_candidates = adapter.raw
-
         name = _hc_name(only, view, i, hc_used)
 
-        # Pitch/BCD furniture is a separate non-leader requirement. Keep it
-        # in its established early stage so the corridor solve sees it and
-        # the late shared leader inventory routes around it. Coverage still
-        # waits for the callout winner below: visible furniture alone must
-        # not claim that the bore callout was placed.
+        # Stage pitch/BCD furniture before the corridor solve, but defer
+        # coverage until the callout wins; furniture alone proves no bore callout.
         staged_furniture = ()
         staged_issues = ()
         staged_furnished = False
@@ -1771,7 +1768,7 @@ def _collect_shared_queue(
                 )
 
         callbacks = _HoleLeaderCallbacks(
-            _raw_candidates,
+            adapter.raw,
             adapter.build,
             callout,
             callout_box,
@@ -1794,7 +1791,7 @@ def _collect_shared_queue(
                 view=view,
                 silhouette=vb,
                 label=str(callout.label),
-                candidates=_raw_candidates(),
+                candidates=adapter.raw(),
                 build=adapter.build,
                 measurement=tuple(callout.measurements),
                 noun="hole",
@@ -1812,6 +1809,7 @@ def _collect_shared_queue(
                 interior_label_clear=(
                     projected_clear if region_policy is not LeaderRegionPolicy.EXTERIOR else None
                 ),
+                foreign_label_clear=foreign_label_clear if side == "left" else None,
                 allow_policy_b_fixed=True,
                 # A shaft-to-shaft crossing may remain a Policy-B fallback,
                 # but no compatibility floor may put a pitch witness through
@@ -2207,14 +2205,13 @@ def _place_planside_callouts(
     plan_left,
     side_right,
 ):
-    """Plan/side-view two-pass leader callout placement (#638): Pass 1 assigns each spec to the
-    nearer strip edge that fits the page; Pass 2 (``_place_queue``) solves Y placement +
-    over-capacity drop per edge, right then left with index continuity (``next_i``)."""
+    """Plan/side-view two-pass leader callout placement (#638): Pass 1 takes the nearer
+    fitting plan edge or the right side edge when it fits; Pass 2 (``_place_queue``)
+    solves Y placement and over-capacity drop per edge, right then left with index
+    continuity (``next_i``)."""
     edge_right = plan_right if view == "plan" else side_right
     edge_left = plan_left if view == "plan" else None
-    if view == "side" and any(
-        side_of_callout.get(id(callout)) == "left" for _, _, callout, _ in specs
-    ):
+    if view == "side":
         edge_left = a.proj.side_x(a.bb.min.Y)
 
     right_strip = a.pv_zones.right if view == "plan" else a.sv_zones.right
@@ -2319,7 +2316,7 @@ def _place_planside_callouts(
             continue
 
         # Natural Y is the bore's own row; keep-out-band avoidance is `_place_queue`'s carve.
-        if can_right and (not can_left or d_right <= d_left):
+        if can_right and (view == "side" or not can_left or d_right <= d_left):
             right_queue.append((locs, dia, callout, feat, centre_r[1], rep_r))
         else:
             left_queue.append((locs, dia, callout, feat, centre_l[1], rep_l))

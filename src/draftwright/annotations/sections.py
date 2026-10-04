@@ -52,7 +52,9 @@ from draftwright._geometry import (
     _boxes_overlap,
     _leader_ink_polygons,
     _scale_world,
+    _segment_clips_box,
     _stroke_polygon,
+    detail_caption_text_gap,
 )
 from draftwright.annotations._common import (
     _clear_derived_view_reservation,
@@ -125,6 +127,57 @@ def _detail_ink_within_reservation(reserved_box, shapes, *, tolerance=0.05):
         and measured[3] <= reserved_box[3] + tolerance,
         measured,
     )
+
+
+def _detail_caption_clear_of_text(dwg, text, at, region):
+    """Find the nearest clear caption position inside its planned reservation."""
+    caption = Note(text, at, dwg.draft)
+    box = _anno_box(caption)
+    gap = detail_caption_text_gap(dwg.draft.font_size)
+    settled = []
+    strokes: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    for _name, annotation in dwg.iter_annotations():
+        strokes.extend(getattr(annotation, "segments", None) or ())
+        if not (
+            getattr(annotation, "label", None) or getattr(annotation, "_annotate_label", None)
+        ):
+            continue
+        label_box = getattr(annotation, "label_bbox", None)
+        if label_box is not None:
+            settled.append(label_box)
+
+    def clear(candidate_box):
+        protected = (
+            candidate_box[0] - gap,
+            candidate_box[1] - gap,
+            candidate_box[2] + gap,
+            candidate_box[3] + gap,
+        )
+        return not any(_boxes_overlap(protected, other) for other in settled) and not any(
+            _segment_clips_box(start, end, protected) for start, end in strokes
+        )
+
+    if clear(box):
+        return caption
+    # Move down only as far as needed, retaining the caption near its detail.
+    # The original box translates without changing size; construct ink only
+    # for a candidate that clears the settled labels and strokes.
+    travel = box[1] - region[1]
+    step = max(gap, 0.5)
+    for index in range(1, min(64, math.ceil(travel / step)) + 1):
+        down = min(index * step, travel)
+        moved = (box[0], box[1] - down, box[2], box[3] - down)
+        if (
+            moved[0] >= region[0] - 1e-6
+            and moved[1] >= region[1] - 1e-6
+            and moved[2] <= region[2] + 1e-6
+            and moved[3] <= region[3] + 1e-6
+            and clear(moved)
+        ):
+            lowered = Note(text, (at[0], at[1] - down), dwg.draft)
+            if clear(_anno_box(lowered)):
+                return lowered
+    return caption
 
 
 def feature_hole_keys(model, a: Analysis) -> set[HoleRef]:
@@ -1096,10 +1149,11 @@ def _render_detail(
         _log.info("Detail %s skipped (no legible dims at the detail scale)", letter)
         return False
     dvb = placed.bounding_box()
-    caption = Note(
+    caption = _detail_caption_clear_of_text(
+        dwg,
         _caption_text(detail_scale),
         ((dvb.min.X + dvb.max.X) / 2, dvb.min.Y - cap_h),
-        dwg.draft,
+        reserved_box if reserved_box is not None else (rx0, ry0, rx1, ry1),
     )
     if reserved_box is not None:
         assert annotation_snapshot is not None
@@ -1116,7 +1170,6 @@ def _render_detail(
             dwg.views.pop(view_name, None)
             return False
     dwg._set_view_coordinates(view_name, coords)
-
     _place_detail_marker(dwg, a, req, letter, ctx=ctx)
 
     # Caption below the placed view (anchored to its real footprint).

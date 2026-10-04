@@ -266,6 +266,52 @@ class TestAutoHoleAnnotations:
         issues = [i for i in plate_drawing.lint() if i.severity != "info"]
         assert [i.code for i in issues] == []
 
+    def test_broad_plate_edge_labels_are_not_narrow_material_issue_2177(
+        self, plate_drawing, monkeypatch
+    ):
+        import draftwright._geometry as geometry
+
+        names = {"hc_plan2", "hc_side0"}
+        centre_by_field = {}
+        for name in names:
+            annotation = plate_drawing.get_annotation(name)
+            view = plate_drawing.view_of(name)
+            field = plate_drawing.material_fields()[id(plate_drawing.views[view][0])]
+            assert plate_drawing.registry.candidate_region_of(name).value == "interior"
+            assert annotation.label_bbox is not None
+            centre_by_field[id(field)] = (annotation.label_bbox[1] + annotation.label_bbox[3]) / 2
+            assert not geometry.label_on_narrow_material(annotation.label_bbox, field)
+        assert not names & {
+            issue.annotation_name
+            for issue in plate_drawing.lint()
+            if issue.code == "interior_label_on_narrow_material"
+        }
+
+        # Disable just the local-band probe, preserving the old edge and label
+        # probes. Both real callouts must then fail the independent lint check.
+        material_intervals = geometry.material_intervals
+        substituted = []
+
+        def no_local_band(p, q, field, *, bridge=0.0):
+            if p[0] == q[0] and p[1] == field.box[1] and q[1] == field.box[3]:
+                substituted.append((p, q))
+                tick = round(
+                    (centre_by_field[id(field)] - p[1])
+                    / (q[1] - p[1])
+                    * geometry._MATERIAL_SPAN_TICKS
+                )
+                return ((tick - 1, tick + 1),)
+            return material_intervals(p, q, field, bridge=bridge)
+
+        monkeypatch.setattr(geometry, "material_intervals", no_local_band)
+        flagged = {
+            issue.annotation_name
+            for issue in plate_drawing.lint()
+            if issue.code == "interior_label_on_narrow_material"
+        }
+        assert substituted
+        assert names <= flagged
+
     @pytest.mark.timeout(60)
     def test_bore_callout_stays_clear_of_the_outline_without_section_line(self):
         # When no section line is placed (no cbore/spotface/blind holes) the

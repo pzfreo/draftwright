@@ -18,7 +18,7 @@ from draftwright._core import (
     _text_line_spacing_em,
     _text_size,
 )
-from draftwright._geometry import _turned_profile_site
+from draftwright._geometry import _turned_profile_site, material_span
 from draftwright.annotations._common import (
     PRIORITY,
     CorridorCandidate,
@@ -349,6 +349,25 @@ def _gdt_retry_sides(side: str, *, normal_side_only: bool) -> tuple[str, ...]:
     }[side]
 
 
+def _datum_label_has_whitespace(label, strip, horizontal, field) -> bool:
+    """A local datum glyph must clear projected material or sit beyond the view."""
+    x0, y0, x1, y1 = label
+    if horizontal:
+        outside = y1 <= strip.anchor if strip.direction < 0 else y0 >= strip.anchor
+    else:
+        outside = x1 <= strip.anchor if strip.direction < 0 else x0 >= strip.anchor
+    if outside:
+        return True
+    if not field:
+        return False
+    # The shared view-edge guard rejects partial boundary crossings. These
+    # interior probes reject a glyph sitting wholly on a blank projected face.
+    return all(
+        material_span((x0, y), (x1, y), field) <= 1e-6
+        for y in (y0 + (y1 - y0) * 0.1, (y0 + y1) / 2.0, y1 - (y1 - y0) * 0.1)
+    )
+
+
 def _gdt_retry_geometry(state, tier, alt):
     """Give the deferred carve its strip and glyph extent."""
     alt_strip = getattr(state.zones, alt, None)
@@ -518,8 +537,57 @@ def _gdt_drop_callback(
     return _drop
 
 
+def _gdt_compact_candidates(
+    original, build, strip, size, horizontal, item, site, tier, material_field
+):
+    """Nearest-first same-strip landings checked later against exact ink.
+
+    Dimension extension lines make their conservative boxes intentionally
+    broad. A GD&T leader may pass through the empty part of such a box, so
+    the corridor result is an upper bound rather than necessarily the best
+    landing. Keep this search finite and inside the requested strip.
+    """
+    if original is None:
+        return
+    original_pos = original.elbow[1 if horizontal else 0]
+    extent = size[1 if horizontal else 0]
+    if item.kind == "datum_ref" and item.reference_surface_kind:
+        # A whole-view strip can be far from a small datum face. First try
+        # bounded positions between the face and that strip, while keeping
+        # the shaft on the proven surface normal. The shared postsolve
+        # checks the complete glyph, view edges and settled annotation ink.
+        distance = (original_pos - site) * strip.direction
+        first = extent / 2.0 + 1.0
+        step = max(tier / 2.0, 1.0)
+        for index in range(min(12, max(0, int((distance - first) / step) + 1))):
+            travel = first + index * step
+            if travel >= distance - 1e-6:
+                break
+            pos = site + strip.direction * travel
+            candidate = build(pos)
+            # A symbol inside the whole-view box must sit in projected
+            # whitespace, not on a blank face with no visible edge. The
+            # shared postsolve also checks visible edges and exact ink.
+            if _datum_label_has_whitespace(
+                candidate.label_bbox, strip, horizontal, material_field
+            ):
+                yield candidate
+    near = strip.anchor + strip.direction * (strip.gap + extent / 2.0)
+    distance = (original_pos - near) * strip.direction
+    if distance <= 1e-6:
+        return
+    step = max(tier + strip.spacing, 1.0)
+    count = min(64, int(math.ceil(distance / step)) + 1)
+    for index in range(count):
+        travel = min(distance, index * step)
+        pos = near + strip.direction * travel
+        if abs(pos - original_pos) <= 1e-6:
+            return
+        yield build(pos)
+
+
 def _gdt_candidate_builders(
-    item, draft, leader_ctor, fallback_glyph, px, py, horizontal, strip, size, tier
+    item, draft, leader_ctor, fallback_glyph, px, py, horizontal, strip, size, tier, material_field
 ):
     """Build one glyph's primary and fallback leaders plus bounded strip retries."""
 
@@ -608,36 +676,18 @@ def _gdt_candidate_builders(
             _attach_gdt_text_evidence(leader, _g, _it, draft)
         return leader
 
-    def _compact_candidates(
-        original,
-        _build=_build,
-        _strip=strip,
-        _size=size,
-        _horizontal=horizontal,
-    ):
-        """Nearest-first same-strip landings checked later against exact ink.
-
-        Dimension extension lines make their conservative boxes intentionally
-        broad.  A GD&T leader may pass through the empty part of such a box, so
-        the corridor result is an upper bound rather than necessarily the best
-        landing.  Keep this search finite and inside the requested strip.
-        """
-        if original is None:
-            return
-        original_pos = original.elbow[1 if _horizontal else 0]
-        extent = _size[1 if _horizontal else 0]
-        near = _strip.anchor + _strip.direction * (_strip.gap + extent / 2.0)
-        distance = (original_pos - near) * _strip.direction
-        if distance <= 1e-6:
-            return
-        step = max(tier + _strip.spacing, 1.0)
-        count = min(64, int(math.ceil(distance / step)) + 1)
-        for index in range(count):
-            travel = min(distance, index * step)
-            pos = near + _strip.direction * travel
-            if abs(pos - original_pos) <= 1e-6:
-                return
-            yield _build(pos)
+    def _compact_candidates(original):
+        return _gdt_compact_candidates(
+            original,
+            _build,
+            strip,
+            size,
+            horizontal,
+            item,
+            py if horizontal else px,
+            tier,
+            material_field,
+        )
 
     def _ink_repair_candidates(
         original,
@@ -772,6 +822,12 @@ def render_gdt(
             )
             continue
         size = (gb.X, gb.Y)
+        placed_view = dwg.views.get(item.view)
+        field = (
+            dwg.material_fields().get(id(placed_view[0]))
+            if item.kind == "datum_ref" and item.reference_surface_kind and placed_view
+            else None
+        )
 
         (
             _build,
@@ -780,7 +836,17 @@ def render_gdt(
             _compact_candidates,
             _ink_repair_candidates,
         ) = _gdt_candidate_builders(
-            item, draft, leader_ctor, fallback_glyph, px, py, horizontal, strip, size, tier
+            item,
+            draft,
+            leader_ctor,
+            fallback_glyph,
+            px,
+            py,
+            horizontal,
+            strip,
+            size,
+            tier,
+            field,
         )
 
         _drop = _gdt_drop_callback(

@@ -49,7 +49,6 @@ from draftwright._core import (
     layout_frame,
 )
 from draftwright._geometry import (
-    _boxes_overlap,
     _segment_clips_box,
 )
 from draftwright.annotations._axial_render import (
@@ -708,7 +707,6 @@ def place_machined_leader_jobs(
             collect_feature_leader=collect_feature_leader,
             place_feature_leader_jobs=place_feature_leader_jobs,
             attribute_annotations=_attribute_annotations,
-            boxes_overlap=_boxes_overlap,
         ),
     )
 

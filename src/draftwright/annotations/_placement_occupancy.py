@@ -6,6 +6,7 @@ Shared by corridor placement, late furniture, and the isometric fit.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from itertools import chain
 
 from build123d_drafting.helpers import Dimension, Leader, Note, SafeDimension
@@ -713,3 +714,21 @@ def view_label_clearance(dwg, view):
         return None
     entries = _view_edge_entries(placed[0], {})
     return lambda box: entries is not None and not _edges_intersect_rect(entries, box)
+
+
+def label_clears_foreign_annotations(
+    box: tuple[float, float, float, float],
+    foreign_boxes: Iterable[tuple[tuple[float, float, float, float], bool]],
+    pad: float,
+) -> bool:
+    """Keep a candidate label clear of another view's settled text and ink."""
+    protected = (box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad)
+    return not any(
+        _boxes_overlap(
+            protected,
+            (other[0] - pad, other[1] - pad, other[2] + pad, other[3] + pad)
+            if has_label
+            else other,
+        )
+        for other, has_label in foreign_boxes
+    )

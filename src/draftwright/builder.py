@@ -398,7 +398,11 @@ def _annotation_view_overlaps(dwg, a) -> int:
     only a text label landing on another view's geometry does.
     """
     geom = _view_geom(a)
-    boxes = {v: (cx - hw, cy - hh, cx + hw, cy + hh) for v, (cx, cy, hw, hh) in geom.items()}
+    boxes = {
+        v: (cx - hw, cy - hh, cx + hw, cy + hh)
+        for v, (cx, cy, hw, hh) in geom.items()
+        if v in dwg.views
+    }
     clearance = _annotation_clearance(dwg)
     n = 0
     for _name, v, bb, label in _attribute_annotations(dwg):
@@ -1076,6 +1080,26 @@ def _needs_repack(dwg, a) -> bool:
         _cross_view_overlaps(dwg) != 0
         or _annotation_view_overlaps(dwg, a) != 0
         or _annotations_out_of_bounds(dwg, a)
+        or _source_placement_drop_with_table(dwg)
+    )
+
+
+def _source_placement_drop_with_table(dwg) -> bool:
+    """A table may take required annotation space after the seed layout.
+
+    Repack the measured blocks when that happens. An unselected view's geometry
+    cannot act as the accidental trigger: it has no ink on the finished sheet.
+    """
+    if not any(
+        getattr(issue, "outcome_stage", None) == "placement"
+        and getattr(issue, "source_ids", ())
+        and _is_required_scale_drop(issue)
+        for issue in getattr(getattr(dwg, "registry", None), "issues", ())
+    ):
+        return False
+    return any(
+        getattr(annotation, "table_rows", None) is not None
+        for _name, annotation in dwg.iter_annotations()
     )
 
 

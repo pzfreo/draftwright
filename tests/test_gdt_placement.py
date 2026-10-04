@@ -8,6 +8,7 @@ never overlap, a full strip drops honestly (a warning, not a silent vanish), and
 placement stays lint-clean.
 """
 
+import hashlib
 import json
 import math
 from collections import defaultdict
@@ -17,10 +18,12 @@ from xml.etree import ElementTree
 import ezdxf
 import pytest
 from build123d import Box, Cylinder, Draft, Pos
-from build123d_drafting import FeatureControlFrame
+from build123d_drafting import DatumFeature, FeatureControlFrame, Leader
 
 from draftwright.builder import build_drawing, detect_part_model
+from draftwright.linting.structural import lint_drawing
 from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame, Note, PmiFeature
+from draftwright.pmi import extract_pmi_report
 
 
 def _part():
@@ -192,6 +195,85 @@ def test_imported_planar_datum_leader_stays_normal_to_end_face():
     leader = dwg.get_annotation("m_gdt0")
     assert leader.tip[1] == pytest.approx(leader.elbow[1])
     assert leader.tip[0] > leader.elbow[0]
+
+
+def test_grm03_imported_datums_try_local_normal_symbols_issue_2177():
+    fixture = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    assert hashlib.sha256(fixture.read_bytes()).hexdigest() == (
+        "4b6462b9cc9f0d419250933bd77fb305f9cfebb7ec2b3f377008732876010a21"
+    )
+    records = extract_pmi_report(fixture).records
+    assert {(r.label, r.source_id) for r in records if r.kind == "datum"} == {
+        ("A", "datum_definition:#777"),
+        ("B", "datum_definition:#810"),
+    }
+
+    dwg = build_drawing(fixture, pmi="annotate", page="A4", scale=2.0, scale_policy="permissive")
+    assert (dwg.page_w, dwg.page_h, dwg.scale) == (297.0, 210.0, 2.0)
+    assert set(dwg.views) == {"front", "side", "iso", "detail_a"}
+    a, b = (dwg.get_annotation(name) for name in ("m_gdt0", "m_gdt1"))
+    assert a.tip[0] == pytest.approx(a.elbow[0])
+    assert a.elbow[1] < a.tip[1]
+    assert b.tip[1] == pytest.approx(b.elbow[1])
+    assert b.elbow[0] > b.tip[0]
+    # A's external symbol fits near the source face. B's normal path is still
+    # obstructed by the existing front-view dimension ink, so it stays placed
+    # and critique reports the long shaft rather than silently declaring it tidy.
+    assert _leader_path_length(a) < 20.0
+    assert "m_gdt0" not in {
+        issue.annotation_name for issue in dwg.lint() if issue.code == "datum_leader_remote"
+    }
+    assert "m_gdt1" in {
+        issue.annotation_name for issue in dwg.lint() if issue.code == "datum_leader_remote"
+    }
+
+
+def test_grm03_a4_five_to_one_datums_use_projected_whitespace_issue_2177():
+    fixture = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    # This public explicit-scale build exercises the same geometry as the A4 5:1
+    # automatic candidate; scale completeness is a separate #2177 fix.
+    dwg = build_drawing(fixture, pmi="annotate", page="A4", scale=5.0, scale_policy="permissive")
+    assert (dwg.page_w, dwg.page_h, dwg.scale) == (297.0, 210.0, 5.0)
+    a, b = (dwg.get_annotation(name) for name in ("m_gdt0", "m_gdt1"))
+    assert a.tip[0] == pytest.approx(a.elbow[0])
+    assert a.elbow[1] < a.tip[1]
+    assert b.tip[1] == pytest.approx(b.elbow[1])
+    assert b.elbow[0] > b.tip[0]
+    assert _leader_path_length(a) < 20.0
+    assert _leader_path_length(b) < 20.0
+    assert not [issue for issue in dwg.lint() if issue.code == "datum_leader_remote"]
+
+
+def test_datum_locality_lint_reads_placed_ink_independently_issue_2177():
+    draft = Draft(font_size=3.0)
+    glyph = DatumFeature("A", draft=draft)
+    remote = Leader(tip=(40.0, 60.0), elbow=(40.0, 10.0), label="", draft=draft, callout=glyph)
+    issues = lint_drawing(
+        [remote],
+        annotation_datums={id(remote)},
+        annotation_names={id(remote): "datum_A"},
+        annotation_views={id(remote): "front"},
+    )
+    assert [(issue.code, issue.annotation_name, issue.view) for issue in issues] == [
+        ("datum_leader_remote", "datum_A", "front")
+    ]
+    assert not [issue for issue in lint_drawing([remote]) if issue.code == "datum_leader_remote"]
+
+
+def test_grm03_remote_datum_producer_mutation_is_visible_to_lint_issue_2177(monkeypatch):
+    import draftwright.annotations._gdt as gdt
+
+    original = gdt._gdt_candidate_builders
+
+    def without_local_candidates(*args):
+        build, build_at, build_routed, _compact, repair = original(*args)
+        return build, build_at, build_routed, lambda _placed: (), repair
+
+    monkeypatch.setattr(gdt, "_gdt_candidate_builders", without_local_candidates)
+    fixture = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    dwg = build_drawing(fixture, pmi="annotate", page="A4", scale=5.0, scale_policy="permissive")
+    remote = [issue for issue in dwg.lint() if issue.code == "datum_leader_remote"]
+    assert {issue.annotation_name for issue in remote} == {"m_gdt0", "m_gdt1"}
 
 
 def test_imported_datum_refuses_a_wrong_side_fallback(monkeypatch, tmp_path):

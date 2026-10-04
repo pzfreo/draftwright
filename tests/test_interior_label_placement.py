@@ -10,12 +10,129 @@ from types import SimpleNamespace
 import pytest
 
 from draftwright import build_drawing
+from draftwright._geometry import label_on_narrow_material, material_field
 from draftwright.annotations import _common
 from draftwright.linting.quality import is_hard_layout_issue
 from draftwright.model.compiled import compile_dimensions
 from draftwright.registry import DimensionPlacementSpec, PlacedDimension
 
 _CTC01_AP203 = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap203.stp"
+_GRM03_PMI = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
+
+
+def _rectangle_field(width, height):
+    return material_field(
+        (
+            ((0, 0), (width, 0), (width, height)),
+            ((0, 0), (width, height), (0, height)),
+        )
+    )
+
+
+def test_interior_text_near_a_thin_material_edge_has_no_clear_margin():
+    narrow = _rectangle_field(30, 5.5)
+    upright = _rectangle_field(5, 30)
+    broad = _rectangle_field(30, 30)
+    label = (10, 3.5, 17, 5.5)
+
+    assert label_on_narrow_material(label, narrow)
+    assert label_on_narrow_material((2.5, 10, 4.5, 17), upright)
+    assert not label_on_narrow_material((10, 10, 17, 12), broad)
+    assert not label_on_narrow_material((10, 15, 17, 17), broad)
+    assert not label_on_narrow_material((0.1, 10, 7.1, 12), broad)
+    assert not label_on_narrow_material((31, 3.5, 38, 5.5), narrow)
+
+
+def test_disconnected_material_cannot_hide_a_narrow_label_band_issue_2177(monkeypatch):
+    import draftwright._geometry as geometry
+
+    label = (10, 3.5, 17, 5.5)
+    first = _rectangle_field(30, 5.5)
+    islands = material_field(
+        first.triangles
+        + (
+            ((0, 10), (30, 10), (30, 15.5)),
+            ((0, 10), (30, 15.5), (0, 15.5)),
+        )
+    )
+    p, q = (13.5, 0), (13.5, 15.5)
+    intervals = geometry.material_intervals(p, q, islands)
+    assert len(intervals) == 2
+    assert geometry.material_span(p, q, islands) > 3 * (label[3] - label[1])
+    assert geometry.label_on_narrow_material(label, first)
+    assert geometry.label_on_narrow_material(label, islands)
+
+    # Merge the disconnected intervals as if the second strip were attached.
+    # That deliberate substitution must change the verdict for this same label.
+    original = geometry.material_intervals
+    substituted = []
+
+    def merged_intervals(start, end, field, *, bridge=0.0):
+        found = original(start, end, field, bridge=bridge)
+        if start == p and end == q and field is islands:
+            substituted.append(found)
+            return ((found[0][0], found[-1][1]),)
+        return found
+
+    monkeypatch.setattr(geometry, "material_intervals", merged_intervals)
+    assert not geometry.label_on_narrow_material(label, islands)
+    assert substituted == [intervals]
+
+
+def test_grm03_chamfer_label_clears_narrow_shaft_issue_2177():
+    # The explicit former scale remains a public-path witness for the defect;
+    # lint must state it even when the caller deliberately keeps that scale.
+    before = build_drawing(
+        _GRM03_PMI, pmi="annotate", out=None, page="A4", scale=2, scale_policy="permissive"
+    )
+    name = "m_chamfer_x1"
+    before_label = before.get_annotation(name)
+    before_field = before.material_fields()[id(before.views[before.view_of(name)][0])]
+    assert before.registry.candidate_region_of(name).value == "interior"
+    assert before_label.label == "C0.5"
+    assert label_on_narrow_material(before_label.label_bbox, before_field)
+    assert [
+        (issue.code, issue.severity, issue.annotation_name)
+        for issue in before.lint()
+        if issue.severity != "info"
+    ] == [
+        ("datum_leader_remote", "warning", "m_gdt1"),
+        ("interior_label_on_narrow_material", "warning", name),
+    ]
+    before.registry._anno_candidate_region.pop(name)
+    assert before.registry.candidate_region_of(name) is None
+    assert before.get_annotation(name) is before_label
+    assert [
+        (issue.code, issue.severity, issue.annotation_name)
+        for issue in before.lint()
+        if issue.severity != "info"
+    ] == [
+        ("datum_leader_remote", "warning", "m_gdt1"),
+        ("interior_label_on_narrow_material", "warning", name),
+    ]
+    before.registry._anno_view.pop(name)
+    assert [
+        (issue.code, issue.severity, issue.annotation_name)
+        for issue in before.lint()
+        if issue.severity != "info"
+    ] == [
+        ("datum_leader_remote", "warning", "m_gdt1"),
+        ("interior_label_on_narrow_material", "warning", name),
+    ]
+    before_requirements = before.report()["recognition"]["requirements"]
+    assert len(before_requirements) == 17
+    assert {requirement["state"] for requirement in before_requirements} == {"placed"}
+
+    after = build_drawing(_GRM03_PMI, pmi="annotate", out=None)
+    assert (after.page_w, after.page_h, after.scale) == (297.0, 210.0, 5.0)
+    after_label = after.get_annotation(name)
+    after_field = after.material_fields()[id(after.views[after.view_of(name)][0])]
+    assert after_label.label == "C0.5"
+    assert not label_on_narrow_material(after_label.label_bbox, after_field)
+    assert not [issue for issue in after.lint() if issue.severity != "info"]
+    after_requirements = after.report()["recognition"]["requirements"]
+    assert len(after_requirements) == 17
+    assert {requirement["state"] for requirement in after_requirements} == {"placed"}
 
 
 @pytest.fixture(scope="module", params=("A2", "A3"))
@@ -77,6 +194,7 @@ def test_ctc01_feature_families_share_one_joint_assignment(ctc01_without_pmi):
     issues = drawing.lint()
     assert not [issue for issue in issues if is_hard_layout_issue(issue)]
     assert not [issue for issue in issues if issue.code == "leader_crosses_silhouette"]
+    assert not [issue for issue in issues if issue.code == "interior_label_on_narrow_material"]
 
 
 def test_ctc01_a3_keeps_required_dimensions_when_exterior_space_is_available(
