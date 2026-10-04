@@ -595,6 +595,13 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_envelope_view_route_issue_1813.py",
         "test_issue_1000_envelope_reuse.py",
     ),
+    "src/draftwright/annotations/_height_ladder.py": ("test_issue_1299_page_escalation.py",),
+    "src/draftwright/annotations/_leader_fixed_ink.py": (
+        "test_issue_1338_scale_before_page_escalation.py",
+    ),
+    "src/draftwright/annotations/_placement_occupancy.py": (
+        "test_issue_1338_scale_before_page_escalation.py",
+    ),
     "src/draftwright/annotations/_pocket_pad.py": ("test_issue_916_pocket_leader.py",),
     "src/draftwright/annotations/balloons.py": ("test_balloon_ring_standoff.py",),
     "src/draftwright/annotations/from_model.py": (

@@ -96,6 +96,18 @@ def test_finish_source_owner_routes_manufacturing_contract(source):
             "src/draftwright/annotations/holes.py",
             {"test_issue_1338_scale_before_page_escalation.py"},
         ),
+        (
+            "src/draftwright/annotations/_placement_occupancy.py",
+            {"test_issue_1338_scale_before_page_escalation.py"},
+        ),
+        (
+            "src/draftwright/annotations/_leader_fixed_ink.py",
+            {"test_issue_1338_scale_before_page_escalation.py"},
+        ),
+        (
+            "src/draftwright/annotations/_height_ladder.py",
+            {"test_issue_1299_page_escalation.py"},
+        ),
     ),
 )
 def test_layout_issue_2177_source_owners_route_public_contracts(source, contracts):
