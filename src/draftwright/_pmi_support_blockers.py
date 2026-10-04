@@ -141,6 +141,23 @@ def _is_direct_xcaf_angular_failure(reason: str) -> bool:
     return reason.startswith(prefixes)
 
 
+def _direct_xcaf_support_is_incomplete(record) -> bool:
+    """Whether direct XCAF failed to supply all support geometry, independent of rendering."""
+    reasons = (*record.lowering_blockers, *record.rendering_blockers)
+    missing_groups = (
+        "linear dimension needs two measurable authored reference groups",
+        "thickness dimension needs two measurable authored reference groups",
+        "diameter dimension needs a measurable",
+    )
+    return any(
+        _is_direct_xcaf_reference_failure(reason)
+        or _is_direct_xcaf_diameter_failure(reason)
+        or _is_direct_xcaf_angular_failure(reason)
+        or reason.startswith(missing_groups)
+        for reason in reasons
+    )
+
+
 def _without_direct_xcaf_angular_failures(reasons: tuple[str, ...]) -> tuple[str, ...]:
     """Drop angular XCAF failures superseded by exact Part21 member supports."""
     return tuple(reason for reason in reasons if not _is_direct_xcaf_angular_failure(reason))

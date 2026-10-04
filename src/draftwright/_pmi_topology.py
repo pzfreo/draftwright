@@ -6,6 +6,7 @@ B-rep; geometric likeness alone cannot establish source ownership.
 
 from __future__ import annotations
 
+from draftwright._pmi_datum_geometry import _frame_vector
 from draftwright._pmi_support_blockers import _failure_reason
 
 try:
@@ -15,6 +16,83 @@ try:
 except ImportError:
     # The extractor reports unavailable OCP capability before using these resolvers.
     pass
+
+
+def _parallel_planar_reference_support(groups, frame, shape_bbox) -> tuple[str | None, str | None]:
+    """Find the common principal normal and any required witness view."""
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Plane
+    from OCP.TopoDS import TopoDS
+
+    if len(groups) != 2 or not all(groups):
+        return None, None
+    axes: list[int] = []
+    group_boxes = []
+    for shapes in groups:
+        group_axis = None
+        group_station = None
+        boxes = []
+        for shape in shapes:
+            try:
+                if shape.ShapeType() != TopAbs_FACE:
+                    return None, None
+                surface = BRepAdaptor_Surface(TopoDS.Face_s(shape))
+                if surface.GetType() != GeomAbs_Plane:
+                    return None, None
+                direction = surface.Plane().Axis().Direction()
+                local = _frame_vector((direction.X(), direction.Y(), direction.Z()), frame)
+                axis_index = max(range(3), key=lambda index: abs(local[index]))
+                if abs(abs(local[axis_index]) - 1.0) > 1e-6:
+                    return None, None
+                if any(abs(local[index]) > 1e-6 for index in range(3) if index != axis_index):
+                    return None, None
+                box = shape_bbox(shape) if frame is None else shape_bbox(shape, frame)
+                boxes.append(box)
+                station = (box[axis_index] + box[axis_index + 3]) / 2
+                if box[axis_index + 3] - box[axis_index] > 1e-5:
+                    return None, None
+            except Exception:
+                return None, None
+            if group_axis is not None and group_axis != axis_index:
+                return None, None
+            if group_station is not None and abs(group_station - station) > 1e-5:
+                return None, None
+            group_axis, group_station = axis_index, station
+        assert group_axis is not None  # Each validated source group contains a face.
+        axes.append(group_axis)
+        group_boxes.append(boxes)
+    if axes[0] != axes[1]:
+        return None, None
+    return _supported_planar_view("XYZ"[axes[0]], group_boxes)
+
+
+def _supported_planar_view(axis: str, group_boxes) -> tuple[str | None, str | None]:
+    """Select only projection views whose shared witness touches both groups."""
+    if axis in {"X", "Z"}:
+        return (
+            (axis, None)
+            if _midpoint_witness_supported(group_boxes, 2 if axis == "X" else 0)
+            else (None, None)
+        )
+    side = _midpoint_witness_supported(group_boxes, 2)
+    plan = _midpoint_witness_supported(group_boxes, 0)
+    if side and plan:
+        return axis, None
+    if side or plan:
+        return axis, "side" if side else "plan"
+    return None, None
+
+
+def _midpoint_witness_supported(group_boxes, index: int) -> bool:
+    """Require a projected face in each group at the renderer's bbox midpoint."""
+    all_boxes = [box for boxes in group_boxes for box in boxes]
+    midpoint = (
+        min(box[index] for box in all_boxes) + max(box[index + 3] for box in all_boxes)
+    ) / 2
+    return all(
+        any(box[index] - 1e-6 <= midpoint <= box[index + 3] + 1e-6 for box in boxes)
+        for boxes in group_boxes
+    )
 
 
 class _DatumTopologyResolver:

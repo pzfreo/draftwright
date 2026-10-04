@@ -404,6 +404,7 @@ def build_pmi_features(
                     upper_bound=r.upper_bound,
                     ref_bbox=r.ref_bbox,
                     ref_pts=tuple(r.ref_pts),
+                    view=r.view,
                     source_kind=r.kind,
                     source_id=r.source_id,
                     lowering_blockers=r.lowering_blockers,

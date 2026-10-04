@@ -68,6 +68,145 @@ def test_an_incomplete_or_wrong_length_relationship_fails_without_nominal_guessi
     assert blockers == ("linear reference-station span 10 mm differs from nominal 20 mm",)
 
 
+def test_offset_parallel_faces_use_their_proven_normal_issue_2184(monkeypatch):
+    from build123d import Axis, Box, Pos
+    from quiddity import FrameGauge, PartFrame
+
+    import draftwright.pmi as pmi_module
+
+    first = Box(2, 10, 10).faces().sort_by(Axis.X)[0].wrapped
+    second = (Pos(10, 20, 0) * Box(2, 10, 10)).faces().sort_by(Axis.X)[0].wrapped
+    groups = ((first,), (second,))
+    stations = tuple(
+        pmi_module._bbox_centroid(pmi_module._shape_bbox(shape)) for shape in (first, second)
+    )
+
+    assert stations == ((-1.0, 0.0, 0.0), (9.0, 20.0, 0.0))
+    assert _linear_reference_stations(stations, 10)[2]
+    axis, view = pmi_module._parallel_planar_reference_support(groups)
+    assert (axis, view) == ("X", None)
+    frame = PartFrame(
+        origin=(0.0, 0.0, 0.0),
+        x=(0.0, 0.0, -1.0),
+        y=(0.0, 1.0, 0.0),
+        z=(1.0, 0.0, 0.0),
+        gauge=FrameGauge.FULL,
+    )
+    assert pmi_module._parallel_planar_reference_support(groups, frame) == ("Z", None)
+    perpendicular = (Pos(10, 20, 0) * Box(2, 10, 10)).faces().sort_by(Axis.Y)[0].wrapped
+    assert pmi_module._parallel_planar_reference_support(((first,), (perpendicular,))) == (
+        None,
+        None,
+    )
+    assert pmi_module._parallel_planar_reference_support(((first, second), (second,))) == (
+        None,
+        None,
+    )
+    detached = (Pos(10, 0, 20) * Box(2, 10, 2)).faces().sort_by(Axis.X)[0].wrapped
+    assert pmi_module._parallel_planar_reference_support(((first,), (detached,))) == (None, None)
+    shifted_midpoint = (Pos(10, 0, 17) * Box(2, 10, 26)).faces().sort_by(Axis.X)[0].wrapped
+    assert pmi_module._parallel_planar_reference_support(((first,), (shifted_midpoint,))) == (
+        None,
+        None,
+    )
+    assert _linear_reference_stations(stations, 10, plane_axis=axis) == (stations, "X", ())
+    assert _linear_reference_stations(stations, 11, plane_axis=axis)[2] == (
+        "linear reference-station span 10 mm differs from nominal 11 mm",
+    )
+
+    class Sequence:
+        def __init__(self):
+            self.items = []
+
+        def Append(self, item):
+            self.items.append(item)
+
+        def Length(self):
+            return len(self.items)
+
+        def Value(self, index):
+            return self.items[index - 1]
+
+    def get_refs(_label, first_refs, second_refs):
+        first_refs.Append(first)
+        second_refs.Append(second)
+
+    monkeypatch.setattr(pmi_module, "TDF_LabelSequence", Sequence)
+    monkeypatch.setattr(
+        pmi_module,
+        "XCAFDoc_DimTolTool",
+        SimpleNamespace(GetRefShapeLabel_s=get_refs),
+    )
+    source = SimpleNamespace(
+        GetValue=lambda: 10.0,
+        IsDimWithPlusMinusTolerance=lambda: False,
+        IsDimWithRange=lambda: False,
+        GetSemanticName=lambda: None,
+    )
+    direct, blockers = pmi_module._dimension_record(
+        object(), source, 2, SimpleNamespace(GetShape_s=lambda shape: shape), "dimension:planes"
+    )
+    assert direct.ref_pts == stations
+    assert direct.dominant_axis == "X"
+    assert blockers == ()
+
+    class Resolver:
+        def __init__(self, _reader):
+            pass
+
+        def resolve_group(self, aspect_id, _item_ids):
+            return groups[0 if aspect_id == "#10" else 1], ()
+
+    monkeypatch.setattr(pmi_module, "_DimensionSupportResolver", Resolver)
+    record = PmiRecord(
+        kind="linear",
+        type_code=2,
+        value=10,
+        shape_aspect_ids=("#10", "#20"),
+        reference_item_groups=(("#100",), ("#200",)),
+    )
+    projected = _dimension_support_topology((record,), object())[0]
+    assert projected.ref_pts == stations
+    assert projected.dominant_axis == "X"
+    assert projected.lowering_blockers == projected.rendering_blockers == ()
+
+    first = Box(10, 2, 10).faces().sort_by(Axis.Y)[0].wrapped
+    second = (Pos(20, 10, 0) * Box(10, 2, 10)).faces().sort_by(Axis.Y)[0].wrapped
+    groups = ((first,), (second,))
+    assert pmi_module._parallel_planar_reference_support(groups) == ("Y", "side")
+    both_views = (Pos(0, 10, 0) * Box(10, 2, 10)).faces().sort_by(Axis.Y)[0].wrapped
+    assert pmi_module._parallel_planar_reference_support(((first,), (both_views,))) == (
+        "Y",
+        None,
+    )
+    plan_only = (Pos(0, 10, 20) * Box(10, 2, 10)).faces().sort_by(Axis.Y)[0].wrapped
+    assert pmi_module._parallel_planar_reference_support(((first,), (plan_only,))) == ("Y", "plan")
+    neither_view = (Pos(20, 10, 20) * Box(10, 2, 10)).faces().sort_by(Axis.Y)[0].wrapped
+    assert pmi_module._parallel_planar_reference_support(((first,), (neither_view,))) == (
+        None,
+        None,
+    )
+    side_record, blockers = pmi_module._dimension_record(
+        object(), source, 2, SimpleNamespace(GetShape_s=lambda shape: shape), "dimension:side"
+    )
+    assert blockers == ()
+    assert side_record.dominant_axis == "Y" and side_record.view == "side"
+    side_projected = _dimension_support_topology((record,), object())[0]
+    assert side_projected.dominant_axis == "Y" and side_projected.view == "side"
+    from draftwright.model.detect import build_pmi_features
+
+    part_bbox = Box(60, 60, 60).bounding_box()
+    assert build_pmi_features((side_projected,), part_bbox)[0].view == "side"
+    second = plan_only
+    plan_record, blockers = pmi_module._dimension_record(
+        object(), source, 2, SimpleNamespace(GetShape_s=lambda shape: shape), "dimension:plan"
+    )
+    assert blockers == () and plan_record.view == "plan"
+    assert build_pmi_features((plan_record,), part_bbox)[0].view == "plan"
+    groups = ((first,), (second,))
+    assert _dimension_support_topology((record,), object())[0].view == "plan"
+
+
 def test_a_partially_measured_group_cannot_render_from_its_incomplete_subset():
     missing = "one referenced shape is unavailable"
     assert _dimension_geometry_blockers("linear", (missing,), ()) == (missing,)
@@ -147,13 +286,14 @@ def test_exact_part21_groups_supersede_direct_xcaf_reference_failures(monkeypatc
     original = pmi_module._reference_geometry_with_groups
 
     def incomplete_xcaf_geometry(*args, **kwargs):
-        points, bbox, axis, reasons, stations = original(*args, **kwargs)
+        points, bbox, axis, reasons, stations, shapes = original(*args, **kwargs)
         return (
             points,
             bbox,
             axis,
             (*reasons, "one referenced shape is unavailable"),
             stations,
+            shapes,
         )
 
     monkeypatch.setattr(pmi_module, "_reference_geometry_with_groups", incomplete_xcaf_geometry)
