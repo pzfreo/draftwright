@@ -149,6 +149,8 @@ def _registry_names_for_decoration(registry, key: tuple) -> list:
         kind = str(key[1]) if len(key) > 1 else ""
         role = str(key[2]) if len(key) > 2 else ""
         parameter = f"{role}.{kind}" if role else ""
+        if parameter and len(key) > 3:
+            parameter += f".{key[3]}"
     return [
         name
         for name in registry.names()
@@ -203,6 +205,10 @@ def _decorated_source_features(decorations, *, features=()) -> list[tuple[tuple,
             out.append((key, source_ids))
     for feature in features:
         owner = feature
+        for index, requirement in enumerate(getattr(feature, "member_size_requirements", ())):
+            source_ids = _source_ids(requirement)
+            if source_ids:
+                out.append(((owner, "diameter", "bore", f"member_{index}"), source_ids))
         target = getattr(feature, "member", feature)
         thread = getattr(target, "thread", None)
         source_ids = _source_ids(thread)

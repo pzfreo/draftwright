@@ -125,7 +125,11 @@ def _hole_tolerance_proposal(
             "canonical hole/pattern features"
         )
     owner_index, owner, member_indices = matches[0]
-    if isinstance(owner, PatternFeature) and len(member_indices) != len(_members(owner)):
+    if (
+        isinstance(owner, PatternFeature)
+        and owner.pattern not in ("grid", "linear")
+        and len(member_indices) != len(_members(owner))
+    ):
         return (
             "unsupported hole correlation: AP242 requirement covers only part of a "
             "canonical hole pattern"
@@ -138,27 +142,67 @@ def _hole_tolerance_proposal(
     return owner_index, member_indices, value
 
 
-def lower_ap242_hole_tolerances(
-    model: PartModel, *, feature_remap: FeatureRemap | None = None
-) -> PartModel:
-    """Consume confidently correlated AP242 hole-tolerance dimensions exactly once.
+def _lower_pattern_member_sizes(
+    feature: PatternFeature,
+    member_requirements: dict[int, list[int]],
+    proposals: dict[int, tuple[int, tuple[int, ...], ToleranceValue]],
+    dimensions: dict[int, AuthoredDimension],
+    decorations: dict,
+    feature_remap: FeatureRemap | None,
+) -> PatternFeature:
+    points = _members(feature)
+    groups = tuple(tuple(member_requirements.get(index, ())) for index in range(len(points)))
+    if len(set(groups)) == 1 and not feature.member_size_requirements:
+        dim_indices = sorted(set(groups[0]))
+        decorations[(feature, "diameter", "bore")] = ToleranceDecoration(
+            value=proposals[dim_indices[0]][2],
+            source="ap242_pmi",
+            source_ids=tuple(
+                dict.fromkeys(
+                    source_id
+                    for dim_index in dim_indices
+                    for source_id in _source_ids(dimensions[dim_index])
+                )
+            ),
+            limit_bounds=_limit_bounds(dimensions[dim_indices[0]]),
+        )
+        return feature
+    requirements = list(feature.member_size_requirements or (None,) * len(points))
+    for member_index, member_dims in enumerate(groups):
+        if not member_dims:
+            continue
+        first = member_dims[0]
+        requirements[member_index] = ToleranceDecoration(
+            value=proposals[first][2],
+            source="ap242_pmi",
+            source_ids=tuple(
+                dict.fromkeys(
+                    source_id
+                    for dim_index in member_dims
+                    for source_id in _source_ids(dimensions[dim_index])
+                )
+            ),
+            limit_bounds=_limit_bounds(dimensions[first]),
+        )
+    replacement = replace(feature, member_size_requirements=tuple(requirements))
+    for key, decoration in tuple(decorations.items()):
+        if key[0] is feature:
+            del decorations[key]
+            decorations[(replacement, *key[1:])] = decoration
+    if feature_remap is not None:
+        feature_remap(feature, (replacement,), (tuple(range(len(points))),))
+    return replacement
 
-    A count-group is split only where member requirements differ.  A real pattern stays a
-    pattern and therefore accepts only a requirement whose referenced geometry covers every
-    member.  Those rules preserve machining-spec identity instead of applying one member's
-    tolerance to its untoleranced siblings or destroying pattern membership to make a match.
-    """
-    targets: dict[int, HoleFeature | PatternFeature] = {
-        index: feature
-        for index, feature in enumerate(model.features)
-        if isinstance(feature, (HoleFeature, PatternFeature))
-    }
-    dimensions = {
-        index: feature
-        for index, feature in enumerate(model.features)
-        if isinstance(feature, AuthoredDimension)
-        and feature.dimension_kind == "diameter"
+
+def _is_internal_toleranced_diameter(feature: AuthoredDimension) -> bool:
+    """Select AP242 bore limits without sending external cylinders to the hole join."""
+    return (
+        feature.dimension_kind == "diameter"
         and feature.source == "ap242_pmi"
+        and (
+            not feature.cylindrical_refs
+            or all(reference.sense == "internal" for reference in feature.cylindrical_refs)
+        )
         and any(
             value is not None
             for value in (
@@ -168,6 +212,38 @@ def lower_ap242_hole_tolerances(
                 feature.upper_bound,
             )
         )
+    )
+
+
+def _hole_ownership_conflict(
+    owner: HoleFeature | PatternFeature, member_indices: tuple[int, ...], decorations: dict
+) -> str | None:
+    if (owner, "diameter", "bore") in decorations or (owner, "diameter") in decorations:
+        return "ambiguous hole tolerance ownership: bore already has a tolerance"
+    if isinstance(owner, PatternFeature) and owner.member_size_requirements:
+        if any(owner.member_size_requirements[index] is not None for index in member_indices):
+            return "ambiguous hole tolerance ownership: member already has a source requirement"
+    return None
+
+
+def lower_ap242_hole_tolerances(
+    model: PartModel, *, feature_remap: FeatureRemap | None = None
+) -> PartModel:
+    """Consume confidently correlated AP242 hole-tolerance dimensions exactly once.
+
+    A count-group is split only where member requirements differ. A grid or linear pattern
+    retains its arrangement while individual source sizes remain scoped to exact members.
+    Other pattern kinds still require one source requirement to cover the whole group.
+    """
+    targets: dict[int, HoleFeature | PatternFeature] = {
+        index: feature
+        for index, feature in enumerate(model.features)
+        if isinstance(feature, (HoleFeature, PatternFeature))
+    }
+    dimensions = {
+        index: feature
+        for index, feature in enumerate(model.features)
+        if isinstance(feature, AuthoredDimension) and _is_internal_toleranced_diameter(feature)
     }
     if not dimensions:
         return model
@@ -189,11 +265,8 @@ def lower_ap242_hole_tolerances(
     # the same parameter have two sources and violate ADR 4 (was 0011)'s single-owner decoration map.
     for dim_index, (owner_index, _member_indices, _value) in tuple(proposals.items()):
         owner = targets[owner_index]
-        if (owner, "diameter", "bore") in model.decorations or (
-            owner,
-            "diameter",
-        ) in model.decorations:
-            blocked[dim_index] = "ambiguous hole tolerance ownership: bore already has a tolerance"
+        if conflict := _hole_ownership_conflict(owner, _member_indices, model.decorations):
+            blocked[dim_index] = conflict
             del proposals[dim_index]
 
     # A member cannot carry two different imported requirements.  Equal repeats are one
@@ -204,7 +277,7 @@ def lower_ap242_hole_tolerances(
             by_member[(owner_index, member_index)].append(dim_index)
     for dim_indices in by_member.values():
         active = [index for index in dim_indices if index in proposals]
-        values = {proposals[index][2] for index in active}
+        values = {(proposals[index][2], _limit_bounds(dimensions[index])) for index in active}
         if len(values) > 1:
             for dim_index in active:
                 blocked[dim_index] = (
@@ -237,21 +310,15 @@ def lower_ap242_hole_tolerances(
             continue
 
         if isinstance(feature, PatternFeature):
-            dim_indices = sorted({i for indices in member_requirements.values() for i in indices})
-            pattern_value = proposals[dim_indices[0]][2]
-            ids = tuple(
-                dict.fromkeys(
-                    source_id
-                    for dim_index in dim_indices
-                    for source_id in _source_ids(dimensions[dim_index])
+            rebuilt.append(
+                _lower_pattern_member_sizes(
+                    feature,
+                    member_requirements,
+                    proposals,
+                    dimensions,
+                    decorations,
+                    feature_remap,
                 )
-            )
-            rebuilt.append(feature)
-            decorations[(feature, "diameter", "bore")] = ToleranceDecoration(
-                value=pattern_value,
-                source="ap242_pmi",
-                source_ids=ids,
-                limit_bounds=_limit_bounds(dimensions[dim_indices[0]]),
             )
             continue
 
@@ -509,7 +576,257 @@ def _nominal_owner_matches(
     return len(covered) == len(members)
 
 
-def lower_ap242_nominal_diameters(model: PartModel) -> PartModel:
+def _pattern_nominal_members(
+    dimension: AuthoredDimension, pattern: PatternFeature, bbox
+) -> tuple[int, ...]:
+    """Match every source cylinder to exactly one physical pattern member."""
+    if pattern.pattern not in ("grid", "linear") or not pattern.members:
+        return ()
+    covered: set[int] = set()
+    for reference in dimension.cylindrical_refs:
+        matches = [
+            index
+            for index, member in enumerate(pattern.members)
+            if _internal_member_matches(reference, pattern.member, member, bbox)
+        ]
+        if len(matches) != 1:
+            return ()
+        covered.add(matches[0])
+    return tuple(sorted(covered))
+
+
+def _lower_pattern_nominal_diameters(
+    model: PartModel, *, feature_remap: FeatureRemap | None
+) -> PartModel:
+    """Give each exact pattern member its source nominal without losing its tolerance."""
+    features = list(model.features)
+    decorations = dict(model.decorations)
+    consumed: set[int] = set()
+    blocked: dict[int, str] = {}
+    for dim_index, dimension in enumerate(model.features):
+        if not (
+            isinstance(dimension, AuthoredDimension)
+            and dimension.dimension_kind == "diameter"
+            and dimension.source == "ap242_pmi"
+            and dimension.cylindrical_refs
+            and not dimension.lowering_blockers
+            and not dimension.rendering_blockers
+            and all(
+                value is None
+                for value in (
+                    dimension.lower_tol,
+                    dimension.upper_tol,
+                    dimension.lower_bound,
+                    dimension.upper_bound,
+                )
+            )
+        ):
+            continue
+        matches = [
+            (index, feature, member_indices)
+            for index, feature in enumerate(features)
+            if isinstance(feature, PatternFeature)
+            and (member_indices := _pattern_nominal_members(dimension, feature, model.bbox))
+            and (len(member_indices) < feature.count or feature.member_size_requirements)
+        ]
+        if not matches:
+            continue
+        other_matches = [
+            feature
+            for feature in features
+            if isinstance(feature, StepFeature | BossFeature | HoleFeature | RotationalFeature)
+            and _nominal_owner_matches(dimension, feature, model.bbox)
+        ]
+        if len(matches) != 1 or other_matches:
+            blocked[dim_index] = (
+                "ambiguous diameter ownership: source cylinders match multiple features"
+            )
+            continue
+        owner_index, owner, member_indices = matches[0]
+        nominal = NominalRequirement(dimension.value, "ap242_pmi", _source_ids(dimension))
+        if not nominal.agrees_with(owner.member.diameter):
+            blocked[dim_index] = (
+                f"source nominal {dimension.value!r} disagrees with canonical "
+                f"bore.diameter={owner.member.diameter!r}"
+            )
+            continue
+        if (owner, "diameter", "bore") in decorations or (owner, "diameter") in decorations:
+            blocked[dim_index] = (
+                "ambiguous diameter ownership: pattern bore has an authored aspect"
+            )
+            continue
+        requirements = list(owner.member_size_requirements or (None,) * owner.count)
+        if any(
+            requirement is not None and requirement.source != "ap242_pmi"
+            for index in member_indices
+            if (requirement := requirements[index]) is not None
+        ):
+            blocked[dim_index] = "ambiguous diameter ownership: member has an authored aspect"
+            continue
+        for index in member_indices:
+            requirement = requirements[index]
+            requirements[index] = (
+                nominal
+                if requirement is None
+                else replace(
+                    requirement,
+                    source_ids=tuple(
+                        dict.fromkeys((*requirement.source_ids, *nominal.source_ids))
+                    ),
+                )
+            )
+        replacement = replace(owner, member_size_requirements=tuple(requirements))
+        for key, value in tuple(decorations.items()):
+            if key[0] is owner:
+                del decorations[key]
+                decorations[(replacement, *key[1:])] = value
+        if feature_remap is not None:
+            feature_remap(owner, (replacement,), (tuple(range(owner.count)),))
+        features[owner_index] = replacement
+        consumed.add(dim_index)
+    if not consumed and not blocked:
+        return model
+    return replace(
+        model,
+        features=[
+            _block(feature, blocked[index])
+            if index in blocked and isinstance(feature, AuthoredDimension)
+            else feature
+            for index, feature in enumerate(features)
+            if index not in consumed
+        ],
+        decorations=decorations,
+    )
+
+
+def lower_ap242_external_diameter_tolerances(model: PartModel) -> PartModel:
+    """Attach source limits to an exactly matched external cylinder measurement."""
+    owners = tuple(
+        feature
+        for feature in model.features
+        if isinstance(feature, StepFeature | BossFeature | RotationalFeature)
+    )
+    candidates = {
+        index: feature
+        for index, feature in enumerate(model.features)
+        if isinstance(feature, AuthoredDimension)
+        and feature.source == "ap242_pmi"
+        and feature.dimension_kind == "diameter"
+        and feature.cylindrical_refs
+        and all(reference.sense == "external" for reference in feature.cylindrical_refs)
+        and any(
+            value is not None
+            for value in (
+                feature.lower_tol,
+                feature.upper_tol,
+                feature.lower_bound,
+                feature.upper_bound,
+            )
+        )
+    }
+    if not candidates:
+        return model
+    proposals: dict[
+        int, tuple[StepFeature | BossFeature | RotationalFeature, ToleranceDecoration]
+    ] = {}
+    blocked: dict[int, str] = {}
+    for index, dimension in candidates.items():
+        if dimension.lowering_blockers or dimension.rendering_blockers:
+            continue
+        matches = [
+            owner
+            for owner in owners
+            if _nominal_owner_matches(dimension, owner, model.bbox)
+            and _same_number(dimension.value, _external_diameter(owner))
+        ]
+        if any(isinstance(owner, StepFeature) for owner in matches):
+            matches = [owner for owner in matches if isinstance(owner, StepFeature)]
+        elif any(isinstance(owner, RotationalFeature) for owner in matches):
+            matches = [owner for owner in matches if isinstance(owner, RotationalFeature)]
+        if len(matches) != 1:
+            blocked[index] = (
+                "unmatched external diameter ownership: no exact canonical cylinder"
+                if not matches
+                else f"ambiguous external diameter ownership: {len(matches)} canonical cylinders"
+            )
+            continue
+        try:
+            tolerance = _requirement(dimension)
+        except ValueError as exc:
+            blocked[index] = f"unsupported external diameter tolerance: {exc}"
+            continue
+        assert tolerance is not None
+        proposals[index] = (
+            matches[0],
+            ToleranceDecoration(
+                value=tolerance,
+                source="ap242_pmi",
+                source_ids=_source_ids(dimension),
+                limit_bounds=_limit_bounds(dimension),
+            ),
+        )
+    by_owner: dict[StepFeature | BossFeature | RotationalFeature, list[int]] = defaultdict(list)
+    for index, (owner, _requirement_value) in proposals.items():
+        by_owner[owner].append(index)
+    decorations = dict(model.decorations)
+    consumed: set[int] = set()
+    for owner, indices in by_owner.items():
+        parameter = _external_diameter_parameter(owner)
+        key = (owner, "diameter", parameter.role)
+        values = {proposals[index][1].value for index in indices}
+        bounds = {proposals[index][1].limit_bounds for index in indices}
+        if (
+            len(values) != 1
+            or len(bounds) != 1
+            or key in decorations
+            or (
+                owner,
+                "diameter",
+            )
+            in decorations
+        ):
+            for index in indices:
+                blocked[index] = "ambiguous external diameter tolerance ownership"
+            continue
+        first = proposals[indices[0]][1]
+        decorations[key] = replace(
+            first,
+            source_ids=tuple(
+                dict.fromkeys(
+                    source for index in indices for source in proposals[index][1].source_ids
+                )
+            ),
+        )
+        consumed.update(indices)
+    return replace(
+        model,
+        features=[
+            _block(feature, blocked[index])
+            if index in blocked and isinstance(feature, AuthoredDimension)
+            else feature
+            for index, feature in enumerate(model.features)
+            if index not in consumed
+        ],
+        decorations=decorations,
+    )
+
+
+def _external_diameter(feature: StepFeature | BossFeature | RotationalFeature) -> float:
+    return float(feature.od if isinstance(feature, RotationalFeature) else feature.diameter)
+
+
+def _external_diameter_parameter(feature: StepFeature | BossFeature | RotationalFeature):
+    return next(
+        parameter
+        for parameter in feature.parameters()
+        if parameter.kind == "diameter"
+        and parameter.role == ("od" if isinstance(feature, RotationalFeature) else feature.kind)
+    )
+
+
+def lower_ap242_nominal_diameters(
+    model: PartModel, *, feature_remap: FeatureRemap | None = None
+) -> PartModel:
     """Give untoleranced Size_Diameter PMI to an existing canonical diameter owner.
 
     Correlation uses the referenced cylinder's topology axis, line, finite span, polarity,
@@ -517,6 +834,7 @@ def lower_ap242_nominal_diameters(model: PartModel) -> PartModel:
     that cannot prove one owner remains an :class:`AuthoredDimension`; its typed cylinder is
     still sufficient for the shared standalone placement path (#1296).
     """
+    model = _lower_pattern_nominal_diameters(model, feature_remap=feature_remap)
     targets: list[
         tuple[
             int,
@@ -1806,7 +2124,10 @@ def lower_ap242_dimensions(
     """Run every geometry-correlated AP242 lowering at the IR waist."""
     dimensions = lower_ap242_nominal_step_lengths(
         lower_ap242_nominal_diameters(
-            lower_ap242_hole_tolerances(model, feature_remap=feature_remap)
+            lower_ap242_external_diameter_tolerances(
+                lower_ap242_hole_tolerances(model, feature_remap=feature_remap)
+            ),
+            feature_remap=feature_remap,
         )
     )
     manufacturing = lower_ap242_manufacturing_requirements(dimensions, feature_remap=feature_remap)

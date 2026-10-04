@@ -14,8 +14,7 @@ from draftwright.model import slot
 from draftwright.model.compiled import compile_dimensions
 
 
-def test_ctc_left_slot_position_survives_grid_pitch_carve(monkeypatch):
-    from draftwright.annotations import _slots
+def test_ctc_left_slot_position_survives_grid_pitch_carve():
     from draftwright.annotations._placement_occupancy import annotation_ink_clear
 
     source = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap242.stp"
@@ -52,11 +51,25 @@ def test_ctc_left_slot_position_survives_grid_pitch_carve(monkeypatch):
     )
     assert not any(issue.code == "slot_dim_dropped" for issue in drawing.lint())
 
-    # Removing the exact-ink retry exposes the original strip-capacity failure.
-    monkeypatch.setattr(_slots, "_slot_position_ink_candidates", lambda *_args, **_kwargs: ())
-    without_retry = build_drawing(source, **options)
-    assert without_retry.get_annotation("m_slot0_pos") is None
-    assert any(issue.code == "slot_dim_dropped" for issue in without_retry.lint())
+
+def test_unplaced_slot_position_keeps_a_bounded_ink_retry_issue_2172():
+    from draftwright._core import Strip
+    from draftwright.annotations._placement_occupancy import strip_free_span
+    from draftwright.annotations._slots import _slot_position_retries
+
+    strip = Strip(anchor=40.0, outer_limit=70.0, gap=2.0, spacing=4.0)
+    tier = 5.0
+    lo, hi, _inner = strip_free_span(strip)
+    assert hi - lo - tier >= max(strip.spacing, 1.0)
+
+    retry = _slot_position_retries(
+        SimpleNamespace(kind="slot"), "pos", strip, lambda position: position, tier
+    )
+    assert retry is not None
+    candidates = tuple(retry(None))
+    assert candidates
+    assert all(lo <= position <= hi - tier for position in candidates)
+    assert tuple(retry(object())) == ()
 
 
 def _off_centre_slot():

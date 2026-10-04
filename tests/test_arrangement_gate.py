@@ -329,6 +329,24 @@ class TestTheGateComparesWhatWasLostNotHowMuch:
             == "preferred"
         )
 
+    def test_incomplete_alternative_preserves_more_source_pmi(self):
+        shared = {**_blocker("pmi_dropped", "datum"), "source_ids": ("datum:A",)}
+        source_loss = {
+            **_blocker("pmi_dropped", "position"),
+            "source_ids": ("geometric_tolerance:position",),
+        }
+        inferred = [
+            {**_blocker("off_axis_location_dropped", "hole_x_left"), "severity": "info"},
+            {**_blocker("off_axis_location_dropped", "hole_x_right"), "severity": "info"},
+        ]
+
+        assert self._decide([shared, *inferred], [shared, source_loss]) == "alternative"
+        assert self._decide([shared, source_loss], [shared, inferred[0]]) == "preferred"
+        assert (
+            self._decide([shared, {**inferred[0], "severity": "error"}], [shared, source_loss])
+            == "preferred"
+        )
+
     def test_an_alternative_losing_the_same_thing_is_not_penalised(self):
         # The converse, so the rule is not simply "always reject": a blocker the default
         # produces too is not the alternative's fault, and it keeps its smaller sheet.

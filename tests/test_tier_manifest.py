@@ -459,6 +459,12 @@ def test_oriented_slot_geometry_change_runs_its_semantics_contract():
 def test_ir_foundation_change_runs_manufacturing_requirement_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/model/ir_foundation.py"])
     assert "test_issue_1298_manufacturing_requirements.py" in selected
+    assert "test_part_model.py" in selected
+
+
+def test_pmi_lowering_change_runs_source_diameter_ownership_contract():
+    selected = pr_modules(_TESTS, ["src/draftwright/model/pmi_lowering.py"])
+    assert "test_issue_1296_cylindrical_diameter_pmi.py" in selected
 
 
 def test_slot_renderer_change_runs_its_slot_and_pocket_behavior_contracts():

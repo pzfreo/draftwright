@@ -1621,6 +1621,8 @@ class Drawing:
         whole-set solve (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the
         rest. A step/boss diameter that finds no room returns ``""`` (a warning-level drop,
         like the auto-pass), rather than raising, so a reconstruction script never aborts.
+        A hole pattern needing separate member callouts raises; automatic annotation
+        emits them with their own requirement provenance.
         """
         kind = getattr(feature, "kind", None)
         if (kind in _MACHINED_CALLOUT_KINDS or kind in ("pocket_pattern", "slot_pattern")) and (
@@ -1641,6 +1643,21 @@ class Drawing:
         # live call returns "" with an `authored_omission` build issue, and the deferred
         # intent drains through the same migrated renderers to the same nothing.
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
+            if (
+                kind in ("hole", "pattern")
+                and self._part_model is not None
+                and (not self._document_member or self._analysis is not None)
+                and any(owner is feature for owner in self._part_model.features)
+            ):
+                from draftwright.annotations.holes import _editable_hole_callout_batches
+
+                _editable_hole_callout_batches(
+                    feature,
+                    self._part_model,
+                    tuple(self.views),
+                    include_source_pmi=not self._document_member
+                    or getattr(self._analysis, "pmi_mode", None) == "annotate",
+                )
             self._intents.append(Intent("callout", feature, {"view": view, "name": name}))
             return ""
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter

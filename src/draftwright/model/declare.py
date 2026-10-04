@@ -1882,6 +1882,7 @@ def pattern(
     rows=None,
     cols=None,
     angle=None,
+    member_size_requirements=(),
 ) -> PatternFeature:
     """A hole pattern = ``count`` × a *member* hole (build one with :func:`hole`). The
     arrangement (``bolt_circle`` / ``linear`` / ``grid``) and its defining dims (``bcd`` /
@@ -1967,6 +1968,7 @@ def pattern(
         rows=rows,
         cols=cols,
         angle=angle,
+        member_size_requirements=tuple(member_size_requirements),
     )
 
 
