@@ -663,7 +663,8 @@ def _lint_pmi_manufacturing_ink(
         if record.source_category == "manufacturing_requirement"
         and record.kind in {"edge_condition", "surface_finish"}
     }
-    known_records = {record.source_id for record in report.records}
+    known_sources = {record.source_id for record in report.records}
+    known_sources.update(entity.source_id for entity in report.sources if entity.source_id)
     issues = []
     table = registry.named("general_notes")
     note_owners = (
@@ -703,23 +704,19 @@ def _lint_pmi_manufacturing_ink(
             continue
         source_id = getattr(declaration, "source_id", "")
         record = source.get(source_id)
-        if record is None:
-            if source_id in known_records:
+        if record is None or record.kind != "surface_finish":
+            if source_id in known_sources:
                 issues.append(
                     LintIssue(
                         severity="error",
                         code="pmi_source_site_mismatch",
-                        message=f"{name} claims a STEP record that is not a face finish",
+                        message=f"{name} claims a STEP source without an exact face-finish record",
                         source_ids=(source_id,),
                         annotation_name=name,
                     )
                 )
             continue
-        match = (
-            re.fullmatch(r"\s*Ra\s+(\d+(?:\.\d+)?)\s*(?:um|µm|μm)\s*", record.label, re.I)
-            if record.kind == "surface_finish"
-            else None
-        )
+        match = re.fullmatch(r"\s*Ra\s+(\d+(?:\.\d+)?)\s*(?:um|µm|μm)\s*", record.label, re.I)
         expected = Decimal(match.group(1)) if match else None
         pdf_specs = tuple(getattr(annotation, "pdf_text_relative_specs", ()))
         glyph_label = getattr(annotation, "gdt_visual_finish", None)

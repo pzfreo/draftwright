@@ -244,22 +244,46 @@ def test_replayed_source_finish_refuses_a_different_face_site(_case):
 
 
 @pytest.mark.parametrize(
-    ("new", "claimed_source", "claimed_part21"),
+    ("new", "claimed_source", "claimed_part21", "expected_code"),
     (
         (
             "source_id='manufacturing_requirement:#808', part21_id='#854', origin=",
             "manufacturing_requirement:#808",
             "#854",
+            "pmi_source_site_mismatch",
         ),
         (
             "source_id='manufacturing_requirement:#854', part21_id='#999999', origin=",
             "manufacturing_requirement:#854",
             "#999999",
+            "pmi_source_site_mismatch",
+        ),
+        (
+            "source_id='manufacturing_requirement:#780', part21_id='#780', origin=",
+            "manufacturing_requirement:#780",
+            "#780",
+            "pmi_source_site_mismatch",
+        ),
+        (
+            "source_id='manufacturing_requirement:#999998', part21_id='#999998', origin=",
+            "manufacturing_requirement:#999998",
+            "#999998",
+            "pmi_source_unknown",
         ),
     ),
 )
-def test_replayed_finish_refuses_false_source_identity(_case, new, claimed_source, claimed_part21):
+def test_replayed_finish_refuses_false_source_identity(
+    _case, new, claimed_source, claimed_part21, expected_code
+):
     _source, drawing = _case
+    if claimed_source == "manufacturing_requirement:#780":
+        report = extract_pmi_report(_STEP)
+        assert claimed_source in {entity.source_id for entity in report.sources}
+        assert claimed_source not in {record.source_id for record in report.records}
+    if expected_code == "pmi_source_unknown":
+        report = extract_pmi_report(_STEP)
+        assert claimed_source not in {entity.source_id for entity in report.sources}
+        assert claimed_source not in {record.source_id for record in report.records}
     script = emit_sheet_script(
         drawing.model(),
         "part",
@@ -281,9 +305,11 @@ def test_replayed_finish_refuses_false_source_identity(_case, new, claimed_sourc
     assert finish.part21_id == claimed_part21
     assert finish.origin.reference_item_ids == ("#138",)
     assert replayed.annotations_of(finish)
+    issues = replayed.lint()
+    if claimed_source == "manufacturing_requirement:#780":
+        assert not [issue for issue in issues if issue.code == "pmi_source_unknown"]
     assert any(
-        issue.code == "pmi_source_site_mismatch" and finish.source_id in issue.source_ids
-        for issue in replayed.lint()
+        issue.code == expected_code and finish.source_id in issue.source_ids for issue in issues
     )
 
 
