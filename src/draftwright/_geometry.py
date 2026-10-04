@@ -1039,6 +1039,39 @@ def material_span(p, q, field: MaterialField) -> float:
     )
 
 
+def label_on_narrow_material(box, field: MaterialField) -> bool:
+    """Whether text covers material too close to its projected boundary.
+
+    A projected edge can miss a text box by a fraction of a millimetre while
+    the glyphs still fill a thin shaft. A broad face keeps room around the box.
+    Probe both centre lines and half the shorter label extent beyond each edge; the
+    material field is the same one used for leader routing.
+    """
+    if not field or field.box is None:
+        return False
+    x0, y0, x1, y1 = box
+    width, height = x1 - x0, y1 - y0
+    if width <= 0.0 or height <= 0.0:
+        return False
+    x = (x0 + x1) / 2.0
+    y = (y0 + y1) / 2.0
+    if (
+        material_span((x0, y), (x1, y), field) < width - MATERIAL_VISIBLE_FLOOR
+        or material_span((x, y0), (x, y1), field) < height - MATERIAL_VISIBLE_FLOOR
+    ):
+        return False
+    margin = min(width, height) / 2.0
+    return any(
+        material_span(p, q, field) < margin - MATERIAL_VISIBLE_FLOOR
+        for p, q in (
+            ((x0 - margin, y), (x0, y)),
+            ((x1, y), (x1 + margin, y)),
+            ((x, y0 - margin), (x, y0)),
+            ((x, y1), (x, y1 + margin)),
+        )
+    )
+
+
 def material_intervals(
     p, q, field: MaterialField, *, bridge: float = 0.0
 ) -> tuple[tuple[int, int], ...]:

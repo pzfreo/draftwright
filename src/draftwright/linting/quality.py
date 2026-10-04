@@ -68,6 +68,7 @@ _LEGIBILITY_CODES = frozenset(
         "dim_inside_part",
         "feature_leader_crossing",
         "feature_leader_fixed_ink_unverified",
+        "interior_label_on_narrow_material",
         "label_centerline_overlap",
         "leader_crosses_silhouette",
         "leader_shaft_unverified",

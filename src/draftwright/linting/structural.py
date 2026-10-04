@@ -23,6 +23,7 @@ from draftwright._geometry import (
     _boxes_overlap,
     _segment_clip_extent,
     _segment_clips_box,
+    label_on_narrow_material,
     material_reentry_span,
 )
 from draftwright.linting.angular import is_angular_label as _is_angular_label
@@ -1237,7 +1238,30 @@ def _lint_view_shapes(
             albl = getattr(ann, "label", None) or getattr(ann, "name", None) or type(ann).__name__
             what = "label of annotation" if label_box is not None else "annotation"
             edges = _view_edge_entries(vs, cache)
-            if edges is None or _edges_intersect_rect(edges, ab):
+            edge_overlap = edges is None or _edges_intersect_rect(edges, ab)
+            narrow_material = (
+                not edge_overlap
+                and owners.get(id(ann)) == vname
+                and label_box is not None
+                and vx0 <= label_box[0] <= label_box[2] <= vx1
+                and vy0 <= label_box[1] <= label_box[3] <= vy1
+                and (field := (material_fields or {}).get(id(vs))) is not None
+                and label_on_narrow_material(label_box, field)
+            )
+            if narrow_material:
+                issues.append(
+                    LintIssue(
+                        severity="warning",
+                        code="interior_label_on_narrow_material",
+                        message=(
+                            f"interior label '{albl}' in view '{vname}' lies too close "
+                            "to the projected material boundary"
+                        ),
+                        annotation_name=names.get(id(ann)),
+                        view=vname,
+                    )
+                )
+            if edge_overlap:
                 issues.append(
                     LintIssue(
                         severity="warning",
@@ -1254,7 +1278,7 @@ def _lint_view_shapes(
                 # annotation ink.  Do not turn that deliberate result into the generic
                 # advisory emitted for unclassified annotations inside a view.  The
                 # warning path above remains active if projected edges do intersect it.
-                if regions.get(id(ann)) == "interior":
+                if regions.get(id(ann)) == "interior" or narrow_material:
                     continue
                 issues.append(
                     LintIssue(

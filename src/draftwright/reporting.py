@@ -44,6 +44,7 @@ _LAYOUT_REMEDIES_BY_CODE = {
     "label_centerline_overlap": ("view", "side", "priority", "pin"),
     "leader_line_through_text": ("view", "side", "priority", "pin"),
     "annotation_out_of_bounds": ("page", "scale", "view", "side"),
+    "interior_label_on_narrow_material": ("page", "scale", "view", "side"),
     "view_annotation_overlap": ("page", "scale", "view", "side"),
     "view_overlap": ("page", "scale", "view"),
     "view_out_of_bounds": ("page", "scale", "view"),
