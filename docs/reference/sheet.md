@@ -867,6 +867,10 @@ A location intent's precision applies to all its selected directional values, in
 side-drilled holes and slots. The policy survives generated-script replay. When several
 location intents share one coincident mark, give them matching display precision; incompatible
 printed values raise an actionable error instead of silently choosing one intent's label.
+For a diameter that references an imported knurl maximum, the numeric value sets a
+minimum number of decimal places: `format(decimals=1)` cannot print `ø10.05` as
+`ø10.1`. The numeric PMI fields are floats; this policy does not preserve trailing
+zeroes from the retained source prose.
 
 
 ::: draftwright.sheet.DimensionIntent

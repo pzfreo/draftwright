@@ -645,7 +645,9 @@ class DimensionIntent:
         tolerance, suppression and provenance continue to use the feature parameter's numeric
         value and semantic identity.  Automatic dimensions keep their existing formatting
         unless their explicit ``add_dimension`` intent opts in. For a location intent,
-        the policy applies to every selected directional value.
+        the policy applies to every selected directional value. An imported knurl's
+        numeric maximum keeps enough decimal places to avoid rounding that value,
+        even when ``decimals`` requests fewer places.
         """
         if isinstance(decimals, bool) or not isinstance(decimals, int) or not 0 <= decimals <= 15:
             raise ValueError("format(decimals=...) requires an integer from 0 to 15")

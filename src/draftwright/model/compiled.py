@@ -1822,7 +1822,7 @@ def _dimension_witness_span(feature, parameter):
 
 
 def _group_display_decimals(feature, planned) -> int | None:
-    """Use source precision as a floor for a knurled external diameter."""
+    """Avoid rounding a knurl maximum beyond the table's numeric precision."""
     knurl = getattr(feature, "knurl", None)
     if (
         planned.param.kind == "diameter"
@@ -1830,8 +1830,8 @@ def _group_display_decimals(feature, planned) -> int | None:
         and knurl.source == "ap242_pmi"
         and knurl.maximum_diameter is not None
     ):
-        # The schedule prints the source maximum. A coarser diameter leader would
-        # contradict it even when an authored decimal policy asks for fewer places.
+        # The schedule prints the imported numeric maximum. A coarser diameter
+        # leader would contradict it even when an authored policy asks for less.
         source_places = len(_fmt_pmi_magnitude(knurl.maximum_diameter).partition(".")[2])
         requested_places = cast(int | None, planned.display_decimals)
         return max(source_places, requested_places or 0)

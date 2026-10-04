@@ -2597,7 +2597,9 @@ class RequestedDimension:
     discriminator: str | None = None
     #: Explicit display precision for this referential dimension.  The numeric value and
     #: identity still come from ``feature``; this controls only the compiler-owned text at
-    #: the rendering boundary (#1349).  ``None`` preserves the existing automatic formatting.
+    #: the rendering boundary (#1349). ``None`` preserves automatic formatting.
+    #: An imported knurl's numeric maximum sets a minimum number of decimal places,
+    #: so a coarser request cannot round its referenced diameter away from that value.
     display_decimals: int | None = None
     #: Optional semantic projection/strip preference. The planner validates renderer
     #: compatibility; the placement engine still owns coordinates.
