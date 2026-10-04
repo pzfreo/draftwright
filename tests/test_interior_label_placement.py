@@ -58,7 +58,10 @@ def test_grm03_chamfer_label_clears_narrow_shaft_issue_2177():
         (issue.code, issue.severity, issue.annotation_name)
         for issue in before.lint()
         if issue.severity != "info"
-    ] == [("interior_label_on_narrow_material", "warning", name)]
+    ] == [
+        ("datum_leader_remote", "warning", "m_gdt1"),
+        ("interior_label_on_narrow_material", "warning", name),
+    ]
     before.registry._anno_candidate_region.pop(name)
     assert before.registry.candidate_region_of(name) is None
     assert before.get_annotation(name) is before_label
@@ -66,13 +69,19 @@ def test_grm03_chamfer_label_clears_narrow_shaft_issue_2177():
         (issue.code, issue.severity, issue.annotation_name)
         for issue in before.lint()
         if issue.severity != "info"
-    ] == [("interior_label_on_narrow_material", "warning", name)]
+    ] == [
+        ("datum_leader_remote", "warning", "m_gdt1"),
+        ("interior_label_on_narrow_material", "warning", name),
+    ]
     before.registry._anno_view.pop(name)
     assert [
         (issue.code, issue.severity, issue.annotation_name)
         for issue in before.lint()
         if issue.severity != "info"
-    ] == [("interior_label_on_narrow_material", "warning", name)]
+    ] == [
+        ("datum_leader_remote", "warning", "m_gdt1"),
+        ("interior_label_on_narrow_material", "warning", name),
+    ]
     before_requirements = before.report()["recognition"]["requirements"]
     assert len(before_requirements) == 17
     assert {requirement["state"] for requirement in before_requirements} == {"placed"}

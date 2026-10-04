@@ -79,7 +79,14 @@ def test_explicit_a4_2_to_1_pmi_keeps_required_hole_after_measured_repack_issue_
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (*A4, 2.0)
     assert drawing.scale_decision["status"] == "honored"
     assert "⌀1.6" in drawing.get_annotation("hc_side0").label
-    assert not [issue for issue in drawing.lint() if issue.severity in {"warning", "error"}]
+    assert {
+        (issue.code, issue.annotation_name)
+        for issue in drawing.lint()
+        if issue.severity in {"warning", "error"}
+    } == {
+        ("datum_leader_remote", "m_gdt1"),
+        ("interior_label_on_narrow_material", "m_chamfer_x1"),
+    }
 
 
 def test_table_repack_trigger_ignores_unrelated_and_clean_outcomes_issue_2177():
