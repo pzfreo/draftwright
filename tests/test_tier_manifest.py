@@ -77,6 +77,32 @@ def test_finish_source_owner_routes_manufacturing_contract(source):
     assert "test_pmi_manufacturing_finish.py" in pr_modules(_TESTS, [source])
 
 
+@pytest.mark.parametrize(
+    ("source", "contracts"),
+    (
+        (
+            "src/draftwright/linting/structural.py",
+            {"test_interior_label_placement.py", "test_gdt_placement.py"},
+        ),
+        (
+            "src/draftwright/linting/orchestration.py",
+            {"test_interior_label_placement.py", "test_gdt_placement.py"},
+        ),
+        (
+            "src/draftwright/builder.py",
+            {"test_issue_1338_scale_before_page_escalation.py"},
+        ),
+        (
+            "src/draftwright/annotations/holes.py",
+            {"test_issue_1338_scale_before_page_escalation.py"},
+        ),
+    ),
+)
+def test_layout_issue_2177_source_owners_route_public_contracts(source, contracts):
+    assert (_TESTS.parent / source).is_file()
+    assert contracts <= set(pr_modules(_TESTS, [source]))
+
+
 def test_every_fast_module_has_a_pr_route():
     available = {path.name for path in _TESTS.glob("test_*.py")}
     routed = set(PR_CORE_MODULES) | set(PR_POLICY_MODULES) | set(UNIT_MODULES)

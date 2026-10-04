@@ -608,7 +608,10 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_suppression_marks.py",
     ),
     "src/draftwright/annotations/gears.py": ("test_issue_1086_declared_gears.py",),
-    "src/draftwright/annotations/holes.py": ("test_issue_367_leader_ink.py",),
+    "src/draftwright/annotations/holes.py": (
+        "test_issue_367_leader_ink.py",
+        "test_issue_1338_scale_before_page_escalation.py",
+    ),
     "src/draftwright/annotations/leaders.py": (
         "test_issue_1187_unroutable_leaders.py",
         "test_issue_1188_per_view_assignment.py",
@@ -621,6 +624,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
     ),
     "src/draftwright/builder.py": (
         "test_issue_1155_grm04_sheet_use.py",
+        "test_issue_1338_scale_before_page_escalation.py",
         "test_repack_geometry_seam.py",
         "test_scale_policy.py",
     ),
@@ -669,6 +673,10 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_candidate_preview_sheet_holdout.py",
     ),
     "src/draftwright/linting/_registry.py": ("test_issue_1229_ledger_member_keying.py",),
+    "src/draftwright/linting/orchestration.py": (
+        "test_gdt_placement.py",
+        "test_interior_label_placement.py",
+    ),
     "src/draftwright/linting/angled_step_coverage.py": (
         "test_issue_1247_angled_step_disposition.py",
     ),
@@ -731,6 +739,8 @@ ADDITIONAL_SOURCE_CONTRACTS = {
     ),
     "src/draftwright/linting/schedule_evidence.py": ("test_issue_1543_schedule_requirements.py",),
     "src/draftwright/linting/structural.py": (
+        "test_gdt_placement.py",
+        "test_interior_label_placement.py",
         "test_issue_1153_contradictory_dimensions.py",
         "test_issue_1196_deterministic_view_names.py",
         "test_issue_1204_multiscale_view_issues.py",

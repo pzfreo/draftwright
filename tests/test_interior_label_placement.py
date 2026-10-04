@@ -43,6 +43,42 @@ def test_interior_text_near_a_thin_material_edge_has_no_clear_margin():
     assert not label_on_narrow_material((31, 3.5, 38, 5.5), narrow)
 
 
+def test_disconnected_material_cannot_hide_a_narrow_label_band_issue_2177(monkeypatch):
+    import draftwright._geometry as geometry
+
+    label = (10, 3.5, 17, 5.5)
+    first = _rectangle_field(30, 5.5)
+    islands = material_field(
+        first.triangles
+        + (
+            ((0, 10), (30, 10), (30, 15.5)),
+            ((0, 10), (30, 15.5), (0, 15.5)),
+        )
+    )
+    p, q = (13.5, 0), (13.5, 15.5)
+    intervals = geometry.material_intervals(p, q, islands)
+    assert len(intervals) == 2
+    assert geometry.material_span(p, q, islands) > 3 * (label[3] - label[1])
+    assert geometry.label_on_narrow_material(label, first)
+    assert geometry.label_on_narrow_material(label, islands)
+
+    # Merge the disconnected intervals as if the second strip were attached.
+    # That deliberate substitution must change the verdict for this same label.
+    original = geometry.material_intervals
+    substituted = []
+
+    def merged_intervals(start, end, field, *, bridge=0.0):
+        found = original(start, end, field, bridge=bridge)
+        if start == p and end == q and field is islands:
+            substituted.append(found)
+            return ((found[0][0], found[-1][1]),)
+        return found
+
+    monkeypatch.setattr(geometry, "material_intervals", merged_intervals)
+    assert not geometry.label_on_narrow_material(label, islands)
+    assert substituted == [intervals]
+
+
 def test_grm03_chamfer_label_clears_narrow_shaft_issue_2177():
     # The explicit former scale remains a public-path witness for the defect;
     # lint must state it even when the caller deliberately keeps that scale.

@@ -1063,12 +1063,25 @@ def label_on_narrow_material(box, field: MaterialField) -> bool:
     ):
         return False
     short = min(width, height)
-    band = (
-        ((field.box[0], y), (field.box[2], y))
-        if width <= height
-        else ((x, field.box[1]), (x, field.box[3]))
+    if width <= height:
+        p, q, centre = (field.box[0], y), (field.box[2], y), x
+        axis = 0
+    else:
+        p, q, centre = (x, field.box[1]), (x, field.box[3]), y
+        axis = 1
+    span = q[axis] - p[axis]
+    if span <= 0.0:
+        return False
+    centre_tick = round((centre - p[axis]) / span * _MATERIAL_SPAN_TICKS)
+    local_band = next(
+        (
+            span * (hi - lo) / _MATERIAL_SPAN_TICKS
+            for lo, hi in material_intervals(p, q, field)
+            if lo <= centre_tick <= hi
+        ),
+        None,
     )
-    if material_span(band[0], band[1], field) >= 3.0 * short:
+    if local_band is None or local_band >= 3.0 * short:
         return False
     margin = short / 2.0
     return any(
