@@ -49,6 +49,7 @@ class TestComposeThenPackRepack:
         return SimpleNamespace(
             _named=named,
             _anno_view=views,
+            views=dict.fromkeys(("front", "plan", "side")),
             box_cache={},
             iter_annotations=lambda: named.items(),
             get_annotation=lambda n: named.get(n),

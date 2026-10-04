@@ -898,7 +898,9 @@ def _reroute_crossing_diameters(dwg, *, ctx, material_penalty) -> int:
         # axis. The far axial margin is deliberately NOT a candidate — a leader run
         # the whole length of the part to the opposite end reads worse than the
         # near-miss it replaces; restore-and-flag is the honest fallback instead.
-        near_a = lo_b - gap if tip[ax] - lo_b <= hi_b - tip[ax] else hi_b + gap
+        toward_lo = tip[ax] - lo_b <= hi_b - tip[ax]
+        near_a = lo_b - gap if toward_lo else hi_b + gap
+        edge_a = lo_b - draft.pad_around_text if toward_lo else hi_b + draft.pad_around_text
 
         def _pt(a_val, r_val, _ax=ax):
             p = [0.0, 0.0]
@@ -907,6 +909,7 @@ def _reroute_crossing_diameters(dwg, *, ctx, material_penalty) -> int:
 
         candidates = (
             _pt(near_a, tip[rad]),
+            _pt(edge_a, tip[rad]),
             _pt(tip[ax], fb[rad] - gap),
             _pt(tip[ax], fb[rad + 2] + gap),
         )

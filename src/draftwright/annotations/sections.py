@@ -52,6 +52,7 @@ from draftwright._geometry import (
     _boxes_overlap,
     _leader_ink_polygons,
     _scale_world,
+    _segment_clips_box,
     _stroke_polygon,
     detail_caption_text_gap,
 )
@@ -129,12 +130,14 @@ def _detail_ink_within_reservation(reserved_box, shapes, *, tolerance=0.05):
 
 
 def _detail_caption_clear_of_text(dwg, text, at, region):
-    """Use the planned caption row to separate its text from settled labels."""
+    """Find the nearest clear caption position inside its planned reservation."""
     caption = Note(text, at, dwg.draft)
     box = _anno_box(caption)
     gap = detail_caption_text_gap(dwg.draft.font_size)
     settled = []
+    strokes: list[tuple[tuple[float, float], tuple[float, float]]] = []
     for _name, annotation in dwg.iter_annotations():
+        strokes.extend(getattr(annotation, "segments", None) or ())
         if not (
             getattr(annotation, "label", None) or getattr(annotation, "_annotate_label", None)
         ):
@@ -150,25 +153,30 @@ def _detail_caption_clear_of_text(dwg, text, at, region):
             candidate_box[2] + gap,
             candidate_box[3] + gap,
         )
-        return not any(_boxes_overlap(protected, other) for other in settled)
+        return not any(_boxes_overlap(protected, other) for other in settled) and not any(
+            _segment_clips_box(start, end, protected) for start, end in strokes
+        )
 
     if clear(box):
         return caption
-    # Caption text is shorter than its reserved row. Try the bottom of that row
-    # without moving the detail view or taking space from a required callout.
-    down = region[1] - box[1]
-    if down >= 0:
-        return caption
-    lowered = Note(text, (at[0], at[1] + down), dwg.draft)
-    lowered_box = _anno_box(lowered)
-    if (
-        lowered_box[0] >= region[0] - 1e-6
-        and lowered_box[1] >= region[1] - 1e-6
-        and lowered_box[2] <= region[2] + 1e-6
-        and lowered_box[3] <= region[3] + 1e-6
-        and clear(lowered_box)
-    ):
-        return lowered
+    # Move down only as far as needed, retaining the caption near its detail.
+    # The original box translates without changing size; construct ink only
+    # for a candidate that clears the settled labels and strokes.
+    travel = box[1] - region[1]
+    step = max(gap, 0.5)
+    for index in range(1, min(64, math.ceil(travel / step)) + 1):
+        down = min(index * step, travel)
+        moved = (box[0], box[1] - down, box[2], box[3] - down)
+        if (
+            moved[0] >= region[0] - 1e-6
+            and moved[1] >= region[1] - 1e-6
+            and moved[2] <= region[2] + 1e-6
+            and moved[3] <= region[3] + 1e-6
+            and clear(moved)
+        ):
+            lowered = Note(text, (at[0], at[1] - down), dwg.draft)
+            if clear(_anno_box(lowered)):
+                return lowered
     return caption
 
 

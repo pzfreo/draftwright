@@ -15,6 +15,9 @@ def test_grm04_measured_replan_keeps_diameter_and_location_on_a_clean_sheet():
     assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
     assert drawing.scale == 2.0
     assert drawing.scale_decision["status"] == "automatic"
+    detail_bottom = drawing.view_bounds("detail_a")[1]
+    caption_top = drawing.get_annotation("detail_caption_A").label_bbox[3]
+    assert 0 <= detail_bottom - caption_top <= 13.0
     assert [
         (item["scale"], item["status"], item.get("rejection"))
         for item in drawing.scale_decision["attempts"]

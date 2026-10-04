@@ -113,14 +113,17 @@ def test_computed_scale_is_reported_by_scale_selection():
 
 
 def test_measured_fit_retracts_seed_uncertainty():
-    from draftwright.builder import _repack
+    from draftwright.builder import _PlacementCritique, _repack
 
     a = _analyse(Box(20, 20, 20), title="", number="", tolerance="", drawn_by="", out="")
     a = replace(a, layout_advisories=(("page_fit_uncertain", "fixture seed fit failure"),))
     drawing = _assemble(a, "", None, None, auto_dims=False)
     assert "page_fit_uncertain" in _codes(drawing)
-    assert _repack(a, drawing, "", None, None) is None
+    critique = _PlacementCritique()
+    assert any(issue.code == "page_fit_uncertain" for issue in critique.get(drawing))
+    assert _repack(a, drawing, "", None, None, placement_critique=critique) is None
     assert "page_fit_uncertain" not in _codes(drawing)
+    assert critique.get(drawing) == tuple(drawing.lint(physical=False))
 
 
 def test_computed_scale_reaches_public_declared_lint():
