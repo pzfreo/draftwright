@@ -644,7 +644,18 @@ def _printed_document_notes(table) -> tuple[str, ...]:
     return tuple(notes)
 
 
-def _lint_pmi_manufacturing_ink(report: PmiExtractionReport, registry) -> list[LintIssue]:
+def _finish_tip_at_source(annotation, drawing, site) -> bool:
+    """Check settled page ink against the independently reconstructed STEP site."""
+    try:
+        expected = drawing.at(site[1], *site[0])
+        return dist(annotation.tip[:2], expected[:2]) <= 0.05  # page millimetres
+    except Exception:
+        return False
+
+
+def _lint_pmi_manufacturing_ink(
+    report: PmiExtractionReport, registry, drawing=None
+) -> list[LintIssue]:
     """Check source-scoped manufacturing text and face sites against surviving content."""
     source = {
         record.source_id: record
@@ -652,6 +663,7 @@ def _lint_pmi_manufacturing_ink(report: PmiExtractionReport, registry) -> list[L
         if record.source_category == "manufacturing_requirement"
         and record.kind in {"edge_condition", "surface_finish"}
     }
+    known_records = {record.source_id for record in report.records}
     issues = []
     table = registry.named("general_notes")
     note_owners = (
@@ -692,6 +704,16 @@ def _lint_pmi_manufacturing_ink(report: PmiExtractionReport, registry) -> list[L
         source_id = getattr(declaration, "source_id", "")
         record = source.get(source_id)
         if record is None:
+            if source_id in known_records:
+                issues.append(
+                    LintIssue(
+                        severity="error",
+                        code="pmi_source_site_mismatch",
+                        message=f"{name} claims a STEP record that is not a face finish",
+                        source_ids=(source_id,),
+                        annotation_name=name,
+                    )
+                )
             continue
         match = (
             re.fullmatch(r"\s*Ra\s+(\d+(?:\.\d+)?)\s*(?:um|µm|μm)\s*", record.label, re.I)
@@ -727,8 +749,10 @@ def _lint_pmi_manufacturing_ink(report: PmiExtractionReport, registry) -> list[L
             and dist(declaration.frame.origin, site[0]) <= 0.001
             and declaration.view == site[1]
             and declaration.side == site[2]
+            and declaration.part21_id == record.part21_id
             and tuple(getattr(origin, "reference_item_ids", ())) == record.reference_item_ids
             and tuple(getattr(origin, "cylindrical_refs", ())) == record.cylindrical_refs
+            and (drawing is None or _finish_tip_at_source(annotation, drawing, site))
         ):
             continue
         issues.append(
@@ -750,6 +774,7 @@ def lint_pmi_rendering(
     *,
     decorations=None,
     report: PmiExtractionReport | None = None,
+    drawing=None,
     overridden_general_tolerance=False,
 ) -> list[LintIssue]:
     """Reconcile source-bearing typed PMI with surviving annotation ink.
@@ -761,7 +786,7 @@ def lint_pmi_rendering(
     frames are also checked against the independent extracted magnitude.
     """
     if mode != "annotate":
-        return _lint_pmi_manufacturing_ink(report, registry) if report is not None else []
+        return _lint_pmi_manufacturing_ink(report, registry, drawing) if report is not None else []
 
     features = tuple(features)
     placed_datums = {
@@ -819,7 +844,7 @@ def lint_pmi_rendering(
     ]
     if report is not None:
         issues.extend(_lint_pmi_frame_values(report, registry))
-        issues.extend(_lint_pmi_manufacturing_ink(report, registry))
+        issues.extend(_lint_pmi_manufacturing_ink(report, registry, drawing))
     return issues
 
 

@@ -710,6 +710,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
         "test_issue_1432_adoption.py",
         "test_issue_1432_boundary_failures.py",
     ),
+    "src/draftwright/linting/orchestration.py": ("test_pmi_manufacturing_finish.py",),
     "src/draftwright/linting/paired_ramp_step_coverage.py": ("test_paired_ramp_semantics.py",),
     "src/draftwright/linting/pmi_coverage.py": (
         "test_manufacturing_schedule.py",

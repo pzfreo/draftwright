@@ -68,6 +68,7 @@ def test_source_owner_routes_its_behavior_contract(source, module):
     (
         "src/draftwright/_geometry.py",
         "src/draftwright/annotations/_gdt.py",
+        "src/draftwright/linting/orchestration.py",
         "src/draftwright/registry.py",
         "src/draftwright/sheet.py",
     ),

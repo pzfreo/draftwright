@@ -629,6 +629,7 @@ def _lint_pmi(ctx: LintContext) -> list:
         ctx.analysis.pmi_mode,
         decorations=getattr(ctx.model, "decorations", {}),
         report=ctx.analysis.pmi_report,
+        drawing=ctx.drawing,
         overridden_general_tolerance=(
             ctx.analysis.tolerance is not None and ctx.build.general_tolerance_source is None
         ),

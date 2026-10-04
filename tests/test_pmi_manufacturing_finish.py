@@ -243,6 +243,50 @@ def test_replayed_source_finish_refuses_a_different_face_site(_case):
     )
 
 
+@pytest.mark.parametrize(
+    ("new", "claimed_source", "claimed_part21"),
+    (
+        (
+            "source_id='manufacturing_requirement:#808', part21_id='#854', origin=",
+            "manufacturing_requirement:#808",
+            "#854",
+        ),
+        (
+            "source_id='manufacturing_requirement:#854', part21_id='#999999', origin=",
+            "manufacturing_requirement:#854",
+            "#999999",
+        ),
+    ),
+)
+def test_replayed_finish_refuses_false_source_identity(_case, new, claimed_source, claimed_part21):
+    _source, drawing = _case
+    script = emit_sheet_script(
+        drawing.model(),
+        "part",
+        "grm03-edge-finish",
+        title="GRM-03",
+        number="GRM-03",
+        pmi="annotate",
+        pmi_source=str(_STEP.resolve()),
+    )
+    old = "source_id='manufacturing_requirement:#854', part21_id='#854', origin="
+    assert script.count(old) == 1
+    altered = script.replace(old, new)
+    namespace = {"part": _import_step(str(_STEP))}
+    build_end = altered.index("drawing = sheet.build()") + len("drawing = sheet.build()")
+    exec(compile(altered[:build_end], "<wrong-source-finish>", "exec"), namespace)  # noqa: S102
+    replayed = namespace["drawing"]
+    finish = next(feature for feature in replayed.model().features if isinstance(feature, Finish))
+    assert finish.source_id == claimed_source
+    assert finish.part21_id == claimed_part21
+    assert finish.origin.reference_item_ids == ("#138",)
+    assert replayed.annotations_of(finish)
+    assert any(
+        issue.code == "pmi_source_site_mismatch" and finish.source_id in issue.source_ids
+        for issue in replayed.lint()
+    )
+
+
 def test_source_claimed_finish_without_a_step_census_is_an_error():
     part = Cylinder(5, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
     sheet = Sheet(part, title="SHAFT", number="F2", pmi="annotate")
@@ -337,6 +381,45 @@ def test_source_finish_lint_rejects_wrong_same_width_visible_digits(_case, monke
     assert any(
         issue.code == "pmi_source_text_mismatch"
         and source["surface_finish"].source_id in issue.source_ids
+        for issue in drawing.lint()
+    )
+
+
+def test_source_finish_lint_rejects_a_displaced_visible_leader_tip(_case, monkeypatch):
+    import draftwright.annotations._gdt as gdt
+
+    source, _ = _case
+    original_builders = gdt._gdt_candidate_builders
+    shifted = []
+
+    def displaced_builders(item, draft, leader_ctor, *args):
+        if item.kind != "finish" or item.source_id != source["surface_finish"].source_id:
+            return original_builders(item, draft, leader_ctor, *args)
+
+        def displaced_leader(*leader_args, **kwargs):
+            tip = kwargs["tip"]
+            kwargs["tip"] = (tip[0] - 0.5, tip[1] + 0.5)
+            shifted.append(kwargs["tip"])
+            return leader_ctor(*leader_args, **kwargs)
+
+        return original_builders(item, draft, displaced_leader, *args)
+
+    monkeypatch.setattr(gdt, "_gdt_candidate_builders", displaced_builders)
+    drawing = build_drawing(_STEP, pmi="annotate", out=None)
+    assert shifted  # The public build used the deliberately displaced leader producer.
+    finish = next(
+        feature
+        for feature in drawing.model().features
+        if isinstance(feature, Finish) and feature.source_id == source["surface_finish"].source_id
+    )
+    (name,) = drawing.registry.names_for_feature(finish)
+    annotation = drawing.get_annotation(name)
+    source_site = _cylindrical_finish_site(source["surface_finish"].cylindrical_refs[0])
+    assert source_site is not None
+    expected = drawing.at(source_site[1], *source_site[0])
+    assert annotation.tip[:2] == pytest.approx((expected[0] - 0.5, expected[1] + 0.5))
+    assert any(
+        issue.code == "pmi_source_site_mismatch" and finish.source_id in issue.source_ids
         for issue in drawing.lint()
     )
 
