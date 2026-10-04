@@ -653,6 +653,11 @@ def _boxes_overlap(a, b) -> bool:
     return bool(a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1])
 
 
+def detail_caption_text_gap(font_size: float) -> float:
+    """Minimum page-space gap between a detail caption and another label."""
+    return font_size / 3.0
+
+
 def _segment_crosses_box(p1, p2, box) -> bool:
     """True when line segment *p1*-*p2* intersects axis-aligned *box*
     ``(x0, y0, x1, y1)`` — the precise counterpart of ``_box_hits`` for a

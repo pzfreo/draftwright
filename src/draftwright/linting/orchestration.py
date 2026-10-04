@@ -152,6 +152,7 @@ def _lint_structure(ctx: LintContext, aggregation: Any, display_decimals: Any) -
         ctx.items,
         page_bbox=ctx.page_bbox,
         drawing_scale=ctx.scale,
+        caption_font_size=ctx.drawing.draft.font_size,
         view_shapes=view_shapes,
         view_names=view_names,
         view_edge_cache=ctx.view_edge_cache,

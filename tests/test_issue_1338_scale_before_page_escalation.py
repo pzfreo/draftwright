@@ -25,6 +25,8 @@ from draftwright.pmi import extract_pmi_report
 FIXTURE = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
 A4 = (297.0, 210.0)
 FIXTURE_SHA256 = "4b6462b9cc9f0d419250933bd77fb305f9cfebb7ec2b3f377008732876010a21"
+SPECIFY_PMI_FIXTURE = Path(__file__).parent / "fixtures/grm03_specify_pmi_ap242.step"
+SPECIFY_PMI_SHA256 = "0e0d9c1f2f81b1181b6039a2254740290a724bf200cfa936f7bf28986b59cf41"
 
 
 def _requirement_failures(drawing):
@@ -139,6 +141,50 @@ def test_side_hole_label_clears_neighbour_view_text_issue_2177():
     label = (10.0, 10.0, 20.0, 12.0)
     assert not label_clears_foreign_annotations(label, (((20.8, 10.0, 25.0, 12.0), True),), 0.5)
     assert label_clears_foreign_annotations(label, (((30.0, 10.0, 35.0, 12.0), True),), 0.5)
+
+
+def test_specify_pmi_detail_caption_clears_required_hole_text_issue_2177():
+    assert hashlib.sha256(SPECIFY_PMI_FIXTURE.read_bytes()).hexdigest() == SPECIFY_PMI_SHA256
+    source = extract_pmi_report(SPECIFY_PMI_FIXTURE)
+    assert any(
+        record.part21_id == "#670" and record.kind == "internal_thread"
+        for record in source.records
+    )
+
+    drawing = build_drawing(SPECIFY_PMI_FIXTURE, pmi="annotate", page="A4", scale=2.0)
+    assert (drawing.page_w, drawing.page_h, drawing.scale) == (*A4, 2.0)
+    assert drawing.scale_decision["status"] == "honored"
+    hole = drawing.get_annotation("hc_side0")
+    caption = drawing.get_annotation("detail_caption_A")
+    assert "⌀1.6 ↧ 3.8 SEE MFG 1" == hole.label
+    assert caption.label.startswith("DETAIL A")
+    assert "detail_a" in drawing.views
+    hole_box, caption_box = hole.label_bbox, caption.label_bbox
+    assert hole_box is not None and caption_box is not None
+    x_gap = max(hole_box[0] - caption_box[2], caption_box[0] - hole_box[2], 0.0)
+    y_gap = max(hole_box[1] - caption_box[3], caption_box[1] - hole_box[3], 0.0)
+    assert max(x_gap, y_gap) >= drawing.draft.font_size / 3
+    assert not [issue for issue in drawing.lint() if issue.code == "detail_caption_clearance"]
+
+    # Deliberately move the caption next to the callout through the public edit verb.
+    target_left = hole_box[2] + 0.25
+    target_bottom = hole_box[1] - 0.25
+    drawing.note(
+        caption.label,
+        at=(
+            target_left + (caption_box[2] - caption_box[0]) / 2,
+            target_bottom + (caption_box[3] - caption_box[1]) / 2,
+        ),
+        name="detail_caption_A",
+    )
+    mutated = drawing.get_annotation("detail_caption_A")
+    assert mutated is not caption and mutated.label_bbox != caption_box
+    assert mutated.label_bbox[0] - hole_box[2] < drawing.draft.font_size / 3
+    assert {
+        (issue.code, issue.annotation_name, issue.related_annotation_names)
+        for issue in drawing.lint()
+        if issue.code == "detail_caption_clearance"
+    } == {("detail_caption_clearance", "detail_caption_A", ("hc_side0",))}
 
 
 def test_first_selected_scale_uses_a_detail_for_short_shoulders():

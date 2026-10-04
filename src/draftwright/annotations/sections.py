@@ -53,6 +53,7 @@ from draftwright._geometry import (
     _leader_ink_polygons,
     _scale_world,
     _stroke_polygon,
+    detail_caption_text_gap,
 )
 from draftwright.annotations._common import (
     _clear_derived_view_reservation,
@@ -125,6 +126,50 @@ def _detail_ink_within_reservation(reserved_box, shapes, *, tolerance=0.05):
         and measured[3] <= reserved_box[3] + tolerance,
         measured,
     )
+
+
+def _detail_caption_clear_of_text(dwg, text, at, region):
+    """Use the planned caption row to separate its text from settled labels."""
+    caption = Note(text, at, dwg.draft)
+    box = _anno_box(caption)
+    gap = detail_caption_text_gap(dwg.draft.font_size)
+    settled = []
+    for _name, annotation in dwg.iter_annotations():
+        if not (
+            getattr(annotation, "label", None) or getattr(annotation, "_annotate_label", None)
+        ):
+            continue
+        label_box = getattr(annotation, "label_bbox", None)
+        if label_box is not None:
+            settled.append(label_box)
+
+    def clear(candidate_box):
+        protected = (
+            candidate_box[0] - gap,
+            candidate_box[1] - gap,
+            candidate_box[2] + gap,
+            candidate_box[3] + gap,
+        )
+        return not any(_boxes_overlap(protected, other) for other in settled)
+
+    if clear(box):
+        return caption
+    # Caption text is shorter than its reserved row. Try the bottom of that row
+    # without moving the detail view or taking space from a required callout.
+    down = region[1] - box[1]
+    if down >= 0:
+        return caption
+    lowered = Note(text, (at[0], at[1] + down), dwg.draft)
+    lowered_box = _anno_box(lowered)
+    if (
+        lowered_box[0] >= region[0] - 1e-6
+        and lowered_box[1] >= region[1] - 1e-6
+        and lowered_box[2] <= region[2] + 1e-6
+        and lowered_box[3] <= region[3] + 1e-6
+        and clear(lowered_box)
+    ):
+        return lowered
+    return caption
 
 
 def feature_hole_keys(model, a: Analysis) -> set[HoleRef]:
@@ -1096,10 +1141,11 @@ def _render_detail(
         _log.info("Detail %s skipped (no legible dims at the detail scale)", letter)
         return False
     dvb = placed.bounding_box()
-    caption = Note(
+    caption = _detail_caption_clear_of_text(
+        dwg,
         _caption_text(detail_scale),
         ((dvb.min.X + dvb.max.X) / 2, dvb.min.Y - cap_h),
-        dwg.draft,
+        reserved_box if reserved_box is not None else (rx0, ry0, rx1, ry1),
     )
     if reserved_box is not None:
         assert annotation_snapshot is not None

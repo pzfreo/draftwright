@@ -23,6 +23,7 @@ from draftwright._geometry import (
     _boxes_overlap,
     _segment_clip_extent,
     _segment_clips_box,
+    detail_caption_text_gap,
     label_on_narrow_material,
     material_reentry_span,
 )
@@ -342,6 +343,7 @@ def lint_drawing(
     | None = None,
     annotation_views: dict[int, str] | None = None,
     annotation_datums: set[int] | None = None,
+    caption_font_size: float = 3.0,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
 
@@ -477,6 +479,7 @@ def lint_drawing(
         warned_label_bbox,
         _aggregation,
         pair_tokens,
+        caption_font_size,
     )
     _lint_annotation_bounds(items, page_bbox, issues, box_cache, names)
     _lint_datum_leader_locality(
@@ -592,6 +595,7 @@ def _lint_annotation_pairs(
     warned_label_bbox,
     _aggregation,
     pair_tokens,
+    caption_font_size,
 ) -> None:
     """Measure label and line ink once, then inspect pairs in input order."""
 
@@ -704,6 +708,43 @@ def _lint_annotation_pairs(
                 continue
             ox = max(0.0, min(la_box[2], lb_box[2]) - max(la_box[0], lb_box[0]))
             oy = max(0.0, min(la_box[3], lb_box[3]) - max(la_box[1], lb_box[1]))
+            name_a, name_b = names.get(id(item_a)), names.get(id(item_b))
+            caption, other, caption_box, other_box = (
+                (name_a, name_b, la_box, lb_box)
+                if name_a is not None and name_a.startswith("detail_caption_")
+                else (name_b, name_a, lb_box, la_box)
+            )
+            other_item = item_b if caption == name_a else item_a
+            other_index = j if caption == name_a else i
+            if (
+                caption is not None
+                and caption.startswith("detail_caption_")
+                and _item_label(other_item)
+                and label_boxes[other_index] is not None
+                and not (ox > 0.5 and oy > 0.5)
+            ):
+                x_gap = max(caption_box[0] - other_box[2], other_box[0] - caption_box[2], 0.0)
+                y_gap = max(caption_box[1] - other_box[3], other_box[1] - caption_box[3], 0.0)
+                minimum = detail_caption_text_gap(caption_font_size)
+                if x_gap < minimum and y_gap < minimum:
+                    issue = LintIssue(
+                        severity="warning",
+                        code="detail_caption_clearance",
+                        message=(
+                            f"detail caption '{caption}' and annotation '{other or '?'}' "
+                            f"have only {max(x_gap, y_gap):.2f} mm text clearance; "
+                            f"keep at least {minimum:.2f} mm"
+                        ),
+                        annotation_name=caption,
+                        related_annotation_names=(other,) if other is not None else (),
+                    )
+                    issues.append(issue)
+                    if _aggregation is not None:
+                        caption_token = pair_tokens.get(
+                            id(item_a if caption == name_a else item_b)
+                        )
+                        if caption_token is not None:
+                            _aggregation.record_pair(issue, caption_token)
             if ox > 0.5 and oy > 0.5:
                 la = getattr(item_a, "label", "?")
                 lb = getattr(item_b, "label", "?")
