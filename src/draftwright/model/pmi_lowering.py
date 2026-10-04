@@ -16,7 +16,7 @@ from dataclasses import replace
 from decimal import Decimal
 from typing import Literal, cast
 
-from draftwright._geometry import _EDGE_ON, _radial_axis_in_view
+from draftwright._geometry import _cylindrical_finish_site
 from draftwright.model.ir import (
     AuthoredDimension,
     BossFeature,
@@ -1731,20 +1731,15 @@ def lower_ap242_face_finishes(model: PartModel) -> PartModel:
                 feature, "face-specific finish needs one exact cylindrical face reference"
             )
             continue
-        cylinder = feature.cylindrical_refs[0]
-        axis = cylinder.principal_axis.lower()
-        if cylinder.sense != "external" or axis not in "xyz":
+        site = _cylindrical_finish_site(feature.cylindrical_refs[0])
+        if site is None:
             features[index] = _block_requirement(
                 feature, "face-specific finish needs an orthographic external cylinder"
             )
             continue
-        view = _EDGE_ON[axis]
-        radial = _radial_axis_in_view(axis, view)
-        side = "above" if radial == "z" else "right"
-        site = list(cylinder.midpoint)
-        site["xyz".index(radial)] += cylinder.radius
+        origin, view, side = site
         features[index] = Finish(
-            frame=Frame((site[0], site[1], site[2]), axis),
+            frame=Frame(origin, feature.cylindrical_refs[0].principal_axis.lower()),
             ra=match.group("ra"),
             view=view,
             side=side,

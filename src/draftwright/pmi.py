@@ -28,6 +28,7 @@ from typing import Any, Literal, cast
 
 from quiddity import PartFrame
 
+from draftwright._geometry import _cylindrical_finish_site
 from draftwright._pmi_datum_geometry import (
     _bbox_centroid,
     _datum_face_site,
@@ -1711,6 +1712,27 @@ _CYLINDRICAL_REQUIREMENT_KINDS = frozenset(
 )
 
 
+def _face_finish_site_blocker(shape, reference, frame: PartFrame | None) -> str | None:
+    """Refuse a finish whose preferred tip is outside its exact trimmed source face."""
+    site = _cylindrical_finish_site(reference)
+    if site is None:
+        return None  # Lowering reports the unsupported cylinder orientation or sense.
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    from OCP.gp import gp_Pnt
+
+    world_site = site[0] if frame is None else frame.to_world(site[0])
+    try:
+        vertex = BRepBuilderAPI_MakeVertex(gp_Pnt(*world_site)).Vertex()
+        distance = BRepExtrema_DistShapeShape(vertex, shape)
+        distance.Perform()
+        if distance.IsDone() and distance.Value() <= 1e-6:
+            return None
+    except Exception:
+        pass
+    return "face-specific finish leader site is not proved on referenced trimmed face"
+
+
 def _chamfer_reference_bboxes(shapes, frame: PartFrame | None = None):
     """Measure exact conical faces referenced by a semantic chamfer requirement."""
     boxes = []
@@ -1776,6 +1798,13 @@ def _manufacturing_requirement_topology(
         blockers = tuple(
             dict.fromkeys((*record.lowering_blockers, *topology_reasons, *geometry_reasons))
         )
+        if (
+            record.kind == "surface_finish"
+            and not blockers
+            and len(shapes) == len(references) == 1
+            and (site_blocker := _face_finish_site_blocker(shapes[0], references[0], frame))
+        ):
+            blockers = (site_blocker,)
         projected.append(replace(record, cylindrical_refs=references, lowering_blockers=blockers))
     return tuple(projected)
 

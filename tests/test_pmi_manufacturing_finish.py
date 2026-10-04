@@ -2,13 +2,21 @@
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from build123d import Cylinder, GeomType, Rot, Vertex
+from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.TopoDS import TopoDS
+from quiddity import FrameGauge, PartFrame
 
+import draftwright.pmi as pmi
 from draftwright import build_drawing
+from draftwright._geometry import _cylindrical_finish_site
 from draftwright.analysis import _import_step
 from draftwright.linting.pmi_coverage import lint_pmi_lowering
 from draftwright.model.ir import (
+    CylindricalReference,
     DefaultSurfaceFinish,
     DocumentNote,
     Finish,
@@ -16,7 +24,7 @@ from draftwright.model.ir import (
     PmiFeature,
 )
 from draftwright.model.pmi_lowering import lower_ap242_document_requirements
-from draftwright.pmi import extract_pmi_report
+from draftwright.pmi import _face_finish_site_blocker, extract_pmi_report
 from draftwright.sheet_emit import emit_sheet_script
 
 _STEP = Path(__file__).parent / "fixtures/grm03_edge_face_finish_ap242.step"
@@ -35,6 +43,7 @@ def _case():
     assert source["edge_condition"].reference_item_ids == ()
     assert source["surface_finish"].label == "Ra 0.8 µm"
     assert source["surface_finish"].reference_item_ids == ("#138",)
+    assert source["surface_finish"].lowering_blockers == ()
     return source, build_drawing(_STEP, pmi="annotate", out=None)
 
 
@@ -207,6 +216,74 @@ def test_face_finish_can_share_an_exact_face_with_a_distinct_knurl_requirement(t
     assert finish.lowering_blockers == ()
     assert len(finish.cylindrical_refs) == 1
     assert finish.cylindrical_refs[0].diameter == pytest.approx(10.0)
+
+
+def test_face_finish_site_check_uses_source_coordinates_under_a_part_frame():
+    frame = PartFrame(
+        origin=(11.0, -7.0, 3.0),
+        x=(0.0, 1.0, 0.0),
+        y=(0.0, 0.0, 1.0),
+        z=(1.0, 0.0, 0.0),
+        gauge=FrameGauge.FULL,
+    )
+    report = extract_pmi_report(_STEP, frame=frame)
+    finish = next(record for record in report.records if record.kind == "surface_finish")
+    assert finish.cylindrical_refs[0].principal_axis == "Z"
+    assert finish.lowering_blockers == ()
+
+
+@pytest.mark.parametrize("trim", ("half_cylinder", "cross_hole"))
+def test_face_finish_refuses_a_tip_outside_the_exact_trimmed_face(trim, monkeypatch):
+    part = (
+        Rot(0, 0, 90) * Cylinder(5, 10, arc_size=180)
+        if trim == "half_cylinder"
+        else Cylinder(5, 10) - Rot(0, 90, 0) * Cylinder(1, 20)
+    )
+    (face,) = [
+        face
+        for face in part.faces()
+        if face.geom_type == GeomType.CYLINDER
+        and BRepAdaptor_Surface(TopoDS.Face_s(face.wrapped)).Cylinder().Radius()
+        == pytest.approx(5)
+    ]
+    surface = BRepAdaptor_Surface(TopoDS.Face_s(face.wrapped))
+    axis = surface.Cylinder().Axis()
+    point, direction = axis.Location(), axis.Direction()
+    reference = CylindricalReference.canonical(
+        axis_point=(point.X(), point.Y(), point.Z()),
+        axis_direction=(direction.X(), direction.Y(), direction.Z()),
+        radius=surface.Cylinder().Radius(),
+        local_interval=(surface.FirstVParameter(), surface.LastVParameter()),
+        sense="external",
+    )
+    site = _cylindrical_finish_site(reference)
+    assert site is not None
+    assert Vertex(*site[0]).distance_to(face) > 0.1  # defect exists before the refusal
+    assert _face_finish_site_blocker(face.wrapped, reference, None) == (
+        "face-specific finish leader site is not proved on referenced trimmed face"
+    )
+    monkeypatch.setattr(
+        pmi,
+        "_DatumTopologyResolver",
+        lambda *_args: SimpleNamespace(resolve=lambda *_args, **_kwargs: ((face.wrapped,), ())),
+    )
+    source = pmi.PmiRecord(
+        kind="surface_finish",
+        type_code=None,
+        value=0.0,
+        label="Ra 0.8 µm",
+        source_id="manufacturing_requirement:partial",
+        part21_id="#finish",
+        source_category="manufacturing_requirement",
+        reference_item_ids=("#face",),
+    )
+    (projected,) = pmi._manufacturing_requirement_topology(
+        (source,), SimpleNamespace(OneShape=lambda: part.wrapped)
+    )
+    assert projected.cylindrical_refs == (reference,)
+    assert projected.lowering_blockers == (
+        "face-specific finish leader site is not proved on referenced trimmed face",
+    )
 
 
 @pytest.mark.parametrize("kind", ["edge_condition", "surface_finish"])
