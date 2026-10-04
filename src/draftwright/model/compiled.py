@@ -1830,8 +1830,8 @@ def _group_display_decimals(feature, planned) -> int | None:
         and knurl.source == "ap242_pmi"
         and knurl.maximum_diameter is not None
     ):
-        # The schedule prints the imported numeric maximum. A coarser diameter
-        # leader would contradict it even when an authored policy asks for less.
+        # The schedule prints the imported maximum, which can differ slightly
+        # from the recognized solid and must survive a coarser authored policy.
         source_places = len(_fmt_pmi_magnitude(knurl.maximum_diameter).partition(".")[2])
         requested_places = cast(int | None, planned.display_decimals)
         return max(source_places, requested_places or 0)
@@ -1841,8 +1841,14 @@ def _group_display_decimals(feature, planned) -> int | None:
 def _group_value_text(feature, planned, flat_auto_decimals: int | None) -> str:
     """Keep a source knurl's maximum readable in its approved diameter callout."""
     decimals = _group_display_decimals(feature, planned)
-    if decimals != planned.display_decimals:
-        return _fmt_pmi_magnitude(planned.param.value, decimals)
+    knurl = getattr(feature, "knurl", None)
+    if (
+        planned.param.kind == "diameter"
+        and isinstance(knurl, KnurlRequirement)
+        and knurl.source == "ap242_pmi"
+        and knurl.maximum_diameter is not None
+    ):
+        return _fmt_pmi_magnitude(knurl.maximum_diameter, decimals)
     decimals = (
         planned.display_decimals
         if planned.display_decimals is not None or feature.kind != "flat"

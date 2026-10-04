@@ -9,11 +9,29 @@ from typing import Literal
 
 from build123d import Align, Location, Mode, Sketch, Text
 
+from draftwright._geometry import _fmt_pmi_magnitude
 from draftwright.linting.issues import LintIssue
 from draftwright.pmi import PmiExtractionReport
 
 _SUPPORTED_MANUFACTURING_REQUIREMENTS = frozenset(("external_thread", "internal_thread", "knurl"))
 _MANUFACTURING_REF = re.compile(r"\bSEE (MFG [1-9][0-9]*)\b")
+_DIAMETER_TOKEN = re.compile(r"ø(\d+(?:\.\d+)?)")
+_KNURL_MAX_TOKEN = re.compile(r"ø(\d+(?:\.\d+)?)\s+MAX AFTER KNURL\b")
+
+
+def _source_knurl_max_is_visible(label: str, printed: str, aspect) -> bool:
+    """Judge source maximum ink independently of the row's callout formatter."""
+    maximum = getattr(aspect, "maximum_diameter", None)
+    if maximum is None:
+        return True
+    expected = Decimal(_fmt_pmi_magnitude(maximum))
+    row_match = _KNURL_MAX_TOKEN.search(printed)
+    if row_match is None or Decimal(row_match.group(1)) != expected:
+        return False
+    if "ø" not in label:
+        return True
+    leader_match = _DIAMETER_TOKEN.search(label)
+    return leader_match is not None and Decimal(leader_match.group(1)) == expected
 
 
 def _title_value_has_finished_ink(title, field: str, value: str) -> bool:
@@ -101,7 +119,9 @@ def lint_manufacturing_references(registry) -> list[LintIssue]:
             claimed_sources = set(source_ids_by_tag.get(tag, ()))
             printed = " ".join(rows_by_tag.get(tag, ()))
             complete = bool(printed and claimed_sources) and any(
-                claimed_sources == set(aspect.source_ids) and printed == aspect.callout_text
+                claimed_sources == set(aspect.source_ids)
+                and printed == aspect.callout_text
+                and _source_knurl_max_is_visible(label, printed, aspect)
                 for aspect in aspects
             )
             if complete:

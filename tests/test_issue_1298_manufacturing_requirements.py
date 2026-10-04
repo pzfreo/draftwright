@@ -978,8 +978,11 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
 
 
 @pytest.mark.parametrize("requested_decimals", [None, 1])
-def test_source_knurl_maximum_keeps_diameter_precision_in_placed_reference(requested_decimals):
-    part = Cylinder(10.05 / 2, 2, align=(Align.CENTER, Align.CENTER, Align.MIN)).rotate(
+@pytest.mark.parametrize("owner_diameter", [10.05, 10.043])
+def test_source_knurl_maximum_keeps_diameter_precision_in_placed_reference(
+    requested_decimals, owner_diameter, monkeypatch
+):
+    part = Cylinder(owner_diameter / 2, 2, align=(Align.CENTER, Align.CENTER, Align.MIN)).rotate(
         Axis.Y, 90
     ) + (
         Pos(2, 0, 0)
@@ -992,7 +995,7 @@ def test_source_knurl_maximum_keeps_diameter_precision_in_placed_reference(reque
             part.bounding_box(),
             "x",
             [
-                _step(10.05, 0, 2),
+                _step(owner_diameter, 0, 2),
                 _step(3, 2, 22),
                 _raw(
                     "knurl",
@@ -1028,6 +1031,31 @@ def test_source_knurl_maximum_keeps_diameter_precision_in_placed_reference(reque
         for issue in drawing.lint(physical=False)
         if issue.code == "manufacturing_reference_unresolved"
     ]
+    if owner_diameter == 10.043 and requested_decimals is None:
+        leader = drawing.get_annotation("m_dia_x0")
+        leader.label = "ø10.04 SEE MFG 2"
+        assert {
+            issue.source_ids
+            for issue in drawing.lint(physical=False)
+            if issue.code == "manufacturing_reference_unresolved"
+        } == {("manufacturing_requirement:#2008",)}
+        leader.label = "ø10.05 SEE MFG 2"
+
+        # Simulate a formatter regression before a fresh build: comparing the
+        # row with the same formatter would accept a missing source maximum.
+        monkeypatch.setattr(
+            KnurlRequirement, "callout_text", property(lambda self: self.callout_suffix)
+        )
+        table.table_rows = tuple(
+            (tag, text.replace("ø10.05 ", "")) for tag, text in table.table_rows
+        )
+        assert "MAX AFTER KNURL" in " ".join(cell for _, cell in table.table_rows)
+        assert "ø10.05" not in " ".join(cell for _, cell in table.table_rows)
+        assert {
+            issue.source_ids
+            for issue in drawing.lint(physical=False)
+            if issue.code == "manufacturing_reference_unresolved"
+        } == {("manufacturing_requirement:#2008",)}
 
 
 def test_unplaced_manufacturing_table_keeps_complete_direct_labels(monkeypatch):
