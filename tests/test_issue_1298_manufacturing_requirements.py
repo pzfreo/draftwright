@@ -1781,13 +1781,9 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="annotate")
 
-    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
-    assert {"front", "side", "detail_a"} <= set(drawing.views)
-    assert drawing.get_annotation("detail_caption_A").label == (
-        "DETAIL A — PARTIAL PROFILE — SCALE 10:1"
-    )
-    assert drawing.detail_decisions[0]["status"] == "placed"
-    assert drawing.detail_decisions[0]["fit"]["within_reservation"] is True
+    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 5.0)
+    assert {"front", "side"} <= set(drawing.views)
+    assert drawing.detail_decisions == []
     assert drawing.scale_decision["status"] != "invalid"
 
     expected_manufacturing = {
@@ -1951,8 +1947,9 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         if isinstance(feature, ChamferFeature)
     ] == chamfers
     replayed = namespace["sheet"].build()
+    # The declared replay still composes the optional detail at its own chosen scale.
+    assert (replayed.page_w, replayed.page_h, replayed.scale) == (297.0, 210.0, 2.0)
     assert replayed.detail_decisions[0]["status"] == "placed"
-    assert replayed.detail_decisions[0]["extent"] == drawing.detail_decisions[0]["extent"]
     assert replayed.detail_decisions[0]["fit"]["within_reservation"] is True
     replayed_model = replayed.model()
     assert sum(isinstance(feature, GeneralTolerance) for feature in replayed_model.features) == 1

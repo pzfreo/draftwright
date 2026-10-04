@@ -597,26 +597,22 @@ class TestTheCaseStudy:
         return part
 
     @pytest.mark.slow
-    def test_the_smaller_view_set_reaches_a2_and_what_it_costs(self):
+    def test_automatic_view_set_matches_manual_reduction_on_a2(self):
         part = self._plate()
         full = build_drawing(part)
         reduced = build_drawing(part, _views=("front", "side"))
 
-        # The ADR's failure: the fixed four-view topology drives A1 at 1:1.
-        assert (full.page_w, full.page_h) == (841.0, 594.0)
+        # Automatic view selection now removes the redundant plan view.
+        assert (full.page_w, full.page_h) == (594.0, 420.0)
         assert full.scale == 1.0
+        assert set(full.views) == {"front", "side", "iso"}
 
-        # Dropping the redundant plan reaches the ADR's target sheet at the same scale.
-        assert (reduced.page_w, reduced.page_h) == (594.0, 420.0)
+        # The explicit two-principal view set reaches the same finished drawing.
+        assert (reduced.page_w, reduced.page_h) == (full.page_w, full.page_h)
         assert reduced.scale == full.scale
-
-        # The omitted plan centerline and ISO caption are furniture, not requirements.
-        # Independent lint confirms that the smaller view set keeps supported meaning.
-        assert len(reduced.annotations()) < len(full.annotations())
-        assert set(full.annotations()) - set(reduced.annotations()) == {
-            "centerline_plan",
-            "note_iso_nts",
-        }
+        assert set(reduced.views) == set(full.views)
+        assert set(reduced.annotations()) == set(full.annotations())
+        assert _lint(full) == set()
         assert _lint(reduced) == set()
 
     @pytest.mark.slow
