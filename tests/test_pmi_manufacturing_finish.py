@@ -5,16 +5,22 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Align, Cylinder, GeomType, Rot, Vertex
+from build123d import Align, Box, Cylinder, GeomType, Rot, Vertex
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.TopoDS import TopoDS
 from quiddity import FrameGauge, PartFrame
 
+import draftwright.drawing_tables as drawing_tables
 import draftwright.pmi as pmi
 from draftwright import Sheet, build_drawing
 from draftwright._geometry import _cylindrical_finish_site
 from draftwright.analysis import _import_step
-from draftwright.linting.pmi_coverage import lint_pmi_lowering
+from draftwright.linting.pmi_coverage import (
+    _printed_document_notes,
+    lint_pmi_lowering,
+    lint_pmi_source_unknown,
+    lint_pmi_unreconciled,
+)
 from draftwright.model.ir import (
     CylindricalReference,
     DefaultSurfaceFinish,
@@ -353,6 +359,9 @@ def test_independent_lint_rejects_changed_finished_manufacturing_text(_case):
             and source["edge_condition"].source_id in issue.source_ids
             for issue in drawing.lint()
         )
+        assert (
+            "pmi_source_text_mismatch" in drawing.lint_summary()["quality"]["fidelity"]["by_code"]
+        )
     finally:
         table.table_rows = original_rows
 
@@ -374,6 +383,140 @@ def test_independent_lint_rejects_changed_finished_manufacturing_text(_case):
         )
     finally:
         annotation.pdf_text_relative_specs = original_specs
+
+
+@pytest.mark.parametrize(
+    "false_claim", ["wrong_part21", "wrong_kind", "wrong_note_kind", "unknown_source"]
+)
+def test_replayed_edge_note_rejects_false_source_identity(_case, false_claim):
+    source, drawing = _case
+    report = extract_pmi_report(_STEP)
+    edge = source["edge_condition"]
+    knurl = source["knurl"]
+    assert knurl.source_id != edge.source_id
+    assert knurl.kind == "knurl"
+    if false_claim == "wrong_part21":
+        source_id, part21_id, expected_code = edge.source_id, "#wrong", "pmi_source_site_mismatch"
+    elif false_claim == "wrong_kind":
+        source_id, part21_id, expected_code = (
+            knurl.source_id,
+            knurl.part21_id,
+            "pmi_source_site_mismatch",
+        )
+    elif false_claim == "wrong_note_kind":
+        source_id, part21_id, expected_code = (
+            edge.source_id,
+            edge.part21_id,
+            "pmi_source_site_mismatch",
+        )
+    else:
+        source_id, part21_id, expected_code = (
+            "manufacturing_requirement:#9999",
+            "#9999",
+            "pmi_source_unknown",
+        )
+        assert source_id not in {record.source_id for record in report.records}
+
+    script = emit_sheet_script(
+        drawing.model(),
+        "part",
+        "grm03-edge-finish",
+        title="GRM-03",
+        number="GRM-03",
+        pmi="annotate",
+        pmi_source=str(_STEP.resolve()),
+    )
+    marker = "drawing = sheet.build()"
+    assert script.count(marker) == 1
+    note_kind = "datum_scheme" if false_claim == "wrong_note_kind" else "edge_condition"
+    added = (
+        f"sheet.document_note('Break sharp edges 0.2 max', kind={note_kind!r}, "
+        f"source_id={source_id!r}, part21_id={part21_id!r})"
+    )
+    altered = script.replace(marker, f"{added}\n{marker}")
+    namespace = {"part": _import_step(str(_STEP))}
+    build_end = altered.index(marker) + len(marker)
+    exec(  # noqa: S102 — exercise a generated public Sheet script with one false claim
+        compile(altered[:build_end], "<false-edge-source>", "exec"), namespace
+    )
+    replayed = namespace["drawing"]
+    rows = replayed.get_annotation("general_notes").table_rows
+    assert sum("Break sharp edges 0.2 max" in row[0] for row in rows) == 2
+    assert any(
+        issue.code == expected_code and source_id in issue.source_ids for issue in replayed.lint()
+    )
+
+
+def test_valid_source_datum_note_retains_its_provenance_without_edge_diagnostic():
+    step = Path(__file__).parent / "fixtures/grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    report = extract_pmi_report(step)
+    (datum_scheme,) = [record for record in report.records if record.kind == "datum_scheme"]
+    sheet = Sheet(Box(12, 12, 12), source=str(step), pmi="annotate")
+    sheet.authored_dimensions()
+    sheet.document_note(
+        datum_scheme.label,
+        kind="datum_scheme",
+        source_id=datum_scheme.source_id,
+        part21_id=datum_scheme.part21_id,
+    )
+    drawing = sheet.build()
+    assert (
+        _printed_document_notes(drawing.get_annotation("general_notes"))[0][0]
+        == datum_scheme.label
+    )
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if datum_scheme.source_id in issue.source_ids
+        and issue.code in {"pmi_source_unknown", "pmi_source_site_mismatch"}
+    ]
+
+
+def test_edge_note_without_a_source_is_authored_but_a_source_claim_needs_a_census(_case):
+    source, drawing = _case
+    edge = next(
+        feature
+        for feature in drawing.model().features
+        if isinstance(feature, DocumentNote)
+        and feature.source_id == source["edge_condition"].source_id
+    )
+    authored = replace(edge, source_id="", part21_id="")
+    assert lint_pmi_unreconciled(None, (authored,)) == []
+    assert lint_pmi_source_unknown(extract_pmi_report(_STEP), (authored,)) == []
+    assert {
+        issue.source_ids
+        for issue in lint_pmi_unreconciled(None, (edge,))
+        if issue.code == "pmi_unreconciled" and issue.severity == "error"
+    } == {(edge.source_id,)}
+
+
+def test_independent_lint_rejects_wrong_visible_edge_note_ink(_case, monkeypatch):
+    source, control = _case
+    original = drawing_tables._build_table
+    changed = []
+
+    def wrong_note_ink(rows, draft, **kwargs):
+        if rows[0] != ("GENERAL NOTES",):
+            return original(rows, draft, **kwargs)
+        assert ("1  Break sharp edges 0.2 max",) in rows
+        changed.append(True)
+        visible_rows = tuple(
+            ("1  Break sharp edges 9.9 max",) if row == ("1  Break sharp edges 0.2 max",) else row
+            for row in rows
+        )
+        return original(visible_rows, draft, **kwargs)
+
+    monkeypatch.setattr(drawing_tables, "_build_table", wrong_note_ink)
+    drawing = build_drawing(_STEP, pmi="annotate", out=None)
+    assert changed
+    table = drawing.get_annotation("general_notes")
+    assert ("1  Break sharp edges 0.2 max",) in table.table_rows
+    assert table.table_size == control.get_annotation("general_notes").table_size
+    assert any(
+        issue.code == "pmi_source_text_mismatch"
+        and source["edge_condition"].source_id in issue.source_ids
+        for issue in drawing.lint()
+    )
 
 
 def test_source_finish_lint_rejects_wrong_same_width_visible_digits(_case, monkeypatch):

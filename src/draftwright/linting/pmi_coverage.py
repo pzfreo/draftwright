@@ -10,7 +10,9 @@ from typing import Literal
 
 from build123d import Align, Location, Mode, Sketch, Text
 
+from draftwright._core import _font_safe_text, _table_metrics
 from draftwright._geometry import _cylindrical_finish_site, _fmt_pmi_magnitude
+from draftwright.fonts import PLEX_MONO
 from draftwright.linting.issues import LintIssue
 from draftwright.pmi import PmiExtractionReport
 
@@ -455,8 +457,8 @@ def lint_pmi_unreconciled(report, features, *, decorations=None) -> list[LintIss
 
     This runs on exactly that gap: content claiming an AP242 origin with no census behind it.
     It reports the claim as unverified, never as satisfied or as false — the honest outcome
-    when the evidence is absent rather than negative. A source-linked finish is an error
-    because its face claim cannot be checked. Supply the document (``Sheet(...,
+    when the evidence is absent rather than negative. A source-linked finish or document note
+    is an error because its source claim cannot be checked. Supply the document (``Sheet(...,
     source=…)`` or a STEP path) and the real reconciliation replaces this.
     """
     if report is not None:
@@ -468,12 +470,14 @@ def lint_pmi_unreconciled(report, features, *, decorations=None) -> list[LintIss
         if getattr(feature, "source", "") == "ap242_pmi"
         or getattr(feature, "kind", None) == "pmi"
         or getattr(feature, "kind", None) == "finish"
+        or getattr(feature, "kind", None) == "document_note"
     }
     for _key, source_ids in _decorated_source_features(decorations, features=features):
         unchecked.update(source_ids)
     raw = sum(1 for feature in features if getattr(feature, "kind", None) == "pmi")
-    source_finish = any(
-        getattr(feature, "kind", None) == "finish" and _source_ids(feature) for feature in features
+    source_scoped = any(
+        getattr(feature, "kind", None) in {"finish", "document_note"} and _source_ids(feature)
+        for feature in features
     )
     if not unchecked and not raw:
         return []
@@ -482,7 +486,7 @@ def lint_pmi_unreconciled(report, features, *, decorations=None) -> list[LintIss
         detail += f", including {raw} raw PMI record(s) not lowered to a drafting concept"
     return [
         LintIssue(
-            severity="error" if source_finish else "warning",
+            severity="error" if source_scoped else "warning",
             code="pmi_unreconciled",
             message=(
                 f"this drawing declares {detail}, and no AP242 census was available to check "
@@ -512,6 +516,7 @@ def lint_pmi_source_unknown(report, features, *, decorations=None) -> list[LintI
             getattr(feature, "source", "") != "ap242_pmi"
             and getattr(feature, "kind", None) != "pmi"
             and getattr(feature, "kind", None) != "finish"
+            and getattr(feature, "kind", None) != "document_note"
         ):
             continue
         for source_id in _source_ids(feature):
@@ -626,10 +631,11 @@ def _lint_pmi_frame_values(report: PmiExtractionReport, registry) -> list[LintIs
     return issues
 
 
-def _printed_document_notes(table) -> tuple[str, ...]:
-    """Read numbered note text back from the placed general-notes table."""
+def _printed_document_notes(table) -> tuple[tuple[str, tuple[int, ...]], ...]:
+    """Read numbered note text and its table rows from the placed annotation."""
     notes: list[str] = []
-    for row in getattr(table, "table_rows", ()):
+    row_groups: list[list[int]] = []
+    for row_index, row in enumerate(getattr(table, "table_rows", ())):
         if len(row) != 1:
             return ()
         line = row[0]
@@ -637,11 +643,54 @@ def _printed_document_notes(table) -> tuple[str, ...]:
             if int(match.group(1)) != len(notes) + 1:
                 return ()
             notes.append(match.group(2))
+            row_groups.append([row_index])
         elif line.startswith("   ") and notes:
             notes[-1] += " " + line.strip()
+            row_groups[-1].append(row_index)
         elif line != "GENERAL NOTES":
             return ()
-    return tuple(notes)
+    return tuple((note, tuple(indices)) for note, indices in zip(notes, row_groups, strict=True))
+
+
+def _note_rows_have_finished_ink(table, drawing, row_indices: tuple[int, ...]) -> bool:
+    """Check placed note glyphs rather than trusting the table's text metadata."""
+    if drawing is None:
+        return True  # A registry-only check has no page geometry to inspect.
+    try:
+        rows = table.table_rows
+        font_size = drawing.draft.font_size
+        pad = drawing.draft.pad_around_text
+        lefts, _rights, _width, height, row_height, _block_cols = _table_metrics(
+            rows, font_size, pad
+        )
+        box = table.bounding_box()
+        faces = table.faces()
+        for index in row_indices:
+            lower = box.min.Y + height - (index + 1) * row_height
+            upper = lower + row_height
+            actual_faces = [
+                face
+                for face in faces
+                if face.bounding_box().min.Y >= lower - 1e-6
+                and face.bounding_box().max.Y <= upper + 1e-6
+            ]
+            if not actual_faces:
+                return False
+            expected = Text(
+                txt=_font_safe_text(rows[index][0]),
+                font_size=font_size,
+                font_path=PLEX_MONO,
+                align=(Align.MIN, Align.CENTER),
+                mode=Mode.PRIVATE,
+            ).moved(Location((box.min.X + lefts[0] + pad, lower + row_height / 2, 0)))
+            actual = Sketch(children=actual_faces)
+            missing = sum(face.area for face in expected.cut(actual).faces())
+            extra = sum(face.area for face in actual.cut(expected).faces())
+            if missing + extra > 1e-5:
+                return False
+        return True
+    except Exception:
+        return False
 
 
 def _finish_tip_at_source(annotation, drawing, site) -> bool:
@@ -663,6 +712,12 @@ def _lint_pmi_manufacturing_ink(
         if record.source_category == "manufacturing_requirement"
         and record.kind in {"edge_condition", "surface_finish"}
     }
+    document_sources = {
+        record.source_id: record
+        for record in report.records
+        if record.source_category == "manufacturing_requirement"
+        and record.kind in {"datum_scheme", "model_representation", "edge_condition"}
+    }
     known_sources = {record.source_id for record in report.records}
     known_sources.update(entity.source_id for entity in report.sources if entity.source_id)
     issues = []
@@ -679,13 +734,41 @@ def _lint_pmi_manufacturing_ink(
     printed_notes = _printed_document_notes(table)
     for index, owner in enumerate(note_owners):
         source_id = getattr(owner, "source_id", "")
-        record = source.get(source_id)
+        if not source_id:
+            continue  # caller-authored note without an AP242 claim
+        record = document_sources.get(source_id)
         if record is None:
+            if source_id in known_sources:
+                issues.append(
+                    LintIssue(
+                        severity="error",
+                        code="pmi_source_site_mismatch",
+                        message=f"general_notes claims non-edge STEP source {source_id}",
+                        source_ids=(source_id,),
+                        annotation_name="general_notes",
+                    )
+                )
             continue
         if (
-            record.kind == "edge_condition"
-            and index < len(printed_notes)
-            and printed_notes[index] == record.label
+            record.kind != getattr(owner, "note_kind", None)
+            or getattr(owner, "part21_id", None) != record.part21_id
+        ):
+            issues.append(
+                LintIssue(
+                    severity="error",
+                    code="pmi_source_site_mismatch",
+                    message=f"general_notes does not retain AP242 edge identity {source_id}",
+                    source_ids=(source_id,),
+                    annotation_name="general_notes",
+                )
+            )
+            continue
+        if record.kind != "edge_condition":
+            continue
+        if (
+            index < len(printed_notes)
+            and printed_notes[index][0] == record.label
+            and _note_rows_have_finished_ink(table, drawing, printed_notes[index][1])
         ):
             continue
         issues.append(
