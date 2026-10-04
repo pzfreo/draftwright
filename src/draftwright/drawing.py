@@ -735,6 +735,16 @@ class Drawing:
 
         return self._diagnostics().report()
 
+    def dimension_sources(self) -> list[dict[str, object]]:
+        """Placed measurements and their exact AP242 or planner provenance.
+
+        One row is returned per measured term, including each term of a compound
+        callout. This is a read-only inventory for inspection-list consumers.
+        """
+        from draftwright.reporting import placed_dimension_sources
+
+        return placed_dimension_sources(self._part_model, self._registry)
+
     def requirement_snapshot(self, *, include_lint=False):
 
         return self._diagnostics().requirement_snapshot(include_lint=include_lint)

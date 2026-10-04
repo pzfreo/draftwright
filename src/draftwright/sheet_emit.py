@@ -1006,6 +1006,33 @@ def _profile_groups(source_features) -> dict[int, str]:
     return profile_group_by_feature
 
 
+def _nominal_requirement_calls(
+    nominal: object,
+    step_length_nominal: object,
+    nominal_parameter: str | None,
+    kind: str,
+) -> str:
+    calls = ""
+    if isinstance(nominal, NominalRequirement):
+        provenance = f"source={nominal.source!r}, source_ids={nominal.source_ids!r}"
+        if nominal.label is not None:
+            provenance += f", label={nominal.label!r}"
+        on = f", on={nominal_parameter!r}" if kind in ("step", "pattern", "rotational") else ""
+        calls += f".requirement({_authored_n(nominal.value)}{on}, {provenance})"
+    if isinstance(step_length_nominal, NominalRequirement):
+        label = (
+            f", label={step_length_nominal.label!r}"
+            if step_length_nominal.label is not None
+            else ""
+        )
+        calls += (
+            f".requirement({_authored_n(step_length_nominal.value)}, "
+            f"on='step.length', source={step_length_nominal.source!r}, "
+            f"source_ids={step_length_nominal.source_ids!r}{label})"
+        )
+    return calls
+
+
 def _feature_block(
     features,
     part_envelope=None,
@@ -1094,7 +1121,9 @@ def _feature_block(
             # Keep the numeric declaration for exact-owned parameters.
             object_ref = (
                 None
-                if exact_parameter is not None or exact_step_length
+                if exact_parameter is not None
+                or exact_step_length
+                or (f.kind == "step" and f.position_span is not None)
                 else (object_refs or {}).get(id(f))
             )
             line = _feature_line(
@@ -1208,17 +1237,9 @@ def _feature_block(
                             provenance += f", limit_bounds={tolerance.limit_bounds!r}"
                     line += f".tolerance({args}, on={parameter.parameter_id!r}{provenance})"
 
-            if isinstance(nominal, NominalRequirement):
-                provenance = f"source={nominal.source!r}, source_ids={nominal.source_ids!r}"
-                on_target = nominal_parameter
-                on = f", on={on_target!r}" if f.kind in ("step", "pattern", "rotational") else ""
-                line += f".requirement({_authored_n(nominal.value)}{on}, {provenance})"
-            if isinstance(step_length_nominal, NominalRequirement):
-                line += (
-                    f".requirement({_authored_n(step_length_nominal.value)}, "
-                    f"on='step.length', source={step_length_nominal.source!r}, "
-                    f"source_ids={step_length_nominal.source_ids!r})"
-                )
+            line += _nominal_requirement_calls(
+                nominal, step_length_nominal, nominal_parameter, f.kind
+            )
             name = _binding(f, line, counts)
             if name is not None:
                 metadata = (declaration_metadata or {}).get(id(f))

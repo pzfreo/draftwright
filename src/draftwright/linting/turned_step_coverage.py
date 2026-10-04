@@ -272,10 +272,16 @@ def physical_turned_steps(recognition: RecognitionResult) -> tuple[tuple[object,
 
 def _has_parameters(feature) -> bool:
     try:
-        return {parameter.parameter_id for parameter in feature.parameters()} == {
-            "step.length",
-            "step.diameter",
-        }
+        parameters = {parameter.parameter_id for parameter in feature.parameters()}
+        return (
+            {"step.length", "step.diameter"}
+            <= parameters
+            <= {
+                "step.length",
+                "step.diameter",
+                "step_position.length",
+            }
+        )
     except (AttributeError, TypeError):
         return False
 

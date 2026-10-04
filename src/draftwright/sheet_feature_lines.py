@@ -704,8 +704,14 @@ def _stock_feature_line(
         )  # external thread (#859)
         knurl = f", knurl={_knurl_arg(f.knurl)}" if getattr(f, "knurl", None) else ""
         group = f", profile_group={profile_group!r}" if profile_group is not None else ""
+        position = (
+            f", position_span=({_authored_pt(f.position_span[0])}, "
+            f"{_authored_pt(f.position_span[1])})"
+            if f.position_span is not None
+            else ""
+        )
         if object_ref is not None:
-            return f"sheet.step({object_ref}{thr}{knurl}{group})"
+            return f"sheet.step({object_ref}{thr}{knurl}{group}{position})"
         return (
             "sheet.step("
             f"diameter={_parameter_n(f.diameter, 'step.diameter', exact_parameter)}, "
@@ -713,7 +719,8 @@ def _stock_feature_line(
             # Public shoulder stations are at 0.001 mm, so an odd-thousandth span has a
             # half-thousandth midpoint.  Preserve that coupled fact: independently rounding
             # ``length`` and ``at`` would reconstruct both endpoints 0.0005 mm away.
-            f'at={_authored_pt(f.frame.origin)}, axis="{f.frame.axis}"{thr}{knurl}{group})'
+            f'at={_authored_pt(f.frame.origin)}, axis="{f.frame.axis}"'
+            f"{thr}{knurl}{group}{position})"
         )
     raise AssertionError(f"unexpected stock feature kind: {k}")
 
