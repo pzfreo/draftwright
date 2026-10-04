@@ -1,4 +1,4 @@
-"""ADR 2 (was 0018)'s motivating failure, reproduced from a synthetic part.
+"""ADR 2 (was 0018)'s thin-plate view-planning case, reproduced from a synthetic part.
 
 The ADR was proposed from a user-supplied `worm_planetary_concept_Alimacznicy.step` that this
 repository does not have, and its first required-evidence item is:
@@ -6,17 +6,9 @@ repository does not have, and its first required-evidence item is:
     A synthetic thin rotational plate reproduces the A1/fixed-four-view failure without relying
     on a proprietary or externally supplied STEP file.
 
-This is that fixture. It exists so every later slice of #1130 is measured against something the
-repository owns, and so the claim "the fixed four-view topology forces the sheet" is a number
-here rather than a recollection of someone else's file.
-
-**These tests pin the safety counterexample, deliberately.** Nothing here is a defect report
-against the packer — given four views the engine's choice is correct, and its refusal to fit A2
-is honest. Automatic selection now tries the smaller profile + end-view set, but this fixture
-loses required slot annotations under that layout, so the finished-drawing gate retains the
-full topology.
-
-A slice that changes these numbers is doing ADR 2 (was 0018)'s work, and must update them and say so.
+This fixture measures both plans: retaining three principal views uses A1 at 1:1, while automatic
+selection omits the redundant plan view and fits A2 at 1:1 with required outcomes retained.
+The drawing and its independent lint must agree on that result.
 """
 
 from __future__ import annotations
@@ -94,33 +86,32 @@ def automatic():
     return build_drawing(thin_rotational_plate(), title="T", number="N")
 
 
-class TestTheFixedTopologyForcesTheSheet:
-    def test_the_automatic_result_is_a1_at_full_scale_and_reports_no_problem(self, automatic):
-        """The ADR's headline: A1 landscape at 1:1 for a part 43 mm thick.
-
-        The sheet is the ADR's subject and is unchanged because the automatic reduced candidate
-        loses required outcomes. #1250's completeness gate keeps that loss explicit.
-        """
+class TestTheReducedPlanFitsTheSheet:
+    def test_the_automatic_result_is_a2_at_full_scale_and_reports_no_problem(self, automatic):
+        """A redundant plan view can yield while required outcomes survive on A2."""
         drawing = automatic
 
-        assert (drawing.page_w, drawing.page_h) == (841.0, 594.0), "not A1 landscape"
+        assert (drawing.page_w, drawing.page_h) == (594.0, 420.0), "not A2 landscape"
         assert drawing.scale == 1.0
-        assert set(drawing.views) == {"front", "plan", "side", "iso"}
-        assert drawing.view_decision["status"] == "retained_after_rejection"
-        # Interior recovery now preserves the previously dropped outcomes on this same
-        # proposal, so the automatic path truthfully reports success.
+        assert set(drawing.views) == {"front", "side", "iso"}
+        assert drawing.view_decision["status"] == "reduced"
+        assert drawing.view_decision["chosen"] == ("front", "side")
         assert not [i for i in drawing.lint() if i.severity == "error"]
         assert drawing.lint_summary()["passed"] is True
 
-    def test_the_plan_view_repeats_the_front_and_carries_almost_nothing(self, automatic):
-        """WHY it is the wrong sheet, not just that it is a big one.
+    def test_the_omitted_plan_repeats_the_front_and_carries_almost_nothing(self):
+        """Retaining all views exposes the redundant projection the planner omits.
 
         On an X-axis rotational part the front and plan are both edge-on: same silhouette, same
         extent. One of them is a second look at the same thing, and the annotations show which —
-        the disc face (side) carries the hole patterns and diameters, the front carries the
-        axial dimensions, and the plan carries almost nothing while occupying 217 mm.
+        the disc face (side) carries the hole patterns and diameters, the front carries axial
+        dimensions, and the plan carries almost nothing.
         """
-        drawing = automatic
+        drawing = build_drawing(
+            thin_rotational_plate(), title="T", number="N", _views=("front", "plan", "side")
+        )
+        assert (drawing.page_w, drawing.page_h) == (841.0, 594.0)
+        assert drawing.scale == 1.0
         front = drawing.view_bounds("front")
         plan = drawing.view_bounds("plan")
         side = drawing.view_bounds("side")
@@ -147,32 +138,11 @@ class TestTheFixedTopologyForcesTheSheet:
         )
 
     def test_the_automatic_sheet_agrees_with_the_explicit_engine_verdict(self, automatic):
-        """The sharp end of the evidence, and the defect #1250 fixed.
-
-        Before #1250 the automatic build chose A1 at 1:1 and reported `passed: True` with no
-        lint errors. Asking for that SAME page and scale explicitly made the engine refuse —
-        "requested scale 1 cannot preserve required annotations". Same part, same sheet, same
-        scale, two verdicts, decided by how the caller phrased the request: the explicit path
-        ran `_scale_blockers` and the automatic path did not.
-
-        The blockers are real, not an artefact of the stricter path: the automatic drawing
-        still carries `slot_dim_dropped` and `hole_requirement_missing`, so it IS the
-        incomplete drawing the explicit gate exists to prevent.
-
-        ADR 2 (was 0018)'s evidence list requires: "A forced small sheet/large scale that drops a
-        requirement is rejected, not accepted with a warning-only incomplete drawing." The
-        automatic path now runs the same gate and reports the settled drawing's loss at error
-        severity. Candidate search remains the joint planner's responsibility (#1262), because
-        partial registry provenance cannot prove that a rebuilt candidate preserves everything.
-
-        The first version of this test asserted that A2 at 1:1 raises, and read that as the
-        four-view topology forcing the sheet. It does raise — but so does A1, so the assertion
-        demonstrated this inconsistency rather than the sheet cost it claimed. The mutation that
-        found it changed `page="A2"` to `page="A1"` and the test still passed.
-        """
+        """Automatic and explicit A2 at 1:1 agree on the complete selected plan."""
         assert automatic.lint_summary()["passed"] is True
         explicit = build_drawing(
-            thin_rotational_plate(), page="A1", scale=1.0, title="T", number="N"
+            thin_rotational_plate(), page="A2", scale=1.0, title="T", number="N"
         )
         assert explicit.lint_summary()["passed"] is True
+        assert set(explicit.views) == set(automatic.views)
         assert not [issue for issue in explicit.lint() if issue.code.endswith("_dropped")]

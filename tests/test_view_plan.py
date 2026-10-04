@@ -298,17 +298,18 @@ class TestPerViewRequirementCoverage:
     """
 
     def test_a_rotational_plate_has_one_view_carrying_nothing_of_its_own(self):
-        """The redundant case, and the reason the thin plate needs an A1.
+        """The redundant case, measured with all three principal views retained.
 
         On an X-axis rotational part the front and plan are the same edge-on projection. The
-        engine draws both because the topology is fixed, and the plan ends up carrying no
-        measurement at all — 217 mm of sheet for a repeat of its neighbour.
+        plan carries no measurement of its own and is a candidate for automatic removal.
         """
         from test_issue_1130_view_planning_evidence import thin_rotational_plate
 
         from draftwright.view_plan import view_coverage, views_carrying_nothing_exclusively
 
-        drawing = build_drawing(thin_rotational_plate(), title="T", number="N")
+        drawing = build_drawing(
+            thin_rotational_plate(), title="T", number="N", _views=("front", "plan", "side")
+        )
         coverage = view_coverage(drawing)
 
         assert views_carrying_nothing_exclusively(drawing) == ("plan",)
@@ -397,7 +398,9 @@ class TestPerViewRequirementCoverage:
 
         from draftwright.view_plan import view_coverage, views_carrying_nothing_exclusively
 
-        drawing = build_drawing(thin_rotational_plate(), title="T", number="N")
+        drawing = build_drawing(
+            thin_rotational_plate(), title="T", number="N", _views=("front", "plan", "side")
+        )
         coverage = view_coverage(drawing)
 
         assert views_carrying_nothing_exclusively(drawing) == ("plan",)
