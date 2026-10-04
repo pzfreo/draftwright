@@ -1162,7 +1162,6 @@ def _render_detail(
             dwg.views.pop(view_name, None)
             return False
     dwg._set_view_coordinates(view_name, coords)
-
     _place_detail_marker(dwg, a, req, letter, ctx=ctx)
 
     # Caption below the placed view (anchored to its real footprint).

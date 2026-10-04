@@ -537,6 +537,55 @@ def _gdt_drop_callback(
     return _drop
 
 
+def _gdt_compact_candidates(
+    original, build, strip, size, horizontal, item, site, tier, material_field
+):
+    """Nearest-first same-strip landings checked later against exact ink.
+
+    Dimension extension lines make their conservative boxes intentionally
+    broad. A GD&T leader may pass through the empty part of such a box, so
+    the corridor result is an upper bound rather than necessarily the best
+    landing. Keep this search finite and inside the requested strip.
+    """
+    if original is None:
+        return
+    original_pos = original.elbow[1 if horizontal else 0]
+    extent = size[1 if horizontal else 0]
+    if item.kind == "datum_ref" and item.reference_surface_kind:
+        # A whole-view strip can be far from a small datum face. First try
+        # bounded positions between the face and that strip, while keeping
+        # the shaft on the proven surface normal. The shared postsolve
+        # checks the complete glyph, view edges and settled annotation ink.
+        distance = (original_pos - site) * strip.direction
+        first = extent / 2.0 + 1.0
+        step = max(tier / 2.0, 1.0)
+        for index in range(min(12, max(0, int((distance - first) / step) + 1))):
+            travel = first + index * step
+            if travel >= distance - 1e-6:
+                break
+            pos = site + strip.direction * travel
+            candidate = build(pos)
+            # A symbol inside the whole-view box must sit in projected
+            # whitespace, not on a blank face with no visible edge. The
+            # shared postsolve also checks visible edges and exact ink.
+            if _datum_label_has_whitespace(
+                candidate.label_bbox, strip, horizontal, material_field
+            ):
+                yield candidate
+    near = strip.anchor + strip.direction * (strip.gap + extent / 2.0)
+    distance = (original_pos - near) * strip.direction
+    if distance <= 1e-6:
+        return
+    step = max(tier + strip.spacing, 1.0)
+    count = min(64, int(math.ceil(distance / step)) + 1)
+    for index in range(count):
+        travel = min(distance, index * step)
+        pos = near + strip.direction * travel
+        if abs(pos - original_pos) <= 1e-6:
+            return
+        yield build(pos)
+
+
 def _gdt_candidate_builders(
     item, draft, leader_ctor, fallback_glyph, px, py, horizontal, strip, size, tier, material_field
 ):
@@ -627,60 +676,18 @@ def _gdt_candidate_builders(
             _attach_gdt_text_evidence(leader, _g, _it, draft)
         return leader
 
-    def _compact_candidates(
-        original,
-        _build=_build,
-        _strip=strip,
-        _size=size,
-        _horizontal=horizontal,
-        _item=item,
-        _site=py if horizontal else px,
-        _material_field=material_field,
-    ):
-        """Nearest-first same-strip landings checked later against exact ink.
-
-        Dimension extension lines make their conservative boxes intentionally
-        broad.  A GD&T leader may pass through the empty part of such a box, so
-        the corridor result is an upper bound rather than necessarily the best
-        landing.  Keep this search finite and inside the requested strip.
-        """
-        if original is None:
-            return
-        original_pos = original.elbow[1 if _horizontal else 0]
-        extent = _size[1 if _horizontal else 0]
-        if _item.kind == "datum_ref" and _item.reference_surface_kind:
-            # A whole-view strip can be far from a small datum face. First try
-            # bounded positions between the face and that strip, while keeping
-            # the shaft on the proven surface normal. The shared postsolve
-            # checks the complete glyph, view edges and settled annotation ink.
-            distance = (original_pos - _site) * _strip.direction
-            first = extent / 2.0 + 1.0
-            step = max(tier / 2.0, 1.0)
-            for index in range(min(12, max(0, int((distance - first) / step) + 1))):
-                travel = first + index * step
-                if travel >= distance - 1e-6:
-                    break
-                pos = _site + _strip.direction * travel
-                candidate = _build(pos)
-                # A symbol inside the whole-view box must sit in projected
-                # whitespace, not on a blank face with no visible edge. The
-                # shared postsolve also checks visible edges and exact ink.
-                if _datum_label_has_whitespace(
-                    candidate.label_bbox, _strip, _horizontal, _material_field
-                ):
-                    yield candidate
-        near = _strip.anchor + _strip.direction * (_strip.gap + extent / 2.0)
-        distance = (original_pos - near) * _strip.direction
-        if distance <= 1e-6:
-            return
-        step = max(tier + _strip.spacing, 1.0)
-        count = min(64, int(math.ceil(distance / step)) + 1)
-        for index in range(count):
-            travel = min(distance, index * step)
-            pos = near + _strip.direction * travel
-            if abs(pos - original_pos) <= 1e-6:
-                return
-            yield _build(pos)
+    def _compact_candidates(original):
+        return _gdt_compact_candidates(
+            original,
+            _build,
+            strip,
+            size,
+            horizontal,
+            item,
+            py if horizontal else px,
+            tier,
+            material_field,
+        )
 
     def _ink_repair_candidates(
         original,

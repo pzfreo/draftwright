@@ -587,6 +587,60 @@ def _lint_annotation_items(
             )
 
 
+def _lint_detail_caption_pair(
+    item_a,
+    item_b,
+    i,
+    j,
+    la_box,
+    lb_box,
+    ox,
+    oy,
+    names,
+    label_boxes,
+    caption_font_size,
+    issues,
+    aggregation,
+    pair_tokens,
+) -> None:
+    """Require readable clearance around a detail caption's settled text."""
+    name_a, name_b = names.get(id(item_a)), names.get(id(item_b))
+    caption, other, caption_box, other_box = (
+        (name_a, name_b, la_box, lb_box)
+        if name_a is not None and name_a.startswith("detail_caption_")
+        else (name_b, name_a, lb_box, la_box)
+    )
+    other_item = item_b if caption == name_a else item_a
+    other_index = j if caption == name_a else i
+    if (
+        caption is not None
+        and caption.startswith("detail_caption_")
+        and _item_label(other_item)
+        and label_boxes[other_index] is not None
+        and not (ox > 0.5 and oy > 0.5)
+    ):
+        x_gap = max(caption_box[0] - other_box[2], other_box[0] - caption_box[2], 0.0)
+        y_gap = max(caption_box[1] - other_box[3], other_box[1] - caption_box[3], 0.0)
+        minimum = detail_caption_text_gap(caption_font_size)
+        if x_gap < minimum and y_gap < minimum:
+            issue = LintIssue(
+                severity="warning",
+                code="detail_caption_clearance",
+                message=(
+                    f"detail caption '{caption}' and annotation '{other or '?'}' "
+                    f"have only {max(x_gap, y_gap):.2f} mm text clearance; "
+                    f"keep at least {minimum:.2f} mm"
+                ),
+                annotation_name=caption,
+                related_annotation_names=(other,) if other is not None else (),
+            )
+            issues.append(issue)
+            if aggregation is not None:
+                caption_token = pair_tokens.get(id(item_a if caption == name_a else item_b))
+                if caption_token is not None:
+                    aggregation.record_pair(issue, caption_token)
+
+
 def _lint_annotation_pairs(
     items,
     issues,
@@ -708,43 +762,22 @@ def _lint_annotation_pairs(
                 continue
             ox = max(0.0, min(la_box[2], lb_box[2]) - max(la_box[0], lb_box[0]))
             oy = max(0.0, min(la_box[3], lb_box[3]) - max(la_box[1], lb_box[1]))
-            name_a, name_b = names.get(id(item_a)), names.get(id(item_b))
-            caption, other, caption_box, other_box = (
-                (name_a, name_b, la_box, lb_box)
-                if name_a is not None and name_a.startswith("detail_caption_")
-                else (name_b, name_a, lb_box, la_box)
+            _lint_detail_caption_pair(
+                item_a,
+                item_b,
+                i,
+                j,
+                la_box,
+                lb_box,
+                ox,
+                oy,
+                names,
+                label_boxes,
+                caption_font_size,
+                issues,
+                _aggregation,
+                pair_tokens,
             )
-            other_item = item_b if caption == name_a else item_a
-            other_index = j if caption == name_a else i
-            if (
-                caption is not None
-                and caption.startswith("detail_caption_")
-                and _item_label(other_item)
-                and label_boxes[other_index] is not None
-                and not (ox > 0.5 and oy > 0.5)
-            ):
-                x_gap = max(caption_box[0] - other_box[2], other_box[0] - caption_box[2], 0.0)
-                y_gap = max(caption_box[1] - other_box[3], other_box[1] - caption_box[3], 0.0)
-                minimum = detail_caption_text_gap(caption_font_size)
-                if x_gap < minimum and y_gap < minimum:
-                    issue = LintIssue(
-                        severity="warning",
-                        code="detail_caption_clearance",
-                        message=(
-                            f"detail caption '{caption}' and annotation '{other or '?'}' "
-                            f"have only {max(x_gap, y_gap):.2f} mm text clearance; "
-                            f"keep at least {minimum:.2f} mm"
-                        ),
-                        annotation_name=caption,
-                        related_annotation_names=(other,) if other is not None else (),
-                    )
-                    issues.append(issue)
-                    if _aggregation is not None:
-                        caption_token = pair_tokens.get(
-                            id(item_a if caption == name_a else item_b)
-                        )
-                        if caption_token is not None:
-                            _aggregation.record_pair(issue, caption_token)
             if ox > 0.5 and oy > 0.5:
                 la = getattr(item_a, "label", "?")
                 lb = getattr(item_b, "label", "?")
@@ -793,27 +826,10 @@ def _lint_annotation_pairs(
                     related_annotation_names=named_pair[1:],
                 )
                 issues.append(overlap_issue)
-                # `annotation_overlap` deliberately does NOT enter #1147's ledger,
-                # and this branch must not put it there. Two revisions tried and
-                # both changed the score of a code that never participated,
-                # because `_primary_issues` keys on `(code, token)`: recording
-                # every overlap collapsed pairs that merely shared a subject
-                # (2 raw -> 1 primary, and which survived depended on `items`
-                # order), and restricting it to pairs that ALSO cross collapsed
-                # pairs that shared a *crossed* label (3 raw -> 2 primary against
-                # main's 3), so adding ink crossings to a sheet RAISED its
-                # legibility score.
-                #
-                # Collapsing by the crossed label is right for
-                # `annotation_ink_overlap`, where one unreadable label is one
-                # defect. It is wrong for `annotation_overlap`, which is about two
-                # labels colliding with each other and has no single subject.
-                #
-                # The cost is real and stays: a pair both overlapped and crossed
-                # reports only the overlap, so the reader loses which label is
-                # obscured, by what, and how far. #1333 owns that, and the fix is
-                # to carry the detail in the surviving message rather than to key
-                # a second code into the ledger.
+                # Do not ledger annotation_overlap: the defect belongs to the
+                # pair, while a ledger token names one obscured label. Collapsing
+                # pairs that share a token changes the legibility score. Carry
+                # line-crossing detail in the surviving message instead (#1333).
                 continue
 
             # The label boxes clear each other, which does not mean the
@@ -1200,47 +1216,20 @@ def _lint_title_fields(item, issues) -> None:
             )
 
 
-def _lint_view_shapes(
-    view_shapes,
+def _lint_view_annotation_overlap(
+    named_views,
+    view_shape_ids,
     ann_items,
     issues,
     *,
-    view_names=None,
-    page_bbox=None,
-    edge_cache=None,
-    box_cache=None,
-    warned=None,
-    material_fields=None,
-    annotation_names=None,
-    annotation_regions=None,
-    annotation_views=None,
+    annotation_names,
+    annotation_regions,
+    edge_cache,
+    box_cache,
+    warned,
+    material_fields,
 ) -> None:
-    """Check views against annotations (#159/#76), each other (#160), and the page (#75)."""
-    # Build the named bbox list. The name must be DETERMINISTIC: several messages
-    # below identify a view by it, and `id()` is a fresh memory address on every
-    # render, so the same sheet linted twice produced different text and any consumer
-    # diffing two renders saw a change that did not exist in the drawing (#1196).
-    # Prefer the caller's own name for the view; fall back to position, never identity.
-    named_views = []
-    view_shape_ids = set()
-    for index, vs in enumerate(view_shapes):
-        bb = _ann_box(vs, box_cache if box_cache is not None else {})
-        if bb is None:
-            continue
-        supplied = (
-            view_names[index] if view_names is not None and index < len(view_names) else None
-        )
-        # *supplied* first: the docstring argues the caller is the authority on what a
-        # view is called, so letting a shape attribute outrank it would contradict that.
-        # Latent today — every projected view carries `label == ""` — but DXF layer
-        # naming is an obvious future reason to label a view compound, and it would
-        # then silently override the drawing's own key.
-        name = (
-            supplied or getattr(vs, "label", None) or getattr(vs, "name", None) or f"view[{index}]"
-        )
-        named_views.append((name, bb, vs))
-        view_shape_ids.add(id(vs))
-
+    """Check annotation text against each projected view's settled edges."""
     # #159 — view shape vs annotation overlaps. Line-work (witness lines,
     # leader shafts, centrelines) legitimately enters the view, so test the
     # label-text bbox where the annotation exposes one and skip centrelines
@@ -1250,8 +1239,6 @@ def _lint_view_shapes(
     # mostly blank face, where placing callouts is a legitimate convention —
     # so a label over a blank region is reported as an info-level notice.
     names = {} if annotation_names is None else annotation_names
-    owners = {} if annotation_views is None else annotation_views
-    unreadable_shafts: set[int] = set()
     regions = {} if annotation_regions is None else annotation_regions
     cache = {} if edge_cache is None else edge_cache
     ann_cache = box_cache if box_cache is not None else {}
@@ -1332,6 +1319,64 @@ def _lint_view_shapes(
                     )
                 )
 
+
+def _lint_view_shapes(
+    view_shapes,
+    ann_items,
+    issues,
+    *,
+    view_names=None,
+    page_bbox=None,
+    edge_cache=None,
+    box_cache=None,
+    warned=None,
+    material_fields=None,
+    annotation_names=None,
+    annotation_regions=None,
+    annotation_views=None,
+) -> None:
+    """Check views against annotations (#159/#76), each other (#160), and the page (#75)."""
+    # Build the named bbox list. The name must be DETERMINISTIC: several messages
+    # below identify a view by it, and `id()` is a fresh memory address on every
+    # render, so the same sheet linted twice produced different text and any consumer
+    # diffing two renders saw a change that did not exist in the drawing (#1196).
+    # Prefer the caller's own name for the view; fall back to position, never identity.
+    named_views = []
+    view_shape_ids = set()
+    for index, vs in enumerate(view_shapes):
+        bb = _ann_box(vs, box_cache if box_cache is not None else {})
+        if bb is None:
+            continue
+        supplied = (
+            view_names[index] if view_names is not None and index < len(view_names) else None
+        )
+        # *supplied* first: the docstring argues the caller is the authority on what a
+        # view is called, so letting a shape attribute outrank it would contradict that.
+        # Latent today — every projected view carries `label == ""` — but DXF layer
+        # naming is an obvious future reason to label a view compound, and it would
+        # then silently override the drawing's own key.
+        name = (
+            supplied or getattr(vs, "label", None) or getattr(vs, "name", None) or f"view[{index}]"
+        )
+        named_views.append((name, bb, vs))
+        view_shape_ids.add(id(vs))
+
+    _lint_view_annotation_overlap(
+        named_views,
+        view_shape_ids,
+        ann_items,
+        issues,
+        annotation_names=annotation_names,
+        annotation_regions=annotation_regions,
+        edge_cache=edge_cache,
+        box_cache=box_cache,
+        warned=warned,
+        material_fields=material_fields,
+    )
+
+    owners = {} if annotation_views is None else annotation_views
+    names = {} if annotation_names is None else annotation_names
+    unreadable_shafts: set[int] = set()
     # #796/#798 — leader shaft cuts back through the part body. Measured against the
     # build's FILLED projected material (`Drawing.material_fields`), the same lowering
     # ADR 2 (was 0014) leader routing solves against, so the notice and the router cannot reach

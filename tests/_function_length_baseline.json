@@ -35,7 +35,6 @@
     "linting/coverage.py:lint_feature_coverage": 222,
     "linting/hole_coverage.py:hole_requirement_outcomes": 214,
     "linting/structural.py:_lint_annotation_pairs": 257,
-    "linting/structural.py:_lint_view_shapes": 234,
     "linting/turned_step_coverage.py:turned_step_requirement_outcomes": 232,
     "model/detect.py:_append_late_feature_families": 220,
     "pdf_text.py:pdf_text_runs": 229,

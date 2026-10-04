@@ -80,7 +80,7 @@
     "linting/oriented_slot_coverage.py:oriented_slot_requirement_outcomes": 16,
     "linting/profiled_bore_coverage.py:lint_profiled_bore_coverage": 23,
     "linting/structural.py:_lint_annotation_pairs": 16,
-    "linting/structural.py:_lint_view_shapes": 30,
+    "linting/structural.py:_lint_view_shapes": 19,
     "linting/suggest.py:_suggest_fix": 19,
     "linting/through_step_coverage.py:_index_evidence": 17,
     "linting/through_step_coverage.py:_legacy_owner_plans": 19,

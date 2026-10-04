@@ -357,9 +357,8 @@ def _fixed_ink_hull(polygon):
     return hull if len(hull) >= 3 else None
 
 
-def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
-    """Exact-width fixed ink components for one already-rendered annotation."""
-
+def _reserved_fixed_ink(dwg, name, annotation, max_components):
+    """Return a complete block reservation when the annotation owns one."""
     if isinstance(annotation, DerivedViewReservation):
         # A future required view owns its entire planned rectangle, not merely
         # the strokes it will eventually draw. Keep it hard even in the bounded
@@ -382,6 +381,15 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
                 return _FIXED_INVENTORY_EXHAUSTED
             box = (0.0, 0.0, float(dwg.page_w), float(dwg.page_h))
         return (_FixedInkComponent(f"{name}:table", box=box, kind="Table"),)
+    return None
+
+
+def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
+    """Exact-width fixed ink components for one already-rendered annotation."""
+
+    reserved = _reserved_fixed_ink(dwg, name, annotation, max_components)
+    if reserved is not None:
+        return reserved
 
     components: list[_FixedInkComponent] = []
     owner = dwg.registry.feature_of(name)

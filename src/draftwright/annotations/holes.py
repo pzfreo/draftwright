@@ -1664,10 +1664,6 @@ def _collect_shared_queue(
     elbow_dx,
 ):
     """Register compatible hole leaders and staged furniture in the late solve."""
-    edge = sctx.edge
-    min_gap = sctx.min_gap
-    y_min = sctx.y_min
-    y_max = sctx.y_max
     a = sctx.a
     to_page = sctx.to_page
     draft = sctx.draft
@@ -1689,16 +1685,8 @@ def _collect_shared_queue(
         locations, dia, callout, feat, _natural_y, _rep = s
         owner = _callout_member_owner(callout, _rep, feat_of_callout.get(id(callout)))
         requested_side = side_of_callout.get(id(callout))
-        # Hole callouts are one explicitly interior-capable semantic family.
-        # The shared adapter still proves each candidate clear and retains the
-        # established exterior inventory, so this is eligibility rather than a
-        # family-specific placement rule.  In particular, recognised repeated
-        # holes commonly remain a HoleFeature with several members rather than a
-        # PatternFeature; class-testing here would silently exclude those patterns.
-        #
-        # An authored side is different from automatic family eligibility: it is
-        # a placement constraint. Keep that job in the exterior inventory so an
-        # interior candidate cannot silently defeat ``side="left"``/``"right"``.
+        # Include repeated HoleFeatures in the interior-capable family; the shared
+        # adapter still proves clearance. An authored side fixes an exterior edge.
         family_region_policy = (
             LeaderRegionPolicy.AUTO if requested_side is None else LeaderRegionPolicy.EXTERIOR
         )
@@ -1707,7 +1695,7 @@ def _collect_shared_queue(
             getattr(a, "leader_region", "auto"),
         )
         callout_box = _geom_box(callout, cache)
-        winner_y, rows = strip_plan.rows_for(s, y_min, y_max, obstacle_intervals)
+        winner_y, rows = strip_plan.rows_for(s, sctx.y_min, sctx.y_max, obstacle_intervals)
         adapter = HoleLeaderCandidateAdapter(
             entry=s,
             locations=tuple(locations or ()),
@@ -1719,12 +1707,12 @@ def _collect_shared_queue(
             callout_box=callout_box,
             projected_clear=projected_clear,
             column_bands=leader_column_bands,
-            edge=edge,
+            edge=sctx.edge,
             side=side,
             view_bounds=vb,
-            y_min=y_min,
-            y_max=y_max,
-            min_gap=min_gap,
+            y_min=sctx.y_min,
+            y_max=sctx.y_max,
+            min_gap=sctx.min_gap,
             to_page=to_page,
             elbow_dx=elbow_dx,
             draft=draft,
@@ -1736,15 +1724,10 @@ def _collect_shared_queue(
             expand_regions=feature_leader_candidates,
             build_leader=_profiled_callout_leader,
         )
-        _raw_candidates = adapter.raw
-
         name = _hc_name(only, view, i, hc_used)
 
-        # Pitch/BCD furniture is a separate non-leader requirement. Keep it
-        # in its established early stage so the corridor solve sees it and
-        # the late shared leader inventory routes around it. Coverage still
-        # waits for the callout winner below: visible furniture alone must
-        # not claim that the bore callout was placed.
+        # Stage pitch/BCD furniture before the corridor solve, but defer
+        # coverage until the callout wins; furniture alone proves no bore callout.
         staged_furniture = ()
         staged_issues = ()
         staged_furnished = False
@@ -1785,7 +1768,7 @@ def _collect_shared_queue(
                 )
 
         callbacks = _HoleLeaderCallbacks(
-            _raw_candidates,
+            adapter.raw,
             adapter.build,
             callout,
             callout_box,
@@ -1808,7 +1791,7 @@ def _collect_shared_queue(
                 view=view,
                 silhouette=vb,
                 label=str(callout.label),
-                candidates=_raw_candidates(),
+                candidates=adapter.raw(),
                 build=adapter.build,
                 measurement=tuple(callout.measurements),
                 noun="hole",

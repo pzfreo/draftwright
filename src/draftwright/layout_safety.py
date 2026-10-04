@@ -15,6 +15,7 @@ _LAYOUT_BLOCKERS = frozenset(
         "annotation_out_of_bounds",
         "annotation_overlap",
         "annotation_ink_overlap",
+        "detail_caption_clearance",
         "dim_inside_part",
         "feature_leader_crossing",
         "feature_leader_fixed_ink_unverified",

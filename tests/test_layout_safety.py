@@ -124,6 +124,21 @@ def test_missing_requirement_and_overlap_are_independent_failures():
     assert "lint_blockers" in verdict["failed_checks"]
 
 
+def test_detail_caption_clearance_warning_blocks_candidate_issue_2177():
+    report = _raw_report(
+        total=1,
+        requirements=({"state": "placed"},),
+        issues=({"code": "detail_caption_clearance", "severity": "warning"},),
+    )
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert verdict["failed_checks"] == ["lint_blockers"]
+    assert next(
+        check["detail"] for check in verdict["checks"] if check["name"] == "lint_blockers"
+    ) == ["detail_caption_clearance"]
+
+
 @pytest.mark.parametrize(
     ("annotations", "reason"),
     [
