@@ -752,6 +752,147 @@ def test_place_strip_candidates_reserves_outermost_label_within_bounds():
     assert len(left) == 1, "the unplaceable candidate must be returned, not dropped silently"
 
 
+def test_oblique_pmi_cannot_escape_sheet_through_a_nearly_parallel_strip_issue_2189():
+    from build123d_drafting.helpers import Draft
+
+    from draftwright._core import Strip
+    from draftwright.annotations._common import _geom_box, place_strip_candidates
+    from draftwright.annotations._pmi_dimensions import _oblique_pmi_dim_spec
+
+    drawing = _StripProbeDrawing(draft=Draft(font_size=3.0))
+    drawing.drawable_bounds = (10.0, 10.0, 90.0, 90.0)
+    strip = Strip(anchor=20.0, outer_limit=0.0, direction=-1.0, gap=2.0)
+    spec = _oblique_pmi_dim_spec(
+        (30.0, 50.0, 0),
+        (60.0, 49.0, 0),
+        strip,
+        "60",
+        "pmi_oblique",
+        "front",
+        "left",
+        drawing.draft,
+    )
+    assert spec is not None
+    # The selected line is inside the strip, but its near-horizontal witness projects
+    # hundreds of millimetres down the page when extended toward the left strip.
+    assert _geom_box(spec["build"](16.0))[1] < 10.0
+
+    left = place_strip_candidates(
+        drawing,
+        strip,
+        "front",
+        "x",
+        [(spec["name"], spec["build"])],
+        tier=5.0,
+        ctx=drawing,
+        force=True,
+        footprints={spec["name"]: lambda pos: (pos - 2.0, 45.0, pos + 2.0, 55.0)},
+    )
+
+    assert [name for name, _build in left] == [spec["name"]]
+    assert drawing.added == []
+
+
+def test_rejected_oblique_pmi_reports_drop_without_occupying_sibling_slots(tmp_path):
+    from types import SimpleNamespace
+
+    from build123d_drafting.helpers import Draft
+
+    from draftwright._core import Strip, _dim
+    from draftwright.annotations._common import (
+        CorridorCandidate,
+        PlacementContext,
+        drain_corridors,
+        register_corridor,
+    )
+    from draftwright.annotations._pmi_dimensions import _oblique_pmi_dim_spec, _record_pmi_drop
+    from draftwright.annotations.solve_trace import SolveTrace
+    from draftwright.registry import AnnotationRegistry
+
+    draft = Draft(font_size=3.0)
+    registry = AnnotationRegistry()
+    ctx = PlacementContext(registry=registry, items=[], trace=SolveTrace(tmp_path / "trace.json"))
+    strip = Strip(anchor=40.0, outer_limit=0.0, direction=-1.0, gap=2.0)
+
+    class Drawing:
+        page_w = page_h = 100.0
+        drawable_bounds = (0.0, 0.0, 100.0, 100.0)
+
+        def __init__(self):
+            self.draft = draft
+
+        def annotations(self):
+            return registry.names()
+
+        def iter_annotations(self):
+            return registry.iter_named()
+
+        def view_of(self, name):
+            return registry.view_of(name)
+
+    drawing = Drawing()
+    escaped = _oblique_pmi_dim_spec(
+        (60.0, 50.0, 0), (90.0, 49.0, 0), strip, "60", "pmi_oblique", "front", "left", draft
+    )
+    assert escaped is not None
+    assert escaped["build"](16.0).bounding_box().min.Y < 0.0
+    rec = SimpleNamespace(pmi_kind="linear", dominant_axis="X", source_id="pmi-60")
+    dropped = []
+
+    def drop_oblique(name):
+        dropped.append(name)
+        _record_pmi_drop(ctx, "X", "60", rec)
+
+    def queue(name, build, order, *, on_drop, footprint):
+        register_corridor(
+            ctx,
+            ("front", "left"),
+            strip,
+            "front",
+            "x",
+            5.0,
+            CorridorCandidate(
+                name=name,
+                build=build,
+                order=(order, name),
+                on_place=lambda _name: None,
+                on_drop=on_drop,
+                force=True,
+                obligation_class="required",
+                footprint=footprint,
+            ),
+        )
+
+    queue(
+        escaped["name"],
+        escaped["build"],
+        0,
+        on_drop=drop_oblique,
+        footprint=lambda pos: (pos - 2.0, 45.0, pos + 2.0, 55.0),
+    )
+    for order, (name, y0, y1) in enumerate((("pmi_35", 20.0, 30.0), ("pmi_85", 35.0, 45.0)), 1):
+        queue(
+            name,
+            lambda pos, y0=y0, y1=y1, label=name: _dim(
+                (70.0, y0, 0), (70.0, y1, 0), "left", 70.0 - pos, draft, label=label
+            ),
+            order,
+            on_drop=lambda name: dropped.append(name),
+            footprint=lambda pos, y0=y0, y1=y1: (pos - 2.0, y0, pos + 2.0, y1),
+        )
+
+    drain_corridors(ctx, drawing)
+    assert escaped["name"] in dropped
+    assert registry.names() == {"pmi_35", "pmi_85"}, dropped
+    assert any(issue.code == "pmi_dropped" for issue in registry.issues)
+    assert any(
+        rejection == {"name": escaped["name"], "reason": "real_box_page_bounds"}
+        for solve in ctx.trace.solves
+        for placement_pass in solve["passes"]
+        for rejection in placement_pass["rejected"]
+    )
+
+
 def test_dimension_witness_continues_leader_shaft_but_not_crossing_shelf():
     from build123d_drafting.helpers import Dimension, Draft, Leader
 

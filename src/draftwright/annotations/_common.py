@@ -52,6 +52,10 @@ from draftwright.annotations._placement_geometry import (
     _box_hits as _box_hits,
 )
 from draftwright.annotations._placement_geometry import (
+    _box_outside_explicit_drawable_bounds,
+    _first_box_conflict,
+)
+from draftwright.annotations._placement_geometry import (
     _geom_box as _geom_box,
 )
 from draftwright.annotations._placement_geometry import (
@@ -1889,26 +1893,11 @@ def _prepare_strip_candidate_run(run) -> None:
             if r is not None and r[perp] < band_hi and r[perp + 2] > band_lo
         ]
     blockers = () if force else corridor_blockers(dwg, view, exact_leaders=bool(exact_ink))
-    # The title block is drawn near the end of `_PASS_SEQUENCE`, so it is
-    # never in `occupied` above. `pending_title_block_box` knows its fixed box
-    # from the sheet geometry, so a strip placer can honour it regardless.
-    #
-    # A hard 2-D box checked against each candidate's REAL footprint in
-    # `_real_box_conflict` below, the way `forbid` guards this same block for GD&T frames
-    # — not an entry in the carve. The carve inflates by `pad`, the separation two
-    # dimension LINES need from each other, and projects onto the stacking axis, claiming
-    # every position at that coordinate; against a block this large both over-claim
-    # badly, refusing dims that clear it by a millimetre. A 2-D test against the
-    # candidate's own footprint refuses exactly the dims that land on it.
-    #
-    # `forbid` also pre-checks the PREDICTED box inside the segment solve, so a rejection
-    # frees its slot for a refill in the same pass. Not mirrored here: on this corpus
-    # either check alone catches every case (measured by deleting each in turn), and an
-    # untested second branch is worth less than the packing it might win. The real-box
-    # check is the one kept because it cannot be defeated by a prediction miss.
-    #
-    # Honoured under `force` too, for the reason `forbid` is: a dim kept on its natural
-    # view as a last resort must still not print over the block.
+    # The title block is drawn after this pass, so it is absent from occupancy.
+    # Check its fixed 2-D box against REAL candidate ink, not the inflated strip
+    # carve: projection would reject dimensions that clear it. A predicted-box
+    # precheck would permit refill, but the real-box check alone is sufficient and
+    # cannot miss underpredicted ink. Even forced candidates must respect the block.
     _tb = pending_title_block_box(dwg)
     keep_out = (_tb,) if _tb is not None else ()
     segs = _reserved_strip_segments(lo, hi, occupied, idx, pad)
@@ -1926,18 +1915,20 @@ def _prepare_strip_candidate_run(run) -> None:
     todo = list(cands)
 
     def _real_box_conflict(name, real, annotation=None):
-        """Return the hard-obstacle reason for a built survivor, if any."""
         if real is None:
             return None
+        # A bounded strip does not bound oblique witness ink; check even under force.
+        if _box_outside_explicit_drawable_bounds(dwg, real):
+            return "real_box_page_bounds"
         if not force and _box_hits(real, blockers):
             return "real_box_corridor_blocked"
         fb = (forbid or {}).get(name)
         if fb is not None and _box_hits(real, (fb,)):
             return "real_box_forbid"
-        if _box_hits(real, out_of_band):
-            return "real_box_out_of_band"
-        if _box_hits(real, keep_out):
-            return "real_box_title_block"
+        if reason := _first_box_conflict(
+            real, (("real_box_out_of_band", out_of_band), ("real_box_title_block", keep_out))
+        ):
+            return reason
         if (
             annotation is not None
             and not force
