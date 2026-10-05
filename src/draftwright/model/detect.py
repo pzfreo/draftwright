@@ -389,7 +389,12 @@ def build_pmi_features(
             pmi_origin = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
         else:
             pmi_origin = (bbox.center().X, bbox.center().Y, bbox.center().Z)
-        ax = r.dominant_axis.lower() if r.dominant_axis in ("X", "Y", "Z") else "z"
+        proven_axis = (
+            r.reference_axis
+            if r.source_category == "geometric_tolerance" and r.reference_axis
+            else r.dominant_axis
+        )
+        ax = proven_axis.lower() if proven_axis in ("X", "Y", "Z") else "z"
         if r.kind in AUTHORED_DIMENSION_KINDS:
             out.append(
                 AuthoredDimension(
