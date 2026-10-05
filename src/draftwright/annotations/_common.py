@@ -1911,6 +1911,7 @@ def _prepare_strip_candidate_run(run) -> None:
     # view as a last resort must still not print over the block.
     _tb = pending_title_block_box(dwg)
     keep_out = (_tb,) if _tb is not None else ()
+    page = _drawing_bounds(dwg) if hasattr(dwg, "page_w") and hasattr(dwg, "page_h") else None
     segs = _reserved_strip_segments(lo, hi, occupied, idx, pad)
     # Fill innermost-first (nearest the view), matching the old cursor's stack order.
     segs.sort(key=lambda s: abs((s[0] if inner == lo else s[1]) - inner))
@@ -1929,6 +1930,15 @@ def _prepare_strip_candidate_run(run) -> None:
         """Return the hard-obstacle reason for a built survivor, if any."""
         if real is None:
             return None
+        # A bounded strip coordinate does not bound an oblique dimension's remote
+        # witness extensions. Validate the complete ink even on the force path.
+        if page is not None and (
+            real[0] < page[0] - 1e-6
+            or real[1] < page[1] - 1e-6
+            or real[2] > page[2] + 1e-6
+            or real[3] > page[3] + 1e-6
+        ):
+            return "real_box_page_bounds"
         if not force and _box_hits(real, blockers):
             return "real_box_corridor_blocked"
         fb = (forbid or {}).get(name)

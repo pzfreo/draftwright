@@ -752,6 +752,46 @@ def test_place_strip_candidates_reserves_outermost_label_within_bounds():
     assert len(left) == 1, "the unplaceable candidate must be returned, not dropped silently"
 
 
+def test_oblique_pmi_cannot_escape_sheet_through_a_nearly_parallel_strip_issue_2189():
+    from build123d_drafting.helpers import Draft
+
+    from draftwright._core import Strip
+    from draftwright.annotations._common import _geom_box, place_strip_candidates
+    from draftwright.annotations._pmi_dimensions import _oblique_pmi_dim_spec
+
+    drawing = _StripProbeDrawing(draft=Draft(font_size=3.0))
+    strip = Strip(anchor=20.0, outer_limit=0.0, direction=-1.0, gap=2.0)
+    spec = _oblique_pmi_dim_spec(
+        (30.0, 50.0, 0),
+        (60.0, 49.0, 0),
+        strip,
+        "60",
+        "pmi_oblique",
+        "front",
+        "left",
+        drawing.draft,
+    )
+    assert spec is not None
+    # The selected line is inside the strip, but its near-horizontal witness projects
+    # hundreds of millimetres down the page when extended toward the left strip.
+    assert _geom_box(spec["build"](16.0))[1] < 10.0
+
+    left = place_strip_candidates(
+        drawing,
+        strip,
+        "front",
+        "x",
+        [(spec["name"], spec["build"])],
+        tier=5.0,
+        ctx=drawing,
+        force=True,
+        footprints={spec["name"]: lambda pos: (pos - 2.0, 45.0, pos + 2.0, 55.0)},
+    )
+
+    assert [name for name, _build in left] == [spec["name"]]
+    assert drawing.added == []
+
+
 def test_dimension_witness_continues_leader_shaft_but_not_crossing_shelf():
     from build123d_drafting.helpers import Dimension, Draft, Leader
 
