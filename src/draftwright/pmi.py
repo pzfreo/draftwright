@@ -52,11 +52,9 @@ from draftwright._pmi_linear_geometry import (
     _LINEAR_VALUE_REL_TOL as _LINEAR_VALUE_REL_TOL,
 )
 from draftwright._pmi_linear_geometry import (
-    _dimension_reference_stations,
-)
-from draftwright._pmi_linear_geometry import (
     _linear_reference_stations as _linear_reference_stations,
 )
+from draftwright._pmi_linear_geometry import _proved_planar_linear
 from draftwright._pmi_part21 import (
     CommonLabelFact,
     DatumDefinitionFact,
@@ -432,8 +430,12 @@ def _make_label(
     # the - deviation stored as a positive magnitude.  We add explicit signs
     # so the label is unambiguous on the drawing.
     if upper_tol is not None and lower_tol is not None:
-        if abs(upper_tol) == abs(lower_tol):
+        if abs(upper_tol) == abs(lower_tol) and abs(upper_tol) > 1e-9:
             base += f" ±{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
+        elif abs(lower_tol) <= 1e-9:
+            base += f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}/0"
+        elif abs(upper_tol) <= 1e-9:
+            base += f" 0/-{_fmt_pmi_magnitude(abs(lower_tol), tolerance_decimals)}"
         else:
             base += (
                 f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
@@ -1238,8 +1240,7 @@ def _dimension_record(
         if has_plus_minus_tolerance:
             try:
                 candidate = float(obj.GetUpperTolValue())
-                if abs(candidate) > 1e-9:
-                    upper_tol = candidate
+                upper_tol = candidate
             except Exception as exc:
                 reason = f"upper tolerance is unavailable ({_failure_reason(exc)})"
                 partial_reasons.append(reason)
@@ -1247,8 +1248,7 @@ def _dimension_record(
 
             try:
                 candidate = float(obj.GetLowerTolValue())
-                if abs(candidate) > 1e-9:
-                    lower_tol = candidate
+                lower_tol = candidate
             except Exception as exc:
                 reason = f"lower tolerance is unavailable ({_failure_reason(exc)})"
                 partial_reasons.append(reason)
@@ -1303,9 +1303,8 @@ def _dimension_record(
     angular_reference: AngularReference | None = None
     support_view = None
     if kind in ("linear", "thickness"):
-        plane_axis, support_view = _parallel_planar_reference_support(group_shapes, frame)
-        points, dominant_axis, station_reasons = _dimension_reference_stations(
-            group_stations, value, kind, plane_axis=plane_axis
+        points, dominant_axis, support_view, station_reasons = _proved_planar_linear(
+            group_shapes, group_stations, value, kind, frame, _shape_bbox
         )
         rendering_blockers = _dimension_geometry_blockers(kind, reference_reasons, station_reasons)
     elif type_code == 15:  # XCAFDimTolObjects_DimensionType_Size_Diameter
@@ -2062,12 +2061,8 @@ def _dimension_support_topology(
             )
             continue
 
-        plane_axis, support_view = _parallel_planar_reference_support(tuple(group_shapes), frame)
-        points, dominant_axis, station_reasons = _dimension_reference_stations(
-            tuple(stations),
-            record.value,
-            record.kind,
-            plane_axis=plane_axis,
+        points, dominant_axis, support_view, station_reasons = _proved_planar_linear(
+            tuple(group_shapes), tuple(stations), record.value, record.kind, frame, _shape_bbox
         )
         projected.append(
             replace(

@@ -20,12 +20,18 @@ except ImportError:
 
 def _parallel_planar_reference_support(groups, frame, shape_bbox) -> tuple[str | None, str | None]:
     """Find the common principal normal and any required witness view."""
+    axis, view, _witness = _parallel_planar_reference_witness(groups, frame, shape_bbox)
+    return axis, view
+
+
+def _parallel_planar_reference_witness(groups, frame, shape_bbox):
+    """Prove a view and, when its default midpoint misses, a shared face witness."""
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.GeomAbs import GeomAbs_Plane
     from OCP.TopoDS import TopoDS
 
     if len(groups) != 2 or not all(groups):
-        return None, None
+        return None, None, ()
     axes: list[int] = []
     group_boxes = []
     for shapes in groups:
@@ -35,35 +41,69 @@ def _parallel_planar_reference_support(groups, frame, shape_bbox) -> tuple[str |
         for shape in shapes:
             try:
                 if shape.ShapeType() != TopAbs_FACE:
-                    return None, None
+                    return None, None, ()
                 surface = BRepAdaptor_Surface(TopoDS.Face_s(shape))
                 if surface.GetType() != GeomAbs_Plane:
-                    return None, None
+                    return None, None, ()
                 direction = surface.Plane().Axis().Direction()
                 local = _frame_vector((direction.X(), direction.Y(), direction.Z()), frame)
                 axis_index = max(range(3), key=lambda index: abs(local[index]))
                 if abs(abs(local[axis_index]) - 1.0) > 1e-6:
-                    return None, None
+                    return None, None, ()
                 if any(abs(local[index]) > 1e-6 for index in range(3) if index != axis_index):
-                    return None, None
+                    return None, None, ()
                 box = shape_bbox(shape) if frame is None else shape_bbox(shape, frame)
                 boxes.append(box)
                 station = (box[axis_index] + box[axis_index + 3]) / 2
                 if box[axis_index + 3] - box[axis_index] > 1e-5:
-                    return None, None
+                    return None, None, ()
             except Exception:
-                return None, None
+                return None, None, ()
             if group_axis is not None and group_axis != axis_index:
-                return None, None
+                return None, None, ()
             if group_station is not None and abs(group_station - station) > 1e-5:
-                return None, None
+                return None, None, ()
             group_axis, group_station = axis_index, station
         assert group_axis is not None  # Each validated source group contains a face.
         axes.append(group_axis)
         group_boxes.append(boxes)
     if axes[0] != axes[1]:
-        return None, None
-    return _supported_planar_view("XYZ"[axes[0]], group_boxes)
+        return None, None, ()
+    axis = "XYZ"[axes[0]]
+    if axis == "X":
+        return _principal_x_planar_witness(group_boxes)
+    view_axis, view = _supported_planar_view(axis, group_boxes)
+    return view_axis, view, ()
+
+
+def _principal_x_planar_witness(group_boxes):
+    if _midpoint_witness_supported(group_boxes, 2):
+        return "X", None, ()
+    common = _common_x_face_witness(group_boxes)
+    if common is not None:
+        y, z = common
+        return "X", "plan", ((1, y), (2, z))
+    return None, None, ()
+
+
+def _common_x_face_witness(group_boxes):
+    """Find one pair of X faces sharing a point in both transverse directions."""
+    candidates = [
+        (
+            (min(a[4], b[4]) - max(a[1], b[1])) * (min(a[5], b[5]) - max(a[2], b[2])),
+            max(a[1], b[1]),
+            max(a[2], b[2]),
+            min(a[4], b[4]),
+            min(a[5], b[5]),
+        )
+        for a in group_boxes[0]
+        for b in group_boxes[1]
+        if min(a[4], b[4]) >= max(a[1], b[1]) and min(a[5], b[5]) >= max(a[2], b[2])
+    ]
+    if not candidates:
+        return None
+    _area, y0, z0, y1, z1 = max(candidates, key=lambda item: (item[0], -item[1], -item[2]))
+    return (y0 + y1) / 2, (z0 + z1) / 2
 
 
 def _supported_planar_view(axis: str, group_boxes) -> tuple[str | None, str | None]:

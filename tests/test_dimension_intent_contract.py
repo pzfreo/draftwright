@@ -36,6 +36,8 @@ def test_oblique_linear_span_needs_one_lossless_principal_projection(references,
     "kind,axis,view,side,extras",
     [
         ("linear", "X", "front", "above", {}),
+        ("linear", "X", "plan", "above", {}),
+        ("thickness", "X", "plan", "below", {}),
         ("linear", "Y", "plan", "right", {}),
         ("linear", "Z", "front", "left", {}),
         ("linear", "?", "plan", "left", {"ref_pts": _OBLIQUE_XY}),
@@ -69,6 +71,7 @@ def test_authored_hints_reject_corridors_without_a_renderer(kind, axis, view, si
     "kind,axis,view,side,angular,refs,expected",
     [
         ("linear", "X", "front", "above", None, (), "front"),
+        ("linear", "X", "plan", "above", None, (), "plan"),
         ("angular", "Z", None, "right", _ANGULAR_Z, (), "plan"),
         ("linear", "?", None, "left", None, _OBLIQUE_XY, "plan"),
         ("linear", "X", None, None, None, (), None),

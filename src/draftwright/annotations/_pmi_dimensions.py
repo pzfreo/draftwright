@@ -416,6 +416,12 @@ def _pmi_witness_from_bbox(rec, view: str, a: Analysis):
         p1 = (FX(lo), FZ((zmin + zmax) / 2), 0)
         p2 = (FX(hi), FZ((zmin + zmax) / 2), 0)
         avg_t = FZ((zmin + zmax) / 2)
+    elif view == "plan" and ax == "X":
+        lo, hi = min(point[0] for point in pts), max(point[0] for point in pts)
+        witness_y = sum(point[1] for point in pts) / len(pts)
+        p1 = (PX(lo), PY(witness_y), 0)
+        p2 = (PX(hi), PY(witness_y), 0)
+        avg_t = PY(witness_y)
     elif view == "front" and ax == "Z":
         lo, hi = min(point[2] for point in pts), max(point[2] for point in pts)
         p1 = (FX((xmin + xmax) / 2), FZ(lo), 0)
@@ -1093,29 +1099,25 @@ def _pmi_front_linear(
     *,
     queue_options=_pmi_queue_options,
 ):
-    """An X- or Z-dominant linear PMI dim in the FRONT view (the two share one shape): the
+    """An X- or Z-dominant linear PMI dim in a principal view (the two share one shape): the
     witness spans the ref bbox; place ``[primary, secondary]`` when the perpendicular
     midpoint sits on the primary side of the view centre, else fall back to ``[secondary]``
     alone. Returns True/False placed, or ``None`` for a degenerate (no-witness) reference
     so the caller can report it as a validation failure."""
     draft = dwg.draft
     _pmi_queue_options = queue_options
-    wp = _pmi_witness_from_bbox(rec, "front", a)
+    view = "plan" if ax == "X" and rec.view == "plan" else "front"
+    wp = _pmi_witness_from_bbox(rec, view, a)
     if wp is None:
         return None
     p1, p2, avg = wp
-    zones = {
-        "above": a.fv_zones.above,
-        "below": a.fv_zones.below,
-        "right": a.fv_zones.right,
-        "left": a.fv_zones.left,
-    }
+    zones = a.pv_zones if view == "plan" else a.fv_zones
     if rec.side is not None:
         sides = [s for s in (primary, secondary) if rec.side == s]
         return _pmi_queue_options(
             dwg,
             ctx,
-            [_pmi_dim_spec(p1, p2, zones[s], label, name, "front", s, draft) for s in sides],
+            [_pmi_dim_spec(p1, p2, getattr(zones, s), label, name, view, s, draft) for s in sides],
             ax,
             label,
             rec,
@@ -1126,8 +1128,10 @@ def _pmi_front_linear(
             dwg,
             ctx,
             [
-                _pmi_dim_spec(p1, p2, zones[primary], label, name, "front", primary, draft),
-                _pmi_dim_spec(p1, p2, zones[secondary], label, name, "front", secondary, draft),
+                _pmi_dim_spec(p1, p2, getattr(zones, primary), label, name, view, primary, draft),
+                _pmi_dim_spec(
+                    p1, p2, getattr(zones, secondary), label, name, view, secondary, draft
+                ),
             ],
             ax,
             label,
@@ -1137,7 +1141,11 @@ def _pmi_front_linear(
         placed = _pmi_queue_options(
             dwg,
             ctx,
-            [_pmi_dim_spec(p1, p2, zones[secondary], label, name, "front", secondary, draft)],
+            [
+                _pmi_dim_spec(
+                    p1, p2, getattr(zones, secondary), label, name, view, secondary, draft
+                )
+            ],
             ax,
             label,
             rec,
@@ -1518,7 +1526,7 @@ def _place_pmi_record(
             name_x,
             "above",
             "below",
-            a.FV_Y,
+            a.PV_Y if rec.view == "plan" else a.FV_Y,
             queue_options=queue_options,
         )
         if placed is None:

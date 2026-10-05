@@ -110,7 +110,7 @@
     "oriented_slot_contract.py:oriented_slot_provider_key": 19,
     "pdf_text.py:pdf_text_runs": 27,
     "pmi.py:_angular_reference_from_shapes": 18,
-    "pmi.py:_dimension_record": 28,
+    "pmi.py:_dimension_record": 26,
     "pmi.py:_dimension_support_topology": 18,
     "pmi.py:_extract_xcaf_dimensions": 23,
     "profile_angles.py:profile_angle_repetitions": 19,

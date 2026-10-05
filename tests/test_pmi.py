@@ -50,6 +50,100 @@ def ctc04_extraction_report():
 
 
 class TestExtractPmi:
+    def test_offset_pocket_wall_uses_a_common_plan_witness_issue_2192(self, monkeypatch):
+        from build123d import Axis, Pos
+        from build123d_drafting.helpers import Draft
+
+        import draftwright.pmi as pmi_module
+        from draftwright._core import Strip
+        from draftwright._pmi_linear_geometry import (
+            _dimension_reference_stations,
+            _proved_planar_linear,
+        )
+        from draftwright.annotations._pmi_dimensions import (
+            _pmi_front_linear,
+            _pmi_witness_from_bbox,
+        )
+        from draftwright.pmi import _make_label, _shape_bbox
+
+        datum = (Pos(-59, 0, 6) * Box(2, 80, 12)).faces().sort_by(Axis.X)[0].wrapped
+        pocket_wall = (Pos(16, 26, 10) * Box(2, 10, 4)).faces().sort_by(Axis.X)[0].wrapped
+        centres = ((-60.0, 0.0, 6.0), (15.0, 26.0, 10.0))
+        assert _dimension_reference_stations(centres, 75.0, "linear")[2], (
+            "fixture must contain the offset-centre defect"
+        )
+
+        points, proven_axis, view, blockers = _proved_planar_linear(
+            ((datum,), (pocket_wall,)), centres, 75.0, "linear", None, _shape_bbox
+        )
+        assert (proven_axis, view, blockers) == ("X", "plan", ())
+        assert points == ((-60.0, 26.0, 10.0), (15.0, 26.0, 10.0))
+
+        def identity(value):
+            return value
+
+        analysis = SimpleNamespace(
+            proj=SimpleNamespace(
+                front_x=identity,
+                front_z=identity,
+                side_x=identity,
+                side_z=identity,
+                plan_x=identity,
+                plan_y=identity,
+            )
+        )
+        bounds = (-60.0, -40.0, 0.0, 15.0, 40.0, 12.0)
+        monkeypatch.setattr(
+            pmi_module,
+            "_reference_geometry_with_groups",
+            lambda *_args: (centres, bounds, "?", (), centres, ((datum,), (pocket_wall,))),
+        )
+        source = SimpleNamespace(
+            GetValue=lambda: 75.0,
+            IsDimWithPlusMinusTolerance=lambda: True,
+            GetUpperTolValue=lambda: 0.1,
+            GetLowerTolValue=lambda: 0.0,
+            IsDimWithRange=lambda: False,
+            GetSemanticName=lambda: None,
+        )
+        record, reasons = pmi_module._dimension_record(object(), source, 2, object(), "source:75")
+        assert not reasons
+        assert (record.label, record.lower_tol, record.dominant_axis, record.view) == (
+            "75 +0.1/0",
+            0.0,
+            "X",
+            "plan",
+        )
+        witness = _pmi_witness_from_bbox(record, view, analysis)
+        assert witness == ((-60.0, 26.0, 0), (15.0, 26.0, 0), 26.0)
+        assert _make_label("linear", 75.0, 0.1, 0.0) == record.label
+
+        analysis.PV_Y = 0.0
+        analysis.pv_zones = SimpleNamespace(
+            above=Strip(anchor=40.0, outer_limit=80.0, direction=1.0, gap=2.0),
+            below=Strip(anchor=10.0, outer_limit=0.0, direction=-1.0, gap=2.0),
+        )
+        queued = []
+
+        def capture(_drawing, _ctx, options, _axis, _label, _record):
+            queued.extend(option for option in options if option is not None)
+            return True
+
+        assert _pmi_front_linear(
+            SimpleNamespace(draft=Draft(font_size=3.0)),
+            analysis,
+            object(),
+            SimpleNamespace(**vars(record), side=None),
+            "X",
+            "75 +0.1/0",
+            "pmi_x",
+            "above",
+            "below",
+            0.0,
+            queue_options=capture,
+        )
+        assert queued and all(option["view"] == "plan" for option in queued)
+
     def test_nist_ctc01_returns_records(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
         assert len(recs) > 0
@@ -106,7 +200,7 @@ class TestExtractPmi:
         assert 0.05 != 0.05004
         assert 9.95 != 10.05
         assert _make_label("diameter", 10.0, 0.09, None) == "ø10 +0.09"
-        assert _make_label("diameter", 10.0, 0.09, 0.0) == "ø10 +0.09/-0.0"
+        assert _make_label("diameter", 10.0, 0.09, 0.0) == "ø10 +0.09/0"
         assert _make_label("diameter", 10.0, 0.05, 0.05004) == "ø10 +0.05/-0.05004"
         assert _make_label("diameter", 10.0, 0.05, 0.05) == "ø10 ±0.05"
         assert (
