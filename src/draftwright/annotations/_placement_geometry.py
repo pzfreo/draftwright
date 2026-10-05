@@ -39,6 +39,31 @@ def _geom_box(o, cache=None):
         return None
 
 
+def _box_outside_explicit_drawable_bounds(dwg, box, *, tolerance=1e-6):
+    """Reject complete ink outside a real drawing's declared content rectangle.
+
+    Lightweight placement probes without explicit page geometry intentionally have
+    no page constraint; guessing margins from their dimensions would invent one.
+    """
+    page = getattr(dwg, "drawable_bounds", None)
+    return page is not None and any(
+        (
+            box[0] < page[0] - tolerance,
+            box[1] < page[1] - tolerance,
+            box[2] > page[2] + tolerance,
+            box[3] > page[3] + tolerance,
+        )
+    )
+
+
+def _first_box_conflict(box, named_obstacles):
+    """Return the first hard-obstacle reason, preserving caller-specified order."""
+    for reason, obstacles in named_obstacles:
+        if _box_hits(box, obstacles):
+            return reason
+    return None
+
+
 def leader_callout_geometry(tip, elbow, draft, *, text_side="auto", callout_box=None):
     """Exact cheap label box and line segments for a callout-bearing ``Leader``.
 

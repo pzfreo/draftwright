@@ -760,6 +760,7 @@ def test_oblique_pmi_cannot_escape_sheet_through_a_nearly_parallel_strip_issue_2
     from draftwright.annotations._pmi_dimensions import _oblique_pmi_dim_spec
 
     drawing = _StripProbeDrawing(draft=Draft(font_size=3.0))
+    drawing.drawable_bounds = (10.0, 10.0, 90.0, 90.0)
     strip = Strip(anchor=20.0, outer_limit=0.0, direction=-1.0, gap=2.0)
     spec = _oblique_pmi_dim_spec(
         (30.0, 50.0, 0),
