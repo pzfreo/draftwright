@@ -1572,11 +1572,22 @@ def _sizing_model_pmi_visibility(model, cyls, layout_model, pmi_mode, document_i
         if document_input is not None and pmi_mode != "annotate"
         else frozenset()
     )
-    prepared = replace(
-        _with_blind_axial_bore_support(model, cyls),
-        pmi_annotations_enabled=layout_model is not None or pmi_mode == "annotate",
-        hidden_authored_dimension_ids=hidden,
-    )
+    prepared = _with_blind_axial_bore_support(model, cyls)
+    enabled = layout_model is not None or pmi_mode == "annotate"
+    if (
+        prepared.pmi_annotations_enabled != enabled
+        or prepared.hidden_authored_dimension_ids != hidden
+    ):
+        prepared = replace(
+            prepared,
+            pmi_annotations_enabled=enabled,
+            hidden_authored_dimension_ids=hidden,
+        )
+    if not enabled or not any(
+        feature.kind == "authored_dimension" and id(feature) not in hidden
+        for feature in prepared.features
+    ):
+        return prepared
     from draftwright.model.pmi_lowering import add_authored_step_positions
 
     return add_authored_step_positions(prepared)

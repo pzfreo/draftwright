@@ -723,15 +723,16 @@ def _assembly_model(a: Analysis, model, decorations, requested, authored) -> Par
                         else ()
                     ),
                 )
-    pm = replace(
-        pm,
-        pmi_annotations_enabled=model is not None or a.pmi_mode == "annotate",
-        hidden_authored_dimension_ids=(
-            frozenset(id(feature) for feature in a.document_source_annotations)
-            if a.document_member and a.pmi_mode != "annotate"
-            else frozenset()
-        ),
-    )
+    if model is not None or a.model is None:
+        pm = replace(
+            pm,
+            pmi_annotations_enabled=model is not None or a.pmi_mode == "annotate",
+            hidden_authored_dimension_ids=(
+                frozenset(id(feature) for feature in a.document_source_annotations)
+                if a.document_member and a.pmi_mode != "annotate"
+                else frozenset()
+            ),
+        )
     # A caller may supply a PartModel that already contains raw imported PMI. That
     # path skips the extraction/lowering branch above but still needs baseline gap
     # identities before the compiled plan is built.
