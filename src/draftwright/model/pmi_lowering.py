@@ -1130,8 +1130,14 @@ def add_authored_step_positions(
     """Give automatic baseline gap fillers their own datum-to-shoulder IR identity."""
     from draftwright.model.planner import _authored_step_baseline, _authored_step_groups
 
-    if model.authored_dimensions is not None or not any(
-        isinstance(feature, AuthoredDimension) for feature in model.features
+    if (
+        model.authored_dimensions is not None
+        or not model.pmi_annotations_enabled
+        or not any(
+            isinstance(feature, AuthoredDimension)
+            and id(feature) not in model.hidden_authored_dimension_ids
+            for feature in model.features
+        )
     ):
         return model
     features = list(model.features)
@@ -1169,6 +1175,7 @@ def add_authored_step_positions(
         replacement = replace(
             feature,
             position_span=((start[0], start[1], start[2]), (end[0], end[1], end[2])),
+            position_derived_from_pmi=True,
         )
         replacements[id(feature)] = replacement
         features[index] = replacement

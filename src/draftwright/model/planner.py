@@ -175,7 +175,10 @@ def _authored_baseline_candidates(model, steps, groups, axis, intervals, ends):
     candidates: dict[float, dict[float, str]] = {}
     established: set[float] = set()
     for source in model.features:
-        if not isinstance(source, AuthoredDimension):
+        if (
+            not isinstance(source, AuthoredDimension)
+            or id(source) in model.hidden_authored_dimension_ids
+        ):
             continue
         stations = _authored_linear_stations(source)
         if stations is None or stations[0] != axis:
@@ -377,6 +380,7 @@ def _authored_diameter_coverage(
         source
         for source in model.features
         if isinstance(source, AuthoredDimension)
+        and id(source) not in model.hidden_authored_dimension_ids
         and source.source == "ap242_pmi"
         and source.dimension_kind == "diameter"
         and source.source_id in requirement.source_ids
@@ -415,7 +419,10 @@ def _authored_envelope_coverage(model, feature, parameter, baseline) -> str | No
             if source_id is not None and abs(parameter.value - abs(extent_hi - extent_lo)) <= 1e-6:
                 return f"authored PMI dimension {source_id} covers this extent"
     for source in model.features:
-        if not isinstance(source, AuthoredDimension):
+        if (
+            not isinstance(source, AuthoredDimension)
+            or id(source) in model.hidden_authored_dimension_ids
+        ):
             continue
         stations = _authored_linear_stations(source)
         if stations is None:
@@ -455,7 +462,7 @@ def _authored_pmi_overlay(
     step_groups: dict[int, list[StepFeature]],
 ) -> tuple[DimParameter, str | None]:
     """Let imported references cover automatic measurements before compilation."""
-    if model.authored_dimensions is not None:
+    if model.authored_dimensions is not None or not model.pmi_annotations_enabled:
         return parameter, None
     if parameter.kind == "diameter":
         source_id = _authored_diameter_coverage(model, feature, parameter)
@@ -469,7 +476,10 @@ def _authored_pmi_overlay(
     if parameter.tolerance is None:
         steps = step_groups.get(id(feature), [])
         for source in model.features:
-            if not isinstance(source, AuthoredDimension):
+            if (
+                not isinstance(source, AuthoredDimension)
+                or id(source) in model.hidden_authored_dimension_ids
+            ):
                 continue
             if not _authored_linear_covers(source, feature, parameter, steps):
                 continue
@@ -2413,8 +2423,11 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
     _check_intent_policy_conflicts(model)
     model = _selection_model(model, selection)
     has_imported_dimensions = any(
-        isinstance(feature, AuthoredDimension) for feature in model.features
+        isinstance(feature, AuthoredDimension)
+        and id(feature) not in model.hidden_authored_dimension_ids
+        for feature in model.features
     )
+    has_imported_dimensions = has_imported_dimensions and model.pmi_annotations_enabled
     profile_groups = _authored_step_groups(model) if has_imported_dimensions else []
     step_groups = {id(step): group for group in profile_groups for step in group}
     baselines: dict[int, tuple[int, float, dict[float, str]] | None] = {}
@@ -2462,6 +2475,24 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
             )
             if authored_coverage is not None:
                 suppressed, reason, conveyed_by = True, authored_coverage, None
+            if (
+                isinstance(feature, StepFeature)
+                and feature.position_derived_from_pmi
+                and p.parameter_id == "step_position.length"
+                and request is None
+                and model.authored_dimensions is None
+                and (
+                    feature_baseline is None
+                    or p.span is None
+                    or "xyz"[feature_baseline[0]] != feature.frame.axis
+                    or abs(feature_baseline[1] - p.span[0][feature_baseline[0]]) > 0.01
+                )
+            ):
+                suppressed, reason, conveyed_by = (
+                    True,
+                    "its authored baseline is hidden from this sheet",
+                    None,
+                )
             if model.authored_dimensions is not None:
                 # An authored set REPLACES the rule set rather than adding to it: what the
                 # script lists is what the drawing carries, and everything else is omitted.

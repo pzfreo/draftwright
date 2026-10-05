@@ -1,12 +1,14 @@
 """Imported lengths cover automatic stations without changing a PMI-free chain."""
 
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing
+from draftwright.builder import detect_part_model
 from draftwright.linting.coverage import _authored_axial_witness_on_profile
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.ir import (
@@ -31,7 +33,7 @@ from draftwright.model.pmi_lowering import (
 )
 from draftwright.registry import AnnotationRegistry
 from draftwright.reporting import ReportUnavailableError, placed_dimension_sources
-from draftwright.sheet_emit import emit_sheet_script
+from draftwright.sheet_emit import emit_sheet_script, generate_sheet_script
 
 
 def _step(start: float, end: float, diameter: float) -> StepFeature:
@@ -509,6 +511,84 @@ def test_no_pmi_keeps_the_original_chain():
         (25, False),
         (12, False),
     ]
+
+
+@pytest.mark.parametrize("mode", ["off", "report"])
+def test_explicit_model_pmi_still_takes_precedence_in_non_annotation_modes(mode):
+    part = (
+        Pos(7.5, 0, 0) * Cylinder(15, 15, rotation=(0, 90, 0))
+        + Pos(27.5, 0, 0) * Cylinder(10, 25, rotation=(0, 90, 0))
+        + Pos(46, 0, 0) * Cylinder(6, 12, rotation=(0, 90, 0))
+    )
+    drawing = build_drawing(
+        part,
+        model=_model(_source(0, 40, "dimension:report-only")),
+        pmi=mode,
+        page="A3",
+        scale=1,
+        detail_view=False,
+        repair=False,
+    )
+    assert drawing.model().pmi_annotations_enabled
+    assert any(feature.kind == "authored_dimension" for feature in drawing.model().features)
+    assert [(value, withheld) for value, _span, withheld in _step_lengths(drawing.model())] == [
+        (15, False),
+        (25, True),
+        (12, True),
+    ]
+    assert sorted(
+        drawing.registry.named(name).label
+        for name in drawing.registry.names()
+        if name.startswith(("m_steplen", "pmi_x_"))
+    ) == ["15", "40", "52"]
+
+
+def test_hidden_document_source_does_not_leave_an_inherited_baseline_mark():
+    source = _source(0, 40, "dimension:document-source")
+    acquired = add_authored_step_positions(_model(source))
+    assert any(
+        step.position_derived_from_pmi and step.position_span is not None
+        for step in acquired.features
+        if isinstance(step, StepFeature)
+    )
+    report_member = replace(acquired, hidden_authored_dimension_ids=frozenset({id(source)}))
+    approved = [
+        (dimension.param.parameter_id, dimension.param.value)
+        for group in plan_dimensions(report_member)
+        for dimension in group.dims
+        if isinstance(group.feature, StepFeature)
+        and dimension.param.kind == "length"
+        and not dimension.suppressed
+    ]
+    assert approved == [("step.length", 15), ("step.length", 25), ("step.length", 12)]
+    member_source = _source(0, 40, "dimension:member-source")
+    member = replace(
+        report_member,
+        features=[*report_member.features, member_source],
+    )
+    assert [
+        (dimension.param.parameter_id, dimension.param.value)
+        for group in plan_dimensions(member)
+        for dimension in group.dims
+        if isinstance(group.feature, StepFeature)
+        and dimension.param.kind == "length"
+        and not dimension.suppressed
+    ] == [("step.length", 15), ("step_position.length", 52)]
+
+
+def test_report_only_detected_pmi_keeps_generated_step_chain(tmp_path):
+    fixture = Path(__file__).parent / "fixtures/grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    detected = detect_part_model(str(fixture), pmi="report")
+    assert any(isinstance(feature, AuthoredDimension) for feature in detected.features)
+    script_path = generate_sheet_script(
+        str(fixture), out=str(tmp_path / "report.py"), pmi="report", inspect=False, formats=()
+    )
+    script = Path(script_path).read_text()
+    assert [
+        line
+        for line in script.splitlines()
+        if '"step.length"' in line and line.startswith("sheet.dimension(step")
+    ] == [f'sheet.dimension(step{index}, "step.length")' for index in range(1, 6)]
 
 
 def test_unproved_or_off_axis_source_does_not_cover_a_step():

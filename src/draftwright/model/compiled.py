@@ -2070,7 +2070,13 @@ def compile_dimensions(
     location_omissions.extend(off_axis_omissions)
     # A source location may cover one directional component without covering its
     # orthogonal sibling. Only exact witness correspondence can remove that component.
-    sources = tuple(f for f in model.features if isinstance(f, AuthoredDimension))
+    sources = tuple(
+        f
+        for f in model.features
+        if isinstance(f, AuthoredDimension)
+        and model.pmi_annotations_enabled
+        and id(f) not in model.hidden_authored_dimension_ids
+    )
     if sources and model.authored_dimensions is None:
         unique_cover: dict[int, list[AuthoredDimension]] = {}
         for source in sources:

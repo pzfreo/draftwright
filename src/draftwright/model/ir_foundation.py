@@ -855,6 +855,8 @@ class StepFeature:
     # A planner-filled datum-to-shoulder measurement. The geometric ``step.length``
     # remains the local segment; this is a separate, addressable position fact.
     position_span: tuple[Point, Point] | None = None
+    # An imported baseline created this position; member sheets can hide its source.
+    position_derived_from_pmi: bool = False
     kind: ClassVar[str] = "step"
 
     def __post_init__(self) -> None:

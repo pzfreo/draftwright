@@ -808,6 +808,7 @@ ADDITIONAL_SOURCE_CONTRACTS = {
     ),
     "src/draftwright/model/manufacturing_schedule.py": ("test_manufacturing_schedule.py",),
     "src/draftwright/model/pmi_lowering.py": (
+        "test_authored_pmi_precedence.py",
         "test_issue_1296_cylindrical_diameter_pmi.py",
         "test_manufacturing_pmi_lowering.py",
         "test_nominal_step_pmi.py",
