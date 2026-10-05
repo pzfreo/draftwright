@@ -50,6 +50,30 @@ def ctc04_extraction_report():
 
 
 class TestExtractPmi:
+    def test_position_record_keeps_exact_cylinder_axis_issue_2192(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+
+        monkeypatch.setattr(pmi_module, "_geometric_tolerance_modifiers", lambda _obj: ((), ()))
+        monkeypatch.setattr(pmi_module, "_geometric_tolerance_qualifiers", lambda _obj: ((), ()))
+        monkeypatch.setattr(pmi_module, "_unpreserved_geometric_tolerance_fields", lambda _obj: ())
+        monkeypatch.setattr(
+            pmi_module,
+            "_reference_geometry",
+            lambda *_args: (((0.0, 0.0, 4.0),), (-11, -11, 0, 11, 11, 8), "X", ()),
+        )
+        monkeypatch.setattr(
+            pmi_module,
+            "_cylindrical_references",
+            lambda *_args: ((SimpleNamespace(axis_direction=(0.0, 0.0, 1.0)),), ()),
+        )
+        monkeypatch.setattr(pmi_module, "_datum_references", lambda *_args: ((), ()))
+        record, reasons = pmi_module._geometric_tolerance_record(
+            object(), SimpleNamespace(GetValue=lambda: 2.0), 10, object(), object(), "gtol:bore"
+        )
+        assert not reasons
+        assert record.dominant_axis == "X" and record.reference_axis == "Z"
+        assert len(record.cylindrical_refs) == 1
+
     def test_position_frame_uses_proven_bore_axis_not_bbox_width_issue_2192(self):
         from draftwright._pmi_topology import _common_principal_cylinder_axis
         from draftwright.model import build_pmi_features
