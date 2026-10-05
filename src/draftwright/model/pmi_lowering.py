@@ -14,9 +14,9 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import replace
 from decimal import Decimal
-from typing import Literal, cast
+from typing import Literal, TypeGuard, cast
 
-from draftwright._geometry import _cylindrical_finish_site
+from draftwright._geometry import _cylindrical_finish_site, _fmt
 from draftwright.model.ir import (
     AuthoredDimension,
     BossFeature,
@@ -85,6 +85,24 @@ def _block(dim: AuthoredDimension, reason: str) -> AuthoredDimension:
 
 def _source_ids(dim: AuthoredDimension) -> tuple[str, ...]:
     return (dim.source_id,) if dim.source_id else ()
+
+
+def _plain_cylinder_source(feature: Feature) -> TypeGuard[AuthoredDimension]:
+    return (
+        isinstance(feature, AuthoredDimension)
+        and feature.dimension_kind == "diameter"
+        and feature.source == "ap242_pmi"
+        and bool(feature.cylindrical_refs)
+        and all(
+            value is None
+            for value in (
+                feature.lower_tol,
+                feature.upper_tol,
+                feature.lower_bound,
+                feature.upper_bound,
+            )
+        )
+    )
 
 
 def _limit_bounds(dim: AuthoredDimension) -> tuple[float, float] | None:
@@ -464,6 +482,33 @@ def _nominal_owner_key(feature) -> tuple:
     return (feature, "nominal_requirement", parameter)
 
 
+def _canonical_nominal_diameter_label(dimension: AuthoredDimension) -> bool:
+    """The plain source value has the same wording as the canonical diameter size."""
+    return dimension.label == f"ø{_fmt(dimension.value)}"
+
+
+def _callout_nominal_label(dimension: AuthoredDimension) -> str | None:
+    """Keep source wording that can head the existing diameter callout."""
+    match = re.fullmatch(r"[øØ⌀]\s*(\d+(?:\.\d+)?)(?:\s+[A-Za-z]{1,2}\d{1,2})?", dimension.label)
+    if match is None or abs(float(match.group(1)) - dimension.value) > 1e-6:
+        return None
+    return dimension.label
+
+
+def _nominal_label_for_owner(
+    dimension: AuthoredDimension, owner: Feature
+) -> tuple[bool, str | None]:
+    if not isinstance(owner, HoleFeature | PatternFeature):
+        return True, None
+    bore = owner.member if isinstance(owner, PatternFeature) else owner
+    if _canonical_nominal_diameter_label(dimension) or (
+        bore.through and dimension.label == f"ø{_fmt(dimension.value)} THRU"
+    ):
+        return True, None
+    label = _callout_nominal_label(dimension)
+    return label is not None, label
+
+
 def _standalone_cylinder_blocker(references: tuple[CylindricalReference, ...]) -> str:
     """Why a cylinder group cannot truthfully anchor one standalone diameter mark."""
     if len(references) < 2:
@@ -598,6 +643,65 @@ def _pattern_nominal_members(
     return tuple(sorted(covered))
 
 
+def _pattern_nominal_owner(dimension, features, bbox):
+    matches = [
+        (index, feature, member_indices)
+        for index, feature in enumerate(features)
+        if isinstance(feature, PatternFeature)
+        and (member_indices := _pattern_nominal_members(dimension, feature, bbox))
+        and (len(member_indices) < feature.count or feature.member_size_requirements)
+    ]
+    if not matches:
+        return None
+    other_matches = [
+        feature
+        for feature in features
+        if isinstance(feature, StepFeature | BossFeature | HoleFeature | RotationalFeature)
+        and _nominal_owner_matches(dimension, feature, bbox)
+    ]
+    if len(matches) != 1 or other_matches:
+        return "ambiguous diameter ownership: source cylinders match multiple features"
+    return matches[0]
+
+
+def _pattern_nominal_conflict(requirements, member_indices, nominal) -> bool:
+    return any(
+        requirement is not None
+        and (
+            requirement.source != "ap242_pmi"
+            or (
+                isinstance(requirement, NominalRequirement)
+                and (
+                    not requirement.agrees_with(nominal.value)
+                    or requirement.label != nominal.label
+                )
+            )
+            or (isinstance(requirement, ToleranceDecoration) and nominal.label is not None)
+        )
+        for index in member_indices
+        if (requirement := requirements[index]) is not None
+    )
+
+
+def _merged_pattern_requirements(requirements, member_indices, nominal):
+    for index in member_indices:
+        requirement = requirements[index]
+        if requirement is None:
+            requirements[index] = nominal
+        elif isinstance(requirement, NominalRequirement):
+            requirements[index] = replace(
+                requirement,
+                source_ids=tuple(dict.fromkeys((*requirement.source_ids, *nominal.source_ids))),
+                label=requirement.label or nominal.label,
+            )
+        else:
+            requirements[index] = replace(
+                requirement,
+                source_ids=tuple(dict.fromkeys((*requirement.source_ids, *nominal.source_ids))),
+            )
+    return requirements
+
+
 def _lower_pattern_nominal_diameters(
     model: PartModel, *, feature_remap: FeatureRemap | None
 ) -> PartModel:
@@ -608,45 +712,27 @@ def _lower_pattern_nominal_diameters(
     blocked: dict[int, str] = {}
     for dim_index, dimension in enumerate(model.features):
         if not (
-            isinstance(dimension, AuthoredDimension)
-            and dimension.dimension_kind == "diameter"
-            and dimension.source == "ap242_pmi"
-            and dimension.cylindrical_refs
+            _plain_cylinder_source(dimension)
             and not dimension.lowering_blockers
             and not dimension.rendering_blockers
-            and all(
-                value is None
-                for value in (
-                    dimension.lower_tol,
-                    dimension.upper_tol,
-                    dimension.lower_bound,
-                    dimension.upper_bound,
-                )
-            )
         ):
             continue
-        matches = [
-            (index, feature, member_indices)
-            for index, feature in enumerate(features)
-            if isinstance(feature, PatternFeature)
-            and (member_indices := _pattern_nominal_members(dimension, feature, model.bbox))
-            and (len(member_indices) < feature.count or feature.member_size_requirements)
-        ]
-        if not matches:
+        owner_match = _pattern_nominal_owner(dimension, features, model.bbox)
+        if owner_match is None:
             continue
-        other_matches = [
-            feature
-            for feature in features
-            if isinstance(feature, StepFeature | BossFeature | HoleFeature | RotationalFeature)
-            and _nominal_owner_matches(dimension, feature, model.bbox)
-        ]
-        if len(matches) != 1 or other_matches:
-            blocked[dim_index] = (
-                "ambiguous diameter ownership: source cylinders match multiple features"
-            )
+        if isinstance(owner_match, str):
+            blocked[dim_index] = owner_match
             continue
-        owner_index, owner, member_indices = matches[0]
-        nominal = NominalRequirement(dimension.value, "ap242_pmi", _source_ids(dimension))
+        owner_index, owner, member_indices = owner_match
+        supported, label = _nominal_label_for_owner(dimension, owner)
+        if not supported:
+            continue
+        nominal = NominalRequirement(
+            dimension.value,
+            "ap242_pmi",
+            _source_ids(dimension),
+            label=label,
+        )
         if not nominal.agrees_with(owner.member.diameter):
             blocked[dim_index] = (
                 f"source nominal {dimension.value!r} disagrees with canonical "
@@ -659,26 +745,17 @@ def _lower_pattern_nominal_diameters(
             )
             continue
         requirements = list(owner.member_size_requirements or (None,) * owner.count)
-        if any(
-            requirement is not None and requirement.source != "ap242_pmi"
-            for index in member_indices
-            if (requirement := requirements[index]) is not None
-        ):
-            blocked[dim_index] = "ambiguous diameter ownership: member has an authored aspect"
-            continue
-        for index in member_indices:
-            requirement = requirements[index]
-            requirements[index] = (
-                nominal
-                if requirement is None
-                else replace(
-                    requirement,
-                    source_ids=tuple(
-                        dict.fromkeys((*requirement.source_ids, *nominal.source_ids))
-                    ),
-                )
+        if _pattern_nominal_conflict(requirements, member_indices, nominal):
+            blocked[dim_index] = (
+                "ambiguous diameter ownership: member has a conflicting authored aspect"
             )
-        replacement = replace(owner, member_size_requirements=tuple(requirements))
+            continue
+        replacement = replace(
+            owner,
+            member_size_requirements=tuple(
+                _merged_pattern_requirements(requirements, member_indices, nominal)
+            ),
+        )
         for key, value in tuple(decorations.items()):
             if key[0] is owner:
                 del decorations[key]
@@ -687,7 +764,13 @@ def _lower_pattern_nominal_diameters(
             feature_remap(owner, (replacement,), (tuple(range(owner.count)),))
         features[owner_index] = replacement
         consumed.add(dim_index)
-    if not consumed and not blocked:
+    if (
+        not consumed
+        and not blocked
+        and all(
+            current is original for current, original in zip(features, model.features, strict=True)
+        )
+    ):
         return model
     return replace(
         model,
@@ -827,6 +910,45 @@ def _external_diameter_parameter(feature: StepFeature | BossFeature | Rotational
     )
 
 
+def _nominal_diameter_owner(dimension, targets, bbox):
+    matches = [
+        feature for _index, feature in targets if _nominal_owner_matches(dimension, feature, bbox)
+    ]
+    if any(isinstance(feature, StepFeature) for feature in matches):
+        matches = [feature for feature in matches if isinstance(feature, StepFeature)]
+    elif any(isinstance(feature, RotationalFeature) for feature in matches):
+        matches = [feature for feature in matches if isinstance(feature, RotationalFeature)]
+    if not matches:
+        return "unmatched diameter ownership: no canonical feature matches the source cylinder topology"
+    if len(matches) != 1:
+        return (
+            "ambiguous diameter ownership: source cylinder topology matches "
+            f"{len(matches)} canonical features"
+        )
+    return matches[0]
+
+
+def _nominal_source_consumed(owner, dimension) -> bool:
+    return isinstance(owner, HoleFeature | PatternFeature) or _canonical_nominal_diameter_label(
+        dimension
+    )
+
+
+def _nominal_rebuilt_features(model, consumed, blocked, nominal_conflicts):
+    rebuilt: list[Feature] = []
+    for index, feature in enumerate(model.features):
+        if index in consumed:
+            continue
+        if index in blocked and isinstance(feature, AuthoredDimension):
+            feature = _block(feature, blocked[index])
+            if index in nominal_conflicts:
+                feature = replace(
+                    feature, rendering_blockers=(*feature.rendering_blockers, blocked[index])
+                )
+        rebuilt.append(feature)
+    return rebuilt
+
+
 def lower_ap242_nominal_diameters(
     model: PartModel, *, feature_remap: FeatureRemap | None = None
 ) -> PartModel:
@@ -854,19 +976,7 @@ def lower_ap242_nominal_diameters(
     dimensions = {
         index: feature
         for index, feature in enumerate(model.features)
-        if isinstance(feature, AuthoredDimension)
-        and feature.dimension_kind == "diameter"
-        and feature.source == "ap242_pmi"
-        and feature.cylindrical_refs
-        and not any(
-            value is not None
-            for value in (
-                feature.lower_tol,
-                feature.upper_tol,
-                feature.lower_bound,
-                feature.upper_bound,
-            )
-        )
+        if _plain_cylinder_source(feature)
     }
     if not dimensions:
         return _apply_standalone_cylinder_blockers(model)
@@ -876,6 +986,7 @@ def lower_ap242_nominal_diameters(
         tuple[
             StepFeature | BossFeature | HoleFeature | PatternFeature | RotationalFeature,
             tuple,
+            NominalRequirement,
         ],
     ] = {}
     blocked: dict[int, str] = {}
@@ -883,31 +994,19 @@ def lower_ap242_nominal_diameters(
     for dimension_index, dimension in dimensions.items():
         if dimension.lowering_blockers or dimension.rendering_blockers:
             continue
-        matches = [
-            feature
-            for _feature_index, feature in targets
-            if _nominal_owner_matches(dimension, feature, model.bbox)
-        ]
-        if any(isinstance(feature, StepFeature) for feature in matches):
-            matches = [feature for feature in matches if isinstance(feature, StepFeature)]
-        elif any(isinstance(feature, RotationalFeature) for feature in matches):
-            matches = [feature for feature in matches if isinstance(feature, RotationalFeature)]
-        if not matches:
-            blocked[dimension_index] = (
-                "unmatched diameter ownership: no canonical feature matches the source "
-                "cylinder topology"
-            )
+        owner = _nominal_diameter_owner(dimension, targets, model.bbox)
+        if isinstance(owner, str):
+            blocked[dimension_index] = owner
             continue
-        if len(matches) != 1:
-            blocked[dimension_index] = (
-                f"ambiguous diameter ownership: source cylinder topology matches "
-                f"{len(matches)} canonical features"
-            )
+        supported, label = _nominal_label_for_owner(dimension, owner)
+        if not supported:
             continue
-        owner = matches[0]
         key = _nominal_owner_key(owner)
         nominal = NominalRequirement(
-            value=dimension.value, source="ap242_pmi", source_ids=_source_ids(dimension)
+            value=dimension.value,
+            source="ap242_pmi",
+            source_ids=_source_ids(dimension),
+            label=label,
         )
         parameter = next(p for p in owner.parameters() if p.parameter_id == key[2])
         if not nominal.agrees_with(parameter.value):
@@ -917,42 +1016,38 @@ def lower_ap242_nominal_diameters(
                 f"{parameter.parameter_id}={parameter.value!r}"
             )
             continue
-        proposals[dimension_index] = (owner, key)
+        proposals[dimension_index] = (owner, key, nominal)
 
     decorations = dict(model.decorations)
     consumed: set[int] = set()
-    for dimension_index, (owner, key) in proposals.items():
+    for dimension_index, (owner, key, nominal) in proposals.items():
         dimension = dimensions[dimension_index]
         incoming_ids = _source_ids(dimension)
         existing = decorations.get(key)
         if existing is None:
-            decorations[key] = NominalRequirement(
-                value=dimension.value, source="ap242_pmi", source_ids=incoming_ids
-            )
-            consumed.add(dimension_index)
+            decorations[key] = nominal
+            if _nominal_source_consumed(owner, dimension):
+                consumed.add(dimension_index)
             continue
         if isinstance(existing, NominalRequirement) and existing.agrees_with(dimension.value):
+            if existing.label != nominal.label:
+                blocked[dimension_index] = (
+                    "ambiguous diameter ownership: conflicting authored labels"
+                )
+                continue
             decorations[key] = replace(
                 existing,
                 source_ids=tuple(dict.fromkeys((*existing.source_ids, *incoming_ids))),
+                label=existing.label or nominal.label,
             )
-            consumed.add(dimension_index)
+            if _nominal_source_consumed(owner, dimension):
+                consumed.add(dimension_index)
             continue
         blocked[dimension_index] = (
             f"ambiguous diameter ownership: {owner.kind} diameter already has an authored aspect"
         )
 
-    rebuilt: list[Feature] = []
-    for index, feature in enumerate(model.features):
-        if index in consumed:
-            continue
-        if index in blocked and isinstance(feature, AuthoredDimension):
-            feature = _block(feature, blocked[index])
-            if index in nominal_conflicts:
-                feature = replace(
-                    feature, rendering_blockers=(*feature.rendering_blockers, blocked[index])
-                )
-        rebuilt.append(feature)
+    rebuilt = _nominal_rebuilt_features(model, consumed, blocked, nominal_conflicts)
     return _apply_standalone_cylinder_blockers(
         replace(model, features=rebuilt, decorations=decorations)
     )
@@ -985,6 +1080,7 @@ def lower_ap242_nominal_step_lengths(model: PartModel) -> PartModel:
             and re.fullmatch(r"\s*\d+(?:\.\d+)?\s*", dimension.label)
             and len(dimension.ref_pts) == 2
             and abs(float(dimension.label) - dimension.value) <= 1e-6
+            and dimension.label.strip() == _fmt(dimension.value)
         ):
             continue
         matches = []
@@ -1025,6 +1121,81 @@ def lower_ap242_nominal_step_lengths(model: PartModel) -> PartModel:
             feature for index, feature in enumerate(model.features) if index not in consumed
         ],
         decorations=decorations,
+    )
+
+
+def add_authored_step_positions(
+    model: PartModel, *, feature_remap: FeatureRemap | None = None
+) -> PartModel:
+    """Give automatic baseline gap fillers their own datum-to-shoulder IR identity."""
+    from draftwright.model.planner import _authored_step_baseline, _authored_step_groups
+
+    if (
+        model.authored_dimensions is not None
+        or not model.pmi_annotations_enabled
+        or not any(
+            isinstance(feature, AuthoredDimension)
+            and id(feature) not in model.hidden_authored_dimension_ids
+            for feature in model.features
+        )
+    ):
+        return model
+    features = list(model.features)
+    profile_groups = _authored_step_groups(model)
+    baselines: dict[int, tuple[int, float, dict[float, str]] | None] = {}
+    for group in profile_groups:
+        baseline = _authored_step_baseline(model, group[0], groups=profile_groups)
+        baselines.update((id(step), baseline) for step in group)
+    decorations = dict(model.decorations)
+    replacements: dict[int, StepFeature] = {}
+    for index, feature in enumerate(features):
+        if not isinstance(feature, StepFeature):
+            continue
+        baseline = baselines.get(id(feature))
+        if baseline is None:
+            continue
+        axis, base, covered = baseline
+        if feature.position_span is not None:
+            continue
+        stations = sorted(float(point[axis]) for point in feature.span)
+        target = stations[1] if abs(base - stations[0]) <= abs(base - stations[1]) else stations[0]
+        if (
+            round(target, 6) in covered
+            or abs(base - (stations[0] if target == stations[1] else stations[1])) <= 0.01
+        ):
+            continue
+        if (feature, "nominal_requirement", "step.length") in decorations or any(
+            key[0] is feature and key[1] == "length" for key in decorations
+        ):
+            continue
+        start = list(feature.span[0])
+        end = list(feature.span[1])
+        start[axis] = base
+        end[axis] = target
+        replacement = replace(
+            feature,
+            position_span=((start[0], start[1], start[2]), (end[0], end[1], end[2])),
+            position_derived_from_pmi=True,
+        )
+        replacements[id(feature)] = replacement
+        features[index] = replacement
+        if feature_remap is not None:
+            feature_remap(feature, (replacement,), None)
+    if not replacements:
+        return model
+    for key, value in tuple(decorations.items()):
+        updated = replacements.get(id(key[0]))
+        if updated is not None:
+            del decorations[key]
+            decorations[(updated, *key[1:])] = value
+    requested = tuple(
+        replace(request, feature=replacements[id(request.feature)])
+        if id(request.feature) in replacements
+        else request
+        for request in model.requested_dimensions
+    )
+    return replace(
+        model, features=features, decorations=decorations, requested_dimensions=requested
     )
 
 
@@ -2184,4 +2355,7 @@ def lower_ap242_dimensions(
     )
     manufacturing = lower_ap242_manufacturing_requirements(dimensions, feature_remap=feature_remap)
     chamfers = lower_ap242_chamfer_requirements(manufacturing, feature_remap=feature_remap)
-    return lower_ap242_document_requirements(lower_ap242_face_finishes(chamfers))
+    return add_authored_step_positions(
+        lower_ap242_document_requirements(lower_ap242_face_finishes(chamfers)),
+        feature_remap=feature_remap,
+    )

@@ -425,6 +425,7 @@ def _render_single_profile(
 ) -> int:
     """Place one axial profile and request details for crowded shoulders."""
     rows: list[tuple[str, _StepChainSegment]] = []
+    has_baseline_position = False
     step_origins = []
     step_geometry = []
     for g in plan.of_kind("step"):
@@ -435,6 +436,9 @@ def _render_single_profile(
         length = g.dim(kind="length")
         if length is None or length.span is None:
             continue
+        has_baseline_position |= (
+            length.id is not None and length.id.parameter == "step_position.length"
+        )
         rows.append(
             (
                 g.facts.frame.axis,
@@ -511,6 +515,21 @@ def _render_single_profile(
         if profile_points
         else _profile_bounds_hint
     )
+
+    if has_baseline_position:
+        # The crowded-head and repeated-run transforms describe a contiguous
+        # step chain. A datum-to-shoulder baseline has different witnesses.
+        return _draw_step_chain(
+            dwg,
+            view,
+            fsegs,
+            "m_steplen",
+            allow_collapse=False,
+            ctx=ctx,
+            start=start,
+            profile_bounds=profile_bounds,
+            placement_bounds=_profile_bounds_hint,
+        )
 
     y_result = _render_y_profile(
         dwg,

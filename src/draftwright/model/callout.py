@@ -102,6 +102,8 @@ def _merge_member_pattern_batches(batches: list[HoleCalloutBatch]) -> list[HoleC
 
 def bore_callout_value(spec: dict, tolerance_suffix=lambda _value: "") -> str:
     """Format the bore value after the callout's leading diameter symbol."""
+    if spec.get("authored_diameter_label") and spec.get("tolerance") is None:
+        return str(spec["authored_diameter_label"])[1:]
     if limits := spec.get("diameter_limits"):
         lower, upper = limits
         nominal = spec["diameter"]
@@ -797,6 +799,7 @@ def hole_callout_spec(
     )
     spec = {
         "diameter": bore,
+        "authored_diameter_label": bore_pd.param.source_label if bore_pd is not None else None,
         "diameter_decimals": _display_decimals(group, "diameter", "bore"),
         "count": count if count and count > 1 else None,
         "through": hole.through,  # the feature's fact, not the param list's shape (#868)

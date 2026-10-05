@@ -6,6 +6,7 @@ serialized models. This leaf owns their constructors and validation.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from math import atan2, cos, hypot, isfinite, pi, radians, sin
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
@@ -370,6 +371,9 @@ class DimParameter:
     # deciding whether otherwise identical physical callouts may be consolidated.
     source_ids: tuple[str, ...] = ()
     limit_bounds: tuple[float, float] | None = None
+    # Exact AP242 wording when a canonical hole callout carries an authored
+    # nominal whose printed form differs from the default numeric formatter.
+    source_label: str | None = None
 
     @property
     def parameter_id(self) -> ParameterId:
@@ -413,15 +417,14 @@ class ToleranceDecoration:
 class NominalRequirement:
     """External ownership of an already-canonical nominal dimension.
 
-    Unlike :class:`ToleranceDecoration`, this adds no printed suffix: the feature's normal
-    planned diameter is already the truthful visual annotation.  The wrapper records which
-    imported semantic sources own that existing annotation, so provenance survives lowering,
-    lint reconciliation, and generated-Sheet round trips without creating a duplicate.
+    The canonical parameter carries the imported source identity without creating a duplicate.
+    An optional diameter label preserves authored numeric precision or a short fit class.
     """
 
     value: float
     source: str
     source_ids: tuple[str, ...]
+    label: str | None = None
 
     def agrees_with(self, value: float) -> bool:
         """Whether a canonical value can carry this nominal without changing its meaning."""
@@ -441,6 +444,15 @@ class NominalRequirement:
         )
         if not ids:
             raise ValueError("nominal requirement needs at least one source id")
+        if self.label is not None and (not isinstance(self.label, str) or not self.label.strip()):
+            raise ValueError("nominal requirement label must be non-empty text")
+        if self.label is not None:
+            match = re.fullmatch(
+                r"[øØ⌀]\s*(\d+(?:\.\d+)?)(?:\s+[A-Za-z]{1,2}\d{1,2})?",
+                self.label,
+            )
+            if match is None or abs(float(match.group(1)) - value) > 1e-6:
+                raise ValueError("nominal requirement label must agree with its diameter")
         object.__setattr__(self, "value", value)
         object.__setattr__(self, "source", source)
         object.__setattr__(self, "source_ids", ids)
@@ -840,13 +852,43 @@ class StepFeature:
     #: this opaque token instead of exposing the provider's ``TurnedProfileKey``; ordinary
     #: declarations may omit it and retain geometric grouping.
     profile_group: str | None = None
+    # A planner-filled datum-to-shoulder measurement. The geometric ``step.length``
+    # remains the local segment; this is a separate, addressable position fact.
+    position_span: tuple[Point, Point] | None = None
+    # An imported baseline created this position; member sheets can hide its source.
+    position_derived_from_pmi: bool = False
     kind: ClassVar[str] = "step"
 
+    def __post_init__(self) -> None:
+        if self.position_span is None:
+            return
+        first = _finite_point3("step position start", self.position_span[0])
+        second = _finite_point3("step position end", self.position_span[1])
+        axis = "xyz".index(self.frame.axis)
+        if abs(second[axis] - first[axis]) <= 1e-9 or any(
+            abs(first[index] - second[index]) > 1e-6 for index in range(3) if index != axis
+        ):
+            raise ValueError("step position must run along the step axis")
+        if not any(abs(second[axis] - point[axis]) <= 0.01 for point in self.span):
+            raise ValueError("step position must end at one of its step's shoulders")
+
     def parameters(self) -> list[DimParameter]:
-        return [
+        parameters = [
             DimParameter("length", "step", self.length, span=self.span),
             DimParameter("diameter", "step", self.diameter),
         ]
+        if self.position_span is not None:
+            axis = "xyz".index(self.frame.axis)
+            first, second = self.position_span
+            parameters.append(
+                DimParameter(
+                    "length",
+                    "step_position",
+                    abs(second[axis] - first[axis]),
+                    span=self.position_span,
+                )
+            )
+        return parameters
 
     def references(self) -> list[Datum]:
         return []
@@ -914,6 +956,9 @@ class PatternFeature:
                         requirement.value if isinstance(requirement, ToleranceDecoration) else None
                     ),
                     source_ids=requirement.source_ids if requirement is not None else (),
+                    source_label=(
+                        requirement.label if isinstance(requirement, NominalRequirement) else None
+                    ),
                     limit_bounds=(
                         requirement.limit_bounds
                         if isinstance(requirement, ToleranceDecoration)

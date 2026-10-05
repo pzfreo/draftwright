@@ -27,6 +27,7 @@ ISO/ASME rule set grows here as real features demand it.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from math import hypot
 from typing import Any, Literal
 
 from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef, _fmt, _fmt_angle
@@ -36,17 +37,20 @@ from draftwright.model.ir import (
     PLACEMENT_VIEWS,
     AngleFeature,
     AnglePatternFeature,
+    AuthoredDimension,
     BlendFeature,
     ChamferFeature,
     ChannelFeature,
     CircularChannelFeature,
     Datum,
     DimParameter,
+    EnvelopeFeature,
     Feature,
     FilletFeature,
     FlatFeature,
     HexPocketFeature,
     HoleFeature,
+    NominalRequirement,
     OrientedSlotFeature,
     PadFeature,
     ParameterId,
@@ -63,6 +67,7 @@ from draftwright.model.ir import (
     ScheduleRow,
     SlotFeature,
     SlotPatternFeature,
+    StepFeature,
     StepLevelFeature,
     validate_authored_dimension_placement,
 )
@@ -80,6 +85,437 @@ _AUTHORED_OMISSION = "not in the authored dimension set"
 _SCHEDULE_REPRESENTATION = "selected for a feature schedule"
 
 
+def _authored_linear_stations(source: AuthoredDimension) -> tuple[int, float, float] | None:
+    """Return the proved normal stations of one renderable imported length."""
+    if (
+        source.source != "ap242_pmi"
+        or source.dimension_kind != "linear"
+        or source.dominant_axis not in ("X", "Y", "Z")
+        or len(source.ref_pts) != 2
+        or source.rendering_blockers
+    ):
+        return None
+    axis = "XYZ".index(source.dominant_axis)
+    first, second = (float(point[axis]) for point in source.ref_pts)
+    if abs(abs(second - first) - source.value) > 1e-6:
+        return None
+    return axis, first, second
+
+
+def _source_on_turned_profile(
+    source: AuthoredDimension, steps: list[StepFeature], axis: int
+) -> bool:
+    """Require both source witnesses to lie on this one axial body's end planes."""
+    transverse = tuple(index for index in range(3) if index != axis)
+    line = tuple(float(steps[0].frame.origin[index]) for index in transverse)
+    if any(
+        step.frame.axis != "xyz"[axis]
+        or step.span is None
+        or any(
+            abs(step.frame.origin[index] - line[i]) > 0.01 for i, index in enumerate(transverse)
+        )
+        for step in steps
+    ):
+        return False
+    for point in source.ref_pts:
+        at = float(point[axis])
+        touching = [
+            step
+            for step in steps
+            if step.span is not None
+            and any(abs(float(end[axis]) - at) <= 0.01 for end in step.span)
+        ]
+        if not touching:
+            return False
+        radius = max(float(step.diameter) / 2 for step in touching)
+        offset = hypot(*(float(point[index]) - line[i] for i, index in enumerate(transverse)))
+        if offset > radius + 0.01:
+            return False
+    return True
+
+
+def _authored_step_groups(model: PartModel) -> list[list[StepFeature]]:
+    """Partition coaxial steps into connected physical runs."""
+    groups: list[list[StepFeature]] = []
+    keys: list[tuple[object, ...]] = []
+    for feature in model.features:
+        if not isinstance(feature, StepFeature):
+            continue
+        axis_index = "xyz".index(feature.frame.axis)
+        key = (
+            feature.frame.axis,
+            feature.profile,
+            feature.profile_group,
+            *(round(float(feature.frame.origin[i]), 6) for i in range(3) if i != axis_index),
+        )
+        if key in keys:
+            groups[keys.index(key)].append(feature)
+        else:
+            keys.append(key)
+            groups.append([feature])
+    connected_groups: list[list[StepFeature]] = []
+    for group in groups:
+        axis_index = "xyz".index(group[0].frame.axis)
+        ordered = sorted(group, key=lambda step: min(point[axis_index] for point in step.span))
+        run: list[StepFeature] = []
+        previous_hi = None
+        for step in ordered:
+            lo, hi = sorted(float(point[axis_index]) for point in step.span)
+            if previous_hi is not None and abs(lo - previous_hi) > 0.01:
+                connected_groups.append(run)
+                run = []
+            run.append(step)
+            previous_hi = hi
+        if run:
+            connected_groups.append(run)
+    return connected_groups
+
+
+def _authored_baseline_candidates(model, steps, groups, axis, intervals, ends):
+    candidates: dict[float, dict[float, str]] = {}
+    established: set[float] = set()
+    for source in model.features:
+        if (
+            not isinstance(source, AuthoredDimension)
+            or id(source) in model.hidden_authored_dimension_ids
+        ):
+            continue
+        stations = _authored_linear_stations(source)
+        if stations is None or stations[0] != axis:
+            continue
+        if not _source_on_turned_profile(source, steps, axis):
+            continue
+        if sum(_source_on_turned_profile(source, group, axis) for group in groups) != 1:
+            continue
+        first, second = stations[1:]
+        for base, target_station in ((first, second), (second, first)):
+            end = next((end for end in ends if abs(base - end) <= 0.01), None)
+            if end is None or not any(
+                abs(target_station - station) <= 0.01 for pair in intervals for station in pair
+            ):
+                continue
+            candidates.setdefault(end, {})[round(target_station, 6)] = source.source_id
+            if not any(
+                abs(min(base, target_station) - lo) <= 0.01
+                and abs(max(base, target_station) - hi) <= 0.01
+                for lo, hi in intervals
+            ):
+                established.add(end)
+    return candidates, established
+
+
+def _authored_step_baseline(
+    model: PartModel,
+    target: StepFeature | None = None,
+    *,
+    groups: list[list[StepFeature]] | None = None,
+) -> tuple[int, float, dict[float, str]] | None:
+    """Find one unambiguous authored end reference for a turned profile.
+
+    The raw source's references establish the scheme; its nominal alone never does.
+    Each physical profile is considered separately. A source that could belong to
+    two profiles, or opposing references with equal support, leaves its chain alone.
+    """
+    if groups is None:
+        groups = _authored_step_groups(model)
+    if target is None:
+        if len(groups) != 1:
+            return None
+        steps = groups[0]
+    else:
+        steps = next((group for group in groups if any(step is target for step in group)), [])
+    if not steps:
+        return None
+    axis = "xyz".index(steps[0].frame.axis)
+    transverse = tuple(i for i in range(3) if i != axis)
+    line = tuple(steps[0].frame.origin[i] for i in transverse)
+    if any(
+        step.span is None
+        or any(abs(step.frame.origin[i] - line[j]) > 0.01 for j, i in enumerate(transverse))
+        for step in steps
+    ):
+        return None
+    intervals = sorted(
+        tuple(sorted((float(step.span[0][axis]), float(step.span[1][axis])))) for step in steps
+    )
+    if any(
+        abs(left[1] - right[0]) > 0.01
+        for left, right in zip(intervals, intervals[1:], strict=False)
+    ):
+        return None
+    ends = (intervals[0][0], intervals[-1][1])
+    candidates, established = _authored_baseline_candidates(
+        model, steps, groups, axis, intervals, ends
+    )
+    if not established:
+        return None
+    leaders = sorted(candidates, key=lambda base: len(candidates[base]), reverse=True)
+    if len(leaders) > 1 and len(candidates[leaders[0]]) == len(candidates[leaders[1]]):
+        # A lone end-to-end source names both end planes but no preferred datum.
+        # Either end gives the same authored overall; use the lower station as a
+        # stable reference for uncovered levels, avoiding a redundant full chain.
+        whole_span = (
+            len(leaders) == 2
+            and len(candidates[leaders[0]]) == 1
+            and len(candidates[leaders[1]]) == 1
+            and candidates[leaders[0]].get(round(leaders[1], 6))
+            == candidates[leaders[1]].get(round(leaders[0], 6))
+        )
+        if not whole_span:
+            return None
+        base = min(leaders)
+    else:
+        base = leaders[0]
+    covered = candidates[base]
+    return axis, base, covered
+
+
+def _authored_same_span(
+    source: AuthoredDimension, span: tuple[Point, Point], value: float
+) -> bool:
+    if abs(source.value - value) > 1e-6:
+        return False
+    return any(
+        all(
+            all(abs(a - b) <= 0.01 for a, b in zip(point, end, strict=True))
+            for point, end in zip(points, span, strict=True)
+        )
+        for points in (source.ref_pts, tuple(reversed(source.ref_pts)))
+    )
+
+
+def _authored_location_matches(
+    source: AuthoredDimension, span: tuple[Point, Point], axis: str, value: float
+) -> bool:
+    """Match one datum-to-feature component with its actual source witnesses."""
+    stations = _authored_linear_stations(source)
+    if stations is None or axis != "xyz"[stations[0]] or abs(source.value - value) > 1e-6:
+        return False
+    index = stations[0]
+    target = span[1]
+    return any(
+        all(abs(a - b) <= 0.01 for a, b in zip(point, target, strict=True))
+        and abs(float(other[index]) - float(span[0][index])) <= 0.01
+        and all(abs(float(other[i]) - float(target[i])) <= 0.01 for i in range(3) if i != index)
+        for point, other in (
+            (source.ref_pts[0], source.ref_pts[1]),
+            (source.ref_pts[1], source.ref_pts[0]),
+        )
+    )
+
+
+def _authored_linear_covers(
+    source: AuthoredDimension,
+    feature: Feature,
+    parameter: DimParameter,
+    steps: list[StepFeature],
+) -> bool:
+    if parameter.kind != "length" or parameter.span is None:
+        return False
+    stations = _authored_linear_stations(source)
+    if stations is None:
+        return False
+    if _authored_same_span(source, parameter.span, parameter.value):
+        return True
+    return (
+        isinstance(feature, StepFeature)
+        and feature.frame.axis == "xyz"[stations[0]]
+        and abs(source.value - parameter.value) <= 1e-6
+        and all(
+            abs(a - b) <= 0.01
+            for a, b in zip(
+                sorted(stations[1:]),
+                sorted(float(point[stations[0]]) for point in parameter.span),
+                strict=True,
+            )
+        )
+        and bool(steps)
+        and _source_on_turned_profile(source, steps, stations[0])
+    )
+
+
+def _authored_diameter_coverage(
+    model: PartModel, feature: Feature, parameter: DimParameter
+) -> str | None:
+    """Keep a noncanonical source label and withhold its proved canonical duplicate."""
+    if parameter.kind != "diameter" or parameter.tolerance is not None:
+        return None
+    requirement = model.decorations.get((feature, "nominal_requirement", parameter.parameter_id))
+    if not isinstance(requirement, NominalRequirement) and isinstance(feature, RotationalFeature):
+        groups = _authored_step_groups(model)
+        if len(groups) != 1:
+            return None
+        axis = "xyz".index(feature.frame.axis)
+        profile = groups[0]
+        stations = [float(point[axis]) for step in profile for point in (step.span or ())]
+        if (
+            not stations
+            or not min(stations) - 0.01 <= feature.frame.origin[axis] <= max(stations) + 0.01
+        ):
+            return None
+        inherited = {
+            source_id
+            for step in profile
+            if step.frame.axis == feature.frame.axis
+            and abs(step.diameter - parameter.value) <= 1e-6
+            and all(
+                abs(step.frame.origin[i] - feature.frame.origin[i]) <= 0.01
+                for i in range(3)
+                if i != axis
+            )
+            for step_diameter in step.parameters()
+            if step_diameter.parameter_id == "step.diameter"
+            if (source_id := _authored_diameter_coverage(model, step, step_diameter)) is not None
+        }
+        return next(iter(inherited)) if len(inherited) == 1 else None
+    if isinstance(feature, PatternFeature) and parameter.discriminator is not None:
+        member = parameter.discriminator.removeprefix("member_")
+        if parameter.discriminator.startswith("member_") and member.isdecimal():
+            index = int(member)
+            if index < len(feature.member_size_requirements):
+                requirement = feature.member_size_requirements[index]
+    if not isinstance(requirement, NominalRequirement):
+        return None
+    matching = [
+        source
+        for source in model.features
+        if isinstance(source, AuthoredDimension)
+        and id(source) not in model.hidden_authored_dimension_ids
+        and source.source == "ap242_pmi"
+        and source.dimension_kind == "diameter"
+        and source.source_id in requirement.source_ids
+        and not source.rendering_blockers
+        and abs(source.value - parameter.value) <= 1e-6
+    ]
+    return matching[0].source_id if len(matching) == 1 else None
+
+
+def _authored_envelope_faces(source, feature, parameter) -> bool:
+    axis = {"width": 0, "depth": 1, "height": 2}.get(parameter.role)
+    stations = _authored_linear_stations(source)
+    if axis is None or stations is None or stations[0] != axis:
+        return False
+    if abs(source.value - parameter.value) > 1e-6:
+        return False
+    lo, hi = sorted(stations[1:])
+    if abs(lo - feature.bbox_min[axis]) > 0.01 or abs(hi - feature.bbox_max[axis]) > 0.01:
+        return False
+    return all(
+        feature.bbox_min[i] - 0.01 <= float(point[i]) <= feature.bbox_max[i] + 0.01
+        for point in source.ref_pts
+        for i in range(3)
+        if i != axis
+    )
+
+
+def _authored_envelope_coverage(model, feature, parameter, baseline) -> str | None:
+    if baseline is not None:
+        axis, _base, covered = baseline
+        envelope_role = ("width", "depth", "height")[axis]
+        if parameter.role == envelope_role:
+            extent_hi = max(float(point[axis]) for point in parameter.span)
+            extent_lo = min(float(point[axis]) for point in parameter.span)
+            source_id = covered.get(round(extent_hi, 6)) or covered.get(round(extent_lo, 6))
+            if source_id is not None and abs(parameter.value - abs(extent_hi - extent_lo)) <= 1e-6:
+                return f"authored PMI dimension {source_id} covers this extent"
+    for source in model.features:
+        if (
+            not isinstance(source, AuthoredDimension)
+            or id(source) in model.hidden_authored_dimension_ids
+        ):
+            continue
+        stations = _authored_linear_stations(source)
+        if stations is None:
+            continue
+        axis, first, second = stations
+        if (
+            model.orientation == "xyz"[axis]
+            and parameter.role == ("width", "depth", "height")[axis]
+            and (steps := [item for item in model.features if isinstance(item, StepFeature)])
+            and _source_on_turned_profile(source, steps, axis)
+            and abs(source.value - parameter.value) <= 1e-6
+            and all(
+                abs(a - b) <= 0.01
+                for a, b in zip(
+                    sorted((first, second)),
+                    sorted(point[axis] for point in parameter.span),
+                    strict=True,
+                )
+            )
+        ):
+            return f"authored PMI dimension {source.source_id} covers this extent"
+        if _authored_same_span(source, parameter.span, parameter.value):
+            return f"authored PMI dimension {source.source_id} covers this extent"
+        if (
+            _authored_envelope_faces(source, feature, parameter)
+            and sum(isinstance(item, EnvelopeFeature) for item in model.features) == 1
+        ):
+            return f"authored PMI dimension {source.source_id} covers this extent"
+    return None
+
+
+def _authored_pmi_overlay(
+    model: PartModel,
+    feature: Feature,
+    parameter: DimParameter,
+    baseline: tuple[int, float, dict[float, str]] | None,
+    step_groups: dict[int, list[StepFeature]],
+) -> tuple[DimParameter, str | None]:
+    """Let imported references cover automatic measurements before compilation."""
+    if model.authored_dimensions is not None or not model.pmi_annotations_enabled:
+        return parameter, None
+    if parameter.kind == "diameter":
+        source_id = _authored_diameter_coverage(model, feature, parameter)
+        return (
+            (parameter, f"authored PMI dimension {source_id} covers this diameter")
+            if source_id is not None
+            else (parameter, None)
+        )
+    if parameter.kind != "length" or parameter.span is None:
+        return parameter, None
+    if parameter.tolerance is None:
+        steps = step_groups.get(id(feature), [])
+        for source in model.features:
+            if (
+                not isinstance(source, AuthoredDimension)
+                or id(source) in model.hidden_authored_dimension_ids
+            ):
+                continue
+            if not _authored_linear_covers(source, feature, parameter, steps):
+                continue
+            matches = sum(
+                _authored_linear_covers(source, other, candidate, step_groups.get(id(other), []))
+                for other in model.features
+                if type(other) is type(feature)
+                for candidate in other.parameters()
+                if candidate.role == parameter.role
+            )
+            if matches == 1:
+                return (
+                    parameter,
+                    f"authored PMI dimension {source.source_id} covers this measurement",
+                )
+    if isinstance(feature, StepFeature) and baseline is not None:
+        axis, base, covered = baseline
+        if feature.frame.axis != "xyz"[axis] or parameter.parameter_id != "step.length":
+            return parameter, None
+        step_stations = sorted(float(point[axis]) for point in parameter.span)
+        target = (
+            step_stations[1]
+            if abs(base - step_stations[0]) <= abs(base - step_stations[1])
+            else step_stations[0]
+        )
+        source_id = covered.get(round(target, 6))
+        if source_id is not None and parameter.tolerance is None:
+            return parameter, f"authored PMI dimension {source_id} covers this station"
+        if feature.position_span is not None:
+            return parameter, "authored baseline uses step_position.length"
+        return parameter, None
+    if not isinstance(feature, EnvelopeFeature) or parameter.tolerance is not None:
+        return parameter, None
+    return parameter, _authored_envelope_coverage(model, feature, parameter, baseline)
+
+
 def _is_zero_step_position(value: float) -> bool:
     """Whether a shoulder measures no distance from its datum.
 
@@ -93,6 +529,7 @@ def _is_zero_step_position(value: float) -> bool:
 _CONVENTION = {
     ("included", "angle"): "angular",
     ("step", "length"): "chain",
+    ("step_position", "length"): "linear",
     ("step", "diameter"): "leader",
     ("bore", "diameter"): "leader",
     ("bore", "depth"): "leader",
@@ -610,6 +1047,9 @@ def _decorated(model: PartModel, feature: Feature, param: DimParameter) -> DimPa
             f"{nominal.source} nominal requirement {nominal.value:g} disagrees with "
             f"{param.parameter_id}={param.value:g}"
         )
+    nominal_ids = nominal.source_ids if isinstance(nominal, NominalRequirement) else ()
+    if isinstance(nominal, NominalRequirement):
+        param = replace(param, source_label=nominal.label, source_ids=nominal_ids)
 
     tol = (
         model.decorations.get((feature, param.kind, param.role, param.discriminator))
@@ -623,10 +1063,10 @@ def _decorated(model: PartModel, feature: Feature, param: DimParameter) -> DimPa
     # Imported AP242 provenance belongs to the authored aspect, not to geometry and not to
     # the renderer's tolerance algebra.  Unwrap it at the planner waist so every downstream
     # label/render path continues to see the established float/tuple/FitClass contract.
-    source_ids: tuple[str, ...] = ()
+    source_ids: tuple[str, ...] = nominal_ids
     limit_bounds = None
     if isinstance(tol, ToleranceDecoration):
-        source_ids = tol.source_ids
+        source_ids = tuple(dict.fromkeys((*source_ids, *tol.source_ids)))
         limit_bounds = tol.limit_bounds
         tol = tol.value
     return (
@@ -1982,10 +2422,28 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
     selection = authored_dimension_requests(model)  # validate even without scalar parameters
     _check_intent_policy_conflicts(model)
     model = _selection_model(model, selection)
+    has_imported_dimensions = any(
+        isinstance(feature, AuthoredDimension)
+        and id(feature) not in model.hidden_authored_dimension_ids
+        for feature in model.features
+    )
+    has_imported_dimensions = has_imported_dimensions and model.pmi_annotations_enabled
+    profile_groups = _authored_step_groups(model) if has_imported_dimensions else []
+    step_groups = {id(step): group for group in profile_groups for step in group}
+    baselines: dict[int, tuple[int, float, dict[float, str]] | None] = {}
+    for profile_group in profile_groups:
+        baseline = _authored_step_baseline(model, profile_group[0], groups=profile_groups)
+        baselines.update((id(step), baseline) for step in profile_group)
+    authored_baseline = (
+        baselines.get(id(profile_groups[0][0])) if len(profile_groups) == 1 else None
+    )
     if model.authored_dimensions is not None:
         _check_authored_targets(model)
     groups: list[DimensionGroup] = []
     for feature in model.features:
+        feature_baseline = (
+            baselines.get(id(feature)) if isinstance(feature, StepFeature) else authored_baseline
+        )
         dims = []
         for p in feature.parameters():
             if p.kind == "location":
@@ -2010,6 +2468,31 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
             display_intent = request
             if request is not None:
                 suppressed, reason, conveyed_by = False, None, None
+            p, authored_coverage = (
+                _authored_pmi_overlay(model, feature, p, feature_baseline, step_groups)
+                if has_imported_dimensions
+                else (p, None)
+            )
+            if authored_coverage is not None:
+                suppressed, reason, conveyed_by = True, authored_coverage, None
+            if (
+                isinstance(feature, StepFeature)
+                and feature.position_derived_from_pmi
+                and p.parameter_id == "step_position.length"
+                and request is None
+                and model.authored_dimensions is None
+                and (
+                    feature_baseline is None
+                    or p.span is None
+                    or "xyz"[feature_baseline[0]] != feature.frame.axis
+                    or abs(feature_baseline[1] - p.span[0][feature_baseline[0]]) > 0.01
+                )
+            ):
+                suppressed, reason, conveyed_by = (
+                    True,
+                    "its authored baseline is hidden from this sheet",
+                    None,
+                )
             if model.authored_dimensions is not None:
                 # An authored set REPLACES the rule set rather than adding to it: what the
                 # script lists is what the drawing carries, and everything else is omitted.

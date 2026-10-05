@@ -28,6 +28,97 @@ REPORT_SCHEMA = "draftwright-report"
 REPORT_SCHEMA_VERSION = 3
 _DECLARED_REPORT_SCHEMA_VERSION = 8
 
+
+def placed_dimension_sources(model, registry) -> list[dict[str, object]]:
+    """Project settled measurement ownership without guessing from annotation text."""
+    from draftwright.model.ir import AuthoredDimension, NominalRequirement, ToleranceDecoration
+
+    if model is None:
+        raise ReportUnavailableError("dimension source inventory needs a built PartModel")
+    decorations = model.decorations
+    rows: list[dict[str, object]] = []
+    for name in sorted(registry.names()):
+        owner = registry.feature_of(name)
+        identities = registry.measurement_of(name)
+        seen: set[tuple[int, str]] = set()
+        for identity in identities:
+            key = (id(identity.feature), identity.parameter)
+            if key in seen:
+                continue
+            seen.add(key)
+            feature = identity.feature
+            parameter = identity.parameter
+            source_records: list[tuple[str, str]] = []
+
+            def record(aspect, into=source_records) -> None:
+                into.extend((aspect.source, source_id) for source_id in aspect.source_ids)
+
+            nominal = decorations.get((feature, "nominal_requirement", parameter))
+            if isinstance(nominal, NominalRequirement):
+                record(nominal)
+            if parameter == "thread.depth":
+                thread = getattr(feature, "thread", None)
+                if getattr(thread, "source_ids", ()) and getattr(thread, "source", None):
+                    record(thread)
+            parts = parameter.split(".")
+            role, kind = (parts[0], parts[1]) if len(parts) >= 2 else (parameter, "")
+            discriminator = parts[2] if len(parts) >= 3 else None
+            if role == "bore" and kind == "diameter" and discriminator is not None:
+                member_index = discriminator.removeprefix("member_")
+                requirements = getattr(feature, "member_size_requirements", ())
+                if discriminator.startswith("member_") and member_index.isdecimal():
+                    index = int(member_index)
+                    if index < len(requirements) and requirements[index] is not None:
+                        record(requirements[index])
+            decoration_keys = (
+                (feature, kind, role, discriminator) if discriminator is not None else (),
+                (feature, kind, role),
+                (feature, kind),
+            )
+            aspect = next(
+                (decorations[key] for key in decoration_keys if key and key in decorations), None
+            )
+            if isinstance(aspect, ToleranceDecoration):
+                record(aspect)
+            source_records = list(dict.fromkeys(source_records))
+            origins = {origin for origin, _source_id in source_records}
+            rows.append(
+                {
+                    "annotation": name,
+                    "view": registry.view_of(name),
+                    "parameter_id": parameter,
+                    "origin": next(iter(origins))
+                    if len(origins) == 1
+                    else "mixed"
+                    if origins
+                    else "planner",
+                    "source_ids": list(
+                        dict.fromkeys(source_id for _, source_id in source_records)
+                    ),
+                    "sources": [
+                        {"origin": origin, "source_id": source_id}
+                        for origin, source_id in source_records
+                    ],
+                }
+            )
+        if not identities and isinstance(owner, AuthoredDimension):
+            rows.append(
+                {
+                    "annotation": name,
+                    "view": registry.view_of(name),
+                    "parameter_id": None,
+                    "origin": owner.source,
+                    "source_ids": [owner.source_id] if owner.source_id else [],
+                    "sources": (
+                        [{"origin": owner.source, "source_id": owner.source_id}]
+                        if owner.source_id
+                        else []
+                    ),
+                }
+            )
+    return rows
+
+
 _LAYOUT_REMEDIES = (
     "page",
     "scale",
@@ -2871,6 +2962,7 @@ __all__ = [
     # made to no one.
     "json_value",
     "producer",
+    "placed_dimension_sources",
     "project_occurrences",
     "project_feature_occurrence_ids",
     "validate_report_inputs",

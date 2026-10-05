@@ -238,9 +238,9 @@ def _tolerance_decoration(lo, hi, *, source, source_ids, limit_bounds=None):
     )
 
 
-def _nominal_requirement(value, *, source, source_ids):
+def _nominal_requirement(value, *, source, source_ids, label=None):
     """Build the provenance-only aspect used by generated imported-PMI scripts."""
-    return NominalRequirement(value=value, source=source, source_ids=source_ids)
+    return NominalRequirement(value=value, source=source, source_ids=source_ids, label=label)
 
 
 _NOMINAL_REQUIREMENT_PARAMETERS = {
@@ -394,14 +394,16 @@ class _Hole(_Nameable):
         )
         return self
 
-    def requirement(self, value: float, *, source: str, source_ids: tuple[str, ...]) -> _Hole:
+    def requirement(
+        self, value: float, *, source: str, source_ids: tuple[str, ...], label: str | None = None
+    ) -> _Hole:
         """Claim this existing bore diameter for external semantic source identities.
 
-        This changes no label: the canonical hole callout already prints the nominal value.
         Generated AP242 scripts use it to retain ownership without adding a duplicate dim.
+        An optional label preserves the source's bore wording.
         """
         self._sheet._tolerances[(self._token, "nominal_requirement", "bore.diameter")] = (
-            _nominal_requirement(value, source=source, source_ids=source_ids)
+            _nominal_requirement(value, source=source, source_ids=source_ids, label=label)
         )
         return self
 
@@ -558,12 +560,13 @@ class _Dim(_Nameable):
         on: str | None = None,
         source: str,
         source_ids: tuple[str, ...],
+        label: str | None = None,
     ) -> _Dim:
         """Claim a canonical nominal parameter for external source identities."""
         target = on or self._kind
         parameter = _requirement_parameter(self._sheet._features[self._i], target)
         self._sheet._tolerances[(self._token, "nominal_requirement", parameter.parameter_id)] = (
-            _nominal_requirement(value, source=source, source_ids=source_ids)
+            _nominal_requirement(value, source=source, source_ids=source_ids, label=label)
         )
         return self
 
@@ -811,11 +814,12 @@ class _Params(_Nameable):
         on: str,
         source: str,
         source_ids: tuple[str, ...],
+        label: str | None = None,
     ) -> _Params:
         """Claim the feature's canonical diameter for external semantic source identities."""
         parameter = _requirement_parameter(self._sheet._features[self._i], on)
         self._sheet._tolerances[(self._token, "nominal_requirement", parameter.parameter_id)] = (
-            _nominal_requirement(value, source=source, source_ids=source_ids)
+            _nominal_requirement(value, source=source, source_ids=source_ids, label=label)
         )
         return self
 

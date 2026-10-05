@@ -1909,16 +1909,120 @@ def _profile_projection(dwg, view: str, origin, axis: str) -> tuple[bool, float]
 
 
 def _step_length_owners(dwg, name: str) -> tuple[object, ...]:
-    """Exact step features whose compiled length claim produced annotation *name*."""
+    """Exact step features whose axial claim produced annotation *name*."""
     registry = getattr(dwg, "registry", None)
     if registry is None:
         return ()
     return tuple(
         identity.feature
         for identity in registry.measurement_of(name)
-        if getattr(identity, "parameter", None) == "step.length"
+        if getattr(identity, "parameter", None) in {"step.length", "step_position.length"}
         and getattr(identity.feature, "kind", None) == "step"
     )
+
+
+def _authored_axial_witness_on_profile(dwg, name: str, prof, origin, tol: float) -> bool:
+    """Check a source dimension's two witnesses against this profile's shoulder faces."""
+    feature = dwg.registry.feature_of(name)
+    points: tuple = tuple(getattr(feature, "ref_pts", ()))
+    if (
+        getattr(feature, "kind", None) != "authored_dimension"
+        or getattr(feature, "dimension_kind", None) != "linear"
+        or getattr(feature, "dominant_axis", None) != prof.axis.upper()
+        or len(points) != 2
+    ):
+        return False
+    axis = "xyz".index(prof.axis)
+    if abs(abs(float(points[1][axis]) - float(points[0][axis])) - float(feature.value)) > tol:
+        return False
+    transverse = tuple(index for index in range(3) if index != axis)
+    for point in points:
+        station = float(point[axis])
+        touching = [
+            step
+            for step in prof.steps
+            if abs(float(step.lo) - station) <= tol or abs(float(step.hi) - station) <= tol
+        ]
+        if not touching:
+            return False
+        radius = max(float(step.diameter) / 2 for step in touching)
+        radial = sqrt(
+            sum((float(point[index]) - float(origin[index])) ** 2 for index in transverse)
+        )
+        if radial > radius + tol:
+            return False
+    return True
+
+
+def _axial_view_dimensions(part, dwg, prof, view, base, shoulder_c, sibling_profiles, tol):
+    horizontal, own_cross = _profile_projection(dwg, view, base, prof.axis)
+    eligible = []
+    station_edges = set()
+    for name, ann in dwg.annotations_in_view(view):
+        if not isinstance(ann, Dimension):
+            continue
+        vertices = _dim_vertices(ann, dwg.registry.dimension_spec_of(name))
+        cs = {x if horizontal else y for x, y in vertices}
+        cross_coords = {y if horizontal else x for x, y in vertices}
+        owners = _step_length_owners(dwg, name)
+        if owners and not any(_feature_on_turned_axis(owner, prof) for owner in owners):
+            continue
+        authored = getattr(dwg.registry.feature_of(name), "kind", None) == "authored_dimension"
+        if authored and not _authored_axial_witness_on_profile(dwg, name, prof, base, tol):
+            continue
+        if not owners and getattr(prof, "profile", None) is not None and cross_coords:
+            dim_cross = sum(cross_coords) / len(cross_coords)
+            own_distance = abs(dim_cross - own_cross)
+            sibling_distances = [
+                abs(
+                    dim_cross
+                    - _profile_projection(
+                        dwg, view, _turned_axis_origin(part, sibling), sibling.axis
+                    )[1]
+                )
+                for sibling in sibling_profiles
+                if sibling is not prof and sibling.axis == prof.axis
+            ]
+            if any(distance <= own_distance + tol for distance in sibling_distances):
+                continue
+        eligible.append((name, str(getattr(ann, "label", "") or ""), cs))
+        if len(cs) != 2 or not (owners or authored):
+            continue
+        stations = []
+        for coordinate in sorted(cs):
+            matches = [
+                station
+                for station, projected in shoulder_c.items()
+                if abs(coordinate - projected) <= tol
+            ]
+            if len(matches) != 1:
+                break
+            stations.append(matches[0])
+        if len(stations) == 2 and stations[0] != stations[1]:
+            station_edges.add(tuple(sorted(stations)))
+    return eligible, station_edges
+
+
+def _axial_connected_steps(prof, station_edges) -> set[int]:
+    linked = {station: {station} for station in prof.shoulders}
+    for first, second in station_edges:
+        linked[first].add(second)
+        linked[second].add(first)
+    connected = set()
+    for index, step in enumerate(prof.steps):
+        start, end = float(step.lo), float(step.hi)
+        if start not in linked or end not in linked:
+            continue
+        reached = {start}
+        pending = [start]
+        while pending:
+            current = pending.pop()
+            for neighbour in linked[current] - reached:
+                reached.add(neighbour)
+                pending.append(neighbour)
+        if end in reached:
+            connected.add(index)
+    return connected
 
 
 def _axial_covered_from_drawing(
@@ -1934,12 +2038,6 @@ def _axial_covered_from_drawing(
     idx = "xyz".index(prof.axis)
     base = list(_turned_axis_origin(part, prof))
 
-    def profile_cross(profile, view: str) -> float:
-        _horizontal, cross = _profile_projection(
-            dwg, view, _turned_axis_origin(part, profile), profile.axis
-        )
-        return cross
-
     def shoulder_coord(view: str, s: float, *, horizontal: bool) -> float:
         pt = list(base)
         pt[idx] = s
@@ -1952,26 +2050,14 @@ def _axial_covered_from_drawing(
     views = [view for view in _turned_profile_views(prof.axis) if view in dwg.views]
     views += sorted(v for v in dwg.views if v.startswith("detail_"))
     covered_steps: set[int] = set()
+    station_edges: set[tuple[float, float]] = set()
     for view in views:
         horizontal, _own_cross = _profile_projection(dwg, view, base, prof.axis)
         shoulder_c = {s: shoulder_coord(view, s, horizontal=horizontal) for s in prof.shoulders}
-        dims = [
-            (
-                name,
-                str(getattr(ann, "label", "") or ""),
-                {
-                    (x if horizontal else y)
-                    for x, y in _dim_vertices(ann, dwg.registry.dimension_spec_of(name))
-                },
-                {
-                    (y if horizontal else x)
-                    for x, y in _dim_vertices(ann, dwg.registry.dimension_spec_of(name))
-                },
-                _step_length_owners(dwg, name),
-            )
-            for name, ann in dwg.annotations_in_view(view)
-            if isinstance(ann, Dimension)
-        ]
+        eligible, edges = _axial_view_dimensions(
+            part, dwg, prof, view, base, shoulder_c, sibling_profiles, tol
+        )
+        station_edges.update(edges)
         for i, step in enumerate(prof.steps):
             clo, chi = shoulder_c.get(step.lo), shoulder_c.get(step.hi)
             if clo is None or chi is None:
@@ -1984,26 +2070,9 @@ def _axial_covered_from_drawing(
                 # An end-on detail projects both shoulder stations onto one
                 # point. Coincident witnesses cannot establish an axial length.
                 continue
-            for name, label, cs, cross_coords, owners in dims:
+            for name, label, cs in eligible:
                 if not cs:
                     continue
-                if owners and not any(_feature_on_turned_axis(owner, prof) for owner in owners):
-                    continue
-                # Parallel profiles can have identical axial ordinates. A dimension belongs to
-                # the nearest visible axis line in this profile view; without this gate one
-                # shaft's two witnesses would certify every sibling at the same stations.
-                if not owners and getattr(prof, "profile", None) is not None and cross_coords:
-                    dim_cross = sum(cross_coords) / len(cross_coords)
-                    own_distance = abs(dim_cross - profile_cross(prof, view))
-                    sibling_distances = [
-                        abs(dim_cross - profile_cross(sibling, view))
-                        for sibling in sibling_profiles
-                        if sibling is not prof and sibling.axis == prof.axis
-                    ]
-                    if any(distance < own_distance - tol for distance in sibling_distances) or any(
-                        abs(distance - own_distance) <= tol for distance in sibling_distances
-                    ):
-                        continue
                 # A plain dim locates the step when it has a witness at each shoulder.
                 if any(abs(v - clo) <= tol for v in cs) and any(abs(v - chi) <= tol for v in cs):
                     covered_steps.add(i)
@@ -2022,7 +2091,7 @@ def _axial_covered_from_drawing(
                 ):
                     covered_steps.add(i)
                     break
-    return covered_steps
+    return covered_steps | _axial_connected_steps(prof, station_edges)
 
 
 def _overall_axial_extent_is_dimensioned(

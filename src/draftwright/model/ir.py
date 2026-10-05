@@ -2851,6 +2851,12 @@ class PartModel:
     # Derived from the build's cached cylinder substrate before planning. It carries
     # physical correspondence, not a rendering decision or a second feature inventory.
     blind_axial_bore_supports: tuple[BlindAxialBoreSupport, ...] = ()
+    # Report-only PMI stays in the inventory for diagnostics but must not take
+    # precedence over dimensions that will actually reach the sheet.
+    pmi_annotations_enabled: bool = True
+    # A Document member may also contain caller-declared PMI. Hide only source
+    # annotations excluded by that member's mode, using their exact feature identity.
+    hidden_authored_dimension_ids: frozenset[int] = frozenset()
 
     def __post_init__(self) -> None:
         if self.declaration_identities and len(self.declaration_identities) != len(self.features):

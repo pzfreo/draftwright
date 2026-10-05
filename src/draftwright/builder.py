@@ -723,6 +723,49 @@ def _assembly_model(a: Analysis, model, decorations, requested, authored) -> Par
                         else ()
                     ),
                 )
+    if model is not None or a.model is None:
+        pm = replace(
+            pm,
+            pmi_annotations_enabled=model is not None or a.pmi_mode == "annotate",
+            hidden_authored_dimension_ids=(
+                frozenset(id(feature) for feature in a.document_source_annotations)
+                if a.document_member and a.pmi_mode != "annotate"
+                else frozenset()
+            ),
+        )
+    # A caller may supply a PartModel that already contains raw imported PMI. That
+    # path skips the extraction/lowering branch above but still needs baseline gap
+    # identities before the compiled plan is built.
+    if any(feature.kind == "authored_dimension" for feature in pm.features):
+        from draftwright.model.pmi_lowering import add_authored_step_positions
+
+        identities = pm.declaration_identities
+        identity_by_feature = {
+            id(feature): identity
+            for feature, identity in (
+                zip(pm.features, identities, strict=True) if identities else ()
+            )
+            if identity is not None
+        }
+        step_remapped_identities: dict[int, DeclarationIdentity] = {}
+
+        def preserve_step_identity(source, replacements, _member_groups) -> None:
+            identity = identity_by_feature.get(id(source))
+            if identity is not None and replacements:
+                step_remapped_identities[id(replacements[0])] = identity
+
+        updated = add_authored_step_positions(
+            pm, feature_remap=preserve_step_identity if identities else None
+        )
+        if updated is not pm and identities:
+            updated = replace(
+                updated,
+                declaration_identities=tuple(
+                    identity_by_feature.get(id(feature), step_remapped_identities.get(id(feature)))
+                    for feature in updated.features
+                ),
+            )
+        pm = updated
     return _with_blind_axial_bore_support(pm, a.cyls)
 
 

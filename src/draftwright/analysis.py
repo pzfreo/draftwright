@@ -1566,6 +1566,33 @@ def _with_blind_axial_bore_support(model: PartModel, cyls) -> PartModel:
     )
 
 
+def _sizing_model_pmi_visibility(model, cyls, layout_model, pmi_mode, document_input):
+    hidden = (
+        frozenset(id(feature) for feature in document_input.source_annotations())
+        if document_input is not None and pmi_mode != "annotate"
+        else frozenset()
+    )
+    prepared = _with_blind_axial_bore_support(model, cyls)
+    enabled = layout_model is not None or pmi_mode == "annotate"
+    if (
+        prepared.pmi_annotations_enabled != enabled
+        or prepared.hidden_authored_dimension_ids != hidden
+    ):
+        prepared = replace(
+            prepared,
+            pmi_annotations_enabled=enabled,
+            hidden_authored_dimension_ids=hidden,
+        )
+    if not enabled or not any(
+        feature.kind == "authored_dimension" and id(feature) not in hidden
+        for feature in prepared.features
+    ):
+        return prepared
+    from draftwright.model.pmi_lowering import add_authored_step_positions
+
+    return add_authored_step_positions(prepared)
+
+
 def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
     text_position = r.metadata.text_position
     text_orientation = r.metadata.text_orientation
@@ -1732,7 +1759,9 @@ def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
             cyls=shared_cyls,
         )
     )
-    sizing_model = _with_blind_axial_bore_support(sizing_model, shared_cyls)
+    sizing_model = _sizing_model_pmi_visibility(
+        sizing_model, shared_cyls, layout_model, pmi_mode, _document_input
+    )
     recognition_ownership = (
         None
         if layout_model is not None

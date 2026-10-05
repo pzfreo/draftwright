@@ -65,6 +65,7 @@ from draftwright.measurement_support import coincident_location_axes
 from draftwright.model.callout import resolved_through_indicator
 from draftwright.model.ir import (
     AngularReference,
+    AuthoredDimension,
     ChamferFeature,
     CircularChannelFeature,
     EnvelopeFeature,
@@ -89,6 +90,9 @@ from draftwright.model.planner import (
     CORRELATED_SETS,
     DimensionId,
     _authored_for,
+    _authored_linear_stations,
+    _authored_location_matches,
+    _authored_same_span,
     _decorated,
     _extent_can_convey,
     _is_zero_step_position,
@@ -1212,7 +1216,9 @@ def _compile_overall_height(
         return None, None, []
     mark = marked.get((id(env), "height.length")) if env is not None else None
     if env is not None:
-        if mark is not None and mark[1] == _AUTHORED_OMISSION:
+        if mark is not None and (
+            mark[1] == _AUTHORED_OMISSION or mark[1].startswith("authored PMI dimension ")
+        ):
             return None, None, [Omission(env, "height.length", mark[0], mark[1])]
     elif model.authored_dimensions is not None:
         # No `EnvelopeFeature`, so the height falls back to the bounding box and no
@@ -2062,6 +2068,50 @@ def compile_dimensions(
     off_axis, off_axis_omissions = _compile_off_axis_hole_locations(model)
     locations.extend(off_axis)
     location_omissions.extend(off_axis_omissions)
+    # A source location may cover one directional component without covering its
+    # orthogonal sibling. Only exact witness correspondence can remove that component.
+    sources = tuple(
+        f
+        for f in model.features
+        if isinstance(f, AuthoredDimension)
+        and model.pmi_annotations_enabled
+        and id(f) not in model.hidden_authored_dimension_ids
+    )
+    if sources and model.authored_dimensions is None:
+        unique_cover: dict[int, list[AuthoredDimension]] = {}
+        for source in sources:
+            stations = _authored_linear_stations(source)
+            if stations is None:
+                continue
+            matching = [
+                location
+                for location in locations
+                if location.discriminator == "xyz"[stations[0]]
+                and location.span is not None
+                and (
+                    _authored_same_span(source, location.span, location.value)
+                    or _authored_location_matches(
+                        source, location.span, location.discriminator, location.value
+                    )
+                )
+            ]
+            if len(matching) == 1:
+                unique_cover.setdefault(id(matching[0]), []).append(source)
+        uncovered = []
+        for location in locations:
+            covering = unique_cover.get(id(location), [])
+            if len(covering) != 1 or location.id is None:
+                uncovered.append(location)
+            else:
+                location_omissions.append(
+                    Omission(
+                        location.id.feature,
+                        location.id.parameter,
+                        location.value,
+                        f"authored PMI dimension {covering[0].source_id} covers this location",
+                    )
+                )
+        locations = uncovered
     result = RenderableDimensionPlan(
         groups=tuple(groups_out),
         ladders=tuple(ladders),
