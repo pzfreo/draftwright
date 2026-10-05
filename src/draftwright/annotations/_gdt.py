@@ -22,6 +22,7 @@ from draftwright._geometry import _turned_profile_site, material_span
 from draftwright.annotations._common import (
     PRIORITY,
     CorridorCandidate,
+    DeferredCompactCandidate,
     _anno_box,
     _box_hits,
     annotation_ink_clear,
@@ -80,8 +81,7 @@ class _GdtDropState:
 
 def _gdt_glyph(item, draft):
     """Build the ISO 1101/5459/1302 glyph sketch for one GD&T IR item at the origin
-    (the :class:`Leader` repositions it). A fresh sketch per call — the leader translate
-    must not alias a shared object across the strip solve's repeated probe builds."""
+    (the :class:`Leader` repositions a moved copy of it)."""
     if item.kind == "control_frame":
         tolerance = item.display_tolerance or item.tolerance
         if item.spherical_diameter:
@@ -324,17 +324,30 @@ def _gdt_visual_finish(glyph, draft, value: str) -> str:
     return ""
 
 
-def _attach_gdt_text_evidence(leader, glyph, item, draft) -> None:
-    """Keep the placed glyph's value beside PDF text for independent PMI lint."""
-    leader.pdf_text_relative_specs = _gdt_pdf_text_specs(glyph, item, draft)
+def _gdt_text_evidence(glyph, item, draft) -> dict[str, object]:
+    """Validate one immutable glyph once, independently of its leader position."""
+    evidence: dict[str, object] = {
+        "pdf_text_relative_specs": _gdt_pdf_text_specs(glyph, item, draft)
+    }
     if item.kind == "finish":
-        leader.gdt_visual_finish = _gdt_visual_finish(glyph, draft, item.ra)
+        evidence["gdt_visual_finish"] = _gdt_visual_finish(glyph, draft, item.ra)
     if item.kind == "control_frame":
         zone = _gdt_visual_zone(glyph, draft)
-        leader.gdt_visual_tolerance = _gdt_visual_tolerance(
-            glyph, draft, zone, modifier=bool(item.modifier)
-        )
-        leader.gdt_visual_zone = zone if leader.gdt_visual_tolerance else ""
+        tolerance = _gdt_visual_tolerance(glyph, draft, zone, modifier=bool(item.modifier))
+        evidence["gdt_visual_tolerance"] = tolerance
+        evidence["gdt_visual_zone"] = zone if tolerance else ""
+    return evidence
+
+
+def _apply_gdt_text_evidence(leader, evidence: dict[str, object]) -> None:
+    """Keep the validated glyph's value beside PDF text for independent PMI lint."""
+    for name, value in evidence.items():
+        setattr(leader, name, value)
+
+
+def _attach_gdt_text_evidence(leader, glyph, item, draft) -> None:
+    """Attach independently checked glyph evidence to a placed leader."""
+    _apply_gdt_text_evidence(leader, _gdt_text_evidence(glyph, item, draft))
 
 
 def _gdt_retry_sides(side: str, *, normal_side_only: bool) -> tuple[str, ...]:
@@ -538,7 +551,7 @@ def _gdt_drop_callback(
 
 
 def _gdt_compact_candidates(
-    original, build, strip, size, horizontal, item, site, tier, material_field
+    original, build, ink_at, strip, size, horizontal, item, site, tier, material_field
 ):
     """Nearest-first same-strip landings checked later against exact ink.
 
@@ -564,14 +577,12 @@ def _gdt_compact_candidates(
             if travel >= distance - 1e-6:
                 break
             pos = site + strip.direction * travel
-            candidate = build(pos)
+            proposal = ink_at(pos)
             # A symbol inside the whole-view box must sit in projected
             # whitespace, not on a blank face with no visible edge. The
             # shared postsolve also checks visible edges and exact ink.
-            if _datum_label_has_whitespace(
-                candidate.label_bbox, strip, horizontal, material_field
-            ):
-                yield candidate
+            if _datum_label_has_whitespace(proposal.label_bbox, strip, horizontal, material_field):
+                yield proposal
     near = strip.anchor + strip.direction * (strip.gap + extent / 2.0)
     distance = (original_pos - near) * strip.direction
     if distance <= 1e-6:
@@ -583,36 +594,70 @@ def _gdt_compact_candidates(
         pos = near + strip.direction * travel
         if abs(pos - original_pos) <= 1e-6:
             return
-        yield build(pos)
+        yield ink_at(pos)
 
 
 def _gdt_candidate_builders(
     item, draft, leader_ctor, fallback_glyph, px, py, horizontal, strip, size, tier, material_field
 ):
     """Build one glyph's primary and fallback leaders plus bounded strip retries."""
+    # Every retry moves the same validated glyph. Its value/zone checks are expensive
+    # OCC operations, but do not depend on the eventual leader elbow.
+    evidence = _gdt_text_evidence(fallback_glyph, item, draft) if item.kind != "note" else {}
+    glyph_box = fallback_glyph.bounding_box()
 
-    def _build(pos, _px=px, _py=py, _hz=horizontal, _it=item):
-        g = _gdt_glyph(_it, draft)
+    def _elbow(pos):
+        # Keep the analytical preflight and actual helper's zero-shaft guard identical.
+        if horizontal:
+            delta = pos - py
+            return px, pos if abs(delta) >= _MIN_LEADER else py + math.copysign(
+                _MIN_LEADER, delta or 1.0
+            )
+        delta = pos - px
+        return pos if abs(delta) >= _MIN_LEADER else px + math.copysign(
+            _MIN_LEADER, delta or 1.0
+        ), py
+
+    def _label_bbox_at(pos):
+        elbow_x, elbow_y = _elbow(pos)
+        shelf_dir = 1.0 if elbow_x >= px else -1.0
+        anchor_x = glyph_box.min.X if shelf_dir > 0 else glyph_box.max.X
+        dx = elbow_x + shelf_dir * draft.pad_around_text - anchor_x
+        dy = elbow_y - (glyph_box.min.Y + glyph_box.max.Y) / 2.0
+        return (
+            glyph_box.min.X + dx,
+            glyph_box.min.Y + dy,
+            glyph_box.max.X + dx,
+            glyph_box.max.Y + dy,
+        )
+
+    def _ink_at(pos):
+        elbow = _elbow(pos)
+        shelf_dir = 1.0 if elbow[0] >= px else -1.0
+        shelf_end = (elbow[0] + shelf_dir * draft.pad_around_text, elbow[1])
+        return DeferredCompactCandidate(
+            label_bbox=_label_bbox_at(pos),
+            materialize=lambda _pos=pos: _build(_pos),
+            tip=(px, py),
+            elbow=elbow,
+            segments=(((px, py), elbow), (elbow, shelf_end)),
+            analytical_straight_leader=True,
+        )
+
+    def _build(pos, _px=px, _py=py, _hz=horizontal, _it=item, _g=fallback_glyph):
         tip = (_px, _py)
         # A zero-length leader shaft (the projected site coincides with the solved tier —
         # `pos == py` above/below, `pos == px` left/right) makes OCC's edge builder raise,
         # which would crash the whole build on a public-IR declaration. Guarantee a
         # minimum shaft along the stacking axis (nudge outward; 0.05 mm is invisible) so
         # `_build` is total — the drop-don't-crash invariant holds for every build call.
-        if _hz:
-            dy = pos - _py
-            pos = pos if abs(dy) >= _MIN_LEADER else _py + math.copysign(_MIN_LEADER, dy or 1.0)
-            elbow = (_px, pos)
-        else:
-            dx = pos - _px
-            pos = pos if abs(dx) >= _MIN_LEADER else _px + math.copysign(_MIN_LEADER, dx or 1.0)
-            elbow = (pos, _py)
+        elbow = _elbow(pos)
         leader = leader_ctor(
             tip=tip,
             elbow=elbow,
             label="",
             draft=draft,
-            callout=g,
+            callout=_g,
             all_around=getattr(_it, "all_around", False),
             all_over=getattr(_it, "all_over", False),
         )
@@ -628,7 +673,7 @@ def _gdt_candidate_builders(
                 getattr(draft, "font", "Arial"),
             )
         else:
-            _attach_gdt_text_evidence(leader, g, _it, draft)
+            _apply_gdt_text_evidence(leader, evidence)
         return leader
 
     def _build_at(elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
@@ -650,7 +695,7 @@ def _gdt_candidate_builders(
                 getattr(draft, "font", "Arial"),
             )
         else:
-            _attach_gdt_text_evidence(leader, _g, _it, draft)
+            _apply_gdt_text_evidence(leader, evidence)
         return leader
 
     def _build_routed(bends, elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
@@ -673,13 +718,14 @@ def _gdt_candidate_builders(
                 getattr(draft, "font", "Arial"),
             )
         else:
-            _attach_gdt_text_evidence(leader, _g, _it, draft)
+            _apply_gdt_text_evidence(leader, evidence)
         return leader
 
     def _compact_candidates(original):
         return _gdt_compact_candidates(
             original,
             _build,
+            _ink_at,
             strip,
             size,
             horizontal,

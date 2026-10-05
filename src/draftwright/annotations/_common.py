@@ -2235,6 +2235,18 @@ def _adjust_strip_candidate_labels(run) -> None:
     run.solved = solved
 
 
+@dataclass(frozen=True)
+class DeferredCompactCandidate:
+    """Exact leader ink metadata before constructing a costly retry annotation."""
+
+    label_bbox: tuple[float, float, float, float]
+    materialize: Any
+    tip: tuple[float, float] | None = None
+    elbow: tuple[float, float] | None = None
+    segments: tuple = ()
+    analytical_straight_leader: bool = False
+
+
 def _compact_strip_candidate_ink(run) -> None:
     """Try bounded contraction against settled and same-batch ink."""
     dwg, view, cands = run.dwg, run.view, run.cands
@@ -2253,7 +2265,38 @@ def _compact_strip_candidate_ink(run) -> None:
         index = next((i for i, (key, _dim) in enumerate(solved) if key == name), None)
         original = solved[index][1] if index is not None else None
         others = [item for key, item in solved if key != name]
-        for candidate in alternatives(original):
+        # Label clashes are decisive for exact-ink clearance. Filter them, page
+        # bounds, furniture, and projected view edges before constructing the
+        # heavyweight CAD leader. The full check below still validates survivors.
+        foreign_labels = []
+        for item in (*others, *(annotation for _, annotation in dwg.iter_annotations())):
+            try:
+                label = getattr(item, "label_bbox", None)
+            except Exception:  # noqa: BLE001 — the exact check fails closed below
+                continue
+            if label is not None and len(label) == 4:
+                foreign_labels.append(label)
+        page = _drawing_bounds(dwg)
+        for proposal in alternatives(original):
+            if isinstance(proposal, DeferredCompactCandidate):
+                label = proposal.label_bbox
+                if (
+                    label[0] < page[0]
+                    or label[1] < page[1]
+                    or label[2] > page[2]
+                    or label[3] > page[3]
+                    or ((forbid or {}).get(name) is not None and _box_hits(label, (forbid[name],)))
+                    or (label_clear is not None and not label_clear(label))
+                    or any(_boxes_overlap(label, foreign) for foreign in foreign_labels)
+                ):
+                    continue
+                if proposal.analytical_straight_leader and not annotation_ink_clear(
+                    dwg, proposal, additional=others
+                ):
+                    continue
+                candidate = proposal.materialize()
+            else:
+                candidate = proposal
             if (
                 original is not None
                 and hasattr(candidate, "arc_radius")

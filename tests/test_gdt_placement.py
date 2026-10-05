@@ -52,6 +52,93 @@ def _leader_path_length(leader):
     )
 
 
+def test_gdt_retry_reuses_validated_glyph_without_changing_placed_ink(monkeypatch):
+    from draftwright._core import Strip
+    from draftwright.annotations import _gdt
+
+    draft = Draft(font_size=3.0)
+    frame = ControlFrame(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        characteristic="position",
+        tolerance="0.1",
+        view="plan",
+        side="above",
+        datums=("A",),
+        diameter=True,
+    )
+    glyph = _gdt._gdt_glyph(frame, draft)
+    origin_box = glyph.bounding_box()
+    strip = Strip(anchor=20.0, outer_limit=90.0, direction=1.0, gap=8.0, spacing=3.0)
+    real_visual_tolerance = _gdt._gdt_visual_tolerance
+    validated = []
+
+    def counted_visual_tolerance(*args, **kwargs):
+        validated.append(True)
+        return real_visual_tolerance(*args, **kwargs)
+
+    monkeypatch.setattr(_gdt, "_gdt_visual_tolerance", counted_visual_tolerance)
+    build, _, _, compact, _ = _gdt._gdt_candidate_builders(
+        frame,
+        draft,
+        Leader,
+        glyph,
+        30.0,
+        20.0,
+        True,
+        strip,
+        (origin_box.size.X, origin_box.size.Y),
+        5.0,
+        None,
+    )
+    monkeypatch.setattr(
+        _gdt, "_gdt_glyph", lambda *_args: pytest.fail("placement rebuilt a validated glyph")
+    )
+    assert len(validated) == 1
+    for tier in (35.0, 45.0, 35.0):
+        placed = build(tier)
+        fresh = Leader(
+            tip=(30.0, 20.0),
+            elbow=(30.0, tier),
+            label="",
+            draft=draft,
+            callout=glyph,
+        )
+        _gdt._attach_gdt_text_evidence(fresh, glyph, frame, draft)
+        assert placed.label_bbox == pytest.approx(fresh.label_bbox)
+        assert placed.segments == fresh.segments
+        assert placed.pdf_text_relative_specs
+        assert placed.pdf_text_relative_specs == fresh.pdf_text_relative_specs
+    # Only the direct reference attachment above adds validations; the three
+    # placement retries must reuse the builder's single checked result.
+    assert len(validated) == 4
+    proposals = list(compact(build(55.0)))[:3]
+    assert proposals
+    other = build(55.0)
+
+    class EmptyDrawing:
+        @staticmethod
+        def iter_annotations():
+            return ()
+
+        @staticmethod
+        def view_of(_name):
+            return "plan"
+
+    for proposal in proposals:
+        actual = proposal.materialize()
+        assert proposal.label_bbox == pytest.approx(actual.label_bbox)
+        assert proposal.segments == tuple(actual.segments)
+        assert proposal.tip == actual.tip
+        assert proposal.elbow == actual.elbow
+        assert _gdt.annotation_ink_clear(
+            EmptyDrawing(), proposal, additional=(other,)
+        ) == _gdt.annotation_ink_clear(EmptyDrawing(), actual, additional=(other,))
+    unchanged = glyph.bounding_box()
+    assert (unchanged.min.X, unchanged.min.Y, unchanged.max.X, unchanged.max.Y) == pytest.approx(
+        (origin_box.min.X, origin_box.min.Y, origin_box.max.X, origin_box.max.Y)
+    )
+
+
 def test_control_frame_places_first_class():
     frame = ControlFrame(
         frame=Frame((0.0, 0.0, 0.0), "z"),

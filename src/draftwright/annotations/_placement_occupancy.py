@@ -613,7 +613,10 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=(), against=No
             candidate_elbow = getattr(candidate, "elbow", None)
             annotation_elbow = getattr(annotation, "elbow", None)
             shares_leader_trunk = (
-                type(candidate) is Leader
+                (
+                    type(candidate) is Leader
+                    or getattr(candidate, "analytical_straight_leader", False)
+                )
                 and type(annotation) is Leader
                 and candidate_tip is not None
                 and annotation_tip is not None
