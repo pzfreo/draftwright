@@ -1071,7 +1071,6 @@ def _auto_annotate(dwg: DrawingPort, a: Analysis, *, detail_view: bool = False):
     # not accumulate duplicate drop records.
     ctx.reset_issues()
     ctx.coverage.reset_dropped()
-
     # Tighten right-strip outer_limits to the actual iso view left edge now
     # that the iso has been projected and fitted.  Always apply so that any
     # future allocations are bounded; warn when the cursor has already passed
