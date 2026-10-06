@@ -126,6 +126,7 @@ class DimensionDisplayFact:
     value_decimals: int | None
     tolerance_decimals: int | None
     unit_name: str
+    basic: bool = False
 
 
 @dataclass(frozen=True)
@@ -140,6 +141,7 @@ class DimensionAssociationFact:
     reference_item_groups: tuple[tuple[str, ...], ...]
     callout_id: str = ""
     reason: str = ""
+    basic: bool = False
 
 
 @dataclass(frozen=True)
@@ -1365,6 +1367,14 @@ def read_dimension_display_facts(step_file: str | Path) -> tuple[DimensionDispla
         if not kind:
             continue
         nominal_refs = representations.get(representation_ref, ())
+        basic = any(
+            _text(item.params[0]).casefold() == "dimensional note"
+            and _text(item.params[1]).casefold() == "theoretical"
+            for ref in nominal_refs
+            if (item := _entity_named(step.get(ref), "DESCRIPTIVE_REPRESENTATION_ITEM"))
+            is not None
+            and len(item.params) >= 2
+        )
         nominal_ref = ""
         for ref in nominal_refs:
             representation_item = _entity_named(step.get(ref), "REPRESENTATION_ITEM")
@@ -1414,6 +1424,7 @@ def read_dimension_display_facts(step_file: str | Path) -> tuple[DimensionDispla
                 _value_format_decimals(step, nominal_ref, qualifications),
                 next(iter(tolerance_decimals)) if len(tolerance_decimals) == 1 else None,
                 unit_name,
+                basic,
             )
         )
     return tuple(facts)
@@ -1432,6 +1443,8 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
     aspect_items: dict[str, list[str]] = {}
     association_callouts: dict[str, list[str]] = {}
     callout_names: dict[str, str] = {}
+    dimension_representations: dict[str, list[str]] = {}
+    representation_items: dict[str, tuple[str, ...]] = {}
 
     for section in step.data:
         for entity_id, instance in section.instances.items():
@@ -1504,6 +1517,18 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
                         for ref in _references(association.params[4])
                         if _instance_is(step, ref, "DRAUGHTING_CALLOUT")
                     )
+            representation = _entity_named(instance, "SHAPE_DIMENSION_REPRESENTATION")
+            if representation is not None and len(representation.params) >= 2:
+                representation_items[entity_id] = _references(representation.params[1])
+            dimension_link = _entity_named(instance, "DIMENSIONAL_CHARACTERISTIC_REPRESENTATION")
+            if dimension_link is not None and len(dimension_link.params) >= 2:
+                characteristic_ref, representation_ref = dimension_link.params[:2]
+                if isinstance(characteristic_ref, p21.Reference) and isinstance(
+                    representation_ref, p21.Reference
+                ):
+                    dimension_representations.setdefault(str(characteristic_ref), []).append(
+                        str(representation_ref)
+                    )
 
     def related_items(root: str) -> tuple[str, ...]:
         pending = [root]
@@ -1521,6 +1546,16 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
     facts: list[DimensionAssociationFact] = []
     for entity_id, kind, semantic_name, shape_aspect_ids, expand_direct_members in characteristics:
         reasons: list[str] = []
+        dimensional_notes = [
+            _text(item.params[1]).casefold()
+            for representation_ref in dimension_representations.get(entity_id, ())
+            for item_ref in representation_items.get(representation_ref, ())
+            if (item := _entity_named(step.get(item_ref), "DESCRIPTIVE_REPRESENTATION_ITEM"))
+            is not None
+            and len(item.params) >= 2
+            and _text(item.params[0]).casefold() == "dimensional note"
+        ]
+        basic = "theoretical" in dimensional_notes
         callout_ids = tuple(dict.fromkeys(association_callouts.get(entity_id, ())))
         callout_id = callout_ids[0] if len(callout_ids) == 1 else ""
         if len(callout_ids) != 1:
@@ -1549,6 +1584,7 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
                 reference_item_groups=item_groups,
                 callout_id=callout_id,
                 reason="; ".join(dict.fromkeys(reasons)),
+                basic=basic,
             )
         )
     return tuple(facts)
@@ -1583,7 +1619,10 @@ def match_dimension_display(
         and fact.kind == kind
         and math.isclose(fact.authored_value, authored_value, rel_tol=1e-9, abs_tol=1e-12)
     ]
-    policies = {(fact.value_decimals, fact.tolerance_decimals, fact.unit_name) for fact in matches}
+    policies = {
+        (fact.value_decimals, fact.tolerance_decimals, fact.unit_name, fact.basic)
+        for fact in matches
+    }
     return matches[0] if matches and len(policies) == 1 else None
 
 

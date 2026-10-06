@@ -178,6 +178,12 @@ def test_source_precision_is_kept_when_plain_label_differs_from_planner():
     assert _step_lengths(model)[0][2]
 
 
+def test_basic_source_is_not_lowered_into_an_unboxed_step_dimension():
+    source = replace(_source(0, 15, "dimension:basic-15"), basic=True)
+    lowered = lower_ap242_nominal_step_lengths(_model(source))
+    assert source in lowered.features
+
+
 def test_noncanonical_diameter_label_stays_authored_and_covers_step_diameter():
     step = _step(0, 15, 30)
     source = AuthoredDimension(

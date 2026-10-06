@@ -243,6 +243,7 @@ class PmiRecord:
     reference_surface_kind: str = ""
     reference_normal: tuple[float, ...] = ()
     view: str | None = None  # Witness view forced only when one Y projection has support.
+    basic: bool = False  # Exact Part21 'dimensional note' = 'theoretical'.
 
 
 PmiExtractionOutcome = Literal[
@@ -1282,6 +1283,13 @@ def _dimension_record(
     except Exception:
         semantic_name = ""
     display_fact = match_dimension_display(display_facts, semantic_name, kind, authored_value)
+    basic_policies = {
+        fact.basic
+        for fact in display_facts
+        if fact.semantic_name == semantic_name
+        and fact.kind == kind
+        and math.isclose(fact.authored_value, authored_value, rel_tol=1e-9, abs_tol=1e-12)
+    }
     if kind in _LENGTH_DIMENSION_KINDS:
         if length_factor_reason:
             partial_reasons.append(length_factor_reason)
@@ -1344,6 +1352,11 @@ def _dimension_record(
                 angular_reference.second,
             )
     lowering_blockers = tuple(dict.fromkeys(partial_reasons))
+    if association_fact is None and len(basic_policies) > 1:
+        rendering_blockers = (
+            *rendering_blockers,
+            "Part21 basic-dimension status is ambiguous for this value",
+        )
     blockers = tuple(dict.fromkeys((*lowering_blockers, *rendering_blockers)))
     return (
         PmiRecord(
@@ -1412,6 +1425,11 @@ def _dimension_record(
             cylindrical_refs=cylindrical_refs,
             angular_reference=angular_reference,
             view=support_view,
+            basic=(
+                association_fact.basic
+                if association_fact is not None
+                else basic_policies == {True}
+            ),
         ),
         blockers,
     )

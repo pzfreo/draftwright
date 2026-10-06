@@ -428,6 +428,7 @@ def build_pmi_features(
                         if getattr(r, "angular_references", ())
                         else ()
                     ),
+                    basic=r.basic,
                 )
             )
             continue
