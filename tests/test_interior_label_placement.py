@@ -423,6 +423,46 @@ def test_declared_feature_relative_lanes_share_assignment_and_keep_region_proven
     )
 
 
+def test_exterior_only_profile_refuses_an_interior_declared_lane(monkeypatch):
+    dropped = []
+    rejections = []
+
+    def dimension(position):
+        return SimpleNamespace(
+            label_bbox=(position - 2.0, 15.0, position + 2.0, 18.0),
+            box=(position - 3.0, 10.0, position + 3.0, 22.0),
+        )
+
+    ctx = _common.PlacementContext(
+        exterior_dimensions_only=True,
+        interior_dimensions=[
+            _common.InteriorDimensionJob(
+                name="inside",
+                view="front",
+                side="right",
+                build=dimension,
+                on_place=lambda _name: pytest.fail("interior lane was placed"),
+                on_drop=dropped.append,
+                lane_step=5.0,
+                interior_build=dimension,
+                explicit_position=20.0,
+                requested_lane=3,
+                rejection_reasons=rejections,
+            )
+        ],
+    )
+    drawing = SimpleNamespace(view_bounds=lambda _view: (0.0, 0.0, 40.0, 40.0))
+    monkeypatch.setattr(_common, "_drawing_bounds", lambda _drawing: (0.0, 0.0, 50.0, 50.0))
+    monkeypatch.setattr(_common, "view_label_clearance", lambda *_args: lambda _box: True)
+    monkeypatch.setattr(_common, "annotation_ink_clear", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(_common, "_geom_box", lambda annotation: annotation.box)
+
+    _common._drain_interior_dimensions(ctx, drawing)
+
+    assert dropped == ["inside"]
+    assert rejections == ["profile_exterior_only"]
+
+
 def test_declared_lane_that_straddles_the_view_boundary_fails_closed(monkeypatch):
     dropped = []
     rejection_reasons = []

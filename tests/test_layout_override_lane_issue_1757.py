@@ -15,7 +15,7 @@ from draftwright import Sheet
 from draftwright.annotations._axial_render import _place_or_queue_rotational_od
 from draftwright.annotations._common import PlacementContext
 from draftwright.annotations._diameters import _render_diameter_controls
-from draftwright.annotations._envelope import _EnvelopeLaneDrop
+from draftwright.annotations._envelope import _EnvelopeLaneDrop, _queue_declared_envelope_lane
 from draftwright.annotations.from_model import _record_slot_drop
 from draftwright.model.ir import LayoutOverride, RequestedDimension
 from draftwright.registry import AnnotationRegistry
@@ -596,6 +596,18 @@ def test_impossible_envelope_lane_reports_the_missing_measurement() -> None:
     assert (
         issue.evidence_reason == "requested_lane_unavailable:8:page_bounds,view_boundary_straddle"
     )
+
+
+def test_envelope_lane_without_batch_solve_reports_refusal() -> None:
+    context = PlacementContext(registry=AnnotationRegistry())
+    extent = SimpleNamespace(lane=2, id=None, span=None)
+    _queue_declared_envelope_lane(
+        None, context, None, extent, "width", "plan", None, None, "m_env_width", None, None, None
+    )
+
+    (issue,) = context.registry.issues
+    assert issue.code == "overall_dim_withheld"
+    assert issue.evidence_reason == "requested_lane_unavailable:2:measured_lane_solve_unavailable"
 
 
 def test_lane_override_round_trips_and_reports_layout_only_evidence() -> None:
