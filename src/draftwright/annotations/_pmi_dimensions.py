@@ -433,11 +433,15 @@ def _pmi_witness_from_bbox(rec, view: str, a: Analysis):
         p2 = (SX(hi), SZ((zmin + zmax) / 2), 0)
         avg_t = SZ((zmin + zmax) / 2)
     elif view == "plan" and ax == "Y":
-        avg_x = (xmin + xmax) / 2
+        # AP242 may attach broad plate faces to a local Y measurement. Their
+        # combined bbox can cover the whole part, so its midpoint collapses
+        # distinct witness pairs onto one X station. The proved reference points
+        # are the dimension's actual stations (as for plan/X above).
+        witness_x = sum(point[0] for point in pts) / len(pts)
         lo, hi = min(point[1] for point in pts), max(point[1] for point in pts)
-        p1 = (PX(avg_x), PY(lo), 0)
-        p2 = (PX(avg_x), PY(hi), 0)
-        avg_t = PX(avg_x)
+        p1 = (PX(witness_x), PY(lo), 0)
+        p2 = (PX(witness_x), PY(hi), 0)
+        avg_t = PX(witness_x)
     else:
         return None
 
