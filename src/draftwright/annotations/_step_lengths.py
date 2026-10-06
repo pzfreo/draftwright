@@ -529,6 +529,7 @@ def _render_single_profile(
             start=start,
             profile_bounds=profile_bounds,
             placement_bounds=_profile_bounds_hint,
+            baseline_positions=True,
         )
 
     y_result = _render_y_profile(

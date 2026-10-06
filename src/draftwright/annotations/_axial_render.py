@@ -31,11 +31,13 @@ from draftwright._core import (
 from draftwright.annotations._common import (
     _LOC_SUBCHAIN,
     CROSSABLE_TYPES,
+    PRIORITY,
     CorridorCandidate,
     Escalation,
     PlacementContext,
     _anno_box,
     _geom_box,
+    dim_footprint,
     prevent_dimension_label_ink,
     register_corridor,
     strip_obstacles,
@@ -148,6 +150,7 @@ def _draw_step_chain(
     start=0,
     profile_bounds=None,
     placement_bounds=None,
+    baseline_positions=False,
 ) -> int:
     """Place a turned step-length chain in *view* from structured *segs*, each already
     projected to *view*'s page coords in axis order. Orientation is
@@ -183,6 +186,69 @@ def _draw_step_chain(
         else _step_value_text(seg) + _tol_suffix(seg.tolerance, draft)
         for seg in segs
     ]
+    if baseline_positions and not horizontal:
+        # A datum-to-shoulder run is not a contiguous step chain. Register its
+        # vertical dimensions with PMI before the common corridor drain, so an
+        # authored intermediate station can be nested between the generated
+        # shoulder and overall spans. The old immediate batch had already
+        # consumed the near tiers by the time PMI arrived.
+        analysis = dwg._analysis
+        zones = getattr(analysis, {"front": "fv_zones", "side": "sv_zones"}.get(view, ""), None)
+        strip = getattr(zones, "right", None) if zones is not None else None
+        if strip is not None:
+            base_x = x1 + 2.0
+            tier = draft.font_size + 2 * draft.pad_around_text
+            for i, (seg, label) in enumerate(zip(segs, labels, strict=True)):
+                name = f"{name_prefix}{start + i}"
+                low, high = sorted((seg.pa[1], seg.pb[1]))
+
+                def _build(pos, low=low, high=high, label=label):
+                    return _dim(
+                        (base_x, low, 0),
+                        (base_x, high, 0),
+                        "right",
+                        pos - base_x,
+                        draft,
+                        label=label,
+                    )
+
+                def _footprint(pos, low=low, high=high, label=label):
+                    return dim_footprint(
+                        (base_x, low, 0),
+                        (base_x, high, 0),
+                        "right",
+                        pos - base_x,
+                        draft,
+                        label,
+                    )
+
+                def _drop(_name, measurements=seg.measurements):
+                    _record_step_chain_drop(
+                        "right-hand datum ladder has no clear tier",
+                        ctx=ctx,
+                        measurement=measurements,
+                    )
+
+                register_corridor(
+                    ctx,
+                    (view, "right"),
+                    strip,
+                    view,
+                    "x",
+                    tier,
+                    CorridorCandidate(
+                        name=name,
+                        build=_build,
+                        order=(_LOC_SUBCHAIN, abs(high - low), name),
+                        on_place=lambda _name: None,
+                        on_drop=_drop,
+                        force=True,
+                        priority=PRIORITY.PRINCIPAL,
+                        measurement=seg.measurements,
+                        footprint=_footprint,
+                    ),
+                )
+            return len(segs)
     mean_v = sum(vals) / len(vals)
     explicit_display = any(seg.display_decimals is not None for seg in segs)
     tier_step = draft.font_size + 2 * draft.pad_around_text

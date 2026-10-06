@@ -2367,6 +2367,64 @@ class _AutomaticResolution:
                     self.settled_issues = recovered_issues
                     self.replanned = True
 
+    def recover_scale_from_dropped_section(self):
+        """Do not let an unrealised optional section cap the principal-view scale.
+
+        The initial estimate must reserve a planned section (it may really fit),
+        but a section that was ultimately dropped is no longer a reason to keep
+        the smaller scale. Probe only the next standard scale on the same sheet,
+        and only when removing that reservation makes the estimate fit. The
+        complete rebuilt drawing still has to pass the ordinary qualification.
+        """
+        if not (self.dimensions_are_automatic and self.views_are_automatic):
+            return
+        if not any(
+            issue.code == "section_dropped"
+            for issue in self.context.placement_issues(self.drawing)
+        ):
+            return
+        analysis = self.context.latest_analysis
+        if analysis is None or not analysis.layout_section:
+            return
+        larger = sorted(value for value in _SCALES if value > self.drawing.scale)
+        if not larger:
+            return
+        candidate_scale = larger[0]
+        page_w, page_h = self.original_page
+        geometry = _layout_geometry(
+            analysis.x_size,
+            analysis.y_size,
+            analysis.z_size,
+            candidate_scale,
+            page_w,
+            page_h,
+            analysis.TB_W,
+            analysis.layout_strips,
+            analysis.layout_n_steps,
+            section=False,
+            table_sizes=analysis.layout_table_sizes,
+            required_tables=analysis.layout_required_tables,
+            warn_no_iso=False,
+            title_block_margins=analysis.title_block_margins,
+            margin=_analysis_margins(analysis),
+            arrangement=self.settled_arrangement,
+            views=self.settled_principal_views,
+            include_iso=analysis.planned_iso,
+            iso_scale_factor=analysis.planned_iso_scale,
+            convention=analysis.projection_convention,
+        )
+        if not geometry.auto_fits:
+            return
+        recovered, recovered_issues = self.trials.try_scales_on_selected_page(
+            (candidate_scale,),
+            reason="optional_section_scale_recovery",
+            require_axial_coverage=False,
+        )
+        if recovered is not None:
+            self.drawing = recovered
+            self.settled_issues = recovered_issues
+            self.replanned = True
+
     def recover_optional_iso(self):
         # A pictorial view is useful context, but it cannot outrank the
         # dimensions or other required annotations needed to manufacture a part.
@@ -2654,6 +2712,7 @@ class _AutomaticResolution:
         self.settle_arrangement()
         self.prepare_trials()
         self.recover_detail()
+        self.recover_scale_from_dropped_section()
         self.recover_hard_layout()
         self.recover_required_no_iso()
         self.recover_optional_iso()
