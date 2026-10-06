@@ -110,6 +110,7 @@ from draftwright.annotations.holes import (
 from draftwright.annotations.leaders import drain_feature_leaders
 from draftwright.annotations.sections import (
     _add_section_view,
+    _clear_section_reservation,
     _request_prismatic_detail,
     _reserve_section_row,
     _resolve_details,
@@ -440,6 +441,17 @@ def drain_and_reconcile(ctx, dwg: DrawingPort) -> None:
 
     _common.drain_corridors(ctx, dwg)
     reconcile_witness_labels(dwg)
+
+
+def _retire_optional_section_reservations_for_pmi(ctx, dwg, sections) -> None:
+    """Let source-owned PMI dimensions outrank provisional section ink."""
+    if any(
+        candidate.name.startswith("pmi_")
+        for batch in ctx.corridor_batch.values()
+        for candidate in batch["cands"]
+    ):
+        for section in sections:
+            _clear_section_reservation(dwg, section)
 
 
 def _concentric_bore_diams(a: Analysis) -> list:
@@ -914,6 +926,12 @@ def _final_annotation_stages(run: _AutoAnnotationRun) -> dict:
         # Now every corridor feeder pass has registered; solve each shared strip once
         # (ADR 2 (was 0009)) with label reconciliation, before the
         # section/detail views so they see the placed ladder as an obstacle.
+        # The cutting-plane reservation has already protected early hole callouts.
+        # Imported source-owned PMI has no alternative semantic representation;
+        # optional future section ink must not consume its dimension corridor.
+        # Keep the reservation in ordinary builds so their established section
+        # and callout layout remains stable.
+        _retire_optional_section_reservations_for_pmi(ctx, dwg, _sections)
         drain_and_reconcile(ctx, dwg)
 
     def _s_grooves():

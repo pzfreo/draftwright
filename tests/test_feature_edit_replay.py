@@ -5,6 +5,32 @@ from build123d import Box, Cylinder, Pos
 from draftwright import build_drawing
 
 
+def test_imported_pmi_retires_optional_section_reservation_before_drain(monkeypatch):
+    """An authored dimension outranks provisional section ink at the shared solve."""
+    from types import SimpleNamespace
+
+    from draftwright.annotations import orchestrator
+
+    part = Box(60, 40, 20) - Cylinder(4, 30) - Pos(0, 0, 2) * Cylinder(7, 20)
+    reserved_before_pmi = []
+    seen = []
+
+    def queue_pmi(drawing, _model, _analysis, *, ctx):
+        reserved_before_pmi.append(
+            any(name.endswith("_reservation") for name in drawing.annotations())
+        )
+        ctx.corridor_batch["test-pmi"] = {"cands": [SimpleNamespace(name="pmi_y_test")]}
+
+    def inspect_drain(_ctx, drawing):
+        seen.append(any(name.endswith("_reservation") for name in drawing.annotations()))
+
+    monkeypatch.setattr(orchestrator, "render_pmi", queue_pmi)
+    monkeypatch.setattr(orchestrator, "drain_and_reconcile", inspect_drain)
+    build_drawing(part, pmi="annotate")
+    assert reserved_before_pmi == [True]
+    assert seen == [False]
+
+
 class TestFeatureEditReplay:
     """Replay through the production annotation passes."""
 
