@@ -35,6 +35,13 @@ from draftwright.registry import AnnotationRegistry
 from draftwright.reporting import ReportUnavailableError, placed_dimension_sources
 from draftwright.sheet_emit import emit_sheet_script, generate_sheet_script
 
+_SPECIFY_PLATE_2192 = Path(__file__).parent / "fixtures/specify_plate_2192_ap242.step"
+_PLATE_SOURCE_40_IDS = {
+    "dimension:0:1:4:2",
+    "dimension:0:1:4:13",
+    "dimension:0:1:4:15",
+}
+
 
 def _step(start: float, end: float, diameter: float) -> StepFeature:
     return StepFeature(
@@ -916,3 +923,40 @@ def test_baseline_gap_replays_with_a_distinct_step_position_identity():
         if isinstance(step, StepFeature) and step.position_span is not None
     )
     assert position == ((0, 0, 0), (52, 0, 0))
+
+
+def test_source_basic_locations_precede_generated_grid_pitch_issue_2192():
+    """The real Specify AP242 plate keeps three source 40s and both grid pitches."""
+
+    drawing = build_drawing(
+        _SPECIFY_PLATE_2192,
+        pmi="annotate",
+        out=None,
+        page="A1",
+        scale=1,
+        scale_policy="permissive",
+        repair=False,
+    )
+    authored = {
+        feature.source_id: feature
+        for feature in drawing.model().features
+        if feature.kind == "authored_dimension" and feature.source_id in _PLATE_SOURCE_40_IDS
+    }
+
+    assert set(authored) == _PLATE_SOURCE_40_IDS
+    for feature in authored.values():
+        ink = drawing.annotations_of(feature)
+        assert len(ink) == 1
+        assert next(iter(ink.values())).label == "40"
+    assert {"dim_pitch_plan0_0", "dim_pitch_plan0_1"} <= set(drawing.annotations())
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.code
+        in {
+            "hole_pattern_dim_dropped",
+            "annotation_overlap",
+            "annotation_ink_overlap",
+        }
+        or (issue.code == "pmi_dropped" and "'40'" in issue.message)
+    ]
