@@ -1058,6 +1058,7 @@ def _auto_annotate(dwg: DrawingPort, a: Analysis, *, detail_view: bool = False):
         registry=dwg.registry,
         coverage=dwg.coverage,
         items=dwg.items,  # passes place via ctx.place, not dwg.add
+        analysis=a,
         # The opt-in solve-trace recorder is attached to the drawing's build state
         # by the builder; getattr because dwg is duck-typed in tests. None = off.
         trace=getattr(dwg, "solve_trace", None),

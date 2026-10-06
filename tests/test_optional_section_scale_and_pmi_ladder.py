@@ -18,10 +18,9 @@ def test_vertical_baseline_steps_and_imported_pmi_share_span_order():
     strip = Strip(anchor=105.0, outer_limit=160.0)
     drawing = SimpleNamespace(
         draft=draft,
-        _analysis=SimpleNamespace(fv_zones=SimpleNamespace(right=strip)),
         view_bounds=lambda _view: (80.0, 50.0, 103.0, 160.0),
     )
-    ctx = PlacementContext()
+    ctx = PlacementContext(analysis=SimpleNamespace(fv_zones=SimpleNamespace(right=strip)))
     segments = [
         _StepChainSegment((100.0, 50.0, 0), (100.0, 74.0, 0), 12.0),
         _StepChainSegment((100.0, 50.0, 0), (100.0, 154.0, 0), 52.0),

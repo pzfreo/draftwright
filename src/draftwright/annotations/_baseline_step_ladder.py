@@ -12,8 +12,8 @@ from draftwright.annotations._common import (
 
 def register_vertical_baseline_steps(
     dwg, view, segments, labels, prefix, start, bounds, ctx, report_drop
-):
-    analysis = dwg._analysis
+) -> int | None:
+    analysis = ctx.analysis
     zones = getattr(analysis, {"front": "fv_zones", "side": "sv_zones"}.get(view, ""), None)
     strip = getattr(zones, "right", None) if zones is not None else None
     if strip is None:
