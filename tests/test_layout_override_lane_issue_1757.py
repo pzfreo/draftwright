@@ -60,13 +60,17 @@ def test_lane_capability_targets_one_declared_parameter() -> None:
         ]
         is True
     )
+    unsupported_side = sheet.validate_layout_override(
+        "declaration:slot", parameter="slot_width.length", side="left"
+    )
+    assert unsupported_side["issues"][0]["code"] == "unsupported_control"
 
     missing_parameter = sheet.validate_layout_override("declaration:slot", lane=4)
     assert missing_parameter["issues"][0]["code"] == "invalid_control_combination"
     mixed_controls = sheet.validate_layout_override(
         "declaration:slot", side="above", parameter="not-a-parameter"
     )
-    assert mixed_controls["issues"][0]["code"] == "invalid_control_combination"
+    assert mixed_controls["issues"][0]["code"] == "unsupported_declaration"
     invalid_lane = sheet.validate_layout_override(
         "declaration:slot", parameter="slot_width.length", lane=0
     )
@@ -151,7 +155,7 @@ def test_requested_dimension_rejects_invalid_and_location_lanes() -> None:
     ("kwargs", "message"),
     [
         ({}, "exactly one of side or lane"),
-        ({"side": "above", "parameter_id": "slot_width.length"}, "not a parameter"),
+        ({"side": "above", "parameter_id": " slot_width.length "}, "non-empty parameter_id"),
         ({"lane": 2}, "non-empty parameter_id"),
         ({"parameter_id": " slot_width.length ", "lane": 2}, "surrounding whitespace"),
         ({"parameter_id": "slot_width.length", "lane": 9}, "integer from 1 to 8"),
@@ -181,8 +185,15 @@ def test_layout_options_refuses_missing_duplicate_and_unsupported_dimensions() -
         "declaration:hole", provenance="detected-geometry"
     )
     missing.dimension(hole, "bore.diameter")
-    with pytest.raises(ValueError, match="does not expose a lane control"):
-        missing.layout_options("declaration:hole", parameter="bore.diameter")
+    assert (
+        "side" in missing.layout_options("declaration:hole", parameter="bore.diameter")["controls"]
+    )
+    assert (
+        missing.validate_layout_override("declaration:hole", parameter="bore.diameter", lane=2)[
+            "issues"
+        ][0]["code"]
+        == "unsupported_control"
+    )
 
     duplicate = _slot_sheet()
     duplicate.dimension(duplicate.model().features[0], "slot_width.length")

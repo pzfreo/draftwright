@@ -1,5 +1,6 @@
 """Preserve GRM04 dimension meaning when authored side hints change placement."""
 
+import json
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import pytest
 from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Box, Cylinder, Pos
+from jsonschema.validators import validator_for
 
 from draftwright import Sheet, build_drawing
 from draftwright.audit import compare_measurements
@@ -192,6 +194,64 @@ def test_native_hole_routes_and_height_honour_the_requested_side(kind, side):
     left, _, right, _ = drawing.view_bounds("front")
     assert height.max.X < left if side == "left" else height.min.X > right
     assert not any(issue.code.endswith("_dropped") for issue in drawing.lint())
+
+
+def test_editor_side_override_moves_declared_hole_and_height() -> None:
+    part = Box(20, 40, 50) - Cylinder(2, 20, rotation=(0, 90, 0))
+    sheet = Sheet(part, scale=2).authored_dimensions()
+    bore = sheet.hole(diameter=4, depth=20, at=(0, 0, 0), axis="x").identify("bore")
+    sheet.dimension(bore, "bore.diameter")
+    envelope = sheet.envelope().identify("overall")
+    sheet.dimension(envelope, "height.length")
+
+    for declaration, parameter in (("bore", "bore.diameter"), ("overall", "height.length")):
+        options = sheet.layout_options(declaration, parameter=parameter)
+        assert {"left", "right"} <= set(options["controls"]["side"]["supported_values"])
+        assert sheet.validate_layout_override(declaration, parameter=parameter, side="left")[
+            "supported"
+        ]
+        sheet.layout_override(declaration, parameter=parameter, side="left")
+
+    model = sheet.model()
+    assert {
+        (row.declaration_id, row.parameter_id, row.side) for row in model.layout_overrides
+    } == {
+        ("bore", "bore.diameter", "left"),
+        ("overall", "height.length", "left"),
+    }
+    source = emit_sheet_script(
+        model, "part = source_part", "editor-side", title="editor-side", number="2211"
+    )
+    assert 'sheet.layout_override("bore", parameter="bore.diameter", side="left")' in source
+    replayed = {"source_part": part}
+    execute_sheet_script_without_export(source, "<editor-side>", replayed)
+    assert replayed["sheet"].model().layout_overrides == model.layout_overrides
+
+    drawing = sheet.build()
+    assert {
+        (row["declaration_id"], row["parameter_id"], row["control"], row["resolved_value"])
+        for row in drawing.report()["layout"]["overrides"]
+    } == {
+        ("bore", "bore.diameter", "side", "left"),
+        ("overall", "height.length", "side", "left"),
+    }
+    schema = json.loads(
+        (
+            Path(__file__).parents[1] / "docs/reference/draftwright-report-v8.schema.json"
+        ).read_text()
+    )
+    assert list(validator_for(schema)(schema).iter_errors(drawing.report())) == []
+    bore_labels = [
+        annotation
+        for name, annotation in drawing.iter_annotations()
+        if any(key["parameter_id"] == "bore.diameter" for key in drawing.measurement_keys(name))
+    ]
+    assert len(bore_labels) == 1
+    left, _, right, _ = drawing.view_bounds("side")
+    assert bore_labels[0].bounding_box().max.X < (left + right) / 2
+    height = drawing.get_annotation("dim_height").bounding_box()
+    front_left, _, _, _ = drawing.view_bounds("front")
+    assert height.max.X < front_left
 
 
 def test_a_full_authored_side_is_reported_instead_of_using_the_other_side(monkeypatch):

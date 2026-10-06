@@ -2717,8 +2717,8 @@ class FeatureSchedule:
 class LayoutOverride:
     """One append-only layout-only edit against a build-scoped declaration.
 
-    The record carries either a feature corridor side or one exact dimension's relative
-    lane, never page coordinates. The matching feature/request in :class:`PartModel`
+    The record carries a feature corridor side, one exact dimension's corridor side,
+    or one exact dimension's relative lane, never page coordinates. The matching feature/request in :class:`PartModel`
     contains the resolved value used by the renderer; retaining this separate intent
     record makes generated replay and assessment evidence explicit without turning layout
     policy into engineering meaning.
@@ -2742,8 +2742,12 @@ class LayoutOverride:
         if (self.side is None) == (self.lane is None):
             raise ValueError("layout override requires exactly one of side or lane")
         if self.side is not None:
-            if self.parameter_id is not None:
-                raise ValueError("a side override targets a declaration, not a parameter")
+            if self.parameter_id is not None and (
+                not isinstance(self.parameter_id, str)
+                or not self.parameter_id.strip()
+                or self.parameter_id != self.parameter_id.strip()
+            ):
+                raise ValueError("dimension side override requires a non-empty parameter_id")
             validate_placement_intent(None, self.side, owner="layout override")
             return
         if not isinstance(self.parameter_id, str) or not self.parameter_id.strip():
@@ -2901,6 +2905,24 @@ class PartModel:
                 )
             feature = self.features[index]
             if override.side is not None:
+                if override.parameter_id is not None:
+                    matching_side = [
+                        request
+                        for request in (
+                            *self.requested_dimensions,
+                            *(self.authored_dimensions or ()),
+                        )
+                        if request.feature is feature
+                        and request.role == override.parameter_id
+                        and request.side == override.side
+                    ]
+                    if len(matching_side) != 1:
+                        raise ValueError(
+                            f"layout override {override.declaration_id!r} records side "
+                            f"{override.side!r} for {override.parameter_id!r}, but found "
+                            f"{len(matching_side)} matching resolved dimension intents"
+                        )
+                    continue
                 resolved = getattr(feature, "side", None)
                 if resolved != override.side:
                     raise ValueError(

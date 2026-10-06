@@ -949,9 +949,14 @@ def _layout_override_block(model) -> list[str]:
     lines = []
     for override in model.layout_overrides:
         if override.side is not None:
+            parameter = (
+                f"parameter={json.dumps(override.parameter_id)}, "
+                if override.parameter_id is not None
+                else ""
+            )
             lines.append(
                 "sheet.layout_override("
-                f"{json.dumps(override.declaration_id)}, side={json.dumps(override.side)})"
+                f"{json.dumps(override.declaration_id)}, {parameter}side={json.dumps(override.side)})"
             )
         else:
             lines.append(

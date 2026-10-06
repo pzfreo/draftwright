@@ -101,7 +101,7 @@ def test_validation_rejects_unknown_and_ambiguous_controls_without_changing_inte
         {
             "code": "unsupported_control",
             "controls": ["x", "y"],
-            "message": "layout_override accepts only side, or parameter with lane",
+            "message": "layout_override accepts only side, or parameter with side or lane",
         }
     ]
     for controls in ({}, {"side": "above", "lane": 2}):

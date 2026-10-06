@@ -1651,7 +1651,8 @@ class Sheet(_SheetViewMethods):
     ) -> Sheet:
         """Append one bounded declaration-scoped layout override.
 
-        ``side`` selects a feature corridor. ``parameter`` + ``lane`` selects a one-based
+        ``side`` selects a feature corridor, or a declared dimension's corridor when
+        paired with ``parameter``. ``parameter`` + ``lane`` selects a one-based
         parallel lane for one declared referential dimension. Neither form accepts page
         coordinates; the shared placement solve resolves and validates the physical offset.
         """
