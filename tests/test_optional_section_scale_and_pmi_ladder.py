@@ -6,7 +6,11 @@ from draftwright._core import Strip
 from draftwright.annotations._axial_render import _draw_step_chain, _StepChainSegment
 from draftwright.annotations._common import PlacementContext
 from draftwright.annotations._pmi_dimensions import _pmi_dim_spec
-from draftwright.builder import _AutomaticResolution
+from draftwright.builder import _AutomaticResolution, _AutomaticScaleTrials
+from draftwright.section_scale_recovery import (
+    preserves_recognized_requirements,
+    recover_dropped_section_scale,
+)
 
 
 def test_vertical_baseline_steps_and_imported_pmi_share_span_order():
@@ -49,7 +53,7 @@ def test_vertical_baseline_steps_and_imported_pmi_share_span_order():
 
 
 def test_dropped_optional_section_can_recover_next_scale_without_larger_sheet(monkeypatch):
-    import draftwright.builder as builder
+    import draftwright.section_scale_recovery as recovery_module
 
     analysis = SimpleNamespace(
         layout_section=1,
@@ -85,10 +89,13 @@ def test_dropped_optional_section_can_recover_next_scale_without_larger_sheet(mo
         )
     )
     monkeypatch.setattr(
-        builder, "_layout_geometry", lambda *args, **kwargs: SimpleNamespace(auto_fits=True)
+        recovery_module,
+        "_layout_geometry",
+        lambda *args, **kwargs: SimpleNamespace(auto_fits=True),
     )
 
-    recovery.recover_scale_from_dropped_section()
+    original = recovery.drawing
+    recover_dropped_section_scale(recovery)
 
     assert recovery.drawing is winner
     assert recovery.replanned
@@ -98,6 +105,7 @@ def test_dropped_optional_section_can_recover_next_scale_without_larger_sheet(mo
             {
                 "reason": "optional_section_scale_recovery",
                 "require_axial_coverage": False,
+                "requirement_floor": original,
             },
         )
     ]
@@ -107,11 +115,62 @@ def test_dropped_optional_section_can_recover_next_scale_without_larger_sheet(mo
     recovery.drawing = SimpleNamespace(scale=1.0)
     recovery.replanned = False
     monkeypatch.setattr(
-        builder,
+        recovery_module,
         "_layout_geometry",
         lambda *args, **kwargs: SimpleNamespace(auto_fits=False),
     )
-    recovery.recover_scale_from_dropped_section()
+    recover_dropped_section_scale(recovery)
     assert recovery.drawing.scale == 1.0
     assert not recovery.replanned
     assert len(calls) == 1
+
+
+def test_section_scale_trial_rejects_a_newly_missing_recognized_requirement():
+    def drawing(scale, states):
+        rows = [
+            {
+                "id": f"requirement:{index}",
+                "family": "turned_steps",
+                "parameter_id": "step.length",
+                "occurrence_ids": [f"turned_steps:{index}"],
+                "owner_ids": [f"step:{index}"],
+                "state": state,
+            }
+            for index, state in enumerate(states, start=1)
+        ]
+        return SimpleNamespace(
+            scale=scale,
+            page_w=420.0,
+            page_h=297.0,
+            views={"front": object()},
+            report=lambda: {"recognition": {"requirements": rows}},
+        )
+
+    original = drawing(1.0, ("placed", "missing"))
+    worse = drawing(2.0, ("missing", "missing"))
+    equal = drawing(2.0, ("placed", "missing"))
+    better = drawing(2.0, ("placed", "placed"))
+    assert not preserves_recognized_requirements(original, worse)
+    assert preserves_recognized_requirements(original, equal)
+    assert preserves_recognized_requirements(original, better)
+
+    attempts = []
+    trial = _AutomaticScaleTrials(
+        build=lambda *_args, **_kwargs: worse,
+        record_attempt=lambda *args, **kwargs: attempts.append((args, kwargs)),
+        qualify=lambda *_args, **_kwargs: ((), (), None),
+        retain_arrangement=lambda candidate: candidate,
+        current_drawing=lambda: original,
+        latest_analysis=lambda: None,
+        settled_arrangement="columns",
+        settled_principal_views=("front",),
+        original_page=(420.0, 297.0),
+    )
+    result, _issues = trial.try_scales_on_selected_page(
+        (2.0,),
+        reason="optional_section_scale_recovery",
+        require_axial_coverage=False,
+        requirement_floor=original,
+    )
+    assert result is None
+    assert attempts[-1][1]["rejection"] == "recognized_requirement_regression"

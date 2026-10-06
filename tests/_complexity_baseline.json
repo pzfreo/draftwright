@@ -7,7 +7,6 @@
     "_pmi_part21.py:read_dimension_display_facts": 23,
     "_pmi_part21.py:read_dimension_length_factor": 16,
     "_pmi_part21.py:read_surface_labels": 23,
-    "annotations/_axial_render.py:_draw_step_chain": 17,
     "annotations/_axial_render.py:render_rotational": 16,
     "annotations/_common.py:_adjust_strip_candidate_labels": 20,
     "annotations/_common.py:_drain_interior_dimensions": 24,

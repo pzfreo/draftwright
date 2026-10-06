@@ -116,6 +116,8 @@ and re-exports the existing private helper names.
   - **`build_policy.py`** — rank-6 finished-drawing scale and arrangement decisions:
     required-outcome blockers, structural validity, candidate quality, and stable
     decision records. `builder.py` keeps the automatic retry ladder and its constants.
+  - **`section_scale_recovery.py`** — rank-6 bounded same-sheet scale recovery after an
+    optional section drops, including a finished requirement comparison.
   - **`explicit_scale.py`** — rank-6 resolution of a caller-requested scale:
     automatic-view veto, strict and permissive decisions, and bounded standard-scale
     fallback. The builder supplies its build and critique seams and current scale ladder.
