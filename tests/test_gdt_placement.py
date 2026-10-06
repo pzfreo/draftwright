@@ -13,6 +13,7 @@ import json
 import math
 from collections import defaultdict
 from pathlib import Path
+from types import SimpleNamespace
 from xml.etree import ElementTree
 
 import ezdxf
@@ -20,6 +21,7 @@ import pytest
 from build123d import Box, Cylinder, Draft, Pos
 from build123d_drafting import DatumFeature, FeatureControlFrame, Leader
 
+from draftwright.annotations._gdt import _datum_alternate_view
 from draftwright.builder import build_drawing, detect_part_model
 from draftwright.linting.structural import lint_drawing
 from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame, Note, PmiFeature
@@ -449,6 +451,23 @@ def test_imported_datum_on_absent_side_strip_tries_normal_plan_edge_issue_2182(t
         and any(outcome["name"] == "m_gdt0" for outcome in solve["outcomes"])
         for solve in solves
     )
+
+
+def test_datum_alternate_view_requires_a_selected_plan_view():
+    datum = DatumRef(
+        frame=Frame((0.0, -25.0, 0.0), "y"),
+        letter="B",
+        view="side",
+        side="left",
+        reference_surface_kind="plane",
+    )
+    zones = {
+        "side": (SimpleNamespace(left=None),),
+        "plan": (SimpleNamespace(below=object()),),
+    }
+    assert _datum_alternate_view(datum, zones, {"side": object()}) is datum
+    alternate = _datum_alternate_view(datum, zones, {"side": object(), "plan": object()})
+    assert (alternate.view, alternate.side, alternate.letter) == ("plan", "below", "B")
 
 
 def test_projected_datum_stem_keeps_both_near_and_far_datums_issue_2128():

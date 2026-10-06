@@ -59,7 +59,7 @@ _GDT_CORRIDOR_PRIORITY = PRIORITY.AUTHORED
 _MIN_LEADER = 0.05
 
 
-def _datum_alternate_view(item, views):
+def _datum_alternate_view(item, views, selected_views):
     """Retarget a Y-normal datum to its other edge-on view if its strip is absent."""
     if not (
         isinstance(item, DatumRef)
@@ -67,6 +67,7 @@ def _datum_alternate_view(item, views):
         and item.frame.axis == "y"
         and item.view == "side"
         and item.side in ("left", "right")
+        and "plan" in selected_views
         and getattr(views["side"][0], item.side) is None
     ):
         return item
@@ -819,7 +820,7 @@ def render_gdt(
     tb_box = _title_block_box(dwg, a)
     n = 0
     for i, item in enumerate(items):
-        item = _datum_alternate_view(item, views)
+        item = _datum_alternate_view(item, views, dwg.views)
         name = f"m_gdt{i}"
         source_ids = source_ids_for(item)
         satisfaction = tuple(
