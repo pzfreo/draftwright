@@ -63,6 +63,7 @@ def test_ap242_pmi_side_hole_survives_selected_page_upscale_issue_2177():
     assert not [issue for issue in drawing.lint() if issue.severity in {"warning", "error"}]
 
     table = drawing.get_annotation("manufacturing_requirements")
+    assert table.precedes_source_placement
     (reserved,) = _annotation_fixed_ink(drawing, "manufacturing_requirements", table)
     table_box = _geom_box(table)
     assert reserved.box == table_box
@@ -112,7 +113,12 @@ def test_table_repack_trigger_ignores_unrelated_and_clean_outcomes_issue_2177():
     issue.source_ids = ("source:1",)
     drawing.iter_annotations = lambda: iter(())
     assert not builder._source_placement_drop_with_table(drawing)
+    table.precedes_source_placement = True
     drawing.iter_annotations = lambda: iter((("schedule", table),))
+    assert builder._source_placement_drop_with_table(drawing)
+    table.precedes_source_placement = False
+    assert not builder._source_placement_drop_with_table(drawing)
+    table.precedes_source_placement = True
     assert builder._source_placement_drop_with_table(drawing)
 
 

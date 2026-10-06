@@ -402,6 +402,9 @@ def _place_manufacturing_schedule(dwg: DrawingPort, schedule, ctx) -> bool:
         # emitted, so restore its speculative drop and use full direct labels.
         ctx.registry.restore_issues(issues)
         return False
+    # This schedule precedes PMI/GD&T and the corridor drain. Late general
+    # notes, gear tables and hole tables cannot block those source candidates.
+    table.precedes_source_placement = True
     table.source_ids = schedule.source_ids
     table.manufacturing_source_ids = schedule.source_ids_by_tag
     ctx.manufacturing_tags = schedule.tags_by_source

@@ -1128,10 +1128,11 @@ def _needs_repack(dwg, a) -> bool:
 
 
 def _source_placement_drop_with_table(dwg) -> bool:
-    """A table may take required annotation space after the seed layout.
+    """A pre-solve table may take required source-annotation space.
 
-    Repack the measured blocks when that happens. An unselected view's geometry
-    cannot act as the accidental trigger: it has no ink on the finished sheet.
+    Late tables fit around already placed annotation ink, so their presence
+    cannot explain an earlier source drop. Repack only for a table committed
+    before those placements.
     """
     if not any(
         getattr(issue, "outcome_stage", None) == "placement"
@@ -1142,6 +1143,7 @@ def _source_placement_drop_with_table(dwg) -> bool:
         return False
     return any(
         getattr(annotation, "table_rows", None) is not None
+        and getattr(annotation, "precedes_source_placement", False)
         for _name, annotation in dwg.iter_annotations()
     )
 
