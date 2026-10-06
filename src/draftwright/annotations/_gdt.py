@@ -606,9 +606,9 @@ def _gdt_candidate_builders(
     evidence = _gdt_text_evidence(fallback_glyph, item, draft) if item.kind != "note" else {}
     glyph_box = fallback_glyph.bounding_box()
 
-    def _elbow(pos):
+    def _elbow(pos, _hz=horizontal):
         # Keep the analytical preflight and actual helper's zero-shaft guard identical.
-        if horizontal:
+        if _hz:
             delta = pos - py
             return px, pos if abs(delta) >= _MIN_LEADER else py + math.copysign(
                 _MIN_LEADER, delta or 1.0
@@ -644,28 +644,28 @@ def _gdt_candidate_builders(
             analytical_straight_leader=True,
         )
 
-    def _build(pos, _px=px, _py=py, _hz=horizontal, _it=item, _g=fallback_glyph):
-        tip = (_px, _py)
+    def _build(pos, _hz=horizontal):
+        tip = (px, py)
         # A zero-length leader shaft (the projected site coincides with the solved tier —
         # `pos == py` above/below, `pos == px` left/right) makes OCC's edge builder raise,
         # which would crash the whole build on a public-IR declaration. Guarantee a
         # minimum shaft along the stacking axis (nudge outward; 0.05 mm is invisible) so
         # `_build` is total — the drop-don't-crash invariant holds for every build call.
-        elbow = _elbow(pos)
+        elbow = _elbow(pos, _hz)
         leader = leader_ctor(
             tip=tip,
             elbow=elbow,
             label="",
             draft=draft,
-            callout=_g,
-            all_around=getattr(_it, "all_around", False),
-            all_over=getattr(_it, "all_over", False),
+            callout=fallback_glyph,
+            all_around=getattr(item, "all_around", False),
+            all_over=getattr(item, "all_over", False),
         )
-        if _it.kind == "note":
+        if item.kind == "note":
             # The outer leader intentionally has label="" because the visible
             # payload is a TextBlock callout. Preserve the authored note and measure
             # the embedded Text renderer's face-dependent newline pitch for PDF.
-            leader.pdf_text = _font_safe_text(_it.text)
+            leader.pdf_text = _font_safe_text(item.text)
             leader.pdf_text_font_style = "REGULAR"
             leader.pdf_text_line_spacing = _text_line_spacing_em(
                 draft.font_size,
@@ -676,18 +676,18 @@ def _gdt_candidate_builders(
             _apply_gdt_text_evidence(leader, evidence)
         return leader
 
-    def _build_at(elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
+    def _build_at(elbow):
         leader = leader_ctor(
-            tip=(_px, _py),
+            tip=(px, py),
             elbow=(*elbow, 0),
             label="",
             draft=draft,
-            callout=_g,
-            all_around=getattr(_it, "all_around", False),
-            all_over=getattr(_it, "all_over", False),
+            callout=fallback_glyph,
+            all_around=getattr(item, "all_around", False),
+            all_over=getattr(item, "all_over", False),
         )
-        if _it.kind == "note":
-            leader.pdf_text = _font_safe_text(_it.text)
+        if item.kind == "note":
+            leader.pdf_text = _font_safe_text(item.text)
             leader.pdf_text_font_style = "REGULAR"
             leader.pdf_text_line_spacing = _text_line_spacing_em(
                 draft.font_size,
@@ -698,19 +698,19 @@ def _gdt_candidate_builders(
             _apply_gdt_text_evidence(leader, evidence)
         return leader
 
-    def _build_routed(bends, elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
+    def _build_routed(bends, elbow):
         leader = RoutedLeader(
-            (_px, _py),
+            (px, py),
             bends,
             elbow,
             "",
             draft,
-            callout=_g,
-            all_around=getattr(_it, "all_around", False),
-            all_over=getattr(_it, "all_over", False),
+            callout=fallback_glyph,
+            all_around=getattr(item, "all_around", False),
+            all_over=getattr(item, "all_over", False),
         )
-        if _it.kind == "note":
-            leader.pdf_text = _font_safe_text(_it.text)
+        if item.kind == "note":
+            leader.pdf_text = _font_safe_text(item.text)
             leader.pdf_text_font_style = "REGULAR"
             leader.pdf_text_line_spacing = _text_line_spacing_em(
                 draft.font_size,
