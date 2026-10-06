@@ -15,6 +15,7 @@ from build123d import Face, Vector, Wire
 
 from draftwright._geometry import _leader_ink_polygons, _stroke_polygon
 from draftwright.annotations._common import DerivedViewReservation, _geom_box
+from draftwright.fixed_ink_cache import _active_fixed_ink_mesh_cache
 from draftwright.progress import checkpoint
 
 _FIXED_INVENTORY_EXHAUSTED = object()
@@ -121,6 +122,16 @@ def _validated_face_mesh(face, tolerance):
     """Return one complete finite triangular mesh, or ``None`` when malformed."""
 
     checkpoint()
+    cache = _active_fixed_ink_mesh_cache()
+    key = None
+    if cache is not None:
+        try:
+            key = cache._key(face, tolerance)
+            cached = cache.get(key)
+            if cached is not None:
+                return cached
+        except Exception:  # noqa: BLE001 — optional cache must fail open to validation
+            key = None
     try:
         vertices, raw_triangles = face.tessellate(tolerance)
         points = tuple((float(vertex.X), float(vertex.Y)) for vertex in vertices)
@@ -146,7 +157,13 @@ def _validated_face_mesh(face, tolerance):
         )
     except Exception:  # noqa: BLE001 — optional placement must fail closed
         return None
-    return points, tuple(triangles), edge_kinds
+    mesh = points, tuple(triangles), edge_kinds
+    if cache is not None and key is not None:
+        try:
+            cache.put(key, mesh)
+        except Exception:  # noqa: BLE001 — cache failure must not fail ink validation
+            pass
+    return mesh
 
 
 def _convex_hull(points):

@@ -3,15 +3,18 @@
 import math
 
 import pytest
-from build123d import HeadType, Vector
+from build123d import Box, Cylinder, Face, HeadType, Vector
 from build123d_drafting.helpers import ArrowHead, Draft, Leader
 
+from draftwright import Sheet
 from draftwright._geometry import (
     _convex_polygon_overlaps_box,
     _leader_ink_crosses_box,
     _segment_crosses_box,
 )
+from draftwright.annotations._leader_fixed_ink import _validated_face_mesh
 from draftwright.annotations.holes import _leader_hits
+from draftwright.fixed_ink_cache import FixedInkMeshCache, _using_fixed_ink_mesh_cache
 
 
 def _leader(draft, elbow=(20.0, 0.0)):
@@ -19,6 +22,85 @@ def _leader(draft, elbow=(20.0, 0.0)):
     side = "right" if elbow[0] > 0 else "left"
     leader = Leader(tip=tip, elbow=elbow, label="X", draft=draft, text_side=side)
     return leader, tip, elbow, side
+
+
+def test_exact_face_cache_reuses_identical_ink_but_not_moved_ink(monkeypatch):
+    draft = Draft()
+    first = tuple(_leader(draft)[0].faces())[0]
+    identical = tuple(_leader(draft)[0].faces())[0]
+    moved = tuple(_leader(draft, elbow=(21.0, 0.0))[0].faces())[0]
+    calls = 0
+    tessellate = Face.tessellate
+
+    def counted(face, tolerance):
+        nonlocal calls
+        calls += 1
+        return tessellate(face, tolerance)
+
+    monkeypatch.setattr(Face, "tessellate", counted)
+    cache = FixedInkMeshCache(max_entries=2)
+    with _using_fixed_ink_mesh_cache(cache):
+        original = _validated_face_mesh(first, 0.01)
+        assert original is not None
+        assert _validated_face_mesh(identical, 0.01) == original
+        assert _validated_face_mesh(moved, 0.01) is not None
+        assert _validated_face_mesh(identical, 0.02) is not None
+    assert calls == 3
+    assert cache.hits == 1
+    assert cache.misses == 3
+    cache.clear()
+    assert cache.hits == cache.misses == 0
+
+
+def test_face_cache_key_failure_falls_back_to_uncached_validation():
+    class UnserializableFace:
+        def tessellate(self, _tolerance):
+            return (
+                [Vector(0, 0), Vector(1, 0), Vector(0, 1)],
+                [(0, 1, 2)],
+            )
+
+        def edges(self):
+            return ()
+
+    cache = FixedInkMeshCache()
+    with _using_fixed_ink_mesh_cache(cache):
+        assert _validated_face_mesh(UnserializableFace(), 0.01) is not None
+    assert cache.hits == cache.misses == 0
+
+
+def test_face_cache_write_failure_keeps_validated_mesh(monkeypatch):
+    face = tuple(_leader(Draft())[0].faces())[0]
+    cache = FixedInkMeshCache()
+
+    def unavailable(_key, _mesh):
+        raise RuntimeError("cache unavailable")
+
+    monkeypatch.setattr(cache, "put", unavailable)
+    with _using_fixed_ink_mesh_cache(cache):
+        assert _validated_face_mesh(face, 0.01) is not None
+
+
+def test_sheet_replay_reuses_exact_ink_without_changing_drawing() -> None:
+    part = Box(20, 40, 50) - Cylinder(2, 20, rotation=(0, 90, 0))
+    sheet = Sheet(part, scale=2).authored_dimensions()
+    bore = sheet.hole(diameter=4, depth=20, at=(0, 0, 0), axis="x")
+    sheet.dimension(bore, "bore.diameter")
+    with pytest.raises(TypeError, match="FixedInkMeshCache"):
+        sheet.build(mesh_cache=object())  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="positive integer"):
+        FixedInkMeshCache(max_entries=0)
+    cache = FixedInkMeshCache()
+
+    first = sheet.build(mesh_cache=cache)
+    first_hits, first_misses = cache.hits, cache.misses
+    second = sheet.build(mesh_cache=cache)
+
+    assert first_misses > 0
+    assert cache.hits > first_hits
+    assert cache.misses == first_misses
+    assert first.annotations().keys() == second.annotations().keys()
+    assert first.lint_summary() == second.lint_summary()
 
 
 @pytest.mark.parametrize("head_type", tuple(HeadType))

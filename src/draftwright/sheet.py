@@ -63,6 +63,7 @@ from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.compose import _est_table_size
 from draftwright.document_input import DocumentInput, physical_features
 from draftwright.fits import fit_class
+from draftwright.fixed_ink_cache import FixedInkMeshCache, _using_fixed_ink_mesh_cache
 from draftwright.model import (
     DefaultSurfaceFinish,
     DimensionParameterId,
@@ -2826,10 +2827,13 @@ class Sheet(_SheetViewMethods):
             self._authored_set(),
         )
 
-    def build(self):
+    def build(self, *, mesh_cache: FixedInkMeshCache | None = None):
         """Build the :class:`~draftwright.drawing.Drawing` — detection skipped; only the
         declared features are drawn. Declared corner-block tables (:meth:`table`/:meth:`notes`)
-        are placed last, clear of everything already on the sheet."""
+        are placed last, clear of everything already on the sheet. A caller-held
+        ``mesh_cache`` can reuse exact rendered-face tessellations across replays."""
+        if mesh_cache is not None and not isinstance(mesh_cache, FixedInkMeshCache):
+            raise TypeError("mesh_cache must be a FixedInkMeshCache or None")
         self._prepare()
         # `add_dimension` augments the planner's set, so the sheet must have asked for
         # one (ADR 4 (was 0016)). Checked HERE rather than in the verb so intent stays
@@ -2885,23 +2889,24 @@ class Sheet(_SheetViewMethods):
         if not automatic_details:
             opts["detail_view"] = False
         try:
-            return build_drawing(
-                self._part,
-                model=self._build_model_input(),
-                _document_input=self._document_input,
-                decorations=self._decorations(
-                    section_request,
-                    suppress_auto_sections=self._derived_view_source == "authored",
-                ),
-                requested=self._requested_dimensions(),
-                authored=self._authored_set(),
-                _post_build=place_declared_tables if self._tables else None,
-                _required_tables=required_tables,
-                _views=principal_views,
-                _include_iso=include_iso,
-                _view_constraints=constraints,
-                **opts,
-            )
+            with _using_fixed_ink_mesh_cache(mesh_cache):
+                return build_drawing(
+                    self._part,
+                    model=self._build_model_input(),
+                    _document_input=self._document_input,
+                    decorations=self._decorations(
+                        section_request,
+                        suppress_auto_sections=self._derived_view_source == "authored",
+                    ),
+                    requested=self._requested_dimensions(),
+                    authored=self._authored_set(),
+                    _post_build=place_declared_tables if self._tables else None,
+                    _required_tables=required_tables,
+                    _views=principal_views,
+                    _include_iso=include_iso,
+                    _view_constraints=constraints,
+                    **opts,
+                )
         except ViewPlanIncomplete as exc:
             if self._principal_view_source != "authored":
                 raise

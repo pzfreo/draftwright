@@ -281,6 +281,27 @@ The token associates features; it does not specify an annotation position or add
 Generated scripts preserve this association using Draftwright-owned tokens instead of provider
 keys. A groove can still be declared when the authored set omits all of that body's steps.
 
+### Repeated editor builds
+
+An editor that rebuilds a declared sheet after annotation-only edits may reuse a
+caller-owned fixed-ink mesh cache:
+
+```python
+from draftwright import FixedInkMeshCache
+
+mesh_cache = FixedInkMeshCache(max_entries=2048)
+drawing = sheet.build(mesh_cache=mesh_cache)
+# After a bounded layout edit, rebuild with the same cache.
+sheet.layout_override("declaration:datum", side="left")
+drawing = sheet.build(mesh_cache=mesh_cache)
+```
+
+This is optional; ordinary `build()` behavior is unchanged. Cache entries use the exact
+located geometry of rendered annotation faces and the tessellation tolerance, so moving
+an annotation or changing the part, scale or views cannot reuse stale ink. The cache is
+bounded by entry count, can be cleared with `mesh_cache.clear()`, and only avoids face
+tessellation; it does not skip the drawing's placement or validation solve.
+
 ## Build-scoped declaration selectors
 
 An editable script can give a feature a declaration identity and later address that intent
