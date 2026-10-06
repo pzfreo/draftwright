@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
+from dataclasses import dataclass
 from itertools import chain
+from typing import Any
 
 from build123d_drafting.helpers import Dimension, Leader, Note, SafeDimension
 
-from draftwright._core import Analysis, _analysis_margins, place_annotation
+from draftwright._core import Analysis, _analysis_margins, _drawing_bounds, place_annotation
 from draftwright._geometry import _boxes_overlap, _segment_clips_box, _segments_cross_or_overlap
 from draftwright.annotations._dimension_ink import DimensionInkCandidate
 from draftwright.annotations._placement_geometry import (
@@ -42,6 +44,43 @@ per-consumer choice, passed as ``crossable`` to :func:`strip_obstacles`."""
 #: `annotation_ink_obstacles`, because the iso fit had picked
 #: `strip_obstacles` instead and `--frame` therefore disabled the fit entirely.
 _PAGE_SPANNING_RIDERS = ("is_sheet_frame", "is_zone_grid")
+
+
+@dataclass(frozen=True)
+class DeferredCompactCandidate:
+    """Exact leader ink metadata before constructing a costly retry annotation."""
+
+    label_bbox: tuple[float, float, float, float]
+    materialize: Any
+    tip: tuple[float, float] | None = None
+    elbow: tuple[float, float] | None = None
+    segments: tuple = ()
+    analytical_straight_leader: bool = False
+
+
+def compact_probe_clear(dwg, proposal, others, forbid_box, label_clear) -> bool:
+    """Reject decisive label, page, furniture and straight-shaft collisions cheaply."""
+    label = proposal.label_bbox
+    page = _drawing_bounds(dwg)
+    if (
+        label[0] < page[0]
+        or label[1] < page[1]
+        or label[2] > page[2]
+        or label[3] > page[3]
+        or (forbid_box is not None and _box_hits(label, (forbid_box,)))
+        or (label_clear is not None and not label_clear(label))
+    ):
+        return False
+    for item in (*others, *(annotation for _, annotation in dwg.iter_annotations())):
+        try:
+            foreign = getattr(item, "label_bbox", None)
+        except Exception:  # noqa: BLE001 — the exact check fails closed below
+            continue
+        if foreign is not None and len(foreign) == 4 and _boxes_overlap(label, foreign):
+            return False
+    return not proposal.analytical_straight_leader or annotation_ink_clear(
+        dwg, proposal, additional=others
+    )
 
 
 def is_page_spanning_rider(annotation) -> bool:
@@ -613,7 +652,10 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=(), against=No
             candidate_elbow = getattr(candidate, "elbow", None)
             annotation_elbow = getattr(annotation, "elbow", None)
             shares_leader_trunk = (
-                type(candidate) is Leader
+                (
+                    type(candidate) is Leader
+                    or getattr(candidate, "analytical_straight_leader", False)
+                )
                 and type(annotation) is Leader
                 and candidate_tip is not None
                 and annotation_tip is not None

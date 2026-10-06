@@ -788,6 +788,22 @@ def _reserve_planned_angles(
                     )
 
 
+def _reserve_unhinted_linear_corridors(corridors, kind, axis) -> None:
+    """Reserve the same default/fallback strips the linear PMI renderer tries."""
+    if kind == "linear" and axis == "X":
+        # Imported AP242 X dimensions commonly have no route hint. Without these
+        # bands even a required overall tolerance has a zero-capacity strip (#2192).
+        _reserve_corridor(corridors, "front", "above")
+        _reserve_corridor(corridors, "front", "below")
+    elif kind == "linear" and axis == "Y":
+        _reserve_corridor(corridors, "side", "above")
+        _reserve_corridor(corridors, "side", "below")
+        _reserve_corridor(corridors, "plan", "below")
+    elif kind not in ("diameter", "radius", "angular") and axis == "Z":
+        _reserve_corridor(corridors, "front", "left")
+        _reserve_corridor(corridors, "front", "right")
+
+
 def _reserve_authored_dimensions(
     model,
     boxes: list[AnnoBox],
@@ -798,6 +814,10 @@ def _reserve_authored_dimensions(
     text_position: str,
     text_orientation: str,
 ) -> None:
+    # Report/off modes retain imported records for diagnostics but do not draw
+    # them. Their corridors must not enlarge the sheet for invisible ink.
+    if not model.pmi_annotations_enabled:
+        return
     # Measured placement hints are semantic corridor requirements and therefore part of
     # compose-before-pack, not merely renderer filters. Resolve every valid explicit route;
     # a view-only hint conservatively reserves both supported sides, while the legacy
@@ -821,11 +841,8 @@ def _reserve_authored_dimensions(
         if view_hint is None and side_hint is None and angular_reference is None:
             if kind == "linear" and axis == "?" and target_view is not None:
                 pass
-            elif kind not in ("diameter", "radius", "angular") and axis == "Z":
-                _reserve_corridor(corridors, "front", "left")
-                _reserve_corridor(corridors, "front", "right")
-                continue
             else:
+                _reserve_unhinted_linear_corridors(corridors, kind, axis)
                 continue
         if target_view is None:
             continue

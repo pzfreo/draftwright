@@ -533,11 +533,12 @@ def _scale_attempt(
 
 
 def _principal_view_exceeds_page(scale, page, bounds, views) -> bool:
-    """Rule out a fixed-scale build whose unannotated principal cannot fit.
+    """Rule out a fixed-scale build whose bare principal projections cannot fit.
 
-    This uses only the part's world-space bounding box and the full page, leaving
-    margins and annotation footprints out of the bound. A rejected candidate
-    therefore cannot be rescued by a different arrangement or ink placement.
+    Use only the part's world-space box and the *full* page: omitting even the
+    mandatory gutters, margins and annotation footprints makes this a necessary
+    bound, never a speculative fit verdict. No ink solve can rescue a rejected
+    scale.
     """
     extents = {
         "x": bounds.max.X - bounds.min.X,

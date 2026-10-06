@@ -2488,10 +2488,7 @@ class _AutomaticResolution:
                 except (ValueError, Standard_Failure) as exc:
                     if not _is_expected_candidate_build_failure(exc):
                         raise
-                    _log.info(
-                        "fixed-page optional-ISO replan rejected (build failed: %s)",
-                        exc,
-                    )
+                    _log.info("fixed-page optional-ISO replan rejected (build failed: %s)", exc)
                     self.record_attempt(
                         None,
                         "error",
@@ -2538,7 +2535,7 @@ class _AutomaticResolution:
                     # sequence of larger standard pages. Each page chooses its scale
                     # through the established fixed-page policy and must pass the
                     # same axial, structural, and required-outcome gates above. A
-                    # A detail may be introduced or retained here: it is itself a
+                    # detail may be introduced or retained here: it is itself a
                     # semantic recovery view, and this correction must not reject a
                     # complete candidate merely because removing the optional ISO
                     # made room for that required detail.
@@ -2547,9 +2544,7 @@ class _AutomaticResolution:
                             self.original_page,
                             include_iso=False,
                             reason="page_escalation_after_optional_iso",
-                            fallback_views=tuple(
-                                name for name in self.drawing.views if name != "iso"
-                            ),
+                            fallback_views=tuple(name for name in self.drawing.views if name != "iso"),
                             require_axial_coverage=True,
                             allow_recovery_detail=True,
                         )

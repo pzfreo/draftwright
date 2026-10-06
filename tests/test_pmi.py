@@ -242,6 +242,35 @@ class TestExtractPmi:
         )
         assert queued and all(option["view"] == "plan" for option in queued)
 
+    def test_plan_y_witness_uses_source_station_not_broad_face_bbox_issue_2192(self):
+        from draftwright.annotations._pmi_dimensions import _pmi_witness_from_bbox
+
+        def identity(value):
+            return value
+
+        analysis = SimpleNamespace(
+            proj=SimpleNamespace(
+                front_x=identity,
+                front_z=identity,
+                side_x=identity,
+                side_z=identity,
+                plan_x=identity,
+                plan_y=identity,
+            )
+        )
+        stations = (-25.0, 0.0, 25.0)
+        witnesses = []
+        for station in stations:
+            record = SimpleNamespace(
+                dominant_axis="Y",
+                ref_pts=((station, -40.0, 6.0), (station, 0.0, 6.0)),
+                ref_bbox=(-60.0, -40.0, 0.0, 60.0, 40.0, 12.0),
+            )
+            witnesses.append(_pmi_witness_from_bbox(record, "plan", analysis))
+
+        assert [witness[0][0] for witness in witnesses] == list(stations)
+        assert all(witness[0][1] == -40.0 and witness[1][1] == 0.0 for witness in witnesses)
+
     def test_nist_ctc01_returns_records(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
         assert len(recs) > 0
