@@ -567,7 +567,23 @@ def test_principal_projection_must_fit_inside_the_physical_page():
     page = (1189.0, 841.0)
     assert not builder._principal_view_exceeds_page(0.5, page, bounds, ("front", "plan", "side"))
     assert builder._principal_view_exceeds_page(1.0, page, bounds, ("front", "plan", "side"))
-    assert not builder._principal_view_exceeds_page(1.0, page, bounds, ("front", "side"))
+    assert builder._principal_view_exceeds_page(1.0, page, bounds, ("front", "side"))
+    assert not builder._principal_view_exceeds_page(1.0, page, bounds, ("side",))
+
+
+def test_orthographic_pair_cannot_fit_when_each_projection_alone_would_fit():
+    import draftwright.builder as builder
+
+    bounds = SimpleNamespace(
+        min=SimpleNamespace(X=0, Y=0, Z=0),
+        max=SimpleNamespace(X=28.7, Y=10, Z=20),
+    )
+    page = (297.0, 210.0)
+    assert not builder._principal_view_exceeds_page(10.0, page, bounds, ("front",))
+    assert not builder._principal_view_exceeds_page(10.0, page, bounds, ("side",))
+    assert not builder._principal_view_exceeds_page(10.0, page, bounds, ("plan",))
+    assert builder._principal_view_exceeds_page(10.0, page, bounds, ("front", "side"))
+    assert builder._principal_view_exceeds_page(10.0, page, bounds, ("front", "plan"))
 
 
 @pytest.mark.slow
