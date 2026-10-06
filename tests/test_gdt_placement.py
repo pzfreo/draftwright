@@ -412,7 +412,7 @@ def test_imported_datum_refuses_a_wrong_side_fallback(monkeypatch, tmp_path):
     assert [attempt["side"] for attempt in events[0]["items"][0]["attempts"]] == ["left"]
 
 
-def test_imported_datum_on_absent_side_strip_drops_without_aborting_issue_2182(tmp_path):
+def test_imported_datum_on_absent_side_strip_tries_normal_plan_edge_issue_2182(tmp_path):
     datum = DatumRef(
         frame=Frame((0.0, -25.0, 0.0), "y"),
         letter="A",
@@ -436,14 +436,17 @@ def test_imported_datum_on_absent_side_strip_drops_without_aborting_issue_2182(t
     assert "m_gdt0" not in dwg.annotations()
     assert "m_gdt1" in dwg.annotations()
     assert any(
-        issue.code == "pmi_dropped" and "m_gdt0" in issue.message for issue in dwg.registry.issues
+        issue.code == "pmi_dropped"
+        and "m_gdt0" in issue.message
+        and "surface-normal below strip" in issue.message
+        for issue in dwg.registry.issues
     )
     solves = json.loads(trace_path.read_text())["solves"]
     assert any(
-        solve["corridor"] == ["side", "left"]
-        and solve["strip"] is None
-        and {item["name"] for item in solve["candidates"]} == {"m_gdt0"}
-        and solve["outcomes"] == [{"name": "m_gdt0", "outcome": "dropped", "reason": "no_strip"}]
+        solve["corridor"] == ["plan", "below"]
+        and solve["strip"] is not None
+        and "m_gdt0" in {candidate["name"] for candidate in solve["candidates"]}
+        and any(outcome["name"] == "m_gdt0" for outcome in solve["outcomes"])
         for solve in solves
     )
 
