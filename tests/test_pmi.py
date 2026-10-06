@@ -25,8 +25,91 @@ CTC01_AP203 = FIXTURES / "nist_ctc_01_asme1_ap203.stp"
 CTC02 = FIXTURES / "nist_ctc_02_asme1_ap242.stp"
 CTC03 = FIXTURES / "nist_ctc_03_asme1_ap242.stp"
 CTC04 = FIXTURES / "nist_ctc_04_asme1_ap242.stp"
+CTC05 = FIXTURES / "nist_ctc_05_asme1_ap242.stp"
 
 pytestmark = pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
+
+
+def test_ctc05_extracts_theoretical_locations_as_basic_dimensions():
+    report = extract_pmi_report(CTC05)
+    basic = [record for record in report.records if record.basic]
+    assert {record.part21_id for record in basic} == {"#942", "#943", "#944", "#945"}
+    assert all(record.kind == "linear" for record in basic)
+
+
+def test_basic_dimension_survives_missing_presentation_name_match(monkeypatch):
+    import draftwright.pmi as pmi_module
+
+    monkeypatch.setattr(
+        pmi_module,
+        "match_dimension_association",
+        lambda _facts, _name: (None, "presentation name is unavailable"),
+    )
+    report = extract_pmi_report(CTC05)
+    assert {record.part21_id for record in report.records if record.basic} == {""}
+    assert len([record for record in report.records if record.basic]) == 4
+
+
+def test_ambiguous_basic_status_without_identity_is_not_rendered_plain(monkeypatch):
+    from dataclasses import replace
+
+    import draftwright.pmi as pmi_module
+
+    read_facts = pmi_module.read_dimension_display_facts
+
+    def conflicting_facts(path):
+        facts = read_facts(path)
+        first = next(fact for fact in facts if fact.basic)
+        return (*facts, replace(first, basic=False))
+
+    monkeypatch.setattr(pmi_module, "read_dimension_display_facts", conflicting_facts)
+    monkeypatch.setattr(
+        pmi_module,
+        "match_dimension_association",
+        lambda _facts, _name: (None, "presentation name is unavailable"),
+    )
+    report = extract_pmi_report(CTC05)
+    conflicting = [
+        record
+        for record in report.records
+        if "Part21 basic-dimension status is ambiguous for this value" in record.rendering_blockers
+    ]
+    assert len(conflicting) == 2
+    assert all(not record.basic for record in conflicting)
+
+
+def test_authored_basic_dimension_is_boxed_through_ir_and_finished_drawing():
+    from draftwright.model import build_pmi_features
+    from draftwright.model.ir import PartModel
+
+    part = Box(40, 30, 5)
+    (source,) = build_pmi_features(
+        (
+            PmiRecord(
+                kind="linear",
+                type_code=1,
+                value=20.0,
+                label="20",
+                dominant_axis="X",
+                ref_pts=((-10, 0, 0), (10, 0, 0)),
+                source_id="dimension:basic",
+                basic=True,
+            ),
+        ),
+        part.bounding_box(),
+    )
+    assert source.basic
+    drawing = build_drawing(
+        part,
+        model=PartModel(part.bounding_box(), "z", [source]),
+        pmi="annotate",
+        page="A4",
+        scale=2.0,
+    )
+    dimension = drawing.get_annotation("pmi_x_0")
+    assert dimension.is_basic
+    assert dimension.placement_spec.kwargs["basic"]
+    assert len(dimension.segments) >= 4
 
 
 # ---------------------------------------------------------------------------
