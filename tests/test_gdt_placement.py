@@ -488,6 +488,16 @@ def test_datum_alternate_view_requires_a_selected_plan_view():
         "plan": (SimpleNamespace(below=object()),),
     }
     assert _datum_alternate_view(datum, zones, {"side": object()}) is datum
+    no_plan_strip = {
+        "side": zones["side"],
+        "plan": (SimpleNamespace(below=None),),
+    }
+    assert (
+        _datum_alternate_view(
+            datum, no_plan_strip, {"side": object(), "plan": object()}
+        )
+        is datum
+    )
     alternate = _datum_alternate_view(datum, zones, {"side": object(), "plan": object()})
     assert (alternate.view, alternate.side, alternate.letter) == ("plan", "below", "B")
     assert (
