@@ -518,7 +518,7 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
         while any(
             nm in (f"bc_{view}{j}", f"dim_pitch_{view}{j}")
             or nm.startswith(f"dim_pitch_{view}{j}_")
-            for nm in ctx.registry.names()
+            for nm in (*ctx.registry.names(), *ctx.deferred_pattern_pitch_names)
         ):
             j += 1
         _add_furniture(
@@ -754,7 +754,7 @@ def _add_furniture(
         pitch = group.dim(kind="length", role="pitch") if group is not None else None
         if pitch is None:
             return  # not approved — the compiler withheld the value, so there is none to print
-        _place_pitch_dim(
+        _place_pitch_after_pmi(
             dwg,
             a,
             view,
@@ -827,8 +827,18 @@ def _add_grid_pitch_dims(
         ctx=ctx,
         name_prefix=name_prefix,
         drop_code=drop_code,
-        place_pitch_dim=_place_pitch_dim,
+        place_pitch_dim=_place_pitch_after_pmi,
     )
+
+
+def _place_pitch_after_pmi(*args, ctx, **kwargs):
+    """Queue generated pitch behind imported PMI, preserving normal placement otherwise."""
+    if ctx.defer_pattern_pitch:
+        name = args[8]
+        ctx.deferred_pattern_pitch_names.add(name)
+        ctx.deferred_pattern_pitches.append(partial(_place_pitch_dim, *args, ctx=ctx, **kwargs))
+        return
+    return _place_pitch_dim(*args, ctx=ctx, **kwargs)
 
 
 def _place_pitch_dim(
@@ -1096,14 +1106,14 @@ def _place_pitch_dim(
 def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
     """Render grouped pocket arrays with the live hole pitch-placement binding."""
     return _patterns.render_pocket_patterns(
-        dwg, plan, a, ctx=ctx, only=only, place_pitch_dim=_place_pitch_dim
+        dwg, plan, a, ctx=ctx, only=only, place_pitch_dim=_place_pitch_after_pmi
     )
 
 
 def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
     """Render grouped slot arrays with the live hole pitch-placement binding."""
     return _patterns.render_slot_patterns(
-        dwg, plan, a, ctx=ctx, only=only, place_pitch_dim=_place_pitch_dim
+        dwg, plan, a, ctx=ctx, only=only, place_pitch_dim=_place_pitch_after_pmi
     )
 
 

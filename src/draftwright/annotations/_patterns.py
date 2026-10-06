@@ -53,7 +53,7 @@ def _furnish_uncalled_patterns(
         j = 0
         while any(
             nm == f"dim_pitch_{view}{j}" or nm.startswith(f"dim_pitch_{view}{j}_")
-            for nm in ctx.registry.names()
+            for nm in (*ctx.registry.names(), *ctx.deferred_pattern_pitch_names)
         ):
             j += 1
         add_furniture(
