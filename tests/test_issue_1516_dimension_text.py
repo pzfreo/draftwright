@@ -67,6 +67,7 @@ def test_style_preserves_plate_measurements_and_diagnostics(
         assert all(
             dim.label_polygon[1][1] == pytest.approx(dim.label_polygon[0][1]) for dim in dimensions
         )
+
     # Automatic planning may report an incomplete sheet for this plate. Text
     # styling must neither hide that loss nor introduce a new one.
     def significant(dwg):
@@ -75,6 +76,7 @@ def test_style_preserves_plate_measurements_and_diagnostics(
             for issue in dwg.lint()
             if issue.severity in {"warning", "error"}
         ]
+
     assert significant(drawing) == significant(baseline)
 
 
