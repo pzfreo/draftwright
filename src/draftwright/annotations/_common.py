@@ -1598,6 +1598,9 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
             if region is None:
                 reject(job, "view_boundary_straddle")
                 continue
+            if ctx.exterior_dimensions_only and region is DimensionCandidateRegion.INTERIOR:
+                reject(job, "profile_exterior_only")
+                continue
             if box[0] < page[0] or box[1] < page[1] or box[2] > page[2] or box[3] > page[3]:
                 reject(job, "page_bounds")
                 continue

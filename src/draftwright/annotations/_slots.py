@@ -328,7 +328,7 @@ def _place_slot_dimension(
     # coordinate.  Automatic dimensions retain their established exterior path.
     if approved.lane is not None:
         jobs = getattr(ctx, "interior_dimensions", None)
-        if jobs is None or ctx.exterior_dimensions_only:
+        if jobs is None:
             return False
         _candidate_name, lane_build = _cand_for(near_side, near_hi)
         witness = perp_proj(perp_hi if near_hi else perp_lo)

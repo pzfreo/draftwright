@@ -15,6 +15,7 @@ from draftwright import Sheet
 from draftwright.annotations._axial_render import _place_or_queue_rotational_od
 from draftwright.annotations._common import PlacementContext
 from draftwright.annotations._diameters import _render_diameter_controls
+from draftwright.annotations._envelope import _EnvelopeLaneDrop
 from draftwright.annotations.from_model import _record_slot_drop
 from draftwright.model.ir import LayoutOverride, RequestedDimension
 from draftwright.registry import AnnotationRegistry
@@ -414,6 +415,35 @@ def test_upright_slot_side_options_follow_projected_axes(width_axis) -> None:
     ]["supported_values"] == ["left", "right"]
 
 
+@pytest.mark.parametrize(
+    ("parameter", "label", "name"),
+    [
+        ("width.length", "50", "m_env_width"),
+        ("depth.length", "30", "m_env_depth"),
+    ],
+)
+def test_envelope_lane_is_witness_relative_and_reported(parameter, label, name) -> None:
+    sheet = Sheet(Box(50, 30, 10), page="A4", scale=2).authored_dimensions()
+    envelope = sheet.envelope().identify("declaration:overall")
+    sheet.dimension(envelope, parameter)
+    options = sheet.layout_options("declaration:overall", parameter=parameter)
+    assert options["controls"]["lane"]["current"] is None
+    assert sheet.validate_layout_override("declaration:overall", parameter=parameter, lane=1)[
+        "supported"
+    ]
+
+    sheet.layout_override("declaration:overall", parameter=parameter, lane=1)
+    drawing = sheet.build()
+    dimension = drawing.get_annotation(name)
+    assert dimension.label == label
+    view = drawing.registry.view_of(name)
+    assert view is not None
+    _, bottom, _, _ = drawing.view_bounds(view)
+    assert dimension.label_bbox[3] <= bottom
+    assert drawing.report()["layout"]["overrides"][0]["parameter_id"] == parameter
+    assert drawing.report()["layout"]["overrides"][0]["resolved_value"] == 1
+
+
 def test_lane_override_changes_only_the_exact_dimension_policy() -> None:
     sheet = _slot_sheet()
     sheet.layout_override("declaration:slot", parameter="slot_width.length", lane=4)
@@ -552,6 +582,19 @@ def test_impossible_lane_drop_retains_bounded_blocker_evidence() -> None:
     assert "blockers: view_boundary_straddle, page_bounds" in issue.message
     assert (
         issue.evidence_reason == "requested_lane_unavailable:8:view_boundary_straddle,page_bounds"
+    )
+
+
+def test_impossible_envelope_lane_reports_the_missing_measurement() -> None:
+    context = PlacementContext(registry=AnnotationRegistry())
+    blockers = ["view_boundary_straddle", "page_bounds", "page_bounds"]
+    _EnvelopeLaneDrop(context, "width", "plan", 8, None, None, blockers)("m_env_width")
+
+    (issue,) = context.registry.issues
+    assert issue.code == "overall_dim_withheld"
+    assert "requested lane 8 unavailable" in issue.message
+    assert (
+        issue.evidence_reason == "requested_lane_unavailable:8:page_bounds,view_boundary_straddle"
     )
 
 

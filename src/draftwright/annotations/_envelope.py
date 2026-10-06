@@ -18,6 +18,7 @@ from draftwright._core import (
     _WITNESS_LIFT_MM,
     Analysis,
     Strip,
+    _dim,
     _tol_suffix,
 )
 from draftwright.annotations._common import (
@@ -158,6 +159,78 @@ class _EnvelopeDropRetry:
                 )
                 return
         self.report(name)
+
+
+@dataclass(frozen=True, slots=True)
+class _EnvelopeLaneDrop:
+    """Preserve exact lane and blocker evidence when a declared extent cannot fit."""
+
+    ctx: PlacementContext
+    role: str
+    view: str
+    lane: int
+    measurement: DimensionId | None
+    measurement_span: tuple[Point, Point] | None
+    rejections: list[str]
+
+    def __call__(self, _name: str) -> None:
+        reasons = sorted(set(self.rejections)) or ["no_admissible_candidate"]
+        blockers = ", ".join(reasons)
+        self.ctx.record_issue(
+            "error",
+            "overall_dim_withheld",
+            f"overall {self.role} dimension not placed (requested lane {self.lane} "
+            f"unavailable beside the {self.view}; blockers: {blockers})",
+            measurement=self.measurement,
+            measurement_span=self.measurement_span,
+            evidence_reason=f"requested_lane_unavailable:{self.lane}:{','.join(reasons)}",
+            outcome_stage="placement",
+        )
+
+
+def _queue_declared_envelope_lane(
+    dwg, ctx, env, extent, role, view, zones, slot, name, p1, p2, label
+):
+    """Offer one witness-relative lane to the shared whole-dimension solve."""
+
+    assert extent.lane is not None
+    rejections: list[str] = []
+    drop = _EnvelopeLaneDrop(ctx, role, view, extent.lane, extent.id, extent.span, rejections)
+    jobs = getattr(ctx, "interior_dimensions", None)
+    if jobs is None:
+        rejections.append("measured_lane_solve_unavailable")
+        drop(name)
+        return
+    witness = p1[1] - _WITNESS_LIFT_MM
+    lane_step = slot + (zones.below.spacing if zones.below is not None else _STRIP_SPACING)
+    position = witness - (2 * dwg.draft.extension_gap + extent.lane * lane_step)
+    start, end = (p1[0], witness, 0), (p2[0], witness, 0)
+
+    def build(pos):
+        return _dim(start, end, "below", witness - pos, dwg.draft, label=label)
+
+    jobs.append(
+        InteriorDimensionJob(
+            name=name,
+            view=view,
+            side="below",
+            build=build,
+            on_place=lambda _name: None,
+            on_drop=drop,
+            lane_step=lane_step,
+            priority=_MANDATORY_OVERALL_PRIORITY,
+            feature=env.ref,
+            measurement=extent.id,
+            measurement_span=extent.span,
+            interior_build=build,
+            analytical_geometry=lambda pos: dimension_candidate_geometry(
+                start, end, "below", witness - pos, dwg.draft, label
+            ),
+            explicit_position=position,
+            requested_lane=extent.lane,
+            rejection_reasons=rejections,
+        )
+    )
 
 
 def render_envelope(
@@ -301,6 +374,12 @@ def render_envelope(
         witness = p1[1] - _WITNESS_LIFT_MM
         zones = frame.zones(view)
         label = _env_label(extent, dwg.draft)
+        if extent.lane is not None:
+            _queue_declared_envelope_lane(
+                dwg, ctx, env, extent, role, view, zones, slot, ann_name, p1, p2, label
+            )
+            n += 1
+            continue
         _queue(
             ann_name,
             zones.below,
