@@ -437,7 +437,11 @@ def _pmi_witness_from_bbox(rec, view: str, a: Analysis):
         # combined bbox can cover the whole part, so its midpoint collapses
         # distinct witness pairs onto one X station. The proved reference points
         # are the dimension's actual stations (as for plan/X above).
-        witness_x = sum(point[0] for point in pts) / len(pts)
+        point_x = sum(point[0] for point in pts) / len(pts)
+        # Some authored records supply reference points on an abstract datum
+        # line outside their support box. Keep the support box as the fallback
+        # in that case; use the actual stations when they lie on the geometry.
+        witness_x = point_x if xmin - 1e-6 <= point_x <= xmax + 1e-6 else (xmin + xmax) / 2
         lo, hi = min(point[1] for point in pts), max(point[1] for point in pts)
         p1 = (PX(witness_x), PY(lo), 0)
         p2 = (PX(witness_x), PY(hi), 0)

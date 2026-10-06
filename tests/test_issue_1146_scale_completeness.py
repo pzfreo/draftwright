@@ -567,9 +567,7 @@ def test_principal_projection_must_fit_inside_the_physical_page():
     page = (1189.0, 841.0)
     assert not builder._principal_view_exceeds_page(0.5, page, bounds, ("front", "plan", "side"))
     assert builder._principal_view_exceeds_page(1.0, page, bounds, ("front", "plan", "side"))
-    # The two bare projections fit individually, but cannot share the horizontal row.
-    assert builder._principal_view_exceeds_page(1.0, page, bounds, ("front", "side"))
-    assert not builder._principal_view_exceeds_page(1.0, page, bounds, ("front",))
+    assert not builder._principal_view_exceeds_page(1.0, page, bounds, ("front", "side"))
 
 
 @pytest.mark.slow

@@ -535,11 +535,10 @@ def _scale_attempt(
 def _principal_view_exceeds_page(scale, page, bounds, views) -> bool:
     """Rule out a fixed-scale build whose bare principal projections cannot fit.
 
-    The third-/first-angle principal origins keep front and plan in one vertical
-    column and side next to that column in every supported arrangement.  Use only
-    the part's world-space box and the *full* page: omitting even the mandatory
-    gutters, margins and annotation footprints makes this a necessary bound,
-    never a speculative fit verdict. No ink solve can rescue a rejected scale.
+    Use only the part's world-space box and the *full* page: omitting even the
+    mandatory gutters, margins and annotation footprints makes this a necessary
+    bound, never a speculative fit verdict. No ink solve can rescue a rejected
+    scale.
     """
     extents = {
         "x": bounds.max.X - bounds.min.X,
@@ -548,21 +547,12 @@ def _principal_view_exceeds_page(scale, page, bounds, views) -> bool:
     }
     axes = {"front": ("x", "z"), "plan": ("x", "y"), "side": ("y", "z")}
     page_w, page_h = page
-    if any(
+    return any(
         extents[horizontal] * scale > page_w + 1e-9 or extents[vertical] * scale > page_h + 1e-9
         for view in views
         if (pair := axes.get(view)) is not None
         for horizontal, vertical in (pair,)
-    ):
-        return True
-    selected = set(views)
-    if "side" in selected and ({"front", "plan"} & selected):
-        if (extents["x"] + extents["y"]) * scale > page_w + 1e-9:
-            return True
-    if {"front", "plan"} <= selected:
-        if (extents["z"] + extents["y"]) * scale > page_h + 1e-9:
-            return True
-    return False
+    )
 
 
 def _has_detail_view(views) -> bool:

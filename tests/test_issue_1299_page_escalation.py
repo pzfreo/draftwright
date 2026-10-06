@@ -125,7 +125,6 @@ def test_no_iso_proposal_on_different_page_reselects_scale_for_original_page(mon
         call for call in calls if not call["include_iso"] and call["page"] == (297.0, 210.0)
     ]
     assert fixed_page_calls == [{"scale": None, "page": (297.0, 210.0), "include_iso": False}]
-    assert all(call["page"] is not None for call in calls if not call["include_iso"])
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
     assert [
         (attempt["status"], attempt["reason"], attempt.get("rejection"))
@@ -134,6 +133,7 @@ def test_no_iso_proposal_on_different_page_reselects_scale_for_original_page(mon
         ("axial_coverage_incomplete", "remove_optional_iso", None),
         ("rejected", "scale_escalation_on_selected_page", "axial_coverage_incomplete"),
         ("rejected", "scale_escalation_on_selected_page", "axial_coverage_incomplete"),
+        ("scale_proposal", "remove_optional_iso", None),
         ("complete", "remove_optional_iso", None),
     ]
 

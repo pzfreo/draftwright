@@ -814,6 +814,10 @@ def _reserve_authored_dimensions(
     text_position: str,
     text_orientation: str,
 ) -> None:
+    # Report/off modes retain imported records for diagnostics but do not draw
+    # them. Their corridors must not enlarge the sheet for invisible ink.
+    if not model.pmi_annotations_enabled:
+        return
     # Measured placement hints are semantic corridor requirements and therefore part of
     # compose-before-pack, not merely renderer filters. Resolve every valid explicit route;
     # a view-only hint conservatively reserves both supported sides, while the legacy
