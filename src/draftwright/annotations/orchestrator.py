@@ -479,6 +479,17 @@ def _defer_generated_pitch_for_source_pmi(a, ctx, model) -> bool:
     )
 
 
+def _configure_model_context(ctx, dwg, a, model) -> None:
+    """Share the model and source-annotation policy with each annotation pass."""
+    ctx.part_model = model
+    ctx.model_declared = dwg.model_declared
+    ctx.document_member = getattr(dwg, "document_member", False)
+    ctx.document_source_annotation_ids = getattr(
+        dwg, "document_source_annotation_ids", frozenset()
+    )
+    ctx.defer_pattern_pitch = _defer_generated_pitch_for_source_pmi(a, ctx, model)
+
+
 def _concentric_bore_diams(a: Analysis) -> list:
     """Distinct bore diameters on the rotation axis, in z_diams order (#10).
 
@@ -1155,13 +1166,7 @@ def _auto_annotate(dwg: DrawingPort, a: Analysis, *, detail_view: bool = False):
     # model. The ensured model is threaded onto the run's ctx so every pass reads
     # it there, without accessing the drawing's private state.
     _model = cast(PartModel, dwg.model() if dwg.model() is not None else build_model(a))
-    ctx.part_model = _model
-    ctx.model_declared = dwg.model_declared
-    ctx.document_member = getattr(dwg, "document_member", False)
-    ctx.document_source_annotation_ids = getattr(
-        dwg, "document_source_annotation_ids", frozenset()
-    )
-    ctx.defer_pattern_pitch = _defer_generated_pitch_for_source_pmi(a, ctx, _model)
+    _configure_model_context(ctx, dwg, a, _model)
     # Plan dimensions once and thread the groups to every renderer that reads them.
     _groups = plan_dimensions(_model, planned_views=a.planned_views)
     # Share one compiled plan so the ladder, shoulders, and detail escalation

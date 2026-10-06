@@ -25,6 +25,15 @@ from draftwright.model.compiled import resolve_feature
 from draftwright.model.ir import PatternFeature
 
 
+def _place_pitch_after_pmi(place_pitch_dim, *args, ctx, **kwargs):
+    """Offer generated pitch only after source PMI has used the shared strips."""
+    if ctx.defer_pattern_pitch:
+        ctx.deferred_pattern_pitch_names.add(args[8])
+        ctx.deferred_pattern_pitches.append(partial(place_pitch_dim, *args, ctx=ctx, **kwargs))
+        return
+    return place_pitch_dim(*args, ctx=ctx, **kwargs)
+
+
 def _furnish_uncalled_patterns(
     dwg, a: Analysis, view_of_axis, plan, *, ctx, furnished, add_furniture
 ):

@@ -1317,8 +1317,6 @@ class PlacementContext:
     # drained: a mid-drain carve could occupy space a later sibling
     # corridor's force candidate needs; deferral makes "post-drain" literally true.
     post_drain: list = field(default_factory=list)
-    # On imported-PMI builds, generated pattern pitches wait until source-owned
-    # dimensions have solved. The ordinary pitch placer then tries remaining ink.
     defer_pattern_pitch: bool = False
     deferred_pattern_pitches: list = field(default_factory=list)
     deferred_pattern_pitch_names: set[str] = field(default_factory=set)
