@@ -20,7 +20,7 @@ from draftwright.annotations._gdt import (
 from draftwright.builder import build_drawing, detect_part_model
 from draftwright.linting.pmi_coverage import lint_pmi_rendering
 from draftwright.model import build_pmi_features
-from draftwright.model.ir import ControlFrame, Frame, PmiFeature
+from draftwright.model.ir import ControlFrame, CylindricalReference, Frame, PmiFeature
 from draftwright.pmi import PmiExtractionReport, PmiRecord
 from draftwright.sheet_emit import _feature_block, _feature_line
 
@@ -789,7 +789,13 @@ def _execute_feature_line(feature):
     sheet = SimpleNamespace(add=captured.append)
     exec(
         _feature_line(feature),
-        {"sheet": sheet, "ControlFrame": ControlFrame, "Frame": Frame, "PmiFeature": PmiFeature},
+        {
+            "sheet": sheet,
+            "ControlFrame": ControlFrame,
+            "CylindricalReference": CylindricalReference,
+            "Frame": Frame,
+            "PmiFeature": PmiFeature,
+        },
     )
     (restored,) = captured
     return restored
