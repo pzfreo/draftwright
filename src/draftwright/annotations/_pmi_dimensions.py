@@ -1418,6 +1418,38 @@ def _bore_render_options(
     ]
 
 
+def _basic_unboxed_producer(rec, cylindrical_refs, axis: str) -> bool:
+    """Identify legacy producers without a boxed basic-ink candidate yet."""
+    if not getattr(rec, "basic", False):
+        return False
+    return rec.pmi_kind == "angular" or (
+        rec.pmi_kind == "diameter" and bool(cylindrical_refs) and axis == "?"
+    )
+
+
+def _pmi_label_with_count(rec, circular_refs, cylindrical_refs) -> str:
+    count = len(circular_refs) or (
+        len(cylindrical_refs)
+        if cylindrical_refs and cylindrical_refs[0].principal_axis == "?"
+        else 0
+    )
+    label = str(rec.label)
+    if rec.pmi_kind == "diameter" and count > 1 and re.match(r"^\s*\d+\s*[xX×]\s*", label) is None:
+        return f"{count}× {label}"
+    return label
+
+
+def _place_basic_or_supported_pmi_record(
+    dwg, a: Analysis, ctx, rec, idx, bore_cfg, draft, *, queue_options=_pmi_queue_options
+) -> bool:
+    # These legacy producers draw unboxed text. Do not silently lose a basic box.
+    cylindrical_refs = tuple(getattr(rec, "cylindrical_refs", ()))
+    if _basic_unboxed_producer(rec, cylindrical_refs, rec.dominant_axis):
+        _record_pmi_no_candidate(ctx, rec.label, rec)
+        return False
+    return _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft, queue_options=queue_options)
+
+
 def _place_pmi_record(
     dwg, a: Analysis, ctx, rec, idx, bore_cfg, draft, *, queue_options=_pmi_queue_options
 ) -> bool:
@@ -1430,38 +1462,18 @@ def _place_pmi_record(
     """
     _pmi_queue_options = queue_options
     ax = rec.dominant_axis
-    label = rec.label
 
     def pmi_spec(*args):
         return _pmi_dim_spec(*args, basic=getattr(rec, "basic", False))
 
     circular_refs = tuple(getattr(rec, "circular_refs", ()))
     cylindrical_refs = tuple(getattr(rec, "cylindrical_refs", ()))
-    pattern_count = len(circular_refs) or (
-        len(cylindrical_refs)
-        if cylindrical_refs and cylindrical_refs[0].principal_axis == "?"
-        else 0
-    )
-    if (
-        rec.pmi_kind == "diameter"
-        and pattern_count > 1
-        and re.match(r"^\s*\d+\s*[xX×]\s*", label) is None
-    ):
-        label = f"{pattern_count}× {label}"
+    label = _pmi_label_with_count(rec, circular_refs, cylindrical_refs)
     placed = False
     name_x = f"pmi_x_{idx}"
     name_z = f"pmi_z_{idx}"
     name_y = f"pmi_y_{idx}"
     name_d = f"pmi_d_{idx}"
-
-    # These producers draw unboxed text. Keep source semantics honest until they
-    # have a basic-frame candidate of their own, rather than emitting plain ink.
-    if getattr(rec, "basic", False) and (
-        rec.pmi_kind == "angular"
-        or (rec.pmi_kind == "diameter" and cylindrical_refs and ax == "?")
-    ):
-        _record_pmi_no_candidate(ctx, label, rec)
-        return False
 
     if rec.pmi_kind == "angular":
         references = tuple(getattr(rec, "angular_references", ())) or (rec.angular_reference,)
@@ -1800,7 +1812,9 @@ def render_pmi(
         sheet_fallback=sheet_fallback,
     )
     for idx, rec in enumerate(usable):
-        if _place_pmi_record(dwg, a, ctx, rec, idx, _bore, draft, queue_options=queue_options):
+        if _place_basic_or_supported_pmi_record(
+            dwg, a, ctx, rec, idx, _bore, draft, queue_options=queue_options
+        ):
             queued += 1
     _log.info("PMI annotate: %d/%d dims queued", queued, len(usable))
     return queued

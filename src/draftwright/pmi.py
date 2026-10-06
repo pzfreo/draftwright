@@ -63,6 +63,7 @@ from draftwright._pmi_part21 import (
     DimensionDisplayFact,
     GeometricToleranceFact,
     MaterialFact,
+    dimension_basic_policy,
     match_common_label,
     match_datum_occurrence,
     match_dimension_association,
@@ -82,11 +83,11 @@ from draftwright._pmi_part21 import (
     read_surface_labels,
 )
 from draftwright._pmi_schema import (
-    _DIM_PREFIX,
     _DIM_TYPE,
     _GTOL_TYPE,
     _LENGTH_DIMENSION_KINDS,
     _PRESENTATION_TYPES,
+    _make_label,
 )
 from draftwright._pmi_schema import (
     _GTOL_MATERIAL_REQUIREMENT as _GTOL_MATERIAL_REQUIREMENT,
@@ -402,53 +403,6 @@ def _dominant_from_bbox(bbox: tuple[float, float, float, float, float, float]) -
     spans = [("X", abs(xmax - xmin)), ("Y", abs(ymax - ymin)), ("Z", abs(zmax - zmin))]
     dom = max(spans, key=lambda t: t[1])
     return dom[0] if dom[1] > 1e-6 else "?"
-
-
-def _make_label(
-    kind: str,
-    value: float,
-    upper_tol: float | None,
-    lower_tol: float | None,
-    *,
-    lower_bound: float | None = None,
-    upper_bound: float | None = None,
-    value_decimals: int | None = None,
-    tolerance_decimals: int | None = None,
-    unit_name: str = "",
-) -> str:
-    """Format the annotation label with optional deviation or limit tolerance."""
-    from draftwright._core import _fmt
-    from draftwright._geometry import _fmt_pmi_magnitude
-
-    prefix = _DIM_PREFIX.get(kind, "")
-    base = f"{prefix}{_fmt(value, value_decimals)}"
-    if lower_bound is not None and upper_bound is not None:
-        base = (
-            f"{prefix}{_fmt_pmi_magnitude(lower_bound, value_decimals)} - "
-            f"{prefix}{_fmt_pmi_magnitude(upper_bound, value_decimals)}"
-        )
-        return f"{base} {unit_name}" if unit_name else base
-    # OCCT returns tolerances as positive magnitudes regardless of sign
-    # convention.  upper_tol is always the + deviation; lower_tol is always
-    # the - deviation stored as a positive magnitude.  We add explicit signs
-    # so the label is unambiguous on the drawing.
-    if upper_tol is not None and lower_tol is not None:
-        if abs(upper_tol) == abs(lower_tol) and abs(upper_tol) > 1e-9:
-            base += f" ±{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
-        elif abs(lower_tol) <= 1e-9:
-            base += f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}/0"
-        elif abs(upper_tol) <= 1e-9:
-            base += f" 0/-{_fmt_pmi_magnitude(abs(lower_tol), tolerance_decimals)}"
-        else:
-            base += (
-                f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
-                f"/-{_fmt_pmi_magnitude(abs(lower_tol), tolerance_decimals)}"
-            )
-    elif upper_tol is not None:
-        base += f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
-    elif lower_tol is not None:
-        base += f" -{_fmt_pmi_magnitude(abs(lower_tol), tolerance_decimals)}"
-    return f"{base} {unit_name}" if unit_name else base
 
 
 def _label_entry(label) -> str:
@@ -1199,6 +1153,39 @@ def _semantic_name(obj) -> tuple[str, str]:
     return name, ""
 
 
+def _dimension_label(
+    kind: str,
+    value: float,
+    upper_tol: float | None,
+    lower_tol: float | None,
+    lower_bound: float | None,
+    upper_bound: float | None,
+    display_fact: DimensionDisplayFact | None,
+    length_factor_mm: float,
+    length_factor_reason: str,
+) -> str:
+    if (
+        display_fact is not None
+        and display_fact.unit_name
+        and not length_factor_reason
+        and math.isclose(display_fact.unit_factor_mm, length_factor_mm, rel_tol=1e-12)
+    ):
+        return _make_label(
+            kind,
+            display_fact.authored_value,
+            upper_tol / length_factor_mm if upper_tol is not None else None,
+            lower_tol / length_factor_mm if lower_tol is not None else None,
+            lower_bound=lower_bound / length_factor_mm if lower_bound is not None else None,
+            upper_bound=upper_bound / length_factor_mm if upper_bound is not None else None,
+            value_decimals=display_fact.value_decimals,
+            tolerance_decimals=display_fact.tolerance_decimals,
+            unit_name=display_fact.unit_name,
+        )
+    return _make_label(
+        kind, value, upper_tol, lower_tol, lower_bound=lower_bound, upper_bound=upper_bound
+    )
+
+
 def _dimension_record(
     label,
     obj,
@@ -1283,13 +1270,9 @@ def _dimension_record(
     except Exception:
         semantic_name = ""
     display_fact = match_dimension_display(display_facts, semantic_name, kind, authored_value)
-    basic_policies = {
-        fact.basic
-        for fact in display_facts
-        if fact.semantic_name == semantic_name
-        and fact.kind == kind
-        and math.isclose(fact.authored_value, authored_value, rel_tol=1e-9, abs_tol=1e-12)
-    }
+    basic, basic_blockers = dimension_basic_policy(
+        display_facts, semantic_name, kind, authored_value, association_fact
+    )
     if kind in _LENGTH_DIMENSION_KINDS:
         if length_factor_reason:
             partial_reasons.append(length_factor_reason)
@@ -1352,11 +1335,7 @@ def _dimension_record(
                 angular_reference.second,
             )
     lowering_blockers = tuple(dict.fromkeys(partial_reasons))
-    if association_fact is None and len(basic_policies) > 1:
-        rendering_blockers = (
-            *rendering_blockers,
-            "Part21 basic-dimension status is ambiguous for this value",
-        )
+    rendering_blockers = (*rendering_blockers, *basic_blockers)
     blockers = tuple(dict.fromkeys((*lowering_blockers, *rendering_blockers)))
     return (
         PmiRecord(
@@ -1370,40 +1349,16 @@ def _dimension_record(
             ref_pts=tuple(points),
             ref_bbox=ref_bbox,
             dominant_axis=dominant_axis,
-            label=(
-                _make_label(
-                    kind,
-                    display_fact.authored_value,
-                    upper_tol / length_factor_mm if upper_tol is not None else None,
-                    lower_tol / length_factor_mm if lower_tol is not None else None,
-                    lower_bound=(
-                        lower_bound / length_factor_mm if lower_bound is not None else None
-                    ),
-                    upper_bound=(
-                        upper_bound / length_factor_mm if upper_bound is not None else None
-                    ),
-                    value_decimals=display_fact.value_decimals,
-                    tolerance_decimals=display_fact.tolerance_decimals,
-                    unit_name=display_fact.unit_name,
-                )
-                if (
-                    display_fact is not None
-                    and display_fact.unit_name
-                    and not length_factor_reason
-                    and math.isclose(
-                        display_fact.unit_factor_mm,
-                        length_factor_mm,
-                        rel_tol=1e-12,
-                    )
-                )
-                else _make_label(
-                    kind,
-                    value,
-                    upper_tol,
-                    lower_tol,
-                    lower_bound=lower_bound,
-                    upper_bound=upper_bound,
-                )
+            label=_dimension_label(
+                kind,
+                value,
+                upper_tol,
+                lower_tol,
+                lower_bound,
+                upper_bound,
+                display_fact,
+                length_factor_mm,
+                length_factor_reason,
             ),
             source_id=source_id,
             part21_id=association_fact.entity_id if association_fact is not None else "",
@@ -1425,11 +1380,7 @@ def _dimension_record(
             cylindrical_refs=cylindrical_refs,
             angular_reference=angular_reference,
             view=support_view,
-            basic=(
-                association_fact.basic
-                if association_fact is not None
-                else basic_policies == {True}
-            ),
+            basic=basic,
         ),
         blockers,
     )

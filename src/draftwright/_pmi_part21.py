@@ -1430,6 +1430,27 @@ def read_dimension_display_facts(step_file: str | Path) -> tuple[DimensionDispla
     return tuple(facts)
 
 
+def _collect_dimension_representations(
+    instance,
+    entity_id: str,
+    representation_items: dict[str, tuple[str, ...]],
+    dimension_representations: dict[str, list[str]],
+) -> None:
+    representation = _entity_named(instance, "SHAPE_DIMENSION_REPRESENTATION")
+    if representation is not None and len(representation.params) >= 2:
+        representation_items[entity_id] = _references(representation.params[1])
+    dimension_link = _entity_named(instance, "DIMENSIONAL_CHARACTERISTIC_REPRESENTATION")
+    if dimension_link is None or len(dimension_link.params) < 2:
+        return
+    characteristic_ref, representation_ref = dimension_link.params[:2]
+    if isinstance(characteristic_ref, p21.Reference) and isinstance(
+        representation_ref, p21.Reference
+    ):
+        dimension_representations.setdefault(str(characteristic_ref), []).append(
+            str(representation_ref)
+        )
+
+
 def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssociationFact, ...]:
     """Read exact Part21 topology groups for size and location characteristics.
 
@@ -1517,18 +1538,9 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
                         for ref in _references(association.params[4])
                         if _instance_is(step, ref, "DRAUGHTING_CALLOUT")
                     )
-            representation = _entity_named(instance, "SHAPE_DIMENSION_REPRESENTATION")
-            if representation is not None and len(representation.params) >= 2:
-                representation_items[entity_id] = _references(representation.params[1])
-            dimension_link = _entity_named(instance, "DIMENSIONAL_CHARACTERISTIC_REPRESENTATION")
-            if dimension_link is not None and len(dimension_link.params) >= 2:
-                characteristic_ref, representation_ref = dimension_link.params[:2]
-                if isinstance(characteristic_ref, p21.Reference) and isinstance(
-                    representation_ref, p21.Reference
-                ):
-                    dimension_representations.setdefault(str(characteristic_ref), []).append(
-                        str(representation_ref)
-                    )
+            _collect_dimension_representations(
+                instance, entity_id, representation_items, dimension_representations
+            )
 
     def related_items(root: str) -> tuple[str, ...]:
         pending = [root]
@@ -1624,6 +1636,29 @@ def match_dimension_display(
         for fact in matches
     }
     return matches[0] if matches and len(policies) == 1 else None
+
+
+def dimension_basic_policy(
+    facts: tuple[DimensionDisplayFact, ...],
+    semantic_name: str,
+    kind: str,
+    authored_value: float,
+    association: DimensionAssociationFact | None,
+) -> tuple[bool, tuple[str, ...]]:
+    """Return basic status and any ambiguity, preferring exact Part21 identity."""
+    if association is not None:
+        return association.basic, ()
+    policies = {
+        fact.basic
+        for fact in facts
+        if fact.semantic_name == semantic_name
+        and fact.kind == kind
+        and math.isclose(fact.authored_value, authored_value, rel_tol=1e-9, abs_tol=1e-12)
+    }
+    blockers = (
+        ("Part21 basic-dimension status is ambiguous for this value",) if len(policies) > 1 else ()
+    )
+    return policies == {True}, blockers
 
 
 def read_geometric_tolerances(step_file: str | Path) -> tuple[GeometricToleranceFact, ...]:
