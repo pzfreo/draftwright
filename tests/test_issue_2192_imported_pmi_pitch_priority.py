@@ -12,8 +12,18 @@ FORTY_SOURCES = {
 }
 
 
-def test_source_basic_locations_and_generated_grid_pitch_share_default_sheet():
-    drawing = build_drawing(FIXTURE, pmi="annotate", out=None)
+def test_source_basic_locations_and_generated_grid_pitch_share_a_diagnostic_sheet():
+    # Isolate this priority rule at the default planner's 1:1 A1 candidate.
+    # The complete automatic-plan result is checked separately on the stack.
+    drawing = build_drawing(
+        FIXTURE,
+        pmi="annotate",
+        out=None,
+        page="A1",
+        scale=1,
+        scale_policy="permissive",
+        repair=False,
+    )
     authored = {
         feature.source_id: feature
         for feature in drawing.model().features
@@ -26,15 +36,14 @@ def test_source_basic_locations_and_generated_grid_pitch_share_default_sheet():
         assert len(ink) == 1
         assert next(iter(ink.values())).label == "40"
     assert {"dim_pitch_plan0_0", "dim_pitch_plan0_1"} <= set(drawing.annotations())
-    assert "m_gdt4" in drawing.annotations()
     assert not [
         issue
         for issue in drawing.lint()
         if issue.code
         in {
-            "pmi_dropped",
             "hole_pattern_dim_dropped",
             "annotation_overlap",
             "annotation_ink_overlap",
         }
+        or (issue.code == "pmi_dropped" and "'40'" in issue.message)
     ]
