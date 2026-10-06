@@ -1,8 +1,10 @@
 """The Specify AP242 plate keeps source locations ahead of generated grid pitch (#2192)."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from draftwright import build_drawing
+from draftwright.annotations.orchestrator import _defer_generated_pitch_for_source_pmi
 
 FIXTURE = Path(__file__).parent / "fixtures/specify_plate_2192_ap242.step"
 FORTY_SOURCES = {
@@ -10,6 +12,28 @@ FORTY_SOURCES = {
     "dimension:0:1:4:13",
     "dimension:0:1:4:15",
 }
+
+
+def test_source_first_pitch_order_is_independent_of_declared_front_door():
+    source = SimpleNamespace(kind="authored_dimension", source="ap242_pmi")
+    model = SimpleNamespace(features=(source,), authored_dimensions=None)
+    analysis = SimpleNamespace(pmi_mode="annotate")
+    detected = SimpleNamespace(model_declared=False, document_member=False)
+    declared = SimpleNamespace(model_declared=True, document_member=False)
+    document = SimpleNamespace(model_declared=True, document_member=True)
+
+    assert all(
+        _defer_generated_pitch_for_source_pmi(analysis, ctx, model)
+        for ctx in (detected, declared, document)
+    )
+    assert not _defer_generated_pitch_for_source_pmi(
+        analysis,
+        declared,
+        SimpleNamespace(features=(source,), authored_dimensions=frozenset({"pitch"})),
+    )
+    assert not _defer_generated_pitch_for_source_pmi(
+        SimpleNamespace(pmi_mode="off"), document, model
+    )
 
 
 def test_source_basic_locations_and_generated_grid_pitch_share_a_diagnostic_sheet():

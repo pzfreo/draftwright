@@ -470,6 +470,15 @@ def _has_imported_linear_dimensions(model) -> bool:
     )
 
 
+def _defer_generated_pitch_for_source_pmi(a, ctx, model) -> bool:
+    """Use source-first order only where the approved pitch is generated ink."""
+    return (
+        model.authored_dimensions is None
+        and _has_imported_linear_dimensions(model)
+        and (a.pmi_mode == "annotate" or (ctx.model_declared and not ctx.document_member))
+    )
+
+
 def _concentric_bore_diams(a: Analysis) -> list:
     """Distinct bore diameters on the rotation axis, in z_diams order (#10).
 
@@ -1152,11 +1161,7 @@ def _auto_annotate(dwg: DrawingPort, a: Analysis, *, detail_view: bool = False):
     ctx.document_source_annotation_ids = getattr(
         dwg, "document_source_annotation_ids", frozenset()
     )
-    ctx.defer_pattern_pitch = (
-        a.pmi_mode == "annotate"
-        and (not ctx.model_declared or ctx.document_member)
-        and _has_imported_linear_dimensions(_model)
-    )
+    ctx.defer_pattern_pitch = _defer_generated_pitch_for_source_pmi(a, ctx, _model)
     # Plan dimensions once and thread the groups to every renderer that reads them.
     _groups = plan_dimensions(_model, planned_views=a.planned_views)
     # Share one compiled plan so the ladder, shoulders, and detail escalation
