@@ -102,7 +102,12 @@ def _validate_authored_dimension_placement(
         )
     else:
         valid_pairs = {
-            "X": (("front", "above"), ("front", "below")),
+            "X": (("front", "above"), ("front", "below"))
+            + (
+                (("plan", "above"), ("plan", "below"))
+                if dimension_kind in ("linear", "thickness")
+                else ()
+            ),
             "Z": (("front", "right"), ("front", "left")),
             "Y": (
                 ("side", "above"),

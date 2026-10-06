@@ -38,7 +38,7 @@
     "linting/turned_step_coverage.py:turned_step_requirement_outcomes": 232,
     "model/detect.py:_append_late_feature_families": 220,
     "pdf_text.py:pdf_text_runs": 229,
-    "pmi.py:_dimension_record": 220,
+    "pmi.py:_dimension_record": 217,
     "pmi.py:_extract_xcaf_dimensions": 249,
     "reporting.py:_raw_report_assessment": 218,
     "reporting.py:_requirements": 212,

@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import math
 
+from draftwright._pmi_topology import (
+    _is_mixed_planar_bore,
+    _parallel_planar_reference_witness,
+    _planar_bore_axis_witness,
+)
 from draftwright.model.ir import _linear_projection_view
 
 _LINEAR_AXIS_ABS_TOL = 0.005
@@ -11,6 +16,47 @@ _LINEAR_AXIS_REL_TOL = 1e-3
 _LINEAR_VALUE_ABS_TOL = 0.01
 _LINEAR_VALUE_REL_TOL = 5e-4
 _LINEAR_OBLIQUE_VALUE_ABS_TOL = 0.05
+
+
+def _proved_planar_linear(groups, stations, nominal, kind, frame, shape_bbox):
+    """Resolve the normal span and a face-supported projected witness together."""
+    axis, view, witness = _parallel_planar_reference_witness(groups, frame, shape_bbox)
+    if witness is None:
+        return (
+            tuple(point for point in stations if point is not None),
+            "?",
+            None,
+            ("parallel planar source faces have no proven shared witness",),
+        )
+    if axis is None and kind == "linear" and _is_mixed_planar_bore(groups):
+        bore_support = _planar_bore_axis_witness(groups, frame, shape_bbox)
+        if bore_support is None:
+            points, dominant, reasons = _dimension_reference_stations(
+                tuple(stations), nominal, kind
+            )
+            return (
+                points,
+                dominant,
+                None,
+                (
+                    *reasons,
+                    "plane-to-bore location has no proven face-supported axis witness",
+                ),
+            )
+        stations, axis, view = bore_support
+    if witness:
+        stations = tuple(
+            tuple(
+                next((value for index, value in witness if index == i), point[i]) for i in range(3)
+            )
+            if point is not None
+            else None
+            for point in stations
+        )
+    points, dominant, reasons = _dimension_reference_stations(
+        tuple(stations), nominal, kind, plane_axis=axis
+    )
+    return points, dominant, view, reasons
 
 
 def _linear_reference_stations(

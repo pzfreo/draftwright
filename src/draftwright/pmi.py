@@ -52,11 +52,9 @@ from draftwright._pmi_linear_geometry import (
     _LINEAR_VALUE_REL_TOL as _LINEAR_VALUE_REL_TOL,
 )
 from draftwright._pmi_linear_geometry import (
-    _dimension_reference_stations,
-)
-from draftwright._pmi_linear_geometry import (
     _linear_reference_stations as _linear_reference_stations,
 )
+from draftwright._pmi_linear_geometry import _proved_planar_linear
 from draftwright._pmi_part21 import (
     CommonLabelFact,
     DatumDefinitionFact,
@@ -116,9 +114,11 @@ from draftwright._pmi_support_blockers import (
     _without_direct_xcaf_reference_failures,
 )
 from draftwright._pmi_topology import (
+    _common_principal_cylinder_axis,
     _CommonLabelTopologyResolver,
     _DatumTopologyResolver,
     _DimensionSupportResolver,
+    _optional_cylinder_support,
     _SurfaceLabelTopologyResolver,
 )
 from draftwright._pmi_topology import (
@@ -185,13 +185,13 @@ class PmiRecord:
         datum_contexts: Tolerance semantic names in which a datum definition is referenced.
         reference_item_ids: Exact Part21 representation items bound to a datum feature.
         reference_item_groups: Ordered Part21 support groups bound to a dimension.
-        reference_axis: Axis normal to a planar datum support or along a cylindrical one.
+        reference_axis: Principal datum normal or exact cylindrical GD&T support axis.
         reference_surface_kind: Proven datum support type, ``plane`` or ``cylinder``.
         reference_normal: Outward normal of a planar datum; empty for cylindrical supports.
         semantic_name: Stable source name for a semantic manufacturing requirement.
         shape_aspect_ids: Part21 shape aspects associating a semantic requirement to geometry.
-        cylindrical_refs: Canonical finite-cylinder topology referenced by a Size_Diameter
-                        requirement. Empty for other dimension families or unresolved geometry.
+        cylindrical_refs: Exact finite-cylinder supports for Size_Diameter or GD&T;
+                        empty when unsupported or unresolved.
         reference_bboxes: Per-item bounds for exact imported manufacturing supports.
         circular_refs: Canonical circular-edge topology referenced by a Size_Diameter
                         requirement whose semantic association names edges rather than faces.
@@ -432,8 +432,12 @@ def _make_label(
     # the - deviation stored as a positive magnitude.  We add explicit signs
     # so the label is unambiguous on the drawing.
     if upper_tol is not None and lower_tol is not None:
-        if abs(upper_tol) == abs(lower_tol):
+        if abs(upper_tol) == abs(lower_tol) and abs(upper_tol) > 1e-9:
             base += f" ±{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
+        elif abs(lower_tol) <= 1e-9:
+            base += f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}/0"
+        elif abs(upper_tol) <= 1e-9:
+            base += f" 0/-{_fmt_pmi_magnitude(abs(lower_tol), tolerance_decimals)}"
         else:
             base += (
                 f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
@@ -1238,8 +1242,7 @@ def _dimension_record(
         if has_plus_minus_tolerance:
             try:
                 candidate = float(obj.GetUpperTolValue())
-                if abs(candidate) > 1e-9:
-                    upper_tol = candidate
+                upper_tol = candidate
             except Exception as exc:
                 reason = f"upper tolerance is unavailable ({_failure_reason(exc)})"
                 partial_reasons.append(reason)
@@ -1247,8 +1250,7 @@ def _dimension_record(
 
             try:
                 candidate = float(obj.GetLowerTolValue())
-                if abs(candidate) > 1e-9:
-                    lower_tol = candidate
+                lower_tol = candidate
             except Exception as exc:
                 reason = f"lower tolerance is unavailable ({_failure_reason(exc)})"
                 partial_reasons.append(reason)
@@ -1303,9 +1305,8 @@ def _dimension_record(
     angular_reference: AngularReference | None = None
     support_view = None
     if kind in ("linear", "thickness"):
-        plane_axis, support_view = _parallel_planar_reference_support(group_shapes, frame)
-        points, dominant_axis, station_reasons = _dimension_reference_stations(
-            group_stations, value, kind, plane_axis=plane_axis
+        points, dominant_axis, support_view, station_reasons = _proved_planar_linear(
+            group_shapes, group_stations, value, kind, frame, _shape_bbox
         )
         rendering_blockers = _dimension_geometry_blockers(kind, reference_reasons, station_reasons)
     elif type_code == 15:  # XCAFDimTolObjects_DimensionType_Size_Diameter
@@ -1463,6 +1464,10 @@ def _geometric_tolerance_record(
         reference_geometry = _reference_geometry(label, shape_tool, frame)
     points, ref_bbox, dominant_axis, reference_reasons = reference_geometry
     partial_reasons.extend(reference_reasons)
+    # Exact cylinders, not their diameter-wide boxes, determine GD&T view axes.
+    cylinders = _optional_cylinder_support(
+        lambda: _cylindrical_references(label, shape_tool, frame)
+    )
     datum_refs, datum_reasons = _datum_references(label, dim_tol_tool)
     partial_reasons.extend(datum_reasons)
     lowering_blockers = tuple(dict.fromkeys(partial_reasons))
@@ -1479,6 +1484,8 @@ def _geometric_tolerance_record(
             datum_refs=datum_refs,
             part21_id=part21_id,
             source_category="geometric_tolerance",
+            cylindrical_refs=cylinders,
+            reference_axis=_common_principal_cylinder_axis(cylinders),
             gtol_modifiers=gtol_modifiers,
             lowering_blockers=lowering_blockers,
         ),
@@ -2062,12 +2069,8 @@ def _dimension_support_topology(
             )
             continue
 
-        plane_axis, support_view = _parallel_planar_reference_support(tuple(group_shapes), frame)
-        points, dominant_axis, station_reasons = _dimension_reference_stations(
-            tuple(stations),
-            record.value,
-            record.kind,
-            plane_axis=plane_axis,
+        points, dominant_axis, support_view, station_reasons = _proved_planar_linear(
+            tuple(group_shapes), tuple(stations), record.value, record.kind, frame, _shape_bbox
         )
         projected.append(
             replace(

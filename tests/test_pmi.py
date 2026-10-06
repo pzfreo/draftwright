@@ -50,6 +50,282 @@ def ctc04_extraction_report():
 
 
 class TestExtractPmi:
+    def test_position_record_keeps_exact_cylinder_axis_issue_2192(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+
+        monkeypatch.setattr(pmi_module, "_geometric_tolerance_modifiers", lambda _obj: ((), ()))
+        monkeypatch.setattr(pmi_module, "_geometric_tolerance_qualifiers", lambda _obj: ((), ()))
+        monkeypatch.setattr(pmi_module, "_unpreserved_geometric_tolerance_fields", lambda _obj: ())
+        monkeypatch.setattr(
+            pmi_module,
+            "_reference_geometry",
+            lambda *_args: (((0.0, 0.0, 4.0),), (-11, -11, 0, 11, 11, 8), "X", ()),
+        )
+        monkeypatch.setattr(
+            pmi_module,
+            "_cylindrical_references",
+            lambda *_args: ((SimpleNamespace(axis_direction=(0.0, 0.0, 1.0)),), ()),
+        )
+        monkeypatch.setattr(pmi_module, "_datum_references", lambda *_args: ((), ()))
+        record, reasons = pmi_module._geometric_tolerance_record(
+            object(), SimpleNamespace(GetValue=lambda: 2.0), 10, object(), object(), "gtol:bore"
+        )
+        assert not reasons
+        assert record.dominant_axis == "X" and record.reference_axis == "Z"
+        assert len(record.cylindrical_refs) == 1
+
+    def test_position_frame_uses_proven_bore_axis_not_bbox_width_issue_2192(self):
+        from draftwright._pmi_topology import _common_principal_cylinder_axis
+        from draftwright.model import build_pmi_features
+
+        z_bore = SimpleNamespace(axis_direction=(0.0, 0.0, 1.0))
+        assert _common_principal_cylinder_axis((z_bore, z_bore)) == "Z"
+        assert (
+            _common_principal_cylinder_axis(
+                (z_bore, SimpleNamespace(axis_direction=(1.0, 0.0, 0.0)))
+            )
+            == ""
+        )
+        record = PmiRecord(
+            kind="position",
+            type_code=8,
+            value=2.0,
+            source_category="geometric_tolerance",
+            source_id="geometric_tolerance:bore",
+            dominant_axis="X",  # the 22 mm diameter exceeds the 8 mm axial height
+            reference_axis="Z",
+            ref_pts=((0.0, 0.0, 4.0),),
+            ref_bbox=(-11.0, -11.0, 0.0, 11.0, 11.0, 8.0),
+        )
+        (frame,) = build_pmi_features((record,), Box(120, 80, 12).bounding_box())
+        assert (frame.view, frame.frame.axis) == ("plan", "z")
+
+    def test_plane_to_bore_axis_location_uses_exact_face_witness_issue_2192(self):
+        from build123d import Axis, Cylinder, GeomType, Pos, Rot
+
+        from draftwright._pmi_linear_geometry import _proved_planar_linear
+        from draftwright.pmi import _shape_bbox
+
+        plane = (Pos(-59, 0, 6) * Box(2, 80, 12)).faces().sort_by(Axis.X)[0].wrapped
+        bore = (Pos(0, 0, 4) * Cylinder(11, 8)).faces().filter_by(GeomType.CYLINDER)[0].wrapped
+        centres = ((-60.0, 0.0, 6.0), (0.0, 0.0, 4.0))
+        points, axis, view, blockers = _proved_planar_linear(
+            ((plane,), (bore,)), centres, 60.0, "linear", None, _shape_bbox
+        )
+        assert (axis, view, blockers) == ("X", "plan", ())
+        assert points[0] == pytest.approx((-60.0, 0.0, 4.0))
+        assert points[1] == pytest.approx((0.0, 0.0, 4.0))
+
+        # A matching nominal is not enough: the bore axis must touch the
+        # authored plane face and the cylindrical axis must be principal.
+        distant = (Pos(-59, 30, 6) * Box(2, 10, 12)).faces().sort_by(Axis.X)[0].wrapped
+        _, axis, _, blockers = _proved_planar_linear(
+            ((distant,), (bore,)),
+            ((-60.0, 30.0, 6.0), centres[1]),
+            60.0,
+            "linear",
+            None,
+            _shape_bbox,
+        )
+        assert axis == "?" and blockers
+        tilted = (
+            (Pos(0, 0, 4) * Rot(Y=20) * Cylinder(11, 8))
+            .faces()
+            .filter_by(GeomType.CYLINDER)[0]
+            .wrapped
+        )
+        _, axis, view, _blockers = _proved_planar_linear(
+            ((plane,), (tilted,)), centres, 60.0, "linear", None, _shape_bbox
+        )
+        assert (axis, view) != ("X", "plan")
+
+        # A plane bbox can cover the axis while the trimmed face has a hole
+        # there. The oblique centre fallback must not silently certify it.
+        cut = Pos(-59, 0, 4) * Rot(Y=90) * Cylinder(3, 4)
+        holed_plane = ((Pos(-59, 0, 6) * Box(2, 80, 12)) - cut).faces().sort_by(Axis.X)[0].wrapped
+        _, _, _, blockers = _proved_planar_linear(
+            ((holed_plane,), (bore,)), centres, 60.0, "linear", None, _shape_bbox
+        )
+        assert any("no proven face-supported axis witness" in reason for reason in blockers)
+
+    def test_parallel_x_faces_do_not_use_bbox_overlap_through_a_hole_issue_2193(self):
+        from build123d import Axis, Pos
+        from OCP.BRepClass import BRepClass_FaceClassifier
+        from OCP.gp import gp_Pnt
+        from OCP.TopAbs import TopAbs_OUT
+
+        from draftwright._pmi_linear_geometry import _proved_planar_linear
+        from draftwright.pmi import _shape_bbox
+
+        ring = (Pos(0.5, 0, 0) * Box(1, 20, 20)) - (Pos(0.5, 0, 0) * Box(2, 10, 10))
+        first = ring.faces().sort_by(Axis.X)[0].wrapped
+        second = (Pos(75.5, 0, 2) * Box(1, 2, 2)).faces().sort_by(Axis.X)[0].wrapped
+        classifier = BRepClass_FaceClassifier()
+        classifier.Perform(first, gp_Pnt(0, 0, 2), 1e-7)
+        assert classifier.State() == TopAbs_OUT  # The bbox's centre is in the opening.
+
+        _points, axis, view, blockers = _proved_planar_linear(
+            ((first,), (second,)),
+            ((0, 0, 0), (75, 0, 2)),
+            75.0,
+            "linear",
+            None,
+            _shape_bbox,
+        )
+        assert (axis, view) == ("?", None)
+        assert blockers == ("parallel planar source faces have no proven shared witness",)
+
+    def test_parallel_x_faces_find_a_trimmed_overlap_away_from_bbox_centre_issue_2193(self):
+        from build123d import Axis, Pos
+        from OCP.BRepClass import BRepClass_FaceClassifier
+        from OCP.gp import gp_Pnt
+        from OCP.TopAbs import TopAbs_IN
+
+        from draftwright._pmi_linear_geometry import _proved_planar_linear
+        from draftwright.pmi import _shape_bbox
+
+        ring = (Pos(0.5, 0, 0) * Box(1, 20, 20)) - (Pos(0.5, 0, 0) * Box(2, 10, 10))
+        first = ring.faces().sort_by(Axis.X)[0].wrapped
+        second = (Pos(75.5, 0, 2) * Box(1, 16, 2)).faces().sort_by(Axis.X)[0].wrapped
+
+        points, axis, view, blockers = _proved_planar_linear(
+            ((first,), (second,)),
+            ((0, 0, 0), (75, 0, 2)),
+            75.0,
+            "linear",
+            None,
+            _shape_bbox,
+        )
+        assert (axis, view, blockers) == ("X", "plan", ())
+        assert points[0][1:] == points[1][1:]
+        for face, point in zip((first, second), points, strict=True):
+            classifier = BRepClass_FaceClassifier()
+            classifier.Perform(face, gp_Pnt(*point), 1e-7)
+            assert classifier.State() == TopAbs_IN
+
+    def test_offset_pocket_wall_uses_a_common_plan_witness_issue_2192(self, monkeypatch):
+        from build123d import Axis, Pos
+        from build123d_drafting.helpers import Draft
+
+        import draftwright.pmi as pmi_module
+        from draftwright._core import Strip
+        from draftwright._pmi_linear_geometry import (
+            _dimension_reference_stations,
+            _proved_planar_linear,
+        )
+        from draftwright.annotations._pmi_dimensions import (
+            _pmi_front_linear,
+            _pmi_witness_from_bbox,
+        )
+        from draftwright.pmi import _make_label, _shape_bbox
+
+        datum = (Pos(-59, 0, 6) * Box(2, 80, 12)).faces().sort_by(Axis.X)[0].wrapped
+        pocket_wall = (Pos(16, 26, 10) * Box(2, 10, 4)).faces().sort_by(Axis.X)[0].wrapped
+        centres = ((-60.0, 0.0, 6.0), (15.0, 26.0, 10.0))
+        assert _dimension_reference_stations(centres, 75.0, "linear")[2], (
+            "fixture must contain the offset-centre defect"
+        )
+
+        points, proven_axis, view, blockers = _proved_planar_linear(
+            ((datum,), (pocket_wall,)), centres, 75.0, "linear", None, _shape_bbox
+        )
+        assert (proven_axis, view, blockers) == ("X", "plan", ())
+        assert points == ((-60.0, 26.0, 10.0), (15.0, 26.0, 10.0))
+
+        def identity(value):
+            return value
+
+        analysis = SimpleNamespace(
+            proj=SimpleNamespace(
+                front_x=identity,
+                front_z=identity,
+                side_x=identity,
+                side_z=identity,
+                plan_x=identity,
+                plan_y=identity,
+            )
+        )
+        bounds = (-60.0, -40.0, 0.0, 15.0, 40.0, 12.0)
+        monkeypatch.setattr(
+            pmi_module,
+            "_reference_geometry_with_groups",
+            lambda *_args: (centres, bounds, "?", (), centres, ((datum,), (pocket_wall,))),
+        )
+        source = SimpleNamespace(
+            GetValue=lambda: 75.0,
+            IsDimWithPlusMinusTolerance=lambda: True,
+            GetUpperTolValue=lambda: 0.1,
+            GetLowerTolValue=lambda: 0.0,
+            IsDimWithRange=lambda: False,
+            GetSemanticName=lambda: None,
+        )
+        record, reasons = pmi_module._dimension_record(object(), source, 2, object(), "source:75")
+        assert not reasons
+        assert (record.label, record.lower_tol, record.dominant_axis, record.view) == (
+            "75 +0.1/0",
+            0.0,
+            "X",
+            "plan",
+        )
+        witness = _pmi_witness_from_bbox(record, view, analysis)
+        assert witness == ((-60.0, 26.0, 0), (15.0, 26.0, 0), 26.0)
+        assert _make_label("linear", 75.0, 0.1, 0.0) == record.label
+
+        analysis.PV_Y = 0.0
+        analysis.pv_zones = SimpleNamespace(
+            above=Strip(anchor=40.0, outer_limit=80.0, direction=1.0, gap=2.0),
+            below=Strip(anchor=10.0, outer_limit=0.0, direction=-1.0, gap=2.0),
+        )
+        queued = []
+
+        def capture(_drawing, _ctx, options, _axis, _label, _record):
+            queued.extend(option for option in options if option is not None)
+            return True
+
+        assert _pmi_front_linear(
+            SimpleNamespace(draft=Draft(font_size=3.0)),
+            analysis,
+            object(),
+            SimpleNamespace(**vars(record), side=None),
+            "X",
+            "75 +0.1/0",
+            "pmi_x",
+            "above",
+            "below",
+            0.0,
+            queue_options=capture,
+        )
+        assert queued and all(option["view"] == "plan" for option in queued)
+
+    def test_plan_y_witness_uses_source_station_not_broad_face_bbox_issue_2192(self):
+        from draftwright.annotations._pmi_dimensions import _pmi_witness_from_bbox
+
+        def identity(value):
+            return value
+
+        analysis = SimpleNamespace(
+            proj=SimpleNamespace(
+                front_x=identity,
+                front_z=identity,
+                side_x=identity,
+                side_z=identity,
+                plan_x=identity,
+                plan_y=identity,
+            )
+        )
+        stations = (-25.0, 0.0, 25.0)
+        witnesses = []
+        for station in stations:
+            record = SimpleNamespace(
+                dominant_axis="Y",
+                ref_pts=((station, -40.0, 6.0), (station, 0.0, 6.0)),
+                ref_bbox=(-60.0, -40.0, 0.0, 60.0, 40.0, 12.0),
+            )
+            witnesses.append(_pmi_witness_from_bbox(record, "plan", analysis))
+
+        assert [witness[0][0] for witness in witnesses] == list(stations)
+        assert all(witness[0][1] == -40.0 and witness[1][1] == 0.0 for witness in witnesses)
+
     def test_nist_ctc01_returns_records(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
         assert len(recs) > 0
@@ -106,7 +382,7 @@ class TestExtractPmi:
         assert 0.05 != 0.05004
         assert 9.95 != 10.05
         assert _make_label("diameter", 10.0, 0.09, None) == "ø10 +0.09"
-        assert _make_label("diameter", 10.0, 0.09, 0.0) == "ø10 +0.09/-0.0"
+        assert _make_label("diameter", 10.0, 0.09, 0.0) == "ø10 +0.09/0"
         assert _make_label("diameter", 10.0, 0.05, 0.05004) == "ø10 +0.05/-0.05004"
         assert _make_label("diameter", 10.0, 0.05, 0.05) == "ø10 ±0.05"
         assert (

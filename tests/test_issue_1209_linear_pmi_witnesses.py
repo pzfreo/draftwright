@@ -106,8 +106,8 @@ def test_offset_parallel_faces_use_their_proven_normal_issue_2184(monkeypatch):
     assert pmi_module._parallel_planar_reference_support(((first,), (detached,))) == (None, None)
     shifted_midpoint = (Pos(10, 0, 17) * Box(2, 10, 26)).faces().sort_by(Axis.X)[0].wrapped
     assert pmi_module._parallel_planar_reference_support(((first,), (shifted_midpoint,))) == (
-        None,
-        None,
+        "X",
+        "plan",
     )
     assert _linear_reference_stations(stations, 10, plane_axis=axis) == (stations, "X", ())
     assert _linear_reference_stations(stations, 11, plane_axis=axis)[2] == (
