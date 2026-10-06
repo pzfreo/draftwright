@@ -17,6 +17,13 @@ _LINEAR_OBLIQUE_VALUE_ABS_TOL = 0.05
 def _proved_planar_linear(groups, stations, nominal, kind, frame, shape_bbox):
     """Resolve the normal span and a face-supported projected witness together."""
     axis, view, witness = _parallel_planar_reference_witness(groups, frame, shape_bbox)
+    if witness is None:
+        return (
+            tuple(point for point in stations if point is not None),
+            "?",
+            None,
+            ("parallel planar source faces have no proven shared witness",),
+        )
     if witness:
         stations = tuple(
             tuple(
