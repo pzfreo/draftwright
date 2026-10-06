@@ -1,10 +1,14 @@
 """Build-scoped declaration identity follows intent, never a list position (#1710)."""
 
+from types import SimpleNamespace
+
 import pytest
 from build123d import Box, Cylinder
 
 from draftwright import Sheet
+from draftwright.drawing import Drawing
 from draftwright.model import DeclarationIdentity
+from draftwright.registry import AnnotationRegistry
 
 
 def _sheet() -> Sheet:
@@ -136,6 +140,65 @@ def test_identity_reaches_the_built_drawing_model() -> None:
     drawing = sheet.build()
 
     assert drawing.model().declaration_identities == (DeclarationIdentity("declaration:1"),)
+    marks = drawing.annotations_of(drawing.model().features[0])
+    assert marks
+    assert all(drawing.declaration_id_of(name) == "declaration:1" for name in marks)
+    assert any(drawing.label_box(name) is not None for name in marks)
+    assert drawing.declaration_id_of("title_block") is None
+    with pytest.raises(KeyError):
+        drawing.declaration_id_of("no-such-annotation")
+
+
+def test_public_pick_identity_handles_explicit_measurement_and_ambiguous_owners() -> None:
+    first, second, explicit = object(), object(), object()
+    model = SimpleNamespace(
+        features=(first, second, explicit),
+        declaration_identities=tuple(
+            DeclarationIdentity(f"declaration:{index}") for index in (1, 2, 3)
+        ),
+    )
+    registry = AnnotationRegistry()
+    label = SimpleNamespace(label_bbox=(1, 2, 3, 4))
+    registry.add(label, "feature", "front", feature=first)
+    registry.add(
+        label,
+        "measurement",
+        "front",
+        measurement=SimpleNamespace(feature=second, parameter="step.diameter"),
+    )
+    registry.add(label, "explicit", "front", declaration=explicit)
+    registry.add(
+        label,
+        "shared",
+        "front",
+        feature=first,
+        measurement=SimpleNamespace(feature=second, parameter="step.diameter"),
+    )
+    drawing = SimpleNamespace(
+        _registry=registry, model=lambda: model, get_annotation=registry.named
+    )
+
+    assert Drawing.declaration_id_of(drawing, "feature") == "declaration:1"
+    assert Drawing.declaration_id_of(drawing, "measurement") == "declaration:2"
+    assert Drawing.declaration_id_of(drawing, "explicit") == "declaration:3"
+    assert Drawing.declaration_id_of(drawing, "shared") is None
+    assert Drawing.label_box(drawing, "measurement") == (1.0, 2.0, 3.0, 4.0)
+    registry.add(SimpleNamespace(label_bbox=None), "furniture", "front")
+    assert Drawing.declaration_id_of(drawing, "furniture") is None
+    assert Drawing.label_box(drawing, "furniture") is None
+    with pytest.raises(KeyError):
+        Drawing.label_box(drawing, "missing")
+
+    equal_a, equal_b, copy = (SimpleNamespace(value=1) for _ in range(3))
+    equal_model = SimpleNamespace(
+        features=(equal_a, equal_b),
+        declaration_identities=(DeclarationIdentity("equal:a"), DeclarationIdentity("equal:b")),
+    )
+    registry.add(label, "equal-ambiguous", "front", feature=copy)
+    drawing.model = lambda: equal_model
+    assert Drawing.declaration_id_of(drawing, "equal-ambiguous") is None
+    drawing.model = lambda: None
+    assert Drawing.declaration_id_of(drawing, "feature") is None
 
 
 def test_synthetic_rotational_feature_preserves_declared_identity_alignment() -> None:
