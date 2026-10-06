@@ -162,6 +162,13 @@ CONTRACT_GROUPS = {
             "test_issue_1357_plural_turned_profiles.py",
         ),
     ),
+    "optional_section_scale_and_pmi_ladder": ContractGroup(
+        (
+            "src/draftwright/section_scale_recovery.py",
+            "src/draftwright/annotations/_baseline_step_ladder.py",
+        ),
+        ("test_optional_section_scale_and_pmi_ladder.py",),
+    ),
     "height_ladder": ContractGroup(
         (
             "src/draftwright/annotations/_height_ladder.py",

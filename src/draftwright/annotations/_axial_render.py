@@ -28,6 +28,7 @@ from draftwright._core import (
     _tol_suffix,
     supported_secondary_crop,
 )
+from draftwright.annotations._baseline_step_ladder import register_vertical_baseline_steps
 from draftwright.annotations._common import (
     _LOC_SUBCHAIN,
     CROSSABLE_TYPES,
@@ -136,6 +137,42 @@ def _record_step_chain_drop(why: str, *, ctx, measurement=()) -> None:
     )
 
 
+def _horizontal_step_tiers(segments, labels, draft):
+    centres_and_widths = [
+        (
+            (segment.pa[0] + segment.pb[0]) / 2,
+            len(label) * draft.font_size * _EST_CHAR_WIDTH_EM,
+        )
+        for segment, label in zip(segments, labels, strict=True)
+    ]
+
+    def clear(items):
+        return all(
+            second_centre - first_centre
+            >= (first_width + second_width) / 2 + draft.pad_around_text
+            for (first_centre, first_width), (second_centre, second_width) in zip(
+                items, items[1:], strict=False
+            )
+        )
+
+    if clear(centres_and_widths):
+        return [0] * len(segments)
+    if clear(centres_and_widths[0::2]) and clear(centres_and_widths[1::2]):
+        return [index % 2 for index in range(len(segments))]
+    return None
+
+
+def _drop_dense_step_chain(ctx, segments, event, prefix):
+    _log.info("step-length chain skipped: too dense even when staggered")
+    _record_step_chain_drop(
+        "shoulders too dense to dimension even when staggered",
+        ctx=ctx,
+        measurement=_step_measurements(segments),
+    )
+    if event is not None:
+        event["items"].append({"name": prefix, "outcome": "dropped", "reason": "too_dense"})
+
+
 def _draw_step_chain(
     dwg,
     view,
@@ -148,6 +185,7 @@ def _draw_step_chain(
     start=0,
     profile_bounds=None,
     placement_bounds=None,
+    baseline_positions=False,
 ) -> int:
     """Place a turned step-length chain in *view* from structured *segs*, each already
     projected to *view*'s page coords in axis order. Orientation is
@@ -183,6 +221,24 @@ def _draw_step_chain(
         else _step_value_text(seg) + _tol_suffix(seg.tolerance, draft)
         for seg in segs
     ]
+    if baseline_positions and not horizontal:
+        registered = register_vertical_baseline_steps(
+            dwg,
+            view,
+            segs,
+            labels,
+            name_prefix,
+            start,
+            vb,
+            ctx,
+            lambda measurements: _record_step_chain_drop(
+                "right-hand datum ladder has no clear tier",
+                ctx=ctx,
+                measurement=measurements,
+            ),
+        )
+        if registered is not None:
+            return registered
     mean_v = sum(vals) / len(vals)
     explicit_display = any(seg.display_decimals is not None for seg in segs)
     tier_step = draft.font_size + 2 * draft.pad_around_text
@@ -209,38 +265,10 @@ def _draw_step_chain(
         typ_name = f"{name_prefix}_typ" if start == 0 else f"{name_prefix}_typ{start}"
         candidates = [(typ_name, dim, _step_measurements(segs))]
     else:
-        tiers = [0] * len(segs)
-        if horizontal:
-            cw = [
-                (
-                    (seg.pa[0] + seg.pb[0]) / 2,
-                    len(labels[i]) * draft.font_size * _EST_CHAR_WIDTH_EM,
-                )
-                for i, seg in enumerate(segs)
-            ]
-
-            def _clear(items):
-                return all(
-                    c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
-                    for (c1, w1), (c2, w2) in zip(items, items[1:], strict=False)
-                )
-
-            if _clear(cw):
-                pass
-            elif _clear(cw[0::2]) and _clear(cw[1::2]):
-                tiers = [i % 2 for i in range(len(segs))]
-            else:
-                _log.info("step-length chain skipped: too dense even when staggered")
-                _record_step_chain_drop(
-                    "shoulders too dense to dimension even when staggered",
-                    ctx=ctx,
-                    measurement=_step_measurements(segs),
-                )
-                if ev is not None:
-                    ev["items"].append(
-                        {"name": name_prefix, "outcome": "dropped", "reason": "too_dense"}
-                    )
-                return 0
+        tiers = _horizontal_step_tiers(segs, labels, draft) if horizontal else [0] * len(segs)
+        if tiers is None:
+            _drop_dense_step_chain(ctx, segs, ev, name_prefix)
+            return 0
         # A short vertical shoulder is not a density test for the whole chain.
         # Helpers can draw outside arrows, and the shared batch solver below
         # checks actual labels/ink and offers the same far tier on either axis.

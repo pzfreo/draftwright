@@ -68,6 +68,35 @@ def _read_datums(tmp_path, name: str, *instances: str):
     return read_datum_occurrences(step)
 
 
+def test_theoretical_dimension_note_is_tied_to_its_exact_characteristic(tmp_path):
+    source = tmp_path / "basic.step"
+    source.write_text(
+        _step(
+            "#1=DIMENSIONAL_LOCATION('linear distance','',#3,#4);",
+            "#2=DIMENSIONAL_LOCATION('linear distance','',#3,#5);",
+            "#3=SHAPE_ASPECT('','',#99,.T.);",
+            "#4=SHAPE_ASPECT('','',#99,.T.);",
+            "#5=SHAPE_ASPECT('','',#99,.T.);",
+            "#6=SHAPE_DIMENSION_REPRESENTATION('',(#8),#99);",
+            "#7=SHAPE_DIMENSION_REPRESENTATION('',(#8,#9),#99);",
+            "#8=REPRESENTATION_ITEM('nominal value');",
+            "#9=DESCRIPTIVE_REPRESENTATION_ITEM('dimensional note','theoretical');",
+            "#10=DIMENSIONAL_CHARACTERISTIC_REPRESENTATION(#1,#7);",
+            "#11=DIMENSIONAL_CHARACTERISTIC_REPRESENTATION(#2,#6);",
+        ),
+        encoding="utf-8",
+    )
+    facts = {fact.entity_id: fact for fact in read_dimension_associations(source)}
+    assert facts["#1"].basic
+    assert not facts["#2"].basic
+
+
+def test_nist_theoretical_dimensions_are_recognised_from_real_ap242():
+    basic = [fact for fact in read_dimension_associations(CTC05) if fact.basic]
+    assert len(basic) == 4
+    assert all(fact.kind == "location" for fact in basic)
+
+
 def test_grm03_material_name_is_owned_by_its_product():
     fixture = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
     (fact,) = read_material_properties(fixture)
@@ -1478,6 +1507,15 @@ def test_dimension_display_match_rejects_conflicting_source_policies():
     assert (
         match_dimension_display(
             (fact, replace(fact, unit_name="conflicting-unit")),
+            fact.semantic_name,
+            fact.kind,
+            fact.authored_value,
+        )
+        is None
+    )
+    assert (
+        match_dimension_display(
+            (fact, replace(fact, basic=not fact.basic)),
             fact.semantic_name,
             fact.kind,
             fact.authored_value,

@@ -91,6 +91,7 @@ def _plain_cylinder_source(feature: Feature) -> TypeGuard[AuthoredDimension]:
     return (
         isinstance(feature, AuthoredDimension)
         and feature.dimension_kind == "diameter"
+        and not feature.basic
         and feature.source == "ap242_pmi"
         and bool(feature.cylindrical_refs)
         and all(
@@ -219,6 +220,7 @@ def _is_internal_toleranced_diameter(feature: AuthoredDimension) -> bool:
     """Select AP242 bore limits without sending external cylinders to the hole join."""
     return (
         feature.dimension_kind == "diameter"
+        and not feature.basic
         and feature.source == "ap242_pmi"
         and (
             not feature.cylindrical_refs
@@ -798,6 +800,7 @@ def lower_ap242_external_diameter_tolerances(model: PartModel) -> PartModel:
         if isinstance(feature, AuthoredDimension)
         and feature.source == "ap242_pmi"
         and feature.dimension_kind == "diameter"
+        and not feature.basic
         and feature.cylindrical_refs
         and all(reference.sense == "external" for reference in feature.cylindrical_refs)
         and any(
@@ -1070,6 +1073,7 @@ def lower_ap242_nominal_step_lengths(model: PartModel) -> PartModel:
             isinstance(dimension, AuthoredDimension)
             and dimension.source == "ap242_pmi"
             and dimension.dimension_kind == "linear"
+            and not dimension.basic
             and dimension.source_id
             and not dimension.lowering_blockers
             and not dimension.rendering_blockers

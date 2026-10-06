@@ -2188,6 +2188,7 @@ class AuthoredDimension:
     angular_references: tuple[AngularReference, ...] = ()
     angular_member_ids: tuple[str, ...] = ()
     angular_reference_item_groups: tuple[tuple[str, ...], ...] = ()
+    basic: bool = False  # Source-declared theoretically exact dimension.
     kind: ClassVar[str] = "authored_dimension"
 
     def __post_init__(self) -> None:

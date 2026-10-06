@@ -188,6 +188,7 @@ _LAYERS: dict[str, int] = {
     "drawing": 5,
     # 6 — build orchestration
     "builder": 6,
+    "section_scale_recovery": 6,
     "build_once": 6,
     "build_policy": 6,
     "explicit_scale": 6,
