@@ -2445,11 +2445,17 @@ class _AutomaticResolution:
 
     def try_without_iso(self):
         try:
-            without_iso_proposal = self.context.build(
+            # The comparison is admitted only on the already selected sheet. An
+            # unconstrained no-ISO proposal may choose a different page, but that
+            # drawing can never win this gate; the old path then compiled the same
+            # fixed-page candidate anyway. Start with the only admissible page and
+            # leave larger sheets to the bounded page tail below.
+            without_iso = self.context.build(
                 None,
                 arrangements=(self.settled_arrangement,),
                 views=self.settled_principal_views,
                 include_iso=False,
+                page_override=self.original_page,
                 retry_reason="remove_optional_iso",
             )
         except (ValueError, Standard_Failure) as exc:
@@ -2465,98 +2471,56 @@ class _AutomaticResolution:
                 error=str(exc),
             )
         else:
-            proposal_page = (
-                without_iso_proposal.page_w,
-                without_iso_proposal.page_h,
+            without_iso = self.retain_arrangement(without_iso)
+            assert (without_iso.page_w, without_iso.page_h) == self.original_page
+            issues, blockers, rejection = self.qualify_candidate(
+                without_iso,
+                require_axial_coverage=True,
+                allow_recovery_detail=True,
             )
-            if proposal_page != self.original_page:
+            if rejection is None:
                 self.record_attempt(
-                    without_iso_proposal.scale,
-                    "scale_proposal",
+                    without_iso.scale,
+                    "complete",
                     reason="remove_optional_iso",
-                    candidate=without_iso_proposal,
+                    candidate=without_iso,
                 )
-                try:
-                    without_iso = self.context.build(
-                        None,
-                        arrangements=(self.settled_arrangement,),
-                        views=self.settled_principal_views,
-                        include_iso=False,
-                        retry_reason="remove_optional_iso",
-                        page_override=self.original_page,
-                    )
-                except (ValueError, Standard_Failure) as exc:
-                    if not _is_expected_candidate_build_failure(exc):
-                        raise
-                    _log.info(
-                        "fixed-page optional-ISO replan rejected (build failed: %s)",
-                        exc,
-                    )
-                    self.record_attempt(
-                        None,
-                        "error",
-                        reason="remove_optional_iso",
-                        views=without_iso_proposal.views,
-                        page=self.original_page,
-                        error=str(exc),
-                    )
-                    without_iso = None
+                self.drawing = without_iso
+                self.settled_issues = issues
+                self.replanned = True
             else:
-                without_iso = without_iso_proposal
-
-            if without_iso is not None:
-                without_iso = self.retain_arrangement(without_iso)
-                assert (without_iso.page_w, without_iso.page_h) == self.original_page
-                issues, blockers, rejection = self.qualify_candidate(
-                    without_iso,
-                    require_axial_coverage=True,
-                    allow_recovery_detail=True,
+                self.record_attempt(
+                    without_iso.scale,
+                    "rejected",
+                    blockers,
+                    reason="remove_optional_iso",
+                    rejection=rejection,
+                    violations=_layout_issue_records(_hard_layout_issues(issues)),
+                    candidate=without_iso,
                 )
-                if rejection is None:
-                    self.record_attempt(
-                        without_iso.scale,
-                        "complete",
-                        reason="remove_optional_iso",
-                        candidate=without_iso,
+                # Page preference is subordinate to manufacturing
+                # completeness. Once the settled no-ISO arrangement has failed
+                # on the automatically selected sheet, try only the bounded
+                # sequence of larger standard pages. Each page chooses its scale
+                # through the established fixed-page policy and must pass the
+                # same axial, structural, and required-outcome gates above. A
+                # A detail may be introduced or retained here: it is itself a
+                # semantic recovery view, and this correction must not reject a
+                # complete candidate merely because removing the optional ISO
+                # made room for that required detail.
+                if self.context.options.page is None:
+                    larger, issues = self.trials.try_larger_standard_pages(
+                        self.original_page,
+                        include_iso=False,
+                        reason="page_escalation_after_optional_iso",
+                        fallback_views=tuple(name for name in self.drawing.views if name != "iso"),
+                        require_axial_coverage=True,
+                        allow_recovery_detail=True,
                     )
-                    self.drawing = without_iso
-                    self.settled_issues = issues
-                    self.replanned = True
-                else:
-                    self.record_attempt(
-                        without_iso.scale,
-                        "rejected",
-                        blockers,
-                        reason="remove_optional_iso",
-                        rejection=rejection,
-                        violations=_layout_issue_records(_hard_layout_issues(issues)),
-                        candidate=without_iso,
-                    )
-                    # Page preference is subordinate to manufacturing
-                    # completeness. Once the settled no-ISO arrangement has failed
-                    # on the automatically selected sheet, try only the bounded
-                    # sequence of larger standard pages. Each page chooses its scale
-                    # through the established fixed-page policy and must pass the
-                    # same axial, structural, and required-outcome gates above. A
-                    # A detail may be introduced or retained here: it is itself a
-                    # semantic recovery view, and this correction must not reject a
-                    # complete candidate merely because removing the optional ISO
-                    # made room for that required detail.
-                    if self.context.options.page is None:
-                        larger, issues = self.trials.try_larger_standard_pages(
-                            self.original_page,
-                            include_iso=False,
-                            reason="page_escalation_after_optional_iso",
-                            fallback_views=tuple(
-                                name for name in self.drawing.views if name != "iso"
-                            ),
-                            require_axial_coverage=True,
-                            allow_recovery_detail=True,
-                        )
-                        if larger is not None:
-                            self.drawing = larger
-                            self.settled_issues = issues
-                            self.replanned = True
+                    if larger is not None:
+                        self.drawing = larger
+                        self.settled_issues = issues
+                        self.replanned = True
 
     def replay_scale(self):
         if (
