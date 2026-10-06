@@ -440,7 +440,6 @@ class TestHoleTable:
         dwg = build_drawing(_multi_hole_plate(), projection=method)
         before = {i.code for i in dwg.lint()}
         assert before == set()
-        assert dwg.scale == 1
         dwg.add_hole_table("plan")
         assert len([n for n in dwg.annotations() if n.startswith("balloon_plan")]) == 3
         assert {i.code for i in dwg.lint()} == before

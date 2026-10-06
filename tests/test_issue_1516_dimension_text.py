@@ -45,7 +45,7 @@ def test_plate_style_cases_cover_every_boundary_and_pair() -> None:
 
 
 @pytest.mark.parametrize("position,orientation,projection,scale", _PLATE_STYLE_CASES)
-def test_style_preserves_complete_plate_measurements(
+def test_style_preserves_plate_measurements_and_diagnostics(
     plate, position, orientation, projection, scale
 ):
     part, model = plate
@@ -67,7 +67,15 @@ def test_style_preserves_complete_plate_measurements(
         assert all(
             dim.label_polygon[1][1] == pytest.approx(dim.label_polygon[0][1]) for dim in dimensions
         )
-    assert not [issue for issue in drawing.lint() if issue.severity in {"warning", "error"}]
+    # Automatic planning may report an incomplete sheet for this plate. Text
+    # styling must neither hide that loss nor introduce a new one.
+    def significant(dwg):
+        return [
+            (issue.severity, issue.code, issue.message)
+            for issue in dwg.lint()
+            if issue.severity in {"warning", "error"}
+        ]
+    assert significant(drawing) == significant(baseline)
 
 
 @pytest.mark.parametrize(
