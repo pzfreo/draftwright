@@ -722,6 +722,45 @@ def test_authored_hole_x_location_covers_only_the_x_component():
     )
 
 
+def test_authored_bore_axis_station_covers_only_its_physical_hole_location():
+    bbox = (Pos(0, 0, 6) * Box(80, 90, 12)).bounding_box()
+    deep = HoleFeature(Frame((10, 5, 12), "z"), 4, depth=12, through=True)
+    shallow = HoleFeature(Frame((10, 5, 12), "z"), 6, depth=4, through=False)
+    source = AuthoredDimension(
+        Frame((-7.5, 5, 6), "x"),
+        "linear",
+        35,
+        "35",
+        "X",
+        ref_pts=((-25, 5, 6), (10, 5, 6)),
+        source_id="dimension:bore-x",
+    )
+    model = PartModel(
+        bbox,
+        "z",
+        [deep, shallow, source],
+        datums=[Datum("datum_xy", "point", (-25, -40, 0))],
+    )
+    plan = compile_dimensions(model)
+    assert [(d.id.feature, d.discriminator) for d in plan.locations] == [
+        (deep, "y"),
+        (shallow, "x"),
+        (shallow, "y"),
+    ]
+    assert any(
+        omission.feature is deep
+        and omission.parameter_id.endswith(".x")
+        and "dimension:bore-x" in omission.reason
+        for omission in plan.diagnostics
+    )
+    wrong_bore = compile_dimensions(
+        replace(
+            model, features=[deep, shallow, replace(source, ref_pts=((-25, 6, 6), (10, 6, 6)))]
+        )
+    )
+    assert len([d for d in wrong_bore.locations if d.discriminator == "x"]) == 2
+
+
 def test_pattern_member_provenance_is_per_measurement():
     hole = HoleFeature(Frame((0, 0, 0), "z"), 4, depth=None, through=True)
     pattern = PatternFeature(

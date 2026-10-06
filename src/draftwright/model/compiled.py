@@ -1613,6 +1613,48 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
     return approved, omissions
 
 
+def _authored_bore_axis_location_matches(
+    source: AuthoredDimension, location: ApprovedDimension
+) -> bool:
+    """Match an X/Y hole location to a witness on the same physical bore axis.
+
+    STEP often locates an axis at an interior Z station, while recognition locates
+    its mouth. The other in-plane coordinate and the bore's depth still have to
+    agree; a pattern centre is not a hole and must not cover its own location.
+    """
+    feature = location.id.feature if location.id is not None else None
+    span = location.span
+    stations = _authored_linear_stations(source)
+    if (
+        not isinstance(feature, HoleFeature)
+        or feature.frame.axis != "z"
+        or feature.depth is None
+        or span is None
+        or stations is None
+        or location.discriminator != "xyz"[stations[0]]
+        or location.discriminator not in ("x", "y")
+        or abs(source.value - location.value) > 1e-6
+    ):
+        return False
+    index = stations[0]
+    target = span[1]
+    if not any(
+        all(abs(member[i] - target[i]) <= 0.01 for i in range(3))
+        for member in feature.members or (feature.frame.origin,)
+    ):
+        return False
+    return any(
+        abs(point[index] - target[index]) <= 0.01
+        and abs(other[index] - span[0][index]) <= 0.01
+        and abs(point[1 - index] - target[1 - index]) <= 0.01
+        and target[2] - feature.depth - 0.01 <= point[2] <= target[2] + 0.01
+        for point, other in (
+            (source.ref_pts[0], source.ref_pts[1]),
+            (source.ref_pts[1], source.ref_pts[0]),
+        )
+    )
+
+
 def _compile_off_axis_hole_locations(
     model: PartModel,
 ) -> tuple[list[ApprovedDimension], list[Omission]]:
@@ -2093,6 +2135,7 @@ def compile_dimensions(
                     or _authored_location_matches(
                         source, location.span, location.discriminator, location.value
                     )
+                    or _authored_bore_axis_location_matches(source, location)
                 )
             ]
             if len(matching) == 1:
