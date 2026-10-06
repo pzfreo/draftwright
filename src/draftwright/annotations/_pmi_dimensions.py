@@ -32,6 +32,7 @@ from draftwright._geometry import (
     _segments_cross_or_overlap,
 )
 from draftwright.annotations._common import (
+    _LOC_SUBCHAIN,
     CROSSABLE_TYPES,
     PRIORITY,
     CorridorCandidate,
@@ -154,7 +155,8 @@ def _bore_span_offsets(pmi_kind: str, value: float) -> tuple[float, float]:
 
 # PMI is pre-authored manufacturing intent from the STEP file. When a strip is over
 # capacity it should survive ahead of auto-generated dims (priority 0), like declared
-# GD&T. It still lives in the outer run so it does not land between size/location dims.
+# GD&T. Linear PMI shares the location ladder when its witness spans that axis;
+# other authored PMI retains the outer run.
 _PMI_SUBCHAIN = 3
 _PMI_CORRIDOR_PRIORITY = PRIORITY.AUTHORED
 _PMI_SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
@@ -502,7 +504,6 @@ def _pmi_dim_spec(
     if side in ("below", "left") and lo >= witness:
         return None
 
-    order_coord = min(perp)
     spec = {
         "name": name,
         "build": _PmiDimensionBuild(q1, q2, side, witness, label, draft, basic),
@@ -511,7 +512,7 @@ def _pmi_dim_spec(
         "side": side,
         "axis": axis,
         "perp": perp,
-        "order": (_PMI_SUBCHAIN, order_coord, name),
+        "order": (_LOC_SUBCHAIN, abs(perp[1] - perp[0]), name),
     }
     if leader_fallback:
 

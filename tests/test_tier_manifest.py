@@ -175,6 +175,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "hole_family_evidence": "src/draftwright/evaluation/_hole_family_evidence.py",
         "step_observers": "src/draftwright/evaluation/step_analysis.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
+        "optional_section_scale_and_pmi_ladder": "src/draftwright/section_scale_recovery.py",
         "height_ladder": "src/draftwright/annotations/_height_ladder.py",
         "solve_trace": "src/draftwright/annotations/solve_trace.py",
         "angular_ink": "src/draftwright/annotations/angular.py",

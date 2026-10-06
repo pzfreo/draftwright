@@ -149,6 +149,10 @@ from draftwright.projection import (
     _project_iso,
 )
 from draftwright.recognition_cache import RecognitionCache
+from draftwright.section_scale_recovery import (
+    preserves_recognized_requirements,
+    recover_dropped_section_scale,
+)
 from draftwright.view_plan import (
     ARRANGEMENTS,
     PRINCIPAL_VIEW_NAMES,
@@ -1706,7 +1710,9 @@ class _AutomaticScaleTrials:
             )
         return None, None
 
-    def try_scales_on_selected_page(self, candidate_scales, *, reason, require_axial_coverage):
+    def try_scales_on_selected_page(
+        self, candidate_scales, *, reason, require_axial_coverage, requirement_floor=None
+    ):
         """Try a bounded scale sequence on the already selected sheet."""
         for candidate_scale in candidate_scales:
             analysis = self.latest_analysis()
@@ -1769,6 +1775,12 @@ class _AutomaticScaleTrials:
                 candidate_drawing,
                 require_axial_coverage=require_axial_coverage,
             )
+            if (
+                rejection is None
+                and requirement_floor is not None
+                and not preserves_recognized_requirements(requirement_floor, candidate_drawing)
+            ):
+                rejection = "recognized_requirement_regression"
             if rejection is None:
                 self.record_attempt(
                     candidate_scale, "complete", reason=reason, candidate=candidate_drawing
@@ -2654,6 +2666,7 @@ class _AutomaticResolution:
         self.settle_arrangement()
         self.prepare_trials()
         self.recover_detail()
+        recover_dropped_section_scale(self)
         self.recover_hard_layout()
         self.recover_required_no_iso()
         self.recover_optional_iso()
