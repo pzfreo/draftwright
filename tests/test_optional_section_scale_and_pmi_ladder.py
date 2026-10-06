@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from draftwright._core import Strip
 from draftwright.annotations._axial_render import _draw_step_chain, _StepChainSegment
+from draftwright.annotations._baseline_step_ladder import register_vertical_baseline_steps
 from draftwright.annotations._common import PlacementContext
 from draftwright.annotations._pmi_dimensions import _pmi_dim_spec
 from draftwright.builder import _AutomaticResolution, _AutomaticScaleTrials
@@ -49,6 +50,73 @@ def test_vertical_baseline_steps_and_imported_pmi_share_span_order():
         "pmi_z_0",
         "m_steplen1",
     ]
+
+
+def test_vertical_baseline_callbacks_keep_witnesses_and_report_a_drop(monkeypatch):
+    import draftwright.annotations._baseline_step_ladder as ladder
+
+    draft = SimpleNamespace(font_size=3.0, pad_around_text=1.0)
+    strip = Strip(anchor=105.0, outer_limit=160.0)
+    ctx = PlacementContext(analysis=SimpleNamespace(fv_zones=SimpleNamespace(right=strip)))
+    segment = _StepChainSegment((100.0, 74.0, 0), (100.0, 50.0, 0), 12.0, measurements=("step:1",))
+    calls = []
+    monkeypatch.setattr(ladder, "_dim", lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(ladder, "dim_footprint", lambda *args: calls.append((args, {})))
+    drawing = SimpleNamespace(draft=draft)
+    assert (
+        register_vertical_baseline_steps(
+            drawing,
+            "front",
+            [segment],
+            ["12"],
+            "step",
+            0,
+            (80.0, 50.0, 103.0, 160.0),
+            ctx,
+            lambda ids: calls.append(ids),
+        )
+        == 1
+    )
+    candidate = ctx.corridor_batch[("front", "right")]["cands"][0]
+    candidate.build(110.0)
+    candidate.footprint(110.0)
+    candidate.on_drop(candidate.name)
+    assert calls[0][0][0:4] == ((105.0, 50.0, 0), (105.0, 74.0, 0), "right", 5.0)
+    assert calls[1][0][0:4] == calls[0][0][0:4]
+    assert calls[2] == ("step:1",)
+
+    no_analysis = PlacementContext()
+    assert (
+        register_vertical_baseline_steps(
+            drawing,
+            "front",
+            [segment],
+            ["12"],
+            "step",
+            0,
+            (80.0, 50.0, 103.0, 160.0),
+            no_analysis,
+            lambda _ids: None,
+        )
+        is None
+    )
+
+
+def test_overcrowded_horizontal_steps_drop_with_a_trace_event():
+    draft = SimpleNamespace(font_size=3.0, pad_around_text=1.0)
+    drawing = SimpleNamespace(draft=draft, view_bounds=lambda _view: (0.0, 0.0, 5.0, 10.0))
+    segments = [_StepChainSegment((x, 0.0, 0), (x + 1.0, 0.0, 0), 1.0) for x in (0.0, 1.0, 2.0)]
+    event = {"items": []}
+    issues = []
+    ctx = SimpleNamespace(
+        trace=SimpleNamespace(pass_event=lambda *_args, **_kwargs: event),
+        record_issue=lambda *args, **kwargs: issues.append((args, kwargs)),
+    )
+    assert (
+        _draw_step_chain(drawing, "front", segments, "dense", ctx=ctx, allow_collapse=False) == 0
+    )
+    assert event["items"] == [{"name": "dense", "outcome": "dropped", "reason": "too_dense"}]
+    assert issues[0][0][1] == "step_dim_dropped"
 
 
 def test_dropped_optional_section_can_recover_next_scale_without_larger_sheet(monkeypatch):
@@ -173,3 +241,45 @@ def test_section_scale_trial_rejects_a_newly_missing_recognized_requirement():
     )
     assert result is None
     assert attempts[-1][1]["rejection"] == "recognized_requirement_regression"
+
+
+def test_section_scale_recovery_rejects_unavailable_or_changed_source_evidence(monkeypatch):
+    import draftwright.section_scale_recovery as recovery_module
+
+    def drawing(rows):
+        return SimpleNamespace(report=lambda: {"recognition": {"requirements": rows}})
+
+    valid = {
+        "id": "step:1",
+        "family": "turned_steps",
+        "parameter_id": "step.length",
+        "occurrence_ids": ["step:1"],
+        "owner_ids": ["shaft"],
+        "state": "placed",
+    }
+    assert not preserves_recognized_requirements(
+        SimpleNamespace(report=lambda: {}), drawing([valid])
+    )
+    assert not preserves_recognized_requirements(drawing({}), drawing([valid]))
+    assert not preserves_recognized_requirements(drawing([{}]), drawing([valid]))
+    assert not preserves_recognized_requirements(
+        drawing([valid]), drawing([{**valid, "id": "step:2"}])
+    )
+
+    monkeypatch.setattr(recovery_module, "_SCALES", (1.0, 2.0))
+    assert (
+        recovery_module.next_scale_without_section(
+            SimpleNamespace(), 2.0, (420.0, 297.0), "columns", ("front",)
+        )
+        is None
+    )
+    resolution = SimpleNamespace(
+        dimensions_are_automatic=True,
+        views_are_automatic=True,
+        drawing=object(),
+        context=SimpleNamespace(
+            latest_analysis=None,
+            placement_issues=lambda _drawing: [SimpleNamespace(code="section_dropped")],
+        ),
+    )
+    assert recover_dropped_section_scale(resolution) is None
