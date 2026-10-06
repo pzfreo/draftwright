@@ -141,7 +141,15 @@ def layout_options(
             "controls": controls,
         }
     side = getattr(feature, "side", None)
-    if side not in PLACEMENT_SIDES:
+    if feature.kind == "authored_dimension":
+        supported_sides = sorted(
+            candidate
+            for candidate in PLACEMENT_SIDES
+            if _authored_dimension_accepts_side(feature, candidate)
+        )
+    else:
+        supported_sides = sorted(PLACEMENT_SIDES) if side in PLACEMENT_SIDES else []
+    if not supported_sides:
         raise ValueError(
             f"declaration {declaration_id!r} does not expose a supported side control"
         )
@@ -155,10 +163,26 @@ def layout_options(
         "controls": {
             "side": {
                 "current": side,
-                "supported_values": sorted(PLACEMENT_SIDES),
+                "supported_values": supported_sides,
             }
         },
     }
+
+
+def _authored_dimension_accepts_side(feature, side: str) -> bool:
+    """Use the IR's renderer-compatible placement validator, not a second side table."""
+
+    if feature.dimension_kind not in {"linear", "thickness", "diameter", "radius", "angular"}:
+        return False
+    if feature.dimension_kind == "angular" and not (
+        feature.angular_reference or feature.angular_references
+    ):
+        return False
+    try:
+        replace(feature, side=side)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def validate_layout_override(
