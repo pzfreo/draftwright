@@ -105,8 +105,12 @@ def pocket_jobs(dwg, plan, *, only=None, leader_callout_reach, radial_candidates
         if only is not None and g.ref not in only:
             continue  # #426 Ph2b subset (finalize): skip in place — i stays the model index
         by_key = {(pd.role, pd.kind): pd for pd in g.dims}
-        wpd = by_key.get(("pocket_width", "length"))
-        lpd = by_key.get(("pocket_length", "length"))
+        width = by_key.get(("pocket_width", "length"))
+        length = by_key.get(("pocket_length", "length"))
+        # A size carrying a declared lane is rendered as a linear dimension by
+        # _slots. Never repeat that measurement in the pocket's combined leader.
+        wpd = width if width is not None and width.lane is None else None
+        lpd = length if length is not None and length.lane is None else None
         dpd = by_key.get(("pocket_depth", "length")) or by_key.get(("pocket_max_depth", "length"))
         dimensions = tuple(d for d in (wpd, lpd, dpd) if d is not None)
         if not dimensions:
@@ -155,10 +159,10 @@ def pocket_jobs(dwg, plan, *, only=None, leader_callout_reach, radial_candidates
                         pk,
                         long_axis=pk.long_axis,
                         width_axis=pk.width_axis,
-                        length=lpd.value,
-                        width=wpd.value,
+                        length=length.value,
+                        width=width.value,
                     )
-                    if wpd is not None and lpd is not None
+                    if width is not None and length is not None
                     else None,
                     directions=directions,
                     provenance=g.ref,
