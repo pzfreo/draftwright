@@ -1180,6 +1180,35 @@ def _step_chain_covers_extent(
     )
 
 
+def _no_envelope_height_omission(model: PartModel, bb: Any) -> Omission | None:
+    """Decide whether the bbox fallback is withheld without an envelope feature.
+
+    The author cannot name the fallback in a complete authored set (#876). Keep
+    ``feature=None`` in that ledger row for the mixed-identity audit (#1230).
+    For automatic PMI, a proved end-to-end source on the sole turned profile
+    owns the same height; drawing the fallback would repeat its tolerance.
+    """
+    value = float(bb.size.Z)
+    if model.authored_dimensions is not None:
+        return Omission(None, "height.length", value, _AUTHORED_OMISSION)
+    if model.pmi_annotations_enabled:
+        baseline = _authored_step_baseline(model)
+        if (
+            baseline is not None
+            and baseline[0] == 2
+            and abs(baseline[1] - float(bb.min.Z)) <= 0.01
+        ):
+            source_id = baseline[2].get(round(float(bb.max.Z), 6))
+            if source_id is not None:
+                return Omission(
+                    None,
+                    "height.length",
+                    value,
+                    f"authored PMI dimension {source_id} covers this extent",
+                )
+    return None
+
+
 def _compile_overall_height(
     model: PartModel, marked, *, planned, include_overall: bool, step_chain_approved: bool
 ) -> tuple[ApprovedLadder | None, ApprovedContingency | None, list[Omission]]:
@@ -1221,61 +1250,8 @@ def _compile_overall_height(
             mark[1] == _AUTHORED_OMISSION or mark[1].startswith("authored PMI dimension ")
         ):
             return None, None, [Omission(env, "height.length", mark[0], mark[1])]
-    elif model.authored_dimensions is not None:
-        # No `EnvelopeFeature`, so the height falls back to the bounding box and no
-        # parameter anywhere names it. An AUTHORED set is the drawing's complete
-        # dimensioning, so it must not acquire a measurement its author had no way to ask
-        # for: declaring `.envelope()` is how the overall height becomes nameable (#876).
-        # This is the one place the fallback lives, so refusing it is one branch rather
-        # than a rule every renderer has to remember.
-        # `feature=None` here, while the APPROVED rung below now carries a minted envelope
-        # identity (#1230). The two halves of a documented-joinable pair therefore disagree for
-        # this one measurement: `Drawing.measurement_keys` says it is "deliberately the SAME row
-        # shape … so a drawn measurement and a suppressed one are directly comparable", and
-        # `audit._correspondence` keys on the feature string — so it attributes a lost `dim_od`
-        # and `ldr_z0` but not a lost `dim_height` (#1233).
-        #
-        # Not closed here, and the reason is measured rather than chosen. Passing the same
-        # identity to both omissions is three lines and does work — but `height.length` is the
-        # ONLY producer of `feature=None` rows in the public ledger (zero featureless rows across
-        # the whole detected corpus; on `test_real_mixed_featureless_and_feature_suppressions_
-        # have_a_total_order`'s own fixture it is the single one). Giving it a feature deletes
-        # the last real source of the mixed `None`/`str` case that #1077's guard exists to sort,
-        # leaving that test asserting something no build can produce. Whether `feature=None`
-        # should stay representable in the public ledger is a question about the ledger's shape,
-        # not about this rung. Tracked on #1230.
-        return (
-            None,
-            None,
-            [
-                Omission(
-                    None, "height.length", float(bb.size.Z), "not in the authored dimension set"
-                )
-            ],
-        )
-    elif model.pmi_annotations_enabled:
-        # A round body has no envelope parameter, but its bbox fallback must not
-        # repeat an imported end-to-end dimension on the one proved turned profile.
-        baseline = _authored_step_baseline(model)
-        if (
-            baseline is not None
-            and baseline[0] == 2
-            and abs(baseline[1] - float(bb.min.Z)) <= 0.01
-        ):
-            source_id = baseline[2].get(round(float(bb.max.Z), 6))
-            if source_id is not None:
-                return (
-                    None,
-                    None,
-                    [
-                        Omission(
-                            None,
-                            "height.length",
-                            float(bb.size.Z),
-                            f"authored PMI dimension {source_id} covers this extent",
-                        )
-                    ],
-                )
+    elif (omission := _no_envelope_height_omission(model, bb)) is not None:
+        return None, None, [omission]
     value = float(env.height) if env is not None else float(bb.size.Z)
     # A model with no `EnvelopeFeature` still gets an identity for its overall height, from a
     # bounding-box envelope minted here. Without it `_dim_id` returns None, the rung carries no
@@ -1706,6 +1682,84 @@ def _authored_pattern_centre_bore_axis_matches(
     return len(bores) == 1 and _authored_bore_axis_location_matches(
         source, replace(location, id=DimensionId(bores[0], identity.parameter))
     )
+
+
+def _source_owned_location_coverage(
+    model: PartModel, locations: list[ApprovedDimension]
+) -> tuple[list[ApprovedDimension], list[Omission]]:
+    """Remove only proven location duplicates of renderable source PMI."""
+    if model.authored_dimensions is not None or not model.pmi_annotations_enabled:
+        return locations, []
+    sources = tuple(
+        feature
+        for feature in model.features
+        if isinstance(feature, AuthoredDimension)
+        and id(feature) not in model.hidden_authored_dimension_ids
+    )
+    unique_cover: dict[int, list[AuthoredDimension]] = {}
+    for source in sources:
+        stations = _authored_linear_stations(source)
+        if stations is None:
+            continue
+        matching = [
+            location
+            for location in locations
+            if location.discriminator == "xyz"[stations[0]]
+            and location.span is not None
+            and (
+                _authored_same_span(source, location.span, location.value)
+                or _authored_location_matches(
+                    source, location.span, location.discriminator, location.value
+                )
+                or _authored_bore_axis_location_matches(source, location)
+                or _authored_pattern_centre_bore_axis_matches(source, location, model)
+            )
+        ]
+        if len(matching) == 1:
+            unique_cover.setdefault(id(matching[0]), []).append(source)
+        elif len(matching) == 2:
+            # A centre bore and coaxial pattern centre are two owners of one
+            # physical station, not an ambiguous choice between targets.
+            pattern = next(
+                (
+                    item
+                    for item in matching
+                    if item.id is not None and isinstance(item.id.feature, PatternFeature)
+                ),
+                None,
+            )
+            bore = next(
+                (
+                    item
+                    for item in matching
+                    if item.id is not None and isinstance(item.id.feature, HoleFeature)
+                ),
+                None,
+            )
+            if (
+                pattern is not None
+                and bore is not None
+                and _authored_pattern_centre_bore_axis_matches(source, pattern, model)
+                and _authored_bore_axis_location_matches(source, bore)
+            ):
+                for location in matching:
+                    unique_cover.setdefault(id(location), []).append(source)
+    uncovered = []
+    omissions = []
+    for location in locations:
+        covering = unique_cover.get(id(location), [])
+        if len(covering) != 1 or location.id is None:
+            uncovered.append(location)
+        else:
+            omissions.append(
+                Omission(
+                    location.id.feature,
+                    location.id.parameter,
+                    location.value,
+                    f"authored PMI dimension {covering[0].source_id} covers this location",
+                )
+            )
+    return uncovered, omissions
 
 
 def _compile_off_axis_hole_locations(
@@ -2165,78 +2219,8 @@ def compile_dimensions(
     location_omissions.extend(off_axis_omissions)
     # A source location may cover one directional component without covering its
     # orthogonal sibling. Only exact witness correspondence can remove that component.
-    sources = tuple(
-        f
-        for f in model.features
-        if isinstance(f, AuthoredDimension)
-        and model.pmi_annotations_enabled
-        and id(f) not in model.hidden_authored_dimension_ids
-    )
-    if sources and model.authored_dimensions is None:
-        unique_cover: dict[int, list[AuthoredDimension]] = {}
-        for source in sources:
-            stations = _authored_linear_stations(source)
-            if stations is None:
-                continue
-            matching = [
-                location
-                for location in locations
-                if location.discriminator == "xyz"[stations[0]]
-                and location.span is not None
-                and (
-                    _authored_same_span(source, location.span, location.value)
-                    or _authored_location_matches(
-                        source, location.span, location.discriminator, location.value
-                    )
-                    or _authored_bore_axis_location_matches(source, location)
-                    or _authored_pattern_centre_bore_axis_matches(source, location, model)
-                )
-            ]
-            if len(matching) == 1:
-                unique_cover.setdefault(id(matching[0]), []).append(source)
-            elif len(matching) == 2:
-                # A centre bore and a coaxial pattern centre can carry the same
-                # datum-to-axis location. They are two owners of one physical
-                # station, not an ambiguous choice between distinct targets.
-                pattern = next(
-                    (
-                        item
-                        for item in matching
-                        if item.id is not None and isinstance(item.id.feature, PatternFeature)
-                    ),
-                    None,
-                )
-                bore = next(
-                    (
-                        item
-                        for item in matching
-                        if item.id is not None and isinstance(item.id.feature, HoleFeature)
-                    ),
-                    None,
-                )
-                if (
-                    pattern is not None
-                    and bore is not None
-                    and _authored_pattern_centre_bore_axis_matches(source, pattern, model)
-                    and _authored_bore_axis_location_matches(source, bore)
-                ):
-                    for location in matching:
-                        unique_cover.setdefault(id(location), []).append(source)
-        uncovered = []
-        for location in locations:
-            covering = unique_cover.get(id(location), [])
-            if len(covering) != 1 or location.id is None:
-                uncovered.append(location)
-            else:
-                location_omissions.append(
-                    Omission(
-                        location.id.feature,
-                        location.id.parameter,
-                        location.value,
-                        f"authored PMI dimension {covering[0].source_id} covers this location",
-                    )
-                )
-        locations = uncovered
+    locations, source_location_omissions = _source_owned_location_coverage(model, locations)
+    location_omissions.extend(source_location_omissions)
     result = RenderableDimensionPlan(
         groups=tuple(groups_out),
         ladders=tuple(ladders),
