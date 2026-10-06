@@ -537,8 +537,10 @@ def _principal_view_exceeds_page(scale, page, bounds, views) -> bool:
 
     Use only the part's world-space box and the *full* page: omitting even the
     mandatory gutters, margins and annotation footprints makes this a necessary
-    bound, never a speculative fit verdict. No ink solve can rescue a rejected
-    scale.
+    bound, never a speculative fit verdict. Front and side occupy separate
+    horizontal bands; front and plan occupy separate vertical bands. Even if
+    every gap shrank to zero, their combined bare spans must fit. No ink solve
+    can rescue a rejected scale.
     """
     extents = {
         "x": bounds.max.X - bounds.min.X,
@@ -547,12 +549,17 @@ def _principal_view_exceeds_page(scale, page, bounds, views) -> bool:
     }
     axes = {"front": ("x", "z"), "plan": ("x", "y"), "side": ("y", "z")}
     page_w, page_h = page
-    return any(
+    if any(
         extents[horizontal] * scale > page_w + 1e-9 or extents[vertical] * scale > page_h + 1e-9
         for view in views
         if (pair := axes.get(view)) is not None
         for horizontal, vertical in (pair,)
-    )
+    ):
+        return True
+    selected = set(views)
+    return (
+        {"front", "side"} <= selected and (extents["x"] + extents["y"]) * scale > page_w + 1e-9
+    ) or ({"front", "plan"} <= selected and (extents["z"] + extents["y"]) * scale > page_h + 1e-9)
 
 
 def _has_detail_view(views) -> bool:

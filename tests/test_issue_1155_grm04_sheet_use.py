@@ -10,8 +10,8 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "grm04_drive_plate.step"
 def test_grm04_measured_replan_keeps_diameter_and_location_on_a_clean_sheet():
     drawing = build_drawing(_FIXTURE, title="GRM-04")
 
-    # The A4/2:1 sheet carries both requirements. Larger scales on that page
-    # intersect the title block or other view ink, so they are rejected.
+    # The A4/2:1 sheet carries both requirements. At 5:1 the layout conflicts
+    # with other ink; at 10:1 the bare principal views cannot fit on A4.
     assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
     assert drawing.scale == 2.0
     assert drawing.scale_decision["status"] == "automatic"
@@ -24,7 +24,7 @@ def test_grm04_measured_replan_keeps_diameter_and_location_on_a_clean_sheet():
     ] == [
         (2.0, "detail_reservation_conservative", None),
         (5.0, "rejected", "structural_error"),
-        (10.0, "rejected", "structural_error"),
+        (10.0, "skipped", "principal_view_exceeds_page"),
     ]
 
     hole = next(
