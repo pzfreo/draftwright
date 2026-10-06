@@ -2544,7 +2544,9 @@ class _AutomaticResolution:
                             self.original_page,
                             include_iso=False,
                             reason="page_escalation_after_optional_iso",
-                            fallback_views=tuple(name for name in self.drawing.views if name != "iso"),
+                            fallback_views=tuple(
+                                name for name in self.drawing.views if name != "iso"
+                            ),
                             require_axial_coverage=True,
                             allow_recovery_detail=True,
                         )

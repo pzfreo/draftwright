@@ -34,6 +34,7 @@ def _parallel_planar_reference_witness(groups, frame, shape_bbox):
         return None, None, ()
     axes: list[int] = []
     group_boxes = []
+    group_faces = []
     for shapes in groups:
         group_axis = None
         group_station = None
@@ -67,27 +68,31 @@ def _parallel_planar_reference_witness(groups, frame, shape_bbox):
         assert group_axis is not None  # Each validated source group contains a face.
         axes.append(group_axis)
         group_boxes.append(boxes)
+        group_faces.append(shapes)
     if axes[0] != axes[1]:
         return None, None, ()
     axis = "XYZ"[axes[0]]
     if axis == "X":
-        return _principal_x_planar_witness(group_boxes)
+        return _principal_x_planar_witness(group_boxes, group_faces, frame)
     view_axis, view = _supported_planar_view(axis, group_boxes)
     return view_axis, view, ()
 
 
-def _principal_x_planar_witness(group_boxes):
+def _principal_x_planar_witness(group_boxes, group_faces, frame):
+    # A front projection only needs both planes represented at the same Z;
+    # parallel face patches may be offset in Y (#2184). The plan fallback,
+    # however, claims one shared Y/Z point and must prove it on both trims.
     if _midpoint_witness_supported(group_boxes, 2):
         return "X", None, ()
-    common = _common_x_face_witness(group_boxes)
+    common = _common_x_face_witness(group_boxes, group_faces, frame)
     if common is not None:
         y, z = common
         return "X", "plan", ((1, y), (2, z))
-    return None, None, ()
+    return None, None, None
 
 
-def _common_x_face_witness(group_boxes):
-    """Find one pair of X faces sharing a point in both transverse directions."""
+def _common_x_face_witness(group_boxes, group_faces, frame):
+    """Find a point in the interiors of both exact, trimmed X faces."""
     candidates = [
         (
             (min(a[4], b[4]) - max(a[1], b[1])) * (min(a[5], b[5]) - max(a[2], b[2])),
@@ -95,15 +100,48 @@ def _common_x_face_witness(group_boxes):
             max(a[2], b[2]),
             min(a[4], b[4]),
             min(a[5], b[5]),
+            a,
+            b,
+            group_faces[0][i],
+            group_faces[1][j],
         )
-        for a in group_boxes[0]
-        for b in group_boxes[1]
+        for i, a in enumerate(group_boxes[0])
+        for j, b in enumerate(group_boxes[1])
         if min(a[4], b[4]) >= max(a[1], b[1]) and min(a[5], b[5]) >= max(a[2], b[2])
     ]
-    if not candidates:
-        return None
-    _area, y0, z0, y1, z1 = max(candidates, key=lambda item: (item[0], -item[1], -item[2]))
-    return (y0 + y1) / 2, (z0 + z1) / 2
+    for _area, y0, z0, y1, z1, a, b, first, second in sorted(
+        candidates, key=lambda item: (-item[0], item[1], item[2])
+    ):
+        # Start at the overlap centre, then sample its interior deterministically.
+        # A bounding box may contain a face hole or a concavity; only OCC's
+        # trimmed-face classifier can establish a real common witness.
+        for y_fraction, z_fraction in ((0.5, 0.5),) + tuple(
+            (i / 10, j / 10) for i in range(1, 10) for j in range(1, 10)
+        ):
+            y = y0 + (y1 - y0) * y_fraction
+            z = z0 + (z1 - z0) * z_fraction
+            if all(
+                _point_inside_x_face(face, (box[0] + box[3]) / 2, y, z, frame)
+                for face, box in ((first, a), (second, b))
+            ):
+                return y, z
+    return None
+
+
+def _point_inside_x_face(face, x, y, z, frame):
+    from OCP.BRepClass import BRepClass_FaceClassifier
+    from OCP.gp import gp_Pnt
+    from OCP.TopAbs import TopAbs_IN
+    from OCP.TopoDS import TopoDS
+
+    local = (x, y, z)
+    world = local if frame is None else frame.to_world(local)
+    classifier = BRepClass_FaceClassifier()
+    try:
+        classifier.Perform(TopoDS.Face_s(face), gp_Pnt(*world), 1e-7)
+        return classifier.State() == TopAbs_IN
+    except Exception:
+        return False
 
 
 def _planar_bore_axis_witness(groups, frame, shape_bbox):

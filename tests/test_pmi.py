@@ -148,6 +148,61 @@ class TestExtractPmi:
         )
         assert any("no proven face-supported axis witness" in reason for reason in blockers)
 
+    def test_parallel_x_faces_do_not_use_bbox_overlap_through_a_hole_issue_2193(self):
+        from build123d import Axis, Pos
+        from OCP.BRepClass import BRepClass_FaceClassifier
+        from OCP.gp import gp_Pnt
+        from OCP.TopAbs import TopAbs_OUT
+
+        from draftwright._pmi_linear_geometry import _proved_planar_linear
+        from draftwright.pmi import _shape_bbox
+
+        ring = (Pos(0.5, 0, 0) * Box(1, 20, 20)) - (Pos(0.5, 0, 0) * Box(2, 10, 10))
+        first = ring.faces().sort_by(Axis.X)[0].wrapped
+        second = (Pos(75.5, 0, 2) * Box(1, 2, 2)).faces().sort_by(Axis.X)[0].wrapped
+        classifier = BRepClass_FaceClassifier()
+        classifier.Perform(first, gp_Pnt(0, 0, 2), 1e-7)
+        assert classifier.State() == TopAbs_OUT  # The bbox's centre is in the opening.
+
+        _points, axis, view, blockers = _proved_planar_linear(
+            ((first,), (second,)),
+            ((0, 0, 0), (75, 0, 2)),
+            75.0,
+            "linear",
+            None,
+            _shape_bbox,
+        )
+        assert (axis, view) == ("?", None)
+        assert blockers == ("parallel planar source faces have no proven shared witness",)
+
+    def test_parallel_x_faces_find_a_trimmed_overlap_away_from_bbox_centre_issue_2193(self):
+        from build123d import Axis, Pos
+        from OCP.BRepClass import BRepClass_FaceClassifier
+        from OCP.gp import gp_Pnt
+        from OCP.TopAbs import TopAbs_IN
+
+        from draftwright._pmi_linear_geometry import _proved_planar_linear
+        from draftwright.pmi import _shape_bbox
+
+        ring = (Pos(0.5, 0, 0) * Box(1, 20, 20)) - (Pos(0.5, 0, 0) * Box(2, 10, 10))
+        first = ring.faces().sort_by(Axis.X)[0].wrapped
+        second = (Pos(75.5, 0, 2) * Box(1, 16, 2)).faces().sort_by(Axis.X)[0].wrapped
+
+        points, axis, view, blockers = _proved_planar_linear(
+            ((first,), (second,)),
+            ((0, 0, 0), (75, 0, 2)),
+            75.0,
+            "linear",
+            None,
+            _shape_bbox,
+        )
+        assert (axis, view, blockers) == ("X", "plan", ())
+        assert points[0][1:] == points[1][1:]
+        for face, point in zip((first, second), points, strict=True):
+            classifier = BRepClass_FaceClassifier()
+            classifier.Perform(face, gp_Pnt(*point), 1e-7)
+            assert classifier.State() == TopAbs_IN
+
     def test_offset_pocket_wall_uses_a_common_plan_witness_issue_2192(self, monkeypatch):
         from build123d import Axis, Pos
         from build123d_drafting.helpers import Draft
