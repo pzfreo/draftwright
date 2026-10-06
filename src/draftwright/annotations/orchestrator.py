@@ -443,6 +443,17 @@ def drain_and_reconcile(ctx, dwg: DrawingPort) -> None:
     reconcile_witness_labels(dwg)
 
 
+def _retire_optional_section_reservations_for_pmi(ctx, dwg, sections) -> None:
+    """Let source-owned PMI dimensions outrank provisional section ink."""
+    if any(
+        candidate.name.startswith("pmi_")
+        for batch in ctx.corridor_batch.values()
+        for candidate in batch["cands"]
+    ):
+        for section in sections:
+            _clear_section_reservation(dwg, section)
+
+
 def _concentric_bore_diams(a: Analysis) -> list:
     """Distinct bore diameters on the rotation axis, in z_diams order (#10).
 
@@ -920,13 +931,7 @@ def _final_annotation_stages(run: _AutoAnnotationRun) -> dict:
         # optional future section ink must not consume its dimension corridor.
         # Keep the reservation in ordinary builds so their established section
         # and callout layout remains stable.
-        if any(
-            candidate.name.startswith("pmi_")
-            for batch in ctx.corridor_batch.values()
-            for candidate in batch["cands"]
-        ):
-            for section in _sections:
-                _clear_section_reservation(dwg, section)
+        _retire_optional_section_reservations_for_pmi(ctx, dwg, _sections)
         drain_and_reconcile(ctx, dwg)
 
     def _s_grooves():
