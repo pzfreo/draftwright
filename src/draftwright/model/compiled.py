@@ -93,6 +93,7 @@ from draftwright.model.planner import (
     _authored_linear_stations,
     _authored_location_matches,
     _authored_same_span,
+    _authored_step_baseline,
     _decorated,
     _extent_can_convey,
     _is_zero_step_position,
@@ -1252,6 +1253,29 @@ def _compile_overall_height(
                 )
             ],
         )
+    elif model.pmi_annotations_enabled:
+        # A round body has no envelope parameter, but its bbox fallback must not
+        # repeat an imported end-to-end dimension on the one proved turned profile.
+        baseline = _authored_step_baseline(model)
+        if (
+            baseline is not None
+            and baseline[0] == 2
+            and abs(baseline[1] - float(bb.min.Z)) <= 0.01
+        ):
+            source_id = baseline[2].get(round(float(bb.max.Z), 6))
+            if source_id is not None:
+                return (
+                    None,
+                    None,
+                    [
+                        Omission(
+                            None,
+                            "height.length",
+                            float(bb.size.Z),
+                            f"authored PMI dimension {source_id} covers this extent",
+                        )
+                    ],
+                )
     value = float(env.height) if env is not None else float(bb.size.Z)
     # A model with no `EnvelopeFeature` still gets an identity for its overall height, from a
     # bounding-box envelope minted here. Without it `_dim_id` returns None, the rung carries no
@@ -1652,6 +1676,35 @@ def _authored_bore_axis_location_matches(
             (source.ref_pts[0], source.ref_pts[1]),
             (source.ref_pts[1], source.ref_pts[0]),
         )
+    )
+
+
+def _authored_pattern_centre_bore_axis_matches(
+    source: AuthoredDimension, location: ApprovedDimension, model: PartModel
+) -> bool:
+    """A bore-axis witness may also state a coaxial pattern centre's location."""
+    identity = location.id
+    if identity is None:
+        return False
+    feature = identity.feature
+    if (
+        not isinstance(feature, PatternFeature)
+        or feature.frame.axis != "z"
+        or location.discriminator not in ("x", "y")
+        or not identity.parameter.endswith(f".centre.{location.discriminator}")
+        or location.span is None
+    ):
+        return False
+    centre = location.span[1]
+    bores = [
+        candidate
+        for candidate in model.features
+        if isinstance(candidate, HoleFeature)
+        and candidate.frame.axis == "z"
+        and all(abs(candidate.frame.origin[i] - centre[i]) <= 0.01 for i in range(3))
+    ]
+    return len(bores) == 1 and _authored_bore_axis_location_matches(
+        source, replace(location, id=DimensionId(bores[0], identity.parameter))
     )
 
 
@@ -2136,10 +2189,39 @@ def compile_dimensions(
                         source, location.span, location.discriminator, location.value
                     )
                     or _authored_bore_axis_location_matches(source, location)
+                    or _authored_pattern_centre_bore_axis_matches(source, location, model)
                 )
             ]
             if len(matching) == 1:
                 unique_cover.setdefault(id(matching[0]), []).append(source)
+            elif len(matching) == 2:
+                # A centre bore and a coaxial pattern centre can carry the same
+                # datum-to-axis location. They are two owners of one physical
+                # station, not an ambiguous choice between distinct targets.
+                pattern = next(
+                    (
+                        item
+                        for item in matching
+                        if item.id is not None and isinstance(item.id.feature, PatternFeature)
+                    ),
+                    None,
+                )
+                bore = next(
+                    (
+                        item
+                        for item in matching
+                        if item.id is not None and isinstance(item.id.feature, HoleFeature)
+                    ),
+                    None,
+                )
+                if (
+                    pattern is not None
+                    and bore is not None
+                    and _authored_pattern_centre_bore_axis_matches(source, pattern, model)
+                    and _authored_bore_axis_location_matches(source, bore)
+                ):
+                    for location in matching:
+                        unique_cover.setdefault(id(location), []).append(source)
         uncovered = []
         for location in locations:
             covering = unique_cover.get(id(location), [])
