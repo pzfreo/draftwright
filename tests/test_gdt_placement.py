@@ -415,12 +415,23 @@ def test_imported_datum_refuses_a_wrong_side_fallback(monkeypatch, tmp_path):
 
 
 def test_imported_datum_on_absent_side_strip_tries_normal_plan_edge_issue_2182(tmp_path):
+    origin = PmiFeature(
+        frame=Frame((0.0, -25.0, 0.0), "y"),
+        pmi_kind="datum",
+        value=0.0,
+        label="A",
+        dominant_axis="Y",
+        ref_bbox=(-40.0, -25.0, -10.0, 40.0, -25.0, 10.0),
+        source_category="datum",
+        reference_axis="Y",
+    )
     datum = DatumRef(
         frame=Frame((0.0, -25.0, 0.0), "y"),
         letter="A",
         view="side",
         side="left",
         source_id="datum:missing-side-strip",
+        origin=origin,
         reference_surface_kind="plane",
     )
     surviving_frame = ControlFrame(
@@ -454,11 +465,22 @@ def test_imported_datum_on_absent_side_strip_tries_normal_plan_edge_issue_2182(t
 
 
 def test_datum_alternate_view_requires_a_selected_plan_view():
+    origin = PmiFeature(
+        frame=Frame((0.0, -25.0, 0.0), "y"),
+        pmi_kind="datum",
+        value=0.0,
+        label="B",
+        dominant_axis="Y",
+        ref_bbox=(-40.0, -25.0, -10.0, 40.0, -25.0, 10.0),
+        source_category="datum",
+        reference_axis="Y",
+    )
     datum = DatumRef(
         frame=Frame((0.0, -25.0, 0.0), "y"),
         letter="B",
         view="side",
         side="left",
+        origin=origin,
         reference_surface_kind="plane",
     )
     zones = {
@@ -468,6 +490,20 @@ def test_datum_alternate_view_requires_a_selected_plan_view():
     assert _datum_alternate_view(datum, zones, {"side": object()}) is datum
     alternate = _datum_alternate_view(datum, zones, {"side": object(), "plan": object()})
     assert (alternate.view, alternate.side, alternate.letter) == ("plan", "below", "B")
+    assert (
+        _datum_alternate_view(
+            DatumRef(
+                frame=datum.frame,
+                letter="B",
+                view="side",
+                side="left",
+                reference_surface_kind="plane",
+            ),
+            zones,
+            {"side": object(), "plan": object()},
+        ).view
+        == "side"
+    )
 
 
 def test_projected_datum_stem_keeps_both_near_and_far_datums_issue_2128():

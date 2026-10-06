@@ -63,6 +63,7 @@ def _datum_alternate_view(item, views, selected_views):
     """Retarget a Y-normal datum to its other edge-on view if its strip is absent."""
     if not (
         isinstance(item, DatumRef)
+        and getattr(item.origin, "source_category", None) == "datum"
         and item.reference_surface_kind == "plane"
         and item.frame.axis == "y"
         and item.view == "side"
