@@ -56,6 +56,51 @@ _DIM_PREFIX: dict[str, str] = {
     "radius": "R",
 }
 
+
+def _make_label(
+    kind: str,
+    value: float,
+    upper_tol: float | None,
+    lower_tol: float | None,
+    *,
+    lower_bound: float | None = None,
+    upper_bound: float | None = None,
+    value_decimals: int | None = None,
+    tolerance_decimals: int | None = None,
+    unit_name: str = "",
+) -> str:
+    """Format an XCAF dimension label with optional deviation or limit tolerance."""
+    from draftwright._core import _fmt
+    from draftwright._geometry import _fmt_pmi_magnitude
+
+    prefix = _DIM_PREFIX.get(kind, "")
+    base = f"{prefix}{_fmt(value, value_decimals)}"
+    if lower_bound is not None and upper_bound is not None:
+        base = (
+            f"{prefix}{_fmt_pmi_magnitude(lower_bound, value_decimals)} - "
+            f"{prefix}{_fmt_pmi_magnitude(upper_bound, value_decimals)}"
+        )
+        return f"{base} {unit_name}" if unit_name else base
+    # OCCT returns unsigned tolerance magnitudes; spell both directions out.
+    if upper_tol is not None and lower_tol is not None:
+        if abs(upper_tol) == abs(lower_tol) and abs(upper_tol) > 1e-9:
+            base += f" ±{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
+        elif abs(lower_tol) <= 1e-9:
+            base += f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}/0"
+        elif abs(upper_tol) <= 1e-9:
+            base += f" 0/-{_fmt_pmi_magnitude(abs(lower_tol), tolerance_decimals)}"
+        else:
+            base += (
+                f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
+                f"/-{_fmt_pmi_magnitude(abs(lower_tol), tolerance_decimals)}"
+            )
+    elif upper_tol is not None:
+        base += f" +{_fmt_pmi_magnitude(abs(upper_tol), tolerance_decimals)}"
+    elif lower_tol is not None:
+        base += f" -{_fmt_pmi_magnitude(abs(lower_tol), tolerance_decimals)}"
+    return f"{base} {unit_name}" if unit_name else base
+
+
 # int → short tag for XCAFDimTolObjects_GeomToleranceType
 _GTOL_TYPE: dict[int, str] = {
     1: "angularity",

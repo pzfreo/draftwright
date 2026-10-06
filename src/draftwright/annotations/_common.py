@@ -1350,6 +1350,9 @@ class PlacementContext:
     # The drawing's render list: :meth:`place` appends here, so a render pass places an
     # annotation through the ctx seam (``ctx.place(...)``) instead of reaching into the drawing.
     items: Any = None
+    # Build analysis is passed to render passes explicitly, never read from a
+    # Drawing private. The baseline step ladder uses its shared view strips.
+    analysis: Any = None
     # The ensured PartModel (ADR 1 (was 0008) IR) the run's passes read, threaded off the drawing so
     # they do not reach into ``dwg._part_model``. Both entry paths set it from the
     # PUBLIC ``dwg.model()`` after the model is ensured/attached.

@@ -1095,6 +1095,7 @@ def _auto_annotate(dwg: DrawingPort, a: Analysis, *, detail_view: bool = False):
         registry=dwg.registry,
         coverage=dwg.coverage,
         items=dwg.items,  # passes place via ctx.place, not dwg.add
+        analysis=a,
         # The opt-in solve-trace recorder is attached to the drawing's build state
         # by the builder; getattr because dwg is duck-typed in tests. None = off.
         trace=getattr(dwg, "solve_trace", None),
@@ -1107,7 +1108,6 @@ def _auto_annotate(dwg: DrawingPort, a: Analysis, *, detail_view: bool = False):
     # not accumulate duplicate drop records.
     ctx.reset_issues()
     ctx.coverage.reset_dropped()
-
     # Tighten right-strip outer_limits to the actual iso view left edge now
     # that the iso has been projected and fitted.  Always apply so that any
     # future allocations are bounded; warn when the cursor has already passed

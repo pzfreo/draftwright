@@ -32,6 +32,7 @@ from draftwright._geometry import (
     _segments_cross_or_overlap,
 )
 from draftwright.annotations._common import (
+    _LOC_SUBCHAIN,
     CROSSABLE_TYPES,
     PRIORITY,
     CorridorCandidate,
@@ -154,7 +155,8 @@ def _bore_span_offsets(pmi_kind: str, value: float) -> tuple[float, float]:
 
 # PMI is pre-authored manufacturing intent from the STEP file. When a strip is over
 # capacity it should survive ahead of auto-generated dims (priority 0), like declared
-# GD&T. It still lives in the outer run so it does not land between size/location dims.
+# GD&T. Linear PMI shares the location ladder when its witness spans that axis;
+# other authored PMI retains the outer run.
 _PMI_SUBCHAIN = 3
 _PMI_CORRIDOR_PRIORITY = PRIORITY.AUTHORED
 _PMI_SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
@@ -466,6 +468,7 @@ class _PmiDimensionBuild:
     witness: float
     label: str
     draft: Any
+    basic: bool = False
 
     def __call__(self, pos: float):
         # The helper draws one extension gap back toward the witnesses; the strip
@@ -475,10 +478,14 @@ class _PmiDimensionBuild:
             if self.side in ("above", "right")
             else self.witness - pos + self.draft.extension_gap
         )
-        return _dim(self.q1, self.q2, self.side, dist, self.draft, label=self.label)
+        return _dim(
+            self.q1, self.q2, self.side, dist, self.draft, label=self.label, basic=self.basic
+        )
 
 
-def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft, *, leader_fallback=False):
+def _pmi_dim_spec(
+    p1, p2, strip, label, name, view, side, draft, *, leader_fallback=False, basic=False
+):
     if strip is None:
         return None
     if side in ("above", "below"):
@@ -497,16 +504,15 @@ def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft, *, leader_fallb
     if side in ("below", "left") and lo >= witness:
         return None
 
-    order_coord = min(perp)
     spec = {
         "name": name,
-        "build": _PmiDimensionBuild(q1, q2, side, witness, label, draft),
+        "build": _PmiDimensionBuild(q1, q2, side, witness, label, draft, basic),
         "strip": strip,
         "view": view,
         "side": side,
         "axis": axis,
         "perp": perp,
-        "order": (_PMI_SUBCHAIN, order_coord, name),
+        "order": (_LOC_SUBCHAIN, abs(perp[1] - perp[0]), name),
     }
     if leader_fallback:
 
@@ -532,7 +538,7 @@ def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft, *, leader_fallb
     return spec
 
 
-def _oblique_pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
+def _oblique_pmi_dim_spec(p1, p2, strip, label, name, view, side, draft, *, basic=False):
     """Place an exact projected span parallel to its two authored witness stations."""
     if strip is None:
         return None
@@ -566,7 +572,7 @@ def _oblique_pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
 
     def _build(pos, _component=component, _coordinate=coordinate):
         distance = abs((pos - _coordinate) / _component)
-        return _dim(p1, p2, side, max(distance, 1e-6), draft, label=label)
+        return _dim(p1, p2, side, max(distance, 1e-6), draft, label=label, basic=basic)
 
     perp = tuple(sorted((p1[0], p2[0]))) if axis == "y" else tuple(sorted((p1[1], p2[1])))
     return {
@@ -613,7 +619,17 @@ def _oblique_linear_specs(a: Analysis, rec, label, name, draft):
             else ("above", "below", "right", "left")
         )
     return [
-        _oblique_pmi_dim_spec(p1, p2, getattr(zones, side), label, name, view, side, draft)
+        _oblique_pmi_dim_spec(
+            p1,
+            p2,
+            getattr(zones, side),
+            label,
+            name,
+            view,
+            side,
+            draft,
+            basic=getattr(rec, "basic", False),
+        )
         for side in sides
     ]
 
@@ -1120,12 +1136,26 @@ def _pmi_front_linear(
         return None
     p1, p2, avg = wp
     zones = a.pv_zones if view == "plan" else a.fv_zones
+
+    def spec(side):
+        return _pmi_dim_spec(
+            p1,
+            p2,
+            getattr(zones, side),
+            label,
+            name,
+            view,
+            side,
+            draft,
+            basic=getattr(rec, "basic", False),
+        )
+
     if rec.side is not None:
         sides = [s for s in (primary, secondary) if rec.side == s]
         return _pmi_queue_options(
             dwg,
             ctx,
-            [_pmi_dim_spec(p1, p2, getattr(zones, s), label, name, view, s, draft) for s in sides],
+            [spec(side) for side in sides],
             ax,
             label,
             rec,
@@ -1136,10 +1166,8 @@ def _pmi_front_linear(
             dwg,
             ctx,
             [
-                _pmi_dim_spec(p1, p2, getattr(zones, primary), label, name, view, primary, draft),
-                _pmi_dim_spec(
-                    p1, p2, getattr(zones, secondary), label, name, view, secondary, draft
-                ),
+                spec(primary),
+                spec(secondary),
             ],
             ax,
             label,
@@ -1149,11 +1177,7 @@ def _pmi_front_linear(
         placed = _pmi_queue_options(
             dwg,
             ctx,
-            [
-                _pmi_dim_spec(
-                    p1, p2, getattr(zones, secondary), label, name, view, secondary, draft
-                )
-            ],
+            [spec(secondary)],
             ax,
             label,
             rec,
@@ -1353,7 +1377,7 @@ def _bore_render_options(
     surface_pg,
 ):
     """Choose in-place witnesses or a surface leader for one projected bore."""
-    if half_span_pg >= _MIN_INPLACE_BORE_HALF_MM:
+    if half_span_pg >= _MIN_INPLACE_BORE_HALF_MM or getattr(rec, "basic", False):
         p1, p2 = cfg["span"](cx, cy, cz, lo, hi)
         order = tuple(
             side
@@ -1371,7 +1395,8 @@ def _bore_render_options(
                 cfg["view"],
                 side,
                 draft,
-                leader_fallback=True,
+                leader_fallback=not getattr(rec, "basic", False),
+                basic=getattr(rec, "basic", False),
             )
             for side in order
         ]
@@ -1394,6 +1419,38 @@ def _bore_render_options(
     ]
 
 
+def _basic_unboxed_producer(rec, cylindrical_refs, axis: str) -> bool:
+    """Identify legacy producers without a boxed basic-ink candidate yet."""
+    if not getattr(rec, "basic", False):
+        return False
+    return rec.pmi_kind == "angular" or (
+        rec.pmi_kind == "diameter" and bool(cylindrical_refs) and axis == "?"
+    )
+
+
+def _pmi_label_with_count(rec, circular_refs, cylindrical_refs) -> str:
+    count = len(circular_refs) or (
+        len(cylindrical_refs)
+        if cylindrical_refs and cylindrical_refs[0].principal_axis == "?"
+        else 0
+    )
+    label = str(rec.label)
+    if rec.pmi_kind == "diameter" and count > 1 and re.match(r"^\s*\d+\s*[xX×]\s*", label) is None:
+        return f"{count}× {label}"
+    return label
+
+
+def _place_basic_or_supported_pmi_record(
+    dwg, a: Analysis, ctx, rec, idx, bore_cfg, draft, *, queue_options=_pmi_queue_options
+) -> bool:
+    # These legacy producers draw unboxed text. Do not silently lose a basic box.
+    cylindrical_refs = tuple(getattr(rec, "cylindrical_refs", ()))
+    if _basic_unboxed_producer(rec, cylindrical_refs, rec.dominant_axis):
+        _record_pmi_no_candidate(ctx, rec.label, rec)
+        return False
+    return _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft, queue_options=queue_options)
+
+
 def _place_pmi_record(
     dwg, a: Analysis, ctx, rec, idx, bore_cfg, draft, *, queue_options=_pmi_queue_options
 ) -> bool:
@@ -1406,20 +1463,13 @@ def _place_pmi_record(
     """
     _pmi_queue_options = queue_options
     ax = rec.dominant_axis
-    label = rec.label
+
+    def pmi_spec(*args):
+        return _pmi_dim_spec(*args, basic=getattr(rec, "basic", False))
+
     circular_refs = tuple(getattr(rec, "circular_refs", ()))
     cylindrical_refs = tuple(getattr(rec, "cylindrical_refs", ()))
-    pattern_count = len(circular_refs) or (
-        len(cylindrical_refs)
-        if cylindrical_refs and cylindrical_refs[0].principal_axis == "?"
-        else 0
-    )
-    if (
-        rec.pmi_kind == "diameter"
-        and pattern_count > 1
-        and re.match(r"^\s*\d+\s*[xX×]\s*", label) is None
-    ):
-        label = f"{pattern_count}× {label}"
+    label = _pmi_label_with_count(rec, circular_refs, cylindrical_refs)
     placed = False
     name_x = f"pmi_x_{idx}"
     name_z = f"pmi_z_{idx}"
@@ -1588,7 +1638,7 @@ def _place_pmi_record(
             else:
                 target_sides = ("right", "left") if avg >= a.PV_X else ("left", "right")
             options = [
-                _pmi_dim_spec(
+                pmi_spec(
                     p1,
                     p2,
                     getattr(zones, target_side),
@@ -1621,12 +1671,8 @@ def _place_pmi_record(
                     dwg,
                     ctx,
                     [
-                        _pmi_dim_spec(
-                            p1, p2, a.sv_zones.above, label, name_y, "side", "above", draft
-                        ),
-                        _pmi_dim_spec(
-                            p1, p2, a.sv_zones.below, label, name_y, "side", "below", draft
-                        ),
+                        pmi_spec(p1, p2, a.sv_zones.above, label, name_y, "side", "above", draft),
+                        pmi_spec(p1, p2, a.sv_zones.below, label, name_y, "side", "below", draft),
                     ],
                     ax,
                     label,
@@ -1636,11 +1682,7 @@ def _place_pmi_record(
                 placed = _pmi_queue_options(
                     dwg,
                     ctx,
-                    [
-                        _pmi_dim_spec(
-                            p1, p2, a.sv_zones.below, label, name_y, "side", "below", draft
-                        )
-                    ],
+                    [pmi_spec(p1, p2, a.sv_zones.below, label, name_y, "side", "below", draft)],
                     ax,
                     label,
                     rec,
@@ -1653,11 +1695,7 @@ def _place_pmi_record(
                 placed = _pmi_queue_options(
                     dwg,
                     ctx,
-                    [
-                        _pmi_dim_spec(
-                            p1, p2, a.pv_zones.below, label, name_y, "plan", "below", draft
-                        )
-                    ],
+                    [pmi_spec(p1, p2, a.pv_zones.below, label, name_y, "plan", "below", draft)],
                     ax,
                     label,
                     rec,
@@ -1775,7 +1813,9 @@ def render_pmi(
         sheet_fallback=sheet_fallback,
     )
     for idx, rec in enumerate(usable):
-        if _place_pmi_record(dwg, a, ctx, rec, idx, _bore, draft, queue_options=queue_options):
+        if _place_basic_or_supported_pmi_record(
+            dwg, a, ctx, rec, idx, _bore, draft, queue_options=queue_options
+        ):
             queued += 1
     _log.info("PMI annotate: %d/%d dims queued", queued, len(usable))
     return queued
