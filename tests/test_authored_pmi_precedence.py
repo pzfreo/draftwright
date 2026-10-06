@@ -10,7 +10,7 @@ from build123d import Box, Cylinder, Pos
 from draftwright import build_drawing
 from draftwright.builder import detect_part_model
 from draftwright.linting.coverage import _authored_axial_witness_on_profile
-from draftwright.model.compiled import compile_dimensions
+from draftwright.model.compiled import _authored_bore_axis_location_matches, compile_dimensions
 from draftwright.model.ir import (
     AuthoredDimension,
     CylindricalReference,
@@ -759,6 +759,13 @@ def test_authored_bore_axis_station_covers_only_its_physical_hole_location():
         )
     )
     assert len([d for d in wrong_bore.locations if d.discriminator == "x"]) == 2
+    shallow_x = next(
+        d for d in plan.locations if d.id.feature is shallow and d.discriminator == "x"
+    )
+    assert not _authored_bore_axis_location_matches(source, replace(shallow_x, discriminator="z"))
+    assert not _authored_bore_axis_location_matches(
+        source, replace(shallow_x, span=((-25, 5, 12), (20, 5, 12)))
+    )
 
 
 def test_pattern_member_provenance_is_per_measurement():
