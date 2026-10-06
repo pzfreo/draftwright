@@ -82,6 +82,7 @@ from draftwright.annotations._placement_geometry import (
 from draftwright.annotations._placement_occupancy import (  # noqa: F401 — stable _common imports
     _PAGE_SPANNING_RIDERS,
     CROSSABLE_TYPES,
+    DeferredCompactCandidate,
     annotation_ink_clear,
     annotation_ink_obstacles,
     annotation_obstacle_boxes,
@@ -89,6 +90,7 @@ from draftwright.annotations._placement_occupancy import (  # noqa: F401 — sta
     balloon_annotation_label_boxes,
     balloon_geometry_hits_annotation_labels,
     box_within_page_and_clear,
+    compact_probe_clear,
     corridor_blockers,
     full_strip_message,
     is_page_spanning_rider,
@@ -2253,7 +2255,15 @@ def _compact_strip_candidate_ink(run) -> None:
         index = next((i for i, (key, _dim) in enumerate(solved) if key == name), None)
         original = solved[index][1] if index is not None else None
         others = [item for key, item in solved if key != name]
-        for candidate in alternatives(original):
+        for proposal in alternatives(original):
+            if isinstance(proposal, DeferredCompactCandidate):
+                if not compact_probe_clear(
+                    dwg, proposal, others, (forbid or {}).get(name), label_clear
+                ):
+                    continue
+                candidate = proposal.materialize()
+            else:
+                candidate = proposal
             if (
                 original is not None
                 and hasattr(candidate, "arc_radius")

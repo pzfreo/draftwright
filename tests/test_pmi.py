@@ -50,6 +50,104 @@ def ctc04_extraction_report():
 
 
 class TestExtractPmi:
+    def test_position_record_keeps_exact_cylinder_axis_issue_2192(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+
+        monkeypatch.setattr(pmi_module, "_geometric_tolerance_modifiers", lambda _obj: ((), ()))
+        monkeypatch.setattr(pmi_module, "_geometric_tolerance_qualifiers", lambda _obj: ((), ()))
+        monkeypatch.setattr(pmi_module, "_unpreserved_geometric_tolerance_fields", lambda _obj: ())
+        monkeypatch.setattr(
+            pmi_module,
+            "_reference_geometry",
+            lambda *_args: (((0.0, 0.0, 4.0),), (-11, -11, 0, 11, 11, 8), "X", ()),
+        )
+        monkeypatch.setattr(
+            pmi_module,
+            "_cylindrical_references",
+            lambda *_args: ((SimpleNamespace(axis_direction=(0.0, 0.0, 1.0)),), ()),
+        )
+        monkeypatch.setattr(pmi_module, "_datum_references", lambda *_args: ((), ()))
+        record, reasons = pmi_module._geometric_tolerance_record(
+            object(), SimpleNamespace(GetValue=lambda: 2.0), 10, object(), object(), "gtol:bore"
+        )
+        assert not reasons
+        assert record.dominant_axis == "X" and record.reference_axis == "Z"
+        assert len(record.cylindrical_refs) == 1
+
+    def test_position_frame_uses_proven_bore_axis_not_bbox_width_issue_2192(self):
+        from draftwright._pmi_topology import _common_principal_cylinder_axis
+        from draftwright.model import build_pmi_features
+
+        z_bore = SimpleNamespace(axis_direction=(0.0, 0.0, 1.0))
+        assert _common_principal_cylinder_axis((z_bore, z_bore)) == "Z"
+        assert (
+            _common_principal_cylinder_axis(
+                (z_bore, SimpleNamespace(axis_direction=(1.0, 0.0, 0.0)))
+            )
+            == ""
+        )
+        record = PmiRecord(
+            kind="position",
+            type_code=8,
+            value=2.0,
+            source_category="geometric_tolerance",
+            source_id="geometric_tolerance:bore",
+            dominant_axis="X",  # the 22 mm diameter exceeds the 8 mm axial height
+            reference_axis="Z",
+            ref_pts=((0.0, 0.0, 4.0),),
+            ref_bbox=(-11.0, -11.0, 0.0, 11.0, 11.0, 8.0),
+        )
+        (frame,) = build_pmi_features((record,), Box(120, 80, 12).bounding_box())
+        assert (frame.view, frame.frame.axis) == ("plan", "z")
+
+    def test_plane_to_bore_axis_location_uses_exact_face_witness_issue_2192(self):
+        from build123d import Axis, Cylinder, GeomType, Pos, Rot
+
+        from draftwright._pmi_linear_geometry import _proved_planar_linear
+        from draftwright.pmi import _shape_bbox
+
+        plane = (Pos(-59, 0, 6) * Box(2, 80, 12)).faces().sort_by(Axis.X)[0].wrapped
+        bore = (Pos(0, 0, 4) * Cylinder(11, 8)).faces().filter_by(GeomType.CYLINDER)[0].wrapped
+        centres = ((-60.0, 0.0, 6.0), (0.0, 0.0, 4.0))
+        points, axis, view, blockers = _proved_planar_linear(
+            ((plane,), (bore,)), centres, 60.0, "linear", None, _shape_bbox
+        )
+        assert (axis, view, blockers) == ("X", "plan", ())
+        assert points[0] == pytest.approx((-60.0, 0.0, 4.0))
+        assert points[1] == pytest.approx((0.0, 0.0, 4.0))
+
+        # A matching nominal is not enough: the bore axis must touch the
+        # authored plane face and the cylindrical axis must be principal.
+        distant = (Pos(-59, 30, 6) * Box(2, 10, 12)).faces().sort_by(Axis.X)[0].wrapped
+        _, axis, _, blockers = _proved_planar_linear(
+            ((distant,), (bore,)),
+            ((-60.0, 30.0, 6.0), centres[1]),
+            60.0,
+            "linear",
+            None,
+            _shape_bbox,
+        )
+        assert axis == "?" and blockers
+        tilted = (
+            (Pos(0, 0, 4) * Rot(Y=20) * Cylinder(11, 8))
+            .faces()
+            .filter_by(GeomType.CYLINDER)[0]
+            .wrapped
+        )
+        _, axis, view, _blockers = _proved_planar_linear(
+            ((plane,), (tilted,)), centres, 60.0, "linear", None, _shape_bbox
+        )
+        assert (axis, view) != ("X", "plan")
+
+        # A plane bbox can cover the axis while the trimmed face has a hole
+        # there. The oblique centre fallback must not silently certify it.
+        cut = Pos(-59, 0, 4) * Rot(Y=90) * Cylinder(3, 4)
+        holed_plane = ((Pos(-59, 0, 6) * Box(2, 80, 12)) - cut).faces().sort_by(Axis.X)[0].wrapped
+        _, _, _, blockers = _proved_planar_linear(
+            ((holed_plane,), (bore,)), centres, 60.0, "linear", None, _shape_bbox
+        )
+        assert any("no proven face-supported axis witness" in reason for reason in blockers)
+
     def test_parallel_x_faces_do_not_use_bbox_overlap_through_a_hole_issue_2193(self):
         from build123d import Axis, Pos
         from OCP.BRepClass import BRepClass_FaceClassifier
@@ -198,6 +296,35 @@ class TestExtractPmi:
             queue_options=capture,
         )
         assert queued and all(option["view"] == "plan" for option in queued)
+
+    def test_plan_y_witness_uses_source_station_not_broad_face_bbox_issue_2192(self):
+        from draftwright.annotations._pmi_dimensions import _pmi_witness_from_bbox
+
+        def identity(value):
+            return value
+
+        analysis = SimpleNamespace(
+            proj=SimpleNamespace(
+                front_x=identity,
+                front_z=identity,
+                side_x=identity,
+                side_z=identity,
+                plan_x=identity,
+                plan_y=identity,
+            )
+        )
+        stations = (-25.0, 0.0, 25.0)
+        witnesses = []
+        for station in stations:
+            record = SimpleNamespace(
+                dominant_axis="Y",
+                ref_pts=((station, -40.0, 6.0), (station, 0.0, 6.0)),
+                ref_bbox=(-60.0, -40.0, 0.0, 60.0, 40.0, 12.0),
+            )
+            witnesses.append(_pmi_witness_from_bbox(record, "plan", analysis))
+
+        assert [witness[0][0] for witness in witnesses] == list(stations)
+        assert all(witness[0][1] == -40.0 and witness[1][1] == 0.0 for witness in witnesses)
 
     def test_nist_ctc01_returns_records(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records

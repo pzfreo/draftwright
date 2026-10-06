@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import math
 
-from draftwright._pmi_topology import _parallel_planar_reference_witness
+from draftwright._pmi_topology import (
+    _is_mixed_planar_bore,
+    _parallel_planar_reference_witness,
+    _planar_bore_axis_witness,
+)
 from draftwright.model.ir import _linear_projection_view
 
 _LINEAR_AXIS_ABS_TOL = 0.005
@@ -24,6 +28,22 @@ def _proved_planar_linear(groups, stations, nominal, kind, frame, shape_bbox):
             None,
             ("parallel planar source faces have no proven shared witness",),
         )
+    if axis is None and kind == "linear" and _is_mixed_planar_bore(groups):
+        bore_support = _planar_bore_axis_witness(groups, frame, shape_bbox)
+        if bore_support is None:
+            points, dominant, reasons = _dimension_reference_stations(
+                tuple(stations), nominal, kind
+            )
+            return (
+                points,
+                dominant,
+                None,
+                (
+                    *reasons,
+                    "plane-to-bore location has no proven face-supported axis witness",
+                ),
+            )
+        stations, axis, view = bore_support
     if witness:
         stations = tuple(
             tuple(

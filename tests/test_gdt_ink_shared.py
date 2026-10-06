@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 
+import pytest
 from build123d_drafting import FeatureControlFrame, Leader
 from build123d_drafting.helpers import Draft
 
@@ -139,6 +140,31 @@ def _assert_capacity_fixture_fits_each_alone(monkeypatch, outer_limit):
         )
         assert [placed for placed, _item in drawing.added] == [name]
         assert remaining == []
+
+
+def test_deferred_compaction_rejects_out_of_page_label_before_build(monkeypatch):
+    monkeypatch.setattr(_common, "strip_obstacles", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(_common, "pending_title_block_box", lambda _drawing: None)
+    drawing = _Drawing()
+    strip = Strip(anchor=0.0, outer_limit=50.0, direction=1.0, gap=8.0, spacing=3.0)
+    deferred = _common.DeferredCompactCandidate(
+        (101.0, 20.0, 110.0, 25.0),
+        lambda: pytest.fail("a provably off-page retry built CAD ink"),
+    )
+    remaining = _common.place_strip_candidates(
+        drawing,
+        strip,
+        "plan",
+        "y",
+        [("frame", _frame)],
+        tier=5.0,
+        ctx=drawing,
+        force=True,
+        sizes={"frame": (10.0, 5.0)},
+        compact_candidates={"frame": lambda _original: (deferred,)},
+    )
+    assert remaining == []
+    assert [name for name, _item in drawing.added] == ["frame"]
 
 
 def test_frame_moves_as_whole_when_same_batch_dimension_crosses_its_glyph(monkeypatch):

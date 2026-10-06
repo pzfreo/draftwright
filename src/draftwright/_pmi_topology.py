@@ -6,7 +6,7 @@ B-rep; geometric likeness alone cannot establish source ownership.
 
 from __future__ import annotations
 
-from draftwright._pmi_datum_geometry import _frame_vector
+from draftwright._pmi_datum_geometry import _frame_point, _frame_vector
 from draftwright._pmi_support_blockers import _failure_reason
 
 try:
@@ -142,6 +142,109 @@ def _point_inside_x_face(face, x, y, z, frame):
         return classifier.State() == TopAbs_IN
     except Exception:
         return False
+
+
+def _planar_bore_axis_witness(groups, frame, shape_bbox):
+    """Prove a location from one principal plane to one finite Z-bore axis.
+
+    A cylindrical face's bbox centre is its axial *height*, not the location
+    station. The plane must actually contain the axis-aligned witness point;
+    a bounding-box overlap alone would invent a witness through a trimmed face.
+    """
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.BRepClass import BRepClass_FaceClassifier
+    from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
+    from OCP.gp import gp_Pnt
+    from OCP.TopAbs import TopAbs_IN, TopAbs_ON
+    from OCP.TopoDS import TopoDS
+
+    if len(groups) != 2 or any(len(group) != 1 for group in groups):
+        return None
+    try:
+        faces = tuple(TopoDS.Face_s(group[0]) for group in groups)
+        surfaces = tuple(BRepAdaptor_Surface(face) for face in faces)
+        kinds = tuple(surface.GetType() for surface in surfaces)
+        if kinds not in ((GeomAbs_Plane, GeomAbs_Cylinder), (GeomAbs_Cylinder, GeomAbs_Plane)):
+            return None
+        plane_i = kinds.index(GeomAbs_Plane)
+        bore_i = 1 - plane_i
+        normal = surfaces[plane_i].Plane().Axis().Direction()
+        normal = _frame_vector((normal.X(), normal.Y(), normal.Z()), frame)
+        axis = max(range(3), key=lambda index: abs(normal[index]))
+        if axis not in (0, 1) or abs(abs(normal[axis]) - 1) > 1e-6:
+            return None
+        bore = surfaces[bore_i].Cylinder().Axis()
+        direction = bore.Direction()
+        direction = _frame_vector((direction.X(), direction.Y(), direction.Z()), frame)
+        if abs(abs(direction[2]) - 1) > 1e-6 or max(abs(value) for value in direction[:2]) > 1e-6:
+            return None
+        point = bore.Location()
+        centre = _frame_point((point.X(), point.Y(), point.Z()), frame)
+        boxes = tuple(
+            shape_bbox(group[0]) if frame is None else shape_bbox(group[0], frame)
+            for group in groups
+        )
+        plane_box, bore_box = boxes[plane_i], boxes[bore_i]
+        z0 = max(plane_box[2], bore_box[2])
+        z1 = min(plane_box[5], bore_box[5])
+        if z1 - z0 <= 1e-6:
+            return None
+        station = (plane_box[axis] + plane_box[axis + 3]) / 2
+        if plane_box[axis + 3] - plane_box[axis] > 1e-5:
+            return None
+        witness = list(centre)
+        witness[axis] = station
+        witness[2] = (z0 + z1) / 2
+        world = witness if frame is None else frame.to_world(tuple(witness))
+        classifier = BRepClass_FaceClassifier()
+        classifier.Perform(faces[plane_i], gp_Pnt(*world), 1e-7)
+        if classifier.State() not in (TopAbs_IN, TopAbs_ON):
+            return None
+        points = [tuple(witness), tuple(witness)]
+        bore_point = list(witness)
+        bore_point[axis] = centre[axis]
+        points[bore_i] = tuple(bore_point)
+        return tuple(points), "XYZ"[axis], "plan"
+    except Exception:
+        return None
+
+
+def _is_mixed_planar_bore(groups):
+    """Recognise the mixed support even when its location proof fails."""
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
+    from OCP.TopoDS import TopoDS
+
+    if len(groups) != 2 or any(len(group) != 1 for group in groups):
+        return False
+    try:
+        kinds = tuple(BRepAdaptor_Surface(TopoDS.Face_s(group[0])).GetType() for group in groups)
+        return kinds in ((GeomAbs_Plane, GeomAbs_Cylinder), (GeomAbs_Cylinder, GeomAbs_Plane))
+    except Exception:
+        return False
+
+
+def _common_principal_cylinder_axis(references):
+    """Return a shared principal axis only when every exact cylinder proves it."""
+    axes = []
+    for reference in references:
+        vector = reference.axis_direction
+        axis = max(range(3), key=lambda index: abs(vector[index]))
+        if abs(abs(vector[axis]) - 1.0) > 1e-6 or any(
+            abs(vector[index]) > 1e-6 for index in range(3) if index != axis
+        ):
+            return ""
+        axes.append("XYZ"[axis])
+    return axes[0] if axes and len(set(axes)) == 1 else ""
+
+
+def _optional_cylinder_support(probe):
+    """Keep an optional axis probe from erasing otherwise valid source PMI."""
+    try:
+        references, reasons = probe()
+        return references if not reasons else ()
+    except Exception:
+        return ()
 
 
 def _supported_planar_view(axis: str, group_boxes) -> tuple[str | None, str | None]:

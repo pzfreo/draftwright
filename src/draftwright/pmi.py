@@ -114,9 +114,11 @@ from draftwright._pmi_support_blockers import (
     _without_direct_xcaf_reference_failures,
 )
 from draftwright._pmi_topology import (
+    _common_principal_cylinder_axis,
     _CommonLabelTopologyResolver,
     _DatumTopologyResolver,
     _DimensionSupportResolver,
+    _optional_cylinder_support,
     _SurfaceLabelTopologyResolver,
 )
 from draftwright._pmi_topology import (
@@ -183,13 +185,13 @@ class PmiRecord:
         datum_contexts: Tolerance semantic names in which a datum definition is referenced.
         reference_item_ids: Exact Part21 representation items bound to a datum feature.
         reference_item_groups: Ordered Part21 support groups bound to a dimension.
-        reference_axis: Axis normal to a planar datum support or along a cylindrical one.
+        reference_axis: Principal datum normal or exact cylindrical GD&T support axis.
         reference_surface_kind: Proven datum support type, ``plane`` or ``cylinder``.
         reference_normal: Outward normal of a planar datum; empty for cylindrical supports.
         semantic_name: Stable source name for a semantic manufacturing requirement.
         shape_aspect_ids: Part21 shape aspects associating a semantic requirement to geometry.
-        cylindrical_refs: Canonical finite-cylinder topology referenced by a Size_Diameter
-                        requirement. Empty for other dimension families or unresolved geometry.
+        cylindrical_refs: Exact finite-cylinder supports for Size_Diameter or GD&T;
+                        empty when unsupported or unresolved.
         reference_bboxes: Per-item bounds for exact imported manufacturing supports.
         circular_refs: Canonical circular-edge topology referenced by a Size_Diameter
                         requirement whose semantic association names edges rather than faces.
@@ -1462,6 +1464,10 @@ def _geometric_tolerance_record(
         reference_geometry = _reference_geometry(label, shape_tool, frame)
     points, ref_bbox, dominant_axis, reference_reasons = reference_geometry
     partial_reasons.extend(reference_reasons)
+    # Exact cylinders, not their diameter-wide boxes, determine GD&T view axes.
+    cylinders = _optional_cylinder_support(
+        lambda: _cylindrical_references(label, shape_tool, frame)
+    )
     datum_refs, datum_reasons = _datum_references(label, dim_tol_tool)
     partial_reasons.extend(datum_reasons)
     lowering_blockers = tuple(dict.fromkeys(partial_reasons))
@@ -1478,6 +1484,8 @@ def _geometric_tolerance_record(
             datum_refs=datum_refs,
             part21_id=part21_id,
             source_category="geometric_tolerance",
+            cylindrical_refs=cylinders,
+            reference_axis=_common_principal_cylinder_axis(cylinders),
             gtol_modifiers=gtol_modifiers,
             lowering_blockers=lowering_blockers,
         ),
