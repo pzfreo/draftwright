@@ -247,6 +247,7 @@ class TestExtractPmi:
 
         def identity(value):
             return value
+
         analysis = SimpleNamespace(
             proj=SimpleNamespace(
                 front_x=identity,

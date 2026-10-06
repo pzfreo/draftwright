@@ -788,6 +788,22 @@ def _reserve_planned_angles(
                     )
 
 
+def _reserve_unhinted_linear_corridors(corridors, kind, axis) -> None:
+    """Reserve the same default/fallback strips the linear PMI renderer tries."""
+    if kind == "linear" and axis == "X":
+        # Imported AP242 X dimensions commonly have no route hint. Without these
+        # bands even a required overall tolerance has a zero-capacity strip (#2192).
+        _reserve_corridor(corridors, "front", "above")
+        _reserve_corridor(corridors, "front", "below")
+    elif kind == "linear" and axis == "Y":
+        _reserve_corridor(corridors, "side", "above")
+        _reserve_corridor(corridors, "side", "below")
+        _reserve_corridor(corridors, "plan", "below")
+    elif kind not in ("diameter", "radius", "angular") and axis == "Z":
+        _reserve_corridor(corridors, "front", "left")
+        _reserve_corridor(corridors, "front", "right")
+
+
 def _reserve_authored_dimensions(
     model,
     boxes: list[AnnoBox],
@@ -821,26 +837,8 @@ def _reserve_authored_dimensions(
         if view_hint is None and side_hint is None and angular_reference is None:
             if kind == "linear" and axis == "?" and target_view is not None:
                 pass
-            elif kind == "linear" and axis == "X":
-                # The renderer tries front/above, then front/below. Imported
-                # AP242 X dimensions commonly have no route hint; omitting both
-                # bands leaves even a required overall tolerance with a zero-
-                # capacity strip despite ample space on the sheet (#2192).
-                _reserve_corridor(corridors, "front", "above")
-                _reserve_corridor(corridors, "front", "below")
-                continue
-            elif kind == "linear" and axis == "Y":
-                # The no-hint route tries the side's two horizontal strips and
-                # then the plan's below strip. Reserve those same alternatives.
-                _reserve_corridor(corridors, "side", "above")
-                _reserve_corridor(corridors, "side", "below")
-                _reserve_corridor(corridors, "plan", "below")
-                continue
-            elif kind not in ("diameter", "radius", "angular") and axis == "Z":
-                _reserve_corridor(corridors, "front", "left")
-                _reserve_corridor(corridors, "front", "right")
-                continue
             else:
+                _reserve_unhinted_linear_corridors(corridors, kind, axis)
                 continue
         if target_view is None:
             continue
