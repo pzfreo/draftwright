@@ -263,10 +263,14 @@ CONTRACT_GROUPS = {
         ),
     ),
     "leader_fixed_ink": ContractGroup(
-        ("src/draftwright/annotations/_leader_fixed_ink.py",),
+        (
+            "src/draftwright/annotations/_leader_fixed_ink.py",
+            "src/draftwright/fixed_ink_cache.py",
+        ),
         (
             "test_issue_1166_cross_pass_feature_leaders.py",
             "test_issue_1534_build_progress.py",
+            "test_issue_367_leader_ink.py",
             "test_issue_798_silhouette_lint.py",
         ),
     ),
