@@ -419,6 +419,27 @@ def test_compose_reserves_every_supported_measured_corridor_family():
     assert footprint.sv_top > 0 and footprint.sv_bottom > 0
 
 
+def test_unhinted_source_linear_dimensions_reserve_their_render_routes_issue_2192():
+    sheet = Sheet(Box(120, 80, 12)).authored_dimensions()
+    for axis, points in (
+        ("X", ((-60, 0, 6), (60, 0, 6))),
+        ("Y", ((0, -40, 6), (0, 0, 6))),
+    ):
+        sheet.measured_dimension(
+            kind="linear",
+            value=120 if axis == "X" else 40,
+            label="120 ±0.05" if axis == "X" else "40",
+            dominant_axis=axis,
+            ref_bbox=(-60, -40, 0, 60, 40, 12),
+            ref_pts=points,
+        )
+
+    footprint = _footprint_from_boxes(_compose_anno_boxes(sheet.model(), n_steps=0))
+    assert footprint.fv_top > 0 and footprint.fv_bottom > 0
+    assert footprint.sv_top > 0 and footprint.sv_bottom > 0
+    assert footprint.pv_bottom > 0
+
+
 def test_compose_ignores_an_unresolved_defensive_target(monkeypatch):
     import draftwright.compose as compose
 
