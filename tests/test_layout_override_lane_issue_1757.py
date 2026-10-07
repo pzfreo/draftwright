@@ -6,10 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box
+from build123d import Box, Cylinder, Rot
 from jsonschema.validators import validator_for
 
 from draftwright import Sheet
+from draftwright.annotations._axial_render import _place_or_queue_rotational_od
 from draftwright.annotations._common import PlacementContext
 from draftwright.annotations.from_model import _record_slot_drop
 from draftwright.model.ir import LayoutOverride, RequestedDimension
@@ -79,6 +80,45 @@ def test_lane_capability_targets_one_declared_parameter() -> None:
         "declaration:slot", parameter="slot_end_radius.radius", lane=2
     )
     assert unsupported["issues"][0]["code"] == "unsupported_declaration"
+
+
+@pytest.mark.parametrize(
+    ("axis", "rotation"),
+    [("z", (0, 0, 0)), ("x", (0, 90, 0)), ("y", (90, 0, 0))],
+)
+def test_rotational_od_lane_moves_the_existing_dimension(axis, rotation) -> None:
+    part = Rot(*rotation) * Cylinder(15, 40)
+    positions = []
+    for lane in (1, 2):
+        sheet = Sheet(part, page="A3", scale=2).authored_dimensions()
+        od = sheet.rotational(od=30, at=(0, 0, 0), axis=axis).identify("declaration:od")
+        sheet.dimension(od, "od.diameter")
+        assert (
+            "lane" in sheet.layout_options("declaration:od", parameter="od.diameter")["controls"]
+        )
+        sheet.layout_override("declaration:od", parameter="od.diameter", lane=lane)
+        drawing = sheet.build()
+        mark = drawing.get_annotation("dim_od")
+        assert mark is not None
+        assert not any(issue.code == "placement_unsatisfiable" for issue in drawing.lint())
+        positions.append(mark.placement_spec.distance)
+        if axis == "x" and lane == 2:
+            assert mark.placement_spec.side == "right"
+        assert drawing.report()["layout"]["overrides"][0]["resolved_value"] == lane
+    assert positions[1] > positions[0]
+
+
+def test_od_lane_without_batch_solve_reports_refusal() -> None:
+    context = PlacementContext(registry=AnnotationRegistry())
+    od = SimpleNamespace(lane=2, measurement_ids=())
+    count = _place_or_queue_rotational_od(
+        None, context, od, (0, 0, 0), (1, 0, 0), "above", "front", "ø1"
+    )
+
+    (issue,) = context.registry.issues
+    assert count == 0
+    assert issue.code == "placement_unsatisfiable"
+    assert issue.evidence_reason == "requested_lane_unavailable:2:measured_lane_solve_unavailable"
 
 
 def test_lane_override_changes_only_the_exact_dimension_policy() -> None:
