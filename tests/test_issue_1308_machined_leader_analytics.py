@@ -231,6 +231,33 @@ def test_source_aware_drop_severity_preserves_unsourced_warning(monkeypatch):
     ]
 
 
+def test_requested_leader_lane_refusal_names_exact_rank(monkeypatch):
+    issues = []
+    ctx = SimpleNamespace(
+        feature_leaders=[],
+        record_issue=lambda *args, **kwargs: issues.append((args, kwargs)),
+    )
+    monkeypatch.setattr(from_model, "_text_size", lambda *_args, **_kwargs: (0.0, 0.0))
+    from_model.place_machined_leader_jobs(
+        SimpleNamespace(draft=Draft()),
+        None,
+        [("step", "front", (0.0, 0.0, 1.0, 1.0), "ø10", (), ())],
+        noun="diameter",
+        drop_code="diameter_dropped",
+        ctx=ctx,
+        joint=True,
+        requested_lanes={"step": 4},
+    )
+
+    (job,) = ctx.feature_leaders
+    assert job.on_drop is not None
+    job.on_drop("no_clear_room")
+    (args, kwargs), = issues
+    assert args[0:2] == ("error", "placement_unsatisfiable")
+    assert "requested lane 4 unavailable" in args[2]
+    assert kwargs["evidence_reason"] == "requested_lane_unavailable:4:no_clear_room"
+
+
 @pytest.mark.parametrize("fixture", tuple(EXPECTED))
 def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, monkeypatch):
     from draftwright import builder as builder_module

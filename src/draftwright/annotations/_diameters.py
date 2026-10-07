@@ -537,6 +537,97 @@ def _diameter_bucket_item(entry):
     )
 
 
+def _diameter_bucket_lane(entry) -> int | None:
+    """The planner permits one exact lane for a physical diameter bucket."""
+    lanes = {
+        dim.lane
+        for group in entry[6]
+        for dim in group.dims
+        if dim.kind == "diameter" and dim.lane is not None
+    }
+    if len(lanes) > 1:
+        raise ValueError("one physical diameter cannot have conflicting requested lanes")
+    return next(iter(lanes)) if len(lanes) == 1 else None
+
+
+def _render_diameter_lanes(
+    dwg, a, indexed_buckets, *, axis, prefix, start, ctx, radial_candidates, place_jobs, leader_reach
+) -> int:
+    """Offer only the requested witness-relative rank to the shared leader solve."""
+    vb = dwg.view_bounds("front")
+    if vb is None:
+        return 0
+    spacing = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
+    jobs = []
+    names = set()
+    requested_lanes = {}
+    covers_diameters_by_name = {}
+    for index, entry in indexed_buckets:
+        _anchor, dia, value_text, refs, tolerance, rider, groups = entry
+        lane = _diameter_bucket_lane(entry)
+        if lane is None:
+            continue
+        representative = groups[0].facts
+        owner = next(iter(refs)) if len(refs) == 1 else None
+        name = f"{prefix}{start + index}"
+        names.add(name)
+        requested_lanes[name] = lane
+        if axis == "y":
+            covers_diameters_by_name[name] = dia
+        reach = leader_reach(dwg.draft) + (lane - 1) * spacing
+        if axis == "y":
+            candidates = radial_candidates(
+                dwg,
+                "front",
+                vb,
+                representative,
+                reach,
+                rim=dia / 2 * a.SCALE,
+                directions=_END_DIAMETER_LEAD_DIRS,
+                provenance=owner,
+            )
+        else:
+            candidates = radial_candidates(
+                dwg,
+                "front",
+                vb,
+                representative,
+                reach,
+                source_bounds=_diameter_source_bounds(dwg, "front", representative, dia),
+                directions=_DIAMETER_LEAD_DIRS[axis],
+                provenance=owner,
+            )
+        label = f"ø{value_text}{_tol_suffix(tolerance, dwg.draft)}"
+        if rider:
+            label += f" {rider}"
+        mids = tuple(
+            parameter.id
+            for group in groups
+            for parameter in group.dims
+            if parameter.kind == "diameter"
+        )
+        jobs.append((name, "front", vb, label, candidates, mids))
+    if not jobs:
+        return 0
+    return cast(
+        int,
+        place_jobs(
+            dwg,
+            a,
+            jobs,
+            noun="diameter at requested lane",
+            drop_code="diameter_dropped",
+            ctx=ctx,
+            geom_clear=True,
+            joint=True,
+            expand_lanes=False,
+            straight_only_names=frozenset(names),
+            requested_lanes=requested_lanes,
+            covers_diameters_by_name=covers_diameters_by_name,
+        ),
+    )
+
+
 def _counted_column_items(buckets, draft):
     """Share exactly two equal step labels while retaining both physical identities."""
     entries = list(buckets.values())
@@ -679,8 +770,17 @@ def render_diameters(
             for group in entry[6]
         )
 
-    typed_entries = [(index, entry) for index, entry in indexed_row if _typed(entry)]
-    plain_entries = [(index, entry) for index, entry in indexed_row if not _typed(entry)]
+    lane_row = [(index, entry) for index, entry in indexed_row if _diameter_bucket_lane(entry)]
+    typed_entries = [
+        (index, entry)
+        for index, entry in indexed_row
+        if not _diameter_bucket_lane(entry) and _typed(entry)
+    ]
+    plain_entries = [
+        (index, entry)
+        for index, entry in indexed_row
+        if not _diameter_bucket_lane(entry) and not _typed(entry)
+    ]
     placed = 0
     # Preserve the legacy tidy row for short plain diameters. Split only where a typed
     # bucket owns the intervening stable name; each contiguous run can then use the legacy
@@ -729,13 +829,44 @@ def render_diameters(
         place_jobs=place_jobs,
         leader_reach=leader_reach,
     )
-    placed += _diameter_column_left(
+    placed += _render_diameter_lanes(
         dwg,
-        _counted_column_items(col_buckets, dwg.draft),
-        start=start_z,
-        trace=trace,
+        a,
+        lane_row,
+        axis="x",
+        prefix="m_dia_x",
+        start=start_x,
         ctx=ctx,
-        place_what_fits=place_what_fits,
+        radial_candidates=radial_candidates,
+        place_jobs=place_jobs,
+        leader_reach=leader_reach,
+    )
+    indexed_col = list(enumerate(col_buckets.values()))
+    for _, run in groupby(
+        enumerate((index, entry) for index, entry in indexed_col if not _diameter_bucket_lane(entry)),
+        key=lambda item: item[1][0] - item[0],
+    ):
+        entries = [entry for _ordinal, entry in run]
+        run_buckets = {index: entry for index, entry in entries}
+        placed += _diameter_column_left(
+            dwg,
+            _counted_column_items(run_buckets, dwg.draft),
+            start=start_z + entries[0][0],
+            trace=trace,
+            ctx=ctx,
+            place_what_fits=place_what_fits,
+        )
+    placed += _render_diameter_lanes(
+        dwg,
+        a,
+        [(index, entry) for index, entry in indexed_col if _diameter_bucket_lane(entry)],
+        axis="z",
+        prefix="m_dia_z",
+        start=start_z,
+        ctx=ctx,
+        radial_candidates=radial_candidates,
+        place_jobs=place_jobs,
+        leader_reach=leader_reach,
     )
 
     # A Y-axis step is end-on in the front view, so the X/Z profile-strip
@@ -760,9 +891,10 @@ def render_diameters(
                     hole_circles.append((px, py, diameter / 2 * a.SCALE))
             jobs = []
             covered_by_name = {}
-            for i, (_anchor, dia, value_text, refs, dtol, thr, feature_groups) in enumerate(
-                end_buckets.values()
-            ):
+            for i, entry in enumerate(end_buckets.values()):
+                if _diameter_bucket_lane(entry):
+                    continue
+                _anchor, dia, value_text, refs, dtol, thr, feature_groups = entry
                 representative = feature_groups[0].facts
                 owner = next(iter(refs)) if len(refs) == 1 else None
                 # Materialise now: a generator expression would close over ``owner``
@@ -812,6 +944,18 @@ def render_diameters(
                 ann = ctx.registry.named(name)
                 if ann is not None:
                     ann.covers_diameters = (dia,)
+    placed += _render_diameter_lanes(
+        dwg,
+        a,
+        [(index, entry) for index, entry in enumerate(end_buckets.values()) if _diameter_bucket_lane(entry)],
+        axis="y",
+        prefix="m_dia_y",
+        start=start_y,
+        ctx=ctx,
+        radial_candidates=radial_candidates,
+        place_jobs=place_jobs,
+        leader_reach=leader_reach,
+    )
     # A ⌀ leader routed diagonally into the body — cutting
     # the silhouette, or an end feature whose diagonal merely grazes it — is re-routed
     # to the clear side (the margin the feature sits at). Auto-pass only: the finalize

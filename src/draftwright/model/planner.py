@@ -607,6 +607,7 @@ _DIMENSION_LANE_PARAMETERS = frozenset(
         ("slot", "slot_width.length"),
         ("slot", "slot_length.length"),
         ("rotational", "od.diameter"),
+        ("step", "step.diameter"),
     }
 )
 

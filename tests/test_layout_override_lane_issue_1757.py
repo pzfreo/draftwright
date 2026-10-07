@@ -2,11 +2,12 @@
 
 import copy
 import json
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box, Cylinder, Rot
+from build123d import Box, Cylinder, Pos, Rot
 from jsonschema.validators import validator_for
 
 from draftwright import Sheet
@@ -119,6 +120,49 @@ def test_od_lane_without_batch_solve_reports_refusal() -> None:
     assert count == 0
     assert issue.code == "placement_unsatisfiable"
     assert issue.evidence_reason == "requested_lane_unavailable:2:measured_lane_solve_unavailable"
+
+
+@pytest.mark.parametrize(
+    ("axis", "rotation"),
+    [("x", (0, 90, 0)), ("y", (90, 0, 0)), ("z", (0, 0, 0))],
+)
+def test_step_diameter_lane_moves_one_bounded_leader(axis, rotation) -> None:
+    elbows = []
+    for lane in (1, 2):
+        sheet = Sheet(Rot(*rotation) * Cylinder(15, 40), page="A3", scale=2).authored_dimensions()
+        step = sheet.step(diameter=30, length=40, at=(0, 0, 0), axis=axis)
+        step.identify("declaration:step")
+        sheet.dimension(step, "step.diameter")
+        assert "lane" in sheet.layout_options(
+            "declaration:step", parameter="step.diameter"
+        )["controls"]
+        sheet.layout_override("declaration:step", parameter="step.diameter", lane=lane)
+        drawing = sheet.build()
+        mark = drawing.get_annotation(f"m_dia_{axis}0")
+        assert mark is not None
+        if axis == "y":
+            assert mark.covers_diameters == (30,)
+        assert not any(issue.code == "diameter_dropped" for issue in drawing.lint())
+        assert drawing.report()["layout"]["overrides"][0]["resolved_value"] == lane
+        elbows.append(mark.elbow)
+    spacing = drawing.draft.font_size + 2 * drawing.draft.pad_around_text
+    assert math.dist(elbows[0][:2], elbows[1][:2]) == pytest.approx(spacing)
+
+
+def test_step_lane_does_not_rename_or_duplicate_untouched_diameter() -> None:
+    part = Pos(-10, 0, 0) * Rot(0, 90, 0) * Cylinder(15, 20)
+    part += Pos(10, 0, 0) * Rot(0, 90, 0) * Cylinder(10, 20)
+    sheet = Sheet(part, page="A3", scale=2).authored_dimensions()
+    first = sheet.step(diameter=30, length=20, at=(-10, 0, 0), axis="x").identify("step:a")
+    second = sheet.step(diameter=20, length=20, at=(10, 0, 0), axis="x").identify("step:b")
+    sheet.dimension(first, "step.diameter")
+    sheet.dimension(second, "step.diameter")
+    sheet.layout_override("step:b", parameter="step.diameter", lane=2)
+
+    drawing = sheet.build()
+    assert drawing.get_annotation("m_dia_x0").label == "ø30"
+    assert drawing.get_annotation("m_dia_x1").label == "ø20"
+    assert not any(issue.code == "diameter_dropped" for issue in drawing.lint())
 
 
 def test_lane_override_changes_only_the_exact_dimension_policy() -> None:
