@@ -448,6 +448,14 @@ def _place_slot_dimension(
     return True  # deferred — the callback owns the drop; caller's else must not fire
 
 
+def _footprint_size(group, feature, role):
+    """Select an approved linear size; a pocket moves out of its leader only by lane."""
+    approved = group.dim(role=f"{feature.kind}_{role}", kind="length")
+    if feature.kind == "pocket" and approved is not None and approved.lane is None:
+        return None
+    return approved
+
+
 def _render_slot_dimensions(dwg, plan, a: Analysis, *, ctx, only=None, reach) -> tuple[int, list]:
     """Build compiled slot-family dimensions and collect late radius jobs.
 
@@ -543,9 +551,8 @@ def _render_slot_dimensions(dwg, plan, a: Analysis, *, ctx, only=None, reach) ->
         )
 
         # Bind each approved dim explicitly by (role, kind) — never positionally.
-        role_prefix = s.kind if s.kind in ("pad", "slot") else ""
-        wpd = g.dim(role=f"{role_prefix}_width", kind="length")
-        lpd = g.dim(role=f"{role_prefix}_length", kind="length")
+        wpd = _footprint_size(g, s, "width")
+        lpd = _footprint_size(g, s, "length")
         rpd = g.dim(role="slot_end_radius", kind="radius") if s.kind == "slot" else None
         half = s.width / 2
         if wpd is not None:

@@ -444,6 +444,88 @@ def test_envelope_lane_is_witness_relative_and_reported(parameter, label, name) 
     assert drawing.report()["layout"]["overrides"][0]["resolved_value"] == 1
 
 
+@pytest.mark.parametrize(
+    ("parameter", "label", "name"),
+    [
+        ("pocket_width.length", "8", "m_pocket0_width"),
+        ("pocket_length.length", "14", "m_pocket0_length"),
+    ],
+)
+def test_rectangular_pocket_size_lanes_use_shared_dimension_solve(parameter, label, name) -> None:
+    part = Box(80, 50, 20) - Pos(0, 0, 4) * Box(14, 8, 12)
+    sheet = Sheet(part, page="A4", scale=2).authored_dimensions()
+    pocket = sheet.pocket(
+        width=8,
+        length=14,
+        depth=12,
+        long_axis="x",
+        width_axis="y",
+        depth_axis="z",
+        lo=-7,
+        hi=7,
+        w_center=0,
+        at=(0, 0, 4),
+    ).identify("declaration:pocket")
+    sheet.dimension(pocket, parameter)
+    options = sheet.layout_options("declaration:pocket", parameter=parameter)
+    assert options["controls"]["lane"]["current"] is None
+    sheet.layout_override("declaration:pocket", parameter=parameter, lane=1)
+
+    drawing = sheet.build()
+    dimension = drawing.get_annotation(name)
+    assert dimension.label == label
+    assert drawing.report()["layout"]["overrides"][0]["parameter_id"] == parameter
+
+
+def test_pocket_lane_moves_only_its_size_out_of_the_combined_leader() -> None:
+    part = Box(80, 50, 20) - Pos(0, 0, 4) * Box(14, 8, 12)
+    sheet = Sheet(part, page="A3", scale=2).authored_dimensions()
+    pocket = sheet.pocket(
+        width=8,
+        length=14,
+        depth=12,
+        long_axis="x",
+        width_axis="y",
+        depth_axis="z",
+        lo=-7,
+        hi=7,
+        w_center=0,
+        at=(0, 0, 4),
+    ).identify("declaration:pocket")
+    for parameter in ("pocket_width.length", "pocket_length.length", "pocket_depth.length"):
+        sheet.dimension(pocket, parameter)
+    sheet.layout_override("declaration:pocket", parameter="pocket_width.length", lane=1)
+
+    drawing = sheet.build()
+    assert drawing.get_annotation("m_pocket0_width").label == "8"
+    assert drawing.get_annotation("m_pocket_yx0").label == "POCKET 14 LONG, 12 DEEP"
+    assert not any(issue.code == "pocket_dim_dropped" for issue in drawing.lint())
+
+
+def test_pocket_without_lane_keeps_the_combined_leader() -> None:
+    part = Box(80, 50, 20) - Pos(0, 0, 4) * Box(14, 8, 12)
+    sheet = Sheet(part).authored_dimensions()
+    pocket = sheet.pocket(
+        width=8,
+        length=14,
+        depth=12,
+        long_axis="x",
+        width_axis="y",
+        depth_axis="z",
+        lo=-7,
+        hi=7,
+        w_center=0,
+        at=(0, 0, 4),
+    )
+    for parameter in ("pocket_width.length", "pocket_length.length", "pocket_depth.length"):
+        sheet.dimension(pocket, parameter)
+
+    drawing = sheet.build()
+    assert drawing.get_annotation("m_pocket_yx0").label == "8 × 14 × 12 DEEP"
+    assert drawing.get_annotation("m_pocket0_width") is None
+    assert drawing.get_annotation("m_pocket0_length") is None
+
+
 def test_lane_override_changes_only_the_exact_dimension_policy() -> None:
     sheet = _slot_sheet()
     sheet.layout_override("declaration:slot", parameter="slot_width.length", lane=4)
