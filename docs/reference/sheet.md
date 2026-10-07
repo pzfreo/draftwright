@@ -360,7 +360,7 @@ witness, not a distance. The shared measured-candidate solve may resolve it into
 whitespace inside or outside the view and records that candidate's region explicitly. The
 current lane-capable slice is the linear width/length dimensions of slots and rectangular
 pockets, the overall OD diameter of a rotational feature, step diameter leaders, and the
-overall width/depth dimensions of an envelope. Capability is
+overall width/depth/height dimensions of an envelope. Capability is
 declared in one compiler-owned registry so another dimension family is added deliberately, not
 by teaching each renderer a private spelling.
 For a declared step or boss diameter, `side=` can instead select a bounded leader hemisphere:

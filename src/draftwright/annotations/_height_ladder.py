@@ -9,8 +9,10 @@ from draftwright.annotations._common import (
     _SIZE_SUBCHAIN,
     PRIORITY,
     CorridorCandidate,
+    InteriorDimensionJob,
     PlacementContext,
     dim_footprint,
+    dimension_candidate_geometry,
     full_strip_message,
 )
 from draftwright.annotations._common import (
@@ -98,6 +100,69 @@ class _HeightRungCandidate:
             measurement_span=self.measurement_span,
             outcome_stage="placement",
         )
+
+
+def _queue_declared_height_lane(
+    rung: _HeightRungCandidate, lane: int, tier: float, feature
+) -> None:
+    """Submit one bounded height lane as a complete measured dimension candidate."""
+
+    rejections: list[str] = []
+
+    def drop(_name: str) -> None:
+        rung.solved.pop(rung.name, None)
+        blockers = sorted(set(rejections)) or ["no_admissible_candidate"]
+        rung.ctx.record_issue(
+            "error",
+            "placement_unsatisfiable",
+            f"overall height dimension not placed (requested lane {lane} unavailable "
+            f"beside the {rung.view}; blockers: {', '.join(blockers)})",
+            measurement=rung.measurement,
+            measurement_span=rung.measurement_span,
+            evidence_reason=f"requested_lane_unavailable:{lane}:{','.join(blockers)}",
+            outcome_stage="placement",
+        )
+
+    jobs = rung.ctx.interior_dimensions
+    if jobs is None:
+        rejections.append("measured_lane_solve_unavailable")
+        drop(rung.name)
+        return
+    lane_step = tier + rung.strip.spacing
+    position = rung.edge + rung.direction * (2 * rung.draft.extension_gap + lane * lane_step)
+    label = rung.label + _tol_suffix(rung.tolerance, rung.draft)
+
+    def geometry(pos):
+        base = rung.witness_base(pos)
+        return dimension_candidate_geometry(
+            (base, rung.zbase, 0),
+            (base, rung.ztop, 0),
+            rung.side,
+            rung.direction * (pos - base),
+            rung.draft,
+            label,
+        )
+
+    jobs.append(
+        InteriorDimensionJob(
+            name=rung.name,
+            view=rung.view,
+            side=rung.side,
+            build=rung.build,
+            on_place=lambda _name: None,
+            on_drop=drop,
+            lane_step=lane_step,
+            priority=PRIORITY.PRINCIPAL,
+            feature=feature,
+            measurement=rung.measurement,
+            measurement_span=rung.measurement_span,
+            interior_build=rung.build,
+            analytical_geometry=geometry,
+            explicit_position=position,
+            requested_lane=lane,
+            rejection_reasons=rejections,
+        )
+    )
 
 
 def register_height_ladder_candidates(
@@ -191,6 +256,10 @@ def register_height_ladder_candidates(
             ctx=ctx,
             solved=solved,
         )
+
+        if name == "dim_height" and overall is not None and overall.rungs[0].lane is not None:
+            _queue_declared_height_lane(rung, overall.rungs[0].lane, tier, overall.ref)
+            continue
 
         register_corridor(
             ctx,

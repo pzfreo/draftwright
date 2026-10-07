@@ -16,7 +16,9 @@ from draftwright.annotations._axial_render import _place_or_queue_rotational_od
 from draftwright.annotations._common import PlacementContext
 from draftwright.annotations._diameters import _render_diameter_controls
 from draftwright.annotations._envelope import _EnvelopeLaneDrop, _queue_declared_envelope_lane
+from draftwright.annotations._height_ladder import _queue_declared_height_lane
 from draftwright.annotations.from_model import _record_slot_drop
+from draftwright.model.compiled import compile_dimensions
 from draftwright.model.ir import LayoutOverride, RequestedDimension
 from draftwright.registry import AnnotationRegistry
 from draftwright.sheet_emit import emit_sheet_script
@@ -85,6 +87,35 @@ def test_lane_capability_targets_one_declared_parameter() -> None:
         "declaration:slot", parameter="slot_end_radius.radius", lane=2
     )
     assert unsupported["issues"][0]["code"] == "unsupported_declaration"
+
+
+def test_envelope_height_lane_moves_the_complete_dimension_and_replays() -> None:
+    positions = []
+    for lane in (1, 2):
+        sheet = Sheet(Box(50, 30, 10), page="A4", scale=2).authored_dimensions()
+        envelope = sheet.envelope().identify("declaration:overall")
+        sheet.dimension(envelope, "height.length")
+        assert (
+            "lane"
+            in sheet.layout_options("declaration:overall", parameter="height.length")["controls"]
+        )
+        sheet.layout_override("declaration:overall", parameter="height.length", lane=lane)
+        model = sheet.model()
+        overall = compile_dimensions(model).ladder("overall_height")
+        assert overall is not None and overall.rungs[0].lane == lane
+        source = emit_sheet_script(model, "part", "height", title="height", number="H")
+        assert (
+            f'sheet.layout_override("declaration:overall", parameter="height.length", lane={lane})'
+            in source
+        )
+        drawing = sheet.build()
+        assert not any(issue.code == "placement_unsatisfiable" for issue in drawing.lint())
+        dimension = drawing.get_annotation("dim_height")
+        assert dimension is not None
+        positions.append(dimension.bounding_box().max.X)
+        report = drawing.report()
+        assert report["layout"]["overrides"][0]["resolved_value"] == lane
+    assert positions[1] > positions[0]
 
 
 @pytest.mark.parametrize(
@@ -689,6 +720,23 @@ def test_envelope_lane_without_batch_solve_reports_refusal() -> None:
 
     (issue,) = context.registry.issues
     assert issue.code == "overall_dim_withheld"
+    assert issue.evidence_reason == "requested_lane_unavailable:2:measured_lane_solve_unavailable"
+
+
+def test_height_lane_without_batch_solve_reports_refusal() -> None:
+    context = PlacementContext(registry=AnnotationRegistry())
+    rung = SimpleNamespace(
+        ctx=context,
+        name="dim_height",
+        solved={},
+        view="front",
+        measurement=None,
+        measurement_span=None,
+    )
+    _queue_declared_height_lane(rung, 2, 1.0, None)
+
+    (issue,) = context.registry.issues
+    assert issue.code == "placement_unsatisfiable"
     assert issue.evidence_reason == "requested_lane_unavailable:2:measured_lane_solve_unavailable"
 
 

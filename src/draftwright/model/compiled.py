@@ -1304,6 +1304,7 @@ def _compile_overall_height(
     height_tol = None
     height_side = None
     height_view = None
+    height_lane = None
     if env is not None:
         height_param = next(pm for pm in env.parameters() if pm.role == "height")
         height_tol = _decorated(model, env, height_param).tolerance
@@ -1320,6 +1321,7 @@ def _compile_overall_height(
         if height_intent is not None:
             height_side = height_intent.side
             height_view = height_intent.view
+            height_lane = height_intent.lane
     ladder = ApprovedLadder(
         "overall_height",
         (
@@ -1333,6 +1335,7 @@ def _compile_overall_height(
                 tolerance=height_tol,
                 side=height_side,
                 view=height_view,
+                lane=height_lane,
                 # `rendered_label` is the BARE value while `tolerance` is set beside it, so for
                 # a toleranced rung this field is not the "complete compiler-owned label" its
                 # own docstring promises — the renderer composes the suffix. It has to:
