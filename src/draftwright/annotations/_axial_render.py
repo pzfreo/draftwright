@@ -17,6 +17,7 @@ from draftwright._core import (
     _MIN_STEP_DIM_MM,
     _SLOT_DIM_HEIGHT,
     _SLOT_DIM_STEP,
+    _STRIP_SPACING,
     Analysis,
     DetailRequest,
     _analysis_margins,
@@ -32,11 +33,14 @@ from draftwright.annotations._baseline_step_ladder import register_vertical_base
 from draftwright.annotations._common import (
     _LOC_SUBCHAIN,
     CROSSABLE_TYPES,
+    PRIORITY,
     CorridorCandidate,
     Escalation,
+    InteriorDimensionJob,
     PlacementContext,
     _anno_box,
     _geom_box,
+    dimension_candidate_geometry,
     prevent_dimension_label_ink,
     register_corridor,
     strip_obstacles,
@@ -873,18 +877,105 @@ def _rotational_dia_label(dim, draft, step_diameters):
     return label
 
 
-def _rotational_od_mark(first, second, side, draft, od_dim, label):
-    mark = _dim(first, second, side, 8, draft, label=label)
+def _rotational_od_mark(first, second, side, draft, od_dim, label, distance=8):
+    mark = _dim(first, second, side, distance, draft, label=label)
     if len(od_dim.equivalent_ids) > 1:
         mark.source_features = tuple(identity.feature for identity in od_dim.equivalent_ids)
         mark.indivisible_measurements = True
     return mark
 
 
+def _place_or_queue_rotational_od(
+    dwg, ctx, od_dim, first, second, side, view, label, alternate=None
+) -> int:
+    """Keep the legacy OD mark, or solve one exact witness-relative lane."""
+
+    if od_dim.lane is None:
+        ctx.place(
+            _rotational_od_mark(first, second, side, dwg.draft, od_dim, label),
+            "dim_od",
+            view=view,
+            measurement=od_dim.measurement_ids,
+        )
+        return 1
+    rejections: list[str] = []
+    lane = od_dim.lane
+
+    def drop(_name):
+        blockers = sorted(set(rejections)) or ["no_admissible_candidate"]
+        ctx.record_issue(
+            "error",
+            "placement_unsatisfiable",
+            f"OD dimension not placed (requested lane {lane} unavailable beside "
+            f"the {view}; blockers: {', '.join(blockers)})",
+            measurement=od_dim.measurement_ids,
+            evidence_reason=f"requested_lane_unavailable:{lane}:{','.join(blockers)}",
+            outcome_stage="placement",
+        )
+
+    jobs = ctx.interior_dimensions
+    if jobs is None:
+        rejections.append("measured_lane_solve_unavailable")
+        drop("dim_od")
+        return 0
+    lane_step = dwg.draft.font_size + 2 * dwg.draft.pad_around_text + _STRIP_SPACING
+    offset = 2 * dwg.draft.extension_gap + lane * lane_step
+
+    def fits_page(p1, p2, candidate_side):
+        ink = dimension_candidate_geometry(p1, p2, candidate_side, offset, dwg.draft, label)
+        if ink is None:
+            return False
+        page = _drawing_bounds(dwg)
+        return all(
+            (
+                ink.box[0] >= page[0],
+                ink.box[1] >= page[1],
+                ink.box[2] <= page[2],
+                ink.box[3] <= page[3],
+            )
+        )
+
+    if alternate is not None and not fits_page(first, second, side) and fits_page(*alternate):
+        first, second, side = alternate
+    vertical = side in {"above", "below"}
+    witness = first[1] if vertical else first[0]
+    direction = 1 if side in {"above", "right"} else -1
+    position = witness + direction * offset
+
+    def distance(pos):
+        return direction * (pos - witness)
+
+    jobs.append(
+        InteriorDimensionJob(
+            name="dim_od",
+            view=view,
+            side=side,
+            build=lambda pos: _rotational_od_mark(
+                first, second, side, dwg.draft, od_dim, label, distance(pos)
+            ),
+            on_place=lambda _name: None,
+            on_drop=drop,
+            lane_step=lane_step,
+            priority=PRIORITY.PRINCIPAL,
+            measurement=od_dim.measurement_ids,
+            interior_build=lambda pos: _rotational_od_mark(
+                first, second, side, dwg.draft, od_dim, label, distance(pos)
+            ),
+            analytical_geometry=lambda pos: dimension_candidate_geometry(
+                first, second, side, distance(pos), dwg.draft, label
+            ),
+            explicit_position=position,
+            requested_lane=lane,
+            rejection_reasons=rejections,
+        )
+    )
+    return 1
+
+
 def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
     """Rotational furniture from the IR `RotationalFeature` (#237): the OD dim (above
     the profile view), rotation-axis centrelines on planned profile projections, and concentric
-    bore leaders stacked to the left of the front view. Returns the count placed.
+    bore leaders stacked to the left of the front view. Returns the count placed or queued.
 
     The OD/bore dimensions consume only approved compiled entries. Suppressed entries
     therefore cannot reach either a label or the geometry used to place that label.
@@ -915,20 +1006,21 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
         # (profile) view; axis centrelines vertical on front + side.
         if od_dim is not None:
             od = od_dim.value
-            ctx.place(
-                _rotational_od_mark(
-                    (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
-                    (FX(a.cx + od / 2), FZ(a.bb.max.Z) + 2, 0),
-                    "above",
-                    draft,
-                    od_dim,
-                    _rotational_dia_label(od_dim, draft, step_diameters),
+            n += _place_or_queue_rotational_od(
+                dwg,
+                ctx,
+                od_dim,
+                (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
+                (FX(a.cx + od / 2), FZ(a.bb.max.Z) + 2, 0),
+                "above",
+                "front",
+                _rotational_dia_label(od_dim, draft, step_diameters),
+                alternate=(
+                    (FX(a.cx - od / 2), FZ(a.bb.min.Z) - 2, 0),
+                    (FX(a.cx + od / 2), FZ(a.bb.min.Z) - 2, 0),
+                    "below",
                 ),
-                "dim_od",
-                view="front",
-                measurement=od_dim.measurement_ids,
             )
-            n += 1
         _place_axis_centerline(
             _global_axis_centerline(
                 (FX(a.cx), FZ(a.bb.min.Z) - 5, 0),
@@ -1008,20 +1100,21 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
         # through z=cz on front and y=cy on plan.
         if od_dim is not None:
             od = od_dim.value
-            ctx.place(
-                _rotational_od_mark(
-                    (FX(a.bb.min.X) - 2, FZ(a.cz - od / 2), 0),
-                    (FX(a.bb.min.X) - 2, FZ(a.cz + od / 2), 0),
-                    "left",
-                    draft,
-                    od_dim,
-                    _rotational_dia_label(od_dim, draft, step_diameters),
+            n += _place_or_queue_rotational_od(
+                dwg,
+                ctx,
+                od_dim,
+                (FX(a.bb.min.X) - 2, FZ(a.cz - od / 2), 0),
+                (FX(a.bb.min.X) - 2, FZ(a.cz + od / 2), 0),
+                "left",
+                "front",
+                _rotational_dia_label(od_dim, draft, step_diameters),
+                alternate=(
+                    (FX(a.bb.max.X) + 2, FZ(a.cz - od / 2), 0),
+                    (FX(a.bb.max.X) + 2, FZ(a.cz + od / 2), 0),
+                    "right",
                 ),
-                "dim_od",
-                view="front",
-                measurement=od_dim.measurement_ids,
             )
-            n += 1
         _place_axis_centerline(
             _global_axis_centerline(
                 (FX(a.bb.min.X) - 5, FZ(a.cz), 0),
@@ -1044,20 +1137,21 @@ def render_rotational(dwg, plan, a: Analysis, *, ctx) -> int:
         # through z=cz on side and vertically through x=cx on plan.
         if od_dim is not None:
             od = od_dim.value
-            ctx.place(
-                _rotational_od_mark(
-                    (SX(a.bb.min.Y) - 2, SZ(a.cz - od / 2), 0),
-                    (SX(a.bb.min.Y) - 2, SZ(a.cz + od / 2), 0),
-                    "left",
-                    draft,
-                    od_dim,
-                    _rotational_dia_label(od_dim, draft, step_diameters),
+            n += _place_or_queue_rotational_od(
+                dwg,
+                ctx,
+                od_dim,
+                (SX(a.bb.min.Y) - 2, SZ(a.cz - od / 2), 0),
+                (SX(a.bb.min.Y) - 2, SZ(a.cz + od / 2), 0),
+                "left",
+                "side",
+                _rotational_dia_label(od_dim, draft, step_diameters),
+                alternate=(
+                    (SX(a.bb.max.Y) + 2, SZ(a.cz - od / 2), 0),
+                    (SX(a.bb.max.Y) + 2, SZ(a.cz + od / 2), 0),
+                    "right",
                 ),
-                "dim_od",
-                view="side",
-                measurement=od_dim.measurement_ids,
             )
-            n += 1
         _place_axis_centerline(
             _global_axis_centerline(
                 (SX(a.bb.min.Y) - 5, SZ(a.cz), 0),
