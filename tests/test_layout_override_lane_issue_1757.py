@@ -265,6 +265,45 @@ def test_step_length_does_not_advertise_diameter_callout_side() -> None:
     assert result["supported"] is False
 
 
+@pytest.mark.parametrize(
+    ("axis", "rotation", "sides", "coordinate"),
+    [
+        ("x", (0, 90, 0), ("above", "below"), 1),
+        ("y", (90, 0, 0), ("left", "right"), 0),
+        ("z", (0, 0, 0), ("left", "right"), 0),
+    ],
+)
+def test_boss_diameter_side_override_uses_requested_hemisphere(
+    axis, rotation, sides, coordinate
+) -> None:
+    observed = []
+    for side in sides:
+        sheet = Sheet(Rot(*rotation) * Cylinder(15, 40), page="A3", scale=2).authored_dimensions()
+        boss = sheet.boss(diameter=30, height=40, at=(0, 0, 0), axis=axis)
+        boss.identify("declaration:boss")
+        sheet.dimension(boss, "boss.diameter")
+        options = sheet.layout_options("declaration:boss", parameter="boss.diameter")
+        assert side in options["controls"]["side"]["supported_values"]
+        sheet.layout_override("declaration:boss", parameter="boss.diameter", side=side)
+        drawing = sheet.build()
+        mark = drawing.get_annotation(f"m_dia_{axis}0")
+        assert mark is not None
+        assert not any(issue.code == "placement_unsatisfiable" for issue in drawing.lint())
+        observed.append(mark.elbow[coordinate] - mark.tip[coordinate])
+    assert observed[0] * observed[1] < 0
+
+
+def test_boss_height_does_not_advertise_diameter_callout_side() -> None:
+    sheet = Sheet(Cylinder(15, 40)).authored_dimensions()
+    boss = sheet.boss(diameter=30, height=40, at=(0, 0, 0), axis="z")
+    boss.identify("declaration:boss")
+    sheet.dimension(boss, "boss_height.length")
+    result = sheet.validate_layout_override(
+        "declaration:boss", parameter="boss_height.length", side="right"
+    )
+    assert result["supported"] is False
+
+
 def test_lane_override_changes_only_the_exact_dimension_policy() -> None:
     sheet = _slot_sheet()
     sheet.layout_override("declaration:slot", parameter="slot_width.length", lane=4)

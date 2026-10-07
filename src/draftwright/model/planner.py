@@ -1819,20 +1819,21 @@ def _check_intent_policy_conflicts(model: PartModel) -> None:
 
 def _validate_compound_callout_side(feature, approved, selected_view, requested_side) -> None:
     """Check a compound callout's requested corridor against its renderer."""
-    if feature.kind == "step":
-        step_sides = {
+    if feature.kind in {"step", "boss"}:
+        diameter_sides = {
             "x": {"above", "below"},
             "y": {"above", "below", "left", "right"},
             "z": {"left", "right"},
         }.get(feature.frame.axis, set())
+        diameter_parameter = "step.diameter" if feature.kind == "step" else "boss.diameter"
         if (
-            all(pd.side is None or pd.param.parameter_id == "step.diameter" for pd in approved)
-            and requested_side in step_sides
+            all(pd.side is None or pd.param.parameter_id == diameter_parameter for pd in approved)
+            and requested_side in diameter_sides
         ):
             return
         raise ValueError(
-            "step diameter side is available only for its front-view OD leader; "
-            f"supported sides: {sorted(step_sides) or 'none'}"
+            f"{feature.kind} diameter side is available only for its front-view OD leader; "
+            f"supported sides: {sorted(diameter_sides) or 'none'}"
         )
     supported = {
         "plan": {"left", "right"},

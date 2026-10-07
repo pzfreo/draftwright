@@ -363,12 +363,13 @@ overall OD diameter of a rotational feature, and step diameter leaders.
 Capability is
 declared in one compiler-owned registry so another dimension family is added deliberately, not
 by teaching each renderer a private spelling.
-For a declared step diameter, `side=` can instead select a bounded leader hemisphere:
-`above`/`below` for an X-axis step, `left`/`right` for a Z-axis step, and all four
-for a Y-axis end-on step. The solve may report the requested side unplaceable; it
+For a declared step or boss diameter, `side=` can instead select a bounded leader hemisphere:
+`above`/`below` for an X-axis feature, `left`/`right` for a Z-axis feature, and all four
+for a Y-axis end-on feature. The solve may report the requested side unplaceable; it
 does not silently switch sides.
 
-Dimension-side overrides currently cover native hole/pattern callouts and envelope height;
+Dimension-side overrides currently cover native hole/pattern callouts, step/boss diameter
+leaders, and envelope height;
 unsupported renderers are not advertised as movable. The side surface accepts `above`,
 `below`, `left`, and `right` where the selected renderer supports them;
 `validate_layout_override()` returns
