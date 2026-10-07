@@ -448,12 +448,12 @@ def _place_slot_dimension(
     return True  # deferred — the callback owns the drop; caller's else must not fire
 
 
-def _pocket_lane_size(group, feature, role):
-    """Only a declared lane moves one pocket size out of its combined leader."""
-    if feature.kind != "pocket":
+def _footprint_size(group, feature, role):
+    """Select an approved linear size; a pocket moves out of its leader only by lane."""
+    approved = group.dim(role=f"{feature.kind}_{role}", kind="length")
+    if feature.kind == "pocket" and approved is not None and approved.lane is None:
         return None
-    approved = group.dim(role=f"pocket_{role}", kind="length")
-    return approved if approved is not None and approved.lane is not None else None
+    return approved
 
 
 def _render_slot_dimensions(dwg, plan, a: Analysis, *, ctx, only=None, reach) -> tuple[int, list]:
@@ -551,14 +551,8 @@ def _render_slot_dimensions(dwg, plan, a: Analysis, *, ctx, only=None, reach) ->
         )
 
         # Bind each approved dim explicitly by (role, kind) — never positionally.
-        role_prefix = s.kind if s.kind in ("pad", "slot") else ""
-        wpd = g.dim(role=f"{role_prefix}_width", kind="length") or _pocket_lane_size(g, s, "width")
-        lpd = g.dim(role=f"{role_prefix}_length", kind="length") or _pocket_lane_size(
-            g, s, "length"
-        )
-        # A blind pocket normally carries both sizes in one leader. Only a declared
-        # lane opts an individual size into the shared linear-dimension solve;
-        # _pocket_pad omits that same approved measurement from its leader.
+        wpd = _footprint_size(g, s, "width")
+        lpd = _footprint_size(g, s, "length")
         rpd = g.dim(role="slot_end_radius", kind="radius") if s.kind == "slot" else None
         half = s.width / 2
         if wpd is not None:
