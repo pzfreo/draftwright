@@ -133,9 +133,10 @@ def test_step_diameter_lane_moves_one_bounded_leader(axis, rotation) -> None:
         step = sheet.step(diameter=30, length=40, at=(0, 0, 0), axis=axis)
         step.identify("declaration:step")
         sheet.dimension(step, "step.diameter")
-        assert "lane" in sheet.layout_options(
-            "declaration:step", parameter="step.diameter"
-        )["controls"]
+        assert (
+            "lane"
+            in sheet.layout_options("declaration:step", parameter="step.diameter")["controls"]
+        )
         sheet.layout_override("declaration:step", parameter="step.diameter", lane=lane)
         drawing = sheet.build()
         mark = drawing.get_annotation(f"m_dia_{axis}0")

@@ -252,7 +252,7 @@ def test_requested_leader_lane_refusal_names_exact_rank(monkeypatch):
     (job,) = ctx.feature_leaders
     assert job.on_drop is not None
     job.on_drop("no_clear_room")
-    (args, kwargs), = issues
+    ((args, kwargs),) = issues
     assert args[0:2] == ("error", "placement_unsatisfiable")
     assert "requested lane 4 unavailable" in args[2]
     assert kwargs["evidence_reason"] == "requested_lane_unavailable:4:no_clear_room"

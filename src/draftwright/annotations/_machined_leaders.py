@@ -279,7 +279,9 @@ class _MachinedJobContext:
             allow_policy_b_fixed=True,
             on_drop=(
                 on_drop
-                if requested_lane is not None or source_ids or self.source_drop_severity == "source"
+                if requested_lane is not None
+                or source_ids
+                or self.source_drop_severity == "source"
                 else None
             ),
             recover=None if straight_only else recover,

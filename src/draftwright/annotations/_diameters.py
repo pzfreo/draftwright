@@ -551,7 +551,17 @@ def _diameter_bucket_lane(entry) -> int | None:
 
 
 def _render_diameter_lanes(
-    dwg, a, indexed_buckets, *, axis, prefix, start, ctx, radial_candidates, place_jobs, leader_reach
+    dwg,
+    a,
+    indexed_buckets,
+    *,
+    axis,
+    prefix,
+    start,
+    ctx,
+    radial_candidates,
+    place_jobs,
+    leader_reach,
 ) -> int:
     """Offer only the requested witness-relative rank to the shared leader solve."""
     vb = dwg.view_bounds("front")
@@ -843,7 +853,9 @@ def render_diameters(
     )
     indexed_col = list(enumerate(col_buckets.values()))
     for _, run in groupby(
-        enumerate((index, entry) for index, entry in indexed_col if not _diameter_bucket_lane(entry)),
+        enumerate(
+            (index, entry) for index, entry in indexed_col if not _diameter_bucket_lane(entry)
+        ),
         key=lambda item: item[1][0] - item[0],
     ):
         entries = [entry for _ordinal, entry in run]
@@ -947,7 +959,11 @@ def render_diameters(
     placed += _render_diameter_lanes(
         dwg,
         a,
-        [(index, entry) for index, entry in enumerate(end_buckets.values()) if _diameter_bucket_lane(entry)],
+        [
+            (index, entry)
+            for index, entry in enumerate(end_buckets.values())
+            if _diameter_bucket_lane(entry)
+        ],
         axis="y",
         prefix="m_dia_y",
         start=start_y,
