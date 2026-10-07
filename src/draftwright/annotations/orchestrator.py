@@ -454,6 +454,42 @@ def _retire_optional_section_reservations_for_pmi(ctx, dwg, sections) -> None:
             _clear_section_reservation(dwg, section)
 
 
+def _place_deferred_pattern_pitches(ctx) -> None:
+    """Offer compiled pattern pitch to the room left by imported source PMI."""
+    pending, ctx.deferred_pattern_pitches = ctx.deferred_pattern_pitches, []
+    for place in pending:
+        place()
+    ctx.deferred_pattern_pitch_names.clear()
+
+
+def _has_imported_linear_dimensions(model) -> bool:
+    """Source-owned lengths that should solve before generated pattern pitch."""
+    return any(
+        feature.kind == "authored_dimension" and getattr(feature, "source", None) == "ap242_pmi"
+        for feature in model.features
+    )
+
+
+def _defer_generated_pitch_for_source_pmi(a, ctx, model) -> bool:
+    """Use source-first order only where the approved pitch is generated ink."""
+    return (
+        model.authored_dimensions is None
+        and _has_imported_linear_dimensions(model)
+        and (a.pmi_mode == "annotate" or (ctx.model_declared and not ctx.document_member))
+    )
+
+
+def _configure_model_context(ctx, dwg, a, model) -> None:
+    """Share the model and source-annotation policy with each annotation pass."""
+    ctx.part_model = model
+    ctx.model_declared = dwg.model_declared
+    ctx.document_member = getattr(dwg, "document_member", False)
+    ctx.document_source_annotation_ids = getattr(
+        dwg, "document_source_annotation_ids", frozenset()
+    )
+    ctx.defer_pattern_pitch = _defer_generated_pitch_for_source_pmi(a, ctx, model)
+
+
 def _concentric_bore_diams(a: Analysis) -> list:
     """Distinct bore diameters on the rotation axis, in z_diams order (#10).
 
@@ -933,6 +969,7 @@ def _final_annotation_stages(run: _AutoAnnotationRun) -> dict:
         # and callout layout remains stable.
         _retire_optional_section_reservations_for_pmi(ctx, dwg, _sections)
         drain_and_reconcile(ctx, dwg)
+        _place_deferred_pattern_pitches(ctx)
 
     def _s_grooves():
         # Turned/circlip-groove callouts: {width} WIDE × ø{dia} via a leader off
@@ -1129,12 +1166,7 @@ def _auto_annotate(dwg: DrawingPort, a: Analysis, *, detail_view: bool = False):
     # model. The ensured model is threaded onto the run's ctx so every pass reads
     # it there, without accessing the drawing's private state.
     _model = cast(PartModel, dwg.model() if dwg.model() is not None else build_model(a))
-    ctx.part_model = _model
-    ctx.model_declared = dwg.model_declared
-    ctx.document_member = getattr(dwg, "document_member", False)
-    ctx.document_source_annotation_ids = getattr(
-        dwg, "document_source_annotation_ids", frozenset()
-    )
+    _configure_model_context(ctx, dwg, a, _model)
     # Plan dimensions once and thread the groups to every renderer that reads them.
     _groups = plan_dimensions(_model, planned_views=a.planned_views)
     # Share one compiled plan so the ladder, shoulders, and detail escalation

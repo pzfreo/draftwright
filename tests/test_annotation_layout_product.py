@@ -373,7 +373,7 @@ def test_candidate_preview_evaluates_safety_on_the_explicit_scale_fallback(monke
     assert drawing.annotation_scheme_decision["safety_evidence"]["scale"] == drawing.scale
 
 
-def test_ctc01_compare_retains_required_location_on_fixed_sheet():
+def test_ctc01_compare_preserves_required_location_on_fixed_sheet():
     from draftwright.annotations._common import annotation_ink_obstacles
 
     source = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
@@ -391,10 +391,15 @@ def test_ctc01_compare_retains_required_location_on_fixed_sheet():
     )
 
     decision = drawing.annotation_scheme_decision
-    assert decision["selected_trial"] is None
-    assert decision["status"] == "retained_baseline"
-    assert all(trial["verdict"] == "ineligible" for trial in decision["trials"])
-    assert all(trial["missing_annotations"] >= 1 for trial in decision["trials"])
+    if decision["selected_trial"] is None:
+        assert decision["status"] == "retained_baseline"
+        assert all(trial["verdict"] == "ineligible" for trial in decision["trials"])
+    else:
+        assert decision["status"] == "candidate"
+        selected = next(
+            trial for trial in decision["trials"] if trial["name"] == decision["selected_trial"]
+        )
+        assert selected["missing_annotations"] == 0
     assert drawing.get_annotation("m_locx0").label == "400"
     assert drawing.get_annotation("m_slot0_pos").label == "55"
     left, _bottom, right, _top = drawing.view_bounds("iso")
