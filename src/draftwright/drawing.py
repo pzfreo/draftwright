@@ -2306,6 +2306,59 @@ class Drawing:
         """Return the named annotation object, or ``None`` if no such name (#27)."""
         return self._registry.named(name)
 
+    def declaration_id_of(self, name: str) -> str | None:
+        """Return a placed mark's unique Sheet declaration ID, if one owns it.
+
+        A mark can be generated from several declarations (or from automatic
+        planning with none). In those cases ``None`` is safer than guessing an
+        editable line. An unknown annotation name raises ``KeyError``.
+        """
+        if name not in self._registry:
+            raise KeyError(name)
+        model = self.model()
+        if model is None or not model.declaration_identities:
+            return None
+
+        def ids_for(owner) -> set[str]:
+            pairs = tuple(zip(model.features, model.declaration_identities, strict=True))
+            exact = {
+                identity.declaration_id
+                for feature, identity in pairs
+                if identity is not None and feature is owner
+            }
+            if exact:
+                return exact
+            return {
+                identity.declaration_id
+                for feature, identity in pairs
+                if identity is not None and feature == owner
+            }
+
+        declaration = self._registry.declaration_of(name)
+        if declaration is not None:
+            ids = ids_for(declaration)
+        else:
+            owners = (
+                *self._registry.features_of(name),
+                *(measurement.feature for measurement in self._registry.measurement_of(name)),
+            )
+            ids = set().union(*(ids_for(owner) for owner in owners if owner is not None))
+        return next(iter(ids)) if len(ids) == 1 else None
+
+    def label_box(self, name: str) -> tuple[float, float, float, float] | None:
+        """Return the placed text/value box for picking, not the whole ink span.
+
+        Coordinates are page millimetres, like ``view_bounds``. Marks without a
+        distinct label return ``None``; unknown names raise ``KeyError``.
+        """
+        annotation = self.get_annotation(name)
+        if annotation is None:
+            raise KeyError(name)
+        box = getattr(annotation, "label_bbox", None)
+        if box is None:
+            return None
+        return float(box[0]), float(box[1]), float(box[2]), float(box[3])
+
     def preview_annotation(self, name: str, path: str | os.PathLike) -> str:
         return preview_export_annotation(
             name,
