@@ -130,7 +130,13 @@ def layout_options(
         # Only advertise sides whose renderer consumes the authored corridor. Other
         # planner-accepted sides are not an editor actuator until that renderer uses them.
         if parameter_id != "location" and feature.kind in {
-            "hole", "pattern", "envelope", "step", "boss", "pocket", "slot"
+            "hole",
+            "pattern",
+            "envelope",
+            "step",
+            "boss",
+            "pocket",
+            "slot",
         }:
             placements = sheet.dimension_options(handle, parameter)["placements"]
             sides = sorted(
