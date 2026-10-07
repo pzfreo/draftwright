@@ -499,6 +499,187 @@ def test_equal_manufacturing_values_on_distinct_support_stay_separate_issue_2137
     }
 
 
+def test_distinct_same_named_threads_do_not_share_presentation_support_issue_2231(tmp_path):
+    import draftwright.pmi as pmi
+
+    path = tmp_path / "two-threads.step"
+    path.write_text(
+        _step(
+            "#1=PROPERTY_DEFINITION('manufacturing requirement','internal thread',#50);",
+            "#2=PROPERTY_DEFINITION('manufacturing requirement','internal thread',#50);",
+            "#3=PROPERTY_DEFINITION_REPRESENTATION(#1,#11);",
+            "#4=PROPERTY_DEFINITION_REPRESENTATION(#2,#12);",
+            "#11=REPRESENTATION('internal thread',(#21),#51);",
+            "#12=REPRESENTATION('internal thread',(#22),#51);",
+            "#21=DESCRIPTIVE_REPRESENTATION_ITEM('','M2 x 0.4-6H RH, full thread through; DIA 1.6 tapping drill through');",
+            "#22=DESCRIPTIVE_REPRESENTATION_ITEM('','M4 x 0.7-6H RH, full thread through; DIA 3.3 tapping drill through');",
+            "#31=SHAPE_ASPECT('internal thread','',#50,.T.);",
+            "#32=SHAPE_ASPECT('internal thread','',#50,.T.);",
+            "#33=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#31,#50,#101);",
+            "#34=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#32,#50,#102);",
+            "#35=DRAUGHTING_CALLOUT('internal thread',());",
+            "#36=DRAUGHTING_CALLOUT('internal thread',());",
+            "#37=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#31,#50,#35);",
+            "#38=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#32,#50,#36);",
+            "#40=GENERAL_PROPERTY('','user defined attribute',$);",
+            "#41=PROPERTY_DEFINITION('internal thread','pmi-assist',#31);",
+            "#42=PROPERTY_DEFINITION('internal thread','pmi-assist',#32);",
+            "#43=GENERAL_PROPERTY_ASSOCIATION('',$,#40,#41);",
+            "#44=GENERAL_PROPERTY_ASSOCIATION('',$,#40,#42);",
+            "#45=PROPERTY_DEFINITION_REPRESENTATION(#41,#61);",
+            "#46=PROPERTY_DEFINITION_REPRESENTATION(#42,#62);",
+            "#61=REPRESENTATION('internal thread',(#71,#72,#73,#74,#75),#51);",
+            "#62=REPRESENTATION('internal thread',(#81,#82,#83,#84,#85),#51);",
+            "#71=DESCRIPTIVE_REPRESENTATION_ITEM('thread side','internal');",
+            "#72=DESCRIPTIVE_REPRESENTATION_ITEM('designation','M2x0.4');",
+            "#73=DESCRIPTIVE_REPRESENTATION_ITEM('fit class','6H');",
+            "#74=DESCRIPTIVE_REPRESENTATION_ITEM('hand','right');",
+            "#75=DESCRIPTIVE_REPRESENTATION_ITEM('through','true');",
+            "#81=DESCRIPTIVE_REPRESENTATION_ITEM('thread side','internal');",
+            "#82=DESCRIPTIVE_REPRESENTATION_ITEM('designation','M4x0.7');",
+            "#83=DESCRIPTIVE_REPRESENTATION_ITEM('fit class','6H');",
+            "#84=DESCRIPTIVE_REPRESENTATION_ITEM('hand','right');",
+            "#85=DESCRIPTIVE_REPRESENTATION_ITEM('through','true');",
+            "#50=PRODUCT_DEFINITION_SHAPE('','',#52);",
+            "#52=PRODUCT_DEFINITION('part','',#53,#51);",
+            "#54=SHAPE_DEFINITION_REPRESENTATION(#50,#55);",
+        ),
+        encoding="utf-8",
+    )
+
+    prose = read_manufacturing_requirements(path)
+    assert len(prose) == 2
+    assert all(not fact.reference_item_ids and not fact.shape_aspect_ids for fact in prose)
+    assert all("multiple distinct supports" in fact.reason for fact in prose)
+    structured = read_structured_manufacturing_requirements(path)
+    assert [fact.reference_item_ids for fact in structured] == [("#101",), ("#102",)]
+
+    sources, records = pmi._manufacturing_requirement_projection(path)
+    assert len(records) == 2
+    assert [record.reference_item_ids for record in records] == [("#101",), ("#102",)]
+    assert [record.source_ids for record in records] == [
+        ("manufacturing_requirement:#1", "manufacturing_requirement:#41"),
+        ("manufacturing_requirement:#2", "manufacturing_requirement:#42"),
+    ]
+    assert all(not record.lowering_blockers for record in records)
+    assert {source.source_id for source in sources} == {
+        "manufacturing_requirement:#1",
+        "manufacturing_requirement:#2",
+        "manufacturing_requirement:#41",
+        "manufacturing_requirement:#42",
+    }
+
+
+def test_single_thread_prose_cannot_claim_two_presented_faces_issue_2231(tmp_path, monkeypatch):
+    import draftwright.pmi as pmi
+
+    path = tmp_path / "one-prose-two-faces.step"
+    path.write_text(
+        _step(
+            "#1=PROPERTY_DEFINITION('manufacturing requirement','internal thread',#50);",
+            "#2=PROPERTY_DEFINITION_REPRESENTATION(#1,#3);",
+            "#3=REPRESENTATION('internal thread',(#4),#51);",
+            "#4=DESCRIPTIVE_REPRESENTATION_ITEM('','M2 x 0.4-6H RH, full thread through; DIA 1.6 tapping drill through');",
+            "#5=SHAPE_ASPECT('internal thread','',#50,.T.);",
+            "#6=SHAPE_ASPECT('internal thread','',#50,.T.);",
+            "#7=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#5,#50,#101);",
+            "#8=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#6,#50,#102);",
+            "#9=DRAUGHTING_CALLOUT('internal thread',());",
+            "#10=DRAUGHTING_CALLOUT('internal thread',());",
+            "#11=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#5,#50,#9);",
+            "#12=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#6,#50,#10);",
+            "#20=GENERAL_PROPERTY('','user defined attribute',$);",
+            "#21=PROPERTY_DEFINITION('internal thread','pmi-assist',#5);",
+            "#22=GENERAL_PROPERTY_ASSOCIATION('',$,#20,#21);",
+            "#23=PROPERTY_DEFINITION_REPRESENTATION(#21,#24);",
+            "#24=REPRESENTATION('internal thread',(#25,#26,#27,#28),#51);",
+            "#25=DESCRIPTIVE_REPRESENTATION_ITEM('thread side','internal');",
+            "#26=DESCRIPTIVE_REPRESENTATION_ITEM('designation','M2x0.4');",
+            "#27=DESCRIPTIVE_REPRESENTATION_ITEM('fit class','6H');",
+            "#28=DESCRIPTIVE_REPRESENTATION_ITEM('hand','right');",
+            "#50=PRODUCT_DEFINITION_SHAPE('','',#52);",
+            "#52=PRODUCT_DEFINITION('part','',#53,#51);",
+            "#54=SHAPE_DEFINITION_REPRESENTATION(#50,#55);",
+        ),
+        encoding="utf-8",
+    )
+
+    (prose,) = read_manufacturing_requirements(path)
+    assert prose.callout_ids == ("#9", "#10")
+    assert prose.shape_aspect_ids == prose.reference_item_ids == ()
+    assert "multiple distinct supports" in prose.reason
+    with monkeypatch.context() as patch:
+        patch.setattr(pmi, "read_structured_manufacturing_requirements", lambda _path: ())
+        _sources, (record,) = pmi._manufacturing_requirement_projection(path)
+    assert record.reference_item_ids == ()
+    assert record.lowering_blockers == (prose.reason,)
+    _sources, (paired,) = pmi._manufacturing_requirement_projection(path)
+    assert paired.reference_item_ids == ("#101",)
+    assert paired.source_ids == (
+        "manufacturing_requirement:#1",
+        "manufacturing_requirement:#21",
+    )
+    assert not paired.lowering_blockers
+
+
+def test_ambiguous_thread_designation_does_not_invent_prose_ownership_issue_2231(monkeypatch):
+    import draftwright.pmi as pmi
+
+    prose = tuple(
+        ManufacturingRequirementFact(
+            entity_id=f"#prose{index}",
+            semantic_name="internal thread",
+            text="M2 x 0.4-6H RH, full thread through; DIA 1.6 tapping drill through",
+            reason="thread presentation callouts have multiple distinct supports",
+        )
+        for index in (1, 2)
+    )
+    structured = tuple(
+        StructuredManufacturingFact(
+            entity_id=f"#uda{index}",
+            kind="internal_thread",
+            fields=(
+                ("designation", "M2x0.4"),
+                ("fit class", "6H"),
+                ("hand", "right"),
+            ),
+            reference_item_ids=(f"#face{index}",),
+        )
+        for index in (1, 2)
+    )
+    monkeypatch.setattr(pmi, "read_manufacturing_requirements", lambda _path: prose)
+    monkeypatch.setattr(
+        pmi, "read_structured_manufacturing_requirements", lambda _path: structured
+    )
+
+    _sources, records = pmi._manufacturing_requirement_projection("unused.step")
+
+    assert len(records) == 4
+    assert all(not record.source_ids for record in records)
+    assert all(not record.reference_item_ids for record in records[:2])
+    assert all(record.lowering_blockers for record in records[:2])
+    assert [record.reference_item_ids for record in records[2:]] == [
+        ("#face1",),
+        ("#face2",),
+    ]
+
+
+def test_thread_reconciliation_requires_complete_valid_designations_issue_2231():
+    from draftwright._pmi_part21 import (
+        _prose_thread_designation,
+        _structured_thread_designation,
+    )
+
+    assert _prose_thread_designation("M2 x 0.4") is None
+    assert _structured_thread_designation((("designation", "M2x0.4"),)) is None
+    assert (
+        _structured_thread_designation(
+            (("designation", "M2x0.4"), ("fit class", "6H"), ("hand", "clockwise"))
+        )
+        is None
+    )
+
+
 def _read_surface_labels(tmp_path, name: str, *instances: str):
     step = tmp_path / f"{name}.step"
     step.write_text(_step(*instances), encoding="utf-8")

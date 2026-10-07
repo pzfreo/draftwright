@@ -56,6 +56,7 @@ from draftwright._pmi_linear_geometry import (
 )
 from draftwright._pmi_linear_geometry import _proved_planar_linear
 from draftwright._pmi_part21 import (
+    _AMBIGUOUS_MANUFACTURING_CALLOUTS,
     CommonLabelFact,
     DatumDefinitionFact,
     DatumOccurrenceFact,
@@ -63,6 +64,8 @@ from draftwright._pmi_part21 import (
     DimensionDisplayFact,
     GeometricToleranceFact,
     MaterialFact,
+    _prose_thread_designation,
+    _structured_thread_designation,
     dimension_basic_policy,
     match_common_label,
     match_datum_occurrence,
@@ -1505,6 +1508,9 @@ def _manufacturing_requirement_projection(
         structured_facts = ()
 
     paired: set[str] = set()
+    ambiguous_prose = [
+        fact for fact in requirement_facts if _AMBIGUOUS_MANUFACTURING_CALLOUTS in fact.reason
+    ]
 
     def paired_structured(requirement):
         kind = "_".join(requirement.semantic_name.casefold().split())
@@ -1524,6 +1530,26 @@ def _manufacturing_requirement_projection(
                 and support == set(fact.reference_item_ids)
                 and fact.entity_id not in paired
             ]
+            if not candidates and not support and requirement in ambiguous_prose:
+                # A unique designation can pair prose with structured PMI; its
+                # exact face is still checked during geometry lowering.
+                designation = _prose_thread_designation(requirement.text)
+                if (
+                    designation is not None
+                    and sum(
+                        _prose_thread_designation(fact.text) == designation
+                        for fact in ambiguous_prose
+                    )
+                    == 1
+                ):
+                    candidates = [
+                        fact
+                        for fact in structured_facts
+                        if fact.kind == kind
+                        and len(fact.reference_item_ids) == 1
+                        and _structured_thread_designation(fact.fields) == designation
+                        and fact.entity_id not in paired
+                    ]
         return candidates[0] if len(candidates) == 1 else None
 
     for requirement in requirement_facts:
@@ -1538,7 +1564,9 @@ def _manufacturing_requirement_projection(
             blockers = tuple(
                 reason
                 for reason in (
-                    requirement.reason,
+                    requirement.reason.replace(_AMBIGUOUS_MANUFACTURING_CALLOUTS, "").strip("; ")
+                    if structured is not None
+                    else requirement.reason,
                     structured.reason if structured is not None else "",
                 )
                 if reason
@@ -1553,7 +1581,11 @@ def _manufacturing_requirement_projection(
                     part21_id=requirement.entity_id,
                     source_category="manufacturing_requirement",
                     lowering_blockers=blockers,
-                    reference_item_ids=requirement.reference_item_ids,
+                    reference_item_ids=(
+                        structured.reference_item_ids
+                        if structured is not None and not requirement.reference_item_ids
+                        else requirement.reference_item_ids
+                    ),
                     semantic_name=requirement.semantic_name,
                     shape_aspect_ids=tuple(
                         dict.fromkeys(
