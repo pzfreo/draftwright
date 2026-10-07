@@ -623,6 +623,17 @@ def dimension_lane_supported(feature: Feature, parameter_id: str) -> bool:
     return (feature.kind, parameter_id) in _DIMENSION_LANE_PARAMETERS
 
 
+def location_lane_supported(feature: Feature, axis: str | None, member: object) -> bool:
+    """A location lane must name one Z-normal hole/pattern component exactly."""
+
+    return (
+        isinstance(feature, HoleFeature | PatternFeature)
+        and feature.frame.axis == "z"
+        and axis in {"x", "y"}
+        and member is not None
+    )
+
+
 def _validate_dimension_lane(
     feature: Feature,
     parameters: tuple[DimParameter, ...] | list[DimParameter],
@@ -1510,6 +1521,22 @@ def location_display_decimals(model: PartModel, feature) -> int | None:
     return next((request.display_decimals for request in _location_requests(model, feature)), None)
 
 
+def location_component_lane(
+    model: PartModel, feature: Feature, member: int | None, axis: str
+) -> int | None:
+    """Return the lane only for the exact approved hole/pattern location component."""
+
+    selected_member = "centre" if member is None else member
+    return next(
+        (
+            request.lane
+            for request in _location_requests(model, feature)
+            if request.member == selected_member and request.discriminator == axis
+        ),
+        None,
+    )
+
+
 def authored_location_axis_omitted(model: PartModel, feature, axis: str) -> bool:
     """An authored location set deliberately selects no component on this axis."""
     requests = _location_requests(model, feature)
@@ -1790,10 +1817,20 @@ def _check_intent_policy_conflicts(model: PartModel) -> None:
         if model.authored_dimensions is not None
         else model.requested_dimensions
     )
-    seen: dict[tuple[int, str], tuple[int | None, str | None, str | None, int | None]] = {}
+    seen: dict[
+        tuple[int, str, object, str | None], tuple[int | None, str | None, str | None, int | None]
+    ] = {}
+    location_decimals: dict[int, int | None] = {}
     for request in requests:
         targets: tuple[str, ...]
         if request.role == LOCATION_ROLE:
+            feature_id = id(request.feature)
+            previous_decimals = location_decimals.setdefault(feature_id, request.display_decimals)
+            if previous_decimals != request.display_decimals:
+                raise ValueError(
+                    f"conflicting display precision for location: "
+                    f"{previous_decimals!r} and {request.display_decimals!r}"
+                )
             targets = (LOCATION_ROLE,)
         else:
             parameters = tuple(
@@ -1804,7 +1841,12 @@ def _check_intent_policy_conflicts(model: PartModel) -> None:
             _validate_dimension_lane(request.feature, parameters, request.lane)
             targets = tuple(parameter.parameter_id for parameter in parameters)
         for parameter_id in targets:
-            key = (id(request.feature), parameter_id)
+            key = (
+                id(request.feature),
+                parameter_id,
+                request.member if request.role == LOCATION_ROLE else None,
+                request.discriminator if request.role == LOCATION_ROLE else None,
+            )
             policy = (request.display_decimals, request.view, request.side, request.lane)
             previous = seen.get(key, policy)
             if key in seen and previous != policy:

@@ -948,6 +948,11 @@ def _layout_override_block(model) -> list[str]:
         return []
     lines = []
     for override in model.layout_overrides:
+        selector = (
+            f"axis={json.dumps(override.axis)}, member={json.dumps(override.member)}, "
+            if override.parameter_id == "location"
+            else ""
+        )
         if override.side is not None:
             parameter = (
                 f"parameter={json.dumps(override.parameter_id)}, "
@@ -956,13 +961,14 @@ def _layout_override_block(model) -> list[str]:
             )
             lines.append(
                 "sheet.layout_override("
-                f"{json.dumps(override.declaration_id)}, {parameter}side={json.dumps(override.side)})"
+                f"{json.dumps(override.declaration_id)}, {parameter}{selector}"
+                f"side={json.dumps(override.side)})"
             )
         else:
             lines.append(
                 "sheet.layout_override("
                 f"{json.dumps(override.declaration_id)}, "
-                f"parameter={json.dumps(override.parameter_id)}, lane={override.lane})"
+                f"parameter={json.dumps(override.parameter_id)}, {selector}lane={override.lane})"
             )
     return [
         "# ── Layout-only declaration overrides ──────────────────────────────────────────",

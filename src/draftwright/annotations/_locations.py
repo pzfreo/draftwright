@@ -9,6 +9,7 @@ from typing import Any
 from build123d_drafting.helpers import CenterMark
 
 from draftwright._core import (
+    _STRIP_SPACING,
     Analysis,
     _concentric_with_axis,
     _first_free_index,
@@ -20,6 +21,7 @@ from draftwright.annotations._common import (
     PRIORITY,
     CorridorCandidate,
     Escalation,
+    InteriorDimensionJob,
     _hole_location_coverage_fact,
     _same_location_ordinate,
     _with_hole_location_coverage,
@@ -276,6 +278,69 @@ def _location_candidate(
     )
 
 
+def _submit_location(
+    dwg,
+    ctx,
+    register,
+    key,
+    strip,
+    view,
+    axis,
+    tier,
+    candidate,
+    *,
+    lane,
+    witness,
+    side,
+    hole_requirements=(),
+):
+    """Route an exact declared lane through the shared whole-dimension solve."""
+    if lane is None:
+        register(ctx, key, strip, view, axis, tier, candidate)
+        return
+    rejections: list[str] = []
+
+    def drop(name):
+        blockers = sorted(set(rejections)) or ["no_admissible_candidate"]
+        ctx.record_issue(
+            "warning",
+            "location_ref_dropped",
+            f"{name} not placed (requested lane {lane} unavailable beside the {view}; "
+            f"blockers: {', '.join(blockers)})",
+            measurement=candidate.measurement,
+            hole_requirements=hole_requirements,
+            evidence_reason=f"requested_lane_unavailable:{lane}:{','.join(blockers)}",
+        )
+        ctx.escalations.append(Escalation("location", view, name, "requested_lane_unavailable"))
+
+    jobs = ctx.interior_dimensions
+    if jobs is None:
+        rejections.append("measured_lane_solve_unavailable")
+        drop(candidate.name)
+        return
+    lane_step = tier + (strip.spacing if strip is not None else _STRIP_SPACING)
+    direction = 1 if side in {"above", "right"} else -1
+    position = witness + direction * (2 * dwg.draft.extension_gap + lane * lane_step)
+    jobs.append(
+        InteriorDimensionJob(
+            name=candidate.name,
+            view=view,
+            side=side,
+            build=candidate.build,
+            on_place=candidate.on_place,
+            on_drop=drop,
+            lane_step=lane_step,
+            priority=candidate.priority,
+            feature=candidate.feature,
+            measurement=candidate.measurement,
+            interior_build=candidate.build,
+            explicit_position=position,
+            requested_lane=lane,
+            rejection_reasons=rejections,
+        )
+    )
+
+
 def _circular_channel_axis_marks(dwg, ctx, dimensions):
     """Give approved axis coordinates a visible natural reference in each projection."""
     existing = {
@@ -525,7 +590,7 @@ def render_locations(
         if r[4] not in (None, "x"):
             continue
         for u in x_refs:
-            if _same_location_ordinate(r[0], u[0]):
+            if _same_location_ordinate(r[0], u[0]) and r[6].lane == u[6][0].lane:
                 u[6].append(r[6])
                 u[3] = u[3] or r[2] in pinned_set
                 # Collapsing coincident Xs into one dim must ACCUMULATE what it draws
@@ -568,11 +633,7 @@ def render_locations(
         )
         ctx.escalations.append(Escalation("location", "plan", None, "illegible"))
     x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
-    # Register X locations with slot dimensions in the shared plan-above corridor;
-    # this dedups coincident slot positions and orders the whole ladder instead
-    # of passes carving around each other. A plan-X location has no alternate
-    # view, so Policy B force-keeps a blocked dim; only a physically full strip
-    # drops (location_ref_dropped) and escalates the hole table.
+    # Share the plan corridor with slots; blocked dimensions escalate to a hole table.
     for i, (rx, ry, feat, pin_ref, mids, location_facts, location_entries) in enumerate(
         sorted(x_refs, key=lambda r: abs(r[0] - datum_x))
     ):
@@ -583,25 +644,17 @@ def render_locations(
         label_offset = short_dimension_label_offset(
             (PX(datum_x), PY(ry), 0), (PX(rx), PY(ry), 0), draft, label
         )
-        # A single X-location dim shared by two *distinct* features at this X belongs to
-        # neither exclusively — leave it unowned so drop cannot over-strip a sibling's
-        # dimension and annotations_of never over-claims it (ADR 5 (was 0010)).
+        # Shared dimensions have no single feature owner (ADR 5).
         _shared_x = any(
-            o[4] in (None, "x") and _same_location_ordinate(o[0], rx) and o[2] != feat
+            o[4] in (None, "x")
+            and _same_location_ordinate(o[0], rx)
+            and o[2] != feat
+            and o[6].lane == location_entries[0].lane
             for o in refs
         )
         _xfeat = None if _shared_x else feat
-        # The measurement does NOT follow the feature. Feature-unowned is an
-        # ADR 5 (was 0010) *ownership* rule — it stops drop(feature) stripping a sibling's dim. It
-        # says nothing about what the dim measures, and a shared dim measures BOTH features'
-        # X location. Record every approved measurement in the tuple-valued
-        # channel (ADR 4 (was 0016)) so audit can credit all owners.
-        # One ADR 4 (was 0016) feature-level location identity per collapsed owner; the structured
-        # location facts below carry that this particular visible member is X.
         _xmid = tuple(mids)
-        # On the experimental staggered layout the plan can abut the top sheet margin.
-        # The farther X stations may use the free exterior strip below the plan while
-        # the nearest station keeps its established tier. Both are solver-owned strips.
+        # A staggered plan may route farther X stations into the free lower strip.
         x_below = (
             layout_flag("plan_x_below", "DRAFTWRIGHT_EXPERIMENTAL_PLAN_X_BELOW")
             and i > 0
@@ -613,8 +666,10 @@ def render_locations(
         geometry = _XLocationGeometry(
             PX, PY, datum_x, rx, ry, x_side, label, label_offset, draft, dim_builder
         )
-        register(
+        _submit_location(
+            dwg,
             ctx,
+            register,
             ("plan", x_side),
             x_zone,
             "plan",
@@ -639,6 +694,12 @@ def render_locations(
                 footprint=geometry.footprint,
                 interior_build=geometry.interior_build,
                 interior_geometry=geometry.interior_geometry,
+            ),
+            lane=location_entries[0].lane,
+            witness=PY(ry),
+            side=x_side,
+            hole_requirements=tuple(
+                (feature, parameter) for feature, parameter, _point in location_facts
             ),
         )
 
@@ -698,7 +759,7 @@ def _register_y_locations(
         if r[4] not in (None, "y"):
             continue
         for u in y_refs:
-            if _same_location_ordinate(r[1], u[1]):
+            if _same_location_ordinate(r[1], u[1]) and r[6].lane == u[6][0].lane:
                 u[6].append(r[6])
                 u[3] = u[3] or r[2] in pinned_set
                 if r[4] in (None, "y") and r[3] is not None and r[3] not in u[4]:
@@ -762,7 +823,10 @@ def _register_y_locations(
         n += 1
         # A shared Y location is unowned for the same reason as shared X.
         _shared_y = any(
-            o[4] in (None, "y") and _same_location_ordinate(o[1], ry) and o[2] != feat
+            o[4] in (None, "y")
+            and _same_location_ordinate(o[1], ry)
+            and o[2] != feat
+            and o[6].lane == location_entries[0].lane
             for o in refs
         )
         _yfeat = None if _shared_y else feat
@@ -797,8 +861,10 @@ def _register_y_locations(
         geometry = _YLocationGeometry(
             pa, pb, direction, interior_direction, edge, label, label_offset, draft, dim_builder
         )
-        register(
+        _submit_location(
+            dwg,
             ctx,
+            register,
             (view, direction),
             strip,
             view,
@@ -824,6 +890,12 @@ def _register_y_locations(
                 footprint=geometry.footprint,
                 interior_build=geometry.interior_build,
                 interior_geometry=geometry.interior_geometry,
+            ),
+            lane=location_entries[0].lane,
+            witness=edge,
+            side=direction,
+            hole_requirements=tuple(
+                (feature, parameter) for feature, parameter, _point in location_facts
             ),
         )
     return n

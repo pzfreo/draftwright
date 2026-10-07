@@ -17,6 +17,7 @@ from draftwright.annotations._common import PlacementContext
 from draftwright.annotations._diameters import _render_diameter_controls
 from draftwright.annotations._envelope import _EnvelopeLaneDrop, _queue_declared_envelope_lane
 from draftwright.annotations._height_ladder import _queue_declared_height_lane
+from draftwright.annotations._locations import _submit_location
 from draftwright.annotations.from_model import _record_slot_drop
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.ir import LayoutOverride, RequestedDimension
@@ -606,7 +607,7 @@ def test_lane_field_preserves_requested_dimension_positional_member_abi() -> Non
     assert request.lane is None
 
 
-def test_requested_dimension_rejects_invalid_and_location_lanes() -> None:
+def test_requested_dimension_rejects_invalid_and_ambiguous_location_lanes() -> None:
     sheet = Sheet(Box(100, 80, 10), title="lane").auto_dimensions()
     sheet.slot(
         width=20,
@@ -623,8 +624,96 @@ def test_requested_dimension_rejects_invalid_and_location_lanes() -> None:
 
     with pytest.raises(ValueError, match="integer from 1 to 8"):
         RequestedDimension(slot_feature, "slot_width.length", lane=0)
-    with pytest.raises(ValueError, match="unavailable for location dimensions"):
-        RequestedDimension(hole_feature, "location", "x", member=0, lane=2)
+    with pytest.raises(ValueError, match="selected by both axis and member"):
+        RequestedDimension(hole_feature, "location", lane=2)
+    assert RequestedDimension(hole_feature, "location", "x", member=0, lane=2).lane == 2
+
+
+def test_exact_location_lanes_reach_independent_approved_components() -> None:
+    sheet = Sheet(Box(100, 80, 10)).authored_dimensions()
+    hole = sheet.hole(diameter=10, at=(10, 5, 5), axis="z")
+    sheet.dimension(hole, "location", axis="x", member=0).place(lane=1)
+    sheet.dimension(hole, "location", axis="y", member=0).place(lane=2)
+
+    locations = compile_dimensions(sheet.model()).locations
+    assert {(entry.discriminator, entry.lane) for entry in locations} == {
+        ("x", 1),
+        ("y", 2),
+    }
+
+
+def test_location_lane_override_targets_one_component_and_replays() -> None:
+    part = Box(100, 80, 10) - Pos(10, 5, 0) * Cylinder(10, 10)
+    sheet = Sheet(part).authored_dimensions()
+    hole = sheet.hole(diameter=10, at=(10, 5, 5), axis="z").identify("hole:0")
+    sheet.dimension(hole, "location", axis="x", member=0)
+    sheet.dimension(hole, "location", axis="y", member=0)
+
+    assert (
+        "lane"
+        in sheet.layout_options("hole:0", parameter="location", axis="x", member=0)["controls"]
+    )
+    assert sheet.validate_layout_override(
+        "hole:0", parameter="location", axis="x", member=0, lane=2
+    )["supported"]
+    sheet.layout_override("hole:0", parameter="location", axis="x", member=0, lane=2)
+    sheet.layout_override("hole:0", parameter="location", axis="y", member=0, lane=1)
+
+    model = sheet.model()
+    assert {
+        (request.discriminator, request.lane) for request in model.authored_dimensions or ()
+    } == {
+        ("x", 2),
+        ("y", 1),
+    }
+    source = emit_sheet_script(model, "part", "location", title="location", number="L")
+    assert 'parameter="location", axis="x", member=0, lane=2' in source
+    namespace = {"part": part}
+    exec(  # noqa: S102 - execute this generated replay surface
+        compile(source[: source.index("drawing = sheet.build()")], "<location-replay>", "exec"),
+        namespace,
+    )
+    assert namespace["sheet"].model().layout_overrides == model.layout_overrides
+    drawing = sheet.build()
+    location_names = [
+        name
+        for name in drawing.annotations()
+        if any("location" in key["parameter_id"] for key in drawing.measurement_keys(name))
+    ]
+    assert len(location_names) == 2
+    assert not any(issue.code == "location_ref_dropped" for issue in drawing.lint())
+    report = drawing.report()
+    assert {
+        (row["axis"], row["member"], row["resolved_value"])
+        for row in report["layout"]["overrides"]
+    } == {
+        ("x", 0, 2),
+        ("y", 0, 1),
+    }
+    schema = json.loads(
+        (
+            Path(__file__).parents[1] / "docs/reference/draftwright-report-v8.schema.json"
+        ).read_text()
+    )
+    validator_for(schema)(schema).validate(report)
+
+
+def test_equal_location_ordinates_in_different_lanes_keep_distinct_owners() -> None:
+    part = Box(100, 80, 10)
+    for y in (-10, 10):
+        part -= Pos(10, y, 0) * Cylinder(10, 10)
+    sheet = Sheet(part, scale=1).authored_dimensions()
+    first = sheet.hole(diameter=10, at=(10, -10, 5), axis="z")
+    second = sheet.hole(diameter=10, at=(10, 10, 5), axis="z")
+    sheet.dimension(first, "location", axis="x", member=0).place(lane=1)
+    sheet.dimension(second, "location", axis="x", member=0).place(lane=2)
+
+    drawing = sheet.build()
+    first_feature, second_feature = sheet.model().features
+    first_names = set(drawing.annotations_of(first_feature))
+    second_names = set(drawing.annotations_of(second_feature))
+    assert first_names and second_names
+    assert first_names.isdisjoint(second_names)
 
 
 @pytest.mark.parametrize(
@@ -635,6 +724,11 @@ def test_requested_dimension_rejects_invalid_and_location_lanes() -> None:
         ({"lane": 2}, "non-empty parameter_id"),
         ({"parameter_id": " slot_width.length ", "lane": 2}, "surrounding whitespace"),
         ({"parameter_id": "slot_width.length", "lane": 9}, "integer from 1 to 8"),
+        ({"parameter_id": "location", "lane": 2}, "exact axis and member"),
+        (
+            {"parameter_id": "location", "axis": "x", "member": "wrong", "lane": 2},
+            "valid member and lane",
+        ),
     ],
 )
 def test_layout_override_record_rejects_ambiguous_or_unbounded_state(kwargs, message) -> None:
@@ -738,6 +832,31 @@ def test_height_lane_without_batch_solve_reports_refusal() -> None:
     (issue,) = context.registry.issues
     assert issue.code == "placement_unsatisfiable"
     assert issue.evidence_reason == "requested_lane_unavailable:2:measured_lane_solve_unavailable"
+
+
+def test_location_lane_without_shared_solve_reports_the_exact_requested_measurement() -> None:
+    context = PlacementContext(registry=AnnotationRegistry())
+    measurement = object()
+    _submit_location(
+        dwg=None,
+        ctx=context,
+        register=None,
+        key=("plan", "above"),
+        strip=None,
+        view="plan",
+        axis="y",
+        tier=4,
+        candidate=SimpleNamespace(name="m_location", measurement=measurement),
+        lane=3,
+        witness=0,
+        side="above",
+    )
+
+    (issue,) = context.registry.issues
+    assert issue.code == "location_ref_dropped"
+    assert issue.measurement_ids == (measurement,)
+    assert issue.evidence_reason == "requested_lane_unavailable:3:measured_lane_solve_unavailable"
+    assert context.escalations[0].reason == "requested_lane_unavailable"
 
 
 def test_lane_override_round_trips_and_reports_layout_only_evidence() -> None:

@@ -2659,10 +2659,19 @@ class RequestedDimension:
                 "placement intent is unavailable for location dimensions: one location "
                 "may compile into multiple directional values"
             )
-        if self.role == "location" and self.lane is not None:
+        if (
+            self.role == "location"
+            and self.lane is not None
+            and not (
+                isinstance(self.feature, HoleFeature | PatternFeature)
+                and self.feature.frame.axis == "z"
+                and self.discriminator in {"x", "y"}
+                and self.member is not None
+            )
+        ):
             raise ValueError(
-                "lane intent is unavailable for location dimensions: one location may "
-                "compile into multiple directional values"
+                "location lane requires one Z-normal hole or pattern component "
+                "selected by both axis and member"
             )
         decimals = self.display_decimals
         if decimals is None:
@@ -2715,19 +2724,14 @@ class FeatureSchedule:
 
 @dataclass(frozen=True)
 class LayoutOverride:
-    """One append-only layout-only edit against a build-scoped declaration.
-
-    The record carries a feature corridor side, one exact dimension's corridor side,
-    or one exact dimension's relative lane, never page coordinates. The matching feature/request in :class:`PartModel`
-    contains the resolved value used by the renderer; retaining this separate intent
-    record makes generated replay and assessment evidence explicit without turning layout
-    policy into engineering meaning.
-    """
+    """Append-only, coordinate-free layout edit against a build-scoped declaration."""
 
     declaration_id: str
     side: str | None = None
     parameter_id: str | None = None
     lane: int | None = None
+    axis: str | None = None
+    member: int | Literal["centre"] | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -2741,6 +2745,17 @@ class LayoutOverride:
             )
         if (self.side is None) == (self.lane is None):
             raise ValueError("layout override requires exactly one of side or lane")
+        if self.parameter_id != "location" and (self.axis is not None or self.member is not None):
+            raise ValueError("layout override axis and member select only location")
+        if self.parameter_id == "location" and (
+            self.axis not in {"x", "y"} or self.member is None
+        ):
+            raise ValueError("location layout override requires exact axis and member")
+        valid_member = self.member == "centre" or (
+            isinstance(self.member, int) and not isinstance(self.member, bool) and self.member >= 0
+        )
+        if self.parameter_id == "location" and (self.side is not None or not valid_member):
+            raise ValueError("location layout override requires a valid member and lane")
         if self.side is not None:
             if self.parameter_id is not None and (
                 not isinstance(self.parameter_id, str)
@@ -2887,7 +2902,8 @@ class PartModel:
         ):
             raise ValueError("PartModel.layout_overrides requires LayoutOverride entries")
         override_targets = [
-            (override.declaration_id, override.parameter_id) for override in self.layout_overrides
+            (override.declaration_id, override.parameter_id, override.axis, override.member)
+            for override in self.layout_overrides
         ]
         if len(set(override_targets)) != len(override_targets):
             raise ValueError("PartModel.layout_overrides requires unique layout targets")
@@ -2914,6 +2930,8 @@ class PartModel:
                         )
                         if request.feature is feature
                         and request.role == override.parameter_id
+                        and request.discriminator == override.axis
+                        and request.member == override.member
                         and request.side == override.side
                     ]
                     if len(matching_side) != 1:
@@ -2935,6 +2953,8 @@ class PartModel:
                 for request in (*self.requested_dimensions, *(self.authored_dimensions or ()))
                 if request.feature is feature
                 and request.role == override.parameter_id
+                and request.discriminator == override.axis
+                and request.member == override.member
                 and request.lane == override.lane
             ]
             if len(matching) != 1:

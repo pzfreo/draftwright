@@ -2196,18 +2196,18 @@ def _declared_layout(
                 f"layout override {override.declaration_id!r} has no final declaration"
             )
         feature = model.features[feature_index]
+        matches = [
+            request
+            for request in (*model.requested_dimensions, *(model.authored_dimensions or ()))
+            if request.feature is feature
+            and request.role == override.parameter_id
+            and request.discriminator == override.axis
+            and request.member == override.member
+        ]
         if override.side is not None:
             if override.parameter_id is None:
                 resolved = getattr(feature, "side", None)
             else:
-                matches = [
-                    request
-                    for request in (
-                        *model.requested_dimensions,
-                        *(model.authored_dimensions or ()),
-                    )
-                    if request.feature is feature and request.role == override.parameter_id
-                ]
                 resolved = matches[0].side if len(matches) == 1 else None
             if resolved != override.side:
                 raise ReportUnavailableError(
@@ -2223,12 +2223,10 @@ def _declared_layout(
             }
             if override.parameter_id is not None:
                 row["parameter_id"] = override.parameter_id
+                if override.parameter_id == "location":
+                    row["axis"] = override.axis
+                    row["member"] = override.member
         else:
-            matches = [
-                request
-                for request in (*model.requested_dimensions, *(model.authored_dimensions or ()))
-                if request.feature is feature and request.role == override.parameter_id
-            ]
             if len(matches) != 1 or matches[0].lane != override.lane:
                 raise ReportUnavailableError(
                     f"layout override {override.declaration_id!r} did not resolve lane "
@@ -2243,6 +2241,9 @@ def _declared_layout(
                 "intent_class": "layout-only",
                 "status": "applied",
             }
+            if override.parameter_id == "location":
+                row["axis"] = override.axis
+                row["member"] = override.member
         overrides.append(row)
     page_w, page_h = float(drawing.page_w), float(drawing.page_h)
     left, bottom, right, top = drawing.drawable_bounds
