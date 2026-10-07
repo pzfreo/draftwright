@@ -550,7 +550,24 @@ def _diameter_bucket_lane(entry) -> int | None:
     return next(iter(lanes)) if len(lanes) == 1 else None
 
 
-def _render_diameter_lanes(
+def _diameter_bucket_side(entry) -> str | None:
+    """Keep the one planner-approved side of a physical diameter bucket."""
+    sides = {
+        dim.side
+        for group in entry[6]
+        for dim in group.dims
+        if dim.kind == "diameter" and dim.side is not None
+    }
+    if len(sides) > 1:
+        raise ValueError("one physical diameter cannot have conflicting requested sides")
+    return next(iter(sides)) if len(sides) == 1 else None
+
+
+def _diameter_has_placement_control(entry) -> bool:
+    return _diameter_bucket_lane(entry) is not None or _diameter_bucket_side(entry) is not None
+
+
+def _render_diameter_controls(
     dwg,
     a,
     indexed_buckets,
@@ -563,7 +580,7 @@ def _render_diameter_lanes(
     place_jobs,
     leader_reach,
 ) -> int:
-    """Offer only the requested witness-relative rank to the shared leader solve."""
+    """Offer only requested side/rank candidates to the shared leader solve."""
     vb = dwg.view_bounds("front")
     if vb is None:
         return 0
@@ -571,19 +588,24 @@ def _render_diameter_lanes(
     jobs = []
     names = set()
     requested_lanes = {}
+    requested_sides = {}
     covers_diameters_by_name = {}
     source_ids_by_name = {}
     include_source_pmi = not ctx.document_member or a.pmi_mode == "annotate"
     for index, entry in indexed_buckets:
         _anchor, dia, value_text, refs, tolerance, rider, groups = entry
         lane = _diameter_bucket_lane(entry)
-        if lane is None:
+        side = _diameter_bucket_side(entry)
+        if lane is None and side is None:
             continue
         representative = groups[0].facts
         owner = next(iter(refs)) if len(refs) == 1 else None
         name = f"{prefix}{start + index}"
         names.add(name)
-        requested_lanes[name] = lane
+        if lane is not None:
+            requested_lanes[name] = lane
+        if side is not None:
+            requested_sides[name] = side
         source_ids_by_name[name] = (
             tuple(
                 dict.fromkeys(
@@ -598,8 +620,23 @@ def _render_diameter_lanes(
         )
         if axis == "y":
             covers_diameters_by_name[name] = dia
-        reach = leader_reach(dwg.draft) + (lane - 1) * spacing
+        reach = (
+            leader_reach(dwg.draft) + (lane - 1) * spacing
+            if lane is not None
+            else dwg.draft.font_size + 2 * dwg.draft.pad_around_text
+        )
         if axis == "y":
+            directions = _END_DIAMETER_LEAD_DIRS
+            if side is not None:
+                coordinate, sign = {
+                    "left": (0, -1),
+                    "right": (0, 1),
+                    "below": (1, -1),
+                    "above": (1, 1),
+                }[side]
+                directions = tuple(
+                    direction for direction in directions if direction[coordinate] * sign > 1e-9
+                )
             candidates = radial_candidates(
                 dwg,
                 "front",
@@ -607,10 +644,20 @@ def _render_diameter_lanes(
                 representative,
                 reach,
                 rim=dia / 2 * a.SCALE,
-                directions=_END_DIAMETER_LEAD_DIRS,
+                directions=directions,
                 provenance=owner,
             )
         else:
+            directions = _DIAMETER_LEAD_DIRS[axis]
+            if side is not None:
+                directions = (
+                    {
+                        "above": (0, 1),
+                        "below": (0, -1),
+                        "left": (-1, 0),
+                        "right": (1, 0),
+                    }[side],
+                )
             candidates = radial_candidates(
                 dwg,
                 "front",
@@ -618,7 +665,7 @@ def _render_diameter_lanes(
                 representative,
                 reach,
                 source_bounds=_diameter_source_bounds(dwg, "front", representative, dia),
-                directions=_DIAMETER_LEAD_DIRS[axis],
+                directions=directions,
                 provenance=owner,
             )
         label = f"ø{value_text}{_tol_suffix(tolerance, dwg.draft)}"
@@ -639,7 +686,7 @@ def _render_diameter_lanes(
             dwg,
             a,
             jobs,
-            noun="diameter at requested lane",
+            noun="diameter at requested side/lane",
             drop_code="diameter_dropped",
             ctx=ctx,
             geom_clear=True,
@@ -647,6 +694,7 @@ def _render_diameter_lanes(
             expand_lanes=False,
             straight_only_names=frozenset(names),
             requested_lanes=requested_lanes,
+            requested_sides=requested_sides,
             covers_diameters_by_name=covers_diameters_by_name,
             source_ids_by_name=source_ids_by_name,
         ),
@@ -731,16 +779,18 @@ def _render_x_diameter_buckets(
             for group in entry[6]
         )
 
-    lane_entries = [(index, entry) for index, entry in indexed if _diameter_bucket_lane(entry)]
+    controlled_entries = [
+        (index, entry) for index, entry in indexed if _diameter_has_placement_control(entry)
+    ]
     typed_entries = [
         (index, entry)
         for index, entry in indexed
-        if not _diameter_bucket_lane(entry) and typed(entry)
+        if not _diameter_has_placement_control(entry) and typed(entry)
     ]
     plain_entries = [
         (index, entry)
         for index, entry in indexed
-        if not _diameter_bucket_lane(entry) and not typed(entry)
+        if not _diameter_has_placement_control(entry) and not typed(entry)
     ]
     placed = 0
     # A requested lane splits the otherwise unchanged contiguous legacy row.
@@ -785,10 +835,10 @@ def _render_x_diameter_buckets(
         place_jobs=place_jobs,
         leader_reach=leader_reach,
     )
-    placed += _render_diameter_lanes(
+    placed += _render_diameter_controls(
         dwg,
         a,
-        lane_entries,
+        controlled_entries,
         axis="x",
         prefix="m_dia_x",
         start=start,
@@ -817,7 +867,11 @@ def _render_z_diameter_buckets(
     indexed = list(enumerate(buckets.values()))
     placed = 0
     for _, run in groupby(
-        enumerate((index, entry) for index, entry in indexed if not _diameter_bucket_lane(entry)),
+        enumerate(
+            (index, entry)
+            for index, entry in indexed
+            if not _diameter_has_placement_control(entry)
+        ),
         key=lambda item: item[1][0] - item[0],
     ):
         entries = [entry for _ordinal, entry in run]
@@ -829,10 +883,10 @@ def _render_z_diameter_buckets(
             ctx=ctx,
             place_what_fits=place_what_fits,
         )
-    placed += _render_diameter_lanes(
+    placed += _render_diameter_controls(
         dwg,
         a,
-        [(index, entry) for index, entry in indexed if _diameter_bucket_lane(entry)],
+        [(index, entry) for index, entry in indexed if _diameter_has_placement_control(entry)],
         axis="z",
         prefix="m_dia_z",
         start=start,
@@ -972,7 +1026,7 @@ def render_diameters(
             jobs = []
             covered_by_name = {}
             for i, entry in enumerate(end_buckets.values()):
-                if _diameter_bucket_lane(entry):
+                if _diameter_has_placement_control(entry):
                     continue
                 _anchor, dia, value_text, refs, dtol, thr, feature_groups = entry
                 representative = feature_groups[0].facts
@@ -1024,13 +1078,13 @@ def render_diameters(
                 ann = ctx.registry.named(name)
                 if ann is not None:
                     ann.covers_diameters = (dia,)
-    placed += _render_diameter_lanes(
+    placed += _render_diameter_controls(
         dwg,
         a,
         [
             (index, entry)
             for index, entry in enumerate(end_buckets.values())
-            if _diameter_bucket_lane(entry)
+            if _diameter_has_placement_control(entry)
         ],
         axis="y",
         prefix="m_dia_y",

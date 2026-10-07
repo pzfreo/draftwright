@@ -100,7 +100,6 @@
     "model/ir.py:PolygonalBossFeature.__post_init__": 26,
     "model/oriented_slot_geometry.py:validate_feature": 16,
     "model/oriented_slot_geometry.py:validate_passage": 18,
-    "model/planner.py:_group_placement": 16,
     "model/planner.py:_parameter_view_preferences": 17,
     "model/planner.py:_uncovered_location_requirements": 21,
     "model/planner.py:plan_locations": 17,

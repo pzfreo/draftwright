@@ -14,7 +14,7 @@ from jsonschema.validators import validator_for
 from draftwright import Sheet
 from draftwright.annotations._axial_render import _place_or_queue_rotational_od
 from draftwright.annotations._common import PlacementContext
-from draftwright.annotations._diameters import _render_diameter_lanes
+from draftwright.annotations._diameters import _render_diameter_controls
 from draftwright.annotations.from_model import _record_slot_drop
 from draftwright.model.ir import LayoutOverride, RequestedDimension
 from draftwright.registry import AnnotationRegistry
@@ -169,17 +169,33 @@ def test_step_lane_does_not_rename_or_duplicate_untouched_diameter() -> None:
 
 
 @pytest.mark.parametrize(
-    ("pmi_mode", "expected"),
-    [("annotate", ("manufacturing_requirement:#1",)), ("omit", ())],
+    ("control", "pmi_mode", "expected"),
+    [
+        (control, pmi_mode, expected)
+        for control in ("lane", "side")
+        for pmi_mode, expected in (
+            ("annotate", ("manufacturing_requirement:#1",)),
+            ("omit", ()),
+        )
+    ],
 )
-def test_step_lane_preserves_visible_source_thread_identity(pmi_mode, expected) -> None:
+def test_step_control_preserves_visible_source_thread_identity(
+    control, pmi_mode, expected
+) -> None:
     aspect = SimpleNamespace(source_ids=("manufacturing_requirement:#1",))
     facts = SimpleNamespace(
         frame=SimpleNamespace(axis="y"), get=lambda key: aspect if key == "thread" else None
     )
     group = SimpleNamespace(
         facts=facts,
-        dims=(SimpleNamespace(kind="diameter", lane=2, id="dimension:step"),),
+        dims=(
+            SimpleNamespace(
+                kind="diameter",
+                lane=2 if control == "lane" else None,
+                side="left" if control == "side" else None,
+                id="dimension:step",
+            ),
+        ),
     )
     entry = ((0, 0, 0), 30, "30", {"step"}, None, None, [group])
     drawing = SimpleNamespace(draft=Draft(), view_bounds=lambda _view: (0, 0, 100, 100))
@@ -190,7 +206,7 @@ def test_step_lane_preserves_visible_source_thread_identity(pmi_mode, expected) 
         captured.update(kwargs)
         return 0
 
-    _render_diameter_lanes(
+    _render_diameter_controls(
         drawing,
         analysis,
         [(0, entry)],
@@ -204,7 +220,49 @@ def test_step_lane_preserves_visible_source_thread_identity(pmi_mode, expected) 
     )
 
     assert captured["source_ids_by_name"] == {"m_dia_y0": expected}
-    assert captured["requested_lanes"] == {"m_dia_y0": 2}
+    assert captured["requested_lanes"] == ({"m_dia_y0": 2} if control == "lane" else {})
+    assert captured["requested_sides"] == ({"m_dia_y0": "left"} if control == "side" else {})
+
+
+@pytest.mark.parametrize(
+    ("axis", "rotation", "sides", "coordinate"),
+    [
+        ("x", (0, 90, 0), ("above", "below"), 1),
+        ("y", (90, 0, 0), ("left", "right"), 0),
+        ("z", (0, 0, 0), ("left", "right"), 0),
+    ],
+)
+def test_step_diameter_side_override_keeps_leader_on_requested_side(
+    axis, rotation, sides, coordinate
+) -> None:
+    observed = []
+    for side in sides:
+        sheet = Sheet(Rot(*rotation) * Cylinder(15, 40), page="A3", scale=2).authored_dimensions()
+        step = sheet.step(diameter=30, length=40, at=(0, 0, 0), axis=axis)
+        step.identify("declaration:step")
+        sheet.dimension(step, "step.diameter")
+        side_options = sheet.layout_options("declaration:step", parameter="step.diameter")[
+            "controls"
+        ]["side"]
+        assert side in side_options["supported_values"]
+        sheet.layout_override("declaration:step", parameter="step.diameter", side=side)
+        drawing = sheet.build()
+        mark = drawing.get_annotation(f"m_dia_{axis}0")
+        assert mark is not None
+        assert not any(issue.code == "placement_unsatisfiable" for issue in drawing.lint())
+        observed.append(mark.elbow[coordinate] - mark.tip[coordinate])
+    assert observed[0] * observed[1] < 0
+
+
+def test_step_length_does_not_advertise_diameter_callout_side() -> None:
+    sheet = Sheet(Rot(0, 90, 0) * Cylinder(15, 40)).authored_dimensions()
+    step = sheet.step(diameter=30, length=40, at=(0, 0, 0), axis="x")
+    step.identify("declaration:step")
+    sheet.dimension(step, "step.length")
+    result = sheet.validate_layout_override(
+        "declaration:step", parameter="step.length", side="above"
+    )
+    assert result["supported"] is False
 
 
 def test_lane_override_changes_only_the_exact_dimension_policy() -> None:

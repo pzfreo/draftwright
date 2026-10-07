@@ -219,9 +219,22 @@ def test_step_options_match_the_view_that_actually_renders(axis, rotation, param
     assert sheet.features[0].frame.axis == axis
     expected_view = "side" if axis == "y" and parameter_id == "step.length" else "front"
     options = sheet.dimension_options(handle, parameter_id)
+    sides = (
+        sorted(
+            {
+                "x": {"above", "below"},
+                "y": {"above", "below", "left", "right"},
+                "z": {"left", "right"},
+            }[axis]
+        )
+        if parameter_id == "step.diameter"
+        else []
+    )
     assert options["placements"] == [
         {"view": None, "side": None},
+        *({"view": None, "side": side} for side in sides),
         {"view": expected_view, "side": None},
+        *({"view": expected_view, "side": side} for side in sides),
     ]
     for view in PLACEMENT_VIEWS:
         assert sheet.validate_dimension(handle, parameter_id, view=view)["supported"] == (
