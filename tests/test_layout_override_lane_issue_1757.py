@@ -2,16 +2,19 @@
 
 import copy
 import json
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box, Cylinder, Rot
+from build123d import Box, Cylinder, Pos, Rot
+from build123d_drafting.helpers import Draft
 from jsonschema.validators import validator_for
 
 from draftwright import Sheet
 from draftwright.annotations._axial_render import _place_or_queue_rotational_od
 from draftwright.annotations._common import PlacementContext
+from draftwright.annotations._diameters import _render_diameter_lanes
 from draftwright.annotations.from_model import _record_slot_drop
 from draftwright.model.ir import LayoutOverride, RequestedDimension
 from draftwright.registry import AnnotationRegistry
@@ -119,6 +122,89 @@ def test_od_lane_without_batch_solve_reports_refusal() -> None:
     assert count == 0
     assert issue.code == "placement_unsatisfiable"
     assert issue.evidence_reason == "requested_lane_unavailable:2:measured_lane_solve_unavailable"
+
+
+@pytest.mark.parametrize(
+    ("axis", "rotation"),
+    [("x", (0, 90, 0)), ("y", (90, 0, 0)), ("z", (0, 0, 0))],
+)
+def test_step_diameter_lane_moves_one_bounded_leader(axis, rotation) -> None:
+    elbows = []
+    for lane in (1, 2):
+        sheet = Sheet(Rot(*rotation) * Cylinder(15, 40), page="A3", scale=2).authored_dimensions()
+        step = sheet.step(diameter=30, length=40, at=(0, 0, 0), axis=axis)
+        step.identify("declaration:step")
+        sheet.dimension(step, "step.diameter")
+        assert (
+            "lane"
+            in sheet.layout_options("declaration:step", parameter="step.diameter")["controls"]
+        )
+        sheet.layout_override("declaration:step", parameter="step.diameter", lane=lane)
+        drawing = sheet.build()
+        mark = drawing.get_annotation(f"m_dia_{axis}0")
+        assert mark is not None
+        if axis == "y":
+            assert mark.covers_diameters == (30,)
+        assert not any(issue.code == "diameter_dropped" for issue in drawing.lint())
+        assert drawing.report()["layout"]["overrides"][0]["resolved_value"] == lane
+        elbows.append(mark.elbow)
+    spacing = drawing.draft.font_size + 2 * drawing.draft.pad_around_text
+    assert math.dist(elbows[0][:2], elbows[1][:2]) == pytest.approx(spacing)
+
+
+def test_step_lane_does_not_rename_or_duplicate_untouched_diameter() -> None:
+    part = Pos(-10, 0, 0) * Rot(0, 90, 0) * Cylinder(15, 20)
+    part += Pos(10, 0, 0) * Rot(0, 90, 0) * Cylinder(10, 20)
+    sheet = Sheet(part, page="A3", scale=2).authored_dimensions()
+    first = sheet.step(diameter=30, length=20, at=(-10, 0, 0), axis="x").identify("step:a")
+    second = sheet.step(diameter=20, length=20, at=(10, 0, 0), axis="x").identify("step:b")
+    sheet.dimension(first, "step.diameter")
+    sheet.dimension(second, "step.diameter")
+    sheet.layout_override("step:b", parameter="step.diameter", lane=2)
+
+    drawing = sheet.build()
+    assert drawing.get_annotation("m_dia_x0").label == "ø30"
+    assert drawing.get_annotation("m_dia_x1").label == "ø20"
+    assert not any(issue.code == "diameter_dropped" for issue in drawing.lint())
+
+
+@pytest.mark.parametrize(
+    ("pmi_mode", "expected"),
+    [("annotate", ("manufacturing_requirement:#1",)), ("omit", ())],
+)
+def test_step_lane_preserves_visible_source_thread_identity(pmi_mode, expected) -> None:
+    aspect = SimpleNamespace(source_ids=("manufacturing_requirement:#1",))
+    facts = SimpleNamespace(
+        frame=SimpleNamespace(axis="y"), get=lambda key: aspect if key == "thread" else None
+    )
+    group = SimpleNamespace(
+        facts=facts,
+        dims=(SimpleNamespace(kind="diameter", lane=2, id="dimension:step"),),
+    )
+    entry = ((0, 0, 0), 30, "30", {"step"}, None, None, [group])
+    drawing = SimpleNamespace(draft=Draft(), view_bounds=lambda _view: (0, 0, 100, 100))
+    analysis = SimpleNamespace(SCALE=2, pmi_mode=pmi_mode)
+    captured = {}
+
+    def place_jobs(*_args, **kwargs):
+        captured.update(kwargs)
+        return 0
+
+    _render_diameter_lanes(
+        drawing,
+        analysis,
+        [(0, entry)],
+        axis="y",
+        prefix="m_dia_y",
+        start=0,
+        ctx=SimpleNamespace(document_member=True),
+        radial_candidates=lambda *_args, **_kwargs: [((0, 0), (1, 1, 0), None)],
+        place_jobs=place_jobs,
+        leader_reach=lambda _draft: 8,
+    )
+
+    assert captured["source_ids_by_name"] == {"m_dia_y0": expected}
+    assert captured["requested_lanes"] == {"m_dia_y0": 2}
 
 
 def test_lane_override_changes_only_the_exact_dimension_policy() -> None:

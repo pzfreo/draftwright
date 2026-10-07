@@ -58,11 +58,51 @@ class _MachinedJobContext:
     priority: float
     source_ids_by_name: dict
     source_drop_severity: str
+    requested_lanes: dict[str, int]
+    covers_diameters_by_name: dict[str, float]
     straight_only_names: frozenset
     late_inventory: bool
     interior_clearance_by_view: dict
     cross_view_clearance: bool
     foreign_boxes_by_view: dict
+
+    def needs_drop_callback(self, source_ids, requested_lane) -> bool:
+        return (
+            requested_lane is not None or bool(source_ids) or self.source_drop_severity == "source"
+        )
+
+    def attach_diameter_coverage(self, name, leader) -> None:
+        if name in self.covers_diameters_by_name:
+            leader.covers_diameters = (self.covers_diameters_by_name[name],)
+
+    def record_drop(self, label, measurement, source_ids, requested_lane, reason) -> None:
+        """Report an explicit lane refusal or the ordinary source-aware drop."""
+        validation = reason == "geometry_validation"
+        detail = "rendered geometry validation failed" if validation else "no clear room"
+        if requested_lane is not None:
+            self.ctx.record_issue(
+                "error",
+                "placement_unsatisfiable",
+                f"{self.noun} callout {label} not placed "
+                f"(requested lane {requested_lane} unavailable: {detail})",
+                measurement=measurement,
+                evidence_reason=f"requested_lane_unavailable:{requested_lane}:{reason}",
+                outcome_stage="validation" if validation else "placement",
+            )
+            return
+        severity = (
+            ("error" if source_ids else "warning")
+            if self.source_drop_severity == "source"
+            else self.source_drop_severity
+        )
+        self.ctx.record_issue(
+            severity,
+            self.drop_code,
+            f"{self.noun} callout {label} not placed ({detail})",
+            measurement=measurement,
+            source=source_ids,
+            outcome_stage="validation" if validation else "placement",
+        )
 
     def foreign_label_clear(
         self, view: str, label: tuple[float, float, float, float] | None
@@ -140,6 +180,7 @@ class _MachinedJobContext:
             }
             if grouping_features:
                 leader.covers_count = len(grouping_features)
+            self.attach_diameter_coverage(name, leader)
             return leader
 
         def build(tip, elbow, _feature):
@@ -183,23 +224,10 @@ class _MachinedJobContext:
                     yield candidate if isinstance(raw, FeatureLeaderCandidate) else raw
 
         source_ids = tuple(self.source_ids_by_name.get(name, ()))
+        requested_lane = self.requested_lanes.get(name)
 
         def on_drop(reason):
-            validation = reason == "geometry_validation"
-            detail = "rendered geometry validation failed" if validation else "no clear room"
-            severity = (
-                ("error" if source_ids else "warning")
-                if self.source_drop_severity == "source"
-                else self.source_drop_severity
-            )
-            self.ctx.record_issue(
-                severity,
-                self.drop_code,
-                f"{self.noun} callout {label} not placed ({detail})",
-                measurement=measurement,
-                source=source_ids,
-                outcome_stage="validation" if validation else "placement",
-            )
+            self.record_drop(label, measurement, source_ids, requested_lane, reason)
 
         if self.late_inventory:
             candidates = (
@@ -261,7 +289,7 @@ class _MachinedJobContext:
             interior_label_clear=interior_label_clear,
             foreign_label_clear=clear_foreign_label if self.cross_view_clearance else None,
             allow_policy_b_fixed=True,
-            on_drop=(on_drop if source_ids or self.source_drop_severity == "source" else None),
+            on_drop=on_drop if self.needs_drop_callback(source_ids, requested_lane) else None,
             recover=None if straight_only else recover,
         )
 
@@ -392,6 +420,8 @@ def place_machined_leader_jobs(
     region_policy=LeaderRegionPolicy.EXTERIOR,
     source_ids_by_name=None,
     source_drop_severity="warning",
+    requested_lanes=None,
+    covers_diameters_by_name=None,
     priority=0.0,
     straight_only_names=frozenset(),
     cross_view_clearance=False,
@@ -399,6 +429,8 @@ def place_machined_leader_jobs(
 ) -> int:
     """Lower machined callouts into the shared immediate or late leader solve."""
     source_ids_by_name = source_ids_by_name or {}
+    requested_lanes = requested_lanes or {}
+    covers_diameters_by_name = covers_diameters_by_name or {}
     family_region_policy = LeaderRegionPolicy(region_policy)
     late_inventory = joint and getattr(ctx, "feature_leaders", None) is not None
     family = _MachinedJobContext(
@@ -414,6 +446,8 @@ def place_machined_leader_jobs(
         priority=priority,
         source_ids_by_name=source_ids_by_name,
         source_drop_severity=source_drop_severity,
+        requested_lanes=requested_lanes,
+        covers_diameters_by_name=covers_diameters_by_name,
         straight_only_names=straight_only_names,
         late_inventory=late_inventory,
         interior_clearance_by_view={},

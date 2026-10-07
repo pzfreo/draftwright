@@ -358,8 +358,9 @@ the dimension renderer actually consumes. A lane is an
 integer from 1 through 8: a one-based drafting-spaced rank from that dimension's physical
 witness, not a distance. The shared measured-candidate solve may resolve it into proven
 whitespace inside or outside the view and records that candidate's region explicitly. The
-current lane-capable slice is the linear width/length dimensions of slots and the
-overall OD diameter of a rotational feature. Capability is
+current lane-capable slice is the linear width/length dimensions of slots, the
+overall OD diameter of a rotational feature, and step diameter leaders.
+Capability is
 declared in one compiler-owned registry so another dimension family is added deliberately, not
 by teaching each renderer a private spelling.
 

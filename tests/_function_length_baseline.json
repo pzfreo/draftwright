@@ -3,7 +3,7 @@
   "functions": {
     "analysis.py:_prepare_source": 216,
     "annotations/_common.py:solve_corridor": 265,
-    "annotations/_diameters.py:render_diameters": 229,
+    "annotations/_diameters.py:render_diameters": 204,
     "annotations/_locations.py:render_locations": 258,
     "annotations/_pmi_dimensions.py:_place_pmi_record": 258,
     "annotations/_pmi_dimensions.py:_sheet_leader_fallback": 240,

@@ -48,6 +48,7 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
     ) == {
         ("_diameters.py", "render_diameters", False),
         ("_diameters.py", "_render_diameter_leaders", True),
+        ("_diameters.py", "_render_diameter_lanes", True),
         ("from_model.py", "render_chamfers", True),
         ("from_model.py", "_render_radius_callouts", True),
         ("from_model.py", "_render_circular_recesses", True),
