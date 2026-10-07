@@ -17,6 +17,7 @@ from draftwright.annotations._common import PlacementContext
 from draftwright.annotations._diameters import _render_diameter_controls
 from draftwright.annotations._envelope import _EnvelopeLaneDrop, _queue_declared_envelope_lane
 from draftwright.annotations._height_ladder import _queue_declared_height_lane
+from draftwright.annotations._locations import _submit_location
 from draftwright.annotations.from_model import _record_slot_drop
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.ir import LayoutOverride, RequestedDimension
@@ -831,6 +832,31 @@ def test_height_lane_without_batch_solve_reports_refusal() -> None:
     (issue,) = context.registry.issues
     assert issue.code == "placement_unsatisfiable"
     assert issue.evidence_reason == "requested_lane_unavailable:2:measured_lane_solve_unavailable"
+
+
+def test_location_lane_without_shared_solve_reports_the_exact_requested_measurement() -> None:
+    context = PlacementContext(registry=AnnotationRegistry())
+    measurement = object()
+    _submit_location(
+        dwg=None,
+        ctx=context,
+        register=None,
+        key=("plan", "above"),
+        strip=None,
+        view="plan",
+        axis="y",
+        tier=4,
+        candidate=SimpleNamespace(name="m_location", measurement=measurement),
+        lane=3,
+        witness=0,
+        side="above",
+    )
+
+    (issue,) = context.registry.issues
+    assert issue.code == "location_ref_dropped"
+    assert issue.measurement_ids == (measurement,)
+    assert issue.evidence_reason == "requested_lane_unavailable:3:measured_lane_solve_unavailable"
+    assert context.escalations[0].reason == "requested_lane_unavailable"
 
 
 def test_lane_override_round_trips_and_reports_layout_only_evidence() -> None:
