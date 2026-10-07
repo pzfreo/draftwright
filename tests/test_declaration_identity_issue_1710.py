@@ -151,10 +151,11 @@ def test_identity_reaches_the_built_drawing_model() -> None:
 
 def test_public_pick_identity_handles_explicit_measurement_and_ambiguous_owners() -> None:
     first, second, explicit = object(), object(), object()
+    note = SimpleNamespace(origin=first)
     model = SimpleNamespace(
-        features=(first, second, explicit),
+        features=(first, second, explicit, note),
         declaration_identities=tuple(
-            DeclarationIdentity(f"declaration:{index}") for index in (1, 2, 3)
+            DeclarationIdentity(f"declaration:{index}") for index in (1, 2, 3, 4)
         ),
     )
     registry = AnnotationRegistry()
@@ -167,6 +168,7 @@ def test_public_pick_identity_handles_explicit_measurement_and_ambiguous_owners(
         measurement=SimpleNamespace(feature=second, parameter="step.diameter"),
     )
     registry.add(label, "explicit", "front", declaration=explicit)
+    registry.add(label, "note", "front", declaration=note)
     registry.add(
         label,
         "shared",
@@ -181,6 +183,7 @@ def test_public_pick_identity_handles_explicit_measurement_and_ambiguous_owners(
     assert Drawing.declaration_id_of(drawing, "feature") == "declaration:1"
     assert Drawing.declaration_id_of(drawing, "measurement") == "declaration:2"
     assert Drawing.declaration_id_of(drawing, "explicit") == "declaration:3"
+    assert Drawing.declaration_id_of(drawing, "note") == "declaration:4"
     assert Drawing.declaration_id_of(drawing, "shared") is None
     assert Drawing.label_box(drawing, "measurement") == (1.0, 2.0, 3.0, 4.0)
     registry.add(SimpleNamespace(label_bbox=None), "furniture", "front")

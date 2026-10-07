@@ -2324,16 +2324,14 @@ class Drawing:
             exact = {
                 identity.declaration_id
                 for feature, identity in pairs
-                if identity is not None
-                and (feature is owner or getattr(feature, "origin", None) is owner)
+                if identity is not None and feature is owner
             }
             if exact:
                 return exact
             return {
                 identity.declaration_id
                 for feature, identity in pairs
-                if identity is not None
-                and (feature == owner or getattr(feature, "origin", None) == owner)
+                if identity is not None and feature == owner
             }
 
         declaration = self._registry.declaration_of(name)
