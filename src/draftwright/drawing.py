@@ -563,6 +563,10 @@ class Drawing:
             scaled=scaled,
             bounds_cache=bounds_cache,
         )
+        plan = self._build.view_plan
+        spec = plan.spec(name) if plan is not None else None
+        if spec is not None and not spec.hidden_lines:
+            placed_hid = None
         self.views[name] = (placed, placed_hid)
         self._coords[name] = coords
         return self._coords[name]

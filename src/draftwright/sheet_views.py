@@ -133,6 +133,15 @@ class _View:
         record["scale_factor"] = factor
         return self
 
+    def hidden_lines(self, enabled: bool) -> _View:
+        """Choose whether this principal or isometric view renders hidden edges."""
+        if self._record["kind"] not in {"principal", "pictorial"}:
+            raise ValueError("hidden_lines() supports principal and isometric views only")
+        if not isinstance(enabled, bool):
+            raise TypeError("hidden_lines() needs a bool")
+        self._record["hidden_lines"] = enabled
+        return self
+
 
 class _SheetViewMethods:
     # Sheet initializes this state. These declarations let the private view owner
@@ -217,6 +226,7 @@ class _SheetViewMethods:
                 "kind": kind,
                 "target": target,
                 "scale_factor": None,
+                "hidden_lines": True,
                 "source": source,
             }
         )
@@ -554,6 +564,7 @@ class _SheetViewMethods:
                 kind=record["kind"],
                 target=target,
                 scale_factor=record["scale_factor"],
+                hidden_lines=record["hidden_lines"],
             ),
             record["source"],
         )
