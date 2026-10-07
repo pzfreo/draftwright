@@ -202,6 +202,37 @@ def _record_slot_drop(
     )
 
 
+def _slot_dimension_side_choices(approved, meas_axis, h_axis, zones, h_proj, v_proj):
+    """Return measured/perpendicular projections and two bounded side choices."""
+    if meas_axis == h_axis:
+        meas_proj, perp_proj = h_proj, v_proj
+        sides = (("above", zones.above, True), ("below", zones.below, False))
+    else:
+        meas_proj, perp_proj = v_proj, h_proj
+        sides = (("right", zones.right, True), ("left", zones.left, False))
+    if approved.side is not None:
+        selected = next((choice for choice in sides if choice[0] == approved.side), None)
+        if selected is None:
+            raise ValueError(f"unsupported slot dimension side {approved.side!r}")
+        sides = (selected, (selected[0], None, selected[2]))
+    return meas_proj, perp_proj, sides
+
+
+def _slot_shared_width_key(slot, approved, views, draft):
+    """Do not coalesce equal widths with different explicit side policies."""
+    half_width = slot.width / 2
+    slot_view = views[frozenset((slot.width_axis, slot.long_axis))]
+    return (
+        "slot_size",
+        slot_view[0],
+        slot.width_axis,
+        round(slot.w_center - half_width, 3),
+        round(slot.w_center + half_width, 3),
+        approved.value_text + _tol_suffix(approved.tolerance, draft),
+        approved.side,
+    )
+
+
 def _place_slot_dimension(
     dwg,
     ctx,
@@ -245,12 +276,7 @@ def _place_slot_dimension(
         p_lo, p_hi = mid - sgn * disp / 2, mid + sgn * disp / 2
     else:
         p_hi = p_lo + sgn * disp
-    if meas_axis == ha:
-        meas_proj, perp_proj = hp, vp
-        sides = (("above", zn.above, True), ("below", zn.below, False))
-    else:
-        meas_proj, perp_proj = vp, hp
-        sides = (("right", zn.right, True), ("left", zn.left, False))
+    meas_proj, perp_proj, sides = _slot_dimension_side_choices(approved, meas_axis, ha, zn, hp, vp)
     prefix = s.kind if s.kind in ("pad", "pocket") else "slot"
     cname = f"m_{prefix}{idx}_{kind}"
 
@@ -467,16 +493,7 @@ def _render_slot_dimensions(dwg, plan, a: Analysis, *, ctx, only=None, reach) ->
     # corridor solve. Matching displayed text alone would merge unequal sizes that
     # happen to round alike; matching geometry alone would merge distinct tolerances.
     def _shared_width_key(slot, approved):
-        half_width = slot.width / 2
-        slot_view = views[frozenset((slot.width_axis, slot.long_axis))]
-        return (
-            "slot_size",
-            slot_view[0],
-            slot.width_axis,
-            round(slot.w_center - half_width, 3),
-            round(slot.w_center + half_width, 3),
-            approved.value_text + _tol_suffix(approved.tolerance, draft),
-        )
+        return _slot_shared_width_key(slot, approved, views, draft)
 
     shared_widths: dict[tuple, list] = {}
     for group in slot_groups:
