@@ -369,7 +369,7 @@ for a Y-axis end-on feature. The solve may report the requested side unplaceable
 does not silently switch sides.
 
 Dimension-side overrides currently cover native hole/pattern callouts, step/boss diameter
-leaders, and envelope height;
+leaders, pocket leaders, and envelope height;
 unsupported renderers are not advertised as movable. The side surface accepts `above`,
 `below`, `left`, and `right` where the selected renderer supports them;
 `validate_layout_override()` returns

@@ -1689,7 +1689,7 @@ def _oriented_slot_rim_polygon(dwg, view, feature):
 
 def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
     """Submit compiler-approved pocket leader jobs to the shared late assignment."""
-    jobs = _pocket_jobs(
+    jobs, requested_sides = _pocket_jobs(
         dwg,
         plan,
         only=only,
@@ -1704,6 +1704,7 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
         drop_code="pocket_dropped",
         ctx=ctx,
         joint=True,
+        requested_sides=requested_sides,
     )
 
 
