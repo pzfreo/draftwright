@@ -76,6 +76,78 @@ def test_options_and_validation_are_available_before_build() -> None:
     }
 
 
+def test_unset_authored_dimension_side_is_editable_and_replayable() -> None:
+    part = Box(40, 20, 10)
+    sheet = Sheet(part, page="A4", scale=2).authored_dimensions()
+    sheet.measured_dimension(
+        kind="linear",
+        value=40,
+        label="40",
+        dominant_axis="X",
+        ref_pts=((-20, 0, 0), (20, 0, 0)),
+    ).identify("declaration:source-width", provenance="pmi")
+
+    options = sheet.layout_options("declaration:source-width")
+    assert options["controls"]["side"] == {
+        "current": None,
+        "supported_values": ["above", "below"],
+    }
+    assert (
+        sheet.validate_layout_override("declaration:source-width", side="right")["issues"][0][
+            "code"
+        ]
+        == "unsupported_value"
+    )
+    assert sheet.validate_layout_override("declaration:source-width", side="below")["supported"]
+    sheet.layout_override("declaration:source-width", side="below")
+
+    model = sheet.model()
+    assert model.features[0].side == "below"
+    assert model.layout_overrides == (LayoutOverride("declaration:source-width", "below"),)
+    source = emit_sheet_script(
+        model, "part = source_part", "authored-side", title="authored-side", number="2211"
+    )
+    assert 'sheet.layout_override("declaration:source-width", side="below")' in source
+    namespace = {"source_part": part}
+    exec(  # noqa: S102 - generated Sheet script is the subject of this replay test
+        compile(source[: source.index("drawing = sheet.build()")], "<authored-side>", "exec"),
+        namespace,
+    )
+    assert namespace["sheet"].model().layout_overrides == model.layout_overrides
+
+    drawing = sheet.build()
+    ink = drawing.annotations_of(model.features[0])
+    assert len(ink) == 1
+    _, front_bottom, _, _ = drawing.view_bounds("front")
+    assert next(iter(ink.values())).label_bbox[3] <= front_bottom
+    assert drawing.report()["layout"]["overrides"] == [
+        {
+            "declaration_id": "declaration:source-width",
+            "control": "side",
+            "authored_value": "below",
+            "resolved_value": "below",
+            "intent_class": "layout-only",
+            "status": "applied",
+        }
+    ]
+
+
+@pytest.mark.parametrize("kind", ["curve_length", "angular"])
+def test_unsupported_authored_dimension_kind_does_not_advertise_side(kind) -> None:
+    sheet = Sheet(Box(40, 20, 10)).authored_dimensions()
+    sheet.measured_dimension(
+        kind=kind,
+        value=40,
+        label="40 ARC",
+        dominant_axis="X",
+        ref_pts=((-20, 0, 0), (20, 0, 0)),
+    ).identify("declaration:arc")
+    assert (
+        sheet.validate_layout_override("declaration:arc", side="below")["issues"][0]["code"]
+        == "unsupported_declaration"
+    )
+
+
 def test_duplicate_live_identity_is_refused_but_withdrawn_identity_can_be_reused() -> None:
     sheet = _sheet()
     replacement = sheet.add(DatumRef(Frame((-20, 0, 5), "z"), "B", "plan", "above"))
