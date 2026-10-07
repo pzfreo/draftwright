@@ -1857,6 +1857,48 @@ def _validate_compound_callout_side(feature, approved, selected_view, requested_
         )
 
 
+def _validate_slot_dimension_sides(feature: SlotFeature, approved: list[PlannedDimension]) -> None:
+    """Slot linear marks each own their end-on-view corridor."""
+    horizontal_axis = "y" if _plane_normal(feature) == "x" else "x"
+    for pd in approved:
+        if pd.view is not None and pd.view not in _parameter_view_preferences(feature, pd):
+            raise ValueError(
+                f"slot dimension {pd.param.parameter_id!r} cannot render in {pd.view!r}"
+            )
+        if pd.side is None:
+            continue
+        measured_axis = feature.width_axis if pd.param.role == "slot_width" else feature.long_axis
+        supported = (
+            ({"above", "below"} if measured_axis == horizontal_axis else {"left", "right"})
+            if pd.param.role in {"slot_width", "slot_length"}
+            else set()
+        )
+        if pd.side not in supported:
+            raise ValueError(
+                f"slot dimension {pd.param.parameter_id!r} cannot render on {pd.side!r}; "
+                f"supported sides: {sorted(supported) or 'none'}"
+            )
+
+
+def _validate_envelope_dimension_sides(feature, approved) -> None:
+    """Envelope extents scatter independently across their planned views."""
+    for pd in approved:
+        supported_sides = {"left", "right"} if pd.param.role == "height" else set()
+        if pd.side is not None and pd.side not in supported_sides:
+            raise ValueError(
+                f"envelope dimensions cannot render at {pd.view!r}/{pd.side!r}; "
+                f"supported sides for this renderer: {sorted(supported_sides) or 'none'}"
+            )
+        if pd.view is None:
+            continue
+        eligible_views = _parameter_view_preferences(feature, pd)
+        if pd.view not in eligible_views:
+            raise ValueError(
+                f"envelope dimension {pd.param.parameter_id!r} cannot render in "
+                f"{pd.view!r}; supported view(s): {list(eligible_views)}"
+            )
+
+
 def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_views=None):
     """Resolve one view/side for a compound group, or reject an unrenderable intent."""
     approved = [pd for pd in dims if not pd.suppressed]
@@ -1884,21 +1926,14 @@ def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_vie
     # on the PlannedDimension; forcing them through the one-callout policy below would
     # reject a perfectly valid width/front + depth/side pair.
     if feature.kind == "envelope":
-        for pd in approved:
-            supported_sides = {"left", "right"} if pd.param.role == "height" else set()
-            if pd.side is not None and pd.side not in supported_sides:
-                raise ValueError(
-                    f"envelope dimensions cannot render at {pd.view!r}/{pd.side!r}; "
-                    f"supported sides for this renderer: {sorted(supported_sides) or 'none'}"
-                )
-            if pd.view is None:
-                continue
-            eligible_views = _parameter_view_preferences(feature, pd)
-            if pd.view not in eligible_views:
-                raise ValueError(
-                    f"envelope dimension {pd.param.parameter_id!r} cannot render in "
-                    f"{pd.view!r}; supported view(s): {list(eligible_views)}"
-                )
+        _validate_envelope_dimension_sides(feature, approved)
+        return _group_view(feature, planned_views), None
+
+    # Slot widths and lengths are separate linear marks, not one compound leader.
+    # Validate each side against its measured axis in the end-on view so a width
+    # and a length can be moved independently without coupling their policies.
+    if isinstance(feature, SlotFeature):
+        _validate_slot_dimension_sides(feature, approved)
         return _group_view(feature, planned_views), None
 
     unsupported_pattern_intents = [

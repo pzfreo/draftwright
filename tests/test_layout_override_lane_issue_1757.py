@@ -55,7 +55,8 @@ def test_lane_capability_targets_one_declared_parameter() -> None:
                 "minimum": 1,
                 "maximum": 8,
                 "meaning": "one-based drafting-spaced lane from the feature witness",
-            }
+            },
+            "side": {"current": None, "supported_values": ["left", "right"]},
         },
     }
     assert (
@@ -65,9 +66,9 @@ def test_lane_capability_targets_one_declared_parameter() -> None:
         is True
     )
     unsupported_side = sheet.validate_layout_override(
-        "declaration:slot", parameter="slot_width.length", side="left"
+        "declaration:slot", parameter="slot_width.length", side="above"
     )
-    assert unsupported_side["issues"][0]["code"] == "unsupported_control"
+    assert unsupported_side["issues"][0]["code"] == "unsupported_value"
 
     missing_parameter = sheet.validate_layout_override("declaration:slot", lane=4)
     assert missing_parameter["issues"][0]["code"] == "invalid_control_combination"
@@ -354,6 +355,63 @@ def test_pocket_width_does_not_advertise_depth_leader_side() -> None:
         "declaration:pocket", parameter="pocket_width.length", side="left"
     )
     assert result["supported"] is False
+
+
+@pytest.mark.parametrize(
+    ("parameter", "sides", "unsupported"),
+    [
+        ("slot_width.length", ("left", "right"), "above"),
+        ("slot_length.length", ("above", "below"), "right"),
+    ],
+)
+def test_slot_dimension_side_override_uses_its_own_measured_axis(
+    parameter, sides, unsupported
+) -> None:
+    for side in sides:
+        sheet = _slot_sheet()
+        options = sheet.layout_options("declaration:slot", parameter=parameter)
+        assert options["controls"]["side"]["supported_values"] == sorted(sides)
+        sheet.layout_override("declaration:slot", parameter=parameter, side=side)
+        drawing = sheet.build()
+        kind = "width" if parameter.startswith("slot_width") else "length"
+        mark = drawing.get_annotation(f"m_slot0_{kind}")
+        assert mark is not None
+        assert mark.placement_spec.side == side
+    assert not _slot_sheet().validate_layout_override(
+        "declaration:slot", parameter=parameter, side=unsupported
+    )["supported"]
+
+
+def test_slot_width_and_length_sides_are_independent() -> None:
+    sheet = _slot_sheet()
+    sheet.layout_override("declaration:slot", parameter="slot_width.length", side="left")
+    sheet.layout_override("declaration:slot", parameter="slot_length.length", side="below")
+    drawing = sheet.build()
+    assert drawing.get_annotation("m_slot0_width").placement_spec.side == "left"
+    assert drawing.get_annotation("m_slot0_length").placement_spec.side == "below"
+
+
+@pytest.mark.parametrize("width_axis", ["x", "y"])
+def test_upright_slot_side_options_follow_projected_axes(width_axis) -> None:
+    sheet = Sheet(Box(100, 100, 100)).authored_dimensions()
+    slot = sheet.slot(
+        width=20,
+        length=40,
+        long_axis="z",
+        width_axis=width_axis,
+        lo=-20,
+        hi=20,
+        w_center=0,
+        at=(0, 0, 0),
+    ).identify("declaration:slot")
+    sheet.dimension(slot, "slot_width.length")
+    sheet.dimension(slot, "slot_length.length")
+    assert sheet.layout_options("declaration:slot", parameter="slot_width.length")["controls"][
+        "side"
+    ]["supported_values"] == ["above", "below"]
+    assert sheet.layout_options("declaration:slot", parameter="slot_length.length")["controls"][
+        "side"
+    ]["supported_values"] == ["left", "right"]
 
 
 def test_lane_override_changes_only_the_exact_dimension_policy() -> None:
