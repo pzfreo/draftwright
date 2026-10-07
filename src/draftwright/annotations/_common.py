@@ -1313,18 +1313,18 @@ class PlacementContext:
     corridor_batch: dict = field(default_factory=dict)
     escalations: list = field(default_factory=list)
     detail_requests: list = field(default_factory=list)
-    # Fallthrough callbacks a pass's on_drop queues to run AFTER every corridor has
-    # drained: a mid-drain carve could occupy space a later sibling
-    # corridor's force candidate needs; deferral makes "post-drain" literally true.
+    # Fallthrough callbacks run after corridor drain so no mid-drain carve
+    # occupies a later sibling's forced candidate.
     post_drain: list = field(default_factory=list)
-    # Whole dimensions whose ordinary exterior corridor was genuinely full.
-    # The automatic/finalize entry points opt in with ``[]`` and drain them as
-    # one bounded interior assignment after every exterior fallthrough settles.
+    defer_pattern_pitch: bool = False
+    deferred_pattern_pitches: list = field(default_factory=list)
+    deferred_pattern_pitch_names: set[str] = field(default_factory=set)
+    # Full exterior-corridor fallthroughs enter one bounded interior solve
+    # after every exterior pass settles; automatic/finalize opt in with ``[]``.
     interior_dimensions: list | None = None
-    # Compatible automatic/deferred feature-callout jobs collected across the
-    # hole + post-drain machined passes. ``None`` is intentional: direct
-    # renderer calls and finished-sheet live verbs keep their immediate behavior;
-    # the orchestrator/finalize paths opt in with ``[]`` and drain once.
+    # Automatic/deferred callout jobs from hole and machined passes.
+    # ``None`` preserves immediate direct-renderer/live-verb behavior;
+    # orchestrator/finalize opt in with ``[]`` and drain once.
     feature_leaders: list | None = None
     # Optional pre-render annotation lanes. Automatic builds attach the scheme's
     # deterministic plan; live edits leave this unset and retain their existing order.
