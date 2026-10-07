@@ -612,6 +612,7 @@ _DIMENSION_LANE_PARAMETERS = frozenset(
         ("envelope", "depth.length"),
         ("pocket", "pocket_width.length"),
         ("pocket", "pocket_length.length"),
+        ("envelope", "height.length"),
     }
 )
 
