@@ -386,6 +386,11 @@ def _name_tokens(value: str) -> frozenset[str]:
     return frozenset(words)
 
 
+_AMBIGUOUS_MANUFACTURING_CALLOUTS = (
+    "multiple same-named manufacturing requirements share presentation callouts"
+)
+
+
 def _manufacturing_graph(step):
     """Collect the Part21 indexes shared by manufacturing-requirement facts."""
     definitions: list[tuple[str, object]] = []
@@ -569,6 +574,10 @@ def read_manufacturing_requirements(
         aspect_items,
     ) = _manufacturing_graph(step)
     facts: list[ManufacturingRequirementFact] = []
+    name_counts: dict[str, int] = {}
+    for _entity_id, definition in definitions:
+        name = _text(definition.params[1]).casefold()
+        name_counts[name] = name_counts.get(name, 0) + 1
 
     for entity_id, definition in definitions:
         semantic_name = _text(definition.params[1])
@@ -625,6 +634,14 @@ def read_manufacturing_requirements(
             for callout_id, name in callout_names.items()
             if semantic_tokens and semantic_tokens <= _name_tokens(name)
         )
+        # A part-owned prose property has no relationship to any one of several
+        # identically named presentation callouts. Do not give each property the
+        # union of every callout's geometry (and thereby claim unrelated holes).
+        ambiguous_callouts = (
+            name_counts.get(semantic_name.casefold(), 0) > 1 and len(callout_ids) > 1
+        )
+        if ambiguous_callouts:
+            reasons.append(_AMBIGUOUS_MANUFACTURING_CALLOUTS)
         missing_callout_associations = tuple(
             callout_id for callout_id in callout_ids if not callout_aspects.get(callout_id)
         )
@@ -636,7 +653,7 @@ def read_manufacturing_requirements(
         shape_aspect_ids = tuple(
             dict.fromkeys(
                 aspect_id
-                for callout_id in callout_ids
+                for callout_id in (() if ambiguous_callouts else callout_ids)
                 for aspect_id in callout_aspects.get(callout_id, ())
             )
         )

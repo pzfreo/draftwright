@@ -848,6 +848,92 @@ def test_typed_internal_thread_and_knurl_render_manufacturing_complete_labels_on
     assert not [issue for issue in knurled.lint() if issue.code == "pmi_not_rendered"]
 
 
+def test_two_distinct_internal_threads_keep_own_topology_and_render_issue_2231():
+    part = Box(20, 20, 20)
+    holes = []
+    raw = []
+    for y, diameter, nominal, pitch, face_id, prose_id, structured_id in (
+        (-5.0, 1.6, 2, 0.4, "#101", "#1", "#41"),
+        (5.0, 3.3, 4, 0.7, "#102", "#2", "#42"),
+    ):
+        cutter = Cylinder(diameter / 2, 20, align=(Align.CENTER, Align.CENTER, Align.MIN)).rotate(
+            Axis.Y, 90
+        )
+        part -= Pos(-10, y, 0) * cutter
+        holes.append(HoleFeature(Frame((-10.0, y, 0.0), "x"), diameter, 20.0, True))
+        raw.append(
+            replace(
+                _raw(
+                    "internal_thread",
+                    f"M{nominal} x {pitch}-6H RH, full thread through; "
+                    f"DIA {diameter} tapping drill through",
+                    _reference(
+                        diameter=diameter,
+                        interval=(-10.0, 10.0),
+                        sense="internal",
+                        axis_origin=(0.0, y, 0.0),
+                    ),
+                    prose_id,
+                ),
+                source_ids=(
+                    f"manufacturing_requirement:{prose_id}",
+                    f"manufacturing_requirement:{structured_id}",
+                ),
+                reference_item_ids=(face_id,),
+                structured_fields=(
+                    ("thread side", "internal"),
+                    ("designation", f"M{nominal}x{pitch}"),
+                    ("fit class", "6H"),
+                    ("hand", "right"),
+                    ("through", "true"),
+                    ("tapping drill diameter", float(diameter)),
+                ),
+            )
+        )
+
+    model = lower_ap242_manufacturing_requirements(
+        PartModel(part.bounding_box(), "x", [*holes, *raw])
+    )
+    assert not any(isinstance(feature, PmiFeature) for feature in model.features)
+    typed = [feature.thread for feature in model.features if isinstance(feature, HoleFeature)]
+    assert [thread.nominal_diameter for thread in typed] == [2.0, 4.0]
+    assert [thread.reference_item_ids for thread in typed] == [("#101",), ("#102",)]
+    assert all(thread.through and thread.drill_depth is None for thread in typed)
+    assert all(len(thread.source_ids) == 2 for thread in typed)
+
+    drawing = build_drawing(part, model=model, pmi="annotate", page="A2")
+    labels = [
+        drawing.registry.named(name).label
+        for name in drawing.registry.names()
+        if getattr(drawing.registry.named(name), "label", "")
+    ]
+    assert sum("M2 x 0.4-6H RH" in label for label in labels) == 1, labels
+    assert sum("M4 x 0.7-6H RH" in label for label in labels) == 1
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.code in {"pmi_not_rendered", "pmi_not_lowered", "pmi_dropped"}
+    ]
+    for hole in [
+        feature for feature in drawing.model().features if isinstance(feature, HoleFeature)
+    ]:
+        thread_labels = [
+            (name, annotation.label)
+            for name, annotation in drawing.annotations_of(hole).items()
+            if "-6H RH" in getattr(annotation, "label", "")
+        ]
+        assert len(thread_labels) == 1
+        name, label = thread_labels[0]
+        assert f"M{hole.thread.nominal_diameter:g}" in label
+        assert drawing.registry.feature_of(name) is hole
+        measurements = drawing.registry.measurement_of(name)
+        assert measurements, name
+        assert any(
+            measurement.parameter == "bore.diameter" and measurement.feature is hole
+            for measurement in measurements
+        ), measurements
+
+
 def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_solve():
     align = (Align.CENTER, Align.CENTER, Align.MIN)
     segments = [

@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -56,6 +57,7 @@ from draftwright._pmi_linear_geometry import (
 )
 from draftwright._pmi_linear_geometry import _proved_planar_linear
 from draftwright._pmi_part21 import (
+    _AMBIGUOUS_MANUFACTURING_CALLOUTS,
     CommonLabelFact,
     DatumDefinitionFact,
     DatumOccurrenceFact,
@@ -1467,6 +1469,43 @@ def _geometric_tolerance_record(
 # ---------------------------------------------------------------------------
 
 
+_THREAD_DESIGNATION = re.compile(
+    r"^M(?P<nominal>\d+(?:\.\d+)?)\s*x\s*(?P<pitch>\d+(?:\.\d+)?)-"
+    r"(?P<fit>[A-Za-z0-9]+)\s+(?P<hand>RH|LH)\b",
+    re.IGNORECASE,
+)
+
+
+def _prose_thread_designation(text: str) -> tuple[float, float, str, str] | None:
+    match = _THREAD_DESIGNATION.match(text.strip())
+    if match is None:
+        return None
+    return (
+        float(match["nominal"]),
+        float(match["pitch"]),
+        match["fit"].upper(),
+        match["hand"].upper(),
+    )
+
+
+def _structured_thread_designation(fields) -> tuple[float, float, str, str] | None:
+    values = dict(fields)
+    designation = values.get("designation")
+    fit = values.get("fit class")
+    hand = values.get("hand")
+    if not isinstance(designation, str) or not isinstance(fit, str) or not isinstance(hand, str):
+        return None
+    match = re.fullmatch(r"M(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)", designation, re.I)
+    if match is None or hand.casefold() not in ("rh", "lh", "right", "left"):
+        return None
+    return (
+        float(match[1]),
+        float(match[2]),
+        fit.upper(),
+        "RH" if hand.casefold() in ("rh", "right") else "LH",
+    )
+
+
 def _manufacturing_requirement_projection(
     step_file: str | Path,
 ) -> tuple[tuple[PmiSourceEntity, ...], tuple[PmiRecord, ...]]:
@@ -1505,6 +1544,9 @@ def _manufacturing_requirement_projection(
         structured_facts = ()
 
     paired: set[str] = set()
+    ambiguous_prose = [
+        fact for fact in requirement_facts if _AMBIGUOUS_MANUFACTURING_CALLOUTS in fact.reason
+    ]
 
     def paired_structured(requirement):
         kind = "_".join(requirement.semantic_name.casefold().split())
@@ -1524,6 +1566,27 @@ def _manufacturing_requirement_projection(
                 and support == set(fact.reference_item_ids)
                 and fact.entity_id not in paired
             ]
+            if not candidates and not support and requirement in ambiguous_prose:
+                # Presentation names alone are not ownership. A unique semantic
+                # designation can reconcile prose with one structured property;
+                # its own exact source face is then checked by geometry lowering.
+                designation = _prose_thread_designation(requirement.text)
+                if (
+                    designation is not None
+                    and sum(
+                        _prose_thread_designation(fact.text) == designation
+                        for fact in ambiguous_prose
+                    )
+                    == 1
+                ):
+                    candidates = [
+                        fact
+                        for fact in structured_facts
+                        if fact.kind == kind
+                        and len(fact.reference_item_ids) == 1
+                        and _structured_thread_designation(fact.fields) == designation
+                        and fact.entity_id not in paired
+                    ]
         return candidates[0] if len(candidates) == 1 else None
 
     for requirement in requirement_facts:
@@ -1538,7 +1601,9 @@ def _manufacturing_requirement_projection(
             blockers = tuple(
                 reason
                 for reason in (
-                    requirement.reason,
+                    requirement.reason.replace(_AMBIGUOUS_MANUFACTURING_CALLOUTS, "").strip("; ")
+                    if structured is not None
+                    else requirement.reason,
                     structured.reason if structured is not None else "",
                 )
                 if reason
@@ -1553,7 +1618,11 @@ def _manufacturing_requirement_projection(
                     part21_id=requirement.entity_id,
                     source_category="manufacturing_requirement",
                     lowering_blockers=blockers,
-                    reference_item_ids=requirement.reference_item_ids,
+                    reference_item_ids=(
+                        structured.reference_item_ids
+                        if structured is not None and not requirement.reference_item_ids
+                        else requirement.reference_item_ids
+                    ),
                     semantic_name=requirement.semantic_name,
                     shape_aspect_ids=tuple(
                         dict.fromkeys(
