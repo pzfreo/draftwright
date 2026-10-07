@@ -87,13 +87,14 @@ def export_drawing(
     formats,
     dpi: int = 150,
     reproducible: bool | None = None,
+    lint: bool = True,
     supported_formats,
     lint_and_log,
     write_svg,
     write_dxf,
     pdf_text_runs,
 ) -> dict[str, str]:
-    """Lint, then write the requested output *formats*; return ``{format: path}``.
+    """By default, lint before writing *formats*; return ``{format: path}``.
 
     *formats* is a format name or an iterable from ``("svg", "dxf", "pdf", "png")``. PDF
     renders from the SVG and PNG from the PDF, so the SVG/PDF are written as intermediates
@@ -111,6 +112,10 @@ def export_drawing(
     part (+2.0% of a whole CTC-01 job). The cost grows with part count, so a
     part-heavy sheet may want ``False`` — see :func:`draftwright.export._elements`.
     Passing the keyword here overrides the drawing's default for this call only.
+
+    ``lint=False`` skips the export-time critique and log for disposable previews.
+    It does not validate the drawing: call ``drawing.lint()`` or export with the
+    default before treating an output as a final technical drawing.
     """
     drawing.finalize()  # #426: drain any recorded intents before export (no-op if none)
     # An explicit keyword wins; otherwise the drawing's own default (build_drawing's).
@@ -129,7 +134,8 @@ def export_drawing(
         raise ValueError(f"png export needs dpi > 0, got {dpi}")
 
     # Validate before lint: declared-drawing critique may build recognition evidence.
-    lint_and_log()
+    if lint:
+        lint_and_log()
 
     want_set = set(want)
     paths: dict[str, str] = {}

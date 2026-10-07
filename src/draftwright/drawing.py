@@ -2634,6 +2634,7 @@ class Drawing:
         formats,
         dpi: int = 150,
         reproducible: bool | None = None,
+        lint: bool = True,
     ) -> dict[str, str]:
         return export_drawing(
             self,
@@ -2641,6 +2642,7 @@ class Drawing:
             formats=formats,
             dpi=dpi,
             reproducible=reproducible,
+            lint=lint,
             supported_formats=self._EXPORT_FORMATS,
             lint_and_log=self._lint_and_log,
             write_svg=self._write_svg,
