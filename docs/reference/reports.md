@@ -48,8 +48,8 @@ When a generated or hand-authored sheet uses `sheet.layout_override(...)`,
 `status: "applied"`, and
 `intent_class: "layout-only"`. The corresponding feature still carries its complete semantic
 content and the ordinary shared placement solve still owns coordinates and feasibility. The
-side form records a corridor; the dimension form additionally records the exact `parameter_id`
-and one-based feature-relative `lane`. The field is emitted as an empty array when no override
+side form records a corridor; a dimension-targeted side or lane additionally records the exact
+`parameter_id`, and a lane records its one-based feature-relative rank. The field is emitted as an empty array when no override
 exists; it is optional in the version-8
 schema so previously written version-8 documents remain valid.
 

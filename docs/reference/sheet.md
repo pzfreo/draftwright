@@ -320,10 +320,20 @@ if lane_check["supported"]:
     sheet.layout_override(
         "declaration:9", parameter="slot_width.length", lane=3
     )
+
+# A declared hole diameter can choose a supported callout corridor too.
+side_check = sheet.validate_layout_override(
+    "declaration:hole", parameter="bore.diameter", side="left"
+)
+if side_check["supported"]:
+    sheet.layout_override(
+        "declaration:hole", parameter="bore.diameter", side="left"
+    )
 ```
 
 Without `parameter=`, `layout_options()` reports the declaration's current side and supported
-values. With an exact declared parameter it reports dimension-lane capability. A lane is an
+values. With an exact declared parameter it reports only the side and/or lane controls that
+the dimension renderer actually consumes. A lane is an
 integer from 1 through 8: a one-based drafting-spaced rank from that dimension's physical
 witness, not a distance. The shared measured-candidate solve may resolve it into proven
 whitespace inside or outside the view and records that candidate's region explicitly. The
@@ -331,7 +341,9 @@ current lane-capable slice is the linear width/length dimensions of slots. Capab
 declared in one compiler-owned registry so another dimension family is added deliberately, not
 by teaching each renderer a private spelling.
 
-The side surface accepts `above`, `below`, `left`, and `right`;
+Dimension-side overrides currently cover native hole/pattern callouts and envelope height;
+unsupported renderers are not advertised as movable. The side surface accepts `above`,
+`below`, `left`, and `right` where the selected renderer supports them;
 `validate_layout_override()` returns
 structured `invalid_declaration`, `unsupported_declaration`, `unsupported_control`, or
 `unsupported_value` refusals, plus `invalid_control_combination` when side and lane addressing
@@ -340,14 +352,15 @@ are mixed, without mutating the sheet. Both documents say
 not that the final sheet has enough space. `build()` and `lint()` remain the authority for
 feasibility and collision-free placement.
 
-`layout_override()` accepts either keyword-only `side`, or an exact `parameter` plus `lane`, and
-rejects duplicate overrides for the same target. Side chooses a feature corridor; lane ranks a
+`layout_override()` accepts keyword-only `side` for a feature corridor, or an exact `parameter`
+with `side` or `lane` for a declared dimension, and rejects duplicate overrides for the same
+target. Side chooses a supported corridor; lane ranks a
 parallel position for one referential dimension. Neither is pinning or priority, and neither moves
 an annotation to a caller-supplied coordinate or changes its measurement, tolerance, datum, or
 other engineering semantics. Generated scripts
 emit the override as a separate line after the identity-bearing declarations. A declared report
 records the requested and resolved value under `layout.overrides` with
-`intent_class: "layout-only"`; lane rows also retain `parameter_id`. An infeasible lane drops
+`intent_class: "layout-only"`; dimension-targeted rows also retain `parameter_id`. An infeasible lane drops
 honestly with the requested lane in the lint message. Omitting the override retains the existing
 placement behaviour.
 

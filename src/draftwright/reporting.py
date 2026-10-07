@@ -2197,7 +2197,18 @@ def _declared_layout(
             )
         feature = model.features[feature_index]
         if override.side is not None:
-            resolved = getattr(feature, "side", None)
+            if override.parameter_id is None:
+                resolved = getattr(feature, "side", None)
+            else:
+                matches = [
+                    request
+                    for request in (
+                        *model.requested_dimensions,
+                        *(model.authored_dimensions or ()),
+                    )
+                    if request.feature is feature and request.role == override.parameter_id
+                ]
+                resolved = matches[0].side if len(matches) == 1 else None
             if resolved != override.side:
                 raise ReportUnavailableError(
                     f"layout override {override.declaration_id!r} did not resolve to its recorded side"
@@ -2210,6 +2221,8 @@ def _declared_layout(
                 "intent_class": "layout-only",
                 "status": "applied",
             }
+            if override.parameter_id is not None:
+                row["parameter_id"] = override.parameter_id
         else:
             matches = [
                 request

@@ -184,8 +184,7 @@
                       "control": { "const": "side" },
                       "authored_value": { "enum": ["above", "below", "left", "right"] },
                       "resolved_value": { "enum": ["above", "below", "left", "right"] }
-                    },
-                    "not": { "required": ["parameter_id"] }
+                    }
                   },
                   {
                     "required": ["parameter_id"],
