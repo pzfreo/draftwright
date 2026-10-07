@@ -268,6 +268,8 @@ def test_invalid_or_duplicate_override_fails_before_build_and_accepts_no_coordin
         "side",
         "parameter",
         "lane",
+        "axis",
+        "member",
     )
     with pytest.raises(TypeError):
         sheet.layout_override("declaration:63", side="below", x=10)  # type: ignore[call-arg]
