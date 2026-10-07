@@ -350,6 +350,15 @@ if side_check["supported"]:
     sheet.layout_override(
         "declaration:hole", parameter="bore.diameter", side="left"
     )
+
+# A location needs both its axis and pattern/hole member to select one component.
+location_check = sheet.validate_layout_override(
+    "declaration:hole", parameter="location", axis="x", member=0, lane=2
+)
+if location_check["supported"]:
+    sheet.layout_override(
+        "declaration:hole", parameter="location", axis="x", member=0, lane=2
+    )
 ```
 
 Without `parameter=`, `layout_options()` reports the declaration's current side and supported
@@ -360,7 +369,9 @@ witness, not a distance. The shared measured-candidate solve may resolve it into
 whitespace inside or outside the view and records that candidate's region explicitly. The
 current lane-capable slice is the linear width/length dimensions of slots and rectangular
 pockets, the overall OD diameter of a rotational feature, step diameter leaders, and the
-overall width/depth/height dimensions of an envelope. Capability is
+overall width/depth/height dimensions of an envelope, plus exact X/Y locations on
+Z-normal holes and patterns. For a location, `axis` and `member` are required and
+X and Y can have independent lanes. Capability is
 declared in one compiler-owned registry so another dimension family is added deliberately, not
 by teaching each renderer a private spelling.
 For a declared step or boss diameter, `side=` can instead select a bounded leader hemisphere:
@@ -391,6 +402,8 @@ other engineering semantics. Generated scripts
 emit the override as a separate line after the identity-bearing declarations. A declared report
 records the requested and resolved value under `layout.overrides` with
 `intent_class: "layout-only"`; dimension-targeted rows also retain `parameter_id`. An infeasible lane drops
+with a `location_ref_dropped` issue for exact locations, retaining the requested lane and blockers.
+Other infeasible lanes drop
 honestly with the requested lane in the lint message. Omitting the override retains the existing
 placement behaviour.
 

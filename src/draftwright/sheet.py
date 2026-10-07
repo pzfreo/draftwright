@@ -139,6 +139,7 @@ from draftwright.model.planner import (
     dimension_lane_supported,
     dimension_placement_options,
     location_components,
+    location_lane_supported,
     schedule_row_dimensions,
     validate_dimension_placement,
 )
@@ -675,7 +676,14 @@ class DimensionIntent:
             self._sheet._index_of_token(cast(int, self._entry["token"]))
         ]
         parameter_id = cast(str, self._entry["role"])
-        if not dimension_lane_supported(feature, parameter_id):
+        supported = (
+            location_lane_supported(
+                feature, self._entry.get("discriminator"), self._entry.get("member")
+            )
+            if parameter_id == "location"
+            else dimension_lane_supported(feature, parameter_id)
+        )
+        if not supported:
             raise ValueError(
                 f"dimension {parameter_id!r} on {feature.kind} does not expose a lane control"
             )
@@ -1606,14 +1614,23 @@ class Sheet(_SheetViewMethods):
         return _layout_declaration_token(self, declaration_id)
 
     def _dimension_entry_for_layout(
-        self, token: int, parameter_id: str
+        self,
+        token: int,
+        parameter_id: str,
+        axis: str | None = None,
+        member: int | Literal["centre"] | None = None,
     ) -> tuple[dict, str] | None:
         """Return the one declared dimension entry addressed by a lane override."""
 
-        return _layout_dimension_entry_for_layout(self, token, parameter_id)
+        return _layout_dimension_entry_for_layout(self, token, parameter_id, axis, member)
 
     def layout_options(
-        self, declaration_id: str, *, parameter: DimensionParameterId | None = None
+        self,
+        declaration_id: str,
+        *,
+        parameter: DimensionParameterId | None = None,
+        axis: str | None = None,
+        member: int | Literal["centre"] | None = None,
     ) -> dict[str, object]:
         """Describe the bounded layout-only controls supported by one declaration.
 
@@ -1621,7 +1638,14 @@ class Sheet(_SheetViewMethods):
         solve still decides whether the requested corridor can be used on the final sheet.
         """
 
-        return _layout_options(self, declaration_id, parameter=parameter, handle_factory=_Params)
+        return _layout_options(
+            self,
+            declaration_id,
+            parameter=parameter,
+            axis=axis,
+            member=member,
+            handle_factory=_Params,
+        )
 
     def validate_layout_override(
         self,
@@ -1630,6 +1654,8 @@ class Sheet(_SheetViewMethods):
         side: str | None = None,
         parameter: DimensionParameterId | None = None,
         lane: int | None = None,
+        axis: str | None = None,
+        member: int | Literal["centre"] | None = None,
         **unsupported_controls,
     ) -> dict[str, object]:
         """Preflight a layout override without mutating the sheet.
@@ -1639,7 +1665,14 @@ class Sheet(_SheetViewMethods):
         """
 
         return _layout_validate_layout_override(
-            self, declaration_id, side=side, parameter=parameter, lane=lane, **unsupported_controls
+            self,
+            declaration_id,
+            side=side,
+            parameter=parameter,
+            lane=lane,
+            axis=axis,
+            member=member,
+            **unsupported_controls,
         )
 
     def layout_override(
@@ -1649,6 +1682,8 @@ class Sheet(_SheetViewMethods):
         side: str | None = None,
         parameter: DimensionParameterId | None = None,
         lane: int | None = None,
+        axis: str | None = None,
+        member: int | Literal["centre"] | None = None,
     ) -> Sheet:
         """Append one bounded declaration-scoped layout override.
 
@@ -1659,7 +1694,13 @@ class Sheet(_SheetViewMethods):
         """
 
         return _layout_apply_layout_override(
-            self, declaration_id, side=side, parameter=parameter, lane=lane
+            self,
+            declaration_id,
+            side=side,
+            parameter=parameter,
+            lane=lane,
+            axis=axis,
+            member=member,
         )
 
     def _declared_token(self, ref, *, verb: str) -> int | None:

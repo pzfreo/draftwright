@@ -106,6 +106,7 @@ from draftwright.model.planner import (
     authored_location_omitted,
     hole_location_parameter_id,
     hole_location_references,
+    location_component_lane,
     location_datum,
     location_display_decimals,
     plan_dimensions,
@@ -1564,6 +1565,13 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                         )
                         if isinstance(feature, HoleFeature | PatternFeature)
                         else None,
+                        lane=(
+                            location_component_lane(
+                                model, feature, pd.location_member, measured_axis
+                            )
+                            if isinstance(feature, HoleFeature | PatternFeature)
+                            else None
+                        ),
                     )
                 )
             continue

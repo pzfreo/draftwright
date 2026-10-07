@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from draftwright.model.ir import (
     PLACEMENT_SIDES,
@@ -12,7 +12,7 @@ from draftwright.model.ir import (
     DimensionParameterId,
     LayoutOverride,
 )
-from draftwright.model.planner import dimension_lane_supported
+from draftwright.model.planner import dimension_lane_supported, location_lane_supported
 
 if TYPE_CHECKING:
     from draftwright.sheet import Sheet
@@ -51,13 +51,22 @@ def _declaration_token(sheet: Sheet, declaration_id: str) -> int:
 
 
 def _dimension_entry_for_layout(
-    sheet: Sheet, token: int, parameter_id: str
+    sheet: Sheet,
+    token: int,
+    parameter_id: str,
+    axis: str | None = None,
+    member: int | Literal["centre"] | None = None,
 ) -> tuple[dict, str] | None:
     """Return the one declared dimension entry addressed by a lane override."""
 
     for entries in (sheet._authored, sheet._added_dimensions):
         matches = [
-            entry for entry in entries if entry["token"] == token and entry["role"] == parameter_id
+            entry
+            for entry in entries
+            if entry["token"] == token
+            and entry["role"] == parameter_id
+            and entry.get("discriminator") == axis
+            and entry.get("member") == member
         ]
         if len(matches) > 1:
             raise ValueError(
@@ -74,6 +83,8 @@ def layout_options(
     declaration_id: str,
     *,
     parameter: DimensionParameterId | None = None,
+    axis: str | None = None,
+    member: int | Literal["centre"] | None = None,
     handle_factory: Callable[[Sheet, int], object],
 ) -> dict[str, object]:
     """Describe the bounded layout-only controls supported by one declaration.
@@ -84,10 +95,12 @@ def layout_options(
 
     token = sheet._declaration_token(declaration_id)
     feature = sheet._features[sheet._index_of_token(token)]
+    if parameter is None and (axis is not None or member is not None):
+        raise ValueError("axis and member require an exact location parameter selector")
     if parameter is not None:
         handle = handle_factory(sheet, sheet._index_of_token(token))
         _resolved_token, target, discriminator, canonical = sheet._resolve_measurement(
-            handle, parameter, None, "layout_options"
+            handle, parameter, axis, "layout_options", member=member
         )
         parameter_id = next(
             (
@@ -98,14 +111,16 @@ def layout_options(
             ),
             canonical,
         )
-        entry = sheet._dimension_entry_for_layout(token, parameter_id)
+        entry = sheet._dimension_entry_for_layout(token, parameter_id, axis, member)
         if entry is None:
             raise ValueError(
                 f"declaration {declaration_id!r} has no declared dimension "
                 f"{parameter_id!r} to override"
             )
         controls: dict[str, object] = {}
-        if dimension_lane_supported(feature, parameter_id):
+        if dimension_lane_supported(feature, parameter_id) or (
+            parameter_id == "location" and location_lane_supported(feature, axis, member)
+        ):
             controls["lane"] = {
                 "current": entry[0].get("lane"),
                 "minimum": 1,
@@ -114,7 +129,9 @@ def layout_options(
             }
         # Only advertise sides whose renderer consumes the authored corridor. Other
         # planner-accepted sides are not an editor actuator until that renderer uses them.
-        if feature.kind in {"hole", "pattern", "envelope", "step", "boss", "pocket", "slot"}:
+        if parameter_id != "location" and feature.kind in {
+            "hole", "pattern", "envelope", "step", "boss", "pocket", "slot"
+        }:
             placements = sheet.dimension_options(handle, parameter)["placements"]
             sides = sorted(
                 {
@@ -130,7 +147,7 @@ def layout_options(
             raise ValueError(
                 f"dimension {parameter_id!r} on {feature.kind} does not expose a layout control"
             )
-        return {
+        result = {
             "schema": "draftwright.layout-options",
             "schema_version": 1,
             "scope": "single-dimension-layout-controls",
@@ -140,6 +157,10 @@ def layout_options(
             "parameter_id": parameter_id,
             "controls": controls,
         }
+        if parameter_id == "location":
+            result["axis"] = axis
+            result["member"] = member
+        return result
     side = getattr(feature, "side", None)
     if feature.kind == "authored_dimension":
         supported_sides = sorted(
@@ -192,6 +213,8 @@ def validate_layout_override(
     side: str | None = None,
     parameter: DimensionParameterId | None = None,
     lane: int | None = None,
+    axis: str | None = None,
+    member: int | Literal["centre"] | None = None,
     **unsupported_controls,
 ) -> dict[str, object]:
     """Preflight a layout override without mutating the sheet.
@@ -245,9 +268,16 @@ def validate_layout_override(
             }
         ]
         return result
+    if (axis is not None or member is not None) and parameter != "location":
+        result["issues"] = [
+            {"code": "invalid_selector", "message": "axis and member select only location"}
+        ]
+        return result
     feature = sheet._features[sheet._index_of_token(token)]
     try:
-        options = sheet.layout_options(declaration_id, parameter=parameter)
+        options = sheet.layout_options(
+            declaration_id, parameter=parameter, axis=axis, member=member
+        )
     except (TypeError, ValueError, IndexError) as error:
         result["issues"] = [
             {
@@ -314,6 +344,8 @@ def layout_override(
     side: str | None = None,
     parameter: DimensionParameterId | None = None,
     lane: int | None = None,
+    axis: str | None = None,
+    member: int | Literal["centre"] | None = None,
 ) -> Sheet:
     """Append one bounded declaration-scoped layout override.
 
@@ -323,15 +355,18 @@ def layout_override(
     """
 
     validation = sheet.validate_layout_override(
-        declaration_id, side=side, parameter=parameter, lane=lane
+        declaration_id, side=side, parameter=parameter, lane=lane, axis=axis, member=member
     )
     if not validation["supported"]:
         issues = cast(list[dict[str, object]], validation["issues"])
         raise ValueError(str(issues[0]["message"]))
     options = cast(dict[str, object], validation["options"])
     parameter_id = cast(str | None, options.get("parameter_id"))
-    key = (declaration_id, parameter_id)
-    if any((row.declaration_id, row.parameter_id) == key for row in sheet._layout_overrides):
+    key = (declaration_id, parameter_id, axis, member)
+    if any(
+        (row.declaration_id, row.parameter_id, row.axis, row.member) == key
+        for row in sheet._layout_overrides
+    ):
         raise ValueError(f"layout target {key!r} already has a layout override")
     token = sheet._declaration_token(declaration_id)
     if side is not None:
@@ -341,18 +376,22 @@ def layout_override(
             sheet._layout_overrides.append(LayoutOverride(declaration_id, side))
         else:
             assert parameter_id is not None
-            entry = sheet._dimension_entry_for_layout(token, parameter_id)
+            entry = sheet._dimension_entry_for_layout(token, parameter_id, axis, member)
             assert entry is not None
             entry[0]["side"] = side
             sheet._layout_overrides.append(
-                LayoutOverride(declaration_id, side=side, parameter_id=parameter_id)
+                LayoutOverride(
+                    declaration_id, side=side, parameter_id=parameter_id, axis=axis, member=member
+                )
             )
     else:
         assert parameter_id is not None
-        entry = sheet._dimension_entry_for_layout(token, parameter_id)
+        entry = sheet._dimension_entry_for_layout(token, parameter_id, axis, member)
         assert entry is not None and lane is not None
         entry[0]["lane"] = lane
         sheet._layout_overrides.append(
-            LayoutOverride(declaration_id, parameter_id=parameter_id, lane=lane)
+            LayoutOverride(
+                declaration_id, parameter_id=parameter_id, lane=lane, axis=axis, member=member
+            )
         )
     return sheet
