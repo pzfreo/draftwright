@@ -211,10 +211,18 @@ class ViewSpec:
     #: Independent scale factor for a detail or orientation view. Principal views share the
     #: sheet scale and therefore reject this field.
     scale_factor: float | None = None
+    #: Whether to render hidden edges in a principal or pictorial view.
+    hidden_lines: bool = True
 
     def __post_init__(self) -> None:
         if self.kind not in _KINDS:
             raise ValueError(f"unknown view kind {self.kind!r}; expected one of {sorted(_KINDS)}")
+        if not isinstance(self.hidden_lines, bool):
+            raise TypeError("hidden_lines must be a bool")
+        if not self.hidden_lines and self.kind not in {"principal", "pictorial"}:
+            raise ValueError(
+                "hidden-line visibility is supported for principal and pictorial views"
+            )
         if self.scale_factor is not None:
             if self.kind not in {"detail", "pictorial"}:
                 raise ValueError(
@@ -529,6 +537,7 @@ def resolve_from_analysis(analysis) -> ResolvedViewPlan:
                 page_axes=spec.page_axes,
                 target=requested_by_name.get(spec.name, spec).target,
                 scale_factor=requested_by_name.get(spec.name, spec).scale_factor,
+                hidden_lines=requested_by_name.get(spec.name, spec).hidden_lines,
             )
             for spec in principals
         )

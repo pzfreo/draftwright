@@ -1358,6 +1358,8 @@ def _adopted_view_block(constraints: ViewConstraints, names: Mapping[int, str]) 
         handle = f"{spec.name}_view"
         handles[spec.name] = handle
         suffix = "" if spec.scale_factor is None else f".scale({spec.scale_factor!r})"
+        if not spec.hidden_lines:
+            suffix += ".hidden_lines(False)"
         lines.append(f'{handle} = sheet.{verb}("{spec.name}"){suffix}')
 
     def emit_derived(item, verb: str) -> None:

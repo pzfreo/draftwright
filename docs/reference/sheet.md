@@ -751,6 +751,14 @@ refused at declaration and constraints are never silently relaxed. The immutable
 snapshot is available as `sheet.view_constraints`, while `drawing.view_plan` is the distinct
 resolved result.
 
+Principal and isometric views render hidden edges by default. Use a view handle's
+`.hidden_lines(False)` to keep the view but show only visible edges; `.hidden_lines(True)`
+restores the default. For example, `sheet.add_view("iso").hidden_lines(False)` selects a
+visible-only isometric while retaining automatic principal views (after selecting the
+automatic view source). This is a display choice, not a replacement for a section that
+must reveal and dimension an internal feature. Section and detail views do not support
+this option.
+
 Layout advisories are also available as structured findings from `Drawing.lint()` and
 `lint(physical=False)`. `legibility_floor_breached` reports an explicit scale below the
 legibility floor when a legible automatic fit exists; `page_fit_uncertain` reports an
