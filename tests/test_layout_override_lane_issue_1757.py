@@ -169,17 +169,33 @@ def test_step_lane_does_not_rename_or_duplicate_untouched_diameter() -> None:
 
 
 @pytest.mark.parametrize(
-    ("pmi_mode", "expected"),
-    [("annotate", ("manufacturing_requirement:#1",)), ("omit", ())],
+    ("control", "pmi_mode", "expected"),
+    [
+        (control, pmi_mode, expected)
+        for control in ("lane", "side")
+        for pmi_mode, expected in (
+            ("annotate", ("manufacturing_requirement:#1",)),
+            ("omit", ()),
+        )
+    ],
 )
-def test_step_lane_preserves_visible_source_thread_identity(pmi_mode, expected) -> None:
+def test_step_control_preserves_visible_source_thread_identity(
+    control, pmi_mode, expected
+) -> None:
     aspect = SimpleNamespace(source_ids=("manufacturing_requirement:#1",))
     facts = SimpleNamespace(
         frame=SimpleNamespace(axis="y"), get=lambda key: aspect if key == "thread" else None
     )
     group = SimpleNamespace(
         facts=facts,
-        dims=(SimpleNamespace(kind="diameter", lane=2, id="dimension:step"),),
+        dims=(
+            SimpleNamespace(
+                kind="diameter",
+                lane=2 if control == "lane" else None,
+                side="left" if control == "side" else None,
+                id="dimension:step",
+            ),
+        ),
     )
     entry = ((0, 0, 0), 30, "30", {"step"}, None, None, [group])
     drawing = SimpleNamespace(draft=Draft(), view_bounds=lambda _view: (0, 0, 100, 100))
@@ -204,7 +220,8 @@ def test_step_lane_preserves_visible_source_thread_identity(pmi_mode, expected) 
     )
 
     assert captured["source_ids_by_name"] == {"m_dia_y0": expected}
-    assert captured["requested_lanes"] == {"m_dia_y0": 2}
+    assert captured["requested_lanes"] == ({"m_dia_y0": 2} if control == "lane" else {})
+    assert captured["requested_sides"] == ({"m_dia_y0": "left"} if control == "side" else {})
 
 
 @pytest.mark.parametrize(
