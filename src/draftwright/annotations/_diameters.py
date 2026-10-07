@@ -572,6 +572,8 @@ def _render_diameter_lanes(
     names = set()
     requested_lanes = {}
     covers_diameters_by_name = {}
+    source_ids_by_name = {}
+    include_source_pmi = not ctx.document_member or a.pmi_mode == "annotate"
     for index, entry in indexed_buckets:
         _anchor, dia, value_text, refs, tolerance, rider, groups = entry
         lane = _diameter_bucket_lane(entry)
@@ -582,6 +584,18 @@ def _render_diameter_lanes(
         name = f"{prefix}{start + index}"
         names.add(name)
         requested_lanes[name] = lane
+        source_ids_by_name[name] = (
+            tuple(
+                dict.fromkeys(
+                    source_id
+                    for group in groups
+                    for aspect in (group.facts.get("thread"), group.facts.get("knurl"))
+                    for source_id in getattr(aspect, "source_ids", ())
+                )
+            )
+            if include_source_pmi
+            else ()
+        )
         if axis == "y":
             covers_diameters_by_name[name] = dia
         reach = leader_reach(dwg.draft) + (lane - 1) * spacing
@@ -634,6 +648,7 @@ def _render_diameter_lanes(
             straight_only_names=frozenset(names),
             requested_lanes=requested_lanes,
             covers_diameters_by_name=covers_diameters_by_name,
+            source_ids_by_name=source_ids_by_name,
         ),
     )
 

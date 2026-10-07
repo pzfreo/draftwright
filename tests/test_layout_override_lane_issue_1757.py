@@ -8,11 +8,13 @@ from types import SimpleNamespace
 
 import pytest
 from build123d import Box, Cylinder, Pos, Rot
+from build123d_drafting.helpers import Draft
 from jsonschema.validators import validator_for
 
 from draftwright import Sheet
 from draftwright.annotations._axial_render import _place_or_queue_rotational_od
 from draftwright.annotations._common import PlacementContext
+from draftwright.annotations._diameters import _render_diameter_lanes
 from draftwright.annotations.from_model import _record_slot_drop
 from draftwright.model.ir import LayoutOverride, RequestedDimension
 from draftwright.registry import AnnotationRegistry
@@ -164,6 +166,45 @@ def test_step_lane_does_not_rename_or_duplicate_untouched_diameter() -> None:
     assert drawing.get_annotation("m_dia_x0").label == "ø30"
     assert drawing.get_annotation("m_dia_x1").label == "ø20"
     assert not any(issue.code == "diameter_dropped" for issue in drawing.lint())
+
+
+@pytest.mark.parametrize(
+    ("pmi_mode", "expected"),
+    [("annotate", ("manufacturing_requirement:#1",)), ("omit", ())],
+)
+def test_step_lane_preserves_visible_source_thread_identity(pmi_mode, expected) -> None:
+    aspect = SimpleNamespace(source_ids=("manufacturing_requirement:#1",))
+    facts = SimpleNamespace(
+        frame=SimpleNamespace(axis="y"), get=lambda key: aspect if key == "thread" else None
+    )
+    group = SimpleNamespace(
+        facts=facts,
+        dims=(SimpleNamespace(kind="diameter", lane=2, id="dimension:step"),),
+    )
+    entry = ((0, 0, 0), 30, "30", {"step"}, None, None, [group])
+    drawing = SimpleNamespace(draft=Draft(), view_bounds=lambda _view: (0, 0, 100, 100))
+    analysis = SimpleNamespace(SCALE=2, pmi_mode=pmi_mode)
+    captured = {}
+
+    def place_jobs(*_args, **kwargs):
+        captured.update(kwargs)
+        return 0
+
+    _render_diameter_lanes(
+        drawing,
+        analysis,
+        [(0, entry)],
+        axis="y",
+        prefix="m_dia_y",
+        start=0,
+        ctx=SimpleNamespace(document_member=True),
+        radial_candidates=lambda *_args, **_kwargs: [((0, 0), (1, 1, 0), None)],
+        place_jobs=place_jobs,
+        leader_reach=lambda _draft: 8,
+    )
+
+    assert captured["source_ids_by_name"] == {"m_dia_y0": expected}
+    assert captured["requested_lanes"] == {"m_dia_y0": 2}
 
 
 def test_lane_override_changes_only_the_exact_dimension_policy() -> None:
