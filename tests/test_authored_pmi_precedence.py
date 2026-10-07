@@ -706,6 +706,34 @@ def test_authored_z_height_does_not_reappear_as_an_overall_ladder():
     )
 
 
+def test_authored_turned_overall_covers_bbox_height_without_an_envelope():
+    bbox = (Pos(0, 0, 26) * Box(24, 24, 52)).bounding_box()
+    steps = [
+        StepFeature(Frame((0, 0, (lo + hi) / 2), "z"), hi - lo, diameter, ((0, 0, lo), (0, 0, hi)))
+        for lo, hi, diameter in ((0, 12, 24), (12, 34, 15), (34, 52, 10))
+    ]
+    source = AuthoredDimension(
+        Frame((0, 0, 26), "z"),
+        "linear",
+        52,
+        "52 +0.1/0",
+        "Z",
+        ref_pts=((0, 0, 0), (0, 0, 52)),
+        source_id="dimension:overall",
+    )
+    model = PartModel(bbox, "z", [*steps, source])
+    plan = compile_dimensions(model)
+    assert plan.ladder("overall_height") is None
+    assert any(
+        omission.parameter_id == "height.length" and "dimension:overall" in omission.reason
+        for omission in plan.diagnostics
+    )
+    unrelated = compile_dimensions(
+        replace(model, features=[*steps, replace(source, ref_pts=((20, 0, 0), (20, 0, 52)))])
+    )
+    assert not any("dimension:overall" in omission.reason for omission in unrelated.diagnostics)
+
+
 def test_authored_hole_x_location_covers_only_the_x_component():
     bbox = (Pos(20, 15, 2.5) * Box(40, 30, 5)).bounding_box()
     hole = HoleFeature(Frame((10, 5, 2), "z"), 4, depth=None, through=True)
@@ -778,6 +806,53 @@ def test_authored_bore_axis_station_covers_only_its_physical_hole_location():
     assert not _authored_bore_axis_location_matches(source, replace(shallow_x, discriminator="z"))
     assert not _authored_bore_axis_location_matches(
         source, replace(shallow_x, span=((-25, 5, 12), (20, 5, 12)))
+    )
+
+
+def test_authored_central_bore_axis_covers_coaxial_pattern_centre_location():
+    bbox = (Pos(0, 0, 6) * Box(120, 80, 12)).bounding_box()
+    member = HoleFeature(Frame((0, 0, 12), "z"), 6.6, depth=12, through=True)
+    pattern = PatternFeature(
+        Frame((0, 0, 12), "z"),
+        "grid",
+        4,
+        member,
+        members=((-48, -30, 12), (48, -30, 12), (48, 30, 12), (-48, 30, 12)),
+        grid=(60, 96),
+        rows=2,
+        cols=2,
+    )
+    bore = HoleFeature(Frame((0, 0, 12), "z"), 22, depth=12, through=True)
+    source = AuthoredDimension(
+        Frame((-30, 0, 4), "x"),
+        "linear",
+        60,
+        "60",
+        "X",
+        ref_pts=((-60, 0, 4), (0, 0, 4)),
+        source_id="dimension:bore-centre",
+        basic=True,
+    )
+    model = PartModel(
+        bbox,
+        "z",
+        [pattern, bore, source],
+        datums=[Datum("datum_xy", "point", (-60, -40, 0))],
+    )
+    plan = compile_dimensions(model)
+    assert not [
+        location
+        for location in plan.locations
+        if location.id.feature is pattern and location.discriminator == "x"
+    ]
+    assert any(
+        omission.feature is pattern and "dimension:bore-centre" in omission.reason
+        for omission in plan.diagnostics
+    )
+    without_bore = compile_dimensions(replace(model, features=[pattern, source]))
+    assert any(
+        location.id.feature is pattern and location.discriminator == "x"
+        for location in without_bore.locations
     )
 
 
