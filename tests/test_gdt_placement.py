@@ -13,6 +13,7 @@ import json
 import math
 from collections import defaultdict
 from pathlib import Path
+from types import SimpleNamespace
 from xml.etree import ElementTree
 
 import ezdxf
@@ -20,6 +21,7 @@ import pytest
 from build123d import Box, Cylinder, Draft, Pos
 from build123d_drafting import DatumFeature, FeatureControlFrame, Leader
 
+from draftwright.annotations._gdt import _datum_alternate_view
 from draftwright.builder import build_drawing, detect_part_model
 from draftwright.linting.structural import lint_drawing
 from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame, Note, PmiFeature
@@ -412,13 +414,24 @@ def test_imported_datum_refuses_a_wrong_side_fallback(monkeypatch, tmp_path):
     assert [attempt["side"] for attempt in events[0]["items"][0]["attempts"]] == ["left"]
 
 
-def test_imported_datum_on_absent_side_strip_drops_without_aborting_issue_2182(tmp_path):
+def test_imported_datum_on_absent_side_strip_tries_normal_plan_edge_issue_2182(tmp_path):
+    origin = PmiFeature(
+        frame=Frame((0.0, -25.0, 0.0), "y"),
+        pmi_kind="datum",
+        value=0.0,
+        label="A",
+        dominant_axis="Y",
+        ref_bbox=(-40.0, -25.0, -10.0, 40.0, -25.0, 10.0),
+        source_category="datum",
+        reference_axis="Y",
+    )
     datum = DatumRef(
         frame=Frame((0.0, -25.0, 0.0), "y"),
         letter="A",
         view="side",
         side="left",
         source_id="datum:missing-side-strip",
+        origin=origin,
         reference_surface_kind="plane",
     )
     surviving_frame = ControlFrame(
@@ -436,15 +449,67 @@ def test_imported_datum_on_absent_side_strip_drops_without_aborting_issue_2182(t
     assert "m_gdt0" not in dwg.annotations()
     assert "m_gdt1" in dwg.annotations()
     assert any(
-        issue.code == "pmi_dropped" and "m_gdt0" in issue.message for issue in dwg.registry.issues
+        issue.code == "pmi_dropped"
+        and "m_gdt0" in issue.message
+        and "surface-normal below strip" in issue.message
+        for issue in dwg.registry.issues
     )
     solves = json.loads(trace_path.read_text())["solves"]
     assert any(
-        solve["corridor"] == ["side", "left"]
-        and solve["strip"] is None
-        and {item["name"] for item in solve["candidates"]} == {"m_gdt0"}
-        and solve["outcomes"] == [{"name": "m_gdt0", "outcome": "dropped", "reason": "no_strip"}]
+        solve["corridor"] == ["plan", "below"]
+        and solve["strip"] is not None
+        and "m_gdt0" in {candidate["name"] for candidate in solve["candidates"]}
+        and any(outcome["name"] == "m_gdt0" for outcome in solve["outcomes"])
         for solve in solves
+    )
+
+
+def test_datum_alternate_view_requires_a_selected_plan_view():
+    origin = PmiFeature(
+        frame=Frame((0.0, -25.0, 0.0), "y"),
+        pmi_kind="datum",
+        value=0.0,
+        label="B",
+        dominant_axis="Y",
+        ref_bbox=(-40.0, -25.0, -10.0, 40.0, -25.0, 10.0),
+        source_category="datum",
+        reference_axis="Y",
+    )
+    datum = DatumRef(
+        frame=Frame((0.0, -25.0, 0.0), "y"),
+        letter="B",
+        view="side",
+        side="left",
+        origin=origin,
+        reference_surface_kind="plane",
+    )
+    zones = {
+        "side": (SimpleNamespace(left=None),),
+        "plan": (SimpleNamespace(below=object()),),
+    }
+    assert _datum_alternate_view(datum, zones, {"side": object()}) is datum
+    no_plan_strip = {
+        "side": zones["side"],
+        "plan": (SimpleNamespace(below=None),),
+    }
+    assert (
+        _datum_alternate_view(datum, no_plan_strip, {"side": object(), "plan": object()}) is datum
+    )
+    alternate = _datum_alternate_view(datum, zones, {"side": object(), "plan": object()})
+    assert (alternate.view, alternate.side, alternate.letter) == ("plan", "below", "B")
+    assert (
+        _datum_alternate_view(
+            DatumRef(
+                frame=datum.frame,
+                letter="B",
+                view="side",
+                side="left",
+                reference_surface_kind="plane",
+            ),
+            zones,
+            {"side": object(), "plan": object()},
+        ).view
+        == "side"
     )
 
 
