@@ -1819,6 +1819,13 @@ def _check_intent_policy_conflicts(model: PartModel) -> None:
 
 def _validate_compound_callout_side(feature, approved, selected_view, requested_side) -> None:
     """Check a compound callout's requested corridor against its renderer."""
+    if feature.kind == "pocket":
+        if requested_side in {"above", "below", "left", "right"} and all(
+            pd.side is None or pd.param.role in {"pocket_depth", "pocket_max_depth"}
+            for pd in approved
+        ):
+            return
+        raise ValueError("pocket leader side is available only for its depth callout")
     if feature.kind in {"step", "boss"}:
         diameter_sides = {
             "x": {"above", "below"},

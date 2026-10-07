@@ -97,6 +97,7 @@ def pocket_jobs(dwg, plan, *, only=None, leader_callout_reach, radial_candidates
     view_of = _END_ON
     pocket_groups = list(plan.of_kind("pocket"))
     jobs = []
+    requested_sides = {}
     for i, g in enumerate(
         sorted(pocket_groups, key=lambda g: (g.facts.width_axis, g.facts.frame.origin))
     ):
@@ -116,9 +117,21 @@ def pocket_jobs(dwg, plan, *, only=None, leader_callout_reach, radial_candidates
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
+        name = f"m_pocket_{pk.width_axis}{pk.long_axis}{i}"
+        if g.side is not None:
+            requested_sides[name] = g.side
+        directions = tuple(
+            (dx, dy)
+            for dx, dy in _POCKET_LEAD_DIRS
+            if g.side is None
+            or (g.side == "left" and dx < 0)
+            or (g.side == "right" and dx > 0)
+            or (g.side == "above" and dy > 0)
+            or (g.side == "below" and dy < 0)
+        )
         jobs.append(
             (
-                f"m_pocket_{pk.width_axis}{pk.long_axis}{i}",
+                name,
                 view,
                 vb,
                 _pocket_label(
@@ -147,12 +160,13 @@ def pocket_jobs(dwg, plan, *, only=None, leader_callout_reach, radial_candidates
                     )
                     if wpd is not None and lpd is not None
                     else None,
+                    directions=directions,
                     provenance=g.ref,
                 ),
                 tuple(d.id for d in dimensions),
             )
         )
-    return jobs
+    return jobs, requested_sides
 
 
 def pad_height_jobs(dwg, plan, *, only=None, leader_callout_reach, radial_candidates):

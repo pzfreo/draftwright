@@ -304,6 +304,58 @@ def test_boss_height_does_not_advertise_diameter_callout_side() -> None:
     assert result["supported"] is False
 
 
+@pytest.mark.parametrize(
+    ("side", "coordinate", "sign"),
+    [("left", 0, -1), ("right", 0, 1), ("below", 1, -1), ("above", 1, 1)],
+)
+def test_pocket_callout_side_override_uses_requested_hemisphere(side, coordinate, sign) -> None:
+    part = Box(100, 80, 10) - Pos(0, 0, 2.5) * Box(40, 20, 5)
+    sheet = Sheet(part, page="A3", scale=1).authored_dimensions()
+    pocket = sheet.pocket(
+        width=20,
+        length=40,
+        depth=5,
+        long_axis="x",
+        width_axis="y",
+        depth_axis="z",
+        lo=-20,
+        hi=20,
+        w_center=0,
+        at=(0, 0, 2.5),
+    ).identify("declaration:pocket")
+    sheet.dimension(pocket, "pocket_depth.length")
+    options = sheet.layout_options("declaration:pocket", parameter="pocket_depth.length")
+    assert side in options["controls"]["side"]["supported_values"]
+    sheet.layout_override("declaration:pocket", parameter="pocket_depth.length", side=side)
+
+    drawing = sheet.build()
+    mark = drawing.get_annotation("m_pocket_yx0")
+    assert mark is not None
+    assert sign * (mark.elbow[coordinate] - mark.tip[coordinate]) > 0
+    assert not any(issue.code == "placement_unsatisfiable" for issue in drawing.lint())
+
+
+def test_pocket_width_does_not_advertise_depth_leader_side() -> None:
+    sheet = Sheet(Box(100, 80, 10)).authored_dimensions()
+    pocket = sheet.pocket(
+        width=20,
+        length=40,
+        depth=5,
+        long_axis="x",
+        width_axis="y",
+        depth_axis="z",
+        lo=-20,
+        hi=20,
+        w_center=0,
+        at=(0, 0, 2.5),
+    ).identify("declaration:pocket")
+    sheet.dimension(pocket, "pocket_width.length")
+    result = sheet.validate_layout_override(
+        "declaration:pocket", parameter="pocket_width.length", side="left"
+    )
+    assert result["supported"] is False
+
+
 def test_lane_override_changes_only_the_exact_dimension_policy() -> None:
     sheet = _slot_sheet()
     sheet.layout_override("declaration:slot", parameter="slot_width.length", lane=4)
