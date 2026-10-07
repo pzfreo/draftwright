@@ -14,7 +14,7 @@ from jsonschema.validators import validator_for
 from draftwright import Sheet
 from draftwright.annotations._axial_render import _place_or_queue_rotational_od
 from draftwright.annotations._common import PlacementContext
-from draftwright.annotations._diameters import _render_diameter_lanes
+from draftwright.annotations._diameters import _render_diameter_controls
 from draftwright.annotations.from_model import _record_slot_drop
 from draftwright.model.ir import LayoutOverride, RequestedDimension
 from draftwright.registry import AnnotationRegistry
@@ -190,7 +190,7 @@ def test_step_lane_preserves_visible_source_thread_identity(pmi_mode, expected) 
         captured.update(kwargs)
         return 0
 
-    _render_diameter_lanes(
+    _render_diameter_controls(
         drawing,
         analysis,
         [(0, entry)],
@@ -205,6 +205,47 @@ def test_step_lane_preserves_visible_source_thread_identity(pmi_mode, expected) 
 
     assert captured["source_ids_by_name"] == {"m_dia_y0": expected}
     assert captured["requested_lanes"] == {"m_dia_y0": 2}
+
+
+@pytest.mark.parametrize(
+    ("axis", "rotation", "sides", "coordinate"),
+    [
+        ("x", (0, 90, 0), ("above", "below"), 1),
+        ("y", (90, 0, 0), ("left", "right"), 0),
+        ("z", (0, 0, 0), ("left", "right"), 0),
+    ],
+)
+def test_step_diameter_side_override_keeps_leader_on_requested_side(
+    axis, rotation, sides, coordinate
+) -> None:
+    observed = []
+    for side in sides:
+        sheet = Sheet(Rot(*rotation) * Cylinder(15, 40), page="A3", scale=2).authored_dimensions()
+        step = sheet.step(diameter=30, length=40, at=(0, 0, 0), axis=axis)
+        step.identify("declaration:step")
+        sheet.dimension(step, "step.diameter")
+        side_options = sheet.layout_options("declaration:step", parameter="step.diameter")[
+            "controls"
+        ]["side"]
+        assert side in side_options["supported_values"]
+        sheet.layout_override("declaration:step", parameter="step.diameter", side=side)
+        drawing = sheet.build()
+        mark = drawing.get_annotation(f"m_dia_{axis}0")
+        assert mark is not None
+        assert not any(issue.code == "placement_unsatisfiable" for issue in drawing.lint())
+        observed.append(mark.elbow[coordinate] - mark.tip[coordinate])
+    assert observed[0] * observed[1] < 0
+
+
+def test_step_length_does_not_advertise_diameter_callout_side() -> None:
+    sheet = Sheet(Rot(0, 90, 0) * Cylinder(15, 40)).authored_dimensions()
+    step = sheet.step(diameter=30, length=40, at=(0, 0, 0), axis="x")
+    step.identify("declaration:step")
+    sheet.dimension(step, "step.length")
+    result = sheet.validate_layout_override(
+        "declaration:step", parameter="step.length", side="above"
+    )
+    assert result["supported"] is False
 
 
 def test_lane_override_changes_only_the_exact_dimension_policy() -> None:

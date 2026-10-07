@@ -1898,6 +1898,21 @@ def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_vie
                 f"{sorted(set().union(*(_parameter_view_preferences(feature, pd) for pd in approved)))}"
             )
     if requested_side is not None:
+        if feature.kind == "step":
+            step_sides = {
+                "x": {"above", "below"},
+                "y": {"above", "below", "left", "right"},
+                "z": {"left", "right"},
+            }.get(feature.frame.axis, set())
+            if (
+                all(pd.side is None or pd.param.parameter_id == "step.diameter" for pd in approved)
+                and requested_side in step_sides
+            ):
+                return selected_view, requested_side
+            raise ValueError(
+                "step diameter side is available only for its front-view OD leader; "
+                f"supported sides: {sorted(step_sides) or 'none'}"
+            )
         supported = {
             "plan": {"left", "right"},
             "side": {"left", "right"},
