@@ -1817,6 +1817,38 @@ def _check_intent_policy_conflicts(model: PartModel) -> None:
             seen[key] = policy
 
 
+def _validate_compound_callout_side(feature, approved, selected_view, requested_side) -> None:
+    """Check a compound callout's requested corridor against its renderer."""
+    if feature.kind == "step":
+        step_sides = {
+            "x": {"above", "below"},
+            "y": {"above", "below", "left", "right"},
+            "z": {"left", "right"},
+        }.get(feature.frame.axis, set())
+        if (
+            all(pd.side is None or pd.param.parameter_id == "step.diameter" for pd in approved)
+            and requested_side in step_sides
+        ):
+            return
+        raise ValueError(
+            "step diameter side is available only for its front-view OD leader; "
+            f"supported sides: {sorted(step_sides) or 'none'}"
+        )
+    supported = {
+        "plan": {"left", "right"},
+        "side": {"left", "right"},
+        "front": {"below"},
+        "rear": {"below"},
+    }.get(selected_view or "", set())
+    if not isinstance(feature, HoleFeature | PatternFeature) or requested_side not in supported:
+        choices = sorted(supported) if isinstance(feature, HoleFeature | PatternFeature) else []
+        raise ValueError(
+            f"{feature.kind} dimensions cannot render at "
+            f"{selected_view!r}/{requested_side!r}; supported sides for this renderer: "
+            f"{choices or 'none'}"
+        )
+
+
 def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_views=None):
     """Resolve one view/side for a compound group, or reject an unrenderable intent."""
     approved = [pd for pd in dims if not pd.suppressed]
@@ -1898,39 +1930,7 @@ def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_vie
                 f"{sorted(set().union(*(_parameter_view_preferences(feature, pd) for pd in approved)))}"
             )
     if requested_side is not None:
-        if feature.kind == "step":
-            step_sides = {
-                "x": {"above", "below"},
-                "y": {"above", "below", "left", "right"},
-                "z": {"left", "right"},
-            }.get(feature.frame.axis, set())
-            if (
-                all(pd.side is None or pd.param.parameter_id == "step.diameter" for pd in approved)
-                and requested_side in step_sides
-            ):
-                return selected_view, requested_side
-            raise ValueError(
-                "step diameter side is available only for its front-view OD leader; "
-                f"supported sides: {sorted(step_sides) or 'none'}"
-            )
-        supported = {
-            "plan": {"left", "right"},
-            "side": {"left", "right"},
-            "front": {"below"},
-            "rear": {"below"},
-        }.get(selected_view or "", set())
-        if (
-            not isinstance(feature, HoleFeature | PatternFeature)
-            or requested_side not in supported
-        ):
-            choices = (
-                sorted(supported) if isinstance(feature, HoleFeature | PatternFeature) else []
-            )
-            raise ValueError(
-                f"{feature.kind} dimensions cannot render at "
-                f"{selected_view!r}/{requested_side!r}; supported sides for this renderer: "
-                f"{choices or 'none'}"
-            )
+        _validate_compound_callout_side(feature, approved, selected_view, requested_side)
     return selected_view, requested_side
 
 
