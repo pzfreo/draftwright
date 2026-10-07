@@ -550,7 +550,7 @@ def test_distinct_same_named_threads_do_not_share_presentation_support_issue_223
     prose = read_manufacturing_requirements(path)
     assert len(prose) == 2
     assert all(not fact.reference_item_ids and not fact.shape_aspect_ids for fact in prose)
-    assert all("same-named" in fact.reason for fact in prose)
+    assert all("multiple distinct supports" in fact.reason for fact in prose)
     structured = read_structured_manufacturing_requirements(path)
     assert [fact.reference_item_ids for fact in structured] == [("#101",), ("#102",)]
 
@@ -570,6 +570,58 @@ def test_distinct_same_named_threads_do_not_share_presentation_support_issue_223
     }
 
 
+def test_single_thread_prose_cannot_claim_two_presented_faces_issue_2231(tmp_path, monkeypatch):
+    import draftwright.pmi as pmi
+
+    path = tmp_path / "one-prose-two-faces.step"
+    path.write_text(
+        _step(
+            "#1=PROPERTY_DEFINITION('manufacturing requirement','internal thread',#50);",
+            "#2=PROPERTY_DEFINITION_REPRESENTATION(#1,#3);",
+            "#3=REPRESENTATION('internal thread',(#4),#51);",
+            "#4=DESCRIPTIVE_REPRESENTATION_ITEM('','M2 x 0.4-6H RH, full thread through; DIA 1.6 tapping drill through');",
+            "#5=SHAPE_ASPECT('internal thread','',#50,.T.);",
+            "#6=SHAPE_ASPECT('internal thread','',#50,.T.);",
+            "#7=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#5,#50,#101);",
+            "#8=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#6,#50,#102);",
+            "#9=DRAUGHTING_CALLOUT('internal thread',());",
+            "#10=DRAUGHTING_CALLOUT('internal thread',());",
+            "#11=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#5,#50,#9);",
+            "#12=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#6,#50,#10);",
+            "#20=GENERAL_PROPERTY('','user defined attribute',$);",
+            "#21=PROPERTY_DEFINITION('internal thread','pmi-assist',#5);",
+            "#22=GENERAL_PROPERTY_ASSOCIATION('',$,#20,#21);",
+            "#23=PROPERTY_DEFINITION_REPRESENTATION(#21,#24);",
+            "#24=REPRESENTATION('internal thread',(#25,#26,#27,#28),#51);",
+            "#25=DESCRIPTIVE_REPRESENTATION_ITEM('thread side','internal');",
+            "#26=DESCRIPTIVE_REPRESENTATION_ITEM('designation','M2x0.4');",
+            "#27=DESCRIPTIVE_REPRESENTATION_ITEM('fit class','6H');",
+            "#28=DESCRIPTIVE_REPRESENTATION_ITEM('hand','right');",
+            "#50=PRODUCT_DEFINITION_SHAPE('','',#52);",
+            "#52=PRODUCT_DEFINITION('part','',#53,#51);",
+            "#54=SHAPE_DEFINITION_REPRESENTATION(#50,#55);",
+        ),
+        encoding="utf-8",
+    )
+
+    (prose,) = read_manufacturing_requirements(path)
+    assert prose.callout_ids == ("#9", "#10")
+    assert prose.shape_aspect_ids == prose.reference_item_ids == ()
+    assert "multiple distinct supports" in prose.reason
+    with monkeypatch.context() as patch:
+        patch.setattr(pmi, "read_structured_manufacturing_requirements", lambda _path: ())
+        _sources, (record,) = pmi._manufacturing_requirement_projection(path)
+    assert record.reference_item_ids == ()
+    assert record.lowering_blockers == (prose.reason,)
+    _sources, (paired,) = pmi._manufacturing_requirement_projection(path)
+    assert paired.reference_item_ids == ("#101",)
+    assert paired.source_ids == (
+        "manufacturing_requirement:#1",
+        "manufacturing_requirement:#21",
+    )
+    assert not paired.lowering_blockers
+
+
 def test_ambiguous_thread_designation_does_not_invent_prose_ownership_issue_2231(monkeypatch):
     import draftwright.pmi as pmi
 
@@ -578,7 +630,7 @@ def test_ambiguous_thread_designation_does_not_invent_prose_ownership_issue_2231
             entity_id=f"#prose{index}",
             semantic_name="internal thread",
             text="M2 x 0.4-6H RH, full thread through; DIA 1.6 tapping drill through",
-            reason="multiple same-named manufacturing requirements share presentation callouts",
+            reason="thread presentation callouts have multiple distinct supports",
         )
         for index in (1, 2)
     )

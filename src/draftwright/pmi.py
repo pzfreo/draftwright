@@ -22,7 +22,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
-import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -65,6 +64,8 @@ from draftwright._pmi_part21 import (
     DimensionDisplayFact,
     GeometricToleranceFact,
     MaterialFact,
+    _prose_thread_designation,
+    _structured_thread_designation,
     dimension_basic_policy,
     match_common_label,
     match_datum_occurrence,
@@ -1469,43 +1470,6 @@ def _geometric_tolerance_record(
 # ---------------------------------------------------------------------------
 
 
-_THREAD_DESIGNATION = re.compile(
-    r"^M(?P<nominal>\d+(?:\.\d+)?)\s*x\s*(?P<pitch>\d+(?:\.\d+)?)-"
-    r"(?P<fit>[A-Za-z0-9]+)\s+(?P<hand>RH|LH)\b",
-    re.IGNORECASE,
-)
-
-
-def _prose_thread_designation(text: str) -> tuple[float, float, str, str] | None:
-    match = _THREAD_DESIGNATION.match(text.strip())
-    if match is None:
-        return None
-    return (
-        float(match["nominal"]),
-        float(match["pitch"]),
-        match["fit"].upper(),
-        match["hand"].upper(),
-    )
-
-
-def _structured_thread_designation(fields) -> tuple[float, float, str, str] | None:
-    values = dict(fields)
-    designation = values.get("designation")
-    fit = values.get("fit class")
-    hand = values.get("hand")
-    if not isinstance(designation, str) or not isinstance(fit, str) or not isinstance(hand, str):
-        return None
-    match = re.fullmatch(r"M(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)", designation, re.I)
-    if match is None or hand.casefold() not in ("rh", "lh", "right", "left"):
-        return None
-    return (
-        float(match[1]),
-        float(match[2]),
-        fit.upper(),
-        "RH" if hand.casefold() in ("rh", "right") else "LH",
-    )
-
-
 def _manufacturing_requirement_projection(
     step_file: str | Path,
 ) -> tuple[tuple[PmiSourceEntity, ...], tuple[PmiRecord, ...]]:
@@ -1567,9 +1531,8 @@ def _manufacturing_requirement_projection(
                 and fact.entity_id not in paired
             ]
             if not candidates and not support and requirement in ambiguous_prose:
-                # Presentation names alone are not ownership. A unique semantic
-                # designation can reconcile prose with one structured property;
-                # its own exact source face is then checked by geometry lowering.
+                # A unique designation can pair prose with structured PMI; its
+                # exact face is still checked during geometry lowering.
                 designation = _prose_thread_designation(requirement.text)
                 if (
                     designation is not None

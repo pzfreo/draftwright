@@ -386,9 +386,44 @@ def _name_tokens(value: str) -> frozenset[str]:
     return frozenset(words)
 
 
-_AMBIGUOUS_MANUFACTURING_CALLOUTS = (
-    "multiple same-named manufacturing requirements share presentation callouts"
+_AMBIGUOUS_MANUFACTURING_CALLOUTS = "thread presentation callouts have multiple distinct supports"
+
+
+_THREAD_DESIGNATION = re.compile(
+    r"^M(?P<nominal>\d+(?:\.\d+)?)\s*x\s*(?P<pitch>\d+(?:\.\d+)?)-"
+    r"(?P<fit>[A-Za-z0-9]+)\s+(?P<hand>RH|LH)\b",
+    re.IGNORECASE,
 )
+
+
+def _prose_thread_designation(text: str) -> tuple[float, float, str, str] | None:
+    match = _THREAD_DESIGNATION.match(text.strip())
+    if match is None:
+        return None
+    return (
+        float(match["nominal"]),
+        float(match["pitch"]),
+        match["fit"].upper(),
+        match["hand"].upper(),
+    )
+
+
+def _structured_thread_designation(fields) -> tuple[float, float, str, str] | None:
+    values = dict(fields)
+    designation = values.get("designation")
+    fit = values.get("fit class")
+    hand = values.get("hand")
+    if not isinstance(designation, str) or not isinstance(fit, str) or not isinstance(hand, str):
+        return None
+    match = re.fullmatch(r"M(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)", designation, re.I)
+    if match is None or hand.casefold() not in ("rh", "lh", "right", "left"):
+        return None
+    return (
+        float(match[1]),
+        float(match[2]),
+        fit.upper(),
+        "RH" if hand.casefold() in ("rh", "right") else "LH",
+    )
 
 
 def _manufacturing_graph(step):
@@ -574,11 +609,6 @@ def read_manufacturing_requirements(
         aspect_items,
     ) = _manufacturing_graph(step)
     facts: list[ManufacturingRequirementFact] = []
-    name_counts: dict[str, int] = {}
-    for _entity_id, definition in definitions:
-        name = _text(definition.params[1]).casefold()
-        name_counts[name] = name_counts.get(name, 0) + 1
-
     for entity_id, definition in definitions:
         semantic_name = _text(definition.params[1])
         reasons: list[str] = []
@@ -634,11 +664,26 @@ def read_manufacturing_requirements(
             for callout_id, name in callout_names.items()
             if semantic_tokens and semantic_tokens <= _name_tokens(name)
         )
-        # A part-owned prose property has no relationship to any one of several
-        # identically named presentation callouts. Do not give each property the
-        # union of every callout's geometry (and thereby claim unrelated holes).
+        matched_aspects = tuple(
+            dict.fromkeys(
+                aspect_id
+                for callout_id in callout_ids
+                for aspect_id in callout_aspects.get(callout_id, ())
+            )
+        )
+        matched_items = tuple(
+            dict.fromkeys(
+                item_id
+                for aspect_id in matched_aspects
+                for item_id in aspect_items.get(aspect_id, ())
+            )
+        )
+        # A part-owned thread prose property has no relation to any particular
+        # one of several presented faces. Even one property can match several
+        # identically named callouts, so do not let it claim their union.
         ambiguous_callouts = (
-            name_counts.get(semantic_name.casefold(), 0) > 1 and len(callout_ids) > 1
+            semantic_name.casefold() in {"internal thread", "external thread"}
+            and len(matched_items) > 1
         )
         if ambiguous_callouts:
             reasons.append(_AMBIGUOUS_MANUFACTURING_CALLOUTS)
@@ -650,13 +695,7 @@ def read_manufacturing_requirements(
                 "matched semantic callout(s) have no shape-aspect association: "
                 + ", ".join(missing_callout_associations)
             )
-        shape_aspect_ids = tuple(
-            dict.fromkeys(
-                aspect_id
-                for callout_id in (() if ambiguous_callouts else callout_ids)
-                for aspect_id in callout_aspects.get(callout_id, ())
-            )
-        )
+        shape_aspect_ids = () if ambiguous_callouts else matched_aspects
         missing_aspect_items = tuple(
             aspect_id for aspect_id in shape_aspect_ids if not aspect_items.get(aspect_id)
         )
