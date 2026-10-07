@@ -194,7 +194,12 @@ from draftwright.sheet_object_source import (
 from draftwright.sheet_object_source import (
     _resolve_object_source as _resolve_object_source,
 )
-from draftwright.view_plan import PRINCIPAL_VIEW_NAMES, ViewConstraints, validate_projection
+from draftwright.view_plan import (
+    PRINCIPAL_VIEW_NAMES,
+    ViewConstraints,
+    ViewSpec,
+    validate_projection,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -1307,6 +1312,13 @@ def _derived_label(name: str, kind: str) -> str:
     raise ValueError(f"cannot emit {kind} view with non-canonical name {name!r}")
 
 
+def _principal_view_suffix(spec: ViewSpec) -> str:
+    """Express independent scale and hidden-edge visibility through view verbs."""
+    scale = "" if spec.scale_factor is None else f".scale({spec.scale_factor!r})"
+    hidden = "" if spec.hidden_lines else ".hidden_lines(False)"
+    return scale + hidden
+
+
 def _adopted_view_block(constraints: ViewConstraints, names: Mapping[int, str]) -> list[str]:
     """Emit a semantic Sheet request for an adopted view-source state (#1350)."""
     principal_source = constraints.principal_source or "automatic"
@@ -1357,9 +1369,7 @@ def _adopted_view_block(constraints: ViewConstraints, names: Mapping[int, str]) 
             raise ValueError(f"cannot emit principal view {spec.name!r} with a target")
         handle = f"{spec.name}_view"
         handles[spec.name] = handle
-        suffix = "" if spec.scale_factor is None else f".scale({spec.scale_factor!r})"
-        if not spec.hidden_lines:
-            suffix += ".hidden_lines(False)"
+        suffix = _principal_view_suffix(spec)
         lines.append(f'{handle} = sheet.{verb}("{spec.name}"){suffix}')
 
     def emit_derived(item, verb: str) -> None:
