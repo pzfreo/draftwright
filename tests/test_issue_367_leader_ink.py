@@ -45,9 +45,11 @@ def test_exact_face_cache_reuses_identical_ink_but_not_moved_ink(monkeypatch):
         assert _validated_face_mesh(identical, 0.01) == original
         assert _validated_face_mesh(moved, 0.01) is not None
         assert _validated_face_mesh(identical, 0.02) is not None
-    assert calls == 3
+        assert len(cache._entries) == 2
+        assert _validated_face_mesh(first, 0.01) == original  # oldest entry was evicted
+    assert calls == 4
     assert cache.hits == 1
-    assert cache.misses == 3
+    assert cache.misses == 4
     cache.clear()
     assert cache.hits == cache.misses == 0
 
