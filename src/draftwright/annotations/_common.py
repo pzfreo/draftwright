@@ -1505,16 +1505,7 @@ def register_corridor(ctx, key, strip, view, axis, tier, cand):
 
 
 def _drain_interior_dimensions(ctx, dwg) -> None:
-    """Place automatic fallbacks and declared lanes as one whole-annotation batch.
-
-    Automatic jobs enter only after a genuine exterior failure. Declared jobs contribute
-    one compiler-derived feature-relative position. The stage moves complete dimensions,
-    admits candidates only when their label is wholly interior or wholly exterior, and
-    requires the complete annotation to clear fixed ink. The generic exact assignment
-    then arbitrates pairwise conflicts; a job with no survivor calls its original drop
-    handler unchanged. When tracing is enabled, the same stage records candidate
-    positions and rejection categories without running a second placement solve.
-    """
+    """Validate whole ink and jointly assign automatic fallbacks and declared lanes."""
 
     jobs = getattr(ctx, "interior_dimensions", None)
     if not jobs:
@@ -1601,8 +1592,15 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
             if box[0] < page[0] or box[1] < page[1] or box[2] > page[2] or box[3] > page[3]:
                 reject(job, "page_bounds")
                 continue
-            if region is DimensionCandidateRegion.INTERIOR and not label_clear(label):
-                reject(job, "projected_view_ink")
+            if region is DimensionCandidateRegion.INTERIOR and (
+                ctx.exterior_dimensions_only or not label_clear(label)
+            ):
+                reject(
+                    job,
+                    "profile_exterior_only"
+                    if ctx.exterior_dimensions_only
+                    else "projected_view_ink",
+                )
                 continue
             # View ownership is provenance, not a clipping boundary: ink owned
             # by an adjacent projection may still cross this view in page space.
