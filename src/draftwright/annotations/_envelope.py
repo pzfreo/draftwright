@@ -374,7 +374,7 @@ def render_envelope(
         witness = p1[1] - _WITNESS_LIFT_MM
         zones = frame.zones(view)
         label = _env_label(extent, dwg.draft)
-        if extent.lane is not None:
+        if getattr(extent, "lane", None) is not None:
             _queue_declared_envelope_lane(
                 dwg, ctx, env, extent, role, view, zones, slot, ann_name, p1, p2, label
             )
