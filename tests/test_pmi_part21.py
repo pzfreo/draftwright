@@ -664,6 +664,22 @@ def test_ambiguous_thread_designation_does_not_invent_prose_ownership_issue_2231
     ]
 
 
+def test_thread_reconciliation_requires_complete_valid_designations_issue_2231():
+    from draftwright._pmi_part21 import (
+        _prose_thread_designation,
+        _structured_thread_designation,
+    )
+
+    assert _prose_thread_designation("M2 x 0.4") is None
+    assert _structured_thread_designation((("designation", "M2x0.4"),)) is None
+    assert (
+        _structured_thread_designation(
+            (("designation", "M2x0.4"), ("fit class", "6H"), ("hand", "clockwise"))
+        )
+        is None
+    )
+
+
 def _read_surface_labels(tmp_path, name: str, *instances: str):
     step = tmp_path / f"{name}.step"
     step.write_text(_step(*instances), encoding="utf-8")
