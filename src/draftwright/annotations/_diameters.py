@@ -692,6 +692,143 @@ def _matching_bore_values(bore_specs, origin):
     }
 
 
+def _render_x_diameter_buckets(
+    dwg,
+    a,
+    buckets,
+    start,
+    *,
+    ctx,
+    trace,
+    include_source_pmi,
+    radial_candidates,
+    place_jobs,
+    leader_reach,
+    place_what_fits,
+) -> int:
+    """Keep the ordinary X row and explicit-lane X leaders as separate owners."""
+    indexed = list(enumerate(buckets.values()))
+
+    def typed(entry):
+        return include_source_pmi and any(
+            isinstance(group.facts.get("thread"), ThreadRequirement)
+            or isinstance(group.facts.get("knurl"), KnurlRequirement)
+            for group in entry[6]
+        )
+
+    lane_entries = [(index, entry) for index, entry in indexed if _diameter_bucket_lane(entry)]
+    typed_entries = [
+        (index, entry)
+        for index, entry in indexed
+        if not _diameter_bucket_lane(entry) and typed(entry)
+    ]
+    plain_entries = [
+        (index, entry)
+        for index, entry in indexed
+        if not _diameter_bucket_lane(entry) and not typed(entry)
+    ]
+    placed = 0
+    # A requested lane splits the otherwise unchanged contiguous legacy row.
+    for _, run in groupby(enumerate(plain_entries), key=lambda item: item[1][0] - item[0]):
+        entries = [entry for _ordinal, entry in run]
+        placed += _diameter_row_below(
+            dwg,
+            [_diameter_bucket_item(entry) for _index, entry in entries],
+            start=start + entries[0][0],
+            trace=trace,
+            ctx=ctx,
+            place_what_fits=place_what_fits,
+        )
+    placed += _render_diameter_leaders(
+        dwg,
+        a,
+        typed_entries,
+        prefix="m_dia_x",
+        start=start,
+        ctx=ctx,
+        include_source_pmi=include_source_pmi,
+        radial_candidates=radial_candidates,
+        place_jobs=place_jobs,
+        leader_reach=leader_reach,
+    )
+    unplaced = [
+        entry
+        for _index, entry in plain_entries
+        if any(
+            not dwg.registry.has_measurement(group.dim(kind="diameter").id) for group in entry[6]
+        )
+    ]
+    placed += _render_diameter_leaders(
+        dwg,
+        a,
+        list(enumerate(unplaced)),
+        prefix="m_dia_x",
+        start=start + len(buckets),
+        ctx=ctx,
+        include_source_pmi=include_source_pmi,
+        radial_candidates=radial_candidates,
+        place_jobs=place_jobs,
+        leader_reach=leader_reach,
+    )
+    placed += _render_diameter_lanes(
+        dwg,
+        a,
+        lane_entries,
+        axis="x",
+        prefix="m_dia_x",
+        start=start,
+        ctx=ctx,
+        radial_candidates=radial_candidates,
+        place_jobs=place_jobs,
+        leader_reach=leader_reach,
+    )
+    return placed
+
+
+def _render_z_diameter_buckets(
+    dwg,
+    a,
+    buckets,
+    start,
+    *,
+    ctx,
+    trace,
+    radial_candidates,
+    place_jobs,
+    leader_reach,
+    place_what_fits,
+) -> int:
+    """Keep Z column names stable when one bucket selects an explicit lane."""
+    indexed = list(enumerate(buckets.values()))
+    placed = 0
+    for _, run in groupby(
+        enumerate((index, entry) for index, entry in indexed if not _diameter_bucket_lane(entry)),
+        key=lambda item: item[1][0] - item[0],
+    ):
+        entries = [entry for _ordinal, entry in run]
+        placed += _diameter_column_left(
+            dwg,
+            _counted_column_items({index: entry for index, entry in entries}, dwg.draft),
+            start=start + entries[0][0],
+            trace=trace,
+            ctx=ctx,
+            place_what_fits=place_what_fits,
+        )
+    placed += _render_diameter_lanes(
+        dwg,
+        a,
+        [(index, entry) for index, entry in indexed if _diameter_bucket_lane(entry)],
+        axis="z",
+        prefix="m_dia_z",
+        start=start,
+        ctx=ctx,
+        radial_candidates=radial_candidates,
+        place_jobs=place_jobs,
+        leader_reach=leader_reach,
+    )
+    return placed
+
+
 def render_diameters(
     dwg,
     plan,
@@ -771,114 +908,30 @@ def render_diameters(
     start_y = _next_start("m_dia_y") if only is not None else 0
     start_z = _next_start("m_dia_z") if only is not None else 0
     trace = getattr(ctx, "trace", None)  # the immediate placers report to the trace too
-    indexed_row = list(enumerate(row_buckets.values()))
-
-    def _typed(entry):
-        return include_source_pmi and any(
-            isinstance(group.facts.get("thread"), ThreadRequirement)
-            or isinstance(group.facts.get("knurl"), KnurlRequirement)
-            for group in entry[6]
-        )
-
-    lane_row = [(index, entry) for index, entry in indexed_row if _diameter_bucket_lane(entry)]
-    typed_entries = [
-        (index, entry)
-        for index, entry in indexed_row
-        if not _diameter_bucket_lane(entry) and _typed(entry)
-    ]
-    plain_entries = [
-        (index, entry)
-        for index, entry in indexed_row
-        if not _diameter_bucket_lane(entry) and not _typed(entry)
-    ]
-    placed = 0
-    # Preserve the legacy tidy row for short plain diameters. Split only where a typed
-    # bucket owns the intervening stable name; each contiguous run can then use the legacy
-    # solver without renumbering a source-owned callout.
-    for _, run in groupby(
-        enumerate(plain_entries),
-        key=lambda item: item[1][0] - item[0],
-    ):
-        entries = [entry for _ordinal, entry in run]
-        placed += _diameter_row_below(
-            dwg,
-            [_diameter_bucket_item(entry) for _index, entry in entries],
-            start=start_x + entries[0][0],
-            trace=trace,
-            ctx=ctx,
-            place_what_fits=place_what_fits,
-        )
-    placed += _render_diameter_leaders(
+    placed = _render_x_diameter_buckets(
         dwg,
         a,
-        typed_entries,
-        prefix="m_dia_x",
-        start=start_x,
+        row_buckets,
+        start_x,
         ctx=ctx,
+        trace=trace,
         include_source_pmi=include_source_pmi,
         radial_candidates=radial_candidates,
         place_jobs=place_jobs,
         leader_reach=leader_reach,
+        place_what_fits=place_what_fits,
     )
-    unplaced = [
-        entry
-        for _index, entry in plain_entries
-        if any(
-            not dwg.registry.has_measurement(group.dim(kind="diameter").id) for group in entry[6]
-        )
-    ]
-    placed += _render_diameter_leaders(
+    placed += _render_z_diameter_buckets(
         dwg,
         a,
-        list(enumerate(unplaced)),
-        prefix="m_dia_x",
-        start=start_x + len(row_buckets),
+        col_buckets,
+        start_z,
         ctx=ctx,
-        include_source_pmi=include_source_pmi,
+        trace=trace,
         radial_candidates=radial_candidates,
         place_jobs=place_jobs,
         leader_reach=leader_reach,
-    )
-    placed += _render_diameter_lanes(
-        dwg,
-        a,
-        lane_row,
-        axis="x",
-        prefix="m_dia_x",
-        start=start_x,
-        ctx=ctx,
-        radial_candidates=radial_candidates,
-        place_jobs=place_jobs,
-        leader_reach=leader_reach,
-    )
-    indexed_col = list(enumerate(col_buckets.values()))
-    for _, run in groupby(
-        enumerate(
-            (index, entry) for index, entry in indexed_col if not _diameter_bucket_lane(entry)
-        ),
-        key=lambda item: item[1][0] - item[0],
-    ):
-        entries = [entry for _ordinal, entry in run]
-        run_buckets = {index: entry for index, entry in entries}
-        placed += _diameter_column_left(
-            dwg,
-            _counted_column_items(run_buckets, dwg.draft),
-            start=start_z + entries[0][0],
-            trace=trace,
-            ctx=ctx,
-            place_what_fits=place_what_fits,
-        )
-    placed += _render_diameter_lanes(
-        dwg,
-        a,
-        [(index, entry) for index, entry in indexed_col if _diameter_bucket_lane(entry)],
-        axis="z",
-        prefix="m_dia_z",
-        start=start_z,
-        ctx=ctx,
-        radial_candidates=radial_candidates,
-        place_jobs=place_jobs,
-        leader_reach=leader_reach,
+        place_what_fits=place_what_fits,
     )
 
     # A Y-axis step is end-on in the front view, so the X/Z profile-strip
