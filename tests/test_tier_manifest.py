@@ -133,6 +133,12 @@ def test_every_fast_module_has_a_pr_route():
     assert available - routed == set(NONFAST_ONLY_MODULES)
 
 
+def test_fixed_ink_cache_uses_the_leader_ink_contract_group():
+    source = "src/draftwright/fixed_ink_cache.py"
+    assert selected_groups([source]) == frozenset({"leader_fixed_ink"})
+    assert "test_issue_367_leader_ink.py" in pr_modules(_TESTS, [source])
+
+
 def test_post_merge_only_modules_have_no_fast_test_functions():
     for module in NONFAST_ONLY_MODULES:
         path = _TESTS / module

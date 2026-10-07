@@ -31,6 +31,7 @@ _LAZY = {
     "BuildCancelled": "draftwright.progress",
     "observe_build": "draftwright.progress",
     "FeatureInfo": "draftwright.drawing",
+    "FixedInkMeshCache": "draftwright.fixed_ink_cache",
     "ReportUnavailableError": "draftwright.reporting",
     "INSPECTION_SCHEMA": "draftwright.inspection",
     "INSPECTION_SCHEMA_VERSION": "draftwright.inspection",
@@ -103,6 +104,7 @@ if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel co
     from draftwright.compose import choose_scale
     from draftwright.document import Document, DocumentBuildError, DocumentResult
     from draftwright.drawing import Drawing, FeatureInfo
+    from draftwright.fixed_ink_cache import FixedInkMeshCache
     from draftwright.inspection import (
         INSPECTION_SCHEMA,
         INSPECTION_SCHEMA_VERSION,
@@ -143,6 +145,7 @@ __all__ = [
     "DocumentBuildError",
     "SoftDeprecationWarning",
     "FeatureInfo",
+    "FixedInkMeshCache",
     "InspectionUnavailableError",
     "LeaderRegionPolicy",
     "PmiExtractionReport",

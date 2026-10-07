@@ -10,7 +10,7 @@ document in step. The *why* behind every shape here lives in `docs/adr/`.
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
 top: strict rank-0 package leaves: `progress.py`, `layout.py` (including
 semantic survival order), `registry.py`, `fonts/`,
-`_geometry.py`,
+`_geometry.py`, `fixed_ink_cache.py`,
 `fits.py`,
 `contract_values.py`, `measurement_support.py`, `sheet_metadata.py`,
 `angular_geometry.py`, `family_table.py`, `recogniser_policy.py`,
@@ -55,6 +55,9 @@ contract, such as `reporting.py`, states and guards that contract at its own sea
 corridor demand from approved model groups, and compose consumes that topology.
 `recognition_cache.py` sits beside `analysis.py` at rank 3: both consume bottom-layer
 recognition contracts, while `drawing_state.py` and `builder.py` consume the cache.
+`fixed_ink_cache.py` is a rank-0 package leaf: its caller-owned, bounded face-mesh cache
+uses exact located B-rep bytes and tessellation tolerance as the key. Annotation fixed-ink
+validation and `Sheet.build()` consume it; it never owns placement or model state.
 `test_rank_zero_modules_are_package_leaves` enforces that every rank-0 file has no
 package import across runtime, type-only and lazy paths. `model/` shares a numerical
 rank with `_core` but its separate fail-closed import allowlist still prohibits any

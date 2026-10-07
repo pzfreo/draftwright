@@ -87,6 +87,9 @@ def _tree(path: Path) -> ast.Module:
 _LAYERS: dict[str, int] = {
     # Bottom/shared declarations: every rank-0 entry is a strict package leaf.
     "_geometry": 0,
+    # Caller-owned exact rendered-face meshes; imports no engine modules and is
+    # consumed by annotation validation and the Sheet facade.
+    "fixed_ink_cache": 0,
     # Structured ISO 10303-21 facts only; XCAF correspondence remains in rank-2 pmi.py.
     "_pmi_part21": 0,
     # Warning categories only. Imports nothing at all — deliberately, because a category
