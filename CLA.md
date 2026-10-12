@@ -109,10 +109,15 @@ become aware that would make these representations inaccurate in any respect.
 
 ## How to accept
 
-By submitting a pull request, patch, or other Contribution to draftwright, You
-indicate Your agreement to this Contributor License Agreement for that and all
-future Contributions, unless You state otherwise in writing at the time of
-submission.
+The first time You open a pull request, a bot asks You to accept this Agreement
+by replying on the pull request with:
+
+> I have read the CLA Document and I hereby sign the CLA
+
+Your signature is recorded once and covers that and all future Contributions.
+By submitting any other Contribution (a patch, an issue with code, or
+correspondence) You also indicate Your agreement, unless You state otherwise in
+writing at the time of submission.
 
 If You are contributing on behalf of an organisation that wishes to record its
 agreement explicitly, or if You need an entity-level CLA covering employees,
