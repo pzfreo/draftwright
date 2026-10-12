@@ -11,8 +11,12 @@ releases, all contributors must agree to the
 [Contributor License Agreement (CLA.md)](CLA.md).
 
 You keep the copyright to your work — the CLA grants a licence, not an
-assignment. **By opening a pull request you indicate your agreement to the CLA**
-for that and all future contributions. Please read it before submitting.
+assignment. On your first pull request a bot asks you to sign by replying:
+
+> I have read the CLA Document and I hereby sign the CLA
+
+Your signature covers that and all future contributions, and pull requests cannot
+merge until it is recorded. Please read the CLA before submitting.
 
 ## Development
 
