@@ -15,8 +15,10 @@ your Contributions** — you are granting a licence, not assigning ownership.
 
 In this Agreement:
 
-- **"Project Owner"** means Paul Fremantle (paul@fremantle.org), the copyright
-  holder and maintainer of draftwright.
+- **"Project Owner"** means Betwixt Ltd (a company registered in England and
+  Wales, company number 10573596), the copyright holder of draftwright and
+  owner of the DRAFTWRIGHT trade mark. The
+  maintainer is Paul Fremantle (paul@fremantle.org).
 - **"You"** / **"Your"** means the individual or legal entity agreeing to this
   Agreement.
 - **"Contribution"** means any original work of authorship, including any
