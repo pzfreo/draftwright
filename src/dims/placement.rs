@@ -1836,7 +1836,7 @@ pub(super) fn opening_lanes(frame: &Frame, w: &Want, side: Side) -> Vec<Placed> 
     };
     (0..=28)
         .filter_map(|n| {
-            let gap = super::TEXT + 0.25 * f64::from(n);
+            let gap = super::TEXT + super::leaders::STROKE_PAD + 0.25 * f64::from(n);
             place_linear_at(frame, &w.shape, &w.terms, side, (edge + out * gap, out))
         })
         .collect()

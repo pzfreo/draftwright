@@ -138,7 +138,7 @@ const DESCENT: usize = 50;
 /// a text height and two `pad_around_text` apart; half a pad keeps them visibly apart here).
 const LABEL_PAD: f64 = 1.0;
 /// Extra readable paper for compound fit/tolerance labels beside strokes and arrow flares.
-const STROKE_PAD: f64 = 2.0;
+pub(super) const STROKE_PAD: f64 = 2.0;
 
 /// The first side shelf: full ink, elbow, shoulder, text gap and paper to the border.
 pub(super) fn shelf_width(ink: &super::LabelInk) -> f64 {
@@ -7494,6 +7494,61 @@ pub(super) fn settled_routes(
         }
         admissible(c)
     });
+    // Refine the held bend before changing corridors. Recompute the tip on
+    // the same physical attachment and reprove the entire route, rather than
+    // translating an arrowhead off its arc. At most 40 local sites are tried.
+    let mut local = Vec::new();
+    if compact_shoulders && old.lines.len() >= 2 {
+        let site = nearest(&job.sites, shaft[0]);
+        let right = old.lines[1][1][0] >= shaft[1][0];
+        let mut retain = |tip: P2, elbow: P2, end: P2| {
+            if let Some(c) = measure_at(&job, tip, elbow, end, right, &fixed, &page)
+                && admissible(&c)
+                && radius
+                    .as_ref()
+                    .is_none_or(|arcs| arcs.iter().any(|arc| arc.accepts([c.tip, c.elbow])))
+            {
+                local.push(c);
+            }
+        };
+        if radius.is_none() {
+            for step in 1..=8 {
+                for delta in [
+                    [-0.5 * f64::from(step), 0.],
+                    [0.5 * f64::from(step), 0.],
+                    [0., -0.5 * f64::from(step)],
+                    [0., 0.5 * f64::from(step)],
+                ] {
+                    let elbow = [shaft[1][0] + delta[0], shaft[1][1] + delta[1]];
+                    let end = [old.lines[1][1][0] + delta[0], old.lines[1][1][1] + delta[1]];
+                    retain(rim_tip(site, elbow), elbow, end);
+                }
+            }
+        } else {
+            // A radius keeps its proven ray and middle-arc tip exactly.
+            let u = [shaft[1][0] - shaft[0][0], shaft[1][1] - shaft[0][1]];
+            let length = u[0].hypot(u[1]);
+            for step in 1..=4 {
+                for distance in [-0.5 * f64::from(step), 0.5 * f64::from(step)] {
+                    let delta = [distance * u[0] / length, distance * u[1] / length];
+                    let elbow = [shaft[1][0] + delta[0], shaft[1][1] + delta[1]];
+                    let end = [old.lines[1][1][0] + delta[0], old.lines[1][1][1] + delta[1]];
+                    retain(shaft[0], elbow, end);
+                }
+            }
+        }
+        for step in 1..=4 {
+            for distance in [-0.5 * f64::from(step), 0.5 * f64::from(step)] {
+                let end = [
+                    old.lines[1][1][0] + if right { distance } else { -distance },
+                    shaft[1][1],
+                ];
+                if (end[0] - shaft[1][0]).abs() >= 0.75 {
+                    retain(shaft[0], shaft[1], end);
+                }
+            }
+        }
+    }
     // Newly reserved opening lanes may leave a clear shaft whose standard
     // shoulder puts its label through a witness. Refine at most 64 such rays
     // with two shorter shoulders, retaining every original physical budget.
@@ -7524,7 +7579,17 @@ pub(super) fn settled_routes(
         )
     });
     candidates.dedup_by(|a, b| a.label_box == b.label_box && a.tip == b.tip);
-    candidates.into_iter().map(|c| c.placed()).collect()
+    // Preserve room for broad alternatives if local sites meet a final
+    // furniture or per-kind audit that the numerical route score cannot see.
+    if !compact_shoulders {
+        return candidates.into_iter().map(|c| c.placed()).collect();
+    }
+    local
+        .into_iter()
+        .take(20)
+        .chain(candidates)
+        .map(|c| c.placed())
+        .collect()
 }
 
 #[cfg(test)]

@@ -1315,8 +1315,8 @@ basis, placed, reference?, determined_by?}`:
   lanes may use proven openings, with the same attachment collars and complete
   ink checks as other dimensions; no coordinate notes or feature tags substitute
   for the dimensions. Final local clearance checks include filled arrowheads;
-  a leader may shorten its shoulder or move at most 2 mm on the same ray,
-  with unchanged attachment and no increase in reported contacts.
+  a leader may shorten its shoulder or refine its bend by at most 4 mm,
+  reproving its attachment and whole route without increasing reported contacts.
 - **V-notches** (`src/lint/notch_evidence.rs`, `src/dims/notches.rs`): ordered outer-profile supports
   establish symmetric straight-sided V recesses with a principal mouth and depth direction.
   A sharp or tangent circular root is supported. The true included angle is drawn in the

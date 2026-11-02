@@ -1011,6 +1011,22 @@ fn conflict(a: &Placed, b: &Placed) -> bool {
         })
 }
 
+/// Overlapping parallel linear spans need room for their common-origin
+/// arrowheads and text row; a sub-millimetre double baseline is not a lane.
+fn opening_lanes_too_close(a: &Placed, b: &Placed) -> bool {
+    if a.rotation != b.rotation || a.arrows.len() != 2 || b.arrows.len() != 2 {
+        return false;
+    }
+    let (Some(x), Some(y)) = (a.lines.get(2), b.lines.get(2)) else {
+        return false;
+    };
+    let k = usize::from(a.rotation != 0.);
+    let extent = |s: &[P2; 2]| [s[0][k].min(s[1][k]), s[0][k].max(s[1][k])];
+    let (xspan, yspan) = (extent(x), extent(y));
+    xspan[0].max(yspan[0]) < xspan[1].min(yspan[1]) - super::ARROW
+        && (x[0][1 - k] - y[0][1 - k]).abs() < CAP + 1.
+}
+
 /// A spacing preference, applied only after material and settled-ink clearance.
 fn prefers_centre_row(frame: &Frame, w: &Want, v: &PlannedView, prismatic: bool) -> bool {
     let Shape::Callout { sites, .. } = &w.shape else {
@@ -1321,8 +1337,24 @@ pub(super) fn place(
         .filter(|&i| matches!(items[i].shape, Shape::Linear { .. }))
         .chain((0..items.len()).filter(|&i| !matches!(items[i].shape, Shape::Linear { .. })))
         .collect();
-    let movable_callout = |j: usize| {
+    let movable_callout = |i: usize, j: usize| {
+        let opening_row = !final_inventory
+            || items[i].measurements.iter().any(|m| {
+                if !m.parameter.starts_with("location.") {
+                    return false;
+                }
+                let Shape::Linear { axis, .. } = items[i].shape else {
+                    return false;
+                };
+                analysis
+                    .features
+                    .iter()
+                    .find(|f| f.id == m.feature)
+                    .and_then(|f| crate::lint::rectangular_notches::read(analysis, f).ok())
+                    .is_some_and(|n| n.wide == axis)
+            });
         yield_callouts
+            && opening_row
             && matches!(items[j].shape, Shape::Callout { .. })
             && spec
                 .dimensions
@@ -1536,7 +1568,7 @@ pub(super) fn place(
                     }))
                 && !placed.iter().enumerate().any(|(j, q)| {
                     j != i
-                        && !movable_callout(j)
+                        && !movable_callout(i, j)
                         && q.as_ref().is_some_and(|q| {
                             if through_notch(&items[i])
                                 && matches!(items[i].shape, Shape::Linear { .. })
@@ -1544,7 +1576,8 @@ pub(super) fn place(
                             {
                                 // Ordinary linear dimensions share and cross witness
                                 // lines under the same rules used in exterior lanes.
-                                text_conflict(p, q)
+                                (final_inventory && opening_lanes_too_close(p, q))
+                                    || text_conflict(p, q)
                                     || super::placement::ink_through(
                                         p,
                                         super::contacts::clear_box(q.label_box),
@@ -1696,7 +1729,7 @@ pub(super) fn place(
 
         if let Some(p) = candidate {
             for (j, position) in placed.iter_mut().enumerate() {
-                if movable_callout(j) && position.as_ref().is_some_and(|q| conflict(&p, q)) {
+                if movable_callout(i, j) && position.as_ref().is_some_and(|q| conflict(&p, q)) {
                     *position = None;
                 }
             }
@@ -1790,7 +1823,7 @@ pub(crate) fn finish_openings(analysis: &Analysis, spec: &Spec, plan: &mut crate
         &Page::new(analysis, &plan.sheet, &plan.views),
         &fixed,
         &cache,
-        false,
+        true,
         true,
     );
     let proofs = callout_proofs(analysis, &plan.views);

@@ -2612,6 +2612,15 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
         })
         .collect();
     assert_eq!(locators.len(), 3);
+    // Baselines with a common origin must remain separate readable rows,
+    // including when their labels occupy different X spans.
+    let x_locations: Vec<_> = locators
+        .iter()
+        .filter(|d| d.placed.as_ref().unwrap().rotation == 0.)
+        .collect();
+    assert_eq!(x_locations.len(), 2);
+    let row = |d: &&draftwright::dims::PlannedDimension| d.placed.as_ref().unwrap().lines[2][0][1];
+    assert!((row(x_locations[0]) - row(x_locations[1])).abs() >= 3.);
     for value in [207.5, 507.5, 350.] {
         assert!(
             locators

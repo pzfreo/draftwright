@@ -470,57 +470,6 @@ pub(super) fn refresh(
     plan.status = crate::completeness::status(&plan.problems);
 }
 
-/// Small clearance repairs retain a proven tip and shaft direction. Try
-/// the existing short shoulder range and up to 2 mm along the same ray before
-/// trying the wider route candidates. No feature attachment or nominal changes.
-fn nearby_routes(p: &Placed) -> Vec<Placed> {
-    if p.rotation != 0.
-        || p.lines.len() != 2
-        || p.arrows.len() != 1
-        || (p.lines[1][0][1] - p.lines[1][1][1]).abs() > 1e-9
-    {
-        return Vec::new();
-    }
-    let [tip, elbow] = p.lines[0];
-    let end = p.lines[1][1];
-    let u = [elbow[0] - tip[0], elbow[1] - tip[1]];
-    let length = u[0].hypot(u[1]);
-    if length < 1e-9 {
-        return Vec::new();
-    }
-    let right = (end[0] - elbow[0]).signum();
-    let mut out = Vec::new();
-    for distance in [-0.5, 0.5, -1., 1., -1.5, 1.5, -2., 2.] {
-        for shaft in [false, true] {
-            let delta = if shaft {
-                [distance * u[0] / length, distance * u[1] / length]
-            } else {
-                [right * distance, 0.]
-            };
-            if (shaft && length + distance < 6.)
-                || (!shaft && (end[0] - elbow[0]).abs() + distance < 0.75)
-            {
-                continue;
-            }
-            let mut q = p.clone();
-            if shaft {
-                for (k, shift) in delta.into_iter().enumerate() {
-                    q.lines[0][1][k] += shift;
-                    q.lines[1][0][k] += shift;
-                }
-            }
-            for (k, shift) in delta.into_iter().enumerate() {
-                q.lines[1][1][k] += shift;
-                q.label_at[k] += shift;
-                q.label_box[k] += shift;
-                q.label_box[k + 2] += shift;
-            }
-            out.push(q);
-        }
-    }
-    out
-}
-
 /// Final text clearance is inspected on the same filled arrowheads and
 /// labels as the reported contacts, after local opening dimensions are added.
 fn crowding(
@@ -686,7 +635,7 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                             .cloned(),
                     )
                     .collect();
-                let mut candidates = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
+                let candidates = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
                     gdt::normal_routes(glyph.as_ref().expect("datum"), bends)
                 } else {
                     leaders::settled_routes(
@@ -699,14 +648,6 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                         proofs.get(&view.id).map(|p| p.as_ref()),
                     )
                 };
-                if openings
-                    && i < dimension_count
-                    && before.iter().any(|p| p.code == "label_crowded")
-                {
-                    let mut local = nearby_routes(d.placed.as_ref().expect("placed callout"));
-                    local.extend(candidates);
-                    candidates = local;
-                }
                 let id = d.id.clone();
                 let old = d.placed.clone();
                 let limit = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
