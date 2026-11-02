@@ -1592,6 +1592,11 @@ pub(super) fn place(
                                     || super::placement::linear_pair_contact(p, q, false)
                             } else {
                                 conflict(p, q)
+                                    || (final_inventory
+                                        && through_notch(&items[i])
+                                        && matches!(items[i].shape, Shape::Linear { .. })
+                                        && q.arrows.len() == 1
+                                        && super::placement::linear_pair_contact(p, q, false))
                             }
                         })
                 })
@@ -1744,6 +1749,53 @@ pub(super) fn place(
 /// leaders have settled. Only this family's linear items may move; every
 /// other printed item, GD&T glyph and furniture stroke is an obstacle.
 pub(crate) fn finish_openings(analysis: &Analysis, spec: &Spec, plan: &mut crate::model::Plan) {
+    finish_openings_with(analysis, spec, plan, true);
+}
+
+/// Attachment can grow a frame after the first lane pass. Retry only when
+/// that finished unit actually contacts the new opening dimensions.
+pub(crate) fn openings_need_settling(plan: &crate::model::Plan) -> bool {
+    let ids: BTreeSet<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| {
+            d.measurements
+                .iter()
+                .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+        })
+        .map(|d| d.id.as_str())
+        .collect();
+    if ids.is_empty() {
+        return false;
+    }
+    let contacts = super::contacts::contacts(plan);
+    plan.problems.iter().chain(&contacts).any(|p| {
+        matches!(
+            p.code.as_str(),
+            "annotation_overlap"
+                | "annotation_ink_overlap"
+                | "annotation_leader_crossing"
+                | "label_crowded"
+                | "extension_through_feature"
+        ) && p.subjects.iter().any(|id| ids.contains(id.as_str()))
+    })
+}
+
+/// Revisit lanes around the whole coupled hole-frame unit after attachment.
+pub(crate) fn finish_attached_openings(
+    analysis: &Analysis,
+    spec: &Spec,
+    plan: &mut crate::model::Plan,
+) {
+    finish_openings_with(analysis, spec, plan, false);
+}
+
+fn finish_openings_with(
+    analysis: &Analysis,
+    spec: &Spec,
+    plan: &mut crate::model::Plan,
+    yield_callouts: bool,
+) {
     if crate::nominal::comparison()
         || !plan.dimensions.iter().any(|d| {
             d.measurements
@@ -1823,7 +1875,7 @@ pub(crate) fn finish_openings(analysis: &Analysis, spec: &Spec, plan: &mut crate
         &Page::new(analysis, &plan.sheet, &plan.views),
         &fixed,
         &cache,
-        true,
+        yield_callouts,
         true,
     );
     let proofs = callout_proofs(analysis, &plan.views);

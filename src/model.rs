@@ -4506,6 +4506,13 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
             crate::dims::callout_routes::finish(effective.as_ref(), spec, &mut plan);
             crate::dims::hole_marks::attach(effective.as_ref(), spec, &mut plan);
             crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
+            if crate::dims::openings_need_settling(&plan) {
+                crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
+                crate::dims::hole_marks::attach(effective.as_ref(), spec, &mut plan);
+                crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
+                crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
+                crate::dims::callout_routes::finish_frames(effective.as_ref(), spec, &mut plan);
+            }
             crate::dims::gdt::cited_undrawn(&mut plan);
             crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
             if expanded_notches
@@ -5336,6 +5343,13 @@ fn plan_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
             crate::dims::callout_routes::finish(analysis, spec, &mut plan);
             crate::dims::hole_marks::attach(analysis, spec, &mut plan);
             crate::dims::size_datums::attach(analysis, spec, &mut plan);
+            if crate::dims::openings_need_settling(&plan) {
+                crate::dims::finish_attached_openings(analysis, spec, &mut plan);
+                crate::dims::hole_marks::attach(analysis, spec, &mut plan);
+                crate::dims::size_datums::attach(analysis, spec, &mut plan);
+                crate::dims::finish_attached_openings(analysis, spec, &mut plan);
+                crate::dims::callout_routes::finish_frames(analysis, spec, &mut plan);
+            }
             crate::dims::gdt::cited_undrawn(&mut plan);
             if !crate::placement_intent::has_pins(spec) {
                 plan.record_dimension_labels();
@@ -5522,6 +5536,13 @@ fn plan_with_presentation(
                 let areas: Vec<_> = finished.views.iter().map(|v| v.area).collect();
                 crate::dims::hole_marks::attach(analysis, base, &mut finished);
                 crate::dims::size_datums::attach(analysis, base, &mut finished);
+                if crate::dims::openings_need_settling(&finished) {
+                    crate::dims::finish_attached_openings(analysis, base, &mut finished);
+                    crate::dims::hole_marks::attach(analysis, base, &mut finished);
+                    crate::dims::size_datums::attach(analysis, base, &mut finished);
+                    crate::dims::finish_attached_openings(analysis, base, &mut finished);
+                    crate::dims::callout_routes::finish_frames(analysis, base, &mut finished);
+                }
                 for (v, area) in finished.views.iter_mut().zip(areas) {
                     v.area = area;
                 }

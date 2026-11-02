@@ -15,6 +15,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
   carrying view; measured PMI wall spans retain their authored linear form.
 - Finish the selected sheet's callout routes consistently with pin replay, and
   retain established leader corridors when adding notch annotations.
+  Keep coupled hole frames fixed during final notch-lane repair, and read a
+  direct pitch from its drawn centre lines and arrowheads in both audits.
 
 ## 0.2.9 (2026-11-02)
 

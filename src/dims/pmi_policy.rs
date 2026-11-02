@@ -833,8 +833,28 @@ fn dimension_marks(
             parameter: "witnesses".into(),
         });
         // Invariant: The preceding dimension iterator selects placed dimensions.
-        if let Some((axis, q, r)) = location::ink_span(a, &frame, &d.placed.as_ref().unwrap().lines)
-        {
+        let placed = d.placed.as_ref().unwrap();
+        let span = location::ink_span(a, &frame, &placed.lines).or_else(|| {
+            let owners = location::witness_owners(a, &mark.claims);
+            let centres: Vec<_> = view
+                .line_work
+                .iter()
+                .filter(|w| {
+                    owners
+                        .iter()
+                        .any(|id| w.id == format!("ink:{}:{id}", view.id))
+                })
+                .flat_map(crate::centrelines::segments)
+                .collect();
+            let heads: Vec<_> = placed
+                .arrows
+                .iter()
+                .flat_map(|a| super::leaders::head(*a))
+                .collect();
+            let lines = location::centreline_witnesses(&placed.lines, &heads, &centres)?;
+            location::ink_span(a, &frame, &lines)
+        });
+        if let Some((axis, q, r)) = span {
             mark.claims.push(crate::output::Claim {
                 feature: location::span_claim(axis, q, r),
                 parameter: "station.distance".into(),

@@ -43,6 +43,32 @@ fn improves(before: &[Problem], after: &[Problem]) -> bool {
     b.iter().all(|(k, n)| *n <= a.get(k).copied().unwrap_or(0)) && defects(&b) < defects(&a)
 }
 
+fn no_regression(before: &[Problem], after: &[Problem]) -> bool {
+    let (a, b) = (counts(before), counts(after));
+    b.iter().all(|(k, n)| *n <= a.get(k).copied().unwrap_or(0))
+}
+
+type Extensions = Vec<(usize, [[f64; 2]; 2])>;
+fn extension_sets(plan: &Plan) -> BTreeMap<u32, Extensions> {
+    let mut out: BTreeMap<u32, Extensions> = BTreeMap::new();
+    for (i, d) in plan.dimensions.iter().enumerate() {
+        if let Some(p) = &d.placed
+            && p.arrows.len() == 2
+            && p.lines.len() >= 3
+        {
+            let page = plan
+                .views
+                .iter()
+                .find(|v| v.id == d.view)
+                .map_or(1, |v| v.sheet);
+            out.entry(page)
+                .or_default()
+                .extend(p.lines[..2].iter().map(|e| (i, *e)));
+        }
+    }
+    out
+}
+
 /// The complete ring/tag and shaft of a schedule balloon are fixed annotation ink.
 pub(super) fn balloon_obstacle(b: &crate::hole_table::Balloon) -> PlannedDimension {
     let [x, y] = b.at;
@@ -495,12 +521,55 @@ fn crowding(
 }
 
 pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
+    finish_with(analysis, spec, plan, false);
+}
+
+/// Repair independent frames after their neighbours have attached as units.
+/// Size labels and attached hole frames remain fixed together.
+pub(crate) fn finish_frames(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
+    finish_with(analysis, spec, plan, true);
+}
+
+fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: bool) {
     let openings = plan.dimensions.iter().any(|d| {
         d.measurements
             .iter()
             .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
     });
     let repair_issue = |code: &str| route_issue(code) || (openings && code == "label_crowded");
+    // Added lanes must not leave an otherwise unreported leader alongside
+    // an extension. Use the placer's existing one-mm contact predicate.
+    let extension_sets = if openings {
+        extension_sets(plan)
+    } else {
+        BTreeMap::new()
+    };
+    // Source statements and attached marks move with their authored unit;
+    // extension-only retries are for free engine callouts.
+    let coupled: BTreeSet<_> = if openings && !plan.gdt.is_empty() {
+        super::hole_marks::attachments(analysis, plan)
+            .into_values()
+            .flatten()
+            .collect()
+    } else {
+        BTreeSet::new()
+    };
+    let extension_bad: BTreeSet<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| {
+            d.kind == "callout"
+                && !coupled.contains(&d.id)
+                && !d.measurements.iter().any(|m| m.feature.starts_with("pmi:"))
+        })
+        .filter_map(|d| {
+            let p = d.placed.as_ref()?;
+            let page = plan.views.iter().find(|v| v.id == d.view)?.sheet;
+            let extensions = extension_sets.get(&page)?;
+            (leaders::extension_contacts(extensions, &p.lines, p.label_box).0 > 0)
+                .then(|| d.id.clone())
+        })
+        .collect();
     let initial_contacts = if openings {
         super::contacts::contacts(plan)
     } else {
@@ -509,21 +578,32 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
     if crate::nominal::comparison()
         || crate::planning::lookup::<bool>(analysis, "canonical-circular-recipes", &[])
             .unwrap_or(false)
-        || !plan
+        || (!plan
             .problems
             .iter()
             .chain(&initial_contacts)
             .any(|p| repair_issue(&p.code))
+            && extension_bad.is_empty())
     {
         return;
     }
-    let affected_ids: BTreeSet<_> = plan
+    let mut affected_ids: BTreeSet<_> = plan
         .problems
         .iter()
         .chain(&initial_contacts)
         .filter(|p| repair_issue(&p.code))
         .flat_map(|p| p.subjects.iter().cloned())
         .collect();
+    affected_ids.extend(extension_bad.iter().cloned());
+    if only_frames
+        && !plan.gdt.iter().any(|g| {
+            g.placed.is_some()
+                && affected_ids.contains(&g.id)
+                && (!super::hole_marks::attached(g) || g.side == "leader")
+        })
+    {
+        return;
+    }
     if !plan
         .dimensions
         .iter()
@@ -571,6 +651,11 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
             for i in 0..all.len() {
                 let d = &all[i];
                 if (bends && !d.id.starts_with("pmi:datum."))
+                    || (only_frames
+                        && (i < dimension_count
+                            || plan.gdt.iter().find(|g| g.id == d.id).is_some_and(|g| {
+                                super::hole_marks::attached(g) && g.side != "leader"
+                            })))
                     || !affected_ids.contains(&d.id)
                     || d.kind != "callout"
                     || d.placed.is_none()
@@ -599,7 +684,17 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                 if openings && i < dimension_count {
                     before.extend(crowding(analysis, plan, &all, dimension_count, &d.id));
                 }
-                if !before.iter().any(|p| repair_issue(&p.code)) {
+                let extension_retry = only_frames || extension_bad.contains(&d.id);
+                let extension_budget = |p: &Placed| {
+                    if !extension_retry {
+                        return (0, 0);
+                    }
+                    extension_sets.get(&sheet.number).map_or((0, 0), |e| {
+                        leaders::extension_contacts(e, &p.lines, p.label_box)
+                    })
+                };
+                let before_extension = extension_budget(d.placed.as_ref().expect("placed callout"));
+                if !before.iter().any(|p| repair_issue(&p.code)) && before_extension.0 == 0 {
                     continue;
                 }
                 let glyph = plan.gdt.iter().find(|g| g.id == d.id).cloned();
@@ -635,7 +730,7 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                             .cloned(),
                     )
                     .collect();
-                let candidates = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
+                let mut candidates = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
                     gdt::normal_routes(glyph.as_ref().expect("datum"), bends)
                 } else {
                     leaders::settled_routes(
@@ -648,6 +743,9 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                         proofs.get(&view.id).map(|p| p.as_ref()),
                     )
                 };
+                if before_extension.0 > 0 {
+                    candidates.sort_by_cached_key(&extension_budget);
+                }
                 let id = d.id.clone();
                 let old = d.placed.clone();
                 let limit = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
@@ -723,7 +821,13 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                     if openings && i < dimension_count {
                         after.extend(crowding(analysis, plan, &all, dimension_count, &id));
                     }
-                    if improves(&before, &after) {
+                    let next_extension = extension_budget(&next);
+                    if next_extension.0 <= before_extension.0
+                        && next_extension.1 <= before_extension.1
+                        && (improves(&before, &after)
+                            || (next_extension.0 < before_extension.0
+                                && no_regression(&before, &after)))
+                    {
                         rechecked_codes.extend(before.iter().chain(&after).map(|p| p.code.clone()));
                         if i < dimension_count {
                             let d = &mut plan.dimensions[i];

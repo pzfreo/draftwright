@@ -74,7 +74,7 @@ pub(crate) mod size_datums;
 pub(crate) use holes::grid_lattice;
 pub(crate) mod inspection;
 pub(crate) mod interior;
-pub(crate) use interior::finish_openings;
+pub(crate) use interior::{finish_attached_openings, finish_openings, openings_need_settling};
 mod label_lanes;
 mod modelled_threads;
 pub(crate) use modelled_threads::{possible_threads, refused as refused_threads};
