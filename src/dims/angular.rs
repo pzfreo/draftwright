@@ -810,10 +810,11 @@ pub(super) fn place_profile(
     views: &[crate::model::PlannedView],
     proofs: &std::collections::BTreeMap<String, std::rc::Rc<super::interior::Proof>>,
 ) {
+    let openings = items.iter().any(super::interior::through_notch);
     for i in 0..items.len() {
         // An authored placement (`dimensions/<id>/place`) has already been honoured.
         if !(super::profile_angles::is_profile_angle(&items[i])
-            || (items.iter().any(super::interior::through_notch)
+            || (openings
                 && items[i]
                     .measurements
                     .iter()
@@ -836,6 +837,11 @@ pub(super) fn place_profile(
         let terms = &items[i].terms;
         let ink = label_ink(terms, font());
         let size = [ink.max[0] - ink.min[0], ink.max[1] - ink.min[1]];
+        let opening_angle = openings
+            && items[i]
+                .measurements
+                .iter()
+                .any(|m| m.parameter == "notch.angle");
         // Every other item, and which of its lines the angle's lines may cross transversely:
         // a linear dimension's extension lines, and a centre line or cutting-plane chain line
         // (a corner on a section line cannot avoid it). Never a dimension line, leader, arrow,
@@ -936,6 +942,14 @@ pub(super) fn place_profile(
                 // The arc and its arrows cross no edge of the part; inside the corner its
                 // witness stubs lie on the corner's own edges.
                 && proof.lines_clear(v, &c.lines[stubs..], &c.arrows, 2 - stubs, straight_ok)
+                // Added opening lanes can put a corner's witness stubs onto
+                // its outline. Keep the complete replacement sector on clear
+                // paper inside the view, including those stubs and arrowheads.
+                && (!opening_angle || {
+                    let b = frame.outline();
+                    ink_points(c).all(|q| q[0] >= b[0] && q[0] <= b[2] && q[1] >= b[1] && q[1] <= b[3])
+                        && (proof.annotation_clear(v, c, false) || proof.exterior_annotation_clear(v, c))
+                })
         };
         // A clear place whose label is also clear of other ink by reading distance
         // (`label_crowded`).

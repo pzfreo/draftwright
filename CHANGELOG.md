@@ -19,6 +19,7 @@ All notable changes to draftwright-rust are recorded here, in the style of
   direct pitch from its drawn centre lines and arrowheads in both audits.
   Reprove nearby free-callout bends and local reaches with a one-millimetre
   outline clearance, and replay settled notch lanes when pinning.
+  Keep complete V-angle sectors clear of the source outline as opening lanes settle.
 
 ## 0.2.9 (2026-11-02)
 
