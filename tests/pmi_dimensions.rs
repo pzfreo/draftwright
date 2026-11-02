@@ -2603,6 +2603,25 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
         draftwright::text::Font::open(&root().join("fonts").join(draftwright::dims::FONT)).unwrap();
     let drawing = model::render(&part, &a, &plan, &font).unwrap();
     let lint = draftwright::lint::lint(&a, &drawing);
+    assert!(
+        !lint.iter().any(|p| p.code == "duplicate_measurement"
+            && p.annotation
+                .as_deref()
+                .is_some_and(|id| id.starts_with("n:f:rectangular_through_notch:"))),
+        "different notch locations sharing an ordinate are distinct physical endpoints"
+    );
+    let direct = draftwright::lint::check(&a, &draftwright::lint::marks(&drawing));
+    for id in [
+        "f:rectangular_through_notch:1",
+        "f:rectangular_through_notch:2",
+    ] {
+        assert!(
+            !direct
+                .iter()
+                .any(|p| p.code == "feature_not_located" && p.subjects.iter().any(|s| s == id)),
+            "{id}: {direct:?}"
+        );
+    }
     for id in [
         "f:slot:1",
         "f:slot:2",

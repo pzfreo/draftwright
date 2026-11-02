@@ -568,13 +568,15 @@ pub fn lint_sheets(analysis: &Analysis, drawings: &[Drawing]) -> Vec<LintIssue> 
 
 /// Every ported rule's findings on a drawing whose annotations are *marks*.
 pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
-    let mut verified: Vec<_> = marks
+    let verified: Vec<_> = marks
         .iter()
         .filter(|m| blends::verified_row(analysis, m))
         .cloned()
         .collect();
-    // These exact printed coordinates are physical location evidence too, so
-    // the station graph must see them before expanding derived size evidence.
+    let printed = &verified;
+    // Validate the actual note coordinates for the station graph. Its derived
+    // spans are not additional printed dimensions: two different feature
+    // locations at the same ordinate must retain their distinct endpoints.
     let notch_locations =
         rectangular_notches::location_evidence_from_notes(analysis, &verified, |id| {
             verified
@@ -582,10 +584,20 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 .find(|m| m.name == id)
                 .map(|m| m.text.clone())
         });
-    verified.extend(notch_locations);
-    let printed = &verified;
+    let graph;
+    let located = if notch_locations.is_empty() {
+        printed
+    } else {
+        graph = printed
+            .iter()
+            .cloned()
+            .chain(notch_locations.iter().cloned())
+            .collect::<Vec<_>>();
+        &graph
+    };
     let (mut extra, scheme_issues) = schemes::evidence(analysis, printed);
     extra.extend(location::evidence(analysis, printed));
+    extra.extend(notch_locations);
     let expanded;
     let marks = if extra.is_empty() {
         printed
@@ -644,7 +656,7 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     issues.extend(redundancy::coverage(analysis, printed));
     issues.extend(redundancy::references(analysis, printed));
     if location::active(analysis, printed) {
-        issues.extend(location::coverage(analysis, printed));
+        issues.extend(location::coverage(analysis, located));
     }
     if location::has_station_requirements(analysis) {
         issues.extend(location::sizes(analysis, printed));
