@@ -7460,7 +7460,8 @@ pub(super) fn settled_routes(
         .as_ref()
         .map_or(0, |r| r.hidden.route_crossings(old_lines));
     let compact_shoulders = peers.iter().any(|q| {
-        q.view == d.view
+        (q.view == d.view
+            || want.is_some_and(|w| !w.measurements.iter().any(|m| m.feature.starts_with("pmi:"))))
             && q.measurements
                 .iter()
                 .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
@@ -7476,6 +7477,21 @@ pub(super) fn settled_routes(
             && c.furniture == 0
             && c.beside == 0
             && c.grazing == 0
+            && (!compact_shoulders
+                || resolved.as_ref().is_none_or(|r| {
+                    let pad = 1. + 1e-6;
+                    !r.visible.crosses_box([
+                        c.label_box[0] - pad,
+                        c.label_box[1] - pad,
+                        c.label_box[2] + pad,
+                        c.label_box[3] + pad,
+                    ]) && !r.visible.crosses_box([
+                        c.elbow[0] - pad,
+                        c.elbow[1] - pad,
+                        c.elbow[0] + pad,
+                        c.elbow[1] + pad,
+                    ])
+                }))
             && resolved
                 .as_ref()
                 .is_none_or(|r| r.hidden.route_crossings(c.segments()) <= hidden)
@@ -7532,7 +7548,7 @@ pub(super) fn settled_routes(
             let length = u[0].hypot(u[1]);
             for step in 1..=4 {
                 for distance in [-0.5 * f64::from(step), 0.5 * f64::from(step)] {
-                    let delta = [distance * u[0] / length, distance * u[1] / length];
+                    let delta = [distance * u[0] / length.max(1e-9), distance * u[1] / length];
                     let elbow = [shaft[1][0] + delta[0], shaft[1][1] + delta[1]];
                     let end = [old.lines[1][1][0] + delta[0], old.lines[1][1][1] + delta[1]];
                     retain(shaft[0], elbow, end);
@@ -7553,19 +7569,35 @@ pub(super) fn settled_routes(
     }
     // Newly reserved opening lanes may leave a clear shaft whose standard
     // shoulder puts its label through a witness. Refine at most 64 such rays
-    // with two shorter shoulders, retaining every original physical budget.
+    // with two shorter shoulders and four local reaches on the first 16,
+    // retaining every original physical budget.
     if compact_shoulders {
         near.sort_by_key(|c| c.0);
-        for (_, tip, elbow, right) in near.into_iter().take(64) {
-            for shoulder in [2., 0.75] {
-                let end = [
-                    elbow[0] + if right { shoulder } else { -shoulder },
-                    elbow[1],
+        for (rank, (_, tip, elbow, right)) in near.into_iter().take(64).enumerate() {
+            let u = [elbow[0] - tip[0], elbow[1] - tip[1]];
+            let length = u[0].hypot(u[1]);
+            // The coarse reach grid jumps from 15 to 20 mm. A nearby
+            // obstruction may need only one more millimetre of the same ray.
+            let reaches: &[f64] = if rank < 16 && length > 1e-9 {
+                &[0., 1., 2., 3., 4.]
+            } else {
+                &[0.]
+            };
+            for &distance in reaches {
+                let elbow = [
+                    elbow[0] + distance * u[0] / length.max(1e-9),
+                    elbow[1] + distance * u[1] / length.max(1e-9),
                 ];
-                if let Some(c) = measure_at(&job, tip, elbow, end, right, &fixed, &page)
-                    && admissible(&c)
-                {
-                    candidates.push(c);
+                for shoulder in [2., 0.75] {
+                    let end = [
+                        elbow[0] + if right { shoulder } else { -shoulder },
+                        elbow[1],
+                    ];
+                    if let Some(c) = measure_at(&job, tip, elbow, end, right, &fixed, &page)
+                        && admissible(&c)
+                    {
+                        candidates.push(c);
+                    }
                 }
             }
         }
