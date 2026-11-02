@@ -217,7 +217,8 @@ pub fn keyed(analysis: &Analysis, f: &Feature) -> bool {
         })
 }
 
-/// *analysis* without its section recesses (the established route templates' comparison scope),
+/// *analysis* without added recess and rectangular through-notch annotations
+/// (the established route templates' comparison scope),
 /// its keyhole slots still marked as such ([`KEYHOLE`]), so their slots are grouped as in the
 /// drawing itself.
 pub fn without_recesses(analysis: &Analysis) -> Analysis {
@@ -228,7 +229,15 @@ pub fn without_recesses(analysis: &Analysis) -> Analysis {
         .map(|f| f.id.clone())
         .collect();
     let mut out = analysis.clone();
-    out.features.retain(|f| f.kind != "section_recess");
+    // This is a historical layout reference, not the final feature inventory.
+    // Through-notch labels and their coordinate notes are also new additions;
+    // leaving them here would change the old routes they are meant to preserve.
+    out.features.retain(|f| {
+        !matches!(
+            f.kind.as_str(),
+            "section_recess" | "rectangular_through_notch"
+        )
+    });
     // Specify's general-tolerance sizes of those recesses go with them (#265): planned as
     // draftwright's own dimensions, they are the recess dimensions this drawing leaves out.
     let recess: std::collections::BTreeSet<usize> = analysis

@@ -1119,12 +1119,7 @@ fn pinned(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     // An already published view is a no-op name in the pin reference. Keeping
     // that name can select a different automatic composition and lose its
     // schedule before the pinned trial even starts (#127's expanded radii).
-    let mut canonical = if !base.views.is_empty()
-        && spec
-            .views
-            .values()
-            .any(|v| v.place.as_ref().is_some_and(|p| p.pinned))
-    {
+    let mut canonical = if !base.views.is_empty() {
         let mut unnamed = base.clone();
         unnamed.views.clear();
         let published = select(analysis, &unnamed)?;

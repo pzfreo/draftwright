@@ -1085,11 +1085,23 @@ fn callouts(
         // escape phase. Changing an exterior attachment must not rotate the
         // entire interior inventory and lose a previously clear short route.
         let phase = 22.5 - u[1].atan2(u[0]).to_degrees();
-        let canonical = ((!arcs.is_empty() || through_notch(w)) && !recess_context)
-            .then_some(rotations.map(|a| a + phase))
-            .into_iter()
-            .flatten();
+        let canonical: Vec<_> = if through_notch(w) && !recess_context {
+            // A narrow clear interval between established witnesses can fall
+            // between the eight profile rays. Three fixed escape phases keep
+            // this family bounded (32 directions with the original rays).
+            [0., -11.25, 11.25]
+                .into_iter()
+                .flat_map(|offset| rotations.map(|a| a + phase + offset))
+                .collect()
+        } else {
+            (!arcs.is_empty() && !recess_context)
+                .then_some(rotations.map(|a| a + phase))
+                .into_iter()
+                .flatten()
+                .collect()
+        };
         canonical
+            .into_iter()
             .chain(rotations)
             .flat_map(|a| (1..=8).map(move |n| (a, n)))
             .collect()

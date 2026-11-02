@@ -5411,12 +5411,7 @@ fn plan_with_presentation(
         // pin's canonical composition. New radius inventories can make the
         // explicitly named-view search choose another iso arrangement (1000).
         // Keep names only when they actually restore a view the default omits.
-        if !base.views.is_empty()
-            && spec
-                .views
-                .values()
-                .any(|v| v.place.as_ref().is_some_and(|p| p.pinned))
-        {
+        if !base.views.is_empty() {
             let mut unnamed = base.clone();
             unnamed.views.clear();
             if let Ok(default) = plan_automatic(analysis, &unnamed)
@@ -5874,6 +5869,11 @@ fn plan_with_presentation(
                 .map(|r| r.id),
         );
         annotation_ids.extend(crate::dims::blends::note_ids(analysis));
+        annotation_ids.extend(
+            crate::rectangular_notches::notes(analysis, &Spec::default())
+                .into_iter()
+                .map(|note| note.id),
+        );
         annotation_ids.extend(crate::dims::size_datums::ids(analysis));
         if crate::notes::assembly_note(analysis).is_some() {
             annotation_ids.push(crate::notes::ASSEMBLY_NOTE.into());
@@ -6177,7 +6177,8 @@ fn plan_with_presentation(
     problems.extend(more);
     notes_given.extend(crate::rectangular_notches::notes(analysis, spec));
     for note in &mut notes_given {
-        if note.id == crate::notes::ASSEMBLY_NOTE
+        if (note.id == crate::notes::ASSEMBLY_NOTE
+            || note.id.starts_with("n:f:rectangular_through_notch:"))
             && let Some(text) = spec.annotations.get(&note.id).and_then(|a| a.text.as_ref())
         {
             note.text = text
