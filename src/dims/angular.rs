@@ -705,6 +705,7 @@ pub(super) fn withdraw_profile_contacts(
     placed: &mut [Option<Placed>],
     spec: &crate::model::Spec,
 ) -> Vec<(usize, Placed)> {
+    let openings = items.iter().any(super::interior::through_notch);
     let peers: Vec<_> = placed
         .iter()
         .zip(items)
@@ -723,7 +724,7 @@ pub(super) fn withdraw_profile_contacts(
     let mut retry = Vec::new();
     for (i, (p, w)) in placed.iter_mut().zip(items).enumerate() {
         let profile = super::profile_angles::is_profile_angle(w)
-            || w.measurements.iter().any(|m| m.parameter == "notch.angle");
+            || (openings && w.measurements.iter().any(|m| m.parameter == "notch.angle"));
         if profile
             && spec.dimensions.get(&w.id).is_none_or(|d| d.place.is_none())
             && p.as_ref().is_some_and(|p| {
@@ -735,7 +736,7 @@ pub(super) fn withdraw_profile_contacts(
                                 &q.lines,
                                 q.label_box,
                             ))
-                            || (*linear && ink_through(q, p.label_box)))
+                            || (openings && *linear && ink_through(q, p.label_box)))
                 })
             })
         {
@@ -812,10 +813,11 @@ pub(super) fn place_profile(
     for i in 0..items.len() {
         // An authored placement (`dimensions/<id>/place`) has already been honoured.
         if !(super::profile_angles::is_profile_angle(&items[i])
-            || items[i]
-                .measurements
-                .iter()
-                .any(|m| m.parameter == "notch.angle"))
+            || (items.iter().any(super::interior::through_notch)
+                && items[i]
+                    .measurements
+                    .iter()
+                    .any(|m| m.parameter == "notch.angle")))
             || placed[i].is_some()
         {
             continue;

@@ -4076,7 +4076,11 @@ fn plan_inventory_ordered(
     // A settled linear witness can cross an earlier V-angle label. Retry
     // contacted profile sectors using their bounded alternatives, retaining
     // the stated angle if none fits and preserving explicit placements.
-    let retry_angles = angular::withdraw_profile_contacts(&all, &mut placed, spec);
+    let retry_angles = if profile_first || all.iter().any(interior::through_notch) {
+        angular::withdraw_profile_contacts(&all, &mut placed, spec)
+    } else {
+        Vec::new()
+    };
     angular::place_profile(
         &frames,
         &all,
