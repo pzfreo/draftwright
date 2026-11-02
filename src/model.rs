@@ -4479,10 +4479,17 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
         let compact = plan.sheet.dimension_spacing == DimensionSpacing::Compact;
         crate::dims::with_compact(compact, || {
             let effective = crate::spec_gdt::effective(analysis, &plan.spec)?;
-            // A paper-policy winner may be a fixed-pair trial with deferred
-            // nominal routes. Finish that selected inventory in its own frame,
-            // just as the canonical pin replay does, before later route repair.
-            finish_nominal_plan(effective.as_ref(), spec, &mut plan);
+            // Added notch callouts can leave a fixed-pair paper trial with
+            // deferred routes. Finish that expanded inventory in its chosen
+            // frame, just as canonical pin replay does. Existing annotation
+            // families retain their established finishing path.
+            if plan.dimensions.iter().any(|d| {
+                d.measurements
+                    .iter()
+                    .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+            }) {
+                finish_nominal_plan(effective.as_ref(), spec, &mut plan);
+            }
             // Repair only the selected drawing. Candidate paper/scale trials keep their
             // established costs, so a clearer route cannot force a larger sheet.
             // A reference that cannot be planned (an authored item duplicating an automatic
