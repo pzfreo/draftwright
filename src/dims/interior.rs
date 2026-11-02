@@ -798,6 +798,16 @@ impl Proof {
         self.exterior_clear(v, p.label_box, &p.lines, &p.arrows)
     }
 
+    /// A source-derived profile angle's first two witnesses continue its own
+    /// flanks (as constructed by angular::place_profile). Its label must be on
+    /// blank face or paper; the remaining arc and arrows still cross no edge.
+    pub(super) fn profile_angle_clear(&self, v: &PlannedView, p: &Placed) -> bool {
+        p.lines.len() > 2
+            && p.arrows.len() == 2
+            && (self.blank(v, p.label_box) || self.exterior_clear(v, p.label_box, &[], &[]))
+            && self.lines_clear(v, &p.lines[2..], &p.arrows, 0, false)
+    }
+
     /// Prove annotation ink on exterior paper within the view's overall bounds.
     /// Shared by compact datum placement and collision reporting.
     pub(super) fn exterior_clear(
@@ -2042,9 +2052,23 @@ fn finish_openings_with(
                             .get(&v.id)
                             .is_some_and(|proof| proof.opening_linear_clear(v, p))
                     } else {
-                        angle_proofs
-                            .get(&v.id)
-                            .is_some_and(|proof| proof.annotation_clear(v, p, false))
+                        angle_proofs.get(&v.id).is_some_and(|proof| {
+                            proof.annotation_clear(v, p, false)
+                                || (w.measurements.iter().any(|m| m.parameter == "notch.angle")
+                                    && frames.get(v.id.trim_start_matches("v:")).is_some_and(
+                                        |frame| {
+                                            let b = frame.outline();
+                                            page.fits_interior(p, v.id.trim_start_matches("v:"))
+                                                && super::placement::ink_points(p).all(|q| {
+                                                    q[0] >= b[0]
+                                                        && q[0] <= b[2]
+                                                        && q[1] >= b[1]
+                                                        && q[1] <= b[3]
+                                                })
+                                        },
+                                    )
+                                    && proof.profile_angle_clear(v, p))
+                        })
                     }
                 })
             })
