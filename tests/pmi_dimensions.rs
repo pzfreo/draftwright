@@ -2578,12 +2578,72 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
                 })
         })
         .collect();
-    assert_eq!(
-        carriers.len(),
-        1,
-        "congruent notches share their sizes, with both occurrences retained below"
+    assert_eq!(carriers.len(), 2);
+    assert!(
+        carriers
+            .iter()
+            .all(|d| d.kind == "linear" && d.label == "85")
     );
-    assert!(carriers[0].label.starts_with("2× 85 WIDE"));
+    let authored = records(&a).iter().find(|r| r.part21_id == 24).unwrap();
+    let width = stating(&plan, &a, authored).unwrap();
+    assert_eq!(width.kind, "linear");
+    assert_eq!(width.label, "85");
+    let placed = width.placed.as_ref().unwrap();
+    let view = plan.views.iter().find(|v| v.id == width.view).unwrap();
+    assert!(
+        ((placed.lines[0][0][0] - placed.lines[1][0][0]).abs() / view.scale - 85.).abs() < 1e-6
+    );
+    assert!(
+        plan.notes
+            .iter()
+            .all(|n| !n.id.contains("rectangular_through_notch"))
+    );
+    assert_eq!(plan.sheet.size, "A3");
+    assert_eq!(plan.sheet.scale, "1:5");
+    let locators: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| {
+            d.placed.is_some()
+                && d.measurements.iter().any(|m| {
+                    m.feature.starts_with("f:rectangular_through_notch:")
+                        && m.parameter.starts_with("location.")
+                })
+        })
+        .collect();
+    assert_eq!(locators.len(), 3);
+    for value in [207.5, 507.5, 350.] {
+        assert!(
+            locators
+                .iter()
+                .any(|d| d.kind == "linear" && (d.value - value).abs() < 1e-6)
+        );
+    }
+    assert!(!plan.problems.iter().any(|p| {
+        p.code == "dimension_line_crossing"
+            || (matches!(
+                p.code.as_str(),
+                "extension_through_feature"
+                    | "label_crowded"
+                    | "annotation_overlap"
+                    | "annotation_ink_overlap"
+            ) && p
+                .subjects
+                .iter()
+                .any(|s| s.contains("rectangular_through_notch")))
+    }));
+    for (code, max) in [
+        ("extension_through_feature", 9),
+        ("label_crowded", 1),
+        ("annotation_leader_crossing", 4),
+        ("leader_across_view", 0),
+    ] {
+        assert!(
+            plan.problems.iter().filter(|p| p.code == code).count() <= max,
+            "{code}: {:?}",
+            plan.problems
+        );
+    }
 
     for f in notches {
         for (role, value) in [("notch_width.length", 85.), ("notch_depth.length", 25.)] {
@@ -2603,25 +2663,14 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
         draftwright::text::Font::open(&root().join("fonts").join(draftwright::dims::FONT)).unwrap();
     let drawing = model::render(&part, &a, &plan, &font).unwrap();
     let lint = draftwright::lint::lint(&a, &drawing);
-    assert!(
-        !lint.iter().any(|p| p.code == "duplicate_measurement"
-            && p.annotation
-                .as_deref()
-                .is_some_and(|id| id.starts_with("n:f:rectangular_through_notch:"))),
-        "different notch locations sharing an ordinate are distinct physical endpoints"
-    );
-    let direct = draftwright::lint::check(&a, &draftwright::lint::marks(&drawing));
-    for id in [
-        "f:rectangular_through_notch:1",
-        "f:rectangular_through_notch:2",
-    ] {
-        assert!(
-            !direct
+    assert!(!lint.iter().any(|p| {
+        p.code == "duplicate_measurement"
+            && p.subjects
                 .iter()
-                .any(|p| p.code == "feature_not_located" && p.subjects.iter().any(|s| s == id)),
-            "{id}: {direct:?}"
-        );
-    }
+                .any(|id| id.starts_with("f:rectangular_through_notch:"))
+    }));
+    // Ordinary datum-based dimensions are verified from their actual witness
+    // ink and drawing frame, including the printed coordinate origin.
     for id in [
         "f:slot:1",
         "f:slot:2",
@@ -2654,33 +2703,28 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
             "{id}: removing the actual ordinate must remove its evidence"
         );
     }
-    // A note's claimed provenance cannot substitute for its printed values.
-    // A prefixed wrong value (1250 instead of 250) must not pass a substring check.
-    let mut wrong_note = drawing.clone();
-    for annotation in &wrong_note.annotations {
-        if annotation
-            .name
-            .starts_with("n:f:rectangular_through_notch:")
+    // The ordinary dimension ink, rather than note text or planned metadata,
+    // carries each notch's physical location.
+    let mut unlocated = drawing.clone();
+    for annotation in &unlocated.annotations {
+        if annotation.name.contains("rectangular_through_notch")
+            && annotation.name.contains("/location.length.")
         {
             for &run in &annotation.runs {
-                wrong_note.text[run].text = wrong_note.text[run]
-                    .text
-                    .replace("250 FROM", "1250 FROM")
-                    .replace("550 FROM", "1550 FROM")
-                    .replace("350 FROM", "1350 FROM");
+                unlocated.text[run].text = format!("1{}", unlocated.text[run].text);
             }
         }
     }
-    let wrong_note_lint = draftwright::lint::lint(&a, &wrong_note);
+    let unlocated_lint = draftwright::lint::lint(&a, &unlocated);
     for id in [
         "f:rectangular_through_notch:1",
         "f:rectangular_through_notch:2",
     ] {
         assert!(
-            wrong_note_lint
+            unlocated_lint
                 .iter()
                 .any(|p| p.code == "feature_not_located" && p.subjects.iter().any(|s| s == id)),
-            "{id}: a wrong printed coordinate must lose its location evidence"
+            "{id}: a wrong printed linear location must lose its evidence"
         );
     }
 }

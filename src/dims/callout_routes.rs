@@ -36,7 +36,7 @@ fn improves(before: &[Problem], after: &[Problem]) -> bool {
     let defects = |counts: &BTreeMap<String, usize>| {
         counts
             .iter()
-            .filter(|(code, _)| route_issue(code))
+            .filter(|(code, _)| route_issue(code) || code.as_str() == "label_crowded")
             .map(|(_, n)| n)
             .sum::<usize>()
     };
@@ -470,18 +470,109 @@ pub(super) fn refresh(
     plan.status = crate::completeness::status(&plan.problems);
 }
 
+/// Small clearance repairs retain a proven tip and shaft direction. Try
+/// the existing short shoulder range and up to 2 mm along the same ray before
+/// trying the wider route candidates. No feature attachment or nominal changes.
+fn nearby_routes(p: &Placed) -> Vec<Placed> {
+    if p.rotation != 0.
+        || p.lines.len() != 2
+        || p.arrows.len() != 1
+        || (p.lines[1][0][1] - p.lines[1][1][1]).abs() > 1e-9
+    {
+        return Vec::new();
+    }
+    let [tip, elbow] = p.lines[0];
+    let end = p.lines[1][1];
+    let u = [elbow[0] - tip[0], elbow[1] - tip[1]];
+    let length = u[0].hypot(u[1]);
+    if length < 1e-9 {
+        return Vec::new();
+    }
+    let right = (end[0] - elbow[0]).signum();
+    let mut out = Vec::new();
+    for distance in [-0.5, 0.5, -1., 1., -1.5, 1.5, -2., 2.] {
+        for shaft in [false, true] {
+            let delta = if shaft {
+                [distance * u[0] / length, distance * u[1] / length]
+            } else {
+                [right * distance, 0.]
+            };
+            if (shaft && length + distance < 6.)
+                || (!shaft && (end[0] - elbow[0]).abs() + distance < 0.75)
+            {
+                continue;
+            }
+            let mut q = p.clone();
+            if shaft {
+                for (k, shift) in delta.into_iter().enumerate() {
+                    q.lines[0][1][k] += shift;
+                    q.lines[1][0][k] += shift;
+                }
+            }
+            for (k, shift) in delta.into_iter().enumerate() {
+                q.lines[1][1][k] += shift;
+                q.label_at[k] += shift;
+                q.label_box[k] += shift;
+                q.label_box[k + 2] += shift;
+            }
+            out.push(q);
+        }
+    }
+    out
+}
+
+/// Final text clearance is inspected on the same filled arrowheads and
+/// labels as the reported contacts, after local opening dimensions are added.
+fn crowding(
+    analysis: &Analysis,
+    plan: &Plan,
+    all: &[PlannedDimension],
+    dimension_count: usize,
+    id: &str,
+) -> Vec<Problem> {
+    let mut candidate = plan.clone();
+    candidate.dimensions = all[..dimension_count].to_vec();
+    super::contacts::report(analysis, &mut candidate);
+    candidate
+        .problems
+        .into_iter()
+        .filter(|p| {
+            matches!(
+                p.code.as_str(),
+                "label_crowded" | "leader_across_view" | "leader_to_hidden_edge"
+            ) && p.subjects.iter().any(|s| s == id)
+        })
+        .collect()
+}
+
 pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
+    let openings = plan.dimensions.iter().any(|d| {
+        d.measurements
+            .iter()
+            .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+    });
+    let repair_issue = |code: &str| route_issue(code) || (openings && code == "label_crowded");
+    let initial_contacts = if openings {
+        super::contacts::contacts(plan)
+    } else {
+        Vec::new()
+    };
     if crate::nominal::comparison()
         || crate::planning::lookup::<bool>(analysis, "canonical-circular-recipes", &[])
             .unwrap_or(false)
-        || !plan.problems.iter().any(|p| route_issue(&p.code))
+        || !plan
+            .problems
+            .iter()
+            .chain(&initial_contacts)
+            .any(|p| repair_issue(&p.code))
     {
         return;
     }
     let affected_ids: BTreeSet<_> = plan
         .problems
         .iter()
-        .filter(|p| route_issue(&p.code))
+        .chain(&initial_contacts)
+        .filter(|p| repair_issue(&p.code))
         .flat_map(|p| p.subjects.iter().cloned())
         .collect();
     if !plan
@@ -554,9 +645,12 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                 else {
                     continue;
                 };
-                let before =
+                let mut before =
                     placement::collisions_for(analysis, &all, sheet, &plan.views, &cache, &d.id);
-                if !before.iter().any(|p| route_issue(&p.code)) {
+                if openings && i < dimension_count {
+                    before.extend(crowding(analysis, plan, &all, dimension_count, &d.id));
+                }
+                if !before.iter().any(|p| repair_issue(&p.code)) {
                     continue;
                 }
                 let glyph = plan.gdt.iter().find(|g| g.id == d.id).cloned();
@@ -592,7 +686,7 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                             .cloned(),
                     )
                     .collect();
-                let candidates = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
+                let mut candidates = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
                     gdt::normal_routes(glyph.as_ref().expect("datum"), bends)
                 } else {
                     leaders::settled_routes(
@@ -605,6 +699,14 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                         proofs.get(&view.id).map(|p| p.as_ref()),
                     )
                 };
+                if openings
+                    && i < dimension_count
+                    && before.iter().any(|p| p.code == "label_crowded")
+                {
+                    let mut local = nearby_routes(d.placed.as_ref().expect("placed callout"));
+                    local.extend(candidates);
+                    candidates = local;
+                }
                 let id = d.id.clone();
                 let old = d.placed.clone();
                 let limit = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
@@ -675,8 +777,11 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                     }
 
                     all[i].placed = Some(next.clone());
-                    let after =
+                    let mut after =
                         placement::collisions_for(analysis, &all, sheet, &plan.views, &cache, &id);
+                    if openings && i < dimension_count {
+                        after.extend(crowding(analysis, plan, &all, dimension_count, &id));
+                    }
                     if improves(&before, &after) {
                         rechecked_codes.extend(before.iter().chain(&after).map(|p| p.code.clone()));
                         if i < dimension_count {

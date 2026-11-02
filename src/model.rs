@@ -4502,6 +4502,7 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
                 &mut plan,
                 natural.as_ref(),
             );
+            crate::dims::finish_openings(effective.as_ref(), spec, &mut plan);
             crate::dims::callout_routes::finish(effective.as_ref(), spec, &mut plan);
             crate::dims::hole_marks::attach(effective.as_ref(), spec, &mut plan);
             crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
@@ -5331,6 +5332,7 @@ fn plan_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 &mut plan,
                 natural.as_ref(),
             );
+            crate::dims::finish_openings(analysis, spec, &mut plan);
             crate::dims::callout_routes::finish(analysis, spec, &mut plan);
             crate::dims::hole_marks::attach(analysis, spec, &mut plan);
             crate::dims::size_datums::attach(analysis, spec, &mut plan);
@@ -5513,6 +5515,7 @@ fn plan_with_presentation(
                 // A bare pin holds the published route, including final-inventory
                 // interior/GD&T repair, rather than an intermediate paper trial.
                 crate::dims::callout_routes::prefer_interior(analysis, base, &mut finished, None);
+                crate::dims::finish_openings(analysis, base, &mut finished);
                 crate::dims::callout_routes::finish(analysis, base, &mut finished);
                 // The pinned plan starts from these frames and attaches its hole glyphs again,
                 // so it takes their reservations before attaching grew them (#224).
@@ -5931,11 +5934,6 @@ fn plan_with_presentation(
                 .map(|r| r.id),
         );
         annotation_ids.extend(crate::dims::blends::note_ids(analysis));
-        annotation_ids.extend(
-            crate::rectangular_notches::notes(analysis, &Spec::default())
-                .into_iter()
-                .map(|note| note.id),
-        );
         annotation_ids.extend(crate::dims::size_datums::ids(analysis));
         if crate::notes::assembly_note(analysis).is_some() {
             annotation_ids.push(crate::notes::ASSEMBLY_NOTE.into());
@@ -6237,10 +6235,8 @@ fn plan_with_presentation(
     let (mut notes_given, omitted_notes, more) =
         crate::notes::reconcile(&requirements, analysis, spec);
     problems.extend(more);
-    notes_given.extend(crate::rectangular_notches::notes(analysis, spec));
     for note in &mut notes_given {
-        if (note.id == crate::notes::ASSEMBLY_NOTE
-            || note.id.starts_with("n:f:rectangular_through_notch:"))
+        if note.id == crate::notes::ASSEMBLY_NOTE
             && let Some(text) = spec.annotations.get(&note.id).and_then(|a| a.text.as_ref())
         {
             note.text = text
@@ -7572,7 +7568,6 @@ fn plan_with_presentation(
     let (mut notes, mut notes_block, more) =
         crate::notes::plan(&authored, analysis, &sheet, &views, &ink);
     crate::notes::provenance(&mut notes, &requirements, spec);
-    crate::rectangular_notches::note_provenance(analysis, &mut notes);
     problems.extend(more);
     // Authored tables keep their established priority; automatic radii use the space left.
     let (mut tables, more) = crate::tables::plan(

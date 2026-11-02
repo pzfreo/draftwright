@@ -255,7 +255,7 @@ fn leader_ends(analysis: &Analysis, plan: &Plan) -> Vec<Problem> {
     out
 }
 
-fn contacts(plan: &Plan) -> Vec<Problem> {
+pub(super) fn contacts(plan: &Plan) -> Vec<Problem> {
     let mut all = plan.dimensions.clone();
     all.extend(plan.gdt.iter().filter_map(super::gdt::proxy));
     let mut out = Vec::new();

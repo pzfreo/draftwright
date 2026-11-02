@@ -68,7 +68,6 @@ mod notches;
 mod oriented_chamfers;
 mod planning;
 mod quiddity_evidence;
-mod rectangular_notches;
 pub mod sheet_policy;
 mod view_gutters;
 

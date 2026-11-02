@@ -573,19 +573,6 @@ fn measured_plane_size(a: &Analysis, wants: &[Want], r: &Record, k: usize) -> Op
                                     .is_some_and(owns)
                         })
                 }
-                Shape::Callout { .. } => w.measurements.iter().any(|m| {
-                    if m.parameter != "notch_width.length" {
-                        return false;
-                    }
-                    let Some(f) = a.features.iter().find(|f| {
-                        f.id == m.feature && f.kind == "rectangular_through_notch" && owns(f)
-                    }) else {
-                        return false;
-                    };
-                    crate::rectangular_notches::read(a, f).is_ok_and(|n| {
-                        n.wide == k && proven(n.at[k] - 0.5 * n.width, n.at[k] + 0.5 * n.width)
-                    })
-                }),
                 _ => false,
             }
         })

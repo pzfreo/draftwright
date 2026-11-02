@@ -941,9 +941,6 @@ fn audit_inner(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
             "feature_not_located" | "feature_located_twice" | "feature_not_sized"
         )
     });
-    marks.extend(crate::rectangular_notches::planned_location_evidence(
-        a, p, &marks,
-    ));
     let notches = crate::notches::requirements(a);
     for issue in location::coverage(a, &marks) {
         p.problems.push(Problem {

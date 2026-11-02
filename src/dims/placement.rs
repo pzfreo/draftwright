@@ -668,6 +668,41 @@ pub(super) fn owners(
     owner
 }
 
+/// Prefer the feature's own open side for its transverse sizes and locations.
+/// A longitudinal span uses the nearest side of the actual opening instead.
+fn through_notch_strip(
+    analysis: &Analysis,
+    frame: &Frame,
+    w: &Want,
+    axis: usize,
+    horizontal: bool,
+) -> Option<Side> {
+    let f = w.measurements.iter().find_map(|m| {
+        analysis
+            .features
+            .iter()
+            .find(|f| f.id == m.feature && f.kind == "rectangular_through_notch")
+    })?;
+    let n = crate::lint::rectangular_notches::read(analysis, f).ok()?;
+    if axis == n.wide {
+        let (a, b) = (frame.page(n.at), frame.page(n.mouth));
+        let k = usize::from(horizontal);
+        Some(if k == 1 {
+            if b[k] > a[k] {
+                Side::Above
+            } else {
+                Side::Below
+            }
+        } else if b[k] > a[k] {
+            Side::Right
+        } else {
+            Side::Left
+        })
+    } else {
+        Some(silhouette_gap(frame, n.locator(), horizontal).0)
+    }
+}
+
 /// Each item's strip and lane in its carrying view (none when it has no view, or its view looks
 /// along it): per view and strip, sizes nearest, then locations by distance, overall outermost
 /// (ARCH0009-5), then callouts by their tips, right to left. An item merged away ([`owners`])
@@ -724,6 +759,10 @@ pub(super) fn lanes<'a>(
                         })
                     {
                         Side::Above
+                    } else if let Some(side) =
+                        through_notch_strip(analysis, f, w, *axis, horizontal)
+                    {
+                        side
                     } else if let Some(side) =
                         body_strip(f, w, horizontal, automatic_slot_layout(analysis))
                     {
@@ -1778,7 +1817,32 @@ pub(super) fn interior_lanes(frame: &Frame, w: &Want, side: Side) -> Vec<Placed>
     candidates
 }
 
-fn linear_pair_contact(a: &Placed, b: &Placed, allow_transverse: bool) -> bool {
+/// Selected-sheet refinement of opening locations, after paper and view search.
+/// The regular seven-mm grid can miss a clear band beside the silhouette.
+/// Callers retain the full geometry, text-clearance and printed-ink checks.
+pub(super) fn opening_lanes(frame: &Frame, w: &Want, side: Side) -> Vec<Placed> {
+    if !matches!(
+        w.shape,
+        Shape::Linear { a_edge: true, .. } | Shape::Linear { b_edge: true, .. }
+    ) {
+        return Vec::new();
+    }
+    let o = frame.outline();
+    let (edge, out) = match side {
+        Side::Below => (o[1], -1.),
+        Side::Above => (o[3], 1.),
+        Side::Left => (o[0], -1.),
+        Side::Right => (o[2], 1.),
+    };
+    (0..=28)
+        .filter_map(|n| {
+            let gap = super::TEXT + 0.25 * f64::from(n);
+            place_linear_at(frame, &w.shape, &w.terms, side, (edge + out * gap, out))
+        })
+        .collect()
+}
+
+pub(super) fn linear_pair_contact(a: &Placed, b: &Placed, allow_transverse: bool) -> bool {
     boxes_overlap(a.label_box, b.label_box)
         || a.lines.iter().any(|l| crosses(*l, b.label_box))
         || b.lines.iter().any(|l| crosses(*l, a.label_box))
@@ -4446,7 +4510,7 @@ fn settle_where(
 /// A linear dimension's other label places along its line, nearest first (see [`settle`]),
 /// made as they are tried: a line far longer than the sheet (a part drawn at a scale too large
 /// for it) has more places than memory holds.
-fn slides(p: &Placed, drawable: [f64; 4]) -> Box<dyn Iterator<Item = Placed> + '_> {
+pub(super) fn slides(p: &Placed, drawable: [f64; 4]) -> Box<dyn Iterator<Item = Placed> + '_> {
     // This solver slides x or y alone; oblique geometry is placed in its own frame.
     if !(p.rotation == 0.0 || p.rotation.abs() == 90.0) {
         return Box::new(std::iter::empty());
@@ -5407,10 +5471,9 @@ impl<'a> CollisionGeometry<'a> {
     ) -> Self {
         let interior_proofs = super::interior::proofs(analysis, views);
         let opening_proofs = if dims.iter().any(|d| {
-            d.kind == "callout"
-                && d.measurements
-                    .iter()
-                    .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+            d.measurements
+                .iter()
+                .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
         }) {
             super::interior::callout_proofs(analysis, views)
         } else {
@@ -5634,18 +5697,23 @@ fn collisions_prepared(
                             proof.blank(v, lb)
                                 || (d.measurements.iter().any(|m| m.parameter == "notch.angle")
                                     && proof.exterior_annotation_clear(v, p))
-                                || (d
-                                    .measurements
-                                    .iter()
-                                    .any(|m| m.parameter == super::profile_angles::PARAMETER)
-                                    && proof.exterior_clear(v, p.label_box, &[], &[]))
-                        }) || (d.kind == "callout"
-                            && d.measurements
-                                .iter()
-                                .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
-                            && opening_proofs
-                                .get(&v.id)
-                                .is_some_and(|proof| proof.annotation_clear(v, p, true)))
+                                || (d.measurements.iter().any(|m| {
+                                    matches!(
+                                        m.parameter.as_str(),
+                                        super::profile_angles::PARAMETER | "notch.angle"
+                                    )
+                                }) && proof.exterior_clear(v, p.label_box, &[], &[]))
+                        }) || (d
+                            .measurements
+                            .iter()
+                            .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+                            && opening_proofs.get(&v.id).is_some_and(|proof| {
+                                if d.kind == "linear" {
+                                    proof.opening_linear_clear(v, p)
+                                } else {
+                                    proof.annotation_clear(v, p, true)
+                                }
+                            }))
                             || (d.id.starts_with("pmi:datum.")
                                 && datum_proofs
                                     .get(&v.id)

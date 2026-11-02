@@ -700,24 +700,49 @@ pub(super) fn place(
 
 /// Withdraws each placed profile-corner angle whose witness lines a callout routed after it
 /// now meets (see [`place_profile`]); the caller places them again, last.
-pub(super) fn withdraw_profile_contacts(items: &[Want], placed: &mut [Option<Placed>]) {
-    let callouts: Vec<Placed> = placed
+pub(super) fn withdraw_profile_contacts(
+    items: &[Want],
+    placed: &mut [Option<Placed>],
+    spec: &crate::model::Spec,
+) -> Vec<(usize, Placed)> {
+    let peers: Vec<_> = placed
         .iter()
         .zip(items)
-        .filter(|(_, w)| matches!(w.shape, Shape::Callout { .. }))
-        .filter_map(|(q, _)| q.clone())
+        .enumerate()
+        .filter_map(|(i, (p, w))| {
+            p.clone().map(|p| {
+                (
+                    i,
+                    p,
+                    matches!(w.shape, Shape::Callout { .. }),
+                    matches!(w.shape, Shape::Linear { .. }),
+                )
+            })
+        })
         .collect();
-    for (q, w) in placed.iter_mut().zip(items) {
-        if super::profile_angles::is_profile_angle(w)
-            && q.as_ref().is_some_and(|c| {
-                callouts
-                    .iter()
-                    .any(|l| super::leaders::meets_extensions(&c.lines[..2], &l.lines, l.label_box))
+    let mut retry = Vec::new();
+    for (i, (p, w)) in placed.iter_mut().zip(items).enumerate() {
+        let profile = super::profile_angles::is_profile_angle(w)
+            || w.measurements.iter().any(|m| m.parameter == "notch.angle");
+        if profile
+            && spec.dimensions.get(&w.id).is_none_or(|d| d.place.is_none())
+            && p.as_ref().is_some_and(|p| {
+                peers.iter().any(|(j, q, callout, linear)| {
+                    *j != i
+                        && ((*callout
+                            && super::leaders::meets_extensions(
+                                &p.lines[..2],
+                                &q.lines,
+                                q.label_box,
+                            ))
+                            || (*linear && ink_through(q, p.label_box)))
+                })
             })
         {
-            *q = None;
+            retry.push((i, p.take().expect("placed angle")));
         }
     }
+    retry
 }
 
 /// How far a profile angle's arc and label may reach from its corner, in label heights: a
@@ -786,7 +811,13 @@ pub(super) fn place_profile(
 ) {
     for i in 0..items.len() {
         // An authored placement (`dimensions/<id>/place`) has already been honoured.
-        if !super::profile_angles::is_profile_angle(&items[i]) || placed[i].is_some() {
+        if !(super::profile_angles::is_profile_angle(&items[i])
+            || items[i]
+                .measurements
+                .iter()
+                .any(|m| m.parameter == "notch.angle"))
+            || placed[i].is_some()
+        {
             continue;
         }
         let (Shape::Angular { angle, alternates }, Some(view)) = (&items[i].shape, views_of[i])

@@ -429,7 +429,11 @@ fn ctc01_counts_gaps_and_repeated_causes_without_hiding_findings() {
         // cx/ctc01 consumes the published rectangular through-notch family:
         // both cuts are sized and located, so its one incomplete finding/group
         // goes (7,3 -> 6,2). Every other finding remains counted.
-        [(6, 2), (1, 1), (1, 1), (15, 3)],
+        // Reviewer round 1 replaces coordinate notes with linear opening
+        // dimensions. Three old crowded labels clear; two legal blank-opening
+        // placements remain inside-extents evidence. The unavailable detail
+        // stays reported. No extension finding is hidden.
+        [(6, 2), (1, 1), (1, 1), (13, 4)],
     );
 }
 #[test]

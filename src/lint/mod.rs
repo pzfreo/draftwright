@@ -574,30 +574,8 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         .cloned()
         .collect();
     let printed = &verified;
-    // Validate the actual note coordinates for the station graph. Its derived
-    // spans are not additional printed dimensions: two different feature
-    // locations at the same ordinate must retain their distinct endpoints.
-    let notch_locations =
-        rectangular_notches::location_evidence_from_notes(analysis, &verified, |id| {
-            verified
-                .iter()
-                .find(|m| m.name == id)
-                .map(|m| m.text.clone())
-        });
-    let graph;
-    let located = if notch_locations.is_empty() {
-        printed
-    } else {
-        graph = printed
-            .iter()
-            .cloned()
-            .chain(notch_locations.iter().cloned())
-            .collect::<Vec<_>>();
-        &graph
-    };
     let (mut extra, scheme_issues) = schemes::evidence(analysis, printed);
     extra.extend(location::evidence(analysis, printed));
-    extra.extend(notch_locations);
     let expanded;
     let marks = if extra.is_empty() {
         printed
@@ -656,7 +634,7 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     issues.extend(redundancy::coverage(analysis, printed));
     issues.extend(redundancy::references(analysis, printed));
     if location::active(analysis, printed) {
-        issues.extend(location::coverage(analysis, located));
+        issues.extend(location::coverage(analysis, printed));
     }
     if location::has_station_requirements(analysis) {
         issues.extend(location::sizes(analysis, printed));

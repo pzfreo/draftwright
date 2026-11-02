@@ -1,4 +1,4 @@
-//! Rectangular through-notch geometry and evidence read independently of planning.
+//! Rectangular through-notch geometry read independently of planning.
 use crate::bridge::{Feature, holes};
 use crate::model::Analysis;
 
@@ -59,86 +59,12 @@ pub(crate) fn read(a: &Analysis, f: &Feature) -> Result<Notch, String> {
     })
 }
 
-pub(crate) fn tag(f: &Feature) -> String {
-    format!("N{}", f.id.rsplit(':').next().unwrap_or(&f.id))
-}
-
-pub(crate) fn note_id(f: &Feature) -> String {
-    format!("n:{}/location", f.id)
-}
-
-pub(crate) fn axes(n: &Notch) -> [usize; 2] {
-    match n.axis {
-        0 => [1, 2],
-        1 => [0, 2],
-        _ => [0, 1],
+impl Notch {
+    /// Locate a physical mouth corner. Width then fixes the opposite wall;
+    /// no implied centreline or prose locator is needed.
+    pub(crate) fn locator(&self) -> [f64; 3] {
+        let mut p = self.mouth;
+        p[self.wide] -= 0.5 * self.width;
+        p
     }
-}
-
-pub(crate) fn view(axis: usize) -> &'static str {
-    ["side", "front", "plan"][axis]
-}
-
-/// A coordinate note earns location evidence only beside its live, tagged
-/// feature callout, and only while its actual printed coordinates still agree.
-pub(crate) fn location_evidence_from_notes(
-    a: &Analysis,
-    marks: &[super::Mark],
-    text: impl Fn(&str) -> Option<String>,
-) -> Vec<super::Mark> {
-    let mut out = Vec::new();
-    for f in a
-        .features
-        .iter()
-        .filter(|f| f.kind == "rectangular_through_notch")
-    {
-        let Ok(n) = read(a, f) else {
-            continue;
-        };
-        if !marks.iter().any(|m| {
-            m.text.split_whitespace().any(|t| t == tag(f))
-                && m.claims
-                    .iter()
-                    .any(|c| c.feature == f.id && c.parameter == "notch_width.length")
-        }) {
-            continue;
-        }
-        let Some(text) = text(&note_id(f)) else {
-            continue;
-        };
-        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        if !text.contains(&format!("NOTCH {} MOUTH CENTRE:", tag(f)))
-            || !text.contains(&format!("IN {} VIEW.", view(n.axis).to_uppercase()))
-        {
-            continue;
-        }
-        for (k, edge) in axes(&n).into_iter().zip(["LEFT", "BOTTOM"]) {
-            let value = n.mouth[k] - a.envelope[0][k];
-            let tokens = text.split_whitespace().collect::<Vec<_>>();
-            let Some(printed) = tokens.windows(3).find(|w| {
-                w[0].parse::<f64>().is_ok()
-                    && super::holes::states(w[0], value)
-                    && w[1] == "FROM"
-                    && w[2].trim_end_matches(';') == edge
-            }) else {
-                continue;
-            };
-            out.push(super::Mark {
-                name: format!("{}:{}", note_id(f), super::location::AXES[k]),
-                view: Some(format!("v:{}", view(n.axis))),
-                text: printed[0].to_owned(),
-                claims: vec![
-                    crate::output::Claim {
-                        feature: f.id.clone(),
-                        parameter: format!("location.length.{}", super::location::AXES[k]),
-                    },
-                    crate::output::Claim {
-                        feature: super::location::span_claim(k, a.envelope[0][k], n.mouth[k]),
-                        parameter: "station.distance".into(),
-                    },
-                ],
-            });
-        }
-    }
-    out
 }

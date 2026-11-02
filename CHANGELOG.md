@@ -11,7 +11,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
   warning. Reuse existing size carriers instead of duplicating labels.
 - Retain slot-centre location evidence when a hole ordinate prints the same
   distance, and dimension quiddity's published rectangular through-notches.
-  Congruent cuts share one size callout with individually located, tagged mouths.
+  Widths, depths and wall locations are ordinary linear dimensions in the
+  carrying view; measured PMI wall spans retain their authored linear form.
 - Finish the selected sheet's callout routes consistently with pin replay, and
   retain established leader corridors when adding notch annotations.
 

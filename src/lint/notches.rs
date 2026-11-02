@@ -160,11 +160,11 @@ pub(super) fn rectangular_coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssu
             if geometry.as_ref().is_ok_and(|n| n.axis == k) {
                 continue;
             }
-            let value = geometry.map(|n| n.mouth[k] - a.envelope[0][k]);
+            let value = geometry.map(|n| n.locator()[k] - a.envelope[0][k]);
             wanted.push(Wanted {
                 feature: f,
                 parameter: format!("location.length.{}", ["x", "y", "z"][k]),
-                callout: "its tagged mouth-centre coordinate".into(),
+                callout: "its mouth-corner distance from the datum edge".into(),
                 values: value.map(|v| vec![v]),
             });
         }

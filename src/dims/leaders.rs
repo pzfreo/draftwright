@@ -7459,14 +7459,12 @@ pub(super) fn settled_routes(
     let hidden = resolved
         .as_ref()
         .map_or(0, |r| r.hidden.route_crossings(old_lines));
-    candidates.retain_mut(|c| {
-        measure_fixed(c, &job, &fixed);
-        c.measure_features(&job);
-        // An interior route meets the exterior routes' budgets: its label on proven blank face
-        // (`measure_at_bounds`), no text, clearance or furniture contact, and its crossings
-        // scored like theirs. Exterior shafts may cross their own outline on the way out, as
-        // the original sweep does. Preserve hidden-edge budgets independently;
-        // counting every visible chord as a veto loses clear outward routes.
+    let compact_shoulders = analysis
+        .features
+        .iter()
+        .any(|f| f.kind == "rectangular_through_notch");
+    let mut near = Vec::new();
+    let admissible = |c: &Candidate| {
         let extensions = fixed.extension_index.contacts(&c.segments(), c.label_box);
         c.hard == 0
             && extensions.0 <= old_extensions.0
@@ -7479,7 +7477,42 @@ pub(super) fn settled_routes(
             && resolved
                 .as_ref()
                 .is_none_or(|r| r.hidden.route_crossings(c.segments()) <= hidden)
+    };
+    candidates.retain_mut(|c| {
+        measure_fixed(c, &job, &fixed);
+        c.measure_features(&job);
+        if compact_shoulders
+            && c.hard == 0
+            && c.text <= 1
+            && c.clearance <= 1
+            && c.text + c.clearance > 0
+            && c.furniture == 0
+            && c.beside == 0
+            && c.grazing == 0
+        {
+            near.push((c.score(), c.tip, c.elbow, c.end[0] >= c.elbow[0]));
+        }
+        admissible(c)
     });
+    // Newly reserved opening lanes may leave a clear shaft whose standard
+    // shoulder puts its label through a witness. Refine at most 64 such rays
+    // with two shorter shoulders, retaining every original physical budget.
+    if compact_shoulders {
+        near.sort_by_key(|c| c.0);
+        for (_, tip, elbow, right) in near.into_iter().take(64) {
+            for shoulder in [2., 0.75] {
+                let end = [
+                    elbow[0] + if right { shoulder } else { -shoulder },
+                    elbow[1],
+                ];
+                if let Some(c) = measure_at(&job, tip, elbow, end, right, &fixed, &page)
+                    && admissible(&c)
+                {
+                    candidates.push(c);
+                }
+            }
+        }
+    }
     // A radius reads best at its arc's middle, radially: centred routes rank first.
     candidates.sort_by_key(|c| {
         (

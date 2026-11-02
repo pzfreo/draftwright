@@ -172,6 +172,12 @@ pub(crate) fn span(a: &Analysis, feature: &str, parameter: &str) -> Option<Span>
                 n.at[n.wide] + 0.5 * n.width,
             )),
             "notch_depth.length" => Some(Span::new(n.deep, n.at[n.deep], n.mouth[n.deep])),
+            role if role.starts_with("location.length.") => {
+                let k = ["x", "y", "z"]
+                    .iter()
+                    .position(|axis| role == format!("location.length.{axis}"))?;
+                (k != n.axis).then(|| Span::new(k, a.envelope[0][k], n.locator()[k]))
+            }
             _ => None,
         };
     }

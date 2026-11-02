@@ -1307,12 +1307,16 @@ basis, placed, reference?, determined_by?}`:
 - **Rectangular through-notches**: quiddity's published `RectangularThroughNotch`
   records supply their thickness axis, opening direction, bottom-wall centre,
   width, depth and optional corner radius. Draftwright reads that geometry;
-  it does not recognise or reconstruct the family. A short tagged width/depth
-  callout in the thickness view names a coordinate note locating its mouth
-  centre from that view's left and bottom envelope extents. Both the tag and
-  actual printed coordinates must be present to earn location coverage.
-  Existing radius callouts retain the corner radii. A measured
-  PMI width sharing precisely those support planes uses the same callout.
+  it does not recognise or reconstruct the family. Ordinary linear dimensions
+  state its width, depth and mouth-corner locations in the view through the plate.
+  A common opening plane shares one ordinate with all physical feature claims.
+  Existing radius callouts retain the corner radii. A measured PMI width keeps
+  a linear carrier between exactly its authored wall planes. Bounded interior
+  lanes may use proven openings, with the same attachment collars and complete
+  ink checks as other dimensions; no coordinate notes or feature tags substitute
+  for the dimensions. Final local clearance checks include filled arrowheads;
+  a leader may shorten its shoulder or move at most 2 mm on the same ray,
+  with unchanged attachment and no increase in reported contacts.
 - **V-notches** (`src/lint/notch_evidence.rs`, `src/dims/notches.rs`): ordered outer-profile supports
   establish symmetric straight-sided V recesses with a principal mouth and depth direction.
   A sharp or tangent circular root is supported. The true included angle is drawn in the
