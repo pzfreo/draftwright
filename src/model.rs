@@ -5630,10 +5630,22 @@ fn plan_with_presentation(
                 && (crate::placement_intent::automatic_pin(p)
                     || p.view.as_deref() == Some(g.view.trim_start_matches("v:")))
             {
-                // A pin on a glyph attached to its hole's mark (#224), bare or in the view it
-                // attaches in, holds that ink: it is lowered and attached again as the canonical
-                // drawing was, never pinned on the strip of a view it is not lowered in.
-                d.place = None;
+                // Opening-lane finishing reattaches glyphs after settling the
+                // new rectangular-notch inventory. Hold the published carrier
+                // through that pass; other inventories retain the existing pin semantics.
+                d.place = base
+                    .dimensions
+                    .iter()
+                    .any(|d| {
+                        d.measurements
+                            .iter()
+                            .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+                    })
+                    .then(|| crate::placement_intent::Place {
+                        pinned: true,
+                        view: Some(g.view.trim_start_matches("v:").into()),
+                        ..Default::default()
+                    });
             } else if let Some(p) = d.place.as_mut()
                 && p.pinned
                 && p.view.is_none()
