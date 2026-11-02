@@ -260,19 +260,20 @@ fn plan_from_an_analysis_needs_no_step() {
     assert_eq!(plan["spec"]["binding"]["part"], "turned");
 }
 
+fn run(args: &[&str]) -> (Option<i32>, Value) {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        out.status.code(),
+        serde_json::from_slice(&out.stdout).unwrap(),
+    )
+}
+
 /// The command line's `--analysis` names an Analysis file that `draftwright analyse` printed.
 #[test]
 fn the_command_line_takes_an_analysis_file() {
-    let run = |args: &[&str]| -> (Option<i32>, Value) {
-        let out = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
-            .args(args)
-            .output()
-            .unwrap();
-        (
-            out.status.code(),
-            serde_json::from_slice(&out.stdout).unwrap(),
-        )
-    };
     let step = fixture("parts/plate.step").display().to_string();
     let features = fixture("recognition/plate.json").display().to_string();
     let (code, analysis) = run(&["analyse", &step, "--features", &features]);
@@ -301,4 +302,93 @@ fn the_command_line_takes_an_analysis_file() {
     let (code, refused) = run(&["review", &other, "--analysis", &file]);
     assert_eq!(code, Some(2), "{refused}");
     assert_eq!(refused["error"]["code"], "invalid");
+}
+
+/// Reproduce edge-mouth variants through the public --analysis path. The
+/// committed NIST fixture supplies the Analysis; only its notch records change,
+/// as in the reviewer's edited CTC-01 analysis (not a replacement STEP solid).
+#[test]
+fn edge_mouth_notches_need_no_opening_direction_location() {
+    let path = fixture("pmi/step/nist_ctc_01_asme1_ap242-e1.stp.gz");
+    let (_, a) = draftwright::model::analyse_native(&path).unwrap();
+    for sign in [-1., 1.] {
+        let mut edited = a.clone();
+        let edge = edited.envelope[usize::from(sign > 0.)][1];
+        let mut ids = Vec::new();
+        for f in edited
+            .features
+            .iter_mut()
+            .filter(|f| f.kind == "rectangular_through_notch")
+        {
+            f.parameters.insert("opening".into(), json!([0., sign, 0.]));
+            let at = f.parameters.get_mut("at").unwrap().as_array_mut().unwrap();
+            at[1] = json!(edge - sign * 25.);
+            ids.push(f.id.clone());
+        }
+        assert_eq!(ids.len(), 2);
+        let file = scratch(&format!("ctc01-edge-{sign}.analysis.json"));
+        std::fs::write(&file, serde_json::to_vec(&edited).unwrap()).unwrap();
+        let (code, plan) = run(&["plan", "--analysis", file.to_str().unwrap()]);
+        assert_eq!(code, Some(0), "{plan}");
+        for id in &ids {
+            let measurements: Vec<_> = plan["dimensions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|d| d["measurements"].as_array().unwrap())
+                .filter(|m| m["feature"] == *id)
+                .collect();
+            for role in [
+                "notch_width.length",
+                "notch_depth.length",
+                "location.length.x",
+            ] {
+                assert!(
+                    measurements.iter().any(|m| m["parameter"] == role),
+                    "{sign}: {id} {role}"
+                );
+            }
+            assert!(
+                !measurements
+                    .iter()
+                    .any(|m| m["parameter"] == "location.length.y")
+            );
+        }
+        // The independent requirement inventory must agree: the outer face
+        // fixes y, while width, depth and the transverse location still matter.
+        let marks: Vec<draftwright::lint::Mark> = plan["dimensions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| draftwright::lint::Mark {
+                name: d["id"].as_str().unwrap().into(),
+                view: d["view"].as_str().map(str::to_string),
+                text: d["terms"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                claims: d["measurements"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|m| draftwright::output::Claim {
+                        feature: m["feature"].as_str().unwrap().into(),
+                        parameter: m["parameter"].as_str().unwrap().into(),
+                    })
+                    .collect(),
+            })
+            .collect();
+        assert!(
+            !draftwright::lint::check(&edited, &marks)
+                .iter()
+                .any(|issue| issue.code.starts_with("notch_requirement_")
+                    && issue
+                        .requirements
+                        .iter()
+                        .any(|r| r.parameter == "location.length.y"))
+        );
+    }
 }

@@ -91,7 +91,10 @@ fn rectangular(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
         false,
         "rectangular through-notch depth from its mouth plane to its bottom wall",
     );
-    for k in [n.wide, n.deep] {
+    for k in [n.wide, n.deep]
+        .into_iter()
+        .filter(|&k| n.needs_location(cx.analysis, k))
+    {
         let b = n.locator();
         let mut a = b;
         a[k] = cx.analysis.envelope[0][k];

@@ -4241,32 +4241,6 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    // An empty placement (including explicit `pinned: false`) carries no
-    // positioning intent. Validate names before removing no-op auto entries;
-    // the caller's exact controls are restored in the returned document.
-    let normalised = if spec.schema == SPEC_SCHEMA
-        && spec
-            .dimensions
-            .values()
-            .any(|d| d.place.as_ref().is_some_and(|p| *p == Default::default()))
-    {
-        crate::dims::check_known(analysis, spec)?;
-        let mut s = spec.clone();
-        let authored = s.dimension_source == DimensionSource::Authored;
-        s.dimensions.retain(|_, d| {
-            if d.place.as_ref().is_some_and(|p| *p == Default::default()) {
-                d.place = None;
-                authored || *d != DimensionSpec::default()
-            } else {
-                true
-            }
-        });
-        Some(s)
-    } else {
-        None
-    };
-    let given = spec;
-    let spec = normalised.as_ref().unwrap_or(spec);
     layout::with_gutter(
         spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
         || {
@@ -4275,22 +4249,6 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
             let mut plan =
                 manufacturing_fallback(analysis, spec, plan, |s| plan_recovered_once(analysis, s))?;
             crate::graphical_pmi::apply(analysis, &mut plan);
-            if normalised.is_some() {
-                for (id, entry) in &given.dimensions {
-                    if entry
-                        .place
-                        .as_ref()
-                        .is_some_and(|p| *p == Default::default())
-                    {
-                        plan.spec
-                            .dimensions
-                            .entry(id.clone())
-                            .or_default()
-                            .place
-                            .clone_from(&entry.place);
-                    }
-                }
-            }
             Ok(plan)
         },
     )
@@ -5484,7 +5442,12 @@ fn plan_with_presentation(
         // pin's canonical composition. New radius inventories can make the
         // explicitly named-view search choose another iso arrangement (1000).
         // Keep names only when they actually restore a view the default omits.
-        if !base.views.is_empty() {
+        if !base.views.is_empty()
+            && spec
+                .views
+                .values()
+                .any(|v| v.place.as_ref().is_some_and(|p| p.pinned))
+        {
             let mut unnamed = base.clone();
             unnamed.views.clear();
             if let Ok(default) = plan_automatic(analysis, &unnamed)
@@ -5668,14 +5631,9 @@ fn plan_with_presentation(
                     || p.view.as_deref() == Some(g.view.trim_start_matches("v:")))
             {
                 // A pin on a glyph attached to its hole's mark (#224), bare or in the view it
-                // attaches in, holds that published glyph. Keep a bare pin in its
-                // actual carrier so lowering can replay it without reattaching
-                // its triangle to a newly settled neighbouring label.
-                d.place = Some(crate::placement_intent::Place {
-                    pinned: true,
-                    view: Some(g.view.trim_start_matches("v:").into()),
-                    ..Default::default()
-                });
+                // attaches in, holds that ink: it is lowered and attached again as the canonical
+                // drawing was, never pinned on the strip of a view it is not lowered in.
+                d.place = None;
             } else if let Some(p) = d.place.as_mut()
                 && p.pinned
                 && p.view.is_none()

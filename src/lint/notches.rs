@@ -157,7 +157,7 @@ pub(super) fn rectangular_coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssu
         }
         for k in 0..3 {
             let geometry = super::rectangular_notches::read(a, f);
-            if geometry.as_ref().is_ok_and(|n| n.axis == k) {
+            if geometry.as_ref().is_ok_and(|n| !n.needs_location(a, k)) {
                 continue;
             }
             let value = geometry.map(|n| n.locator()[k] - a.envelope[0][k]);

@@ -2473,7 +2473,11 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
     };
     for (id, value) in [(24, 85.), (25, 50.), (126, 35.), (127, 35.)] {
         let r = records(&a).iter().find(|r| r.part21_id == id).unwrap();
-        assert!((r.value.unwrap() - value).abs() < 1e-6, "{r:?}");
+        assert_eq!(
+            r.value,
+            Some(value),
+            "measured source values discard numerical noise: {r:?}"
+        );
         assert!(r.fields.iter().any(|(key, field)| key == "nominal source"
             && *field == draftwright::pmi::Field::Text("geometry (no stated value)".into())));
         assert!(r.blockers.is_empty());

@@ -7530,6 +7530,7 @@ pub(super) fn settled_routes(
             d,
             want,
             proof.map(super::interior::Proof::geometry_key),
+            crate::layout::gutter().to_bits(),
             crate::planning::policy_key(analysis),
         ))
         .expect("route preparation inputs serialize"),

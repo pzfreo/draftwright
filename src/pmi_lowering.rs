@@ -1557,6 +1557,7 @@ pub(crate) fn measured_value(kind: &str, g: &Geometry) -> Option<f64> {
         "angular" => g.angle.as_ref()?.degrees()?,
         _ => return None,
     };
+    let value = crate::nominal::clean(value);
     (value.is_finite() && value > 1e-9).then_some(value)
 }
 

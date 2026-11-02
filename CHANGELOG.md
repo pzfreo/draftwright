@@ -6,6 +6,11 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Rectangular through-notches opening on an envelope face need only their
+  transverse location; require a shared slot ordinate's actual edge-to-centre
+  span, and clean measured PMI nominals at their source. Restore the existing
+  pin semantics and include the active frame gutter in settled-route memo keys.
+
 - Reduce notch placement and leader-proof work without changing the drawing:
   rank lightweight lane alternatives before clearance, share immutable witness and ray proofs, index
   peer strokes, reuse prepared attachment evidence and route geometry, and

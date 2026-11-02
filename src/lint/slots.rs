@@ -631,6 +631,19 @@ pub(crate) fn conveyed_locations(analysis: &Analysis, marks: &mut [Mark]) {
                     && m.claims
                         .iter()
                         .any(|c| c.feature != *id && axis_of(c) == Some(axis))
+                    && (*parameter != "location_slot_across.length"
+                        || super::location::edges(analysis, std::slice::from_ref(m))
+                            .iter()
+                            .any(|span| {
+                                let Some(k) = AXES.iter().position(|a| a == axis) else {
+                                    return false;
+                                };
+                                let near = analysis.envelope[0][k];
+                                let centre = near + d;
+                                span.axis == k
+                                    && super::redundancy::Span::new(k, span.a, span.b)
+                                        .same(super::redundancy::Span::new(k, near, centre))
+                            }))
                     && !m
                         .claims
                         .iter()
@@ -1155,6 +1168,58 @@ mod tests {
         assert_eq!(missing("v:plan", "32.75", "location.length.y"), both);
         assert_eq!(missing("v:front", "32.75", "location.length.x"), both);
         assert_eq!(missing("v:plan", "20.25", "location.length.x"), both);
+    }
+
+    #[test]
+    fn a_transverse_slot_location_requires_the_actual_near_edge_span() {
+        let a = part(&[
+            (
+                "slot",
+                &[0],
+                json!({
+                    "width": 8., "length": 30., "end_radius": 4.,
+                    "long_axis": "x", "width_axis": "y", "lo": 20., "hi": 50.,
+                    "w_center": 40., "d_lo": 0., "d_hi": 10.
+                }),
+            ),
+            ("hole", &[1], json!({})),
+        ]);
+        let claimed = |ends: Option<[f64; 2]>, view: &str| {
+            let mut m = Mark {
+                name: "hole-ordinate".into(),
+                view: Some(view.into()),
+                text: "40".into(),
+                claims: vec![
+                    Claim {
+                        feature: "f:hole:2".into(),
+                        parameter: "location.length.y".into(),
+                    },
+                    Claim {
+                        feature: "station_ink".into(),
+                        parameter: "witnesses".into(),
+                    },
+                ],
+            };
+            if let Some([p, q]) = ends {
+                m.claims.push(Claim {
+                    feature: super::super::location::span_claim(1, p, q),
+                    parameter: "station.distance".into(),
+                });
+            }
+            let mut marks = [m];
+            conveyed_locations(&a, &mut marks);
+            marks[0]
+                .claims
+                .iter()
+                .any(|c| c.feature == "f:slot:1" && c.parameter == "location_slot_across.length")
+        };
+        assert!(claimed(Some([0., 40.]), "v:plan"));
+        assert!(claimed(Some([40., 0.]), "v:plan"));
+        // Same number and axis, but measured from the opposite envelope edge.
+        assert!(!claimed(Some([60., 100.]), "v:plan"));
+        assert!(!claimed(Some([10., 50.]), "v:plan"));
+        assert!(!claimed(None, "v:plan"));
+        assert!(!claimed(Some([0., 40.]), "v:front"));
     }
 
     /// LINT-slot_coverage-slot_pattern: a linear array of three obround slots has its member's

@@ -60,6 +60,16 @@ pub(crate) fn read(a: &Analysis, f: &Feature) -> Result<Notch, String> {
 }
 
 impl Notch {
+    /// An outer opening face already fixes this coordinate. Internal-step
+    /// mouths still need an ordinate from an envelope edge.
+    pub(crate) fn needs_location(&self, a: &Analysis, axis: usize) -> bool {
+        axis != self.axis
+            && !(axis == self.deep
+                && a.envelope
+                    .iter()
+                    .any(|p| (p[axis] - self.mouth[axis]).abs() <= 1e-6))
+    }
+
     /// Locate a physical mouth corner. Width then fixes the opposite wall;
     /// no implied centreline or prose locator is needed.
     pub(crate) fn locator(&self) -> [f64; 3] {

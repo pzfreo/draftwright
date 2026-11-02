@@ -755,9 +755,9 @@
     "port": "dimension:#126",
     "python": 0.0,
     "record": "dimension:0:1:4:27",
-    "rust": 35.0000000000002,
+    "rust": 35.0,
     "verdict": "rust-correct",
-    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances. Measured values use the existing six-decimal noise cleanup at their source (review round 3)."
   },
   {
     "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
@@ -795,9 +795,9 @@
     "port": "dimension:#127",
     "python": 0.0,
     "record": "dimension:0:1:4:28",
-    "rust": 35.0000000000002,
+    "rust": 35.0,
     "verdict": "rust-correct",
-    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances. Measured values use the existing six-decimal noise cleanup at their source (review round 3)."
   },
   {
     "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
@@ -915,9 +915,9 @@
     "port": "dimension:#126",
     "python": 0.0,
     "record": "dimension:0:1:4:27",
-    "rust": 35.0000000000002,
+    "rust": 35.0,
     "verdict": "rust-correct",
-    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances. Measured values use the existing six-decimal noise cleanup at their source (review round 3)."
   },
   {
     "file": "nist_ctc_01_merge.step.gz",
@@ -955,9 +955,9 @@
     "port": "dimension:#127",
     "python": 0.0,
     "record": "dimension:0:1:4:28",
-    "rust": 35.0000000000002,
+    "rust": 35.0,
     "verdict": "rust-correct",
-    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances. Measured values use the existing six-decimal noise cleanup at their source (review round 3)."
   },
   {
     "file": "nist_ctc_01_merge.step.gz",
