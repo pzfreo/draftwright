@@ -1729,11 +1729,11 @@
   },
   "record": "dimension:0:1:4:9",
   "rust": {
-   "detail": "85 WIDE\n25 DEEP\nN2",
+   "detail": "2× 85 WIDE\n25 DEEP\nN1 AND N2",
    "outcome": "absorbed"
   },
   "verdict": "rust-correct",
-  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout. The notch is stated by a local width/depth callout instead of long width extensions across existing annotations. The tagged local callout names the coordinate note that locates its mouth, keeping all new information clear of existing witness lines."
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout. The notch is stated by a local width/depth callout instead of long width extensions across existing annotations. The tagged local callout names the coordinate note that locates its mouth, keeping all new information clear of existing witness lines. Congruent through-notches now share one 2× size callout, retaining both native measurement sets and the source PMI claim; individually tagged coordinate notes locate both mouths. This removes a second leader fenced in by the existing V-notch location witness without losing any size or location."
  },
  {
   "field": "outcome",
@@ -1801,11 +1801,11 @@
   },
   "record": "dimension:0:1:4:9",
   "rust": {
-   "detail": "85 WIDE\n25 DEEP\nN2",
+   "detail": "2× 85 WIDE\n25 DEEP\nN1 AND N2",
    "outcome": "absorbed"
   },
   "verdict": "rust-correct",
-  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout. The notch is stated by a local width/depth callout instead of long width extensions across existing annotations. The tagged local callout names the coordinate note that locates its mouth, keeping all new information clear of existing witness lines."
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout. The notch is stated by a local width/depth callout instead of long width extensions across existing annotations. The tagged local callout names the coordinate note that locates its mouth, keeping all new information clear of existing witness lines. Congruent through-notches now share one 2× size callout, retaining both native measurement sets and the source PMI claim; individually tagged coordinate notes locate both mouths. This removes a second leader fenced in by the existing V-notch location witness without losing any size or location."
  },
  {
   "field": "outcome",

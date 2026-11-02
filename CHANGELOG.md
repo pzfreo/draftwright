@@ -11,6 +11,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
   warning. Reuse existing size carriers instead of duplicating labels.
 - Retain slot-centre location evidence when a hole ordinate prints the same
   distance, and dimension quiddity's published rectangular through-notches.
+  Congruent cuts share one size callout with individually located, tagged mouths.
+- Finish the selected sheet's callout routes consistently with pin replay, and
+  retain established leader corridors when adding notch annotations.
 
 ## 0.2.9 (2026-11-02)
 

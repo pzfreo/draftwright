@@ -82,6 +82,7 @@ pub mod prismatic;
 pub mod profile_angles;
 pub mod profiled_bores;
 pub mod profiles;
+pub mod rectangular_notches;
 pub mod redundancy;
 pub mod schedule_evidence;
 pub(crate) mod schemes;
@@ -287,9 +288,6 @@ pub fn lint(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
             });
         }
     }
-    marks.extend(crate::rectangular_notches::location_evidence(
-        analysis, drawing, &marks,
-    ));
     let sites: std::collections::BTreeMap<_, _> = crate::bridge::holes::read(analysis)
         .into_iter()
         .filter_map(|(f, h)| Some((f.id.as_str(), h.ok()?.at)))
@@ -578,6 +576,16 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     let printed = &verified;
     let (mut extra, scheme_issues) = schemes::evidence(analysis, printed);
     extra.extend(location::evidence(analysis, printed));
+    extra.extend(rectangular_notches::location_evidence_from_notes(
+        analysis,
+        printed,
+        |id| {
+            printed
+                .iter()
+                .find(|m| m.name == id)
+                .map(|m| m.text.clone())
+        },
+    ));
     let expanded;
     let marks = if extra.is_empty() {
         printed

@@ -4241,6 +4241,32 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    // An empty placement (including explicit `pinned: false`) carries no
+    // positioning intent. Validate names before removing no-op auto entries;
+    // the caller's exact controls are restored in the returned document.
+    let normalised = if spec.schema == SPEC_SCHEMA
+        && spec
+            .dimensions
+            .values()
+            .any(|d| d.place.as_ref().is_some_and(|p| *p == Default::default()))
+    {
+        crate::dims::check_known(analysis, spec)?;
+        let mut s = spec.clone();
+        let authored = s.dimension_source == DimensionSource::Authored;
+        s.dimensions.retain(|_, d| {
+            if d.place.as_ref().is_some_and(|p| *p == Default::default()) {
+                d.place = None;
+                authored || *d != DimensionSpec::default()
+            } else {
+                true
+            }
+        });
+        Some(s)
+    } else {
+        None
+    };
+    let given = spec;
+    let spec = normalised.as_ref().unwrap_or(spec);
     layout::with_gutter(
         spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
         || {
@@ -4249,6 +4275,22 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
             let mut plan =
                 manufacturing_fallback(analysis, spec, plan, |s| plan_recovered_once(analysis, s))?;
             crate::graphical_pmi::apply(analysis, &mut plan);
+            if normalised.is_some() {
+                for (id, entry) in &given.dimensions {
+                    if entry
+                        .place
+                        .as_ref()
+                        .is_some_and(|p| *p == Default::default())
+                    {
+                        plan.spec
+                            .dimensions
+                            .entry(id.clone())
+                            .or_default()
+                            .place
+                            .clone_from(&entry.place);
+                    }
+                }
+            }
             Ok(plan)
         },
     )
@@ -4437,6 +4479,10 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
         let compact = plan.sheet.dimension_spacing == DimensionSpacing::Compact;
         crate::dims::with_compact(compact, || {
             let effective = crate::spec_gdt::effective(analysis, &plan.spec)?;
+            // A paper-policy winner may be a fixed-pair trial with deferred
+            // nominal routes. Finish that selected inventory in its own frame,
+            // just as the canonical pin replay does, before later route repair.
+            finish_nominal_plan(effective.as_ref(), spec, &mut plan);
             // Repair only the selected drawing. Candidate paper/scale trials keep their
             // established costs, so a clearer route cannot force a larger sheet.
             // A reference that cannot be planned (an authored item duplicating an automatic
@@ -7638,7 +7684,12 @@ fn plan_with_presentation(
         .iter()
         .filter(|n| matches!(n.state, ItemState::NotDrawable { .. }))
     {
-        for m in &note.measurements {
+        for m in note.measurements.iter().filter(|m| {
+            matches!(
+                m.parameter.as_str(),
+                "blend.radius" | "fillet.radius" | "cylindrical_profile.radius"
+            )
+        }) {
             problems.push(Problem {
                 id: format!("p:feature_not_dimensioned:{}", m.feature),
                 code: "feature_not_dimensioned".into(),

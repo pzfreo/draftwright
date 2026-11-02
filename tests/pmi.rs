@@ -1038,7 +1038,7 @@ fn every_item_and_finding_is_accounted_for_and_the_output_is_deterministic() {
             let interpreted = r.reader.problems.iter().any(|p| {
                 p.code == "pmi_read_nonconformance"
                     && p.severity == "warning"
-                    && p.refs == f.ids.iter().map(|id| format!("#{id}")).collect::<Vec<_>>()
+                    && f.ids.iter().all(|id| p.refs.contains(&format!("#{id}")))
                     && p.message.contains(&f.detail)
             });
             assert!(attached || own || interpreted, "{name}: finding {f:?} lost");

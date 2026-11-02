@@ -796,11 +796,16 @@ pub fn report_part(
             } else {
                 "mm"
             };
+            let detail = read.findings.iter().find(|f| {
+                f.part == Some(pmi::PartId(record.part))
+                    && f.ids.contains(&record.part21_id)
+                    && missing_nominal_finding(f)
+            }).map_or("a dimension without a dimensional_characteristic_representation: no value is stated", |f| f.detail.as_str());
             reader_problems.push(crate::model::Problem {
                 id: format!("p:pmi_read_nonconformance:{}:measured_nominal", record.source_id),
                 code: "pmi_read_nonconformance".into(),
                 severity: "warning".into(),
-                message: format!("PMI dimension {} has no dimensional_characteristic_representation: AP242 requires a stated nominal value (§5.2.1). Its nominal {} {} was measured from the referenced geometry; this recovers the missing nominal and retains only explicitly stated tolerances.", record.source_id, fmt(record.value.expect("measured nominal"), None), units),
+                message: format!("PMI dimension {}: {detail}. Its nominal {} {} was measured from the referenced geometry; this recovers the missing nominal and retains only explicitly stated tolerances.", record.source_id, fmt(record.value.expect("measured nominal"), None), units),
                 refs: vec![record.source_id.clone(), format!("#{}", record.part21_id)],
                 ..Default::default()
             });

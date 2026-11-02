@@ -426,7 +426,10 @@ fn ctc01_counts_gaps_and_repeated_causes_without_hiding_findings() {
         // (6, 2) -> (7, 3); their faces are no longer unclaimed_geometry: advisory -> (14, 3).
         // v0.2.3 (#127) states the inside rounds explicitly as 18× R10; the
         // 350 pitch passes within 0.5 mm of that new callout (one advisory).
-        [(7, 3), (1, 1), (1, 1), (15, 3)],
+        // cx/ctc01 consumes the published rectangular through-notch family:
+        // both cuts are sized and located, so its one incomplete finding/group
+        // goes (7,3 -> 6,2). Every other finding remains counted.
+        [(6, 2), (1, 1), (1, 1), (15, 3)],
     );
 }
 #[test]

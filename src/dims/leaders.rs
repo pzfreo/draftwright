@@ -1007,6 +1007,19 @@ fn settled_nominal_reference(
     let full = crate::dims::with_compact(false, || {
         crate::planning::memo(analysis, "selected-nominal-reference", key, || {
             crate::nominal::with_comparison(|| {
+                // New notch statements cannot displace established circular
+                // callouts in the very reference that bounds their final routes.
+                // Only this unrendered comparison omits the added inventory.
+                let reference = analysis
+                    .features
+                    .iter()
+                    .any(|f| f.kind == "rectangular_through_notch")
+                    .then(|| {
+                        let mut a = analysis.clone();
+                        a.features.retain(|f| f.kind != "rectangular_through_notch");
+                        a
+                    });
+                let analysis = reference.as_ref().unwrap_or(analysis);
                 crate::planning::isolated(analysis, || {
                     crate::planning::store(
                         analysis,

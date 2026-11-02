@@ -335,7 +335,7 @@ pub(crate) fn node_feature(a: &Analysis, id: &str, k: usize) -> Option<String> {
         .iter()
         .find(|f| f.id == id && f.kind == "rectangular_through_notch")
     {
-        let n = crate::rectangular_notches::read(a, f).ok()?;
+        let n = super::rectangular_notches::read(a, f).ok()?;
         return (k != n.axis).then(|| id.into());
     }
     if let Some(f) = a.features.iter().find(|f| f.id == id && f.kind == "slot") {
@@ -406,7 +406,7 @@ pub(crate) fn station(a: &Analysis, id: &str, k: usize) -> Option<f64> {
             return Some(h.at[k]);
         }
         if f.kind == "rectangular_through_notch" {
-            return Some(crate::rectangular_notches::read(a, f).ok()?.mouth[k]);
+            return Some(super::rectangular_notches::read(a, f).ok()?.mouth[k]);
         }
         if f.kind == "slot" {
             let p = super::slots::centre(f).ok()?;
@@ -924,7 +924,7 @@ pub(crate) fn targets(a: &Analysis) -> Vec<(String, usize, f64)> {
                 }
             }
             "rectangular_through_notch" => {
-                if let Ok(n) = crate::rectangular_notches::read(a, f) {
+                if let Ok(n) = super::rectangular_notches::read(a, f) {
                     for k in [n.wide, n.deep] {
                         out.push((f.id.clone(), k, n.mouth[k]));
                     }

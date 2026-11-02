@@ -690,14 +690,14 @@
     "evidence": "dimension:#25: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
-    "record": "dimension:0:1:4:10",
-    "port": "dimension:#25",
     "field": "label",
+    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
+    "port": "dimension:#25",
     "python": "0",
-    "rust": "",
+    "record": "dimension:0:1:4:10",
+    "rust": "50",
     "verdict": "rust-correct",
-    "evidence": "dimension:#25: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
@@ -710,14 +710,14 @@
     "evidence": "dimension:#25: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
+    "field": "value",
     "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
-    "record": "dimension:0:1:4:10",
     "port": "dimension:#25",
-    "field": "value",
     "python": 0.0,
-    "rust": null,
+    "record": "dimension:0:1:4:10",
+    "rust": 50.0,
     "verdict": "rust-correct",
-    "evidence": "dimension:#25: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
@@ -730,14 +730,14 @@
     "evidence": "dimension:#126: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
-    "record": "dimension:0:1:4:27",
-    "port": "dimension:#126",
     "field": "label",
+    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
+    "port": "dimension:#126",
     "python": "0",
-    "rust": "",
+    "record": "dimension:0:1:4:27",
+    "rust": "⌀35",
     "verdict": "rust-correct",
-    "evidence": "dimension:#126: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
@@ -750,14 +750,14 @@
     "evidence": "dimension:#126: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
-    "record": "dimension:0:1:4:27",
-    "port": "dimension:#126",
     "field": "value",
+    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
+    "port": "dimension:#126",
     "python": 0.0,
-    "rust": null,
+    "record": "dimension:0:1:4:27",
+    "rust": 35.0000000000002,
     "verdict": "rust-correct",
-    "evidence": "dimension:#126: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
@@ -770,14 +770,14 @@
     "evidence": "dimension:#127: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
-    "record": "dimension:0:1:4:28",
-    "port": "dimension:#127",
     "field": "label",
+    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
+    "port": "dimension:#127",
     "python": "0",
-    "rust": "",
+    "record": "dimension:0:1:4:28",
+    "rust": "⌀35",
     "verdict": "rust-correct",
-    "evidence": "dimension:#127: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
@@ -790,14 +790,14 @@
     "evidence": "dimension:#127: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
-    "record": "dimension:0:1:4:28",
-    "port": "dimension:#127",
     "field": "value",
+    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
+    "port": "dimension:#127",
     "python": 0.0,
-    "rust": null,
+    "record": "dimension:0:1:4:28",
+    "rust": 35.0000000000002,
     "verdict": "rust-correct",
-    "evidence": "dimension:#127: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
@@ -810,14 +810,14 @@
     "evidence": "dimension:#24: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
-    "record": "dimension:0:1:4:9",
-    "port": "dimension:#24",
     "field": "label",
+    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
+    "port": "dimension:#24",
     "python": "0",
-    "rust": "",
+    "record": "dimension:0:1:4:9",
+    "rust": "85",
     "verdict": "rust-correct",
-    "evidence": "dimension:#24: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
@@ -830,14 +830,14 @@
     "evidence": "dimension:#24: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
-    "record": "dimension:0:1:4:9",
-    "port": "dimension:#24",
     "field": "value",
+    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
+    "port": "dimension:#24",
     "python": 0.0,
-    "rust": null,
+    "record": "dimension:0:1:4:9",
+    "rust": 85.0,
     "verdict": "rust-correct",
-    "evidence": "dimension:#24: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_merge.step.gz",
@@ -850,14 +850,14 @@
     "evidence": "dimension:#25: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_merge.step.gz",
-    "record": "dimension:0:1:4:10",
-    "port": "dimension:#25",
     "field": "label",
+    "file": "nist_ctc_01_merge.step.gz",
+    "port": "dimension:#25",
     "python": "0",
-    "rust": "",
+    "record": "dimension:0:1:4:10",
+    "rust": "50",
     "verdict": "rust-correct",
-    "evidence": "dimension:#25: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_merge.step.gz",
@@ -870,14 +870,14 @@
     "evidence": "dimension:#25: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
+    "field": "value",
     "file": "nist_ctc_01_merge.step.gz",
-    "record": "dimension:0:1:4:10",
     "port": "dimension:#25",
-    "field": "value",
     "python": 0.0,
-    "rust": null,
+    "record": "dimension:0:1:4:10",
+    "rust": 50.0,
     "verdict": "rust-correct",
-    "evidence": "dimension:#25: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_merge.step.gz",
@@ -890,14 +890,14 @@
     "evidence": "dimension:#126: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_merge.step.gz",
-    "record": "dimension:0:1:4:27",
-    "port": "dimension:#126",
     "field": "label",
+    "file": "nist_ctc_01_merge.step.gz",
+    "port": "dimension:#126",
     "python": "0",
-    "rust": "",
+    "record": "dimension:0:1:4:27",
+    "rust": "⌀35",
     "verdict": "rust-correct",
-    "evidence": "dimension:#126: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_merge.step.gz",
@@ -910,14 +910,14 @@
     "evidence": "dimension:#126: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_merge.step.gz",
-    "record": "dimension:0:1:4:27",
-    "port": "dimension:#126",
     "field": "value",
+    "file": "nist_ctc_01_merge.step.gz",
+    "port": "dimension:#126",
     "python": 0.0,
-    "rust": null,
+    "record": "dimension:0:1:4:27",
+    "rust": 35.0000000000002,
     "verdict": "rust-correct",
-    "evidence": "dimension:#126: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_merge.step.gz",
@@ -930,14 +930,14 @@
     "evidence": "dimension:#127: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_merge.step.gz",
-    "record": "dimension:0:1:4:28",
-    "port": "dimension:#127",
     "field": "label",
+    "file": "nist_ctc_01_merge.step.gz",
+    "port": "dimension:#127",
     "python": "0",
-    "rust": "",
+    "record": "dimension:0:1:4:28",
+    "rust": "⌀35",
     "verdict": "rust-correct",
-    "evidence": "dimension:#127: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_merge.step.gz",
@@ -950,14 +950,14 @@
     "evidence": "dimension:#127: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_merge.step.gz",
-    "record": "dimension:0:1:4:28",
-    "port": "dimension:#127",
     "field": "value",
+    "file": "nist_ctc_01_merge.step.gz",
+    "port": "dimension:#127",
     "python": 0.0,
-    "rust": null,
+    "record": "dimension:0:1:4:28",
+    "rust": 35.0000000000002,
     "verdict": "rust-correct",
-    "evidence": "dimension:#127: the file states no value for this diameter dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_merge.step.gz",
@@ -970,14 +970,14 @@
     "evidence": "dimension:#24: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_merge.step.gz",
-    "record": "dimension:0:1:4:9",
-    "port": "dimension:#24",
     "field": "label",
+    "file": "nist_ctc_01_merge.step.gz",
+    "port": "dimension:#24",
     "python": "0",
-    "rust": "",
+    "record": "dimension:0:1:4:9",
+    "rust": "85",
     "verdict": "rust-correct",
-    "evidence": "dimension:#24: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_01_merge.step.gz",
@@ -990,14 +990,14 @@
     "evidence": "dimension:#24: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
   },
   {
-    "file": "nist_ctc_01_merge.step.gz",
-    "record": "dimension:0:1:4:9",
-    "port": "dimension:#24",
     "field": "value",
+    "file": "nist_ctc_01_merge.step.gz",
+    "port": "dimension:#24",
     "python": 0.0,
-    "rust": null,
+    "record": "dimension:0:1:4:9",
+    "rust": 85.0,
     "verdict": "rust-correct",
-    "evidence": "dimension:#24: the file states no value for this linear dimension (no dimensional_characteristic_representation; haecceity's nonconformance finding says so). XCAF reads it as type 0 (Location_None) with value 0 and draftwright labels it '0'; the port keeps the kind the file states, no value and no label, with the blocker."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "file": "nist_ctc_02_asme1_ap242-e2.stp.gz",
@@ -5371,10 +5371,14 @@
       [
         "reference datum",
         "B"
+      ],
+      [
+        "nominal source",
+        "geometry (no stated value)"
       ]
     ],
     "verdict": "rust-correct",
-    "evidence": "cx/pmi-groups preserves the dimension endpoint datum feature, including its composite face support, as reference datum metadata. The Python capture omits this relationship. It is required to keep datum-referenced general-tolerance dimensions authored; geometric lowering still proves the stations and nominal independently."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "field": "fields",
@@ -5386,10 +5390,14 @@
       [
         "reference datum",
         "C"
+      ],
+      [
+        "nominal source",
+        "geometry (no stated value)"
       ]
     ],
     "verdict": "rust-correct",
-    "evidence": "cx/pmi-groups preserves the dimension endpoint datum feature, including its composite face support, as reference datum metadata. The Python capture omits this relationship. It is required to keep datum-referenced general-tolerance dimensions authored; geometric lowering still proves the stations and nominal independently."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "field": "fields",
@@ -5431,10 +5439,14 @@
       [
         "reference datum",
         "B"
+      ],
+      [
+        "nominal source",
+        "geometry (no stated value)"
       ]
     ],
     "verdict": "rust-correct",
-    "evidence": "cx/pmi-groups preserves the dimension endpoint datum feature, including its composite face support, as reference datum metadata. The Python capture omits this relationship. It is required to keep datum-referenced general-tolerance dimensions authored; geometric lowering still proves the stations and nominal independently."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "field": "fields",
@@ -5446,10 +5458,14 @@
       [
         "reference datum",
         "C"
+      ],
+      [
+        "nominal source",
+        "geometry (no stated value)"
       ]
     ],
     "verdict": "rust-correct",
-    "evidence": "cx/pmi-groups preserves the dimension endpoint datum feature, including its composite face support, as reference datum metadata. The Python capture omits this relationship. It is required to keep datum-referenced general-tolerance dimensions authored; geometric lowering still proves the stations and nominal independently."
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   },
   {
     "field": "fields",
@@ -5870,5 +5886,65 @@
     ],
     "verdict": "rust-correct",
     "evidence": "cx/pmi-groups preserves the dimension endpoint datum feature, including its composite face support, as reference datum metadata. The Python capture omits this relationship. It is required to keep datum-referenced general-tolerance dimensions authored; geometric lowering still proves the stations and nominal independently."
+  },
+  {
+    "field": "fields",
+    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
+    "port": "dimension:#24",
+    "python": [],
+    "record": "dimension:0:1:4:9",
+    "rust": [
+      [
+        "nominal source",
+        "geometry (no stated value)"
+      ]
+    ],
+    "verdict": "rust-correct",
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
+  },
+  {
+    "field": "fields",
+    "file": "nist_ctc_01_asme1_ap242-e1.stp.gz",
+    "port": "dimension:#25",
+    "python": [],
+    "record": "dimension:0:1:4:10",
+    "rust": [
+      [
+        "nominal source",
+        "geometry (no stated value)"
+      ]
+    ],
+    "verdict": "rust-correct",
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
+  },
+  {
+    "field": "fields",
+    "file": "nist_ctc_01_merge.step.gz",
+    "port": "dimension:#24",
+    "python": [],
+    "record": "dimension:0:1:4:9",
+    "rust": [
+      [
+        "nominal source",
+        "geometry (no stated value)"
+      ]
+    ],
+    "verdict": "rust-correct",
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
+  },
+  {
+    "field": "fields",
+    "file": "nist_ctc_01_merge.step.gz",
+    "port": "dimension:#25",
+    "python": [],
+    "record": "dimension:0:1:4:10",
+    "rust": [
+      [
+        "nominal source",
+        "geometry (no stated value)"
+      ]
+    ],
+    "verdict": "rust-correct",
+    "evidence": "Maintainer decision cx/ctc01: absent nominal values are measured only from proven source geometry (85 and 50 between parallel walls, 35 from consistent cylindrical supports), with a measured-nominal marker and a source nonconformance warning. Python substitutes zero; the previous Rust refusal is replaced by the measured value without inventing tolerances."
   }
 ]

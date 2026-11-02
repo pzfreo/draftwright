@@ -78,7 +78,7 @@ fn ctc01_consumes_bevel_faces_and_sizes_both_notches_without_duplicate_c50() {
         .filter(|d| {
             d.measurements
                 .iter()
-                .any(|m| m.parameter == "notch_depth.length")
+                .any(|m| m.feature.starts_with("notch:") && m.parameter == "notch_depth.length")
         })
         .collect();
     // Coincident equal depth spans may share a dimension, retaining both measurements.

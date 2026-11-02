@@ -39,19 +39,67 @@ pub(super) const PLANNER: Planner = Planner {
 /// in-plane axes. Corner radii retain the existing blend/fillet callouts.
 fn rectangular(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
     let n = crate::rectangular_notches::read(cx.analysis, f)?;
-    let view = end_on(n.axis);
-    let out = vec![Want {
-        id: want_id(&f.id, "notch_width.length"),
-        views: vec![view], value: n.width,
-        terms: vec![fmt(n.width), "WIDE".into(), crate::callouts::BREAK.into(), fmt(n.depth), "DEEP".into(), crate::callouts::BREAK.into(), crate::rectangular_notches::tag(f)],
-        measurements: vec![
-            Measurement { feature: f.id.clone(), parameter: "notch_width.length".into(), value: n.width },
-            Measurement { feature: f.id.clone(), parameter: "notch_depth.length".into(), value: n.depth },
-        ], turning: None,
-        basis: "a rectangular through-notch's width and depth, with a tagged mouth-centre coordinate note, in the view through the plate".into(),
+    // Congruent through-cuts share their intrinsic sizes, while their individual
+    // tagged mouth coordinates keep every occurrence independently located.
+    // Explicit authored size/tolerance intent keeps a feature out of the group.
+    let authored = |g: &Feature| {
+        matches!(&cx.analysis.pmi, Some(crate::pmi::Reading::Read(r)) if r.records.iter().any(|r|
+        r.category == crate::pmi::Category::Dimension && r.faces.iter().any(|i| g.faces.contains(i))
+        && (r.basic || r.fields.iter().any(|(key, _)| key == "reference datum") || r.lower_tol.is_some() || r.upper_tol.is_some() || r.lower_bound.is_some() || r.upper_bound.is_some() || r.fit.is_some())))
+    };
+    let same = |g: &Feature| {
+        let Ok(m) = crate::rectangular_notches::read(cx.analysis, g) else {
+            return false;
+        };
+        m.axis == n.axis
+            && m.deep == n.deep
+            && (m.width - n.width).abs() < 1e-6
+            && (m.depth - n.depth).abs() < 1e-6
+            && (m.mouth[m.deep] - m.at[m.deep]).signum()
+                == (n.mouth[n.deep] - n.at[n.deep]).signum()
+            && g.parameters.get("corner_radius") == f.parameters.get("corner_radius")
+            && g.parameters.get("thickness") == f.parameters.get("thickness")
+    };
+    let group: Vec<_> = if authored(f) {
+        vec![f]
+    } else {
+        cx.analysis
+            .features
+            .iter()
+            .filter(|g| g.kind == "rectangular_through_notch" && !authored(g) && same(g))
+            .collect()
+    };
+    if group.first().is_some_and(|g| g.id != f.id) {
+        return Ok(Vec::new());
+    }
+    let mut terms = Vec::new();
+    if group.len() > 1 {
+        terms.push(format!("{}×", group.len()));
+    }
+    terms.extend([
+        fmt(n.width),
+        "WIDE".into(),
+        crate::callouts::BREAK.into(),
+        fmt(n.depth),
+        "DEEP".into(),
+        crate::callouts::BREAK.into(),
+    ]);
+    for (i, g) in group.iter().enumerate() {
+        if i > 0 {
+            terms.push("AND".into());
+        }
+        terms.push(crate::rectangular_notches::tag(g));
+    }
+    Ok(vec![Want {
+        id: want_id(&f.id, "notch_width.length"), views: vec![end_on(n.axis)], value: n.width,
+        terms,
+        measurements: group.iter().flat_map(|g| [
+            Measurement { feature: g.id.clone(), parameter: "notch_width.length".into(), value: n.width },
+            Measurement { feature: g.id.clone(), parameter: "notch_depth.length".into(), value: n.depth },
+        ]).collect(), turning: None,
+        basis: "congruent rectangular through-notches' width and depth, with individually tagged mouth-centre coordinate notes, in the view through the plate".into(),
         shape: Shape::Callout { sites: vec![(n.at, 0.)], arcs: Vec::new() },
-    }];
-    Ok(out)
+    }])
 }
 
 /// A V channel's callout and trough locations, or why they cannot be stated.

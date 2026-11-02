@@ -556,32 +556,38 @@ fn measured_plane_size(a: &Analysis, wants: &[Want], r: &Record, k: usize) -> Op
         .iter()
         .enumerate()
         .filter(|(_, w)| {
-            let span = match &w.shape {
+            let proven = |lo: f64, hi: f64| {
+                (lo - p[k].min(q[k])).abs() < 1e-6 && (hi - p[k].max(q[k])).abs() < 1e-6
+            };
+            let owns = |f: &crate::bridge::Feature| r.faces.iter().all(|i| f.faces.contains(i));
+            match &w.shape {
                 Shape::Linear {
                     a: x, b: y, axis, ..
-                } if *axis == k => Some((x[k].min(y[k]), x[k].max(y[k]))),
-                Shape::Callout { .. } => w.measurements.iter().find_map(|m| {
-                    let f = a
-                        .features
-                        .iter()
-                        .find(|f| f.id == m.feature && f.kind == "rectangular_through_notch")?;
-                    let notch = crate::rectangular_notches::read(a, f).ok()?;
-                    (m.parameter == "notch_width.length" && notch.wide == k).then_some((
-                        notch.at[k] - 0.5 * notch.width,
-                        notch.at[k] + 0.5 * notch.width,
-                    ))
+                } if *axis == k => {
+                    proven(x[k].min(y[k]), x[k].max(y[k]))
+                        && w.measurements.iter().any(|m| {
+                            !m.parameter.starts_with("location")
+                                && a.features
+                                    .iter()
+                                    .find(|f| f.id == m.feature)
+                                    .is_some_and(owns)
+                        })
+                }
+                Shape::Callout { .. } => w.measurements.iter().any(|m| {
+                    if m.parameter != "notch_width.length" {
+                        return false;
+                    }
+                    let Some(f) = a.features.iter().find(|f| {
+                        f.id == m.feature && f.kind == "rectangular_through_notch" && owns(f)
+                    }) else {
+                        return false;
+                    };
+                    crate::rectangular_notches::read(a, f).is_ok_and(|n| {
+                        n.wide == k && proven(n.at[k] - 0.5 * n.width, n.at[k] + 0.5 * n.width)
+                    })
                 }),
-                _ => None,
-            };
-            span.is_some_and(|(lo, hi)| {
-                (lo - p[k].min(q[k])).abs() < 1e-6 && (hi - p[k].max(q[k])).abs() < 1e-6
-            }) && w.measurements.iter().any(|m| {
-                !m.parameter.starts_with("location")
-                    && a.features
-                        .iter()
-                        .find(|f| f.id == m.feature)
-                        .is_some_and(|f| r.faces.iter().all(|i| f.faces.contains(i)))
-            })
+                _ => false,
+            }
         })
         .map(|(i, _)| i)
         .collect();

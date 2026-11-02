@@ -2567,6 +2567,24 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
         .filter(|f| f.kind == "rectangular_through_notch")
         .collect();
     assert_eq!(notches.len(), 2);
+    let carriers: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| {
+            d.placed.is_some()
+                && d.measurements.iter().any(|m| {
+                    m.feature.starts_with("f:rectangular_through_notch:")
+                        && m.parameter == "notch_width.length"
+                })
+        })
+        .collect();
+    assert_eq!(
+        carriers.len(),
+        1,
+        "congruent notches share their sizes, with both occurrences retained below"
+    );
+    assert!(carriers[0].label.starts_with("2× 85 WIDE"));
+
     for f in notches {
         for (role, value) in [("notch_width.length", 85.), ("notch_depth.length", 25.)] {
             assert!(plan.dimensions.iter().any(|d| d.placed.is_some()

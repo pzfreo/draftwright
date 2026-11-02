@@ -144,7 +144,7 @@ pub(super) fn rectangular_coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssu
             ("notch_width.length", "width"),
             ("notch_depth.length", "depth"),
         ] {
-            let value = crate::rectangular_notches::read(a, f)
+            let value = super::rectangular_notches::read(a, f)
                 .map(|n| if field == "width" { n.width } else { n.depth });
             wanted.push(Wanted {
                 feature: f,
@@ -156,7 +156,7 @@ pub(super) fn rectangular_coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssu
             });
         }
         for k in 0..3 {
-            let geometry = crate::rectangular_notches::read(a, f);
+            let geometry = super::rectangular_notches::read(a, f);
             if geometry.as_ref().is_ok_and(|n| n.axis == k) {
                 continue;
             }

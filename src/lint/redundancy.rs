@@ -164,7 +164,7 @@ pub(crate) fn span(a: &Analysis, feature: &str, parameter: &str) -> Option<Span>
     }
     let f = a.features.iter().find(|f| f.id == feature)?;
     if f.kind == "rectangular_through_notch" {
-        let n = crate::rectangular_notches::read(a, f).ok()?;
+        let n = super::rectangular_notches::read(a, f).ok()?;
         return match parameter {
             "notch_width.length" => Some(Span::new(
                 n.wide,
