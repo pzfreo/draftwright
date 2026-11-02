@@ -1525,10 +1525,9 @@ fn plan_search(
         };
         if intent.is_some_and(crate::placement_intent::automatic_pin)
             && let Some(base) = canonical
-            && let Some(g) = base
-                .gdt
-                .iter()
-                .find(|g| g.id == item.id && g.view == planned.view)
+            && let Some(g) = base.gdt.iter().find(|g| {
+                g.id == item.id && (g.view == planned.view || super::hole_marks::attached(g))
+            })
             && let Some(delta) = crate::placement_intent::anchor_delta(base, views, &g.view)
             && let Some(mut p) = g.placed.clone()
         {
@@ -1566,6 +1565,10 @@ fn plan_search(
             }
             lines.extend(p.lines.iter().copied());
             planned.side = g.side.clone();
+            planned.view.clone_from(&g.view);
+            if super::hole_marks::attached(g) {
+                planned.basis.clone_from(&g.basis);
+            }
             planned.state = State::Shown;
             planned.placed = Some(p);
             out.push(planned);

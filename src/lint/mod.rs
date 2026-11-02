@@ -568,24 +568,24 @@ pub fn lint_sheets(analysis: &Analysis, drawings: &[Drawing]) -> Vec<LintIssue> 
 
 /// Every ported rule's findings on a drawing whose annotations are *marks*.
 pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
-    let verified: Vec<_> = marks
+    let mut verified: Vec<_> = marks
         .iter()
         .filter(|m| blends::verified_row(analysis, m))
         .cloned()
         .collect();
-    let printed = &verified;
-    let (mut extra, scheme_issues) = schemes::evidence(analysis, printed);
-    extra.extend(location::evidence(analysis, printed));
-    extra.extend(rectangular_notches::location_evidence_from_notes(
-        analysis,
-        printed,
-        |id| {
-            printed
+    // These exact printed coordinates are physical location evidence too, so
+    // the station graph must see them before expanding derived size evidence.
+    let notch_locations =
+        rectangular_notches::location_evidence_from_notes(analysis, &verified, |id| {
+            verified
                 .iter()
                 .find(|m| m.name == id)
                 .map(|m| m.text.clone())
-        },
-    ));
+        });
+    verified.extend(notch_locations);
+    let printed = &verified;
+    let (mut extra, scheme_issues) = schemes::evidence(analysis, printed);
+    extra.extend(location::evidence(analysis, printed));
     let expanded;
     let marks = if extra.is_empty() {
         printed

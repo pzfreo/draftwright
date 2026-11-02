@@ -4483,11 +4483,12 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
             // deferred routes. Finish that expanded inventory in its chosen
             // frame, just as canonical pin replay does. Existing annotation
             // families retain their established finishing path.
-            if plan.dimensions.iter().any(|d| {
+            let expanded_notches = plan.dimensions.iter().any(|d| {
                 d.measurements
                     .iter()
                     .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
-            }) {
+            });
+            if expanded_notches {
                 finish_nominal_plan(effective.as_ref(), spec, &mut plan);
             }
             // Repair only the selected drawing. Candidate paper/scale trials keep their
@@ -4506,7 +4507,10 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
             crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
             crate::dims::gdt::cited_undrawn(&mut plan);
             crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
-            if crate::dims::pmi_policy::carries(effective.as_ref()) || !spec.origin.is_empty() {
+            if expanded_notches
+                || crate::dims::pmi_policy::carries(effective.as_ref())
+                || !spec.origin.is_empty()
+            {
                 crate::fixes::attach(effective.as_ref(), &mut plan);
             }
             Ok(plan)
@@ -5640,9 +5644,14 @@ fn plan_with_presentation(
                     || p.view.as_deref() == Some(g.view.trim_start_matches("v:")))
             {
                 // A pin on a glyph attached to its hole's mark (#224), bare or in the view it
-                // attaches in, holds that ink: it is lowered and attached again as the canonical
-                // drawing was, never pinned on the strip of a view it is not lowered in.
-                d.place = None;
+                // attaches in, holds that published glyph. Keep a bare pin in its
+                // actual carrier so lowering can replay it without reattaching
+                // its triangle to a newly settled neighbouring label.
+                d.place = Some(crate::placement_intent::Place {
+                    pinned: true,
+                    view: Some(g.view.trim_start_matches("v:").into()),
+                    ..Default::default()
+                });
             } else if let Some(p) = d.place.as_mut()
                 && p.pinned
                 && p.view.is_none()

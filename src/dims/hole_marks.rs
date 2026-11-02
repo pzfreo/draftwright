@@ -125,6 +125,12 @@ pub(crate) fn attach(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                 || g.placed.is_none()
                 || g.state != crate::items::State::Shown
                 || !g.modifiers.is_empty()
+                // An attached pin replays the published glyph, including its
+                // triangle. Reattaching to a newly settled size label moves it.
+                || (attached(g)
+                    && spec.annotations.get(&g.id).is_some_and(|a| {
+                        a.place.as_ref().is_some_and(|p| p.pinned)
+                    }))
             {
                 continue;
             }
