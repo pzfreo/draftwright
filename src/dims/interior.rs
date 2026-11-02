@@ -1790,6 +1790,109 @@ pub(crate) fn finish_attached_openings(
     finish_openings_with(analysis, spec, plan, false);
 }
 
+/// Settle free linear text against the completed inventory. The existing
+/// own-span alternatives move only the label; measured ends, arrows, datum
+/// symbols and callout/frame units stay fixed.
+fn settle_linear_labels(
+    analysis: &Analysis,
+    spec: &Spec,
+    plan: &mut crate::model::Plan,
+) -> BTreeSet<String> {
+    if !plan.inspection_balloons.is_empty() {
+        return BTreeSet::new();
+    }
+    let crowded: BTreeSet<_> = super::contacts::contacts(plan)
+        .into_iter()
+        .filter(|p| p.code == "label_crowded")
+        .flat_map(|p| p.subjects)
+        .collect();
+    if crowded.is_empty() {
+        return BTreeSet::new();
+    }
+    let page = Page::new(analysis, &plan.sheet, &plan.views);
+    let proofs = callout_proofs(analysis, &plan.views);
+    let mut fixed = super::callout_routes::furniture(plan);
+    fixed.extend(plan.gdt.iter().filter_map(super::gdt::proxy));
+    let mut changed = BTreeSet::new();
+    for i in 0..plan.dimensions.len() {
+        let d = &plan.dimensions[i];
+        if d.kind != "linear"
+            || !crowded.contains(&d.id)
+            || spec
+                .dimensions
+                .get(&d.id)
+                .is_some_and(|s| s.place.is_some())
+        {
+            continue;
+        }
+        let (Some(old), Some(view)) = (
+            d.placed.as_ref(),
+            plan.views.iter().find(|v| v.id == d.view),
+        ) else {
+            continue;
+        };
+        if old.arrows.len() != 2
+            || old.lines.len() < 3
+            || !(old.rotation == 0. || old.rotation.abs() == 90.)
+        {
+            continue;
+        }
+        let Some(proof) = proofs.get(&view.id) else {
+            continue;
+        };
+        let k = usize::from(old.rotation != 0.);
+        let lo = old
+            .arrows
+            .iter()
+            .map(|a| a[0][k])
+            .fold(f64::INFINITY, f64::min);
+        let hi = old
+            .arrows
+            .iter()
+            .map(|a| a[0][k])
+            .fold(f64::NEG_INFINITY, f64::max);
+        let others: Vec<_> = plan
+            .dimensions
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, q)| q)
+            .chain(&fixed)
+            .filter_map(|q| q.placed.as_ref())
+            .collect();
+        let next = super::label_lanes::alternatives_placed(old, page.drawable(), &others)
+            .take(64)
+            .find(|p| {
+                p.lines == old.lines
+                    && p.arrows == old.arrows
+                    && p.label_box[k] >= lo
+                    && p.label_box[k + 2] <= hi
+                    && page.fits_interior(p, view.id.trim_start_matches("v:"))
+                    && (proof.blank(view, p.label_box)
+                        || proof.exterior_clear(view, p.label_box, &[], &[]))
+                    && others.iter().all(|q| {
+                        !text_conflict(p, q)
+                            && !super::placement::ink_through(
+                                q,
+                                super::contacts::clear_box(p.label_box),
+                            )
+                            && !super::placement::ink_through(
+                                p,
+                                super::contacts::clear_box(q.label_box),
+                            )
+                    })
+            });
+        if let Some(next) = next
+            && next != *old
+        {
+            let id = d.id.clone();
+            plan.dimensions[i].placed = Some(next);
+            changed.insert(id);
+        }
+    }
+    changed
+}
+
 fn finish_openings_with(
     analysis: &Analysis,
     spec: &Spec,
@@ -2050,6 +2153,11 @@ fn finish_openings_with(
             })
             .map(|_| super::CandidateRegion::Interior);
         d.placed = p;
+    }
+    let labels = settle_linear_labels(analysis, spec, plan);
+    if !labels.is_empty() {
+        changed.extend(labels);
+        super::contacts::report(analysis, plan);
     }
     let after = super::recheck_cached(analysis, plan, &cache);
     let codes = before

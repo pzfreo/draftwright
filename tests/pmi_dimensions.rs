@@ -2643,7 +2643,7 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
     }));
     for (code, max) in [
         ("extension_through_feature", 9),
-        ("label_crowded", 1),
+        ("label_crowded", 0),
         ("annotation_leader_crossing", 4),
         ("leader_across_view", 0),
     ] {

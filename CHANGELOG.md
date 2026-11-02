@@ -20,6 +20,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
   Reprove nearby free-callout bends and local reaches with a one-millimetre
   outline clearance, and replay settled notch lanes when pinning.
   Keep complete V-angle sectors clear of the source outline as opening lanes settle.
+  Settle free linear text on its measured span against the final extension lines,
+  retaining the original witnesses and arrows.
 
 ## 0.2.9 (2026-11-02)
 
