@@ -3690,7 +3690,7 @@ fn plan_inventory_ordered(
             interior_proofs.get(id)
         }
     };
-    let notch_void = |view: &str, p: &Placed, source_witnesses: bool| {
+    let notch_void = |view: &str, p: &Placed| {
         let Some(frame) = frames.get(view) else {
             return false;
         };
@@ -3707,12 +3707,9 @@ fn plan_inventory_ordered(
             .iter()
             .find(|v| v.id == format!("v:{view}"))
             .is_some_and(|v| {
-                interior_proofs.get(&v.id).is_some_and(|proof| {
-                    proof.exterior_annotation_clear(v, p)
-                        || (source_witnesses
-                            && opening_proofs.is_some()
-                            && proof.profile_angle_clear(v, p))
-                })
+                interior_proofs
+                    .get(&v.id)
+                    .is_some_and(|proof| proof.exterior_annotation_clear(v, p))
             })
     };
     // Profile-corner angles take their clear places before the callouts route around the
@@ -3739,7 +3736,7 @@ fn plan_inventory_ordered(
         obstacles,
         &mut placed,
         &page,
-        &|view, p| notch_void(view, p, false),
+        &notch_void,
     );
     // Radius exceptions are placed around the existing drawing ink. Their addition must not
     // reroute unrelated approved callouts into clutter.
@@ -4009,7 +4006,7 @@ fn plan_inventory_ordered(
         obstacles,
         &mut placed,
         &page,
-        &|view, p| notch_void(view, p, false),
+        &notch_void,
     );
     interior.extend(interior::place(
         analysis,
@@ -4127,7 +4124,7 @@ fn plan_inventory_ordered(
                                     matches!(w.shape, Shape::Callout { .. }),
                                 )
                             }) || (w.measurements.iter().any(|m| m.parameter == "notch.angle")
-                                && notch_void(v.id.trim_start_matches("v:"), p, true))
+                                && notch_void(v.id.trim_start_matches("v:"), p))
                         })
                     })
                 })
@@ -4297,7 +4294,7 @@ fn plan_inventory_ordered(
                                     matches!(w.shape, Shape::Callout { .. }),
                                 )
                             }) || (w.measurements.iter().any(|m| m.parameter == "notch.angle")
-                                && notch_void(v.id.trim_start_matches("v:"), p, true))
+                                && notch_void(v.id.trim_start_matches("v:"), p))
                         })
                     })
             })
