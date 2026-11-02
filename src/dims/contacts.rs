@@ -255,6 +255,38 @@ fn leader_ends(analysis: &Analysis, plan: &Plan) -> Vec<Problem> {
     out
 }
 
+// Conservative broad phase for the exact ink predicate below. Bounds include
+// filled arrowheads; uncertain/nonfinite ink always reaches the narrow phase.
+fn ink_bounds(p: &Placed) -> [f64; 4] {
+    let mut b = [
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    for q in super::placement::ink_points(p) {
+        if !q.iter().all(|n| n.is_finite()) {
+            return [
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::INFINITY,
+            ];
+        }
+        b = [
+            b[0].min(q[0]),
+            b[1].min(q[1]),
+            b[2].max(q[0]),
+            b[3].max(q[1]),
+        ];
+    }
+    b
+}
+fn may_reach(a: [f64; 4], b: [f64; 4]) -> bool {
+    !a.iter().chain(&b).all(|n| n.is_finite())
+        || (0..2).all(|k| a[k] <= b[k + 2] + 1e-6 && a[k + 2] >= b[k] - 1e-6)
+}
+
 pub(super) fn contacts(plan: &Plan) -> Vec<Problem> {
     let mut all = plan.dimensions.clone();
     all.extend(plan.gdt.iter().filter_map(super::gdt::proxy));
@@ -270,6 +302,7 @@ pub(super) fn contacts(plan: &Plan) -> Vec<Problem> {
             })
             .filter_map(|d| d.placed.as_ref().map(|p| (d, p)))
             .collect();
+        let bounds: Vec<_> = placed.iter().map(|(_, p)| ink_bounds(p)).collect();
         // Text near text, and line-work near text. Overlaps and lines through a label are the
         // placement check's; only the contacts it passes as clear are reported here.
         for (i, (a, pa)) in placed.iter().enumerate() {
@@ -295,13 +328,15 @@ pub(super) fn contacts(plan: &Plan) -> Vec<Problem> {
         for (b, pb) in &placed {
             let near: Vec<&PlannedDimension> = placed
                 .iter()
-                .filter(|(a, pa)| {
+                .enumerate()
+                .filter(|(i, (a, pa))| {
                     a.id != b.id
+                        && may_reach(bounds[*i], clear_box(pb.label_box))
                         && !boxes_overlap(clear_box(pa.label_box), pb.label_box)
                         && !ink_through(pa, pb.label_box)
                         && ink_through(pa, clear_box(pb.label_box))
                 })
-                .map(|(a, _)| *a)
+                .map(|(_, (a, _))| *a)
                 .collect();
             let Some(first) = near.first() else {
                 continue;
@@ -745,5 +780,35 @@ mod tests {
             p.sheet.basis
         );
         assert_eq!(p.sheet.basis.matches("final repairs").count(), 1);
+    }
+}
+
+#[cfg(test)]
+mod bounds_tests {
+    use super::*;
+    #[test]
+    fn contact_bounds_never_skip_filled_heads_or_witness_ink() {
+        let p = Placed {
+            lines: vec![[[-5., 0.], [15., 0.]], [[15., 0.], [15., 8.]]],
+            arrows: vec![[[0., 0.], [4., 4.]], [[12., 5.], [10., 2.]]],
+            label_at: [20., 20.],
+            label_box: [20., 20., 25., 23.],
+            rotation: 0.,
+        };
+        let bound = ink_bounds(&p);
+        for x in -7..=27 {
+            for y in -7..=25 {
+                for size in [0.01, 0.5, 3.] {
+                    let b = [
+                        f64::from(x),
+                        f64::from(y),
+                        f64::from(x) + size,
+                        f64::from(y) + size,
+                    ];
+                    assert!(!ink_through(&p, b) || may_reach(bound, b));
+                }
+            }
+        }
+        assert!(may_reach(bound, [f64::NAN; 4]));
     }
 }

@@ -6,6 +6,11 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Reduce notch placement and leader-proof work without changing the drawing:
+  rank lightweight lane alternatives before clearance, share immutable witness and ray proofs, index
+  peer strokes, reuse prepared attachment evidence and route geometry, and
+  reuse identical crossing tiers in the bounded assignment search.
+
 - Measure missing semantic-PMI nominals from proven reference geometry, retaining
   source identities and explicit tolerances with a `pmi_read_nonconformance`
   warning. Reuse existing size carriers instead of duplicating labels.

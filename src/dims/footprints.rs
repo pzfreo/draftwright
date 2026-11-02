@@ -54,6 +54,51 @@ struct ExtensionCounts {
     id: usize,
 }
 
+/// Physical owners are fixed throughout one dimension's lane search.
+/// Both paths below use the same clipping predicate, including the foreign
+/// opening check; only the ownership preparation is shared.
+pub(super) struct WitnessClipper<'a> {
+    shapes: Vec<&'a Shape>,
+    slot_width: bool,
+    extensions: ExtensionCounter<'a>,
+}
+impl WitnessClipper<'_> {
+    pub(super) fn clip(&self, line: &mut [P2; 2]) -> bool {
+        clip_witness(line, self.shapes.iter().copied(), self.slot_width, |s| {
+            self.extensions.count(s) != 0
+        })
+    }
+}
+fn clip_witness<'a>(
+    line: &mut [P2; 2],
+    shapes: impl Iterator<Item = &'a Shape>,
+    slot_width: bool,
+    crossed: impl Fn([P2; 2]) -> bool,
+) -> bool {
+    let exit = shapes
+        .flat_map(|s| match s {
+            Shape::Box(b) if slot_width => clip_box(*line, *b, true).into_iter().collect(),
+            _ => s.spans(*line),
+        })
+        .filter(|(a, _)| *a <= 1e-9)
+        .map(|(_, b)| b)
+        .max_by(f64::total_cmp);
+    if let Some(exit) = exit {
+        let d = [line[1][0] - line[0][0], line[1][1] - line[0][1]];
+        let length = d[0].hypot(d[1]);
+        let t = exit + super::GAP / length.max(1e-12);
+        if t >= 1.0 {
+            return false;
+        }
+        let next = [line[0][0] + t * d[0], line[0][1] + t * d[1]];
+        if slot_width && crossed([line[0], next]) {
+            return false;
+        }
+        line[0] = next;
+    }
+    true
+}
+
 pub(super) struct ExtensionCounter<'a> {
     footprints: &'a Footprints,
     prepared: Rc<ExtensionCounts>,
@@ -717,32 +762,29 @@ impl Footprints {
     pub(super) fn interior_witness(&self, line: &mut [P2; 2], owners: &[Measurement]) -> bool {
         let slot_width =
             self.slot_layout && owners.iter().any(|m| m.parameter == "slot_width.length");
-        let exit = self
-            .features
-            .iter()
-            .filter(|f| self.owned(&f.id, owners))
-            .flat_map(|f| match &f.shape {
-                Shape::Box(b) if slot_width => clip_box(*line, *b, true).into_iter().collect(),
-                _ => f.shape.spans(*line),
-            })
-            .filter(|(a, _)| *a <= 1e-9)
-            .map(|(_, b)| b)
-            .max_by(f64::total_cmp);
-        if let Some(exit) = exit {
-            let d = [line[1][0] - line[0][0], line[1][1] - line[0][1]];
-            let length = d[0].hypot(d[1]);
-            let t = exit + super::GAP / length.max(1e-12);
-            if t >= 1.0 {
-                return false;
-            }
-            let next = [line[0][0] + t * d[0], line[0][1] + t * d[1]];
-            // Clipping an owned rim must not jump a foreign opening inside it.
-            if slot_width && !self.crossed_extension([line[0], next], owners).is_empty() {
-                return false;
-            }
-            line[0] = next;
+        clip_witness(
+            line,
+            self.features
+                .iter()
+                .filter(|f| self.owned(&f.id, owners))
+                .map(|f| &f.shape),
+            slot_width,
+            |s| !self.crossed_extension(s, owners).is_empty(),
+        )
+    }
+
+    pub(super) fn witness_clipper(&self, owners: &[Measurement]) -> WitnessClipper<'_> {
+        WitnessClipper {
+            shapes: self
+                .features
+                .iter()
+                .filter(|f| self.owned(&f.id, owners))
+                .map(|f| &f.shape)
+                .collect(),
+            slot_width: self.slot_layout
+                && owners.iter().any(|m| m.parameter == "slot_width.length"),
+            extensions: self.extension_counter(owners),
         }
-        true
     }
 
     /// Bind ownership once for the many exact witness-count queries in a linear solve.
@@ -1417,5 +1459,17 @@ mod tests {
         let mut line = original;
         assert!(!f.interior_witness(&mut line, &owners));
         assert_eq!(line, original);
+        for f in [footprints(15.), footprints(7.)] {
+            let clipper = f.witness_clipper(&owners);
+            for start in [[4., 1.], [4., 9.], [4., 14.]] {
+                let mut direct = [start, [4., 20.]];
+                let mut prepared = direct;
+                assert_eq!(
+                    f.interior_witness(&mut direct, &owners),
+                    clipper.clip(&mut prepared)
+                );
+                assert_eq!(direct, prepared);
+            }
+        }
     }
 }

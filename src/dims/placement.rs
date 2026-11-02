@@ -4510,7 +4510,10 @@ fn settle_where(
 /// A linear dimension's other label places along its line, nearest first (see [`settle`]),
 /// made as they are tried: a line far longer than the sheet (a part drawn at a scale too large
 /// for it) has more places than memory holds.
-pub(super) fn slides(p: &Placed, drawable: [f64; 4]) -> Box<dyn Iterator<Item = Placed> + '_> {
+pub(super) fn slide_parameters(
+    p: &Placed,
+    drawable: [f64; 4],
+) -> Box<dyn Iterator<Item = (f64, [f64; 2])> + '_> {
     // This solver slides x or y alone; oblique geometry is placed in its own frame.
     if !(p.rotation == 0.0 || p.rotation.abs() == 90.0) {
         return Box::new(std::iter::empty());
@@ -4568,6 +4571,12 @@ pub(super) fn slides(p: &Placed, drawable: [f64; 4]) -> Box<dyn Iterator<Item = 
     } else {
         Box::new(std::iter::empty())
     };
+    shifts
+}
+
+pub(super) fn slides(p: &Placed, drawable: [f64; 4]) -> Box<dyn Iterator<Item = Placed> + '_> {
+    let k = usize::from(p.rotation != 0.0);
+    let shifts = slide_parameters(p, drawable);
     Box::new(shifts.map(move |(d, extent)| {
         let mut c = p.clone();
         c.label_box[k] += d;
