@@ -262,6 +262,23 @@ pub enum Field {
     Length(f64),
 }
 
+const MISSING_NOMINAL: &str = "the file states no nominal value (haecceity reads it without one)";
+const MEASURED_NOMINAL: &str = "geometry (no stated value)";
+
+/// A measured fallback retains its source's originally empty label discriminator.
+/// The measured number is drawing information, not a newly authored source value.
+pub(crate) fn nominal_measured(r: &Record) -> bool {
+    r.fields.iter().any(|(key, value)| {
+        key == "nominal source" && *value == Field::Text(MEASURED_NOMINAL.into())
+    })
+}
+
+fn missing_nominal_finding(f: &pmi::Finding) -> bool {
+    f.kind == pmi::FindingKind::Nonconformance
+        && f.detail
+            .starts_with("a dimension without a dimensional_characteristic_representation:")
+}
+
 /// How the file's semantic-PMI instances were accounted for (haecceity's accounting).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Accounting {
@@ -454,7 +471,12 @@ impl Report {
         for (base, records) in group(self.records.iter().collect(), &|r| identity(r, parts)) {
             let labelled = records.len() > 1 && !base.contains(":t=");
             let by = if labelled {
-                group(records, &|r| format!("{base}:t={}", escaped(&r.label)))
+                group(records, &|r| {
+                    format!(
+                        "{base}:t={}",
+                        escaped(if nominal_measured(r) { "" } else { &r.label })
+                    )
+                })
             } else {
                 BTreeMap::from([(base, records)])
             };
@@ -747,7 +769,7 @@ pub fn report_part(
         r.read(&mut records, &mut sources, &mut legacy_presentations);
     }
     let mut attached = vec![false; read.findings.len()];
-    let reader_problems = read
+    let mut reader_problems = read
         .findings
         .iter()
         .filter(|f| f.part.is_none_or(|p| drawn(p.0)) && repaired_read(f))
@@ -766,7 +788,29 @@ pub fn report_part(
             refs: f.ids.iter().map(|id| format!("#{id}")).collect(),
             ..Default::default()
         })
-        .collect();
+        .collect::<Vec<_>>();
+    for record in &records {
+        if nominal_measured(record) {
+            let units = if record.kind == "angular" {
+                "deg"
+            } else {
+                "mm"
+            };
+            let detail = read.findings.iter().find(|f| {
+                f.part == Some(pmi::PartId(record.part))
+                    && f.ids.contains(&record.part21_id)
+                    && missing_nominal_finding(f)
+            }).map_or("a dimension without a dimensional_characteristic_representation: no value is stated", |f| f.detail.as_str());
+            reader_problems.push(crate::model::Problem {
+                id: format!("p:pmi_read_nonconformance:{}:measured_nominal", record.source_id),
+                code: "pmi_read_nonconformance".into(),
+                severity: "warning".into(),
+                message: format!("PMI dimension {}: {detail}. Its nominal {} {} was measured from the referenced geometry; this recovers the missing nominal and retains only explicitly stated tolerances.", record.source_id, fmt(record.value.expect("measured nominal"), None), units),
+                refs: vec![record.source_id.clone(), format!("#{}", record.part21_id)],
+                ..Default::default()
+            });
+        }
+    }
     for record in &mut records {
         for (i, f) in read.findings.iter().enumerate() {
             if repaired_read(f) {
@@ -778,6 +822,10 @@ pub fn report_part(
                     .first()
                     .is_some_and(|id| record.instances.binary_search(id).is_ok());
             if on {
+                if nominal_measured(record) && missing_nominal_finding(f) {
+                    attached[i] = true;
+                    continue;
+                }
                 if f.detail.contains("more than one id_attribute")
                     && !requirement_id_owner(doc, record, f.ids[0])
                 {
@@ -2275,8 +2323,7 @@ impl PartReader<'_> {
         }
         r.value = d.nominal.as_ref().map(measure);
         if d.nominal.is_none() {
-            r.blockers
-                .push("the file states no nominal value (haecceity reads it without one)".into());
+            r.blockers.push(MISSING_NOMINAL.into());
         }
         match &d.tolerance {
             DimTolerance::None => {}
@@ -2362,6 +2409,26 @@ impl PartReader<'_> {
             }
         }
         self.targets(&groups, &mut r);
+        if r.value.is_none() && r.blockers == [MISSING_NOMINAL] {
+            let geometry = crate::pmi_lowering::dimension_geometry(self.drawing.part, &r);
+            if let Some(value) = crate::pmi_lowering::measured_value(&r.kind, &geometry) {
+                r.value = Some(value);
+                r.blockers.clear();
+                r.fields.push((
+                    "nominal source".into(),
+                    Field::Text(MEASURED_NOMINAL.into()),
+                ));
+                r.label = dimension_label(&r, d);
+                if let Some(suffix) = d.qualifier.as_ref().and_then(|q| match q {
+                    pmi::Qualifier::Maximum => Some("MAX"),
+                    pmi::Qualifier::Minimum => Some("MIN"),
+                    pmi::Qualifier::Average => Some("AVG"),
+                    _ => None,
+                }) {
+                    r.label += &format!(" {suffix}");
+                }
+            }
+        }
         r
     }
 

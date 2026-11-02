@@ -336,6 +336,59 @@ fn pinning_without_offsets_keeps_automatic_geometry() {
     }
 }
 
+/// The expanded opening inventory can settle adjacent hole marks again. An
+/// attached datum pin must hold its published carrier through those passes,
+/// while an empty placement edit leaves its pinned drawing's ink unchanged.
+#[test]
+fn notch_lane_edits_keep_the_attached_datum_in_its_published_carrier() {
+    let a = pmi();
+    let base = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let id = "pmi:datum.datum:f75,76:t=C";
+    for place in [
+        json!({"pinned":true}),
+        json!({"pinned":true,"view":"plan","lane":2,"side":"above"}),
+    ] {
+        let s = set(&Spec::default(), id, "place", place);
+        let pinned = model::plan_recovered(&a, &s).unwrap();
+        let held = geometry(&pinned, id);
+        assert_eq!(held, geometry(&base, id));
+        // A pin may repack free views, as on main. Its own carrier and
+        // attached size frame must retain the published geometry.
+        let carrier = &base.gdt.iter().find(|g| g.id == id).unwrap().view;
+        let (mut actual, mut expected) = (geometry(&pinned, carrier), geometry(&base, carrier));
+        actual.as_object_mut().unwrap().remove("area");
+        expected.as_object_mut().unwrap().remove("area");
+        assert_eq!(actual, expected);
+        let free = "d:envelope/width.length";
+        for (field, value) in [("tolerance", json!("±0.1")), ("place", json!({}))] {
+            let edited = set(&s, free, field, value);
+            let changed = model::plan_recovered(&a, &edited).unwrap();
+            assert_eq!(geometry(&changed, id), held, "{field}");
+            if field == "place" {
+                for v in &pinned.views {
+                    let (mut actual, mut expected) =
+                        (geometry(&changed, &v.id), geometry(&pinned, &v.id));
+                    actual.as_object_mut().unwrap().remove("area");
+                    expected.as_object_mut().unwrap().remove("area");
+                    assert_eq!(actual, expected);
+                }
+                for d in &pinned.dimensions {
+                    let other = changed
+                        .dimensions
+                        .iter()
+                        .find(|other| other.id == d.id)
+                        .unwrap();
+                    assert_eq!(
+                        (&other.label, &other.terms, &other.measurements),
+                        (&d.label, &d.terms, &d.measurements)
+                    );
+                    assert_eq!(geometry(&changed, &d.id), geometry(&pinned, &d.id));
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn seeded_edits_on_slice_parts_preserve_pinned_geometry() {
     let mut parts = slice();

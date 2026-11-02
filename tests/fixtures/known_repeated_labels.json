@@ -11,5 +11,31 @@
     "verdict": "identical-features",
     "draftwright": "m_slot1_length '31.8' and m_slot2_length '31.8' in the plan, one per slot (y = -46.4 and +46.4).",
     "reason": "Two slots of the same 31.75 length at mirrored positions: their lengths lie on different spans, each its own dimension; draftwright's slot width coalescing (`_slot_shared_width_key`) needs the same view, width axis and the same two width edges, which these do not share; the port's `share` (src/dims/mod.rs) applies the same one-span rule, extended to slot lengths and boss heights. Default nominal precision now preserves the modelled hundredths; these same item IDs and distinct physical spans remain repeated."
+  },
+  {
+    "part": "nist/nist_ctc_01_asme1_rd.stp",
+    "view": "plan",
+    "label": "85",
+    "rotation": 0,
+    "items": [
+      "d:f:rectangular_through_notch:1/notch_width.length",
+      "d:f:rectangular_through_notch:2/notch_width.length"
+    ],
+    "verdict": "identical-features",
+    "draftwright": "The legacy sheet did not dimension these rectangular through-notches; the native reader now publishes both cuts.",
+    "reason": "Reviewer cx/ctc01 explicitly requires ordinary linear wall dimensions and permits one width per congruent notch. These are different X spans (107.5 to 192.5 and -192.5 to -107.5), each 85 mm. They are not duplicate measurements or the same drawn span; the AP242 copy keeps source dimension #24 on its own left-hand wall pair."
+  },
+  {
+    "part": "nist/nist_ctc_01_asme1_rd.stp",
+    "view": "plan",
+    "label": "350",
+    "rotation": 90,
+    "items": [
+      "d:f:hole_pattern:1/grid_pitch.length.row",
+      "d:f:rectangular_through_notch:1/location.length.y"
+    ],
+    "verdict": "distinct-quantities",
+    "draftwright": "The existing 350 mm corner-hole row pitch remains; the newly dimensioned through-notch mouths also need their location.",
+    "reason": "Reviewer cx/ctc01 requires linear notch locations in place of coordinate notes. The hole pitch spans Y=-175 to 175, while the notch-mouth location spans the bottom edge Y=-225 to the shared mouth plane Y=125. Equal nominal values do not cover these different quantities; both are required and keep their physical witnesses."
   }
 ]

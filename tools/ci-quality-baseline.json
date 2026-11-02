@@ -235,7 +235,7 @@
       "ink": 0,
       "line_through_feature": 5,
       "off_sheet": 0,
-      "repeated_label": 0,
+      "repeated_label": 2,
       "repeated_measure": 0,
       "repeated_span": 0,
       "section_hidden": 0,
@@ -527,7 +527,7 @@
       1
     ]
   },
-  "source": "Recorded from the complete quality.py --record audit",
+  "source": "Recorded from the complete quality.py --record audit; cx/ctc01 adds two justified repeated labels on CTC-01 RD (distinct notch widths 85 and distinct 350 spans), reviewed in tests/fixtures/known_repeated_labels.json",
   "source_commit": "72d436a6da942f777e095285ab5751356c006b80",
   "verified_binary_sha256": "60cde4cd0642fa8dbe882f39843ca418f0cd77b336a656348f13a5d7c0bae728"
 }

@@ -403,6 +403,7 @@ fn assert_review_summary(file: &str, expected: [(usize, usize); 4]) {
             4
         );
         assert_eq!(wire["summary"]["groups"]["extension_through_feature"], 9);
+        assert!(wire["summary"]["groups"]["label_crowded"].is_null());
         // CTC-01's 350 row pitch is witnessed from the grid's right-hand column, so no callout
         // leader crosses its extension lines (on alpha.12, from the left-hand column, two did).
         assert!(wire["summary"]["groups"]["annotation_leader_crossing:extension_line"].is_null());
@@ -426,7 +427,16 @@ fn ctc01_counts_gaps_and_repeated_causes_without_hiding_findings() {
         // (6, 2) -> (7, 3); their faces are no longer unclaimed_geometry: advisory -> (14, 3).
         // v0.2.3 (#127) states the inside rounds explicitly as 18× R10; the
         // 350 pitch passes within 0.5 mm of that new callout (one advisory).
-        [(7, 3), (1, 1), (1, 1), (15, 3)],
+        // cx/ctc01 consumes the published rectangular through-notch family:
+        // both cuts are sized and located, so its one incomplete finding/group
+        // goes (7,3 -> 6,2). Every other finding remains counted.
+        // Reviewer round 1 replaces coordinate notes with linear opening
+        // dimensions. Five old crowded labels clear after final own-span text
+        // settlement. The reproved V-angle sector removes one inside-extents
+        // advisory, leaving one legal blank-opening placement as evidence.
+        // All nine extension findings and the unavailable detail stay counted:
+        // advisory (13,4) -> (11,3), with no label_crowded group remaining.
+        [(6, 2), (1, 1), (1, 1), (11, 3)],
     );
 }
 #[test]

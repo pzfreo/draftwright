@@ -266,6 +266,64 @@ pub fn ink_span(
     Some((axis, station(&lines[0]), station(&lines[1])))
 }
 
+pub(crate) fn witness_owners(a: &Analysis, claims: &[crate::output::Claim]) -> BTreeSet<String> {
+    let mut owners = BTreeSet::new();
+    for claim in claims {
+        if let Some(p) = pattern(a, &claim.feature) {
+            owners.extend(p.members.iter().cloned());
+        } else if a.features.iter().any(|f| f.id == claim.feature) {
+            owners.insert(claim.feature.clone());
+        }
+    }
+    owners
+}
+
+/// A direct pitch can use the hole's drawn centre line in place of a
+/// separate extension. Reconstruct only a collapsed witness whose arrow tip
+/// and stored point both lie on that same, independently drawn centre line.
+pub(crate) fn centreline_witnesses(
+    lines: &[[[f64; 2]; 2]],
+    heads: &[[[f64; 2]; 2]],
+    centres: &[[[f64; 2]; 2]],
+) -> Option<Vec<[[f64; 2]; 2]>> {
+    if lines.len() < 3 {
+        return None;
+    }
+    let d = lines[2];
+    let k = (0..2)
+        .find(|&k| (d[0][1 - k] - d[1][1 - k]).abs() < EPS && (d[0][k] - d[1][k]).abs() > EPS)?;
+    let near = |p: [f64; 2], q: [f64; 2]| (p[0] - q[0]).hypot(p[1] - q[1]) < EPS;
+    let mut out = lines.to_vec();
+    for witness in out.iter_mut().take(2) {
+        if !near(witness[0], witness[1]) {
+            continue;
+        }
+        let p = witness[0];
+        let mut tip = p;
+        tip[1 - k] = d[0][1 - k];
+        if heads
+            .iter()
+            .filter(|s| near(s[0], tip) || near(s[1], tip))
+            .count()
+            < 2
+        {
+            return None;
+        }
+        let support = centres.iter().find(|s| {
+            (s[0][k] - p[k]).abs() < EPS
+                && (s[1][k] - p[k]).abs() < EPS
+                && [p[1 - k], tip[1 - k]].iter().all(|v| {
+                    *v >= s[0][1 - k].min(s[1][1 - k]) - EPS
+                        && *v <= s[0][1 - k].max(s[1][1 - k]) + EPS
+                })
+                && (s[0][1 - k] - s[1][1 - k]).abs() > EPS
+        })?;
+        *witness = *support;
+    }
+    crate::output::linear_ink(&out)?;
+    Some(out)
+}
+
 /// Ink evidence is local to lint. It is never written into the drawing or its Spec.
 pub(crate) fn drawn_constraints(
     a: &Analysis,
@@ -309,11 +367,27 @@ pub(crate) fn drawn_constraints(
             feature: "station_ink".into(),
             parameter: "witnesses".into(),
         });
-        let span = mark
+        let frame = mark
             .view
             .as_deref()
-            .and_then(|v| drawing.sheet.frames.get(v.trim_start_matches("v:")))
-            .and_then(|f| ink_span(a, f, &item.lines));
+            .and_then(|v| drawing.sheet.frames.get(v.trim_start_matches("v:")));
+        let span = frame.and_then(|f| ink_span(a, f, &item.lines)).or_else(|| {
+            let owners = witness_owners(a, &mark.claims);
+            let centres: Vec<_> = drawing
+                .sheet
+                .items
+                .iter()
+                .filter(|d| {
+                    d.kind == crate::output::Kind::Centreline
+                        && mark.view.as_ref().is_some_and(|v| {
+                            owners.iter().any(|id| d.name == format!("ink:{v}:{id}"))
+                        })
+                })
+                .flat_map(|d| d.lines.iter().copied())
+                .collect();
+            let lines = centreline_witnesses(&item.lines, &item.heads, &centres)?;
+            frame.and_then(|f| ink_span(a, f, &lines))
+        });
         if let Some((axis, p, q)) = span {
             mark.claims.push(crate::output::Claim {
                 feature: span_claim(axis, p, q),
@@ -329,6 +403,14 @@ pub(crate) fn node_feature(a: &Analysis, id: &str, k: usize) -> Option<String> {
         && p.members.iter().all(|id| node_feature(a, id, k).is_some())
     {
         return Some(id.into());
+    }
+    if let Some(f) = a
+        .features
+        .iter()
+        .find(|f| f.id == id && f.kind == "rectangular_through_notch")
+    {
+        let n = super::rectangular_notches::read(a, f).ok()?;
+        return (k != n.axis).then(|| id.into());
     }
     if let Some(f) = a.features.iter().find(|f| f.id == id && f.kind == "slot") {
         return ["location_slot.length", "location_slot_across.length"]
@@ -396,6 +478,9 @@ pub(crate) fn station(a: &Analysis, id: &str, k: usize) -> Option<f64> {
             && let Ok(h) = crate::bridge::holes::Hole::read(f, &crate::bridge::holes::frame(a))
         {
             return Some(h.at[k]);
+        }
+        if f.kind == "rectangular_through_notch" {
+            return Some(super::rectangular_notches::read(a, f).ok()?.locator()[k]);
         }
         if f.kind == "slot" {
             let p = super::slots::centre(f).ok()?;
@@ -912,6 +997,13 @@ pub(crate) fn targets(a: &Analysis) -> Vec<(String, usize, f64)> {
                     }
                 }
             }
+            "rectangular_through_notch" => {
+                if let Ok(n) = super::rectangular_notches::read(a, f) {
+                    for k in [n.wide, n.deep] {
+                        out.push((f.id.clone(), k, n.locator()[k]));
+                    }
+                }
+            }
             "turned_step" => {
                 if let Ok(b) = super::turned::band(&crate::bridge::holes::frame(a), f) {
                     out.push((f.id.clone(), b.axis, b.lo));
@@ -1346,5 +1438,30 @@ mod tests {
         );
         assert!(claimed("f:hole:2", "location.length.y").is_empty());
         assert!(claimed("f:hole:1", "hole_diameter.length").is_empty());
+    }
+    #[test]
+    fn direct_pitch_requires_its_drawn_centre_lines_and_arrowheads() {
+        let lines = [
+            [[2., 0.], [2., 0.]],
+            [[2., 90.], [2., 90.]],
+            [[0., 0.], [0., 90.]],
+        ];
+        let heads = [
+            [[0., 0.], [-1., 3.]],
+            [[1., 3.], [0., 0.]],
+            [[0., 90.], [-1., 87.]],
+            [[1., 87.], [0., 90.]],
+        ];
+        let centres = [[[-5., 0.], [5., 0.]], [[-5., 90.], [5., 90.]]];
+        let ink = centreline_witnesses(&lines, &heads, &centres).unwrap();
+        assert_eq!(crate::output::linear_ink(&ink).unwrap().span, [0., 90.]);
+        assert!(centreline_witnesses(&lines, &[], &centres).is_none());
+        assert!(centreline_witnesses(&lines, &heads, &centres[..1]).is_none());
+        let mut wrong = centres;
+        wrong[1] = [[-5., 89.], [5., 89.]];
+        assert!(centreline_witnesses(&lines, &heads, &wrong).is_none());
+        let mut invisible = lines;
+        invisible[1] = [[10., 90.], [10., 90.]];
+        assert!(centreline_witnesses(&invisible, &heads, &centres).is_none());
     }
 }

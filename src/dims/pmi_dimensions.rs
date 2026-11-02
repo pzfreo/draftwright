@@ -532,6 +532,55 @@ fn compound_bore_location(a: &Analysis, wants: &[Want], r: &Record, k: usize) ->
     (found.len() == 1).then(|| found[0])
 }
 
+/// A measured fallback can use an existing native size on precisely the same
+/// two support planes. Retain its local witnesses instead of adding a second
+/// dimension in an arbitrary principal view.
+fn measured_plane_size(a: &Analysis, wants: &[Want], r: &Record, k: usize) -> Option<usize> {
+    if !crate::pmi::nominal_measured(r)
+        || r.basic
+        || r.face_groups.len() != 2
+        || r.faces.is_empty()
+        || r.faces.iter().any(|&f| {
+            a.face_attachments
+                .get(f)
+                .is_none_or(|f| f.surface.as_deref() != Some("plane") || f.axis != Some(k))
+        })
+    {
+        return None;
+    }
+    let g = r.geometry.as_ref()?;
+    let [p, q] = g.stations.as_slice() else {
+        return None;
+    };
+    let found: Vec<_> = wants
+        .iter()
+        .enumerate()
+        .filter(|(_, w)| {
+            let proven = |lo: f64, hi: f64| {
+                (lo - p[k].min(q[k])).abs() < 1e-6 && (hi - p[k].max(q[k])).abs() < 1e-6
+            };
+            let owns = |f: &crate::bridge::Feature| r.faces.iter().all(|i| f.faces.contains(i));
+            match &w.shape {
+                Shape::Linear {
+                    a: x, b: y, axis, ..
+                } if *axis == k => {
+                    proven(x[k].min(y[k]), x[k].max(y[k]))
+                        && w.measurements.iter().any(|m| {
+                            !m.parameter.starts_with("location")
+                                && a.features
+                                    .iter()
+                                    .find(|f| f.id == m.feature)
+                                    .is_some_and(owns)
+                        })
+                }
+                _ => false,
+            }
+        })
+        .map(|(i, _)| i)
+        .collect();
+    (found.len() == 1).then(|| found[0])
+}
+
 /// Whether a plain diameter's label is the size as a callout prints it: `⌀6`, or `⌀6 THRU`
 /// (draftwright's `_canonical_nominal_diameter_label`, which spells it `ø6`).
 fn canonical(r: &Record, value: f64) -> bool {
@@ -1205,6 +1254,15 @@ fn outcome(
                     ),
                 ));
             };
+            if band.is_none()
+                && r.label.trim() == fmt(value)
+                && let Some(i) = measured_plane_size(a, wants, r, k)
+            {
+                return Outcome::Stated(
+                    i,
+                    "measured size between the same authored support planes",
+                );
+            }
             if r.basic
                 && band.is_none()
                 && r.label.trim() == fmt(value)

@@ -163,6 +163,24 @@ pub(crate) fn span(a: &Analysis, feature: &str, parameter: &str) -> Option<Span>
         return depth_span(a, feature, parameter);
     }
     let f = a.features.iter().find(|f| f.id == feature)?;
+    if f.kind == "rectangular_through_notch" {
+        let n = super::rectangular_notches::read(a, f).ok()?;
+        return match parameter {
+            "notch_width.length" => Some(Span::new(
+                n.wide,
+                n.at[n.wide] - 0.5 * n.width,
+                n.at[n.wide] + 0.5 * n.width,
+            )),
+            "notch_depth.length" => Some(Span::new(n.deep, n.at[n.deep], n.mouth[n.deep])),
+            role if role.starts_with("location.length.") => {
+                let k = ["x", "y", "z"]
+                    .iter()
+                    .position(|axis| role == format!("location.length.{axis}"))?;
+                (k != n.axis).then(|| Span::new(k, a.envelope[0][k], n.locator()[k]))
+            }
+            _ => None,
+        };
+    }
     if f.kind == "turned_step" && parameter == "step.length" && coaxial(a) {
         let b = super::turned::band(&frame(a), f).ok()?;
         return Some(Span::new(b.axis, b.lo, b.hi));

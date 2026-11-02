@@ -6,6 +6,34 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Rectangular through-notches opening on an envelope face need only their
+  transverse location; require a shared slot ordinate's actual edge-to-centre
+  span, and clean measured PMI nominals at their source. Restore the existing
+  pin semantics outside the expanded notch inventory; its attached datum pins
+  keep their published carrier. Include the active frame gutter in settled-route memo keys.
+
+- Reduce notch placement and leader-proof work without changing the drawing:
+  rank lightweight lane alternatives before clearance, share immutable witness and ray proofs, index
+  peer strokes, reuse prepared attachment evidence and route geometry, and
+  reuse identical crossing tiers in the bounded assignment search.
+
+- Measure missing semantic-PMI nominals from proven reference geometry, retaining
+  source identities and explicit tolerances with a `pmi_read_nonconformance`
+  warning. Reuse existing size carriers instead of duplicating labels.
+- Retain slot-centre location evidence when a hole ordinate prints the same
+  distance, and dimension quiddity's published rectangular through-notches.
+  Widths, depths and wall locations are ordinary linear dimensions in the
+  carrying view; measured PMI wall spans retain their authored linear form.
+- Finish the selected sheet's callout routes consistently with pin replay, and
+  retain established leader corridors when adding notch annotations.
+  Keep coupled hole frames fixed during final notch-lane repair, and read a
+  direct pitch from its drawn centre lines and arrowheads in both audits.
+  Reprove nearby free-callout bends and local reaches with a one-millimetre
+  outline clearance, and replay settled notch lanes when pinning.
+  Keep complete V-angle sectors clear of the source outline as opening lanes settle.
+  Settle free linear text on its measured span against the final extension lines,
+  retaining the original witnesses and arrows.
+
 ## 0.2.9 (2026-11-02)
 
 Still on quiddity-rust **v0.4.3**. Fixes a 0.2.8 regression (#287): draftwright again draws the

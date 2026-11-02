@@ -4437,6 +4437,18 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
         let compact = plan.sheet.dimension_spacing == DimensionSpacing::Compact;
         crate::dims::with_compact(compact, || {
             let effective = crate::spec_gdt::effective(analysis, &plan.spec)?;
+            // Added notch callouts can leave a fixed-pair paper trial with
+            // deferred routes. Finish that expanded inventory in its chosen
+            // frame, just as canonical pin replay does. Existing annotation
+            // families retain their established finishing path.
+            let expanded_notches = plan.dimensions.iter().any(|d| {
+                d.measurements
+                    .iter()
+                    .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+            });
+            if expanded_notches {
+                finish_nominal_plan(effective.as_ref(), spec, &mut plan);
+            }
             // Repair only the selected drawing. Candidate paper/scale trials keep their
             // established costs, so a clearer route cannot force a larger sheet.
             // A reference that cannot be planned (an authored item duplicating an automatic
@@ -4448,12 +4460,23 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
                 &mut plan,
                 natural.as_ref(),
             );
+            crate::dims::finish_openings(effective.as_ref(), spec, &mut plan);
             crate::dims::callout_routes::finish(effective.as_ref(), spec, &mut plan);
             crate::dims::hole_marks::attach(effective.as_ref(), spec, &mut plan);
             crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
+            if crate::dims::openings_need_settling(&plan) {
+                crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
+                crate::dims::hole_marks::attach(effective.as_ref(), spec, &mut plan);
+                crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
+                crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
+                crate::dims::callout_routes::finish_frames(effective.as_ref(), spec, &mut plan);
+            }
             crate::dims::gdt::cited_undrawn(&mut plan);
             crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
-            if crate::dims::pmi_policy::carries(effective.as_ref()) || !spec.origin.is_empty() {
+            if expanded_notches
+                || crate::dims::pmi_policy::carries(effective.as_ref())
+                || !spec.origin.is_empty()
+            {
                 crate::fixes::attach(effective.as_ref(), &mut plan);
             }
             Ok(plan)
@@ -5274,9 +5297,17 @@ fn plan_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 &mut plan,
                 natural.as_ref(),
             );
+            crate::dims::finish_openings(analysis, spec, &mut plan);
             crate::dims::callout_routes::finish(analysis, spec, &mut plan);
             crate::dims::hole_marks::attach(analysis, spec, &mut plan);
             crate::dims::size_datums::attach(analysis, spec, &mut plan);
+            if crate::dims::openings_need_settling(&plan) {
+                crate::dims::finish_attached_openings(analysis, spec, &mut plan);
+                crate::dims::hole_marks::attach(analysis, spec, &mut plan);
+                crate::dims::size_datums::attach(analysis, spec, &mut plan);
+                crate::dims::finish_attached_openings(analysis, spec, &mut plan);
+                crate::dims::callout_routes::finish_frames(analysis, spec, &mut plan);
+            }
             crate::dims::gdt::cited_undrawn(&mut plan);
             if !crate::placement_intent::has_pins(spec) {
                 plan.record_dimension_labels();
@@ -5461,12 +5492,20 @@ fn plan_with_presentation(
                 // A bare pin holds the published route, including final-inventory
                 // interior/GD&T repair, rather than an intermediate paper trial.
                 crate::dims::callout_routes::prefer_interior(analysis, base, &mut finished, None);
+                crate::dims::finish_openings(analysis, base, &mut finished);
                 crate::dims::callout_routes::finish(analysis, base, &mut finished);
                 // The pinned plan starts from these frames and attaches its hole glyphs again,
                 // so it takes their reservations before attaching grew them (#224).
                 let areas: Vec<_> = finished.views.iter().map(|v| v.area).collect();
                 crate::dims::hole_marks::attach(analysis, base, &mut finished);
                 crate::dims::size_datums::attach(analysis, base, &mut finished);
+                if crate::dims::openings_need_settling(&finished) {
+                    crate::dims::finish_attached_openings(analysis, base, &mut finished);
+                    crate::dims::hole_marks::attach(analysis, base, &mut finished);
+                    crate::dims::size_datums::attach(analysis, base, &mut finished);
+                    crate::dims::finish_attached_openings(analysis, base, &mut finished);
+                    crate::dims::callout_routes::finish_frames(analysis, base, &mut finished);
+                }
                 for (v, area) in finished.views.iter_mut().zip(areas) {
                     v.area = area;
                 }
@@ -5591,10 +5630,22 @@ fn plan_with_presentation(
                 && (crate::placement_intent::automatic_pin(p)
                     || p.view.as_deref() == Some(g.view.trim_start_matches("v:")))
             {
-                // A pin on a glyph attached to its hole's mark (#224), bare or in the view it
-                // attaches in, holds that ink: it is lowered and attached again as the canonical
-                // drawing was, never pinned on the strip of a view it is not lowered in.
-                d.place = None;
+                // Opening-lane finishing reattaches glyphs after settling the
+                // new rectangular-notch inventory. Hold the published carrier
+                // through that pass; other inventories retain the existing pin semantics.
+                d.place = base
+                    .dimensions
+                    .iter()
+                    .any(|d| {
+                        d.measurements
+                            .iter()
+                            .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+                    })
+                    .then(|| crate::placement_intent::Place {
+                        pinned: true,
+                        view: Some(g.view.trim_start_matches("v:").into()),
+                        ..Default::default()
+                    });
             } else if let Some(p) = d.place.as_mut()
                 && p.pinned
                 && p.view.is_none()
@@ -7635,7 +7686,12 @@ fn plan_with_presentation(
         .iter()
         .filter(|n| matches!(n.state, ItemState::NotDrawable { .. }))
     {
-        for m in &note.measurements {
+        for m in note.measurements.iter().filter(|m| {
+            matches!(
+                m.parameter.as_str(),
+                "blend.radius" | "fillet.radius" | "cylindrical_profile.radius"
+            )
+        }) {
             problems.push(Problem {
                 id: format!("p:feature_not_dimensioned:{}", m.feature),
                 code: "feature_not_dimensioned".into(),

@@ -157,7 +157,7 @@ pub const FAMILIES: &[(&str, &[&str])] = &[
 
 /// The families consumed here, including evidence and refusals. Oriented slot patterns are
 /// checked and not kept (see the module docs). Threads are retained pending depiction.
-pub const READ: [&str; 39] = [
+pub const READ: [&str; 40] = [
     "holes",
     "hole_patterns",
     "fillets",
@@ -182,6 +182,7 @@ pub const READ: [&str; 39] = [
     "slot_patterns",
     "semicircular_blind_slots",
     "v_channels",
+    "rectangular_through_notches",
     "polygonal_bosses",
     "polygonal_stock",
     "double_d_bores",
@@ -254,6 +255,18 @@ pub enum Field {
 /// so a change to it does not refuse a read that would not use it. `a.b` is field `b` of object
 /// field `a`, checked when `a` is not null (`a` is listed first).
 pub const FIELDS: &[(&str, &[(&str, Field)])] = &[
+    (
+        "RectangularThroughNotch",
+        &[
+            ("axis", Field::Point),
+            ("opening", Field::Point),
+            ("at", Field::Point),
+            ("width", Field::Number),
+            ("depth", Field::Number),
+            ("thickness", Field::Number),
+            ("corner_radius", Field::NumberOrNull),
+        ],
+    ),
     (
         "ModelledThread",
         &[

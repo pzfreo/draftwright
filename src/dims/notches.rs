@@ -31,9 +31,169 @@ pub(super) fn id(feature: &str, parameter: &str) -> String {
 }
 
 pub(super) const PLANNER: Planner = Planner {
-    kinds: &["v_channel"],
+    kinds: &["v_channel", "rectangular_through_notch"],
     wants,
 };
+
+/// Width and depth of a published through-notch, with its mouth located on both
+/// in-plane axes. Corner radii retain the existing blend/fillet callouts.
+fn rectangular(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
+    let n = crate::lint::rectangular_notches::read(cx.analysis, f)?;
+    let view = end_on(n.axis);
+    let mut out = Vec::new();
+    let mut push = |parameter: String, a: P3, b: P3, axis: usize, a_edge, basis: &str| {
+        let value = (b[axis] - a[axis]).abs();
+        if value < 1e-6 {
+            return;
+        }
+        let order = u8::from(parameter.starts_with("location."));
+        out.push(Want {
+            id: want_id(&f.id, &parameter),
+            views: vec![view],
+            value,
+            terms: vec![fmt(value)],
+            measurements: vec![Measurement {
+                feature: f.id.clone(),
+                parameter,
+                value,
+            }],
+            turning: None,
+            basis: basis.into(),
+            shape: Shape::Linear {
+                a,
+                b,
+                axis,
+                a_edge,
+                b_edge: false,
+                order,
+            },
+        });
+    };
+    // Witness the straight walls, clear of the rounded bottom corners.
+    let mut a = n.mouth;
+    let mut b = a;
+    a[n.wide] -= 0.5 * n.width;
+    b[n.wide] += 0.5 * n.width;
+    push(
+        "notch_width.length".into(),
+        a,
+        b,
+        n.wide,
+        false,
+        "rectangular through-notch width between its straight walls, in the view through the plate",
+    );
+    // Use the middle of the bottom wall and the mouth's support plane.
+    push(
+        "notch_depth.length".into(),
+        n.at,
+        n.mouth,
+        n.deep,
+        false,
+        "rectangular through-notch depth from its mouth plane to its bottom wall",
+    );
+    for k in [n.wide, n.deep]
+        .into_iter()
+        .filter(|&k| n.needs_location(cx.analysis, k))
+    {
+        let b = n.locator();
+        let mut a = b;
+        a[k] = cx.analysis.envelope[0][k];
+        push(
+            format!("location.length.{}", AXES[k]),
+            a,
+            b,
+            k,
+            true,
+            "rectangular through-notch mouth corner located from an envelope edge in its end-on view",
+        );
+    }
+    // A common opening plane needs one ordinate, with both physical features
+    // retained as endpoints in the location graph.
+    let common: Vec<_> = cx
+        .analysis
+        .features
+        .iter()
+        .filter_map(|g| {
+            if g.kind != "rectangular_through_notch" {
+                return None;
+            }
+            let m = crate::lint::rectangular_notches::read(cx.analysis, g).ok()?;
+            (m.axis == n.axis
+                && m.deep == n.deep
+                && (m.mouth[n.deep] - n.mouth[n.deep]).abs() < 1e-6
+                && (m.mouth[n.deep] - m.at[n.deep]).signum()
+                    == (n.mouth[n.deep] - n.at[n.deep]).signum())
+            .then_some(g)
+        })
+        .collect();
+    let role = format!("location.length.{}", AXES[n.deep]);
+    if common.first().is_some_and(|g| g.id != f.id) {
+        out.retain(|w| !w.measurements.iter().any(|m| m.parameter == role));
+    } else if let Some(w) = out
+        .iter_mut()
+        .find(|w| w.measurements.iter().any(|m| m.parameter == role))
+    {
+        for g in common.into_iter().filter(|g| g.id != f.id) {
+            w.measurements.push(Measurement {
+                feature: g.id.clone(),
+                parameter: role.clone(),
+                value: w.value,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Equivalent physical witnesses for a shared opening ordinate or depth.
+/// Moving along the same support plane does not change the measured span.
+pub(super) fn references(w: &Want, analysis: &crate::model::Analysis) -> Vec<Shape> {
+    let Shape::Linear {
+        axis,
+        a_edge,
+        b_edge,
+        order,
+        ..
+    } = w.shape
+    else {
+        return Vec::new();
+    };
+    w.measurements
+        .iter()
+        .filter_map(|m| {
+            let f = analysis
+                .features
+                .iter()
+                .find(|f| f.id == m.feature && f.kind == "rectangular_through_notch")?;
+            let n = crate::lint::rectangular_notches::read(analysis, f).ok()?;
+            (axis == n.deep).then_some((n, m.parameter.starts_with("location.")))
+        })
+        .flat_map(|(n, location)| {
+            let mut out = Vec::new();
+            for offset in if location {
+                vec![-0.5 * n.width, 0.5 * n.width]
+            } else {
+                vec![0.]
+            } {
+                let mut b = n.mouth;
+                b[n.wide] += offset;
+                let mut a = if location { b } else { n.at };
+                if location {
+                    a[axis] = analysis.envelope[0][axis];
+                }
+                out.push(Shape::Linear {
+                    a,
+                    b,
+                    axis,
+                    a_edge,
+                    b_edge,
+                    order,
+                });
+            }
+            out
+        })
+        .take(8)
+        .collect()
+}
 
 /// A V channel's callout and trough locations, or why they cannot be stated.
 pub(super) fn channel(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
@@ -121,6 +281,17 @@ pub(super) fn channel(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
     let mut out = Vec::new();
     let mut problems = Vec::new();
+    for f in cx
+        .analysis
+        .features
+        .iter()
+        .filter(|f| f.kind == "rectangular_through_notch")
+    {
+        match rectangular(cx, f) {
+            Ok(ws) => out.extend(ws),
+            Err(why) => problems.push(not_dimensioned(f, &why)),
+        }
+    }
     let notches = crate::notches::requirements(cx.analysis);
     for f in cx.analysis.features.iter().filter(|f| {
         f.kind == "v_channel" && crate::lint::notch_evidence::channel_owner(&notches, f).is_none()
@@ -133,7 +304,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
     // Keep the existing front corridor when it also carries GD&T. Splitting
     // these stations across views removes a front tier and can displace a
     // control frame into a datum's otherwise clear compact route.
-    let front_gdt = !notches.is_empty()
+    let front_locations = !notches.is_empty()
         && crate::pmi_lowering::lower(cx.analysis, &|_| true)
             .0
             .iter()
@@ -180,7 +351,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                 // Keep the plan's angular sector free of long datum witnesses; an
                 // explicit scheme or placement can still choose the normal view.
                 views: if n.axis == 2 && k == 0 {
-                    if !front_gdt
+                    if !front_locations
                         && n.mouth[k]
                             < 0.5 * (cx.analysis.envelope[0][k] + cx.analysis.envelope[1][k])
                     {

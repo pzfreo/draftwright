@@ -63,10 +63,47 @@ fn bounds_of(points: impl IntoIterator<Item = P2>) -> [f64; 4] {
     )
 }
 
+/// Immutable tip preparation reused by leader directions/reaches. Clones
+/// start fresh so construction-time changes cannot inherit old verdicts.
+#[derive(Default)]
+struct ProofMemo {
+    visibility: std::cell::RefCell<BTreeMap<[u64; 4], bool>>,
+    bands: std::cell::RefCell<BTreeMap<[u64; 3], Option<AttachmentBand>>>,
+    fingerprint: std::cell::OnceCell<[u8; 32]>,
+}
+impl ProofMemo {
+    fn query<const N: usize>(
+        memo: &std::cell::RefCell<BTreeMap<[u64; N], bool>>,
+        key: [u64; N],
+        run: impl FnOnce() -> bool,
+    ) -> bool {
+        if let Some(&found) = memo.borrow().get(&key) {
+            return found;
+        }
+        let found = run();
+        let mut memo = memo.borrow_mut();
+        if memo.len() >= 4096 {
+            memo.clear();
+        }
+        memo.insert(key, found);
+        found
+    }
+}
+impl Clone for ProofMemo {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+#[derive(Clone)]
+struct AttachmentBand {
+    direction: P2,
+    chords: std::rc::Rc<Vec<usize>>,
+}
+
 /// A view's projected edge evidence, prepared once per view and planning pass, in model mm at
 /// 1:1 about the view's centre: every edge's chords, curved faces' silhouettes (or their boxes
 /// where a silhouette is not bounded exactly), and the planar faces square to the view.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 pub(super) struct Proof {
     centre: P2,
     /// Every chord, with the edge each belongs to at `edges[e]..edges[e + 1]`.
@@ -75,6 +112,8 @@ pub(super) struct Proof {
     /// Toward-viewer coordinates of the actual edge chords' endpoints.
     depths: Vec<[f64; 2]>,
     require_visible_attachment: bool,
+    #[serde(skip)]
+    memo: ProofMemo,
     /// Boxes a curved face's silhouette may lie anywhere within.
     boxes: Vec<[f64; 4]>,
     /// The covers of cylinders seen end-on: holes and bosses, drawn as circles.
@@ -90,7 +129,7 @@ pub(super) struct Proof {
     voids: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 struct Face {
     bounds: [f64; 4],
     chords: Vec<usize>,
@@ -98,7 +137,7 @@ struct Face {
 }
 
 /// A uniform bucket grid over a view's chords: queries visit only nearby chords.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 struct Grid {
     origin: P2,
     cell: f64,
@@ -404,6 +443,7 @@ fn build_camera_with_exterior(
         edges,
         depths,
         require_visible_attachment: true,
+        memo: ProofMemo::default(),
         boxes,
         holes,
         faces,
@@ -415,6 +455,13 @@ fn build_camera_with_exterior(
 }
 
 impl Proof {
+    pub(super) fn geometry_key(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        *self.memo.fingerprint.get_or_init(|| {
+            Sha256::digest(serde_json::to_vec(self).expect("prepared projection serializes")).into()
+        })
+    }
+
     fn model_point(&self, v: &PlannedView, p: P2) -> P2 {
         [
             (p[0] - v.at[0]) / v.scale + self.centre[0],
@@ -498,6 +545,19 @@ impl Proof {
     }
 
     fn touches_model(&self, q: P2, c: f64, visible: bool) -> bool {
+        ProofMemo::query(
+            &self.memo.visibility,
+            [
+                q[0].to_bits(),
+                q[1].to_bits(),
+                c.to_bits(),
+                u64::from(visible),
+            ],
+            || self.touches_model_uncached(q, c, visible),
+        )
+    }
+
+    fn touches_model_uncached(&self, q: P2, c: f64, visible: bool) -> bool {
         self.grid
             .near(padded([q[0], q[1], q[0], q[1]], c))
             .any(|i| {
@@ -546,49 +606,69 @@ impl Proof {
         }
         let banded = self.banded(v, [a, b]);
         let g = padded(bounds_of(s), c);
-        self.grid
-            .near(g)
-            .all(|i| banded.contains(&i) || segment_distance(s, self.segments[i]) > c)
-            && self.boxes.iter().all(|x| !near_box(s, *x, c))
+        self.grid.near(g).all(|i| {
+            banded.as_ref().is_some_and(|b| b.contains(&i))
+                || segment_distance(s, self.segments[i]) > c
+        }) && self.boxes.iter().all(|x| !near_box(s, *x, c))
     }
 
     /// The chords a leader leaving its tip must cross to reach open paper: those parallel to the
     /// tip's own edge and within 3 paper mm of it (a chamfer or step's concentric outlines, as
     /// around a hex boss's flats), crossed at more than 20°. The leader crosses them wherever
     /// its label sits, outside the view too.
-    fn banded(&self, v: &PlannedView, [a, b]: [P2; 2]) -> Vec<usize> {
+    fn banded(&self, v: &PlannedView, [a, b]: [P2; 2]) -> Option<std::rc::Rc<Vec<usize>>> {
         let tip = self.model_point(v, a);
-        let touch = 0.05 / v.scale + SLACK;
         let unit = |[p, q]: [P2; 2]| {
             let d = [q[0] - p[0], q[1] - p[1]];
             let n = d[0].hypot(d[1]);
             (n > 1e-12).then(|| [d[0] / n, d[1] / n])
         };
-        let Some(own) = self
-            .grid
-            .near(padded([tip[0], tip[1], tip[0], tip[1]], touch))
-            .filter(|&i| i < self.depths.len() && distance(tip, self.segments[i]) <= touch)
-            .find_map(|i| unit(self.segments[i]))
-        else {
-            return Vec::new();
-        };
-        let Some(leader) = unit([tip, self.model_point(v, b)]) else {
-            return Vec::new();
-        };
+        let key = [tip[0].to_bits(), tip[1].to_bits(), v.scale.to_bits()];
+        let cached = self.memo.bands.borrow().get(&key).cloned();
+        let prepared = if let Some(cached) = cached {
+            cached
+        } else {
+            let touch = 0.05 / v.scale + SLACK;
+            let own = self
+                .grid
+                .near(padded([tip[0], tip[1], tip[0], tip[1]], touch))
+                .filter(|&i| i < self.depths.len() && distance(tip, self.segments[i]) <= touch)
+                .find_map(|i| unit(self.segments[i]));
+            let prepared = own.map(|own| {
+                let reach = 3.0 / v.scale;
+                let chords = self
+                    .grid
+                    .near(padded([tip[0], tip[1], tip[0], tip[1]], reach))
+                    .filter(|&i| {
+                        let [p, _] = self.segments[i];
+                        unit(self.segments[i]).is_some_and(|d| {
+                            (d[0] * own[1] - d[1] * own[0]).abs() < 2f64.to_radians().sin()
+                                && ((p[0] - tip[0]) * own[1] - (p[1] - tip[1]) * own[0]).abs()
+                                    <= reach
+                        })
+                    })
+                    .collect();
+                AttachmentBand {
+                    direction: own,
+                    chords: std::rc::Rc::new(chords),
+                }
+            });
+            let mut memo = self.memo.bands.borrow_mut();
+            if memo.len() >= 4096 {
+                memo.clear();
+            }
+            memo.insert(key, prepared.clone());
+            prepared
+        }?;
+        let leader = unit([tip, self.model_point(v, b)])?;
+        // The angular gate belongs to this ray, even when its tip preparation
+        // is shared. No direction is forgiven by a previous ray's result.
+        let own = prepared.direction;
         if (own[0] * leader[1] - own[1] * leader[0]).abs() < 20f64.to_radians().sin() {
-            return Vec::new();
+            None
+        } else {
+            Some(prepared.chords)
         }
-        let reach = 3.0 / v.scale;
-        self.grid
-            .near(padded([tip[0], tip[1], tip[0], tip[1]], reach))
-            .filter(|&i| {
-                let [p, _] = self.segments[i];
-                unit(self.segments[i]).is_some_and(|d| {
-                    (d[0] * own[1] - d[1] * own[0]).abs() < 2f64.to_radians().sin()
-                        && ((p[0] - tip[0]) * own[1] - (p[1] - tip[1]) * own[0]).abs() <= reach
-                })
-            })
-            .collect()
     }
 
     fn arrow_clear(&self, v: &PlannedView, [tip, tail]: [P2; 2], attachment: bool) -> bool {
@@ -617,10 +697,9 @@ impl Proof {
         }
         let banded = self.banded(v, [tip, tail]);
         let g = padded(b, c);
-        self.grid
-            .near(g)
-            .all(|i| banded.contains(&i) || !near_box(self.segments[i], b, c))
-            && self.boxes.iter().all(|x| !boxes_overlap(*x, g))
+        self.grid.near(g).all(|i| {
+            banded.as_ref().is_some_and(|b| b.contains(&i)) || !near_box(self.segments[i], b, c)
+        }) && self.boxes.iter().all(|x| !boxes_overlap(*x, g))
     }
 
     /// Whether thin annotation *lines* and *arrows* stay clear of the view's line work; an
@@ -694,6 +773,52 @@ impl Proof {
             })
     }
 
+    /// A linear dimension in a proven opening: witnesses may continue their
+    /// support edge, and dimension arrows may touch that edge at their tips.
+    /// Only the usual 0.6 mm attachment collars are omitted from ink checks.
+    pub(super) fn opening_linear_clear(&self, v: &PlannedView, p: &Placed) -> bool {
+        self.blank(v, p.label_box)
+            && p.lines.iter().take(2).all(|s| self.witness_clear(v, *s))
+            && p.lines.iter().skip(2).all(|s| {
+                let d = [s[1][0] - s[0][0], s[1][1] - s[0][1]];
+                let length = d[0].hypot(d[1]);
+                if length < 1e-9 {
+                    return true;
+                }
+                let mut gaps = Vec::new();
+                for arrow in &p.arrows {
+                    if self.touches(v, arrow[0]) && distance(arrow[0], *s) < 1e-8 {
+                        let t = ((arrow[0][0] - s[0][0]) * d[0] + (arrow[0][1] - s[0][1]) * d[1])
+                            / (length * length);
+                        let (lo, hi) = ((t - 0.6 / length).max(0.), (t + 0.6 / length).min(1.));
+                        for end in [lo, hi] {
+                            let mut collar = p.clone();
+                            collar.lines =
+                                vec![[arrow[0], [s[0][0] + end * d[0], s[0][1] + end * d[1]]]];
+                            collar.arrows = vec![*arrow];
+                            if !self.attachment_clear(v, &collar) {
+                                return false;
+                            }
+                        }
+                        gaps.push((lo, hi));
+                    }
+                }
+                gaps.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let at = |t: f64| [s[0][0] + t * d[0], s[0][1] + t * d[1]];
+                let mut start = 0.;
+                for (lo, hi) in gaps.into_iter().chain(std::iter::once((1., 1.))) {
+                    if lo > start && !self.segment_clear(v, [at(start), at(lo)], false) {
+                        return false;
+                    }
+                    start = start.max(hi);
+                }
+                true
+            })
+            && p.arrows
+                .iter()
+                .all(|a| self.arrow_clear(v, *a, self.touches(v, a[0])))
+    }
+
     /// The attachment collar may forgive its nearest source chord only. A
     /// different view edge crossed close to the tip is still a crossing.
     fn attachment_clear(&self, v: &PlannedView, p: &Placed) -> bool {
@@ -712,7 +837,7 @@ impl Proof {
             let s = line.map(|p| self.model_point(v, p));
             self.grid.near(padded(bounds_of(s), eps)).all(|i| {
                 (i < self.depths.len() && distance(tip, self.segments[i]) <= closest + eps)
-                    || banded.contains(&i)
+                    || banded.as_ref().is_some_and(|b| b.contains(&i))
                     || segment_distance(s, self.segments[i]) > eps
             }) && self.boxes.iter().all(|b| !near_box(s, *b, eps))
         };
@@ -965,6 +1090,22 @@ fn conflict(a: &Placed, b: &Placed) -> bool {
         })
 }
 
+/// Overlapping parallel linear spans need room for their common-origin
+/// arrowheads and text row; a sub-millimetre double baseline is not a lane.
+fn opening_lanes_too_close(a: &Placed, b: &Placed) -> bool {
+    if a.rotation != b.rotation || a.arrows.len() != 2 || b.arrows.len() != 2 {
+        return false;
+    }
+    let (Some(x), Some(y)) = (a.lines.get(2), b.lines.get(2)) else {
+        return false;
+    };
+    let k = usize::from(a.rotation != 0.);
+    let extent = |s: &[P2; 2]| [s[0][k].min(s[1][k]), s[0][k].max(s[1][k])];
+    let (xspan, yspan) = (extent(x), extent(y));
+    xspan[0].max(yspan[0]) < xspan[1].min(yspan[1]) - super::ARROW
+        && (x[0][1 - k] - y[0][1 - k]).abs() < CAP + 1.
+}
+
 /// A spacing preference, applied only after material and settled-ink clearance.
 fn prefers_centre_row(frame: &Frame, w: &Want, v: &PlannedView, prismatic: bool) -> bool {
     let Shape::Callout { sites, .. } = &w.shape else {
@@ -1085,11 +1226,23 @@ fn callouts(
         // escape phase. Changing an exterior attachment must not rotate the
         // entire interior inventory and lose a previously clear short route.
         let phase = 22.5 - u[1].atan2(u[0]).to_degrees();
-        let canonical = (!arcs.is_empty() && !recess_context)
-            .then_some(rotations.map(|a| a + phase))
-            .into_iter()
-            .flatten();
+        let canonical: Vec<_> = if through_notch(w) && !recess_context {
+            // A narrow clear interval between established witnesses can fall
+            // between the eight profile rays. Three fixed escape phases keep
+            // this family bounded (32 directions with the original rays).
+            [0., -11.25, 11.25]
+                .into_iter()
+                .flat_map(|offset| rotations.map(|a| a + phase + offset))
+                .collect()
+        } else {
+            (!arcs.is_empty() && !recess_context)
+                .then_some(rotations.map(|a| a + phase))
+                .into_iter()
+                .flatten()
+                .collect()
+        };
         canonical
+            .into_iter()
             .chain(rotations)
             .flat_map(|a| (1..=8).map(move |n| (a, n)))
             .collect()
@@ -1178,6 +1331,98 @@ fn callouts(
     out
 }
 
+pub(super) fn through_notch(w: &Want) -> bool {
+    w.measurements
+        .iter()
+        .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+}
+
+// Rank text alternatives without allocating their unchanged witnesses and
+// arrowheads. The stable order and every final clearance predicate are shared
+// with the exhaustive route; only the candidate's storage is lazy.
+fn first_clear_opening_lane(
+    bases: &[Placed],
+    drawable: [f64; 4],
+    preference: impl Fn(&Placed) -> (bool, bool),
+    order: impl Fn(&(bool, bool, f64), &(bool, bool, f64)) -> std::cmp::Ordering,
+    clear: impl Fn(&Placed) -> bool,
+) -> Option<Placed> {
+    struct Alternative {
+        rank: (bool, bool, f64),
+        base: usize,
+        slide: Option<(f64, [f64; 2])>,
+    }
+    fn prepare(probe: &mut Placed, base: &Placed, slide: Option<(f64, [f64; 2])>) {
+        probe.label_at = base.label_at;
+        probe.label_box = base.label_box;
+        probe.rotation = base.rotation;
+        if let Some(line) = base.lines.get(2) {
+            probe.lines[2] = *line;
+        }
+        if let Some((delta, extent)) = slide {
+            let k = usize::from(base.rotation != 0.);
+            probe.label_box[k] += delta;
+            probe.label_box[k + 2] += delta;
+            probe.label_at[k] += delta;
+            probe.lines[2][0][k] = extent[0];
+            probe.lines[2][1][k] = extent[1];
+        }
+    }
+    let mut probe = bases.first()?.clone();
+    let mut alternatives = Vec::with_capacity(bases.len().saturating_mul(17));
+    for (base, p) in bases.iter().enumerate() {
+        let preferred = preference(p);
+        let length = |[a, b]: &[P2; 2]| (a[0] - b[0]).hypot(a[1] - b[1]);
+        let prefix: f64 = p.lines.iter().take(2).map(length).sum();
+        let suffix: Vec<_> = p.lines.iter().skip(3).map(length).collect();
+        // Text slides change only the dimension line. Retain every addition
+        // in its original order while reusing the constant witness lengths.
+        let rank = |q: &Placed| {
+            let sum = q.lines.get(2).map_or(prefix, |[a, b]| {
+                let (x, y) = (a[0] - b[0], a[1] - b[1]);
+                let run = if x.is_finite() && y == 0. {
+                    x.abs()
+                } else if y.is_finite() && x == 0. {
+                    y.abs()
+                } else {
+                    x.hypot(y)
+                };
+                suffix.iter().fold(prefix + run, |sum, next| sum + next)
+            });
+            (preferred.0, preferred.1, sum)
+        };
+        probe.lines.clone_from(&p.lines);
+        probe.arrows.clone_from(&p.arrows);
+        alternatives.push(Alternative {
+            rank: rank(p),
+            base,
+            slide: None,
+        });
+        for slide in super::placement::slide_parameters(p, drawable).take(16) {
+            prepare(&mut probe, p, Some(slide));
+            alternatives.push(Alternative {
+                rank: rank(&probe),
+                base,
+                slide: Some(slide),
+            });
+        }
+    }
+    alternatives.sort_by(|a, b| order(&a.rank, &b.rank));
+    let mut previous = None;
+    for a in alternatives {
+        if previous != Some(a.base) {
+            probe.lines.clone_from(&bases[a.base].lines);
+            probe.arrows.clone_from(&bases[a.base].arrows);
+            previous = Some(a.base);
+        }
+        prepare(&mut probe, &bases[a.base], a.slide);
+        if clear(&probe) {
+            return Some(probe);
+        }
+    }
+    None
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn place(
     analysis: &Analysis,
@@ -1192,6 +1437,7 @@ pub(super) fn place(
     obstacles: &[PlannedDimension],
     cache: &super::footprints::Cache,
     yield_callouts: bool,
+    final_inventory: bool,
 ) -> BTreeSet<String> {
     let mut moved = BTreeSet::new();
     // Extra recess footprints can force radius retries. Retain the established routes on
@@ -1220,6 +1466,10 @@ pub(super) fn place(
         });
     let prismatic = !round_stock;
     let proofs = proofs(analysis, views);
+    let openings = items
+        .iter()
+        .any(through_notch)
+        .then(|| callout_proofs(analysis, views));
     // Centre-line furniture (G6) is not annotation ink: interior text keeps clear of its
     // strokes, and a callout's shaft does not run beside another feature's stroke, but
     // witness and dimension lines may cross or continue it as they do outside the view.
@@ -1252,8 +1502,24 @@ pub(super) fn place(
         .filter(|&i| matches!(items[i].shape, Shape::Linear { .. }))
         .chain((0..items.len()).filter(|&i| !matches!(items[i].shape, Shape::Linear { .. })))
         .collect();
-    let movable_callout = |j: usize| {
+    let movable_callout = |i: usize, j: usize| {
+        let opening_row = !final_inventory
+            || items[i].measurements.iter().any(|m| {
+                if !m.parameter.starts_with("location.") {
+                    return false;
+                }
+                let Shape::Linear { axis, .. } = items[i].shape else {
+                    return false;
+                };
+                analysis
+                    .features
+                    .iter()
+                    .find(|f| f.id == m.feature)
+                    .and_then(|f| crate::lint::rectangular_notches::read(analysis, f).ok())
+                    .is_some_and(|n| n.wide == axis)
+            });
         yield_callouts
+            && opening_row
             && matches!(items[j].shape, Shape::Callout { .. })
             && spec
                 .dimensions
@@ -1261,6 +1527,7 @@ pub(super) fn place(
                 .is_none_or(|d| d.place.is_none())
     };
     for i in order {
+        let movable: Vec<_> = (0..items.len()).map(|j| movable_callout(i, j)).collect();
         // A plate thickness witnesses its two faces at the silhouette. An
         // interior lane can move the dimension line across the view while
         // leaving its witnesses attached to the far edge, reversing their
@@ -1299,102 +1566,286 @@ pub(super) fn place(
         let Some(v) = views.iter().find(|v| v.id.trim_start_matches("v:") == name) else {
             continue;
         };
-        let Some(proof) = proofs.get(&v.id) else {
+        let proof = if through_notch(&items[i]) {
+            openings.as_ref().and_then(|proofs| proofs.get(&v.id))
+        } else {
+            proofs.get(&v.id)
+        };
+        let Some(proof) = proof else {
             continue;
         };
         let frame = &frames[name];
         let f = cache.get(analysis, v);
+        let extensions = f.extension_counter(&items[i].measurements);
+        let clipper = through_notch(&items[i]).then(|| f.witness_clipper(&items[i].measurements));
         let centre_row = prefers_centre_row(frame, &items[i], v, prismatic);
         let mut baseline_candidates = usize::MAX;
         let slot_layout = super::placement::automatic_slot_layout(analysis);
-        let candidates =
-            match &items[i].shape {
-                Shape::Callout { .. } => {
-                    let peers: Vec<_> = placed
+        let opening_linear =
+            through_notch(&items[i]) && matches!(items[i].shape, Shape::Linear { .. });
+        let varying_gaps = slot_layout
+            && items[i]
+                .measurements
+                .iter()
+                .any(|m| m.parameter == "slot_width.length");
+        let ordered_opening = opening_linear && !varying_gaps && !centre_row;
+        // This is the identical raw-stroke predicate used by text_conflict,
+        // indexed once for the fixed peers of this opening's lane search.
+        let peer_ink = (through_notch(&items[i]) && matches!(items[i].shape, Shape::Linear { .. }))
+            .then(|| {
+                super::leaders::SegmentIndex::new(
+                    placed
                         .iter()
                         .enumerate()
-                        .filter(|(j, _)| *j != i)
+                        .filter(|(j, _)| *j != i && !movable[*j])
                         .filter_map(|(_, p)| p.as_ref())
                         .chain(obstacles.iter().filter_map(|d| d.placed.as_ref()))
-                        .collect();
-                    callouts(
-                        frame,
-                        &items[i],
-                        old,
-                        proof,
-                        v,
-                        recess_context,
-                        centre_row,
-                        &peers,
-                    )
-                }
-                Shape::Linear { .. }
-                    if !page.fits(old, name)
-                        || old.lines.iter().take(2).any(|s| {
-                            !f.crossed_extension(*s, &items[i].measurements).is_empty()
-                        })
-                        || obstacles
-                            .iter()
-                            .filter_map(|d| d.placed.as_ref())
-                            .any(|p| conflict(old, p))
-                        || placed.iter().enumerate().any(|(j, p)| {
-                            j != i && p.as_ref().is_some_and(|p| text_conflict(old, p))
-                        }) =>
-                {
-                    let mut candidates = sides[i]
-                        .map(|side| super::placement::interior_lanes(frame, &items[i], side))
-                        .unwrap_or_default();
-                    // Preserve a proven original lane; the new local stations and
-                    // physical reference pairs are fallbacks for blocked routes.
-                    baseline_candidates = candidates.len().min(8);
-                    if !slot_layout {
-                        candidates.truncate(baseline_candidates);
-                    }
-                    let references: Vec<_> = if slot_layout {
-                        super::slots::width_references(&items[i], analysis)
-                            .into_iter()
-                            .chain(super::placement::pattern_references(&items[i], analysis))
-                            .collect()
-                    } else {
-                        Vec::new()
-                    };
-                    for shape in references {
-                        let mut alternative = items[i].clone();
-                        alternative.shape = shape;
-                        for side in [
-                            super::placement::Side::Above,
-                            super::placement::Side::Below,
-                            super::placement::Side::Left,
-                            super::placement::Side::Right,
-                        ] {
-                            let Shape::Linear { axis, .. } = alternative.shape else {
-                                continue;
+                        .flat_map(|q| q.lines.iter().chain(&q.arrows).copied())
+                        .collect(),
+                )
+            });
+        let mut candidates = match &items[i].shape {
+            Shape::Callout { .. } => {
+                let peers: Vec<_> = placed
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i)
+                    .filter_map(|(_, p)| p.as_ref())
+                    .chain(obstacles.iter().filter_map(|d| d.placed.as_ref()))
+                    .collect();
+                callouts(
+                    frame,
+                    &items[i],
+                    old,
+                    proof,
+                    v,
+                    recess_context,
+                    centre_row,
+                    &peers,
+                )
+            }
+            Shape::Linear { .. }
+                if through_notch(&items[i])
+                    || !page.fits(old, name)
+                    || old.lines.iter().take(2).any(|s| extensions.count(*s) != 0)
+                    || obstacles
+                        .iter()
+                        .filter_map(|d| d.placed.as_ref())
+                        .any(|p| conflict(old, p))
+                    || placed.iter().enumerate().any(|(j, p)| {
+                        j != i && p.as_ref().is_some_and(|p| text_conflict(old, p))
+                    }) =>
+            {
+                let mut candidates = sides[i]
+                    .map(|side| {
+                        let mut out = super::placement::interior_lanes(frame, &items[i], side);
+                        if through_notch(&items[i]) {
+                            let other = match side {
+                                Side::Above => Side::Below,
+                                Side::Below => Side::Above,
+                                Side::Left => Side::Right,
+                                Side::Right => Side::Left,
                             };
-                            let horizontal = super::placement::across(frame, axis) == Some(true);
-                            if horizontal
-                                == matches!(
-                                    side,
-                                    super::placement::Side::Above | super::placement::Side::Below
-                                )
-                            {
-                                candidates.extend(super::placement::interior_lanes(
-                                    frame,
-                                    &alternative,
-                                    side,
-                                ));
+                            out.extend(super::placement::interior_lanes(frame, &items[i], other));
+                            for side in [side, other] {
+                                if final_inventory {
+                                    out.extend(super::placement::opening_lanes(
+                                        frame, &items[i], side,
+                                    ));
+                                }
+                                out.extend((0..8).filter_map(|lane| {
+                                    super::placement::place(frame, &items[i], side, lane)
+                                }));
+                            }
+                        }
+                        out
+                    })
+                    .unwrap_or_default();
+                // Preserve a proven original lane; the new local stations and
+                // physical reference pairs are fallbacks for blocked routes.
+                if !through_notch(&items[i]) {
+                    baseline_candidates = candidates.len().min(8);
+                }
+                if !slot_layout && !through_notch(&items[i]) {
+                    candidates.truncate(baseline_candidates);
+                }
+                let references: Vec<_> = if through_notch(&items[i]) {
+                    super::notches::references(&items[i], analysis)
+                } else if slot_layout {
+                    super::slots::width_references(&items[i], analysis)
+                        .into_iter()
+                        .chain(super::placement::pattern_references(&items[i], analysis))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                for shape in references {
+                    let mut alternative = items[i].clone();
+                    alternative.shape = shape;
+                    for side in [
+                        super::placement::Side::Above,
+                        super::placement::Side::Below,
+                        super::placement::Side::Left,
+                        super::placement::Side::Right,
+                    ] {
+                        let Shape::Linear { axis, .. } = alternative.shape else {
+                            continue;
+                        };
+                        let horizontal = super::placement::across(frame, axis) == Some(true);
+                        if horizontal
+                            == matches!(
+                                side,
+                                super::placement::Side::Above | super::placement::Side::Below
+                            )
+                        {
+                            candidates.extend(super::placement::interior_lanes(
+                                frame,
+                                &alternative,
+                                side,
+                            ));
+                            if through_notch(&items[i]) {
+                                if final_inventory {
+                                    candidates.extend(super::placement::opening_lanes(
+                                        frame,
+                                        &alternative,
+                                        side,
+                                    ));
+                                }
+                                candidates.extend((0..8).filter_map(|lane| {
+                                    super::placement::place(frame, &alternative, side, lane)
+                                }));
                             }
                         }
                     }
-                    candidates
                 }
-                _ => Vec::new(),
-            };
+                candidates
+            }
+            _ => Vec::new(),
+        };
 
+        if opening_linear {
+            candidates.insert(0, old.clone());
+            candidates = candidates
+                .into_iter()
+                // Slides change only text and the third line. Prove and clip
+                // their identical witnesses once, before expanding the family.
+                .filter_map(|mut p| {
+                    p.lines
+                        .iter_mut()
+                        .take(2)
+                        .all(|s| clipper.as_ref().expect("opening witnesses").clip(s))
+                        .then_some(p)
+                })
+                .filter(|p| {
+                    if !ordered_opening {
+                        return true;
+                    }
+                    // Every slide retains these witnesses and arrows. A
+                    // contact made by that immutable ink cannot be repaired
+                    // by moving its label/run-on, so reject the family once.
+                    let mut strokes = p.clone();
+                    strokes.lines.truncate(2);
+                    let blocked = |q: &Placed, linear: bool| {
+                        strokes
+                            .lines
+                            .iter()
+                            .chain(&strokes.arrows)
+                            .any(|s| crosses(*s, padded(q.label_box, 0.5)))
+                            || if linear {
+                                super::placement::ink_through(
+                                    &strokes,
+                                    super::contacts::clear_box(q.label_box),
+                                )
+                            } else {
+                                strokes.lines.iter().chain(&strokes.arrows).any(|s| {
+                                    q.lines
+                                        .iter()
+                                        .chain(&q.arrows)
+                                        .any(|t| super::leaders::lines_meet(*s, *t))
+                                })
+                            }
+                    };
+                    !placed.iter().enumerate().any(|(j, q)| {
+                        j != i
+                            && !movable[j]
+                            && q.as_ref().is_some_and(|q| {
+                                blocked(q, matches!(items[j].shape, Shape::Linear { .. }))
+                            })
+                    }) && !obstacles
+                        .iter()
+                        .filter_map(|d| d.placed.as_ref())
+                        .any(|q| blocked(q, false))
+                })
+                .collect();
+            if !ordered_opening {
+                candidates = candidates
+                    .into_iter()
+                    .flat_map(|p| {
+                        let shifted = super::placement::slides(&p, page.drawable())
+                            .take(16)
+                            .collect::<Vec<_>>();
+                        std::iter::once(p).chain(shifted)
+                    })
+                    .collect();
+            }
+        }
+
+        let geometry_clear = |p: &Placed| {
+            if through_notch(&items[i]) && matches!(items[i].shape, Shape::Linear { .. }) {
+                proof.opening_linear_clear(v, p)
+                    || (!boxes_overlap(p.label_box, frame.outline())
+                        && p.lines
+                            .iter()
+                            .skip(2)
+                            .chain(&p.arrows)
+                            .all(|s| !near_box(*s, frame.outline(), 0.)))
+            } else {
+                proof.annotation_clear(v, p, matches!(items[i].shape, Shape::Callout { .. }))
+            }
+        };
         let clear = |p: &Placed| {
-            proof.annotation_clear(v, p, matches!(items[i].shape, Shape::Callout { .. }))
-                && page.fits_interior(p, name)
+            page.fits_interior(p, name)
+                && (!through_notch(&items[i])
+                    || page.area(name).is_none_or(|b| {
+                        super::placement::ink_points(p)
+                            .all(|q| q[0] >= b[0] && q[0] <= b[2] && q[1] >= b[1] && q[1] <= b[3])
+                    }))
+                && peer_ink
+                    .as_ref()
+                    .is_none_or(|ink| !ink.crosses_box(padded(p.label_box, 0.5)))
                 && !placed.iter().enumerate().any(|(j, q)| {
-                    j != i && !movable_callout(j) && q.as_ref().is_some_and(|q| conflict(p, q))
+                    j != i
+                        && !movable[j]
+                        && q.as_ref().is_some_and(|q| {
+                            if through_notch(&items[i])
+                                && matches!(items[i].shape, Shape::Linear { .. })
+                                && matches!(items[j].shape, Shape::Linear { .. })
+                            {
+                                // Ordinary linear dimensions share and cross witness
+                                // lines under the same rules used in exterior lanes.
+                                (final_inventory && opening_lanes_too_close(p, q))
+                                    || text_conflict(p, q)
+                                    || super::placement::ink_through(
+                                        p,
+                                        super::contacts::clear_box(q.label_box),
+                                    )
+                                    || super::placement::ink_through(
+                                        q,
+                                        super::contacts::clear_box(p.label_box),
+                                    )
+                                    || p.lines.get(2).zip(q.lines.get(2)).is_some_and(|(a, b)| {
+                                        super::leaders::segments_cross(*a, *b)
+                                    })
+                                    || super::placement::linear_pair_contact(p, q, false)
+                            } else {
+                                conflict(p, q)
+                                    || (final_inventory
+                                        && through_notch(&items[i])
+                                        && matches!(items[i].shape, Shape::Linear { .. })
+                                        && q.arrows.len() == 1
+                                        && super::placement::linear_pair_contact(p, q, false))
+                            }
+                        })
                 })
                 && !obstacles
                     .iter()
@@ -1412,19 +1863,87 @@ pub(super) fn place(
                         if matches!(items[i].shape, Shape::Callout { .. }) {
                             !f.crosses_feature(*s)
                         } else {
-                            f.crossed_extension(*s, &items[i].measurements).is_empty()
+                            extensions.count(*s) == 0
                         }
                     })
+                && geometry_clear(p)
         };
+        // The physical opening and preferred side are invariant across its
+        // candidate lanes. Prepare them once, rather than reading the feature
+        // record again for every comparison.
+        let opening = opening_linear
+            .then(|| {
+                items[i].measurements.iter().find_map(|m| {
+                    analysis
+                        .features
+                        .iter()
+                        .find(|f| f.id == m.feature)
+                        .and_then(|f| crate::lint::rectangular_notches::read(analysis, f).ok())
+                })
+            })
+            .flatten();
+        let route_rank = |p: &Placed| {
+            let length = |p: &Placed| {
+                p.lines
+                    .iter()
+                    .map(|[a, b]| (a[0] - b[0]).hypot(a[1] - b[1]))
+                    .sum::<f64>()
+            };
+            let outside_row = |p: &Placed| {
+                centre_row
+                    && (0.5 * (p.label_box[1] + p.label_box[3]) - v.at[1]).abs() >= super::TEXT
+            };
+            let opposite_opening = |p: &Placed| {
+                let (Some(n), Shape::Linear { axis, .. }) = (&opening, &items[i].shape) else {
+                    return false;
+                };
+                if *axis != n.wide {
+                    return false;
+                }
+                let (at, mouth) = (frame.page(n.at), frame.page(n.mouth));
+                let k = usize::from(super::placement::across(frame, *axis) == Some(true));
+                let station = p.arrows.first().map_or(0., |a| a[0][k]);
+                (station - mouth[k]) * (mouth[k] - at[k]) < 0.
+            };
+            (opposite_opening(p), outside_row(p), length(p))
+        };
+        let rank_order = |a: &(bool, bool, f64), b: &(bool, bool, f64)| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.total_cmp(&b.2))
+        };
+        let route_order = |a: &Placed, b: &Placed| rank_order(&route_rank(a), &route_rank(b));
+        if ordered_opening {
+            if let Some(p) = first_clear_opening_lane(
+                &candidates,
+                page.drawable(),
+                |p| {
+                    let (side, row, _) = route_rank(p);
+                    (side, row)
+                },
+                rank_order,
+                clear,
+            ) {
+                for (j, position) in placed.iter_mut().enumerate() {
+                    if movable[j] && position.as_ref().is_some_and(|q| conflict(&p, q)) {
+                        *position = None;
+                    }
+                }
+                placed[i] = Some(p);
+                moved.insert(items[i].id.clone());
+            }
+            continue;
+        }
         let baseline_clear = std::cell::Cell::new(false);
-        let candidate = candidates
+        let evaluated = candidates
             .into_iter()
             .enumerate()
             .filter_map(|(index, mut p)| {
                 if index >= baseline_candidates && baseline_clear.get() {
                     return None;
                 }
-                if matches!(items[i].shape, Shape::Linear { .. })
+                if !opening_linear
+                    && matches!(items[i].shape, Shape::Linear { .. })
                     && !p
                         .lines
                         .iter_mut()
@@ -1436,7 +1955,7 @@ pub(super) fn place(
                 Some((index >= baseline_candidates, p))
             })
             .filter_map(|(fallback, p)| {
-                let mut choices = vec![p.clone()];
+                let mut choices = Vec::new();
                 if slot_layout
                     && items[i]
                         .measurements
@@ -1460,10 +1979,7 @@ pub(super) fn place(
                                 a[1] + extra * (b[1] - a[1]) / n,
                             ];
                             // Never skip an unrelated feature to manufacture clearance.
-                            if !f
-                                .crossed_extension([a, next], &items[i].measurements)
-                                .is_empty()
-                            {
+                            if extensions.count([a, next]) != 0 {
                                 clear = false;
                                 break;
                             }
@@ -1476,36 +1992,28 @@ pub(super) fn place(
                 }
                 // For a fixed physical route, use the smallest valid gap.
                 // Removing more witness ink must not improve its route score.
-                choices.into_iter().find(|p| clear(p)).map(|p| {
+                let found = if choices.is_empty() {
+                    clear(&p).then_some(p)
+                } else {
+                    choices.insert(0, p);
+                    choices.into_iter().find(|p| clear(p))
+                };
+                found.map(|p| {
                     if !fallback {
                         baseline_clear.set(true);
                     }
                     (fallback, p)
                 })
-            })
+            });
+        let candidate = evaluated
             .min_by(|(fallback_a, a), (fallback_b, b)| {
-                let length = |p: &Placed| {
-                    p.lines
-                        .iter()
-                        .map(|[a, b]| (a[0] - b[0]).hypot(a[1] - b[1]))
-                        .sum::<f64>()
-                };
-                // ARCH0009-3 is a hint, never a reason to lose a proven interior route.
-                // Rank the preferred row after all clearance checks, before route length.
-                let outside_row = |p: &Placed| {
-                    centre_row
-                        && (0.5 * (p.label_box[1] + p.label_box[3]) - v.at[1]).abs() >= super::TEXT
-                };
-                fallback_a
-                    .cmp(fallback_b)
-                    .then_with(|| outside_row(a).cmp(&outside_row(b)))
-                    .then_with(|| length(a).total_cmp(&length(b)))
+                fallback_a.cmp(fallback_b).then_with(|| route_order(a, b))
             })
             .map(|(_, p)| p);
 
         if let Some(p) = candidate {
             for (j, position) in placed.iter_mut().enumerate() {
-                if movable_callout(j) && position.as_ref().is_some_and(|q| conflict(&p, q)) {
+                if movable[j] && position.as_ref().is_some_and(|q| conflict(&p, q)) {
                     *position = None;
                 }
             }
@@ -1514,6 +2022,431 @@ pub(super) fn place(
         }
     }
     moved
+}
+
+/// Recheck local opening dimensions after the selected sheet's text and
+/// leaders have settled. Only this family's linear items may move; every
+/// other printed item, GD&T glyph and furniture stroke is an obstacle.
+pub(crate) fn finish_openings(analysis: &Analysis, spec: &Spec, plan: &mut crate::model::Plan) {
+    finish_openings_with(analysis, spec, plan, true);
+}
+
+/// Attachment can grow a frame after the first lane pass. Retry only when
+/// that finished unit actually contacts the new opening dimensions.
+pub(crate) fn openings_need_settling(plan: &crate::model::Plan) -> bool {
+    let ids: BTreeSet<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| {
+            d.measurements
+                .iter()
+                .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+        })
+        .map(|d| d.id.as_str())
+        .collect();
+    if ids.is_empty() {
+        return false;
+    }
+    let contacts = super::contacts::contacts(plan);
+    plan.problems.iter().chain(&contacts).any(|p| {
+        matches!(
+            p.code.as_str(),
+            "annotation_overlap"
+                | "annotation_ink_overlap"
+                | "annotation_leader_crossing"
+                | "label_crowded"
+                | "extension_through_feature"
+        ) && p.subjects.iter().any(|id| ids.contains(id.as_str()))
+    })
+}
+
+/// Revisit lanes around the whole coupled hole-frame unit after attachment.
+pub(crate) fn finish_attached_openings(
+    analysis: &Analysis,
+    spec: &Spec,
+    plan: &mut crate::model::Plan,
+) {
+    finish_openings_with(analysis, spec, plan, false);
+}
+
+/// Settle free linear text against the completed inventory. The existing
+/// own-span alternatives move only the label; measured ends, arrows, datum
+/// symbols and callout/frame units stay fixed.
+fn settle_linear_labels(
+    analysis: &Analysis,
+    spec: &Spec,
+    plan: &mut crate::model::Plan,
+) -> BTreeSet<String> {
+    if !plan.inspection_balloons.is_empty() {
+        return BTreeSet::new();
+    }
+    let crowded: BTreeSet<_> = super::contacts::contacts(plan)
+        .into_iter()
+        .filter(|p| p.code == "label_crowded")
+        .flat_map(|p| p.subjects)
+        .collect();
+    if crowded.is_empty() {
+        return BTreeSet::new();
+    }
+    let page = Page::new(analysis, &plan.sheet, &plan.views);
+    let proofs = callout_proofs(analysis, &plan.views);
+    let mut fixed = super::callout_routes::furniture(plan);
+    fixed.extend(plan.gdt.iter().filter_map(super::gdt::proxy));
+    let mut changed = BTreeSet::new();
+    for i in 0..plan.dimensions.len() {
+        let d = &plan.dimensions[i];
+        if d.kind != "linear"
+            || !crowded.contains(&d.id)
+            || spec
+                .dimensions
+                .get(&d.id)
+                .is_some_and(|s| s.place.is_some())
+        {
+            continue;
+        }
+        let (Some(old), Some(view)) = (
+            d.placed.as_ref(),
+            plan.views.iter().find(|v| v.id == d.view),
+        ) else {
+            continue;
+        };
+        if old.arrows.len() != 2
+            || old.lines.len() < 3
+            || !(old.rotation == 0. || old.rotation.abs() == 90.)
+        {
+            continue;
+        }
+        let Some(proof) = proofs.get(&view.id) else {
+            continue;
+        };
+        let k = usize::from(old.rotation != 0.);
+        let lo = old
+            .arrows
+            .iter()
+            .map(|a| a[0][k])
+            .fold(f64::INFINITY, f64::min);
+        let hi = old
+            .arrows
+            .iter()
+            .map(|a| a[0][k])
+            .fold(f64::NEG_INFINITY, f64::max);
+        let others: Vec<_> = plan
+            .dimensions
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, q)| q)
+            .chain(&fixed)
+            .filter_map(|q| q.placed.as_ref())
+            .collect();
+        let next = super::label_lanes::alternatives_placed(old, page.drawable(), &others)
+            .take(64)
+            .find(|p| {
+                p.lines == old.lines
+                    && p.arrows == old.arrows
+                    && p.label_box[k] >= lo
+                    && p.label_box[k + 2] <= hi
+                    && page.fits_interior(p, view.id.trim_start_matches("v:"))
+                    && (proof.blank(view, p.label_box)
+                        || proof.exterior_clear(view, p.label_box, &[], &[]))
+                    && others.iter().all(|q| {
+                        !text_conflict(p, q)
+                            && !super::placement::ink_through(
+                                q,
+                                super::contacts::clear_box(p.label_box),
+                            )
+                            && !super::placement::ink_through(
+                                p,
+                                super::contacts::clear_box(q.label_box),
+                            )
+                    })
+            });
+        if let Some(next) = next
+            && next != *old
+        {
+            let id = d.id.clone();
+            plan.dimensions[i].placed = Some(next);
+            changed.insert(id);
+        }
+    }
+    changed
+}
+
+fn finish_openings_with(
+    analysis: &Analysis,
+    spec: &Spec,
+    plan: &mut crate::model::Plan,
+    yield_callouts: bool,
+) {
+    if crate::nominal::comparison()
+        || !plan.dimensions.iter().any(|d| {
+            d.measurements
+                .iter()
+                .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+        })
+    {
+        return;
+    }
+    let wants = super::wants(analysis).0;
+    let mut indices = Vec::new();
+    let mut items = Vec::new();
+    let mut placed = Vec::new();
+    for (i, d) in plan.dimensions.iter().enumerate() {
+        if let Some(w) = wants.iter().find(|w| w.id == d.id) {
+            let mut w = w.clone();
+            w.terms.clone_from(&d.terms);
+            w.measurements.clone_from(&d.measurements);
+            indices.push(i);
+            items.push(w);
+            placed.push(d.placed.clone());
+        }
+    }
+    let chosen: Vec<_> = items
+        .iter()
+        .zip(&indices)
+        .map(|(w, &i)| {
+            (through_notch(w)
+                && matches!(w.shape, Shape::Linear { .. })
+                && plan.dimensions[i].placed.is_some()
+                && plan.views.iter().any(|v| v.id == plan.dimensions[i].view))
+            .then(|| {
+                super::NAMES
+                    .iter()
+                    .copied()
+                    .find(|name| plan.dimensions[i].view == format!("v:{name}"))
+            })
+            .flatten()
+        })
+        .collect();
+    let frames = plan
+        .views
+        .iter()
+        .filter_map(|v| {
+            let name = v.id.strip_prefix("v:")?;
+            super::NAMES
+                .contains(&name)
+                .then(|| (name, Frame::new(analysis, v)))
+        })
+        .collect();
+    let (sides, _) = super::placement::lanes(
+        analysis,
+        &frames,
+        items.iter().zip(chosen.iter().copied()),
+        &vec![None; items.len()],
+    );
+    let mut fixed = super::callout_routes::furniture(plan);
+    fixed.extend(plan.gdt.iter().filter_map(super::gdt::proxy));
+    fixed.extend(
+        plan.dimensions
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !indices.contains(i))
+            .map(|(_, d)| d.clone()),
+    );
+    let cache = super::footprints::Cache::default();
+    let before = super::recheck_cached(analysis, plan, &cache);
+    let mut changed = place(
+        analysis,
+        spec,
+        &plan.views,
+        &frames,
+        &items,
+        &chosen,
+        &sides,
+        &mut placed,
+        &Page::new(analysis, &plan.sheet, &plan.views),
+        &fixed,
+        &cache,
+        yield_callouts,
+        true,
+    );
+    let proofs = callout_proofs(analysis, &plan.views);
+    // Outside text needs the usual one millimetre past its arrowhead, not
+    // the legacy three. Settle this against the selected drawing only, so
+    // a local text repair cannot change the paper/scale search.
+    let page = Page::new(analysis, &plan.sheet, &plan.views);
+    for i in 0..items.len() {
+        if !through_notch(&items[i])
+            || spec
+                .dimensions
+                .get(&items[i].id)
+                .and_then(|d| d.place.as_ref())
+                .is_some_and(|p| !crate::placement_intent::automatic_pin(p))
+        {
+            continue;
+        }
+        let (Some(name), Some(old)) = (chosen[i], placed[i].as_ref()) else {
+            continue;
+        };
+        let Some(view) = plan.views.iter().find(|v| v.id == format!("v:{name}")) else {
+            continue;
+        };
+        let Some(proof) = proofs.get(&view.id) else {
+            continue;
+        };
+        let k = usize::from(old.rotation != 0.);
+        let mut candidates = std::iter::once(old.clone())
+            .chain(super::placement::slides(old, page.drawable()).take(16));
+        let found = candidates.find_map(|mut p| {
+            let lo = p
+                .arrows
+                .iter()
+                .map(|a| a[0][k])
+                .fold(f64::INFINITY, f64::min);
+            let hi = p
+                .arrows
+                .iter()
+                .map(|a| a[0][k])
+                .fold(f64::NEG_INFINITY, f64::max);
+            let gap = super::ARROW + 1.;
+            let delta = if p.label_box[k] > hi + gap {
+                hi + gap - p.label_box[k]
+            } else if p.label_box[k + 2] < lo - gap {
+                lo - gap - p.label_box[k + 2]
+            } else {
+                return None;
+            };
+            p.label_at[k] += delta;
+            p.label_box[k] += delta;
+            p.label_box[k + 2] += delta;
+            let peers = || {
+                placed
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i)
+                    .filter_map(|(_, p)| p.as_ref())
+                    .chain(fixed.iter().filter_map(|d| d.placed.as_ref()))
+            };
+            let clear = page.fits_interior(&p, name)
+                && (proof.opening_linear_clear(view, &p)
+                    || !boxes_overlap(p.label_box, frames[name].outline()))
+                && peers().all(|q| {
+                    !text_conflict(&p, q)
+                        && !super::placement::ink_through(
+                            &p,
+                            super::contacts::clear_box(q.label_box),
+                        )
+                        && !super::placement::ink_through(
+                            q,
+                            super::contacts::clear_box(p.label_box),
+                        )
+                })
+                && !super::label_lanes::off_span(
+                    &p,
+                    placed
+                        .iter()
+                        .enumerate()
+                        .filter(|(j, _)| {
+                            *j != i
+                                && matches!(items[*j].shape, Shape::Linear { .. })
+                                && plan.dimensions[indices[*j]].view == view.id
+                        })
+                        .filter_map(|(_, p)| p.as_ref()),
+                );
+            clear.then_some(p)
+        });
+        drop(candidates);
+        if let Some(p) = found {
+            placed[i] = Some(p);
+            changed.insert(items[i].id.clone());
+        }
+    }
+    // A V-notch's angle is a bounded profile corner too. Linear witnesses
+    // can settle after its first placement; retry only contacted labels on
+    // the final inventory, preserving pins and every stated requirement.
+    let mut angle_views = vec![None; items.len()];
+    let mut angles = Vec::new();
+    for i in 0..items.len() {
+        if !(super::profile_angles::is_profile_angle(&items[i])
+            || items[i]
+                .measurements
+                .iter()
+                .any(|m| m.parameter == "notch.angle"))
+            || spec
+                .dimensions
+                .get(&items[i].id)
+                .is_some_and(|d| d.place.is_some())
+        {
+            continue;
+        }
+        let Some(p) = placed[i].as_ref() else {
+            continue;
+        };
+        let contacted = placed
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .filter_map(|(_, q)| q.as_ref())
+            .chain(fixed.iter().filter_map(|d| d.placed.as_ref()))
+            .any(|q| {
+                text_conflict(p, q)
+                    || super::placement::ink_through(q, super::contacts::clear_box(p.label_box))
+            });
+        if !contacted {
+            continue;
+        }
+        angle_views[i] = super::NAMES.iter().copied().find(|name| {
+            plan.dimensions[indices[i]].view == format!("v:{name}") && frames.contains_key(name)
+        });
+        if angle_views[i].is_some() {
+            angles.push((i, placed[i].take().expect("placed angle")));
+        }
+    }
+    let angle_proofs = super::interior::proofs(analysis, &plan.views);
+    super::angular::place_profile(
+        &frames,
+        &items,
+        &angle_views,
+        &fixed,
+        &mut placed,
+        &page,
+        &plan.views,
+        &angle_proofs,
+    );
+    for (i, old) in angles {
+        if placed[i].is_none() {
+            placed[i] = Some(old);
+        } else {
+            changed.insert(items[i].id.clone());
+        }
+    }
+    for ((&i, w), p) in indices.iter().zip(&items).zip(placed) {
+        if !changed.contains(&w.id) {
+            continue;
+        }
+        let d = &mut plan.dimensions[i];
+        d.region = p
+            .as_ref()
+            .filter(|p| {
+                plan.views.iter().find(|v| v.id == d.view).is_some_and(|v| {
+                    if through_notch(w) && matches!(w.shape, Shape::Linear { .. }) {
+                        proofs
+                            .get(&v.id)
+                            .is_some_and(|proof| proof.opening_linear_clear(v, p))
+                    } else {
+                        angle_proofs
+                            .get(&v.id)
+                            .is_some_and(|proof| proof.annotation_clear(v, p, false))
+                    }
+                })
+            })
+            .map(|_| super::CandidateRegion::Interior);
+        d.placed = p;
+    }
+    let labels = settle_linear_labels(analysis, spec, plan);
+    if !labels.is_empty() {
+        changed.extend(labels);
+        super::contacts::report(analysis, plan);
+    }
+    let after = super::recheck_cached(analysis, plan, &cache);
+    let codes = before
+        .iter()
+        .chain(&after)
+        .map(|p| p.code.clone())
+        .collect();
+    let mut all = plan.dimensions.clone();
+    all.extend(plan.gdt.iter().filter_map(super::gdt::proxy));
+    super::callout_routes::refresh(analysis, plan, &all, &cache, &changed, &codes);
 }
 
 #[cfg(test)]
@@ -1670,6 +2603,22 @@ mod tests {
     }
 
     #[test]
+    fn opening_linear_tips_forgive_only_their_actual_supports() {
+        let p = dimension();
+        let supports = vec![
+            vec![[-10., -20.], [-10., 20.]],
+            vec![[10., -20.], [10., 20.]],
+        ];
+        assert!(proof(&ink(supports.clone())).opening_linear_clear(&view(), &p));
+        let mut blocked = supports;
+        blocked.push(vec![[-9.9, -1.], [-9.7, 1.]]);
+        assert!(
+            !proof(&ink(blocked)).opening_linear_clear(&view(), &p),
+            "the 0.6 mm attachment collar must not forgive a neighbouring edge"
+        );
+    }
+
+    #[test]
     fn blank_label_does_not_excuse_dimension_line_or_arrow_on_ink() {
         let v = view();
         let p = dimension();
@@ -1817,6 +2766,112 @@ mod tests {
     }
 
     #[test]
+    fn ranked_lane_views_match_exhaustive_placed_candidates() {
+        let a = Placed {
+            lines: vec![
+                [[0., -5.], [0., 15.]],
+                [[20., -5.], [20., 15.]],
+                [[0., 10.], [20., 10.]],
+            ],
+            arrows: vec![arrow([0., 10.], [1., 10.]), arrow([20., 10.], [19., 10.])],
+            label_at: [8., 10.],
+            label_box: [8., 10., 12., 12.],
+            rotation: 0.,
+        };
+        let mut b = a.clone();
+        for q in b.lines.iter_mut().chain(&mut b.arrows).flatten() {
+            q[0] += 12.;
+            q[1] += 7.;
+        }
+        b.label_at = [44., 17.];
+        b.label_box = [44., 17., 48., 19.];
+        let bases = [a, b];
+        let drawable = [-100., -100., 100., 100.];
+        let rank = |p: &Placed| {
+            (
+                p.arrows[0][0][0] > 10.,
+                p.rotation != 0.,
+                p.lines
+                    .iter()
+                    .map(|[a, b]| (a[0] - b[0]).hypot(a[1] - b[1]))
+                    .sum::<f64>(),
+            )
+        };
+        let order = |a: &(bool, bool, f64), b: &(bool, bool, f64)| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.total_cmp(&b.2))
+        };
+        for case in 0..5 {
+            let clear = |p: &Placed| match case {
+                0 => true,
+                1 => p.label_box[0] >= 10.,
+                2 => p.label_box[2] < 10.,
+                3 => p.label_box[1] > 16.,
+                _ => false,
+            };
+            let expected = bases
+                .iter()
+                .flat_map(|p| {
+                    std::iter::once(p.clone())
+                        .chain(super::super::placement::slides(p, drawable).take(16))
+                })
+                .filter(&clear)
+                .min_by(|a, b| order(&rank(a), &rank(b)));
+            assert_eq!(
+                first_clear_opening_lane(
+                    &bases,
+                    drawable,
+                    |p| {
+                        let (side, row, _) = rank(p);
+                        (side, row)
+                    },
+                    order,
+                    clear
+                ),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn prepared_attachment_bands_keep_each_rays_angle_and_scale() {
+        let p = proof(&ink(vec![
+            vec![[0., -10.], [0., 10.]],
+            vec![[2., -10.], [2., 10.]],
+        ]));
+        let v = view();
+        let across = [[0., 0.], [10., 0.]];
+        let band = p.banded(&v, across).unwrap();
+        assert!(band.contains(&4) && band.contains(&5));
+        assert!(p.banded(&v, [[0., 0.], [0., 10.]]).is_none());
+        assert!(p.banded(&v, across).unwrap().contains(&5));
+        let mut enlarged = v;
+        enlarged.scale = 2.;
+        let band = p.banded(&enlarged, across).unwrap();
+        assert!(band.contains(&4));
+        assert!(
+            !band.contains(&5),
+            "the three-paper-mm band shrinks in model units"
+        );
+    }
+
+    #[test]
+    fn cloned_attachment_proofs_recheck_changed_depth_and_visibility() {
+        let original = proof(&ink(vec![semicircle()]));
+        assert!(original.touches(&view(), [0., 5.]));
+        let mut behind = original.clone();
+        // The first four chords are the front face's outline. Move only
+        // the circular edge behind it while retaining its projection.
+        for depth in behind.depths.iter_mut().skip(4) {
+            *depth = [-5.; 2];
+        }
+        assert!(!behind.touches(&view(), [0., 5.]));
+        assert!(behind.hidden_tip(&view(), [0., 5.]));
+        assert!(original.touches(&view(), [0., 5.]));
+    }
+
+    #[test]
     fn a_tip_on_an_edge_behind_a_front_face_is_hidden() {
         let mut hidden = ink(vec![semicircle()]);
         for p in &mut hidden.edges[4] {
@@ -1920,6 +2975,7 @@ mod tests {
             &page,
             &[],
             &super::super::footprints::Cache::default(),
+            false,
             false,
         );
         assert!(moved.contains("d:test/location.length.x"));

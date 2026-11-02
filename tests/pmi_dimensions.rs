@@ -2460,3 +2460,325 @@ fn authored_slot_ends_preserve_existing_engine_location_proofs() {
         }
     }
 }
+
+#[test]
+fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
+    let file = "nist_ctc_01_asme1_ap242-e1.stp";
+    let bytes = gunzip(&std::fs::read(fixtures().join("step").join(format!("{file}.gz"))).unwrap());
+    let (part, a) = analysed(file, &bytes);
+    let plan = cache::default_plan(&a, true);
+    let report = match a.pmi.as_ref().unwrap() {
+        Reading::Read(report) => report,
+        _ => panic!("PMI is read"),
+    };
+    for (id, value) in [(24, 85.), (25, 50.), (126, 35.), (127, 35.)] {
+        let r = records(&a).iter().find(|r| r.part21_id == id).unwrap();
+        assert_eq!(
+            r.value,
+            Some(value),
+            "measured source values discard numerical noise: {r:?}"
+        );
+        assert!(r.fields.iter().any(|(key, field)| key == "nominal source"
+            && *field == draftwright::pmi::Field::Text("geometry (no stated value)".into())));
+        assert!(r.blockers.is_empty());
+        assert!(r.geometry.as_ref().unwrap().reasons.is_empty());
+        assert!(
+            r.lower_tol.is_none()
+                && r.upper_tol.is_none()
+                && r.lower_bound.is_none()
+                && r.upper_bound.is_none()
+        );
+        let d = stating(&plan, &a, r).expect("measured PMI retains a drawn carrier");
+        assert!(d.placed.is_some());
+        let warnings: Vec<_> = plan
+            .problems
+            .iter()
+            .filter(|p| p.code == "pmi_read_nonconformance" && p.refs.contains(&r.source_id))
+            .collect();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].severity, "warning");
+        assert!(warnings[0].message.contains("was measured"));
+        assert_eq!(json!(warnings[0])["impact"], "advisory");
+        assert_eq!(
+            json!(warnings[0])["group"],
+            "pmi_read_nonconformance:dimension"
+        );
+        assert!(
+            !plan
+                .problems
+                .iter()
+                .any(|p| p.code == "pmi_not_lowered" && p.refs.contains(&r.source_id))
+        );
+    }
+    // Each measured diameter adds provenance to the already toleranced size,
+    // preserving the original requirement and its single callout.
+    for (measured, stated) in [(126, 120), (127, 121)] {
+        let by_id = |id| records(&a).iter().find(|r| r.part21_id == id).unwrap();
+        assert_eq!(
+            stating(&plan, &a, by_id(measured)).unwrap().id,
+            stating(&plan, &a, by_id(stated)).unwrap().id
+        );
+        assert!(
+            report
+                .identities()
+                .id(&by_id(measured).source_id)
+                .unwrap()
+                .ends_with(":t="),
+            "the measured fallback keeps the source's original empty-label identity"
+        );
+    }
+    let wall = records(&a).iter().find(|r| r.part21_id == 25).unwrap();
+    let d = stating(&plan, &a, wall).unwrap();
+    assert!(
+        d.measurements
+            .iter()
+            .any(|m| m.feature == "f:slot:2" && m.parameter == "slot_width.length")
+    );
+    let mut numbered = a.clone();
+    if let Some(Reading::Read(report)) = &mut numbered.pmi {
+        for r in report
+            .records
+            .iter_mut()
+            .filter(|r| [24, 25, 126, 127].contains(&r.part21_id))
+        {
+            r.fields.push((
+                "id".into(),
+                draftwright::pmi::Field::Text(format!("{}", r.part21_id)),
+            ));
+        }
+    }
+    let numbered_plan = cache::default_plan(&numbered, true);
+    for id in [24, 25, 126, 127] {
+        let r = records(&numbered)
+            .iter()
+            .find(|r| r.part21_id == id)
+            .unwrap();
+        let carrier = stating(&numbered_plan, &numbered, r).unwrap();
+        let characteristic = numbered_plan
+            .characteristics
+            .iter()
+            .find(|c| c.source == r.source_id)
+            .unwrap();
+        assert_eq!(characteristic.number, format!("{id}"));
+        assert_eq!(
+            characteristic.drawn_item.as_deref(),
+            Some(carrier.id.as_str())
+        );
+    }
+    let notches: Vec<_> = a
+        .features
+        .iter()
+        .filter(|f| f.kind == "rectangular_through_notch")
+        .collect();
+    assert_eq!(notches.len(), 2);
+    let carriers: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| {
+            d.placed.is_some()
+                && d.measurements.iter().any(|m| {
+                    m.feature.starts_with("f:rectangular_through_notch:")
+                        && m.parameter == "notch_width.length"
+                })
+        })
+        .collect();
+    assert_eq!(carriers.len(), 2);
+    assert!(
+        carriers
+            .iter()
+            .all(|d| d.kind == "linear" && d.label == "85")
+    );
+    let authored = records(&a).iter().find(|r| r.part21_id == 24).unwrap();
+    let width = stating(&plan, &a, authored).unwrap();
+    assert_eq!(width.kind, "linear");
+    assert_eq!(width.label, "85");
+    let placed = width.placed.as_ref().unwrap();
+    let view = plan.views.iter().find(|v| v.id == width.view).unwrap();
+    assert!(
+        ((placed.lines[0][0][0] - placed.lines[1][0][0]).abs() / view.scale - 85.).abs() < 1e-6
+    );
+    assert!(
+        plan.notes
+            .iter()
+            .all(|n| !n.id.contains("rectangular_through_notch"))
+    );
+    assert_eq!(plan.sheet.size, "A3");
+    assert_eq!(plan.sheet.scale, "1:5");
+    let locators: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| {
+            d.placed.is_some()
+                && d.measurements.iter().any(|m| {
+                    m.feature.starts_with("f:rectangular_through_notch:")
+                        && m.parameter.starts_with("location.")
+                })
+        })
+        .collect();
+    assert_eq!(locators.len(), 3);
+    // Baselines with a common origin must remain separate readable rows,
+    // including when their labels occupy different X spans.
+    let x_locations: Vec<_> = locators
+        .iter()
+        .filter(|d| d.placed.as_ref().unwrap().rotation == 0.)
+        .collect();
+    assert_eq!(x_locations.len(), 2);
+    let row = |d: &&draftwright::dims::PlannedDimension| d.placed.as_ref().unwrap().lines[2][0][1];
+    assert!((row(x_locations[0]) - row(x_locations[1])).abs() >= 3.);
+    for value in [207.5, 507.5, 350.] {
+        assert!(
+            locators
+                .iter()
+                .any(|d| d.kind == "linear" && (d.value - value).abs() < 1e-6)
+        );
+    }
+    assert!(!plan.problems.iter().any(|p| {
+        p.code == "dimension_line_crossing"
+            || (matches!(
+                p.code.as_str(),
+                "extension_through_feature"
+                    | "label_crowded"
+                    | "annotation_overlap"
+                    | "annotation_ink_overlap"
+            ) && p
+                .subjects
+                .iter()
+                .any(|s| s.contains("rectangular_through_notch")))
+    }));
+    for (code, max) in [
+        ("extension_through_feature", 9),
+        ("label_crowded", 0),
+        ("annotation_leader_crossing", 4),
+        ("leader_across_view", 0),
+    ] {
+        assert!(
+            plan.problems.iter().filter(|p| p.code == code).count() <= max,
+            "{code}: {:?}",
+            plan.problems
+        );
+    }
+
+    for f in notches {
+        for (role, value) in [("notch_width.length", 85.), ("notch_depth.length", 25.)] {
+            assert!(plan.dimensions.iter().any(|d| d.placed.is_some()
+                && d.measurements.iter().any(|m| m.feature == f.id
+                    && m.parameter == role
+                    && (m.value - value).abs() < 1e-6)));
+        }
+        assert!(
+            !plan
+                .problems
+                .iter()
+                .any(|p| p.code == "feature_not_located" && p.subjects.contains(&f.id))
+        );
+    }
+    let font =
+        draftwright::text::Font::open(&root().join("fonts").join(draftwright::dims::FONT)).unwrap();
+    let drawing = model::render(&part, &a, &plan, &font).unwrap();
+    let lint = draftwright::lint::lint(&a, &drawing);
+    assert!(!lint.iter().any(|p| {
+        p.code == "duplicate_measurement"
+            && p.subjects
+                .iter()
+                .any(|id| id.starts_with("f:rectangular_through_notch:"))
+    }));
+    // Ordinary datum-based dimensions are verified from their actual witness
+    // ink and drawing frame, including the printed coordinate origin.
+    for id in [
+        "f:slot:1",
+        "f:slot:2",
+        "f:rectangular_through_notch:1",
+        "f:rectangular_through_notch:2",
+    ] {
+        assert!(
+            !lint
+                .iter()
+                .any(|p| p.code == "feature_not_located" && p.subjects.iter().any(|s| s == id)),
+            "{id}: {lint:?}"
+        );
+    }
+    // This is a real shared location, not an exemption for this feature family.
+    // Removing the drawn 225 ordinate must leave both slot centres unlocated.
+    let mut missing = drawing.clone();
+    for annotation in &missing.annotations {
+        if annotation.name == "d:f:hole_pattern:1/location.length.y" {
+            for &run in &annotation.runs {
+                missing.text[run].text.clear();
+            }
+        }
+    }
+    let missing_lint = draftwright::lint::lint(&a, &missing);
+    for id in ["f:slot:1", "f:slot:2"] {
+        assert!(
+            missing_lint
+                .iter()
+                .any(|p| p.code == "feature_not_located" && p.subjects.iter().any(|s| s == id)),
+            "{id}: removing the actual ordinate must remove its evidence"
+        );
+    }
+    // The ordinary dimension ink, rather than note text or planned metadata,
+    // carries each notch's physical location.
+    let mut unlocated = drawing.clone();
+    for annotation in &unlocated.annotations {
+        if annotation.name.contains("rectangular_through_notch")
+            && annotation.name.contains("/location.length.")
+        {
+            for &run in &annotation.runs {
+                unlocated.text[run].text = format!("1{}", unlocated.text[run].text);
+            }
+        }
+    }
+    let unlocated_lint = draftwright::lint::lint(&a, &unlocated);
+    for id in [
+        "f:rectangular_through_notch:1",
+        "f:rectangular_through_notch:2",
+    ] {
+        assert!(
+            unlocated_lint
+                .iter()
+                .any(|p| p.code == "feature_not_located" && p.subjects.iter().any(|s| s == id)),
+            "{id}: a wrong printed linear location must lose its evidence"
+        );
+    }
+}
+
+#[test]
+fn missing_nominals_require_unique_geometry_and_do_not_relax_stated_values() {
+    let file = "nist_ctc_01_asme1_ap242-e1.stp";
+    let bytes = gunzip(&std::fs::read(fixtures().join("step").join(format!("{file}.gz"))).unwrap());
+    let (part, a) = analysed(file, &bytes);
+    let r = records(&a).iter().find(|r| r.part21_id == 24).unwrap();
+    let mut wrong = r.clone();
+    wrong.value = Some(86.);
+    assert!(
+        draftwright::pmi_lowering::dimension_geometry(&part, &wrong)
+            .reasons
+            .iter()
+            .any(|r| r.contains("differs from nominal"))
+    );
+    let mut missing = r.clone();
+    missing.value = None;
+    // A nonparallel companion has no constant plane separation: a box diagonal
+    // is not a recovered PMI length.
+    missing.face_groups[1] = vec![part.faces.iter().position(|f|
+        matches!(&f.surface, draftwright::haecceity::geom::Surface::Plane { frame } if frame.z[1].abs() > 0.99)).unwrap()];
+    assert!(
+        !draftwright::pmi_lowering::dimension_geometry(&part, &missing)
+            .reasons
+            .is_empty()
+    );
+    let bore = records(&a).iter().find(|r| r.part21_id == 126).unwrap();
+    let other = records(&a)
+        .iter()
+        .find(|r| r.kind == "diameter" && r.value == Some(25.))
+        .unwrap();
+    let mut inconsistent = bore.clone();
+    inconsistent.value = None;
+    inconsistent.faces.extend(&other.faces);
+    assert!(
+        !draftwright::pmi_lowering::dimension_geometry(&part, &inconsistent)
+            .reasons
+            .is_empty(),
+        "different cylinder radii cannot supply one measured diameter"
+    );
+}

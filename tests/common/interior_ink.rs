@@ -1,6 +1,7 @@
 //! Independent oracle over the *rendered* drawing: an interior annotation's label, lines and
-//! arrowheads clear every drawn edge (visible and hidden, from the renderer's own hidden-line
-//! projection) and all section furniture. Planner provenance alone never excuses a crossing.
+//! arrowheads clear every unrelated drawn edge (visible and hidden, from the renderer's own
+//! hidden-line projection) and all section furniture. Source-edge continuations and contacts
+//! are checked against the actual visible edge; planner provenance alone excuses nothing.
 #![allow(dead_code)]
 use draftwright::dims::PlannedDimension;
 use draftwright::output::{Curve, Drawing, Item, Kind};
@@ -82,6 +83,95 @@ fn banded(visible: &[[P; 2]], [tip, elbow]: [P; 2], e: [P; 2]) -> bool {
         && cross([e[0][0] - tip[0], e[0][1] - tip[1]], own).abs() <= 3.0
 }
 
+/// Linear extensions may continue their actual visible support edge; arrow
+/// tips may touch that edge. Every other rendered edge remains an obstacle.
+fn linear_edge_clear(visible: &[[P; 2]], s: [P; 2], e: [P; 2], witness: bool, tips: &[P]) -> bool {
+    if !visible.contains(&e) {
+        return !meet(s, e, 0.1);
+    }
+    let closest = |p: P| {
+        visible
+            .iter()
+            .map(|e| distance(p, *e))
+            .fold(f64::INFINITY, f64::min)
+    };
+    let unit = |s: [P; 2]| {
+        let d = [s[1][0] - s[0][0], s[1][1] - s[0][1]];
+        let n = d[0].hypot(d[1]);
+        (n > 1e-9).then(|| [d[0] / n, d[1] / n])
+    };
+    if witness
+        && closest(s[0]) < 0.01
+        && distance(s[0], e) <= closest(s[0]) + 1e-6
+        && unit(s)
+            .zip(unit(e))
+            .is_some_and(|(u, v)| (u[0] * v[1] - u[1] * v[0]).abs() < 1e-5)
+    {
+        return true;
+    }
+    let delta = [s[1][0] - s[0][0], s[1][1] - s[0][1]];
+    let n = delta[0].hypot(delta[1]);
+    if n < 1e-9 {
+        return !meet(s, e, 0.1);
+    }
+    let mut collars = Vec::new();
+    for &tip in tips {
+        let nearest = closest(tip);
+        if nearest < 0.15 && distance(tip, e) <= nearest + 1e-6 && distance(tip, s) < 1e-6 {
+            let t = ((tip[0] - s[0][0]) * delta[0] + (tip[1] - s[0][1]) * delta[1]) / (n * n);
+            collars.push(((t - 0.6 / n).max(0.), (t + 0.6 / n).min(1.)));
+        }
+    }
+    collars.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let at = |t: f64| [s[0][0] + t * delta[0], s[0][1] + t * delta[1]];
+    let mut start = 0.;
+    for (lo, hi) in collars.into_iter().chain(std::iter::once((1., 1.))) {
+        if lo > start && meet([at(start), at(lo)], e, 0.1) {
+            return false;
+        }
+        start = start.max(hi);
+    }
+    true
+}
+
+#[test]
+fn linear_support_exceptions_never_forgive_a_neighbouring_edge() {
+    let support = [[0., -10.], [0., 10.]];
+    let neighbour = [[0.3, -10.], [1.3, 10.]];
+    let visible = [support, neighbour];
+    let shaft = [[0., 0.], [4., 0.]];
+    assert!(linear_edge_clear(
+        &visible,
+        shaft,
+        support,
+        false,
+        &[[0., 0.]]
+    ));
+    assert!(!linear_edge_clear(
+        &visible,
+        shaft,
+        neighbour,
+        false,
+        &[[0., 0.]]
+    ));
+    assert!(linear_edge_clear(
+        &visible,
+        [[0., 1.], [0., 4.]],
+        support,
+        true,
+        &[]
+    ));
+    let short = [[0., 0.], [0., 2.]];
+    let separate = [[0., 4.], [0., 6.]];
+    assert!(!linear_edge_clear(
+        &[short, separate],
+        [[0., 1.], [0., 5.]],
+        separate,
+        true,
+        &[]
+    ));
+}
+
 pub fn assert_clear(drawing: &Drawing, d: &PlannedDimension) {
     let p = d.placed.as_ref().unwrap();
     let visible = layer(drawing, "part");
@@ -156,9 +246,18 @@ pub fn assert_clear(drawing: &Drawing, d: &PlannedDimension) {
             ];
         }
         assert!(
-            !edges
-                .iter()
-                .any(|e| meet(s, *e, 0.1) && !(*attachment && banded(&visible, p.lines[0], *e))),
+            !edges.iter().any(|e| {
+                if d.kind == "linear" && p.arrows.len() == 2 && p.lines.len() >= 3 {
+                    return !linear_edge_clear(
+                        &visible,
+                        s,
+                        *e,
+                        i < 2,
+                        &p.arrows.iter().map(|a| a[0]).collect::<Vec<_>>(),
+                    );
+                }
+                meet(s, *e, 0.1) && !(*attachment && banded(&visible, p.lines[0], *e))
+            }),
             "{} line/arrow {i} crosses drawn line-work",
             d.id
         );

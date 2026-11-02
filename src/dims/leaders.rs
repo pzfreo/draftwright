@@ -138,7 +138,7 @@ const DESCENT: usize = 50;
 /// a text height and two `pad_around_text` apart; half a pad keeps them visibly apart here).
 const LABEL_PAD: f64 = 1.0;
 /// Extra readable paper for compound fit/tolerance labels beside strokes and arrow flares.
-const STROKE_PAD: f64 = 2.0;
+pub(super) const STROKE_PAD: f64 = 2.0;
 
 /// The first side shelf: full ink, elbow, shoulder, text gap and paper to the border.
 pub(super) fn shelf_width(ink: &super::LabelInk) -> f64 {
@@ -1007,6 +1007,19 @@ fn settled_nominal_reference(
     let full = crate::dims::with_compact(false, || {
         crate::planning::memo(analysis, "selected-nominal-reference", key, || {
             crate::nominal::with_comparison(|| {
+                // New notch statements cannot displace established circular
+                // callouts in the very reference that bounds their final routes.
+                // Only this unrendered comparison omits the added inventory.
+                let reference = analysis
+                    .features
+                    .iter()
+                    .any(|f| f.kind == "rectangular_through_notch")
+                    .then(|| {
+                        let mut a = analysis.clone();
+                        a.features.retain(|f| f.kind != "rectangular_through_notch");
+                        a
+                    });
+                let analysis = reference.as_ref().unwrap_or(analysis);
                 crate::planning::isolated(analysis, || {
                     crate::planning::store(
                         analysis,
@@ -2776,6 +2789,21 @@ pub(crate) fn settle_radius_leaders(
                             }
                             let centred_c = arc.centred([tip, elbow]);
                             let right = elbow[0] >= tip[0];
+                            // Every other score term is nonnegative. A ray
+                            // whose ink length alone cannot beat the incumbent
+                            // need not repeat its physical/peer proofs.
+                            let end = elbow[0] + if right { SHOULDER } else { -SHOULDER };
+                            let lower = (((elbow[0] - tip[0]).hypot(elbow[1] - tip[1])
+                                + (end - elbow[0]).abs())
+                                * 1000.)
+                                .floor() as i64;
+                            if (centred && lower >= before.score())
+                                || best
+                                    .as_ref()
+                                    .is_some_and(|(k, _)| (!centred_c, lower) >= *k)
+                            {
+                                continue;
+                            }
                             let Some(mut c) = measure_bounds(&job, tip, elbow, right, &page) else {
                                 continue;
                             };
@@ -6070,6 +6098,43 @@ fn radial_shaft(sites: &[Site], tip: P2, elbow: P2) -> bool {
     })
 }
 
+/// Clear interior geometry for one immutable job/page. Scores against peer
+/// annotations are deliberately recomputed after retrieving these bounds.
+#[derive(Default)]
+struct InteriorMeasurements {
+    rays: BTreeMap<[u64; 5], Option<Box<Candidate>>>,
+}
+
+impl InteriorMeasurements {
+    fn measure(
+        &mut self,
+        job: &Job,
+        tip: P2,
+        elbow: P2,
+        right: bool,
+        page: &Page,
+    ) -> Option<Candidate> {
+        let key = [
+            tip[0].to_bits(),
+            tip[1].to_bits(),
+            elbow[0].to_bits(),
+            elbow[1].to_bits(),
+            u64::from(right),
+        ];
+        if let Some(cached) = self.rays.get(&key) {
+            return cached.as_deref().cloned();
+        }
+        let found = measure_bounds(job, tip, elbow, right, page)
+            .filter(|c| boxes_overlap(c.label_box, job.outline) && c.hard == 0);
+        // Bound browser memory independently of the size of an upstream
+        // grouped feature's site inventory. A miss always runs the full proof.
+        if self.rays.len() < 32_768 {
+            self.rays.insert(key, found.clone().map(Box::new));
+        }
+        found
+    }
+}
+
 fn measure_at_bounds(
     job: &Job,
     tip: P2,
@@ -6998,6 +7063,13 @@ fn solve_group(
 /// candidates chosen before (ties by index), generated lazily: the candidates with the same
 /// number of crossings are in their ranked order already, so the next is the least of each
 /// count's first, and a job whose bound fails after a few never orders the rest.
+#[derive(Default)]
+struct CrossingTiers {
+    words: Vec<u64>,
+    masks: Vec<u64>,
+    active: usize,
+}
+
 struct Search {
     /// Per job, its candidates' indices in order of (score, index), and their scores so.
     ranked: Vec<Vec<usize>>,
@@ -7010,6 +7082,7 @@ struct Search {
     rest: Vec<i64>,
     /// Per job, scratch: its ranks not yet taken, by their number of conflicts.
     rem: Vec<Vec<u64>>,
+    prepared: Vec<CrossingTiers>,
     current: Vec<usize>,
     best: Vec<usize>,
     best_total: i64,
@@ -7048,7 +7121,19 @@ impl Search {
                 r
             })
             .collect();
-        let (sizes, ranked_ref) = (&sizes, &ranked);
+        // Permute only the set bits of each conflict word. In particular,
+        // an empty row needs no scan of every candidate in the other job.
+        let rank_bits: Vec<Vec<u64>> = ranked
+            .iter()
+            .map(|order| {
+                let mut bits = vec![0; order.len()];
+                for (rank, &candidate) in order.iter().enumerate() {
+                    bits[candidate] = 1 << rank;
+                }
+                bits
+            })
+            .collect();
+        let (sizes, rank_bits) = (&sizes, &rank_bits);
         let before: Vec<Vec<(usize, Vec<u64>)>> = (0..m)
             .map(|k| {
                 (0..k)
@@ -7057,9 +7142,14 @@ impl Search {
                         layers.iter().map(move |rows| {
                             let words = (0..sizes[j])
                                 .map(|cj| {
-                                    (0..sizes[k])
-                                        .filter(|&r| rows[cj] >> ranked_ref[k][r] & 1 == 1)
-                                        .fold(0, |x, r| x | 1 << r)
+                                    let mut remaining = rows[cj];
+                                    let mut word = 0;
+                                    while remaining != 0 {
+                                        let candidate = remaining.trailing_zeros() as usize;
+                                        word |= rank_bits[k][candidate];
+                                        remaining &= remaining - 1;
+                                    }
+                                    word
                                 })
                                 .collect();
                             (j, words)
@@ -7072,6 +7162,7 @@ impl Search {
             ranked_scores: (0..m)
                 .map(|k| ranked[k].iter().map(|&c| scores[k][c]).collect())
                 .collect(),
+            prepared: before.iter().map(|_| CrossingTiers::default()).collect(),
             rem: before.iter().map(|b| vec![0; b.len() + 2]).collect(),
             ranked,
             before,
@@ -7101,22 +7192,49 @@ impl Search {
             self.current.pop();
             return;
         }
-        // The ranks with at least n crossings, then with exactly n.
+        // Earlier candidate indices can change without changing a single
+        // conflict mask. Reuse that exact classification, independent of the
+        // current total/incumbent; pruning and node order are still evaluated.
+        let prepared = &mut self.prepared[k];
         let rem = &mut self.rem[k];
-        rem.fill(0);
-        rem[0] = u64::MAX >> (64 - size);
-        for (i, (j, words)) in self.before[k].iter().enumerate() {
-            let w = words[self.current[*j]];
-            for n in (1..=i + 1).rev() {
-                rem[n] |= rem[n - 1] & w;
+        let same = !prepared.masks.is_empty()
+            && self.before[k]
+                .iter()
+                .zip(&prepared.words)
+                .all(|((j, words), old)| words[self.current[*j]] == *old);
+        let active = if same {
+            rem.clone_from(&prepared.masks);
+            prepared.active
+        } else {
+            rem.fill(0);
+            rem[0] = u64::MAX >> (64 - size);
+            let mut active = 0;
+            for (j, words) in &self.before[k] {
+                let w = words[self.current[*j]];
+                if w == 0 {
+                    continue;
+                }
+                for n in (1..=active + 1).rev() {
+                    rem[n] |= rem[n - 1] & w;
+                }
+                active += 1;
             }
-        }
-        for n in 0..rem.len() - 1 {
-            rem[n] &= !rem[n + 1];
-        }
+            for n in 0..active {
+                rem[n] &= !rem[n + 1];
+            }
+            prepared.words.clear();
+            prepared.words.extend(
+                self.before[k]
+                    .iter()
+                    .map(|(j, words)| words[self.current[*j]]),
+            );
+            prepared.masks.clone_from(rem);
+            prepared.active = active;
+            active
+        };
         loop {
             let mut next: Option<(i64, usize, usize, usize)> = None;
-            for (n, &w) in self.rem[k].iter().enumerate() {
+            for (n, &w) in self.rem[k].iter().take(active + 1).enumerate() {
                 if w == 0 {
                     continue;
                 }
@@ -7216,11 +7334,16 @@ fn interior_routes(job: &Job, tip: P2, page: &Page) -> Vec<Candidate> {
             tips.push(site);
         }
     }
+    // Different seed tips reorder the same nearest sites. Preserve every
+    // candidate and its order, but prove identical physical rays only once.
+    // These bounds depend on this immutable job/page, never on peer scores.
+    let mut measured = InteriorMeasurements::default();
     tips.into_iter()
         .flat_map(|tip| sweep(job, tip).into_iter().chain(inward_rays(job, tip)))
         .filter_map(|(tip, elbow, right)| {
-            let c = measure_bounds(job, tip, elbow, right, page)?;
-            (boxes_overlap(c.label_box, job.outline) && c.hard == 0).then_some(c)
+            measured
+                .measure(job, tip, elbow, right, page)
+                .filter(|c| boxes_overlap(c.label_box, job.outline) && c.hard == 0)
         })
         .collect()
 }
@@ -7392,46 +7515,85 @@ pub(super) fn settled_routes(
         .filter(|(_, d)| d.kind == "ink" && d.basis == "cross")
         .map(|(i, _)| i)
         .collect();
-    let mut exterior = job.clone();
-    exterior.interior_proof = None;
-    let mut candidates: Vec<_> = sweep(&exterior, shaft[0])
-        .into_iter()
-        .filter_map(|(tip, elbow, right)| measure_bounds(&exterior, tip, elbow, right, &page))
-        .filter(|c| !boxes_overlap(c.label_box, job.outline) && c.hard == 0)
-        .collect();
-    candidates.extend(interior_routes(&job, shaft[0], &page));
-    // A radius may also be read from inside its arc, the shaft running toward the centre (a
-    // slot's end from within the slot): the label then sits in the opening the arc bounds.
-    if job.interior_proof.is_some() {
-        for arc in radius.iter().flatten() {
-            for &tip in &arc.tips {
-                let u = arc.radial_direction(tip);
-                let n = u[0].hypot(u[1]);
-                if n <= 1e-12 {
-                    continue;
-                }
-                let u = [u[0] / n, u[1] / n];
-                for reach in SWEEP_REACH.into_iter().take_while(|d| *d < 2.0 * n) {
-                    let elbow = [tip[0] + reach * u[0], tip[1] + reach * u[1]];
-                    for right in [elbow[0] >= tip[0] - 1e-9, elbow[0] <= tip[0] + 1e-9] {
-                        if let Some(c) = measure_bounds(&job, tip, elbow, right, &page)
-                            && boxes_overlap(c.label_box, job.outline)
-                            && c.hard == 0
-                        {
-                            candidates.push(c);
+    // Only page/model geometry is retained. Peer and extension scores below
+    // are measured against the current inventory on every invocation.
+    type Geometry = std::rc::Rc<std::cell::RefCell<BTreeMap<[u8; 32], Vec<Candidate>>>>;
+    let geometry: Geometry =
+        crate::planning::memo(analysis, "settled-route-geometry", Vec::new(), || {
+            std::rc::Rc::new(std::cell::RefCell::new(BTreeMap::new()))
+        });
+    use sha2::{Digest, Sha256};
+    let key: [u8; 32] = Sha256::digest(
+        serde_json::to_vec(&(
+            sheet,
+            views,
+            d,
+            want,
+            proof.map(super::interior::Proof::geometry_key),
+            crate::layout::gutter().to_bits(),
+            crate::planning::policy_key(analysis),
+        ))
+        .expect("route preparation inputs serialize"),
+    )
+    .into();
+    const GEOMETRY_LIMIT: usize = 16_384;
+    let cached = geometry.borrow().get(&key).cloned();
+    let mut candidates = if let Some(cached) = cached {
+        cached
+    } else {
+        let mut exterior = job.clone();
+        exterior.interior_proof = None;
+        let mut candidates: Vec<_> = sweep(&exterior, shaft[0])
+            .into_iter()
+            .filter_map(|(tip, elbow, right)| measure_bounds(&exterior, tip, elbow, right, &page))
+            .filter(|c| !boxes_overlap(c.label_box, job.outline) && c.hard == 0)
+            .collect();
+        candidates.extend(interior_routes(&job, shaft[0], &page));
+        // A radius may also be read from inside its arc, the shaft running toward the centre (a
+        // slot's end from within the slot): the label then sits in the opening the arc bounds.
+        if job.interior_proof.is_some() {
+            for arc in radius.iter().flatten() {
+                for &tip in &arc.tips {
+                    let u = arc.radial_direction(tip);
+                    let n = u[0].hypot(u[1]);
+                    if n <= 1e-12 {
+                        continue;
+                    }
+                    let u = [u[0] / n, u[1] / n];
+                    for reach in SWEEP_REACH.into_iter().take_while(|d| *d < 2.0 * n) {
+                        let elbow = [tip[0] + reach * u[0], tip[1] + reach * u[1]];
+                        for right in [elbow[0] >= tip[0] - 1e-9, elbow[0] <= tip[0] + 1e-9] {
+                            if let Some(c) = measure_bounds(&job, tip, elbow, right, &page)
+                                && boxes_overlap(c.label_box, job.outline)
+                                && c.hard == 0
+                            {
+                                candidates.push(c);
+                            }
                         }
                     }
                 }
             }
         }
-    }
-    // Radius evidence is independent of the old router's sites. A cheaper or
-    // crossing-free route may not violate the shared #153 drawing rule.
-    candidates.retain(|c| {
-        radius
-            .as_ref()
-            .is_none_or(|arcs| arcs.iter().any(|arc| arc.accepts([c.tip, c.elbow])))
-    });
+        // Radius evidence is independent of the old router's sites. A cheaper or
+        // crossing-free route may not violate the shared #153 drawing rule.
+        candidates.retain(|c| {
+            radius
+                .as_ref()
+                .is_none_or(|arcs| arcs.iter().any(|arc| arc.accepts([c.tip, c.elbow])))
+        });
+        // At most 16384 candidates, in 16 preparations,
+        // regardless of grouped-feature size or the number of session edits.
+        if candidates.len() <= GEOMETRY_LIMIT {
+            let mut held = geometry.borrow_mut();
+            if held.len() >= 16
+                || held.values().map(Vec::len).sum::<usize>() + candidates.len() > GEOMETRY_LIMIT
+            {
+                held.clear();
+            }
+            held.insert(key, candidates.clone());
+        }
+        candidates
+    };
     let old_extensions = fixed.extension_index.contacts(&old.lines, old.label_box);
     let resolved = analysis.edge_ink.as_ref().and_then(|ink| {
         let key = serde_json::to_vec(v).expect("view serializes");
@@ -7446,14 +7608,15 @@ pub(super) fn settled_routes(
     let hidden = resolved
         .as_ref()
         .map_or(0, |r| r.hidden.route_crossings(old_lines));
-    candidates.retain_mut(|c| {
-        measure_fixed(c, &job, &fixed);
-        c.measure_features(&job);
-        // An interior route meets the exterior routes' budgets: its label on proven blank face
-        // (`measure_at_bounds`), no text, clearance or furniture contact, and its crossings
-        // scored like theirs. Exterior shafts may cross their own outline on the way out, as
-        // the original sweep does. Preserve hidden-edge budgets independently;
-        // counting every visible chord as a veto loses clear outward routes.
+    let compact_shoulders = peers.iter().any(|q| {
+        (q.view == d.view
+            || want.is_some_and(|w| !w.measurements.iter().any(|m| m.feature.starts_with("pmi:"))))
+            && q.measurements
+                .iter()
+                .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+    });
+    let mut near = Vec::new();
+    let admissible = |c: &Candidate| {
         let extensions = fixed.extension_index.contacts(&c.segments(), c.label_box);
         c.hard == 0
             && extensions.0 <= old_extensions.0
@@ -7463,10 +7626,131 @@ pub(super) fn settled_routes(
             && c.furniture == 0
             && c.beside == 0
             && c.grazing == 0
+            && (!compact_shoulders
+                || resolved.as_ref().is_none_or(|r| {
+                    let pad = 1. + 1e-6;
+                    !r.visible.crosses_box([
+                        c.label_box[0] - pad,
+                        c.label_box[1] - pad,
+                        c.label_box[2] + pad,
+                        c.label_box[3] + pad,
+                    ]) && !r.visible.crosses_box([
+                        c.elbow[0] - pad,
+                        c.elbow[1] - pad,
+                        c.elbow[0] + pad,
+                        c.elbow[1] + pad,
+                    ])
+                }))
             && resolved
                 .as_ref()
                 .is_none_or(|r| r.hidden.route_crossings(c.segments()) <= hidden)
+    };
+    candidates.retain_mut(|c| {
+        measure_fixed(c, &job, &fixed);
+        c.measure_features(&job);
+        if compact_shoulders
+            && c.hard == 0
+            && c.text <= 1
+            && c.clearance <= 1
+            && c.text + c.clearance > 0
+            && c.furniture == 0
+            && c.beside == 0
+            && c.grazing == 0
+        {
+            near.push((c.score(), c.tip, c.elbow, c.end[0] >= c.elbow[0]));
+        }
+        admissible(c)
     });
+    // Refine the held bend before changing corridors. Recompute the tip on
+    // the same physical attachment and reprove the entire route, rather than
+    // translating an arrowhead off its arc. At most 40 local sites are tried.
+    let mut local = Vec::new();
+    if compact_shoulders && old.lines.len() >= 2 {
+        let site = nearest(&job.sites, shaft[0]);
+        let right = old.lines[1][1][0] >= shaft[1][0];
+        let mut retain = |tip: P2, elbow: P2, end: P2| {
+            if let Some(c) = measure_at(&job, tip, elbow, end, right, &fixed, &page)
+                && admissible(&c)
+                && radius
+                    .as_ref()
+                    .is_none_or(|arcs| arcs.iter().any(|arc| arc.accepts([c.tip, c.elbow])))
+            {
+                local.push(c);
+            }
+        };
+        if radius.is_none() {
+            for step in 1..=8 {
+                for delta in [
+                    [-0.5 * f64::from(step), 0.],
+                    [0.5 * f64::from(step), 0.],
+                    [0., -0.5 * f64::from(step)],
+                    [0., 0.5 * f64::from(step)],
+                ] {
+                    let elbow = [shaft[1][0] + delta[0], shaft[1][1] + delta[1]];
+                    let end = [old.lines[1][1][0] + delta[0], old.lines[1][1][1] + delta[1]];
+                    retain(rim_tip(site, elbow), elbow, end);
+                }
+            }
+        } else {
+            // A radius keeps its proven ray and middle-arc tip exactly.
+            let u = [shaft[1][0] - shaft[0][0], shaft[1][1] - shaft[0][1]];
+            let length = u[0].hypot(u[1]);
+            for step in 1..=4 {
+                for distance in [-0.5 * f64::from(step), 0.5 * f64::from(step)] {
+                    let delta = [distance * u[0] / length.max(1e-9), distance * u[1] / length];
+                    let elbow = [shaft[1][0] + delta[0], shaft[1][1] + delta[1]];
+                    let end = [old.lines[1][1][0] + delta[0], old.lines[1][1][1] + delta[1]];
+                    retain(shaft[0], elbow, end);
+                }
+            }
+        }
+        for step in 1..=4 {
+            for distance in [-0.5 * f64::from(step), 0.5 * f64::from(step)] {
+                let end = [
+                    old.lines[1][1][0] + if right { distance } else { -distance },
+                    shaft[1][1],
+                ];
+                if (end[0] - shaft[1][0]).abs() >= 0.75 {
+                    retain(shaft[0], shaft[1], end);
+                }
+            }
+        }
+    }
+    // Newly reserved opening lanes may leave a clear shaft whose standard
+    // shoulder puts its label through a witness. Refine at most 64 such rays
+    // with two shorter shoulders and four local reaches on the first 16,
+    // retaining every original physical budget.
+    if compact_shoulders {
+        near.sort_by_key(|c| c.0);
+        for (rank, (_, tip, elbow, right)) in near.into_iter().take(64).enumerate() {
+            let u = [elbow[0] - tip[0], elbow[1] - tip[1]];
+            let length = u[0].hypot(u[1]);
+            // The coarse reach grid jumps from 15 to 20 mm. A nearby
+            // obstruction may need only one more millimetre of the same ray.
+            let reaches: &[f64] = if rank < 16 && length > 1e-9 {
+                &[0., 1., 2., 3., 4.]
+            } else {
+                &[0.]
+            };
+            for &distance in reaches {
+                let elbow = [
+                    elbow[0] + distance * u[0] / length.max(1e-9),
+                    elbow[1] + distance * u[1] / length.max(1e-9),
+                ];
+                for shoulder in [2., 0.75] {
+                    let end = [
+                        elbow[0] + if right { shoulder } else { -shoulder },
+                        elbow[1],
+                    ];
+                    if let Some(c) = measure_at(&job, tip, elbow, end, right, &fixed, &page)
+                        && admissible(&c)
+                    {
+                        candidates.push(c);
+                    }
+                }
+            }
+        }
+    }
     // A radius reads best at its arc's middle, radially: centred routes rank first.
     candidates.sort_by_key(|c| {
         (
@@ -7478,7 +7762,17 @@ pub(super) fn settled_routes(
         )
     });
     candidates.dedup_by(|a, b| a.label_box == b.label_box && a.tip == b.tip);
-    candidates.into_iter().map(|c| c.placed()).collect()
+    // Preserve room for broad alternatives if local sites meet a final
+    // furniture or per-kind audit that the numerical route score cannot see.
+    if !compact_shoulders {
+        return candidates.into_iter().map(|c| c.placed()).collect();
+    }
+    local
+        .into_iter()
+        .take(20)
+        .chain(candidates)
+        .map(|c| c.placed())
+        .collect()
 }
 
 #[cfg(test)]
@@ -8521,6 +8815,33 @@ mod tests {
             );
             current.pop();
         }
+    }
+
+    #[test]
+    fn repeated_conflict_masks_keep_reference_choices_and_node_counts() {
+        let scores = vec![vec![0, 1, 0], vec![0, 0, 2], vec![1, 0, 0]];
+        let pairs = BTreeMap::from([
+            ((0, 1), vec![vec![2, 2, 2], vec![2, 2, 2], vec![0, 0, 0]]),
+            ((0, 2), vec![vec![1, 0, 1], vec![1, 0, 1], vec![2, 2, 2]]),
+            ((1, 2), vec![vec![0, 0, 0], vec![0, 2, 1], vec![1, 1, 1]]),
+        ]);
+        let conflicts = Conflicts::new(&[0, 1, 2], &[3, 3, 3], &pairs);
+        let mut got = Search::new(&scores, &conflicts, vec![0; 3], i64::MAX);
+        let (mut best, mut total, mut nodes, mut trail) = (vec![0; 3], i64::MAX, 0, 0);
+        reference_search(
+            0,
+            0,
+            &mut Vec::new(),
+            &mut best,
+            &mut total,
+            &mut nodes,
+            &mut trail,
+            &scores,
+            &got.rest,
+            &conflicts,
+        );
+        got.from(0, 0);
+        assert_eq!((got.best, got.best_total, got.nodes), (best, total, nodes));
     }
 
     /// The lazily ordered search visits the same nodes in the same order as the fully sorted one:

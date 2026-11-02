@@ -584,7 +584,12 @@ fn every_item_is_labelled_as_it_is_drawn() {
                 items::label(&base, &d.id).as_deref(),
                 Some(d.label.as_str())
             );
-            assert_eq!(d.label, d.terms.join(" "), "{part}: {}", d.id);
+            assert_eq!(
+                d.label,
+                draftwright::callouts::label(&d.terms),
+                "{part}: {}",
+                d.id
+            );
         }
         for g in &base.gdt {
             let label = items::label(&base, &g.id).unwrap();

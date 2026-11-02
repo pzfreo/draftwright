@@ -158,7 +158,7 @@ pub(crate) fn geometry(part: &Part, r: &Record, g: &mut Geometry) {
     match from_planes([planes[0], planes[1]], [stations[0], stations[1]]) {
         Ok(a) => {
             match a.degrees() {
-                Some(d) if (d - r.value.unwrap_or(f64::NAN)).abs() <= 0.01 => {}
+                Some(d) if r.value.is_none_or(|value| (d - value).abs() <= 0.01) => {}
                 Some(d) => g.reasons.push(format!(
                     "angular reference angle {} deg differs from nominal {} deg",
                     sig6(d),
@@ -700,24 +700,50 @@ pub(super) fn place(
 
 /// Withdraws each placed profile-corner angle whose witness lines a callout routed after it
 /// now meets (see [`place_profile`]); the caller places them again, last.
-pub(super) fn withdraw_profile_contacts(items: &[Want], placed: &mut [Option<Placed>]) {
-    let callouts: Vec<Placed> = placed
+pub(super) fn withdraw_profile_contacts(
+    items: &[Want],
+    placed: &mut [Option<Placed>],
+    spec: &crate::model::Spec,
+) -> Vec<(usize, Placed)> {
+    let openings = items.iter().any(super::interior::through_notch);
+    let peers: Vec<_> = placed
         .iter()
         .zip(items)
-        .filter(|(_, w)| matches!(w.shape, Shape::Callout { .. }))
-        .filter_map(|(q, _)| q.clone())
+        .enumerate()
+        .filter_map(|(i, (p, w))| {
+            p.clone().map(|p| {
+                (
+                    i,
+                    p,
+                    matches!(w.shape, Shape::Callout { .. }),
+                    matches!(w.shape, Shape::Linear { .. }),
+                )
+            })
+        })
         .collect();
-    for (q, w) in placed.iter_mut().zip(items) {
-        if super::profile_angles::is_profile_angle(w)
-            && q.as_ref().is_some_and(|c| {
-                callouts
-                    .iter()
-                    .any(|l| super::leaders::meets_extensions(&c.lines[..2], &l.lines, l.label_box))
+    let mut retry = Vec::new();
+    for (i, (p, w)) in placed.iter_mut().zip(items).enumerate() {
+        let profile = super::profile_angles::is_profile_angle(w)
+            || (openings && w.measurements.iter().any(|m| m.parameter == "notch.angle"));
+        if profile
+            && spec.dimensions.get(&w.id).is_none_or(|d| d.place.is_none())
+            && p.as_ref().is_some_and(|p| {
+                peers.iter().any(|(j, q, callout, linear)| {
+                    *j != i
+                        && ((*callout
+                            && super::leaders::meets_extensions(
+                                &p.lines[..2],
+                                &q.lines,
+                                q.label_box,
+                            ))
+                            || (openings && *linear && ink_through(q, p.label_box)))
+                })
             })
         {
-            *q = None;
+            retry.push((i, p.take().expect("placed angle")));
         }
     }
+    retry
 }
 
 /// How far a profile angle's arc and label may reach from its corner, in label heights: a
@@ -784,9 +810,17 @@ pub(super) fn place_profile(
     views: &[crate::model::PlannedView],
     proofs: &std::collections::BTreeMap<String, std::rc::Rc<super::interior::Proof>>,
 ) {
+    let openings = items.iter().any(super::interior::through_notch);
     for i in 0..items.len() {
         // An authored placement (`dimensions/<id>/place`) has already been honoured.
-        if !super::profile_angles::is_profile_angle(&items[i]) || placed[i].is_some() {
+        if !(super::profile_angles::is_profile_angle(&items[i])
+            || (openings
+                && items[i]
+                    .measurements
+                    .iter()
+                    .any(|m| m.parameter == "notch.angle")))
+            || placed[i].is_some()
+        {
             continue;
         }
         let (Shape::Angular { angle, alternates }, Some(view)) = (&items[i].shape, views_of[i])
@@ -803,6 +837,11 @@ pub(super) fn place_profile(
         let terms = &items[i].terms;
         let ink = label_ink(terms, font());
         let size = [ink.max[0] - ink.min[0], ink.max[1] - ink.min[1]];
+        let opening_angle = openings
+            && items[i]
+                .measurements
+                .iter()
+                .any(|m| m.parameter == "notch.angle");
         // Every other item, and which of its lines the angle's lines may cross transversely:
         // a linear dimension's extension lines, and a centre line or cutting-plane chain line
         // (a corner on a section line cannot avoid it). Never a dimension line, leader, arrow,
@@ -903,6 +942,14 @@ pub(super) fn place_profile(
                 // The arc and its arrows cross no edge of the part; inside the corner its
                 // witness stubs lie on the corner's own edges.
                 && proof.lines_clear(v, &c.lines[stubs..], &c.arrows, 2 - stubs, straight_ok)
+                // Added opening lanes can put a corner's witness stubs onto
+                // its outline. Keep the complete replacement sector on clear
+                // paper inside the view, including those stubs and arrowheads.
+                && (!opening_angle || {
+                    let b = frame.outline();
+                    ink_points(c).all(|q| q[0] >= b[0] && q[0] <= b[2] && q[1] >= b[1] && q[1] <= b[3])
+                        && (proof.annotation_clear(v, c, false) || proof.exterior_annotation_clear(v, c))
+                })
         };
         // A clear place whose label is also clear of other ink by reading distance
         // (`label_crowded`).

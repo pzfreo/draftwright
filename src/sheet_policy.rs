@@ -1119,12 +1119,7 @@ fn pinned(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     // An already published view is a no-op name in the pin reference. Keeping
     // that name can select a different automatic composition and lose its
     // schedule before the pinned trial even starts (#127's expanded radii).
-    let mut canonical = if !base.views.is_empty()
-        && spec
-            .views
-            .values()
-            .any(|v| v.place.as_ref().is_some_and(|p| p.pinned))
-    {
+    let mut canonical = if !base.views.is_empty() {
         let mut unnamed = base.clone();
         unnamed.views.clear();
         let published = select(analysis, &unnamed)?;
@@ -1182,10 +1177,18 @@ fn replay_pins(
     model::finish_nominal_plan(analysis, base, &mut held);
     let effective = crate::spec_gdt::effective(analysis, &held.spec)?;
     crate::dims::callout_routes::prefer_interior(effective.as_ref(), base, &mut held, None);
+    crate::dims::finish_openings(effective.as_ref(), base, &mut held);
     crate::dims::callout_routes::finish(effective.as_ref(), base, &mut held);
     let areas: Vec<_> = held.views.iter().map(|v| v.area).collect();
     crate::dims::hole_marks::attach(effective.as_ref(), base, &mut held);
     crate::dims::size_datums::attach(effective.as_ref(), base, &mut held);
+    if crate::dims::openings_need_settling(&held) {
+        crate::dims::finish_attached_openings(effective.as_ref(), base, &mut held);
+        crate::dims::hole_marks::attach(effective.as_ref(), base, &mut held);
+        crate::dims::size_datums::attach(effective.as_ref(), base, &mut held);
+        crate::dims::finish_attached_openings(effective.as_ref(), base, &mut held);
+        crate::dims::callout_routes::finish_frames(effective.as_ref(), base, &mut held);
+    }
     crate::dims::gdt::cited_undrawn(&mut held);
     // A replay lowers and attaches its glyphs again. Reserve their original
     // areas, rather than feeding attachment-grown strips back into lowering.

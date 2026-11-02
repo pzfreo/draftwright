@@ -82,6 +82,7 @@ pub mod prismatic;
 pub mod profile_angles;
 pub mod profiled_bores;
 pub mod profiles;
+pub mod rectangular_notches;
 pub mod redundancy;
 pub mod schedule_evidence;
 pub(crate) mod schemes;
@@ -273,9 +274,9 @@ pub fn marks(drawing: &Drawing) -> Vec<Mark> {
 /// [`crate::api::review`] does.
 pub fn lint(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
     let mut marks = marks(drawing);
-    slots::conveyed_locations(analysis, &mut marks);
     location::conveyed_boss_locations(analysis, &mut marks);
     location::drawn_constraints(analysis, drawing, &mut marks);
+    slots::conveyed_locations(analysis, &mut marks);
     // Stream K4: each callout's tip against the edge it names, and its shaft against the
     // material (`leaders`). A callout whose leader or witness misses the physical feature it
     // claims earns no credit for it (ISSUE-1374-a/d).
@@ -606,6 +607,7 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     issues.extend(chamfers::coverage(analysis, marks));
     issues.extend(notches::coverage(analysis, marks));
     issues.extend(notches::channel_coverage(analysis, marks));
+    issues.extend(notches::rectangular_coverage(analysis, marks));
     issues.extend(fillets::coverage(analysis, marks));
     issues.extend(blends::coverage(analysis, marks));
     issues.extend(paired_ramp_steps::coverage(analysis, marks));

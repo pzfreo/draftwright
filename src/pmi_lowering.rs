@@ -1520,7 +1520,7 @@ pub fn dimension_geometry(part: &Part, r: &Record) -> Geometry {
         ..Geometry::default()
     };
     g.reasons.extend(crate::pmi::placements_reason(r));
-    let value = r.value.unwrap_or(0.0);
+    let value = r.value;
     match r.kind.as_str() {
         "linear" | "thickness" => linear_geometry(part, r, value, &mut g),
         "diameter" | "radius" => cylinder_geometry(part, r, value, &mut g),
@@ -1532,7 +1532,36 @@ pub fn dimension_geometry(part: &Part, r: &Record) -> Geometry {
     g
 }
 
-fn linear_geometry(part: &Part, r: &Record, value: f64, g: &mut Geometry) {
+/// A missing nominal is recoverable only after the same attachment proofs that
+/// validate stated values. Lengths use the dimension direction, not a 3D box diagonal.
+pub(crate) fn measured_value(kind: &str, g: &Geometry) -> Option<f64> {
+    if !g.reasons.is_empty() {
+        return None;
+    }
+    let value = match kind {
+        "linear" | "thickness" => {
+            let [p, q] = g.stations.as_slice() else {
+                return None;
+            };
+            match g
+                .axis
+                .as_deref()
+                .and_then(|axis| XYZ.iter().position(|v| *v == axis))
+            {
+                Some(k) => (q[k] - p[k]).abs(),
+                None => (0..3).map(|k| (q[k] - p[k]).powi(2)).sum::<f64>().sqrt(),
+            }
+        }
+        "diameter" => 2. * g.cylinders.first()?.radius,
+        "radius" => g.cylinders.first()?.radius,
+        "angular" => g.angle.as_ref()?.degrees()?,
+        _ => return None,
+    };
+    let value = crate::nominal::clean(value);
+    (value.is_finite() && value > 1e-9).then_some(value)
+}
+
+fn linear_geometry(part: &Part, r: &Record, value: Option<f64>, g: &mut Geometry) {
     if !g.targets.is_empty() {
         derived_linear_geometry(part, r, value, g);
         return;
@@ -1617,6 +1646,10 @@ fn linear_geometry(part: &Part, r: &Record, value: f64, g: &mut Geometry) {
                     "plane-to-bore location has no proven face-supported axis witness".into(),
                 );
                 g.stations = stations.to_vec();
+                return;
+            } else if value.is_none() {
+                g.reasons
+                    .push("linear reference groups have no proven measurable span".into());
                 return;
             }
         }
@@ -1715,7 +1748,7 @@ pub(crate) fn derived_stations(
     }
 }
 
-fn derived_linear_geometry(part: &Part, r: &Record, value: f64, g: &mut Geometry) {
+fn derived_linear_geometry(part: &Part, r: &Record, value: Option<f64>, g: &mut Geometry) {
     use crate::pmi::{DerivedKind, DerivedTarget};
     let target = |i: usize| -> Option<DerivedTarget> {
         if let Some(Some(t)) = g.targets.get(i) {
@@ -2235,7 +2268,7 @@ fn plane_to_bore(
 /// the span they prove is not the nominal value.
 fn stations_proof(
     s: [[f64; 3]; 2],
-    nominal: f64,
+    nominal: Option<f64>,
     plane_axis: Option<usize>,
 ) -> ([[f64; 3]; 2], Option<usize>, Vec<String>) {
     let delta = [0, 1, 2].map(|i| s[1][i] - s[0][i]);
@@ -2268,9 +2301,10 @@ fn stations_proof(
     } else {
         primary
     };
-    let tolerance = (if oblique { 0.05 } else { 0.01f64 }).max(nominal.abs() * 5e-4);
     let axis = (!oblique).then_some(k);
-    if (span - nominal).abs() > tolerance {
+    if let Some(nominal) = nominal
+        && (span - nominal).abs() > (if oblique { 0.05 } else { 0.01f64 }).max(nominal.abs() * 5e-4)
+    {
         return (
             s,
             axis,
@@ -2299,7 +2333,7 @@ pub(crate) fn projection_view(delta: [f64; 3]) -> Option<&'static str> {
     }
 }
 
-fn cylinder_geometry(part: &Part, r: &Record, value: f64, g: &mut Geometry) {
+fn cylinder_geometry(part: &Part, r: &Record, value: Option<f64>, g: &mut Geometry) {
     let radius = r.kind == "radius";
     if !g.targets.is_empty()
         && !matches!(g.targets.as_slice(), [Some(t)] if t.kind == crate::pmi::DerivedKind::Axis && t.radius.is_some())
@@ -2378,17 +2412,24 @@ fn cylinder_geometry(part: &Part, r: &Record, value: f64, g: &mut Geometry) {
         ));
     }
     let size = |c: &Cylinder| if radius { c.radius } else { 2.0 * c.radius };
+    let reference = value.unwrap_or_else(|| size(&g.cylinders[0]));
+    let tolerance = value.map_or(1e-6, |v| 0.01f64.max(v.abs() * 5e-4));
     let off: Vec<String> = g
         .cylinders
         .iter()
-        .filter(|c| (size(c) - value).abs() > 0.01f64.max(value.abs() * 5e-4))
+        .filter(|c| (size(c) - reference).abs() > tolerance)
         .map(|c| g6(size(c)))
         .collect();
     if !off.is_empty() {
         g.reasons.push(format!(
-            "cylindrical reference {noun}(s) {} mm differ from nominal {} mm",
+            "cylindrical reference {noun}(s) {} mm differ from {} {} mm",
             off.join(", "),
-            g6(value)
+            if value.is_some() {
+                "nominal"
+            } else {
+                "the other reference size"
+            },
+            g6(reference)
         ));
     }
     let axes: BTreeSet<Option<usize>> = g.cylinders.iter().map(Cylinder::principal).collect();
