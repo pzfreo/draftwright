@@ -31,9 +31,28 @@ pub(super) fn id(feature: &str, parameter: &str) -> String {
 }
 
 pub(super) const PLANNER: Planner = Planner {
-    kinds: &["v_channel"],
+    kinds: &["v_channel", "rectangular_through_notch"],
     wants,
 };
+
+/// Width and depth of a published through-notch, with its mouth located on both
+/// in-plane axes. Corner radii retain the existing blend/fillet callouts.
+fn rectangular(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
+    let n = crate::rectangular_notches::read(cx.analysis, f)?;
+    let view = end_on(n.axis);
+    let out = vec![Want {
+        id: want_id(&f.id, "notch_width.length"),
+        views: vec![view], value: n.width,
+        terms: vec![fmt(n.width), "WIDE".into(), crate::callouts::BREAK.into(), fmt(n.depth), "DEEP".into(), crate::callouts::BREAK.into(), crate::rectangular_notches::tag(f)],
+        measurements: vec![
+            Measurement { feature: f.id.clone(), parameter: "notch_width.length".into(), value: n.width },
+            Measurement { feature: f.id.clone(), parameter: "notch_depth.length".into(), value: n.depth },
+        ], turning: None,
+        basis: "a rectangular through-notch's width and depth, with a tagged mouth-centre coordinate note, in the view through the plate".into(),
+        shape: Shape::Callout { sites: vec![(n.at, 0.)], arcs: Vec::new() },
+    }];
+    Ok(out)
+}
 
 /// A V channel's callout and trough locations, or why they cannot be stated.
 pub(super) fn channel(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
@@ -121,6 +140,17 @@ pub(super) fn channel(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
     let mut out = Vec::new();
     let mut problems = Vec::new();
+    for f in cx
+        .analysis
+        .features
+        .iter()
+        .filter(|f| f.kind == "rectangular_through_notch")
+    {
+        match rectangular(cx, f) {
+            Ok(ws) => out.extend(ws),
+            Err(why) => problems.push(not_dimensioned(f, &why)),
+        }
+    }
     let notches = crate::notches::requirements(cx.analysis);
     for f in cx.analysis.features.iter().filter(|f| {
         f.kind == "v_channel" && crate::lint::notch_evidence::channel_owner(&notches, f).is_none()

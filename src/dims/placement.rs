@@ -5391,6 +5391,7 @@ fn collisions_impl(
 /// reserved view areas may change while it is reused; paper and view frames stay fixed.
 pub(super) struct CollisionGeometry<'a> {
     interior_proofs: BTreeMap<String, std::rc::Rc<super::interior::Proof>>,
+    opening_proofs: BTreeMap<String, std::rc::Rc<super::interior::Proof>>,
     datum_proofs: BTreeMap<String, std::rc::Rc<super::interior::Proof>>,
     outlines: Vec<(&'a str, [f64; 4])>,
     footprints: BTreeMap<&'a str, std::rc::Rc<super::footprints::Footprints>>,
@@ -5405,6 +5406,16 @@ impl<'a> CollisionGeometry<'a> {
         cache: &super::footprints::Cache,
     ) -> Self {
         let interior_proofs = super::interior::proofs(analysis, views);
+        let opening_proofs = if dims.iter().any(|d| {
+            d.kind == "callout"
+                && d.measurements
+                    .iter()
+                    .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+        }) {
+            super::interior::callout_proofs(analysis, views)
+        } else {
+            BTreeMap::new()
+        };
         let datum_proofs = if dims.iter().any(|d| d.id.starts_with("pmi:datum.")) {
             super::interior::exterior_proofs(analysis, views)
         } else {
@@ -5425,6 +5436,7 @@ impl<'a> CollisionGeometry<'a> {
             .collect();
         Self {
             interior_proofs,
+            opening_proofs,
             datum_proofs,
             outlines,
             footprints,
@@ -5455,6 +5467,7 @@ fn collisions_prepared(
     let drawable = drawable(sheet);
     let CollisionGeometry {
         interior_proofs,
+        opening_proofs,
         datum_proofs,
         outlines,
         footprints,
@@ -5626,10 +5639,17 @@ fn collisions_prepared(
                                     .iter()
                                     .any(|m| m.parameter == super::profile_angles::PARAMETER)
                                     && proof.exterior_clear(v, p.label_box, &[], &[]))
-                        }) || (d.id.starts_with("pmi:datum.")
-                            && datum_proofs
+                        }) || (d.kind == "callout"
+                            && d.measurements
+                                .iter()
+                                .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+                            && opening_proofs
                                 .get(&v.id)
-                                .is_some_and(|proof| proof.exterior_annotation_clear(v, p)))
+                                .is_some_and(|proof| proof.annotation_clear(v, p, true)))
+                            || (d.id.starts_with("pmi:datum.")
+                                && datum_proofs
+                                    .get(&v.id)
+                                    .is_some_and(|proof| proof.exterior_annotation_clear(v, p)))
                     }))
             {
                 problem!(

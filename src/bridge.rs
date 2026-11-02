@@ -677,6 +677,9 @@ fn check_faces(part: &Part, faces: &[FaceCheck]) -> Result<(), String> {
 /// A family's name for one of its features: `holes` → `hole`, `bosses` → `boss`,
 /// `thin_wall_bodies` → `thin_wall_body`; `polygonal_stock` has no plural to strip.
 fn kind(family: &str) -> String {
+    if family == "rectangular_through_notches" {
+        return "rectangular_through_notch".into();
+    }
     if let Some(stem) = family.strip_suffix("sses") {
         format!("{stem}ss")
     } else if let Some(stem) = family.strip_suffix("ies") {

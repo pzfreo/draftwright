@@ -1304,6 +1304,15 @@ basis, placed, reference?, determined_by?}`:
   Bevels are edge treatments located by their drawn supports, as principal chamfers are.
   The provider virtual corner is a run midpoint, not a design datum: no automatic station
   is invented there. Explicit dimension schemes may still target that corner.
+- **Rectangular through-notches**: quiddity's published `RectangularThroughNotch`
+  records supply their thickness axis, opening direction, bottom-wall centre,
+  width, depth and optional corner radius. Draftwright reads that geometry;
+  it does not recognise or reconstruct the family. A short tagged width/depth
+  callout in the thickness view names a coordinate note locating its mouth
+  centre from that view's left and bottom envelope extents. Both the tag and
+  actual printed coordinates must be present to earn location coverage.
+  Existing radius callouts retain the corner radii. A measured
+  PMI width sharing precisely those support planes uses the same callout.
 - **V-notches** (`src/lint/notch_evidence.rs`, `src/dims/notches.rs`): ordered outer-profile supports
   establish symmetric straight-sided V recesses with a principal mouth and depth direction.
   A sharp or tangent circular root is supported. The true included angle is drawn in the
@@ -2029,6 +2038,18 @@ external cylinders on the one turned diameter they match (`⌀15 g6 (-0.006/-0.0
 no unique owner, or a class of the other kind for the cylinder, it stays refused. The open
 question of supplemental geometry stays refused. Compared record by record on the 14 AP242 files
 (`tests/pmi_dimensions.rs`, `tests/fixtures/known_pmi_dimensions.json`).
+
+**Missing PMI nominals:** a dimension without a `dimensional_characteristic_representation`
+may use its measured nominal when its kind and native targets prove one value. The existing
+parallel-plane, finite-cylinder and angular attachment proofs apply; a box diagonal or differing
+cylinder sizes cannot supply a value. A stated nominal still has to agree with the geometry.
+The record carries `nominal source: geometry (no stated value)` and retains its PMI identity,
+including its originally empty label discriminator where another requirement shares its faces.
+The drawing uses the ordinary formatter and only explicitly stated tolerances. One
+`pmi_read_nonconformance` warning per recovered record names the missing representation and
+measured value (severity warning, advisory impact, grouped by source kind). Matching native
+sizes and already toleranced PMI callouts retain a single carrier with all source claims.
+Other reader or geometry blockers remain refusals.
 
 **PMI coverage lint** (`src/lint/pmi_coverage.rs`, draftwright's `linting/pmi_coverage.py`): lint
 checks the finished drawing against the Analysis's PMI, never the Plan. A record is drawn when an

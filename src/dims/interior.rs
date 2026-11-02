@@ -1085,7 +1085,7 @@ fn callouts(
         // escape phase. Changing an exterior attachment must not rotate the
         // entire interior inventory and lose a previously clear short route.
         let phase = 22.5 - u[1].atan2(u[0]).to_degrees();
-        let canonical = (!arcs.is_empty() && !recess_context)
+        let canonical = ((!arcs.is_empty() || through_notch(w)) && !recess_context)
             .then_some(rotations.map(|a| a + phase))
             .into_iter()
             .flatten();
@@ -1178,6 +1178,13 @@ fn callouts(
     out
 }
 
+pub(super) fn through_notch(w: &Want) -> bool {
+    matches!(w.shape, Shape::Callout { .. })
+        && w.measurements
+            .iter()
+            .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn place(
     analysis: &Analysis,
@@ -1220,6 +1227,10 @@ pub(super) fn place(
         });
     let prismatic = !round_stock;
     let proofs = proofs(analysis, views);
+    let openings = items
+        .iter()
+        .any(through_notch)
+        .then(|| callout_proofs(analysis, views));
     // Centre-line furniture (G6) is not annotation ink: interior text keeps clear of its
     // strokes, and a callout's shaft does not run beside another feature's stroke, but
     // witness and dimension lines may cross or continue it as they do outside the view.
@@ -1299,7 +1310,12 @@ pub(super) fn place(
         let Some(v) = views.iter().find(|v| v.id.trim_start_matches("v:") == name) else {
             continue;
         };
-        let Some(proof) = proofs.get(&v.id) else {
+        let proof = if through_notch(&items[i]) {
+            openings.as_ref().and_then(|proofs| proofs.get(&v.id))
+        } else {
+            proofs.get(&v.id)
+        };
+        let Some(proof) = proof else {
             continue;
         };
         let frame = &frames[name];

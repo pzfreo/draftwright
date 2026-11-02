@@ -287,6 +287,9 @@ pub fn lint(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
             });
         }
     }
+    marks.extend(crate::rectangular_notches::location_evidence(
+        analysis, drawing, &marks,
+    ));
     let sites: std::collections::BTreeMap<_, _> = crate::bridge::holes::read(analysis)
         .into_iter()
         .filter_map(|(f, h)| Some((f.id.as_str(), h.ok()?.at)))
@@ -606,6 +609,7 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     issues.extend(chamfers::coverage(analysis, marks));
     issues.extend(notches::coverage(analysis, marks));
     issues.extend(notches::channel_coverage(analysis, marks));
+    issues.extend(notches::rectangular_coverage(analysis, marks));
     issues.extend(fillets::coverage(analysis, marks));
     issues.extend(blends::coverage(analysis, marks));
     issues.extend(paired_ramp_steps::coverage(analysis, marks));

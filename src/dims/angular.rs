@@ -158,7 +158,7 @@ pub(crate) fn geometry(part: &Part, r: &Record, g: &mut Geometry) {
     match from_planes([planes[0], planes[1]], [stations[0], stations[1]]) {
         Ok(a) => {
             match a.degrees() {
-                Some(d) if (d - r.value.unwrap_or(f64::NAN)).abs() <= 0.01 => {}
+                Some(d) if r.value.is_none_or(|value| (d - value).abs() <= 0.01) => {}
                 Some(d) => g.reasons.push(format!(
                     "angular reference angle {} deg differs from nominal {} deg",
                     sig6(d),

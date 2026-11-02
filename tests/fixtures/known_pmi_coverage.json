@@ -1039,42 +1039,6 @@
  },
  {
   "code": "pmi_not_extracted",
-  "file": "nist_ctc_01_asme1_ap242-e1.stp",
-  "python": null,
-  "rust": "error",
-  "source": "dimension:#126",
-  "verdict": "rust-correct",
-  "evidence": "The file states no value for this dimension (haecceity's nonconformance finding); draftwright reads it as 0 through XCAF (known_pmi.json's rust-correct kind, label and value differences for it), the port reports it not read. port: \"the file states no nominal value (haecceity reads it without one); haecceity nonconformance on #126 (dimensional_size): a dimension without a dimensional_characteristic_representation: no value is st…\""
- },
- {
-  "code": "pmi_not_extracted",
-  "file": "nist_ctc_01_asme1_ap242-e1.stp",
-  "python": null,
-  "rust": "error",
-  "source": "dimension:#127",
-  "verdict": "rust-correct",
-  "evidence": "The file states no value for this dimension (haecceity's nonconformance finding); draftwright reads it as 0 through XCAF (known_pmi.json's rust-correct kind, label and value differences for it), the port reports it not read. port: \"the file states no nominal value (haecceity reads it without one); haecceity nonconformance on #127 (dimensional_size): a dimension without a dimensional_characteristic_representation: no value is st…\""
- },
- {
-  "code": "pmi_not_extracted",
-  "file": "nist_ctc_01_asme1_ap242-e1.stp",
-  "python": null,
-  "rust": "error",
-  "source": "dimension:#24",
-  "verdict": "rust-correct",
-  "evidence": "The file states no value for this dimension (haecceity's nonconformance finding); draftwright reads it as 0 through XCAF (known_pmi.json's rust-correct kind, label and value differences for it), the port reports it not read. port: \"the file states no nominal value (haecceity reads it without one); haecceity nonconformance on #24 (dimensional_location): a dimension without a dimensional_characteristic_representation: no value is…\""
- },
- {
-  "code": "pmi_not_extracted",
-  "file": "nist_ctc_01_asme1_ap242-e1.stp",
-  "python": null,
-  "rust": "error",
-  "source": "dimension:#25",
-  "verdict": "rust-correct",
-  "evidence": "The file states no value for this dimension (haecceity's nonconformance finding); draftwright reads it as 0 through XCAF (known_pmi.json's rust-correct kind, label and value differences for it), the port reports it not read. port: \"the file states no nominal value (haecceity reads it without one); haecceity nonconformance on #25 (dimensional_location): a dimension without a dimensional_characteristic_representation: no value is…\""
- },
- {
-  "code": "pmi_not_extracted",
   "file": "nist_ctc_01_merge.step",
   "python": null,
   "rust": "info",
@@ -1099,42 +1063,6 @@
   "source": "attribute_set:0:4",
   "verdict": "rust-correct",
   "evidence": "Not a draftwright requirement (a property, attribute set, standard or reader finding haecceity did not read); draftwright's census does not hold it, the port reports it as info, as the plan does. port: \"read by haecceity; not projected to a draftwright record (the port projects dimensions, geometric tolerances, datums, manufacturing requirements, surface labels and common labels) (attribute set)\""
- },
- {
-  "code": "pmi_not_extracted",
-  "file": "nist_ctc_01_merge.step",
-  "python": null,
-  "rust": "error",
-  "source": "dimension:#126",
-  "verdict": "rust-correct",
-  "evidence": "The file states no value for this dimension (haecceity's nonconformance finding); draftwright reads it as 0 through XCAF (known_pmi.json's rust-correct kind, label and value differences for it), the port reports it not read. port: \"the file states no nominal value (haecceity reads it without one); haecceity nonconformance on #126 (dimensional_size): a dimension without a dimensional_characteristic_representation: no value is st…\""
- },
- {
-  "code": "pmi_not_extracted",
-  "file": "nist_ctc_01_merge.step",
-  "python": null,
-  "rust": "error",
-  "source": "dimension:#127",
-  "verdict": "rust-correct",
-  "evidence": "The file states no value for this dimension (haecceity's nonconformance finding); draftwright reads it as 0 through XCAF (known_pmi.json's rust-correct kind, label and value differences for it), the port reports it not read. port: \"the file states no nominal value (haecceity reads it without one); haecceity nonconformance on #127 (dimensional_size): a dimension without a dimensional_characteristic_representation: no value is st…\""
- },
- {
-  "code": "pmi_not_extracted",
-  "file": "nist_ctc_01_merge.step",
-  "python": null,
-  "rust": "error",
-  "source": "dimension:#24",
-  "verdict": "rust-correct",
-  "evidence": "The file states no value for this dimension (haecceity's nonconformance finding); draftwright reads it as 0 through XCAF (known_pmi.json's rust-correct kind, label and value differences for it), the port reports it not read. port: \"the file states no nominal value (haecceity reads it without one); haecceity nonconformance on #24 (dimensional_location): a dimension without a dimensional_characteristic_representation: no value is…\""
- },
- {
-  "code": "pmi_not_extracted",
-  "file": "nist_ctc_01_merge.step",
-  "python": null,
-  "rust": "error",
-  "source": "dimension:#25",
-  "verdict": "rust-correct",
-  "evidence": "The file states no value for this dimension (haecceity's nonconformance finding); draftwright reads it as 0 through XCAF (known_pmi.json's rust-correct kind, label and value differences for it), the port reports it not read. port: \"the file states no nominal value (haecceity reads it without one); haecceity nonconformance on #25 (dimensional_location): a dimension without a dimensional_characteristic_representation: no value is…\""
  },
  {
   "code": "pmi_not_extracted",
@@ -12670,5 +12598,101 @@
   "source": "datum:#117",
   "verdict": "rust-correct",
   "evidence": "2026-10-31 cx/pmi-groups: datum J is the median plane of the authored 15 ±0.2 width between opposite x-normal faces 39/43. The dimension joins exactly those faces and its projected witness span is 15 mm. Recovered rim routes leave room for the symbol on that size dimension, in line with its dimension line, replacing one arrowhead. J is therefore drawn and the symmetry frame citing it reads in full; the old non-coplanar-face refusal is no longer appropriate. tests/hole_marks.rs proves the face pair, size, witness span and symbol support, and deliberately omits J to retain the missing-reference warning assertion. No geometry check or gate limit is relaxed."
+ },
+ {
+  "code": "pmi_not_lowered",
+  "file": "nist_ctc_01_asme1_ap242-e1.stp",
+  "python": {
+   "id": "dimension:0:1:4:27",
+   "severity": "error"
+  },
+  "rust": null,
+  "source": "dimension:#126",
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "code": "pmi_not_lowered",
+  "file": "nist_ctc_01_asme1_ap242-e1.stp",
+  "python": {
+   "id": "dimension:0:1:4:28",
+   "severity": "error"
+  },
+  "rust": null,
+  "source": "dimension:#127",
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "code": "pmi_not_lowered",
+  "file": "nist_ctc_01_asme1_ap242-e1.stp",
+  "python": {
+   "id": "dimension:0:1:4:9",
+   "severity": "error"
+  },
+  "rust": null,
+  "source": "dimension:#24",
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "code": "pmi_not_lowered",
+  "file": "nist_ctc_01_asme1_ap242-e1.stp",
+  "python": {
+   "id": "dimension:0:1:4:10",
+   "severity": "error"
+  },
+  "rust": null,
+  "source": "dimension:#25",
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "code": "pmi_not_lowered",
+  "file": "nist_ctc_01_merge.step",
+  "python": {
+   "id": "dimension:0:1:4:27",
+   "severity": "error"
+  },
+  "rust": null,
+  "source": "dimension:#126",
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "code": "pmi_not_lowered",
+  "file": "nist_ctc_01_merge.step",
+  "python": {
+   "id": "dimension:0:1:4:28",
+   "severity": "error"
+  },
+  "rust": null,
+  "source": "dimension:#127",
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "code": "pmi_not_lowered",
+  "file": "nist_ctc_01_merge.step",
+  "python": {
+   "id": "dimension:0:1:4:9",
+   "severity": "error"
+  },
+  "rust": null,
+  "source": "dimension:#24",
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "code": "pmi_not_lowered",
+  "file": "nist_ctc_01_merge.step",
+  "python": {
+   "id": "dimension:0:1:4:10",
+   "severity": "error"
+  },
+  "rust": null,
+  "source": "dimension:#25",
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
  }
 ]

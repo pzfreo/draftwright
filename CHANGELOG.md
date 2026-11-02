@@ -6,6 +6,12 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Measure missing semantic-PMI nominals from proven reference geometry, retaining
+  source identities and explicit tolerances with a `pmi_read_nonconformance`
+  warning. Reuse existing size carriers instead of duplicating labels.
+- Retain slot-centre location evidence when a hole ordinate prints the same
+  distance, and dimension quiddity's published rectangular through-notches.
+
 ## 0.2.9 (2026-11-02)
 
 Still on quiddity-rust **v0.4.3**. Fixes a 0.2.8 regression (#287): draftwright again draws the

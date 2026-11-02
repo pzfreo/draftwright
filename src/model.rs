@@ -6175,6 +6175,7 @@ fn plan_with_presentation(
     let (mut notes_given, omitted_notes, more) =
         crate::notes::reconcile(&requirements, analysis, spec);
     problems.extend(more);
+    notes_given.extend(crate::rectangular_notches::notes(analysis, spec));
     for note in &mut notes_given {
         if note.id == crate::notes::ASSEMBLY_NOTE
             && let Some(text) = spec.annotations.get(&note.id).and_then(|a| a.text.as_ref())
@@ -7508,6 +7509,7 @@ fn plan_with_presentation(
     let (mut notes, mut notes_block, more) =
         crate::notes::plan(&authored, analysis, &sheet, &views, &ink);
     crate::notes::provenance(&mut notes, &requirements, spec);
+    crate::rectangular_notches::note_provenance(analysis, &mut notes);
     problems.extend(more);
     // Authored tables keep their established priority; automatic radii use the space left.
     let (mut tables, more) = crate::tables::plan(

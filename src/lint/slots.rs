@@ -569,10 +569,12 @@ pub fn pattern_wanted<'a>(
 /// (`dims::holes::consolidate`, ARCH0009-6). A mark in the slot's view claiming such a location on
 /// the slot's axis, and stating its distance, claims the slot's `location_slot.length` too, for
 /// every rule ([`super::lint`]: coverage, and the location network's routes).
+/// The same rule applies across every slot's width: a coincident ordinate in
+/// its end-on view states its transverse centre too. The station graph still
+/// checks the actual witness direction and endpoints independently.
 pub(crate) fn conveyed_locations(analysis: &Analysis, marks: &mut [Mark]) {
-    const PARAMETER: &str = "location_slot.length";
     let (_, lone) = split(analysis);
-    let at: Vec<(&str, (&str, f64), usize)> = lone
+    let at: Vec<(&str, (&str, f64), usize, &str)> = lone
         .iter()
         .filter(|f| grouped(analysis, f) || ends_located(analysis, f))
         .filter_map(|f| {
@@ -580,8 +582,21 @@ pub(crate) fn conveyed_locations(analysis: &Analysis, marks: &mut [Mark]) {
                 f.id.as_str(),
                 location(analysis, f).ok()?,
                 outline(analysis, f).ok()?.deep,
+                "location_slot.length",
             ))
         })
+        .chain(lone.iter().filter_map(|f| {
+            let (walls, centre) = super::redundancy::slot_walls(analysis, &f.id)?;
+            Some((
+                f.id.as_str(),
+                (
+                    AXES[walls.axis],
+                    (centre - analysis.envelope[0][walls.axis]).abs(),
+                ),
+                outline(analysis, f).ok()?.deep,
+                "location_slot_across.length",
+            ))
+        }))
         .collect();
     if at.is_empty() {
         return;
@@ -599,9 +614,9 @@ pub(crate) fn conveyed_locations(analysis: &Analysis, marks: &mut [Mark]) {
         (stem.starts_with("location") || stem.starts_with("seat_location")).then_some(*axis)
     };
     for m in marks {
-        let conveyed: Vec<&str> = at
+        let conveyed: Vec<(&str, &str)> = at
             .iter()
-            .filter(|(id, (axis, d), deep)| {
+            .filter(|(id, (axis, d), deep, parameter)| {
                 m.view.as_deref() == Some(view(*deep).as_str())
                     && super::holes::states(&m.text, *d)
                     && m.claims
@@ -610,14 +625,14 @@ pub(crate) fn conveyed_locations(analysis: &Analysis, marks: &mut [Mark]) {
                     && !m
                         .claims
                         .iter()
-                        .any(|c| c.feature == *id && c.parameter == PARAMETER)
+                        .any(|c| c.feature == *id && c.parameter == *parameter)
             })
-            .map(|(id, ..)| *id)
+            .map(|(id, _, _, parameter)| (*id, *parameter))
             .collect();
-        for id in conveyed {
+        for (id, parameter) in conveyed {
             m.claims.push(crate::output::Claim {
                 feature: id.into(),
-                parameter: PARAMETER.into(),
+                parameter: parameter.into(),
             });
         }
     }

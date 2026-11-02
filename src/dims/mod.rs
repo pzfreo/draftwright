@@ -3674,6 +3674,17 @@ fn plan_inventory_ordered(
         &page,
     ));
     let interior_proofs = interior::proofs(analysis, views);
+    let opening_proofs = all
+        .iter()
+        .any(interior::through_notch)
+        .then(|| interior::callout_proofs(analysis, views));
+    let statement_proof = |opening: bool, id: &str| {
+        if opening {
+            opening_proofs.as_ref().and_then(|proofs| proofs.get(id))
+        } else {
+            interior_proofs.get(id)
+        }
+    };
     let notch_void = |view: &str, p: &Placed| {
         let Some(frame) = frames.get(view) else {
             return false;
@@ -3739,6 +3750,7 @@ fn plan_inventory_ordered(
     let mut prior = callout_views.clone();
     for (i, w) in all.iter().enumerate() {
         if incumbents[i]
+            || interior::through_notch(w)
             || w.measurements.iter().any(|m| m.parameter == "blend.radius")
             || matches!(w.shape, Shape::Callout { .. })
                 && w.measurements.iter().any(|m| {
@@ -4086,7 +4098,7 @@ fn plan_inventory_ordered(
                 .as_ref()
                 .filter(|p| {
                     views.iter().find(|v| v.id == view).is_some_and(|v| {
-                        interior_proofs.get(&v.id).is_some_and(|proof| {
+                        statement_proof(interior::through_notch(w), &v.id).is_some_and(|proof| {
                             proof.annotation_clear(v, p, matches!(w.shape, Shape::Callout { .. }))
                                 || (w.measurements.iter().any(|m| m.parameter == "notch.angle")
                                     && notch_void(v.id.trim_start_matches("v:"), p))
@@ -4236,6 +4248,7 @@ fn plan_inventory_ordered(
                 .or_default()
                 .push(w.id.clone());
         }
+        let opening = interior::through_notch(&w);
         let mut basis = if default {
             w.basis
         } else {
@@ -4248,7 +4261,7 @@ fn plan_inventory_ordered(
                     .iter()
                     .find(|v| v.id == format!("v:{view}"))
                     .is_some_and(|v| {
-                        interior_proofs.get(&v.id).is_some_and(|proof| {
+                        statement_proof(opening, &v.id).is_some_and(|proof| {
                             proof.annotation_clear(v, p, matches!(w.shape, Shape::Callout { .. }))
                                 || (w.measurements.iter().any(|m| m.parameter == "notch.angle")
                                     && notch_void(v.id.trim_start_matches("v:"), p))

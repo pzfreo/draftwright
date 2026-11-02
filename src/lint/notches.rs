@@ -130,3 +130,50 @@ pub(super) fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     }
     out
 }
+
+/// Rectangular U-notches use the provider's verified side walls and mouth.
+/// Their locations are audited separately by the rooted physical station graph.
+pub(super) fn rectangular_coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
+    let mut wanted = Vec::new();
+    for f in a
+        .features
+        .iter()
+        .filter(|f| f.kind == "rectangular_through_notch")
+    {
+        for (parameter, field) in [
+            ("notch_width.length", "width"),
+            ("notch_depth.length", "depth"),
+        ] {
+            let value = crate::rectangular_notches::read(a, f)
+                .map(|n| if field == "width" { n.width } else { n.depth });
+            wanted.push(Wanted {
+                feature: f,
+                parameter: parameter.into(),
+                callout: value
+                    .as_ref()
+                    .map_or(format!("its {field}"), |v| format!("{} {field}", fmt(*v))),
+                values: value.map(|v| vec![v]),
+            });
+        }
+        for k in 0..3 {
+            let geometry = crate::rectangular_notches::read(a, f);
+            if geometry.as_ref().is_ok_and(|n| n.axis == k) {
+                continue;
+            }
+            let value = geometry.map(|n| n.mouth[k] - a.envelope[0][k]);
+            wanted.push(Wanted {
+                feature: f,
+                parameter: format!("location.length.{}", ["x", "y", "z"][k]),
+                callout: "its tagged mouth-centre coordinate".into(),
+                values: value.map(|v| vec![v]),
+            });
+        }
+    }
+    parameters::coverage(
+        "notch",
+        &wanted,
+        marks,
+        |f| format!("rectangular through-notch {}", f.id),
+        "width and depth dimensions in the view through the plate",
+    )
+}
