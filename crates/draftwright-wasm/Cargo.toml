@@ -1,6 +1,6 @@
 [package]
 name = "draftwright-wasm"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "Draftwright's live drawing session for browsers."

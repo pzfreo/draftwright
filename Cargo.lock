@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "draftwright"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "chrono",
  "dxf",
@@ -209,7 +209,7 @@ dependencies = [
 
 [[package]]
 name = "draftwright-wasm"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "console_error_panic_hook",
  "draftwright",

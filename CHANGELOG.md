@@ -6,9 +6,22 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+## 0.2.9 (2026-11-02)
+
+Still on quiddity-rust **v0.4.3**. Fixes a 0.2.8 regression (#287): draftwright again draws the
+basic datum-to-bore locations Specify writes when a bore and a hole pattern share a centre,
+such as the 50 and 35 that locate the bore on draftwright-editor's mounting plate once Specify
+has written its PMI. 0.2.8 refused them
+with `pmi_not_lowered` ("plane-to-bore location has no proven face-supported axis witness").
+Other drawings are unchanged. Instructions retired on draftwright-editor's four samples are
+within 0.1% of 0.2.8, with the same problem counts.
+
+### Fixed
+
 - Recover basic datum-to-bore locations on a compound hole group when its
   symmetric cylindrical supports prove an actual central bore axis. Keep the
-  authored datum and boxed value, replacing duplicate engine centre locations;
+  authored datum and boxed value on the matching engine centre location instead
+  of adding a duplicate;
   asymmetric groups, empty pattern centres and inconsistent nominals stay refused.
 
 ## 0.2.8 (2026-11-01)
