@@ -71,13 +71,16 @@ def kernel_pins(manifest):
         dep = dependencies.get(name, workspace.get(name))
         if isinstance(dep, dict) and dep.get("workspace"):
             dep = workspace.get(name)
-        if not isinstance(dep, dict) or "quiddity-rust" not in dep.get("git", ""):
-            raise ValueError(f"{name} must use a quiddity-rust git dependency")
+        repo = dep.get("git", "").removesuffix(".git").rstrip("/") if isinstance(dep, dict) else ""
+        # pzfreo/quiddity-rust was renamed pzfreo/quiddity (2026-11-03); GitHub redirects the old
+        # name, and released sibling manifests may still use it.
+        if repo not in ("https://github.com/pzfreo/quiddity", "https://github.com/pzfreo/quiddity-rust"):
+            raise ValueError(f"{name} must use the pzfreo/quiddity git dependency")
         kinds = [kind for kind in ("tag", "rev") if dep.get(kind)]
         if len(kinds) != 1:
             raise ValueError(f"{name} must have exactly one tag or rev")
         kind = kinds[0]
-        pins[name] = (dep["git"].removesuffix(".git").rstrip("/"), kind, dep[kind])
+        pins[name] = ("https://github.com/pzfreo/quiddity", kind, dep[kind])
     return pins
 
 
@@ -137,7 +140,7 @@ def main():
         else:
             note = (f"Kernel note: draftwright-rust uses {describe(local)}; "
                     f"{args.sibling} {tag} uses {describe(sibling)}. "
-                    "Different quiddity-rust pins may change STEP face numbering.")
+                    "Different quiddity pins may change STEP face numbering.")
             warning(note)
             if args.release:
                 append_release_note(args.repo, args.release, note)

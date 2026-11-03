@@ -35,8 +35,8 @@ Both kernel dependencies now pin the merged recognition/3 implementation from
 quiddity-rust PR #14, `0fdf5dcbdf4cf675e1b7f690b349069704e77a82`:
 
 ```toml
-haecceity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "0fdf5dcbdf4cf675e1b7f690b349069704e77a82" }
-quiddity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "0fdf5dcbdf4cf675e1b7f690b349069704e77a82" }
+haecceity = { git = "https://github.com/pzfreo/quiddity", rev = "0fdf5dcbdf4cf675e1b7f690b349069704e77a82" }
+quiddity = { git = "https://github.com/pzfreo/quiddity", rev = "0fdf5dcbdf4cf675e1b7f690b349069704e77a82" }
 ```
 
 The local `.cargo/config.toml` path override has been removed. Cargo.lock changes

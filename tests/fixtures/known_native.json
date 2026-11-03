@@ -11957,7 +11957,7 @@
     "python": "f:hole:8 [188] {\"axis\":[0.0,0.0,1.0],\"bottom\":\"through\",\"cbore\":null,\"csink\":null,\"depth\":9.78,\"diameter\":15.0825,\"location\":[17.6,-78.10216,-106.720157],\"spotface\":null}",
     "rust": "-",
     "verdict": "equivalent",
-    "evidence": "quiddity-rust 0.1.1 (draftwright alpha.13): the same through hole on face 188/189: its location differs by 0.0018 mm along z, beyond the comparison tolerance, so the pair is listed as presence on both sides. FTC-07's inferred frame (pzfreo/quiddity-rust#81); accepted for alpha.13."
+    "evidence": "quiddity-rust 0.1.1 (draftwright alpha.13): the same through hole on face 188/189: its location differs by 0.0018 mm along z, beyond the comparison tolerance, so the pair is listed as presence on both sides. FTC-07's inferred frame (pzfreo/quiddity#81); accepted for alpha.13."
   },
   {
     "set": "dims",
@@ -11967,7 +11967,7 @@
     "python": "f:hole:9 [189] {\"axis\":[0.0,0.0,1.0],\"bottom\":\"through\",\"cbore\":null,\"csink\":null,\"depth\":9.78,\"diameter\":15.0825,\"location\":[61.6,-78.10216,-106.720157],\"spotface\":null}",
     "rust": "-",
     "verdict": "equivalent",
-    "evidence": "quiddity-rust 0.1.1 (draftwright alpha.13): the same through hole on face 188/189: its location differs by 0.0018 mm along z, beyond the comparison tolerance, so the pair is listed as presence on both sides. FTC-07's inferred frame (pzfreo/quiddity-rust#81); accepted for alpha.13."
+    "evidence": "quiddity-rust 0.1.1 (draftwright alpha.13): the same through hole on face 188/189: its location differs by 0.0018 mm along z, beyond the comparison tolerance, so the pair is listed as presence on both sides. FTC-07's inferred frame (pzfreo/quiddity#81); accepted for alpha.13."
   },
   {
     "set": "dims",
@@ -12727,7 +12727,7 @@
     "python": "-",
     "rust": "f:hole:8 [188] {\"axis\":[0.0,0.0,1.0],\"bottom\":\"through\",\"cbore\":null,\"csink\":null,\"depth\":9.78,\"diameter\":15.0825,\"location\":[17.6,-78.10216,-106.718355],\"spotface\":null}",
     "verdict": "equivalent",
-    "evidence": "quiddity-rust 0.1.1 (draftwright alpha.13): the same through hole on face 188/189: its location differs by 0.0018 mm along z, beyond the comparison tolerance, so the pair is listed as presence on both sides. FTC-07's inferred frame (pzfreo/quiddity-rust#81); accepted for alpha.13."
+    "evidence": "quiddity-rust 0.1.1 (draftwright alpha.13): the same through hole on face 188/189: its location differs by 0.0018 mm along z, beyond the comparison tolerance, so the pair is listed as presence on both sides. FTC-07's inferred frame (pzfreo/quiddity#81); accepted for alpha.13."
   },
   {
     "set": "dims",
@@ -12737,7 +12737,7 @@
     "python": "-",
     "rust": "f:hole:9 [189] {\"axis\":[0.0,0.0,1.0],\"bottom\":\"through\",\"cbore\":null,\"csink\":null,\"depth\":9.78,\"diameter\":15.0825,\"location\":[61.6,-78.10216,-106.718355],\"spotface\":null}",
     "verdict": "equivalent",
-    "evidence": "quiddity-rust 0.1.1 (draftwright alpha.13): the same through hole on face 188/189: its location differs by 0.0018 mm along z, beyond the comparison tolerance, so the pair is listed as presence on both sides. FTC-07's inferred frame (pzfreo/quiddity-rust#81); accepted for alpha.13."
+    "evidence": "quiddity-rust 0.1.1 (draftwright alpha.13): the same through hole on face 188/189: its location differs by 0.0018 mm along z, beyond the comparison tolerance, so the pair is listed as presence on both sides. FTC-07's inferred frame (pzfreo/quiddity#81); accepted for alpha.13."
   },
   {
     "set": "dims",

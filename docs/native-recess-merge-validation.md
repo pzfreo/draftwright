@@ -5,7 +5,7 @@ Merged draftwright main `54704307` (PRs #77–#81 and their prerequisites) into
 
 ## Dependency resolution
 
-`git ls-remote https://github.com/pzfreo/quiddity-rust refs/heads/main` returned
+`git ls-remote https://github.com/pzfreo/quiddity refs/heads/main` returned
 `0fdf5dcbdf4cf675e1b7f690b349069704e77a82`, the recognition/3 merge from PR #14.
 Both root dependencies now use that exact `rev`; no other workspace manifest
 pins quiddity-rust. The untracked `.cargo/config.toml` override was removed.

@@ -70,7 +70,7 @@ jobs:
       # the sha256 bindings of the recorded sheet facts and recognition fixtures.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          repository: pzfreo/quiddity
+          repository: pzfreo/quiddity-python
           ref: 6d544e060cd0eeb4442d2196e5df757b5a15ea55
           path: quiddity
           sparse-checkout: tests/corpus
@@ -108,7 +108,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          repository: pzfreo/quiddity
+          repository: pzfreo/quiddity-python
           ref: 6d544e060cd0eeb4442d2196e5df757b5a15ea55
           path: quiddity
           sparse-checkout: tests/corpus
@@ -138,7 +138,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          repository: pzfreo/quiddity
+          repository: pzfreo/quiddity-python
           ref: 6d544e060cd0eeb4442d2196e5df757b5a15ea55
           path: quiddity
           sparse-checkout: tests/corpus
@@ -179,7 +179,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          repository: pzfreo/quiddity
+          repository: pzfreo/quiddity-python
           ref: 6d544e060cd0eeb4442d2196e5df757b5a15ea55
           path: quiddity
           sparse-checkout: tests/corpus
