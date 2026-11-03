@@ -561,6 +561,12 @@ pub(super) fn physical_witness_retry(analysis: &Analysis) -> bool {
         && analysis.features.iter().any(|f| matches!(f.kind.as_str(), "slot" | "slot_pattern"))
 }
 
+/// A source-PMI witness has actually needed the ordinary foreign-feature retry.
+/// Its dependent callouts must be allowed the same ordinary corridor choices.
+pub(super) fn pmi_witness_retried(analysis: &Analysis) -> bool {
+    crate::planning::lookup::<bool>(analysis, "pmi-witness-retry", &[]).unwrap_or(false)
+}
+
 /// The strip of a turned step length anchored on its own body's silhouette (both witnesses off
 /// the outline: [`super::turned`]'s chains on a part of several turned bodies, ARCH0020-2): the
 /// side of the view its witnesses leave the body on, so they never cross a sibling body.
@@ -840,6 +846,9 @@ pub(super) fn lanes<'a>(
             if let (Some(home), Some(away)) = (hits(side), hits(other)) {
                 if away < home {
                     side = other;
+                    if crate::nominal::authored_pmi(analysis) {
+                        crate::planning::memo(analysis, "pmi-witness-retry", Vec::new(), || true);
+                    }
                 }
                 constrained[i] = home.min(away) == 0 && home != away;
             }

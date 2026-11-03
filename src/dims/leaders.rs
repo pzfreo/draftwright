@@ -1203,7 +1203,8 @@ fn place_with_obstacles_uncached(
         .collect();
     // Semantic PMI uses the legacy floor; its unused footprint-aware baseline need not be
     // sorted. The furniture-aware inventory and the legacy survivors stay fully measured.
-    let semantic_pmi = has_semantic_pmi(analysis, frames);
+    let semantic_pmi =
+        has_semantic_pmi(analysis, frames) && !super::placement::pmi_witness_retried(analysis);
     let profile_proofs = if items.iter().any(boss_profile) {
         super::interior::proofs(analysis, views)
     } else {
@@ -1597,7 +1598,7 @@ pub(crate) fn settle_after_furniture(
         && default_nominal_intent(spec))
         || crate::nominal::comparison()
         || (crate::nominal::authored_pmi(analysis)
-            && !super::placement::physical_witness_retry(analysis));
+            && !super::placement::pmi_witness_retried(analysis));
     if !compact && !crate::nominal::authored_pmi(analysis) {
         super::nearest_shared_witnesses(analysis, spec, views, items);
     }
