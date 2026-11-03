@@ -659,6 +659,25 @@ pub(crate) fn identify(a: &Analysis, mark: &Mark, spans: Vec<Edge>) -> Vec<Edge>
         _ => None,
     };
     let mut out = Vec::new();
+    if report.is_some() {
+        // A PMI carrier may now state a recognised uniform pitch as well as its
+        // authored face pair. Keep the pitch's member constraints when sharing
+        // its ink across views; they are not extra authored PMI references.
+        let claims: Vec<_> = mark
+            .claims
+            .iter()
+            .filter(|c| {
+                !c.feature.starts_with("pmi:") && c.parameter.starts_with("grid_pitch.length.")
+            })
+            .cloned()
+            .collect();
+        if !claims.is_empty() {
+            let mut pitch = mark.clone();
+            pitch.claims = claims;
+            out.extend(identify(a, &pitch, spans.clone()));
+        }
+    }
+
     for span in spans {
         if let Some(c) = mark
             .claims

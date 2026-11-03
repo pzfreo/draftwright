@@ -725,7 +725,7 @@ pub(super) fn lanes<'a>(
 ) -> (Vec<Option<Side>>, Vec<usize>) {
     let items: Vec<_> = items.collect();
     let n = items.len();
-    let ordinary = automatic_slot_layout(analysis)
+    let ordinary = physical_witness_retry(analysis)
         && !analysis
             .features
             .iter()

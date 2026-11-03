@@ -1044,6 +1044,10 @@ fn pmi_slot_layout_retries_physical_witnesses_without_changing_authored_intent()
     let p = plan(&a, &Spec::default());
     assert_eq!(p.sheet.size, "A4");
     assert!(
+        !p.problems.iter().any(|p| p.code == "feature_not_located"),
+        "shared pitches retain every pattern location constraint"
+    );
+    assert!(
         !p.problems
             .iter()
             .any(|p| p.code == "extension_through_feature"),
