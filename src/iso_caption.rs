@@ -52,7 +52,7 @@ pub(crate) fn proxy(c: &PlannedCaption) -> PlannedDimension {
 
 fn view_box(analysis: &Analysis, v: &PlannedView) -> [f64; 4] {
     if v.id == "v:iso" {
-        let b = analysis.iso_bounds;
+        let b = analysis.drawing_iso_bounds();
         [
             v.at[0] + v.scale * b[0],
             v.at[1] + v.scale * b[1],
@@ -83,7 +83,7 @@ pub(crate) fn plan(
                 && v.sheet == sheet.number
                 && (v.scale / sheet.scale_factor - 1.0).abs() >= 1e-6
         })
-        .filter(|_| analysis.iso_bounds != [0.0; 4])
+        .filter(|_| analysis.drawing_iso_bounds() != [0.0; 4])
     else {
         return Vec::new();
     };

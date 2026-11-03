@@ -27,7 +27,7 @@ pub(super) fn corner(k: usize, at: f64, other: P3) -> P3 {
 }
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
-    if cx.turned.is_some() || super::stock::whole(cx) {
+    if cx.turned.is_some() || super::stock::whole(cx) || crate::springs::whole(cx.analysis) {
         return (Vec::new(), Vec::new());
     }
     let [lo, hi] = cx.analysis.envelope;

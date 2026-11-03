@@ -1058,7 +1058,7 @@ fn fixed_obstacles(
         .filter(|v| v.id != own.id && v.sheet == own.sheet)
         .map(|v| {
             if v.id == "v:iso" {
-                let ib = analysis.iso_bounds;
+                let ib = analysis.drawing_iso_bounds();
                 [
                     v.at[0] + v.scale * ib[0],
                     v.at[1] + v.scale * ib[1],
@@ -2887,7 +2887,7 @@ pub(crate) fn install(analysis: &Analysis, plan: &mut Plan, selection: &Selectio
     else {
         return false;
     };
-    let bounds = analysis.iso_bounds.map(|b| b * iso.scale);
+    let bounds = analysis.drawing_iso_bounds().map(|b| b * iso.scale);
     if (0..2).all(|k| {
         iso.at[k] + bounds[k] >= iso.area[k] - 1e-6
             && iso.at[k] + bounds[k + 2] <= iso.area[k + 2] + 1e-6

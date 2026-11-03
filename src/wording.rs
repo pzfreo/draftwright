@@ -118,6 +118,8 @@ pub fn block(id: &str) -> String {
         format!("table {k}")
     } else if id.starts_with("hole_table") || id.starts_with("hole_schedule") {
         "the hole table".into()
+    } else if id.starts_with("spring_data_") {
+        "the spring data table".into()
     } else if id == crate::pmi_lowering::SCHEDULE_ID {
         "the manufacturing requirements table".into()
     } else {

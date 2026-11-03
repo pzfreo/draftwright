@@ -3378,7 +3378,7 @@ fn refine_uncached(
         .iter()
         .map(|v| {
             let b = if v.id == "v:iso" {
-                let b = analysis.iso_bounds;
+                let b = analysis.drawing_iso_bounds();
                 [
                     v.at[0] + v.scale * b[0],
                     v.at[1] + v.scale * b[1],
@@ -4215,7 +4215,7 @@ pub(super) fn view_ink(
     let mut uncertain: Vec<[f64; 4]> = Vec::new();
     let frame = Frame::new(analysis, v);
     if v.id == "v:iso" {
-        let b = analysis.iso_bounds;
+        let b = analysis.drawing_iso_bounds();
         uncertain.push([
             v.at[0] + v.scale * b[0],
             v.at[1] + v.scale * b[1],

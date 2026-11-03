@@ -275,6 +275,33 @@ fn carriers(analysis: &Analysis, marks: &[Mark]) -> Vec<Carrier> {
             let Some(f) = analysis.features.iter().find(|f| f.id == c.feature) else {
                 continue;
             };
+            // Independent physical evidence: lint does not call the spring drawing planner.
+            if f.kind == "helical_spring"
+                && let Some(axis) = point(f.parameters.get("axis").and_then(|a| a.get("direction")))
+                    .and_then(haecceity::geom::unit)
+                && let Some(k) = principal(axis)
+                && let Some(on) = point(f.parameters.get("axis").and_then(|a| a.get("point")))
+            {
+                let number = |name: &str| f.parameters.get(name).and_then(|v| v.as_f64());
+                if c.parameter == "outer_diameter"
+                    && let Some(outer) = number("outer_diameter")
+                    && states(outer)
+                {
+                    out.extend(across(k, on, outer, &m.name));
+                } else if c.parameter == "free_length"
+                    && let (Some(start), Some(end)) = (number("start"), number("end"))
+                    && states(end - start)
+                {
+                    let ends = [on[k] + axis[k] * start, on[k] + axis[k] * end];
+                    out.push(Carrier {
+                        axis: k,
+                        lo: ends[0].min(ends[1]),
+                        hi: ends[0].max(ends[1]),
+                        chain: None,
+                        mark: m.name.clone(),
+                    });
+                }
+            }
             match (f.kind.as_str(), c.parameter.as_str()) {
                 ("turned_step", "step.length") => {
                     if let Ok(b) = turned::band(&frame, f)

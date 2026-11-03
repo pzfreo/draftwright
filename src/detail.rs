@@ -930,7 +930,7 @@ pub(crate) fn marker(
         .iter()
         .map(|v| {
             if v.id == "v:iso" {
-                let b = a.iso_bounds;
+                let b = a.drawing_iso_bounds();
                 [
                     v.at[0] + v.scale * b[0],
                     v.at[1] + v.scale * b[1],

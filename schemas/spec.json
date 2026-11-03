@@ -884,6 +884,19 @@
             }
           ]
         },
+        "spring": {
+          "anyOf": [
+            {
+              "enum": [
+                "simplified",
+                "full"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "thread": {
           "anyOf": [
             {
