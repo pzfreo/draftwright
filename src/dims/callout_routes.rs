@@ -531,6 +531,7 @@ pub(crate) fn finish_frames(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
 }
 
 fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: bool) {
+    let pmi_retry = placement::pmi_witness_retried(analysis);
     let openings = plan.dimensions.iter().any(|d| {
         d.measurements
             .iter()
@@ -539,14 +540,14 @@ fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: b
     let repair_issue = |code: &str| route_issue(code) || (openings && code == "label_crowded");
     // Added lanes must not leave an otherwise unreported leader alongside
     // an extension. Use the placer's existing one-mm contact predicate.
-    let extension_sets = if openings {
+    let extension_sets = if openings || pmi_retry {
         extension_sets(plan)
     } else {
         BTreeMap::new()
     };
-    // Source statements and attached marks move with their authored unit;
-    // extension-only retries are for free engine callouts.
-    let coupled: BTreeSet<_> = if openings && !plan.gdt.is_empty() {
+    // Attached marks move with their authored unit. Free PMI callouts may
+    // retry placement when their witness dimensions changed corridors.
+    let coupled: BTreeSet<_> = if (openings || pmi_retry) && !plan.gdt.is_empty() {
         super::hole_marks::attachments(analysis, plan)
             .into_values()
             .flatten()
@@ -560,7 +561,7 @@ fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: b
         .filter(|d| {
             d.kind == "callout"
                 && !coupled.contains(&d.id)
-                && !d.measurements.iter().any(|m| m.feature.starts_with("pmi:"))
+                && (pmi_retry || !d.measurements.iter().any(|m| m.feature.starts_with("pmi:")))
         })
         .filter_map(|d| {
             let p = d.placed.as_ref()?;
