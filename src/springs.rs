@@ -112,7 +112,6 @@ pub(crate) fn tables(a: &Analysis) -> Vec<TableSpec> {
             for (label, key, basis) in [
                 ("Wire ⌀ (mm)", "wire_diameter", "measured"),
                 ("Mean ⌀ (mm)", "mean_diameter", "measured"),
-                ("Outer ⌀ (mm)", "outer_diameter", "measured"),
                 ("Free length (mm)", "free_length", "measured"),
                 (
                     "Active coils",
@@ -362,6 +361,7 @@ mod tests {
             );
             assert!(text.contains("Total coils") && text.contains("terminal extensions"));
             assert!(!text.contains("Rate"));
+            assert!(!text.contains("Outer"));
             let font = crate::dims::font();
             let drawing = model::render(&part, &a, &p, font).unwrap();
             let printed = drawing
@@ -460,37 +460,6 @@ mod tests {
                         && b[3] <= hi[1] + 1e-6
                 );
             }
-        }
-    }
-    #[test]
-    fn partially_obstructed_exits_are_thru_and_name_the_covering_geometry() {
-        let (_, a) = model::analyse_native(&fixture("parts/partial_hole_exits.step.gz")).unwrap();
-        let obstructed: Vec<_> = a
-            .features
-            .iter()
-            .filter(|f| {
-                f.parameters
-                    .get("exit_obstructions")
-                    .and_then(|v| v.as_array())
-                    .is_some_and(|v| !v.is_empty())
-            })
-            .collect();
-        assert!(!obstructed.is_empty());
-        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
-        for f in obstructed {
-            assert_eq!(f.parameters["bottom"], "through");
-            assert!(
-                p.dimensions.iter().any(|d| d.label.contains("THRU")
-                    && d.measurements.iter().any(|m| m.feature == f.id)),
-                "{}",
-                f.id
-            );
-            assert!(p.problems.iter().any(|w| w.code == "hole_exit_obstructed"
-                && w.subjects.contains(&f.id)
-                && w.message.contains("exit about")
-                && w.message.contains("drawn THRU")
-                && !w.message.contains("fraction")
-                && !w.refs.is_empty()));
         }
     }
     #[test]

@@ -4264,6 +4264,7 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
             let mut plan =
                 manufacturing_fallback(analysis, spec, plan, |s| plan_recovered_once(analysis, s))?;
             crate::graphical_pmi::apply(analysis, &mut plan);
+            crate::hole_exits::report(analysis, &mut plan);
             Ok(plan)
         },
     )
@@ -4969,6 +4970,7 @@ fn schedule_recovered(
 pub fn plan_escalated(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     let mut plan = plan_escalated_layout(analysis, spec)?;
     crate::characteristics::apply(analysis, &mut plan);
+    crate::hole_exits::report(analysis, &mut plan);
     Ok(plan)
 }
 
@@ -5251,6 +5253,7 @@ pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
             let mut plan =
                 manufacturing_fallback(analysis, spec, plan, |s| plan_once(analysis, s))?;
             crate::graphical_pmi::apply(analysis, &mut plan);
+            crate::hole_exits::report(analysis, &mut plan);
             Ok(plan)
         },
     )
@@ -5926,7 +5929,6 @@ fn plan_with_presentation(
     }
     // Read from the title, declarations and PMI mode, which the placement memo leaves out of its
     // key.
-    problems.extend(crate::hole_exits::warnings(analysis));
     problems.extend(crate::dims::refused_threads(analysis, spec));
     problems.extend(crate::dims::possible_threads(analysis, spec));
     if !effective.annotations.is_empty() {
