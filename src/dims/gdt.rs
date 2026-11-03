@@ -189,6 +189,11 @@ fn width(s: &str, size: f64) -> f64 {
 /// (ISO 1101: the number of features above the tolerance frame), its box grown to hold it.
 pub(super) fn with_count(p: &mut GdtPlaced, n: usize) {
     let count = format!("{n}×");
+    // Final witness repairs can revisit a frame already led to the same group.
+    // Its translated glyph already carries the count and reserves its paper.
+    if p.runs.iter().any(|run| run.text == count) {
+        return;
+    }
     let b = p.label_box;
     let w = width(&count, TEXT);
     let at = [b[0] + 0.5 * w, b[3] + PAD + 0.5 * TEXT];

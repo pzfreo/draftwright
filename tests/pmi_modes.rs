@@ -971,6 +971,14 @@ fn strict_pmi_references_show_only_unstated_engine_quantities() {
             p.sheet.size, "A4",
             "supplementary references keep the same paper"
         );
+        for frame in &p.gdt {
+            if let Some(placed) = &frame.placed {
+                assert!(
+                    placed.runs.iter().filter(|r| r.text == "4×").count() <= 1,
+                    "a repaired pattern frame must state its count only once"
+                );
+            }
+        }
         assert!(
             !p.dimensions
                 .iter()
