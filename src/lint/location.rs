@@ -776,8 +776,10 @@ pub(crate) fn identify(a: &Analysis, mark: &Mark, spans: Vec<Edge>) -> Vec<Edge>
                 e.a_feature = feature(0, e.a);
                 e.b_feature = feature(1, e.b);
                 // A proven compound bore endpoint can also locate an included
-                // pattern's centre. Require its entire native support and both
-                // radial coordinates; a coincident ordinate alone is no alias.
+                // pattern's centre along the measured normal. Require its entire
+                // native support and that centre station: the transverse witness
+                // can be a real member away from an empty pattern centre. A
+                // coincident bore without that complete support is not an alias.
                 if let Some(g) = &r.geometry
                     && g.reasons.is_empty()
                     && g.sites.len() == 2
@@ -805,11 +807,9 @@ pub(crate) fn identify(a: &Analysis, mark: &Mark, spans: Vec<Edge>) -> Vec<Edge>
                             if p.faces.is_empty()
                                 || !p.faces.iter().all(|f| group.contains(f))
                                 || node_feature(a, &p.id, e.axis).is_none()
-                                || (0..3).any(|k| {
-                                    k != axis
-                                        && station(a, &p.id, k)
-                                            .is_none_or(|at| (at - g.stations[side][k]).abs() > EPS)
-                                })
+                                || e.axis == axis
+                                || station(a, &p.id, e.axis)
+                                    .is_none_or(|at| (at - g.stations[side][e.axis]).abs() > EPS)
                             {
                                 continue;
                             }

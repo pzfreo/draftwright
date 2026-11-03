@@ -930,6 +930,10 @@ fn specify_composite_location_uses_the_datum_normal_not_a_box_diagonal() {
             .any(|s| s.contains("30 mm differs from nominal 31 mm"))
     );
     let p = plan(&a, &Spec::default());
+    assert!(
+        !p.problems.iter().any(|p| p.code == "feature_not_located"),
+        "composite normal locations retain their included pattern's centre station"
+    );
     assert!(p.dimensions.iter().any(|d| {
         d.measurements
             .iter()
