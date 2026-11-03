@@ -358,6 +358,45 @@ fn spans(a: &Analysis, w: &Want) -> Vec<Edge> {
 /// Physical endpoints, including feature-axis identities, independent of the
 /// view that happens to carry the label. Equal numbers alone are insufficient.
 pub(super) fn same_quantity(a: &Analysis, source: &Want, generated: &Want) -> bool {
+    // A native uniform pattern's pitch is stated by a source face pair from
+    // that pattern at these same end stations. The location network expands
+    // pitches into centre/member edges, so compare that size before expansion.
+    let counted = generated
+        .terms
+        .first()
+        .and_then(|term| term.strip_suffix('×'))
+        .and_then(|n| n.parse::<usize>().ok())
+        .is_some_and(|n| n > 1);
+    if !counted
+        && generated
+            .measurements
+            .iter()
+            .any(|m| m.parameter.starts_with("grid_pitch.length."))
+        && let Some(Reading::Read(report)) = &a.pmi
+    {
+        let ids = report.identities();
+        if report.records.iter().any(|r| {
+            ids.ids
+                .get(&r.source_id)
+                .is_some_and(|id| source.measurements.iter().any(|m| &m.feature == id))
+                && r.face_groups.len() == 2
+                && r.face_groups.iter().all(|g| !g.is_empty())
+                && generated.measurements.iter().any(|m| {
+                    a.recognition.iter().flat_map(|r| &r.patterns).any(|p| {
+                        p.id == m.feature
+                            && r.faces.iter().all(|face| {
+                                p.members.iter().any(|member| {
+                                    a.features
+                                        .iter()
+                                        .any(|f| &f.id == member && f.faces.contains(face))
+                                })
+                            })
+                    })
+                })
+        }) {
+            return true;
+        }
+    }
     let stated = spans(a, source);
     let wanted = spans(a, generated);
     !wanted.is_empty()

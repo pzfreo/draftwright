@@ -3139,8 +3139,12 @@ fn plan_inventory_ordered(
     }
     let references = redundancy::consolidate(analysis, spec, &mut kept, &mut given, &mut omitted);
     if pmi_policy::carries(analysis) && spec.sheet.references == Some(true) {
-        for (w, ..) in &mut kept {
-            if !pmi_policy::source_dimension(analysis, w) && !w.terms.join(" ").starts_with('(') {
+        for ((w, ..), authored) in kept.iter_mut().zip(&given) {
+            if authored.is_empty()
+                && spec.dimension_source == DimensionSource::Auto
+                && !pmi_policy::source_dimension(analysis, w)
+                && !w.terms.join(" ").starts_with('(')
+            {
                 w.terms = vec![format!("({})", crate::callouts::label(&w.terms))];
                 w.basis += "; reference: an engine dimension not stated by the applied PMI";
             }
@@ -4798,10 +4802,15 @@ fn share_pmi(
                 continue;
             }
             let Some(si) = span(&kept[i]) else { continue };
-            let same = (sp.0 == si.0
-                || (!pmi(&kept[i].0)
-                    && pmi_policy::same_quantity(analysis, &kept[p].0, &kept[i].0)))
-                && sp.1 == si.1
+            let engine_same = !pmi(&kept[i].0)
+                && kept[i].1
+                && given[i].is_empty()
+                && pmi_policy::same_quantity(analysis, &kept[p].0, &kept[i].0);
+            let same = (if pmi(&kept[i].0) {
+                sp.0 == si.0
+            } else {
+                engine_same
+            }) && sp.1 == si.1
                 && (sp.2 - si.2).abs() <= SAME_SPAN
                 && (sp.3 - si.3).abs() <= SAME_SPAN;
             if !same {
@@ -4816,6 +4825,8 @@ fn share_pmi(
                     continue;
                 }
                 "the part's PMI states the same span again"
+            } else if engine_same {
+                "the part's PMI states this same physical quantity, independently of its carrying view"
             } else {
                 continue;
             };

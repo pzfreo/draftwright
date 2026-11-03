@@ -558,10 +558,7 @@ pub(super) fn physical_witness_retry(analysis: &Analysis) -> bool {
         // Recess drawings already use the joint corridor solver; do not
         // replace its coupled witness and callout policy with local retries.
         && !analysis.features.iter().any(|f| f.kind == "section_recess")
-        && (super::pmi_policy::carries(analysis) || analysis
-            .features
-            .iter()
-            .any(|f| matches!(f.kind.as_str(), "slot" | "slot_pattern")))
+        && analysis.features.iter().any(|f| matches!(f.kind.as_str(), "slot" | "slot_pattern"))
 }
 
 /// The strip of a turned step length anchored on its own body's silhouette (both witnesses off
@@ -3291,7 +3288,10 @@ fn clear_linear_ordered(
         let max_lane = (((paper[2] - paper[0]).max(paper[3] - paper[1]) / super::lane_pitch())
             .ceil() as usize)
             .max(16);
-        let choices: Vec<_> = if recess_context || feature_conflict {
+        let choices: Vec<_> = if recess_context
+            || feature_conflict
+            || (semantic_pmi && physical_witness_retry(analysis))
+        {
             [side, opposite(side)]
                 .into_iter()
                 .flat_map(|side| {

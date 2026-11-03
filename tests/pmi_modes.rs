@@ -960,6 +960,16 @@ fn strict_pmi_references_show_only_unstated_engine_quantities() {
             assert!(d.reference, "{} {}", d.id, d.label);
         }
     }
+    for pmi in [PmiMode::Strict, PmiMode::First] {
+        s.pmi = pmi;
+        let p = plan(&a, &s);
+        assert!(
+            !p.dimensions
+                .iter()
+                .any(|d| d.reference && ["(76)", "(48)"].contains(&d.label.as_str())),
+            "PMI pitches repeated as references"
+        );
+    }
     for d in &strict.dimensions {
         let same = refs.dimensions.iter().find(|r| r.id == d.id).unwrap();
         assert_eq!(same.label, d.label);

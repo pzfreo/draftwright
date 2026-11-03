@@ -1577,7 +1577,21 @@ pub fn dimension_geometry(part: &Part, r: &Record) -> Geometry {
     {
         let boxes: Vec<Vec<_>> = r.face_groups.iter().map(|fs| fs.iter().map(|&f| face_box(part, f)).collect()).collect();
         for name in ["front", "plan", "side"] {
-            if let Planar::Projected(_, _, points) = projected_planar_witness_in_view(part, &r.face_groups, &boxes, k, Some(name))
+            let across = match (k, name) {
+                (0, "front") | (1, "side") => 2,
+                (0, "plan") | (2, "side") => 1,
+                _ => 0,
+            };
+            let preferred = if !g.sites.is_empty() && g.view.as_deref() == Some(name) {
+                g.stations[0][across]
+            } else if name == "plan" {
+                0.5 * (g.stations[0][across] + g.stations[1][across])
+            } else {
+                let lo = boxes.iter().flatten().map(|b| b[across]).fold(f64::INFINITY, f64::min);
+                let hi = boxes.iter().flatten().map(|b| b[across+3]).fold(f64::NEG_INFINITY, f64::max);
+                0.5 * (lo+hi)
+            };
+            if let Planar::Projected(_, _, points) = projected_planar_witness_in_view(part, &r.face_groups, &boxes, k, Some(name), Some(preferred))
                 && (0..2).all(|i| (points[i][k]-g.stations[i][k]).abs()<1e-6)
             {
                 g.view_witnesses.insert(name.into(), points);
@@ -1965,7 +1979,7 @@ fn projected_planar_witness(
     boxes: &[Vec<[f64; 6]>],
     k: usize,
 ) -> Planar {
-    projected_planar_witness_in_view(part, groups, boxes, k, None)
+    projected_planar_witness_in_view(part, groups, boxes, k, None, None)
 }
 
 fn projected_planar_witness_in_view(
@@ -1974,6 +1988,7 @@ fn projected_planar_witness_in_view(
     boxes: &[Vec<[f64; 6]>],
     k: usize,
     selected: Option<&str>,
+    preferred: Option<f64>,
 ) -> Planar {
     let views = match k {
         0 => [("front", 2, 1), ("plan", 1, 2)],
@@ -2007,8 +2022,11 @@ fn projected_planar_witness_in_view(
                 .then(a.3.cmp(&b.3))
         });
         for (lo, hi, a, b, ba, bb) in candidates {
-            for fraction in fractions {
-                let transverse = lo + fraction * (hi - lo);
+            let transverse_candidates = preferred
+                .filter(|v| *v >= lo && *v <= hi)
+                .into_iter()
+                .chain(fractions.map(|fraction| lo + fraction * (hi - lo)));
+            for transverse in transverse_candidates {
                 let point = |face, bounds: &[f64; 6]| {
                     fractions.iter().find_map(|t| {
                         let mut p = [0.0; 3];
