@@ -158,7 +158,8 @@ pub const FAMILIES: &[(&str, &[&str])] = &[
 
 /// The families consumed here, including evidence and refusals. Oriented slot patterns are
 /// checked and not kept (see the module docs). Threads are retained pending depiction.
-pub const READ: [&str; 40] = [
+pub const READ: [&str; 41] = [
+    "helical_springs",
     "holes",
     "hole_patterns",
     "fillets",
@@ -256,6 +257,29 @@ pub enum Field {
 /// so a change to it does not refuse a read that would not use it. `a.b` is field `b` of object
 /// field `a`, checked when `a` is not null (`a` is listed first).
 pub const FIELDS: &[(&str, &[(&str, Field)])] = &[
+    (
+        "HelicalSpring",
+        &[
+            ("axis", Field::Object),
+            ("axis.point", Field::Point),
+            ("axis.direction", Field::Point),
+            ("hand", Field::Text),
+            ("wire_diameter", Field::Number),
+            ("mean_diameter", Field::Number),
+            ("outer_diameter", Field::Number),
+            ("inner_diameter", Field::Number),
+            ("free_length", Field::Number),
+            ("total_coils", Field::Number),
+            ("total_coils_basis", Field::Text),
+            ("active_coils", Field::NumberOrNull),
+            ("active_coils_basis", Field::Text),
+            ("pitch", Field::Number),
+            ("end_type", Field::Text),
+            ("start", Field::Number),
+            ("end", Field::Number),
+            ("faces", Field::Faces),
+        ],
+    ),
     (
         "RectangularThroughNotch",
         &[
@@ -993,6 +1017,36 @@ fn feature(
     };
     if !ascending(&faces) {
         return Err(format!("{} has no ascending faces to anchor it", r.id));
+    }
+    if r.family == "helical_springs" {
+        let p = &r.parameters;
+        let positive = [
+            "wire_diameter",
+            "mean_diameter",
+            "outer_diameter",
+            "inner_diameter",
+            "free_length",
+            "total_coils",
+            "pitch",
+        ];
+        let valid = positive
+            .iter()
+            .all(|key| p[*key].as_f64().is_some_and(|v| v > 0.))
+            && p["end"].as_f64().unwrap() > p["start"].as_f64().unwrap()
+            && (p["free_length"].as_f64().unwrap()
+                - (p["end"].as_f64().unwrap() - p["start"].as_f64().unwrap()))
+            .abs()
+                < 1e-6
+            && p["outer_diameter"].as_f64().unwrap() > p["wire_diameter"].as_f64().unwrap()
+            && ["left", "right"].contains(&p["hand"].as_str().unwrap())
+            && haecceity::geom::unit(point3(&p["axis"]["direction"]).unwrap()).is_some()
+            && face_list(&p["faces"]) == faces;
+        if !valid {
+            return Err(format!(
+                "{} has invalid spring geometry or face claims",
+                r.id
+            ));
+        }
     }
     if r.family == "modelled_threads" {
         let mut claims = ["flank_faces", "crest_faces", "root_faces", "runout_faces"]

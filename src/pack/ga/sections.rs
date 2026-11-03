@@ -769,7 +769,7 @@ pub(super) fn append_iso(a: &Analysis, plan: &mut Plan, spec: &Spec) -> bool {
         plan.sheet.page[0] - frame,
         plan.sheet.page[1] - frame,
     ];
-    let bounds = a.iso_bounds;
+    let bounds = a.drawing_iso_bounds();
     let scale = plan.sheet.scale_factor;
     let area = crate::layout::largest_empty_rect(
         region,

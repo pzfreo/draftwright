@@ -257,7 +257,7 @@ fn footprints_with_notes(
     let mut out = Vec::new();
     for v in &plan.views {
         let b = if v.id == "v:iso" {
-            let b = analysis.iso_bounds;
+            let b = analysis.drawing_iso_bounds();
             [
                 v.at[0] + v.scale * b[0],
                 v.at[1] + v.scale * b[1],
@@ -791,7 +791,7 @@ fn correct_sections(analysis: &Analysis, plan: &mut Plan) {
         b[3] += 2.;
     }
     if let Some(iso) = candidate.views.iter_mut().find(|v| v.id == "v:iso") {
-        let b = analysis.iso_bounds;
+        let b = analysis.drawing_iso_bounds();
         let size = [b[2] - b[0], b[3] - b[1]];
         if size.iter().any(|s| *s <= 0.) {
             return;
@@ -982,7 +982,7 @@ pub(crate) fn correct_estimate(analysis: &Analysis, plan: &mut Plan) {
         b[2] += 2.0;
         b[3] += 2.0;
     }
-    let b = analysis.iso_bounds;
+    let b = analysis.drawing_iso_bounds();
     let size = [b[2] - b[0], b[3] - b[1]];
     if size.iter().any(|s| *s <= 0.0) {
         return;
@@ -1252,7 +1252,7 @@ fn pack_reserved(
             b[2] += 2.0;
             b[3] += 2.0;
         }
-        let b = analysis.iso_bounds;
+        let b = analysis.drawing_iso_bounds();
         let size = [b[2] - b[0], b[3] - b[1]];
         if size.iter().any(|s| *s <= 0.0) {
             return None;
@@ -1474,10 +1474,10 @@ fn reserve_bounds(
         .map(|v| {
             let mut b = if v.id == "v:iso" {
                 [
-                    v.at[0] + v.scale * analysis.iso_bounds[0],
-                    v.at[1] + v.scale * analysis.iso_bounds[1],
-                    v.at[0] + v.scale * analysis.iso_bounds[2],
-                    v.at[1] + v.scale * analysis.iso_bounds[3],
+                    v.at[0] + v.scale * analysis.drawing_iso_bounds()[0],
+                    v.at[1] + v.scale * analysis.drawing_iso_bounds()[1],
+                    v.at[0] + v.scale * analysis.drawing_iso_bounds()[2],
+                    v.at[1] + v.scale * analysis.drawing_iso_bounds()[3],
                 ]
             } else {
                 let size = if v.detail.is_some() {
@@ -2023,10 +2023,10 @@ pub(crate) fn reserve_linear_corridors(
     {
         let iso = &plan.views[i];
         let mut ink = [
-            iso.at[0] + iso.scale * analysis.iso_bounds[0],
-            iso.at[1] + iso.scale * analysis.iso_bounds[1],
-            iso.at[0] + iso.scale * analysis.iso_bounds[2],
-            iso.at[1] + iso.scale * analysis.iso_bounds[3],
+            iso.at[0] + iso.scale * analysis.drawing_iso_bounds()[0],
+            iso.at[1] + iso.scale * analysis.drawing_iso_bounds()[1],
+            iso.at[0] + iso.scale * analysis.drawing_iso_bounds()[2],
+            iso.at[1] + iso.scale * analysis.drawing_iso_bounds()[3],
         ];
         for c in plan.captions.iter().filter(|c| c.view == "v:iso") {
             include(&mut ink, [c.ink[0], c.ink[1]]);
@@ -2061,7 +2061,7 @@ pub(crate) fn reserve_linear_corridors(
             && plan.spec.iso_scale_factor.is_none()
             && !plan.spec.views.contains_key("iso")
         {
-            let b = analysis.iso_bounds;
+            let b = analysis.drawing_iso_bounds();
             let size = [b[2] - b[0], b[3] - b[1]];
             if size.iter().all(|v| *v > 0.0) {
                 let [w, h] = plan.sheet.page;

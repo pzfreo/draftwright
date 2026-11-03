@@ -106,6 +106,7 @@ mod redundancy;
 mod schemes;
 mod slots;
 pub(crate) use slots::located_end_centres;
+mod springs;
 mod steps;
 mod stock;
 mod tolerance;
@@ -662,10 +663,11 @@ struct Planner {
 }
 
 /// The planners, in the order their items are planned.
-const PLANNERS: [Planner; 20] = [
+const PLANNERS: [Planner; 21] = [
     turned::PLANNER,
     envelope::PLANNER,
     stock::PLANNER,
+    springs::PLANNER,
     holes::PLANNER,
     slots::PLANNER,
     bosses::PLANNER,

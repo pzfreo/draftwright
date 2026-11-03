@@ -42,7 +42,7 @@ pub(crate) fn bands(analysis: &Analysis, plan: &Plan) -> Vec<Rect> {
         .iter()
         .map(|v| {
             if measured(plan, v) && v.id == "v:iso" {
-                let b = analysis.iso_bounds;
+                let b = analysis.drawing_iso_bounds();
                 [
                     v.at[0] + v.scale * b[0],
                     v.at[1] + v.scale * b[1],

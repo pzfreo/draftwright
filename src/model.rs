@@ -504,6 +504,8 @@ pub struct DimensionSpec {
     pub place: Option<crate::placement_intent::Place>,
 }
 
+pub use crate::springs::Depiction as SpringDepiction;
+
 /// What the author decided of a feature.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -514,6 +516,9 @@ pub struct FeatureSpec {
     /// Intent for a recognised physical thread; no geometry is authored here.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modelled_thread: Option<crate::modelled_threads::Settings>,
+    /// Recognised spring depiction; full retains its measured data and dimensions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spring: Option<SpringDepiction>,
     /// Shared thread and knurl callout presentation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub callouts: Option<crate::callouts::Settings>,
@@ -2080,6 +2085,16 @@ pub fn recognise_document(
         ink.resolved = projected_ink::resolved(part, &analysis.binding, &inspection);
     }
     Ok(())
+}
+
+impl Analysis {
+    /// Source projection plus the recognised spring's simplified outer silhouette.
+    /// Keep the immutable raw bounds for analysis and older saved documents.
+    pub(crate) fn drawing_iso_bounds(&self) -> [f64; 4] {
+        let (_, toward, up) = VIEWS[3];
+        let view = View::new(toward, up).expect("standard iso view");
+        crate::springs::iso_bounds(self, &view)
+    }
 }
 
 /// The box (width, height) and centre of the part's envelope seen in *view*, mm at 1:1.
@@ -3827,7 +3842,7 @@ fn recover_candidates(
                     && iso.scale > cap
                 {
                     // Shrink about the drawn box's centre, so it stays inside its old footprint.
-                    let b = analysis.iso_bounds;
+                    let b = analysis.drawing_iso_bounds();
                     let centre = [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0];
                     iso.at = [
                         iso.at[0] + (iso.scale - cap) * centre[0],
@@ -3846,7 +3861,7 @@ fn recover_candidates(
                     )
                     && iso.scale > cap
                 {
-                    let b = analysis.iso_bounds;
+                    let b = analysis.drawing_iso_bounds();
                     for k in 0..2 {
                         iso.at[k] += (iso.scale - cap) * 0.5 * (b[k] + b[k + 2]);
                     }
@@ -5911,6 +5926,7 @@ fn plan_with_presentation(
     }
     // Read from the title, declarations and PMI mode, which the placement memo leaves out of its
     // key.
+    problems.extend(crate::hole_exits::warnings(analysis));
     problems.extend(crate::dims::refused_threads(analysis, spec));
     problems.extend(crate::dims::possible_threads(analysis, spec));
     if !effective.annotations.is_empty() {
@@ -6285,6 +6301,11 @@ fn plan_with_presentation(
             .required_tables
             .extend(p.sizes(spec, page.unwrap_or(p.page)));
     }
+    request.required_tables.extend(crate::tables::sizes_on(
+        &crate::springs::tables(analysis),
+        spec,
+        page.unwrap_or([1189.0, 841.0]),
+    ));
     // The part's manufacturing requirements table, when its threads and knurls are referred to
     // one (crate::pmi_lowering::manufacturing), before the notes, as draftwright reserves it.
     request.required_tables.extend(
@@ -6495,11 +6516,12 @@ fn plan_with_presentation(
         (g.front, g.plan, g.side, g.section) = (frame.front, frame.plan, frame.side, frame.section);
         (g.iso, g.iso_centre) = (frame.iso, frame.iso_centre);
     }
-    let ib = analysis.iso_bounds.map(|b| b * pick.scale);
+    let ib = analysis.drawing_iso_bounds().map(|b| b * pick.scale);
     let iso_factor = spec.iso_scale_factor.unwrap_or_else(|| {
         layout::iso_factor_with_detail(g.iso, g.iso_centre, ib, !g.derived.is_empty())
     });
-    if shown("iso") && spec.iso_scale_factor.is_some() && analysis.iso_bounds != [0.0; 4] {
+    if shown("iso") && spec.iso_scale_factor.is_some() && analysis.drawing_iso_bounds() != [0.0; 4]
+    {
         let b = [
             g.iso_centre[0] + ib[0] * iso_factor,
             g.iso_centre[1] + ib[1] * iso_factor,
@@ -6516,7 +6538,7 @@ fn plan_with_presentation(
             return Err(invalid(INFEASIBLE_ISO_SCALE, &[]));
         }
     }
-    if shown("iso") && analysis.iso_bounds == [0.0; 4] {
+    if shown("iso") && analysis.drawing_iso_bounds() == [0.0; 4] {
         problems.push(Problem {
             id: "p:iso_projection_empty:v:iso".into(),
             code: "iso_projection_empty".into(),
@@ -6701,10 +6723,10 @@ fn plan_with_presentation(
     {
         let v = &views[i];
         let bounds = [
-            v.at[0] + v.scale * analysis.iso_bounds[0],
-            v.at[1] + v.scale * analysis.iso_bounds[1],
-            v.at[0] + v.scale * analysis.iso_bounds[2],
-            v.at[1] + v.scale * analysis.iso_bounds[3],
+            v.at[0] + v.scale * analysis.drawing_iso_bounds()[0],
+            v.at[1] + v.scale * analysis.drawing_iso_bounds()[1],
+            v.at[0] + v.scale * analysis.drawing_iso_bounds()[2],
+            v.at[1] + v.scale * analysis.drawing_iso_bounds()[3],
         ];
         let [w, h] = pick.page;
         let page = [
@@ -6836,8 +6858,9 @@ fn plan_with_presentation(
     {
         v.scale = base.scale;
         let outside = (0..2).any(|k| {
-            v.at[k] + v.scale * analysis.iso_bounds[k] < margin()
-                || v.at[k] + v.scale * analysis.iso_bounds[k + 2] > sheet.page[k] - margin()
+            v.at[k] + v.scale * analysis.drawing_iso_bounds()[k] < margin()
+                || v.at[k] + v.scale * analysis.drawing_iso_bounds()[k + 2]
+                    > sheet.page[k] - margin()
         });
         // Bare pins retain their canonical frame. Holding an automatic scale must not leave
         // its newly packed centre outside the page; in that case retain the proven frame too.
@@ -7595,6 +7618,22 @@ fn plan_with_presentation(
             .filter(|t| t.id.starts_with("gear_data_"))
             .filter_map(crate::tables::proxy),
     );
+    let (mut spring_tables, more) = crate::tables::plan(
+        &crate::springs::tables(analysis),
+        analysis,
+        &sheet,
+        &views,
+        &ink,
+        notes_block.as_ref().map(|b| b.cells),
+        spec,
+    );
+    problems.extend(more);
+    for table in &mut spring_tables {
+        table.default = true;
+        table.basis = "recognised spring data; measured values and explicit coil-count bases; rate only when stated; standard table sheet-space policy".into();
+    }
+    ink.extend(spring_tables.iter().filter_map(crate::tables::proxy));
+    tables.extend(spring_tables);
     let exceptions_unstated =
         crate::dims::blends::exceptions_unstated(analysis, &dimensions, &radius_notes);
     if exceptions_unstated {
@@ -9320,6 +9359,12 @@ impl Projections {
         } else {
             analysis.binding.source_sha256.clone()
         };
+        let spring_key = crate::springs::cache_key(analysis, spec);
+        let binding = if spring_key.is_empty() {
+            binding
+        } else {
+            format!("{binding}:2162:{spring_key:?}")
+        };
         if self.binding.as_ref() != Some(&binding) {
             self.views.clear();
             self.cuts.clear();
@@ -9446,6 +9491,9 @@ impl Projections {
                     })
                     .collect()
             };
+            geometry
+                .visible
+                .extend(clip_items(crate::springs::ink(analysis, source, spec)));
             geometry.visible.extend(clip_items(thick));
             geometry.hidden.extend(clip_items(thread_hidden));
         }
@@ -10740,7 +10788,7 @@ fn render_annotations_with_cuts(
         }
         let mut manufacturing_runs: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         let mut manufacturing_header = Vec::new();
-        let mut gear_runs = Vec::new();
+        let mut data_runs = Vec::new();
         let mut tag = None;
         for (draw_row, (r, row, positions)) in
             crate::tables::cell_rows(table).into_iter().enumerate()
@@ -10757,8 +10805,8 @@ fn render_annotations_with_cuts(
                     dims,
                 );
                 let index = label(laid, *at, dims, Some(run));
-                if table.id.starts_with("gear_data_") {
-                    gear_runs.extend(index);
+                if table.id.starts_with("gear_data_") || table.id.starts_with("spring_data_") {
+                    data_runs.extend(index);
                 }
                 // One canonical header certifies the whole table. Continuation headers
                 // repeat the same visible cells without duplicating its provenance.
@@ -10778,10 +10826,21 @@ fn render_annotations_with_cuts(
         if let Some(owner) = table.id.strip_prefix("gear_data_") {
             annotations.push(Annotation {
                 name: table.id.clone(),
-                runs: gear_runs,
+                runs: data_runs.clone(),
                 claims: vec![Claim {
                     feature: format!("gear:{owner}"),
                     parameter: "gear.requirement".into(),
+                }],
+                ..Default::default()
+            });
+        }
+        if let Some(owner) = table.id.strip_prefix("spring_data_") {
+            annotations.push(Annotation {
+                name: table.id.clone(),
+                runs: data_runs.clone(),
+                claims: vec![Claim {
+                    feature: owner.into(),
+                    parameter: "spring.data".into(),
                 }],
                 ..Default::default()
             });

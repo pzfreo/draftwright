@@ -144,6 +144,7 @@ catalogue! {
     "hex_pocket_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "hex_pocket_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
     "hole_bottom_unknown" => Incomplete, Code, "The hole termination needed for a complete callout is unknown.";
+    "hole_exit_obstructed" => Advisory, Code, "A through hole has a partly obstructed exit; covering geometry and fraction are reported.";
     "hole_pattern_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "hole_pattern_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
     "hole_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";

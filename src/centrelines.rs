@@ -204,6 +204,20 @@ pub(crate) fn plan(a: &Analysis, views: &mut [PlannedView]) {
         }
         // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.
         let view = View::new(v.direction, v.up).expect("planned view");
+        for s in crate::springs::read(a) {
+            if let Some(w) = axis(
+                a,
+                v,
+                format!("spring_axis_{}", s.feature.id),
+                s.at((s.start + s.end) / 2.),
+                s.axis,
+                s.end - s.start,
+                s.outer,
+                false,
+            ) {
+                v.line_work.push(w);
+            }
+        }
         // The hole's full span: from its opening (`at`) along its direction through any
         // counterbore or spotface and then the bore. None when a depth is missing; then no side
         // axis is drawn, since running one across the part would read as THRU (ADR R1-6).

@@ -172,7 +172,7 @@ pub(crate) fn obstacles(
         .filter(|v| v.sheet == sheet.number)
         .map(|v| {
             if v.id == "v:iso" {
-                let ib = analysis.iso_bounds;
+                let ib = analysis.drawing_iso_bounds();
                 [
                     v.at[0] + v.scale * ib[0],
                     v.at[1] + v.scale * ib[1],
@@ -464,7 +464,8 @@ pub(crate) fn measure(rows: &[Vec<String>]) -> [f64; 2] {
 
 /// Whether an override names a shared table rather than a hole schedule.
 pub(crate) fn split_id(id: &str, spec: &crate::model::Spec) -> bool {
-    spec.tables.iter().any(|t| t.id == id)
+    id.starts_with("spring_data_f:helical_spring:")
+        || spec.tables.iter().any(|t| t.id == id)
         || id == crate::dims::blends::RADIUS_TABLE
         || id == crate::pmi_lowering::SCHEDULE_ID
         || id

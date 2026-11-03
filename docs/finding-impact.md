@@ -140,6 +140,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `hex_pocket_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `hex_pocket_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |
 | `hole_bottom_unknown` | incomplete | The hole termination needed for a complete callout is unknown. |
+| `hole_exit_obstructed` | advisory | A through hole has a partly obstructed exit; covering geometry and fraction are reported. |
 | `hole_pattern_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `hole_pattern_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |
 | `hole_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |

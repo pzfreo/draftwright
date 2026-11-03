@@ -337,7 +337,7 @@ fn shown(spec: &Spec, name: &str) -> bool {
 
 fn available(analysis: &Analysis, spec: &Spec, name: &str, long: bool) -> bool {
     match name {
-        "iso" => shown(spec, name) && analysis.iso_bounds != [0.; 4],
+        "iso" => shown(spec, name) && analysis.drawing_iso_bounds() != [0.; 4],
         "section_aa" => {
             shown(spec, name)
                 && shown(spec, "plan")
@@ -857,10 +857,10 @@ fn auxiliary(
     let view = crate::haecceity::hlr::View::new(direction, up).expect("auxiliary view");
     let (extent, _) = model::extent(analysis, &view);
     let bounds = if name == "iso" {
-        if analysis.iso_bounds == [0.; 4] {
+        if analysis.drawing_iso_bounds() == [0.; 4] {
             return None;
         }
-        analysis.iso_bounds
+        analysis.drawing_iso_bounds()
     } else {
         [
             -extent[0] / 2.,
@@ -2076,8 +2076,8 @@ fn separate_views_inner(
             // The orientation view already fits freely in ordinary sheet layout. Fit it
             // after the tables and dimensioned views, with room for its NTS caption.
             let world = [
-                analysis.iso_bounds[2] - analysis.iso_bounds[0],
-                analysis.iso_bounds[3] - analysis.iso_bounds[1],
+                analysis.drawing_iso_bounds()[2] - analysis.drawing_iso_bounds()[0],
+                analysis.drawing_iso_bounds()[3] - analysis.drawing_iso_bounds()[1],
             ];
             let gap = layout::largest_empty_rect(region, &pages[0], world);
             let scale = ((gap[2] - gap[0] - 4.0) / world[0])
@@ -2086,12 +2086,12 @@ fn separate_views_inner(
             if scale > 0.0 && world[0].max(world[1]) * scale >= 20.0 {
                 let iso = auxiliary(analysis, "iso", scale, 1, source.sheet.scale_factor)?;
                 bounds = [
-                    iso.at[0] + scale * analysis.iso_bounds[0],
-                    iso.at[1] + scale * analysis.iso_bounds[1]
+                    iso.at[0] + scale * analysis.drawing_iso_bounds()[0],
+                    iso.at[1] + scale * analysis.drawing_iso_bounds()[1]
                         - 3.0 * crate::section::FONT_SIZE
                         - crate::tables::PAD,
-                    iso.at[0] + scale * analysis.iso_bounds[2],
-                    iso.at[1] + scale * analysis.iso_bounds[3],
+                    iso.at[0] + scale * analysis.drawing_iso_bounds()[2],
+                    iso.at[1] + scale * analysis.drawing_iso_bounds()[3],
                 ];
                 block = [bounds[2] - bounds[0], bounds[3] - bounds[1]];
                 plan.views[i] = iso;

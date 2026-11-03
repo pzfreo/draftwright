@@ -270,19 +270,20 @@ pub(crate) fn threads(a: &Analysis) -> impl Iterator<Item = Thread<'_>> {
 /// Its span includes indivisible carrier faces beyond the physical thread extent.
 /// The kernel still owns projection, visibility and section/hatch intersections.
 pub(crate) fn carrier(part: &Part, a: &Analysis, spec: &Spec, enabled: bool) -> Option<Part> {
-    if !enabled {
-        return None;
-    }
+    let spring_faces = crate::springs::faces(a, spec);
     let ts: Vec<_> = threads(a)
-        .filter(|t| t.enabled(spec) && t.feature.faces.iter().all(|&i| i < part.faces.len()))
+        .filter(|t| {
+            enabled && t.enabled(spec) && t.feature.faces.iter().all(|&i| i < part.faces.len())
+        })
         .collect();
-    if ts.is_empty() {
+    if ts.is_empty() && spring_faces.is_empty() {
         return None;
     }
-    let claimed: BTreeSet<_> = ts
+    let mut claimed: BTreeSet<_> = ts
         .iter()
         .flat_map(|t| t.feature.faces.iter().copied())
         .collect();
+    claimed.extend(spring_faces);
     let mut faces = Vec::new();
     let mut mapping = vec![None; part.faces.len()];
     for (i, f) in part.faces.iter().enumerate() {
@@ -780,13 +781,14 @@ pub(crate) fn ink(
 pub(crate) fn cache_key(a: &Analysis, s: &Spec, v: &PlannedView) -> Vec<u64> {
     let ts: Vec<_> = threads(a).collect();
     if ts.is_empty() {
-        return Vec::new();
+        return crate::springs::cache_key(a, s);
     }
     let mut key = vec![
         0x6410,
         u64::from(v.line_style.thread_depiction != Some(false)),
     ];
     key.extend(ts.iter().map(|t| u64::from(t.enabled(s))));
+    key.extend(crate::springs::cache_key(a, s));
     key
 }
 

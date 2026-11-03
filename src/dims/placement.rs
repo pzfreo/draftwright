@@ -4727,7 +4727,7 @@ fn outlines<'a>(analysis: &Analysis, views: &'a [PlannedView]) -> Vec<(&'a str, 
         .iter()
         .map(|v| {
             let b = if v.id == "v:iso" {
-                let ib = analysis.iso_bounds;
+                let ib = analysis.drawing_iso_bounds();
                 [
                     v.at[0] + v.scale * ib[0],
                     v.at[1] + v.scale * ib[1],
