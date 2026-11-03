@@ -75,6 +75,20 @@ pub(crate) use holes::grid_lattice;
 pub(crate) mod inspection;
 pub(crate) mod interior;
 pub(crate) use interior::{finish_attached_openings, finish_openings, openings_need_settling};
+
+/// Judge a retried PMI corridor on its finished dependent ink, as the selected
+/// drawing is. Paper acceptance still checks every contact and carried item.
+pub(crate) fn finish_pmi_witness_routes(analysis: &Analysis, plan: &mut crate::model::Plan) {
+    if placement::pmi_witness_retried(analysis) {
+        let spec = plan.spec.clone();
+        let compact = plan.sheet.dimension_spacing == crate::model::DimensionSpacing::Compact;
+        with_compact(compact, || {
+            callout_routes::finish(analysis, &spec, plan);
+            hole_marks::attach(analysis, &spec, plan);
+            size_datums::attach(analysis, &spec, plan);
+        });
+    }
+}
 mod label_lanes;
 mod modelled_threads;
 pub(crate) use modelled_threads::{possible_threads, refused as refused_threads};

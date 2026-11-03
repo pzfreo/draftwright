@@ -801,7 +801,8 @@ fn select_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
             .then(|| estimate.ruled_out(size, max, floor));
         let mut outcome = ruled_out.clone().unwrap_or_default();
         // Judge each trial as soon as it exists and stop at the first usable one.
-        let mut judge = |plan: Plan, scales: &mut Vec<String>, outcome: &mut String| {
+        let mut judge = |mut plan: Plan, scales: &mut Vec<String>, outcome: &mut String| {
+            crate::dims::finish_pmi_witness_routes(fit, &mut plan);
             if !scales.contains(&plan.sheet.scale) {
                 scales.push(plan.sheet.scale.clone());
             }

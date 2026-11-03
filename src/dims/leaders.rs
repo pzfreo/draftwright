@@ -7610,13 +7610,15 @@ pub(super) fn settled_routes(
     let hidden = resolved
         .as_ref()
         .map_or(0, |r| r.hidden.route_crossings(old_lines));
-    let compact_shoulders = peers.iter().any(|q| {
-        (q.view == d.view
-            || want.is_some_and(|w| !w.measurements.iter().any(|m| m.feature.starts_with("pmi:"))))
-            && q.measurements
-                .iter()
-                .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
-    });
+    let compact_shoulders = super::placement::pmi_witness_retried(analysis)
+        || peers.iter().any(|q| {
+            (q.view == d.view
+                || want
+                    .is_some_and(|w| !w.measurements.iter().any(|m| m.feature.starts_with("pmi:"))))
+                && q.measurements
+                    .iter()
+                    .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+        });
     let mut near = Vec::new();
     let admissible = |c: &Candidate| {
         let extensions = fixed.extension_index.contacts(&c.segments(), c.label_box);

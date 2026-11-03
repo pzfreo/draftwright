@@ -1948,7 +1948,7 @@ fn along(mark: &Mark, side: &str) -> Vec<f64> {
 /// [`crate::sheet_fit`] reserves around ink, when the grown area stays inside the drawing margins,
 /// off the title block, clear of every other view's area on its sheet and of every table, notes
 /// block and caption among *peers* the area did not already meet; else none.
-fn grown(
+pub(super) fn grown(
     view: &crate::model::PlannedView,
     ink: [f64; 4],
     sheet: &crate::model::PlannedSheet,
