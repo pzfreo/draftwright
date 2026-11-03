@@ -274,6 +274,26 @@ fn label(s: &str) -> Laid {
     laid
 }
 
+/// A numbered triangular flag and its text form one ordinary routed callout.
+/// Keep the triangle in the glyph bounds so the existing collision solver sees it.
+fn flag_note(s: &str, number: usize) -> Laid {
+    let mut laid = label(s);
+    let h = 2.5 * TEXT;
+    let offset = h + TEXT;
+    for run in laid.letters.iter_mut().chain(&mut laid.runs) {
+        run.at[0] += offset;
+    }
+    let y = laid.size[1].max(h) / 2.0;
+    let corners = [[0.0, y], [h, y - h / 2.0], [h, y + h / 2.0]];
+    laid.strokes
+        .extend((0..3).map(|i| [corners[i], corners[(i + 1) % 3]]));
+    let number = text(&number.to_string(), [0.68 * h, y], TEXT);
+    laid.letters.push(number.clone());
+    laid.runs.push(number);
+    laid.size = [laid.size[0] + offset, laid.size[1].max(h)];
+    laid
+}
+
 /// The least gap between a finish's leader or shelf and a dimension or extension line it runs
 /// alongside, mm: one text height.
 const FINISH_PARALLEL_GAP: f64 = TEXT;
@@ -332,7 +352,9 @@ impl Shape {
         match glyph {
             Glyph::Datum { .. } => Shape::Datum,
             Glyph::Finish { .. } => Shape::Finish,
-            Glyph::ControlFrame { .. } | Glyph::Label { .. } => Shape::Frame,
+            Glyph::ControlFrame { .. } | Glyph::Label { .. } | Glyph::FlagNote { .. } => {
+                Shape::Frame
+            }
         }
     }
 }
@@ -1016,6 +1038,7 @@ pub(crate) fn demand_with_spec(
             let size = match &item.glyph {
                 Glyph::Datum { .. } => [H, H],
                 Glyph::Label { text } => label(text).size,
+                Glyph::FlagNote { text, number } => flag_note(text, *number).size,
                 Glyph::Finish { texture, .. } => finish_symbol(texture).0.size,
                 g => control_frame(g).0.size,
             };
@@ -1414,6 +1437,10 @@ fn plan_search(
         let (laid, cells) = match &item.glyph {
             Glyph::Datum { letter, .. } => (datum_frame(letter), vec![letter.clone()]),
             Glyph::Label { text } => (label(text), vec![text.clone()]),
+            Glyph::FlagNote { text, number } => (
+                flag_note(text, *number),
+                vec![number.to_string(), text.clone()],
+            ),
             Glyph::Finish { texture, .. } => finish_symbol(texture),
             g => control_frame(g),
         };
@@ -1427,7 +1454,10 @@ fn plan_search(
                 .filter(|(_, on)| *on)
                 .map(|(m, _)| m.to_string())
                 .collect(),
-            Glyph::Datum { .. } | Glyph::Label { .. } | Glyph::Finish { .. } => Vec::new(),
+            Glyph::Datum { .. }
+            | Glyph::Label { .. }
+            | Glyph::FlagNote { .. }
+            | Glyph::Finish { .. } => Vec::new(),
         };
         let mut planned = PlannedGdt {
             from_spec: if spec
@@ -1442,7 +1472,7 @@ fn plan_search(
             id: item.id.clone(),
             kind: match item.glyph {
                 Glyph::Datum { .. } => "datum_feature",
-                Glyph::Label { .. } => "label",
+                Glyph::Label { .. } | Glyph::FlagNote { .. } => "label",
                 Glyph::ControlFrame { .. } => "control_frame",
                 Glyph::Finish { .. } => "surface_finish",
             }
@@ -2311,7 +2341,7 @@ fn placement_choices(
                 _ => return None,
             };
             match &item.glyph {
-                Glyph::ControlFrame { .. } | Glyph::Label { .. } => {
+                Glyph::ControlFrame { .. } | Glyph::Label { .. } | Glyph::FlagNote { .. } => {
                     (name == item.view).then(|| (name, vec!["above", "below", "left", "right"]))
                 }
                 Glyph::Datum { surface, .. } | Glyph::Finish { surface, .. }

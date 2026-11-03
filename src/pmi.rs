@@ -574,6 +574,10 @@ pub struct Geometry {
     /// along, when it is x, y or z ([`crate::pmi_lowering::dimension_geometry`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stations: Vec<[f64; 3]>,
+    /// Trimmed planar witnesses, separately proven in each edge-on principal view.
+    /// Routing may choose among them without changing the authored face groups or span.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub view_witnesses: BTreeMap<String, [[f64; 3]; 2]>,
     /// A diameter's or radius's exact cylinders (draftwright's `cylindrical_refs`), identical
     /// ones once; its `axis` is then their common axis, when it is x, y or z. A thread's or
     /// knurl's too ([`crate::pmi_lowering::requirement_geometry`]).
@@ -2926,6 +2930,18 @@ impl PartReader<'_> {
                 });
                 continue;
             };
+            if note.kind.trim().eq_ignore_ascii_case("semantic text") {
+                let (category, kind, support, blockers) = match note.on {
+                    None => (Category::ManufacturingRequirement, "general_note", Support::default(), Vec::new()),
+                    Some(NoteOwner::Feature(f)) => (Category::SurfaceLabel, "flag_note", self.support(&[f]), Vec::new()),
+                    _ => (Category::ManufacturingRequirement, "semantic_text", Support::default(), vec!["semantic text attached to a dimension or tolerance needs an explicit annotation owner".into()]),
+                };
+                let mut r = self.record(category, pdef, ids, support, blockers);
+                r.kind = kind.into();
+                r.label = note.text.clone();
+                out.push(r);
+                continue;
+            }
             // Retain the association the existing legacy requirement reader just used.
             // Triage must neither repeat nor broaden its name-based correspondence.
             for c in &shown.callouts {

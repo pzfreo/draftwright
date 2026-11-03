@@ -519,3 +519,53 @@ fn identical_located_seats_keep_all_claims_and_promote_a_survivor() {
     assert_eq!(promoted.label, "ø2 × 12.593 LONG × 180° ARC");
     assert!(promoted.placed.is_some());
 }
+
+#[test]
+fn coincident_pattern_and_pocket_centres_share_location_ink_and_claims() {
+    let mut bytes = Vec::new();
+    flate2::read::GzDecoder::new(
+        include_bytes!("fixtures/parts/electronics-enclosure-base.step.gz").as_slice(),
+    )
+    .read_to_end(&mut bytes)
+    .unwrap();
+    let (_, a) = model::analyse_native_step(Path::new("enclosure.step"), &bytes).unwrap();
+    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    assert_eq!(p.sheet.size, "A4");
+    for (axis, value) in [("x", 50.), ("y", 35.)] {
+        let pattern = format!("location.length.{axis}");
+        let pocket = format!("location_pocket.location.{axis}");
+        let stated: Vec<_> = p
+            .dimensions
+            .iter()
+            .filter(|d| {
+                d.measurements
+                    .iter()
+                    .any(|m| m.parameter == pattern || m.parameter == pocket)
+            })
+            .collect();
+        assert_eq!(
+            stated.len(),
+            1,
+            "{axis}: {:?}",
+            stated.iter().map(|d| &d.id).collect::<Vec<_>>()
+        );
+        assert!(stated[0].placed.is_some());
+        assert!(
+            stated[0]
+                .measurements
+                .iter()
+                .any(|m| m.parameter == pattern && (m.value - value).abs() < 1e-6)
+        );
+        assert!(
+            stated[0]
+                .measurements
+                .iter()
+                .any(|m| m.parameter == pocket && (m.value - value).abs() < 1e-6)
+        );
+    }
+    assert!(p.dimensions.iter().any(|d| {
+        d.measurements
+            .iter()
+            .any(|m| m.parameter == "grid_pitch.length.row" && (m.value - 50.).abs() < 1e-6)
+    }));
+}

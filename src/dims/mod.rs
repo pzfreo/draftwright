@@ -1296,6 +1296,21 @@ fn detail_routes(a: &Analysis, wants: &mut [Want], views: &[PlannedView]) {
 /// A callout's leader sites for the view that carries it, once chosen: a boss's profile
 /// stations, a flat-cut turned band's trimmed outline, a fillet's proven arc in that view.
 fn route_sites(analysis: &Analysis, w: &mut Want, view: &str) {
+    if w.id.starts_with("d:pmi:")
+        && let Some(crate::pmi::Reading::Read(report)) = &analysis.pmi
+    {
+        let ids = report.identities();
+        if let Some(points) = report.records.iter().find_map(|r| {
+            (w.measurements
+                .iter()
+                .any(|m| ids.ids.get(&r.source_id) == Some(&m.feature)))
+            .then(|| r.geometry.as_ref()?.view_witnesses.get(view).copied())
+            .flatten()
+        }) && let Shape::Linear { a, b, .. } = &mut w.shape
+        {
+            [*a, *b] = points;
+        }
+    }
     bosses::route_profile(analysis, w, view);
     turned::route_profile(analysis, w, view);
     edges::route_profile(analysis, w, view);
@@ -3027,6 +3042,7 @@ fn plan_inventory_ordered(
     for ((w, view), along) in wants.into_iter().zip(chosen.iter().copied()).zip(end_on) {
         let entry = spec.dimensions.get(&w.id);
         if pmi_policy::strict(analysis, spec)
+            && spec.sheet.references != Some(true)
             && !pmi_policy::authored(&w)
             && !(spec.dimension_source == DimensionSource::Authored && entry.is_some())
         {
@@ -3120,6 +3136,14 @@ fn plan_inventory_ordered(
         }
     }
     let references = redundancy::consolidate(analysis, spec, &mut kept, &mut given, &mut omitted);
+    if pmi_policy::carries(analysis) && spec.sheet.references == Some(true) {
+        for (w, ..) in &mut kept {
+            if !pmi_policy::authored(w) && !w.terms.join(" ").starts_with('(') {
+                w.terms = vec![format!("({})", crate::callouts::label(&w.terms))];
+                w.basis += "; reference: an engine dimension not stated by the applied PMI";
+            }
+        }
+    }
     problems.extend(pmi_dimensions::omitted(analysis, &all, &kept, &omitted));
 
     // Then everything the part would have is placed: each item's lane, and where its label
@@ -3558,7 +3582,7 @@ fn plan_inventory_ordered(
         .iter()
         .enumerate()
         .map(|(i, w)| {
-            if !placement::automatic_slot_layout(analysis)
+            if !placement::physical_witness_retry(analysis)
                 || !matches!(w.shape, Shape::Linear { .. })
             {
                 return false;
@@ -4614,14 +4638,12 @@ fn share_statements(
     let level = |p: &str| p.starts_with("step_height.length.");
     let span = |(w, _, view, _): &(Want, bool, Option<&'static str>, Vec<&'static str>)| {
         let parameter = &w.measurements.first()?.parameter;
-        // The recess consolidator owns these spans, including claims transferred to a
-        // level or envelope carrier. Keep them out of point-location sharing so a hole's
-        // table cells and a slot's independent datum identity remain intact.
-        if w.measurements.iter().any(|m| {
-            m.parameter.starts_with("seat_location.")
-                || m.parameter.starts_with("location_pocket.")
-                || m.parameter.starts_with("location_pocket_pattern.")
-        }) {
+        // Seat witnesses have their own datum contract. Pocket and pattern centres
+        // may share a location when their physical intervals and view coincide.
+        if w.measurements
+            .iter()
+            .any(|m| m.parameter.starts_with("seat_location."))
+        {
             return None;
         }
         if !(SHARED.iter().any(|(p, _)| p == parameter)
@@ -4774,7 +4796,9 @@ fn share_pmi(
                 continue;
             }
             let Some(si) = span(&kept[i]) else { continue };
-            let same = sp.0 == si.0
+            let same = (sp.0 == si.0
+                || (!pmi(&kept[i].0)
+                    && pmi_policy::same_quantity(analysis, &kept[p].0, &kept[i].0)))
                 && sp.1 == si.1
                 && (sp.2 - si.2).abs() <= SAME_SPAN
                 && (sp.3 - si.3).abs() <= SAME_SPAN;

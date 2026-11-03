@@ -110,6 +110,9 @@ pub enum Glyph {
     },
     /// A surface or common label's text.
     Label { text: String },
+    /// A semantic feature note: a numbered flag beside its authoritative text,
+    /// routed by the same callout machinery as the other labels.
+    FlagNote { text: String, number: usize },
     /// A face's ISO 1302 surface texture symbol: the requirement haecceity's shared notation
     /// draws (#258), its parameters one per line (`Ra 0.8`, in µm, as the record states them to
     /// three significant figures) under its material removal condition's mark.
@@ -233,6 +236,7 @@ fn lower_uncached(
     };
     let mut owned: Option<Manufacturing> = None;
     let ids = report.identities();
+    let mut flag_number = 0;
     for r in &report.records {
         match r.category {
             Category::GeometricTolerance | Category::Datum => {
@@ -291,7 +295,23 @@ fn lower_uncached(
                 }
             }
             // A surface label, and a common label (read as a dimension), is drawn as its text.
-            Category::SurfaceLabel => labelled(&mut items, &mut problems, &ids, r, centre),
+            Category::SurfaceLabel => {
+                if r.kind == "flag_note" {
+                    flag_number += 1;
+                    match identified(label(r, centre), &ids, r) {
+                        Ok(mut item) => {
+                            item.glyph = Glyph::FlagNote {
+                                text: r.label.clone(),
+                                number: flag_number,
+                            };
+                            items.push(item);
+                        }
+                        Err(_) => labelled(&mut items, &mut problems, &ids, r, centre),
+                    }
+                } else {
+                    labelled(&mut items, &mut problems, &ids, r, centre);
+                }
+            }
             Category::Dimension if r.kind == "common_label" => {
                 labelled(&mut items, &mut problems, &ids, r, centre)
             }
@@ -451,13 +471,24 @@ fn label(r: &Record, centre: [f64; 3]) -> Result<Lowered, Vec<String>> {
     let axis = g
         .and_then(|g| g.axis.as_deref())
         .unwrap_or(r.dominant_axis.as_str());
-    let view = if axis == "Y" { "side" } else { "front" };
+    let view = match g.and_then(|g| g.view.as_deref()) {
+        Some("plan") => "plan",
+        Some("side") => "side",
+        Some("front") => "front",
+        _ => {
+            if axis == "Y" {
+                "side"
+            } else {
+                "front"
+            }
+        }
+    };
     let side = if site[2] >= centre[2] {
         "above"
     } else {
         "below"
     };
-    let what = if r.kind == "note" {
+    let what = if matches!(r.kind.as_str(), "note" | "flag_note") {
         // A note the Spec authors on a feature or face ([`crate::spec_notes`]).
         "note"
     } else if r.category == Category::SurfaceLabel {
@@ -494,7 +525,7 @@ fn label(r: &Record, centre: [f64; 3]) -> Result<Lowered, Vec<String>> {
 pub fn label_geometry(part: &Part, r: &Record) -> Geometry {
     let mut g = Geometry::default();
     g.reasons.extend(crate::pmi::placements_reason(r));
-    let surface = r.category == Category::SurfaceLabel;
+    let surface = r.category == Category::SurfaceLabel && r.kind != "flag_note";
     let (noun, wrong) = if surface {
         ("surface label", !r.faces.is_empty())
     } else {
@@ -554,6 +585,16 @@ pub fn label_geometry(part: &Part, r: &Record) -> Geometry {
             }
             boxes.push(b);
         }
+    }
+    if r.kind == "flag_note"
+        && let Some(&first) = r.faces.first()
+        && let Surface::Cylinder { frame, .. } = &part.faces[first].surface
+        && let Some(k) = exact_axis(frame.z)
+        && r.faces.iter().all(|&f| matches!(&part.faces[f].surface, Surface::Cylinder { frame, .. } if exact_axis(frame.z) == Some(k)))
+    {
+        // Identify a bore in the view that actually shows its rim. The existing
+        // flag/leader solver can then use the same physical attachment as a bore callout.
+        g.view = Some(["side", "front", "plan"][k].into());
     }
     if g.sites.is_empty() && g.reasons.is_empty() {
         g.reasons
@@ -1528,6 +1569,21 @@ pub fn dimension_geometry(part: &Part, r: &Record) -> Geometry {
         "common_label" => return label_geometry(part, r),
         _ => {}
     }
+    if matches!(r.kind.as_str(), "linear" | "thickness")
+        && g.reasons.is_empty() && g.targets.is_empty()
+        && r.face_groups.len() == 2 && r.face_groups.iter().all(|fs| !fs.is_empty())
+        && let Some(k) = g.axis.as_deref().and_then(|a| XYZ.iter().position(|x| *x == a))
+        && r.face_groups.iter().flatten().all(|&f| matches!(&part.faces[f].surface, Surface::Plane { frame } if exact_axis(frame.z) == Some(k)))
+    {
+        let boxes: Vec<Vec<_>> = r.face_groups.iter().map(|fs| fs.iter().map(|&f| face_box(part, f)).collect()).collect();
+        for name in ["front", "plan", "side"] {
+            if let Planar::Projected(_, _, points) = projected_planar_witness_in_view(part, &r.face_groups, &boxes, k, Some(name))
+                && (0..2).all(|i| (points[i][k]-g.stations[i][k]).abs()<1e-6)
+            {
+                g.view_witnesses.insert(name.into(), points);
+            }
+        }
+    }
     g.reasons = dedup(std::mem::take(&mut g.reasons));
     g
 }
@@ -1909,6 +1965,16 @@ fn projected_planar_witness(
     boxes: &[Vec<[f64; 6]>],
     k: usize,
 ) -> Planar {
+    projected_planar_witness_in_view(part, groups, boxes, k, None)
+}
+
+fn projected_planar_witness_in_view(
+    part: &Part,
+    groups: &[Vec<usize>],
+    boxes: &[Vec<[f64; 6]>],
+    k: usize,
+    selected: Option<&str>,
+) -> Planar {
     let views = match k {
         0 => [("front", 2, 1), ("plan", 1, 2)],
         1 => [("side", 2, 0), ("plan", 0, 2)],
@@ -1916,6 +1982,9 @@ fn projected_planar_witness(
     };
     let fractions = [0.5, 0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9];
     for (view, across, hidden) in views {
+        if selected.is_some_and(|name| name != view) {
+            continue;
+        }
         let mut candidates = Vec::new();
         for (&a, ba) in groups[0].iter().zip(&boxes[0]) {
             for (&b, bb) in groups[1].iter().zip(&boxes[1]) {
@@ -2163,7 +2232,50 @@ fn projected_plane_to_bore(
         .map(|&f| cylinder(part, f))
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
-    let witnesses = central_bore_witnesses(&cylinders)?;
+    let witnesses = central_bore_witnesses(&cylinders).or_else(|| {
+        // A datum location measures only its normal coordinate. A compound group
+        // can be centred along that coordinate without being symmetric across the
+        // plane (a hole pattern and a separate bore on its centre row, for example).
+        // Prove reflection of the finite supports along that coordinate and keep
+        // an actual member axis there; neither the nominal nor a box diagonal is
+        // used to select a witness.
+        let k = exact_axis(n)?;
+        let first = cylinders.first()?;
+        if cylinders.iter().any(|c| {
+            !c.internal
+                || c.direction
+                    .iter()
+                    .zip(first.direction)
+                    .any(|(a, b)| (a - b).abs() > 1e-9)
+        }) {
+            return None;
+        }
+        let lo = cylinders
+            .iter()
+            .map(|c| c.origin[k])
+            .fold(f64::INFINITY, f64::min);
+        let hi = cylinders
+            .iter()
+            .map(|c| c.origin[k])
+            .fold(f64::NEG_INFINITY, f64::max);
+        let middle = 0.5 * (lo + hi);
+        let central: Vec<_> = cylinders
+            .iter()
+            .filter(|c| (c.origin[k] - middle).abs() < 1e-6)
+            .collect();
+        if central.is_empty()
+            || cylinders.iter().any(|c| {
+                !cylinders.iter().any(|other| {
+                    (other.origin[k] - (2. * middle - c.origin[k])).abs() < 1e-6
+                        && (other.radius - c.radius).abs() < 1e-6
+                        && (0..2).all(|i| (other.interval[i] - c.interval[i]).abs() < 1e-6)
+                })
+            })
+        {
+            return None;
+        }
+        Some(central)
+    })?;
     let first = witnesses.first()?;
     if (0..3).map(|i| n[i] * first.direction[i]).sum::<f64>().abs() > 1e-9 {
         return None;

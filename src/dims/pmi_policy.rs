@@ -344,6 +344,27 @@ fn spans(a: &Analysis, w: &Want) -> Vec<Edge> {
     };
     location::identify(a, &mark, raw_spans(a, w))
 }
+/// Physical endpoints, including feature-axis identities, independent of the
+/// view that happens to carry the label. Equal numbers alone are insufficient.
+pub(super) fn same_quantity(a: &Analysis, source: &Want, generated: &Want) -> bool {
+    let stated = spans(a, source);
+    let wanted = spans(a, generated);
+    !wanted.is_empty()
+        && wanted.iter().all(|w| {
+            stated.iter().any(|s| {
+                s.axis == w.axis
+                    && ((s.a - w.a).abs() < 1e-6
+                        && (s.b - w.b).abs() < 1e-6
+                        && s.a_feature == w.a_feature
+                        && s.b_feature == w.b_feature
+                        || (s.a - w.b).abs() < 1e-6
+                            && (s.b - w.a).abs() < 1e-6
+                            && s.a_feature == w.b_feature
+                            && s.b_feature == w.a_feature)
+            })
+        })
+}
+
 fn raw_spans(a: &Analysis, w: &Want) -> Vec<Edge> {
     let Shape::Linear {
         a: p,

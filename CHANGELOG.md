@@ -6,6 +6,18 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+## 0.2.10 (2026-11-03)
+
+- Retry obstructed source-PMI linear placements using the existing witness solver,
+  preserving authored values, face groups and datum references. Allow planar PMI
+  in every principal view with independently proven trimmed-face witnesses.
+- Measure composite bore locations along the datum normal, requiring an actual
+  member axis on the proven centre station. Do not measure a bounding-box diagonal.
+- With applied PMI and References enabled, show unstated engine dimensions in
+  parentheses. State coincident pocket and pattern centre locations once.
+- Draw CAx-IF semantic-text part notes in GENERAL NOTES and feature notes as
+  numbered flags with routed leaders, without requiring graphical presentation.
+
 - Rectangular through-notches opening on an envelope face need only their
   transverse location; require a shared slot ordinate's actual edge-to-centre
   span, and clean measured PMI nominals at their source. Restore the existing

@@ -1141,6 +1141,14 @@ fn refusal(r: &Record, code: &str, why: &str) -> Problem {
     } else {
         ""
     };
+    let faces = if why.contains("differs from nominal") {
+        format!(
+            "; reference face groups {:?} (STEP faces {:?})",
+            r.face_groups, r.face_ids
+        )
+    } else {
+        String::new()
+    };
     let refs = vec![r.source_id.clone(), why.to_string()];
     Problem {
         id: format!("p:{code}:{}", r.source_id),
@@ -1152,7 +1160,7 @@ fn refusal(r: &Record, code: &str, why: &str) -> Problem {
         }
         .into(),
         message: format!(
-            "PMI dimension {} ({}) is not drawn: {}{open}.",
+            "PMI dimension {} ({}) is not drawn: {}{faces}{open}.",
             r.source_id,
             if r.label.is_empty() {
                 &r.kind
@@ -1442,7 +1450,7 @@ fn linear(ids: &Identities, r: &Record, g: &crate::pmi::Geometry, k: usize, valu
     let mid = |i: usize| 0.5 * (b[i] + b[i + 3]);
     let mean = |i: usize| s.iter().map(|p| p[i]).sum::<f64>() / s.len() as f64;
     let plan = g.view.as_deref() == Some("plan");
-    let (views, at): (Vec<&'static str>, [f64; 3]) = match k {
+    let (mut views, at): (Vec<&'static str>, [f64; 3]) = match k {
         0 if plan => (vec!["plan"], [0.0, mean(1), mid(2)]),
         0 => (vec!["front"], [0.0, mean(1), mid(2)]),
         2 if g.view.as_deref() == Some("side") => (vec!["side"], [mean(0), mid(1), 0.0]),
@@ -1472,6 +1480,13 @@ fn linear(ids: &Identities, r: &Record, g: &crate::pmi::Geometry, k: usize, valu
     if !g.targets.is_empty() || !g.sites.is_empty() {
         a = s[0];
         e = s[1];
+    }
+    if !g.view_witnesses.is_empty() {
+        views = ["front", "side", "plan"]
+            .into_iter()
+            .filter(|name| g.view_witnesses.contains_key(*name))
+            .collect();
+        [a, e] = g.view_witnesses[views[0]];
     }
     let view = views[0];
     let basis = format!(

@@ -889,3 +889,180 @@ fn schedule_aliases_keep_existing_source_covered_ids_unique() {
         assert!(ids.insert(item.id.clone()), "duplicate item {}", item.id);
     }
 }
+
+fn editor_fixture(bytes: &[u8]) -> (draftwright::haecceity::Part, Analysis) {
+    use std::io::Read as _;
+    let mut step = Vec::new();
+    flate2::read::GzDecoder::new(bytes)
+        .read_to_end(&mut step)
+        .unwrap();
+    model::analyse_native_step(Path::new("editor.step"), &step).unwrap()
+}
+
+#[test]
+fn specify_composite_location_uses_the_datum_normal_not_a_box_diagonal() {
+    let (part, a) = editor_fixture(include_bytes!("fixtures/pmi/plate.specify018.step.gz"));
+    let draftwright::pmi::Reading::Read(report) = a.pmi.as_ref().unwrap() else {
+        panic!("PMI read")
+    };
+    let r = report
+        .records
+        .iter()
+        .find(|r| r.source_id == "dimension:#1100")
+        .unwrap();
+    assert_eq!(r.face_groups, [vec![1], vec![6, 7, 8, 10, 11, 12, 13]]);
+    assert_eq!(r.value, Some(30.));
+    assert!(r.basic);
+    let g = r.geometry.as_ref().unwrap();
+    assert!(g.reasons.is_empty(), "{:?}", g.reasons);
+    assert_eq!(g.axis.as_deref(), Some("Y"));
+    assert!((g.stations[1][1] - g.stations[0][1] - 30.).abs() < 1e-8);
+    // An actual source member carries the centre station. Choosing it must not
+    // depend on a nominal that happens to match a different bore.
+    assert_eq!(g.stations[1][0], 45.);
+    let mut wrong = r.clone();
+    wrong.value = Some(31.);
+    let refused = draftwright::pmi_lowering::dimension_geometry(&part, &wrong);
+    assert!(
+        refused
+            .reasons
+            .iter()
+            .any(|s| s.contains("30 mm differs from nominal 31 mm"))
+    );
+    let p = plan(&a, &Spec::default());
+    assert!(p.dimensions.iter().any(|d| {
+        d.measurements
+            .iter()
+            .any(|m| m.feature.contains("f1,6,7,8,10,11,12,13"))
+            && d.placed.is_some()
+    }));
+}
+
+#[test]
+fn strict_pmi_references_show_only_unstated_engine_quantities() {
+    let (_, a) = editor_fixture(include_bytes!(
+        "fixtures/pmi/mounting-plate.specify018.step.gz"
+    ));
+    let mut s = Spec {
+        pmi: PmiMode::Strict,
+        ..Default::default()
+    };
+    let strict = plan(&a, &s);
+    s.sheet.references = Some(true);
+    let refs = plan(&a, &s);
+    assert!(
+        refs.dimensions
+            .iter()
+            .any(|d| d.reference && d.placed.is_some())
+    );
+    for d in &refs.dimensions {
+        if !d.measurements.iter().any(|m| m.feature.starts_with("pmi:")) {
+            assert!(d.reference, "{} {}", d.id, d.label);
+        }
+    }
+    for d in &strict.dimensions {
+        let same = refs.dimensions.iter().find(|r| r.id == d.id).unwrap();
+        assert_eq!(same.label, d.label);
+        let source: Vec<_> = same
+            .measurements
+            .iter()
+            .filter(|m| m.feature.starts_with("pmi:"))
+            .collect();
+        let original: Vec<_> = d
+            .measurements
+            .iter()
+            .filter(|m| m.feature.starts_with("pmi:"))
+            .collect();
+        assert_eq!(source, original);
+        assert!(!same.reference);
+    }
+}
+
+#[test]
+fn pmi_width_can_use_the_other_edge_on_view() {
+    let (_, a) = editor_fixture(include_bytes!("fixtures/pmi/plate.specify018.step.gz"));
+    let p = plan(&a, &Spec::default());
+    let width = p.dimensions.iter().find(|d| d.label == "100").unwrap();
+    let mut s = Spec::default();
+    s.dimensions.entry(width.id.clone()).or_default().view = Some("plan".into());
+    let other = plan(&a, &s);
+    let d = other.dimensions.iter().find(|d| d.id == width.id).unwrap();
+    assert_eq!(d.view, "v:plan");
+    assert!(d.placed.is_some());
+    assert_eq!(d.measurements, width.measurements);
+    assert_eq!(d.label, width.label);
+}
+
+#[test]
+fn semantic_text_draws_part_note_and_feature_flag_without_presentation_matching() {
+    let (part, a) = editor_fixture(include_bytes!("fixtures/pmi/pmi_plate.xcaf-pmi.step.gz"));
+    let p = plan(&a, &Spec::default());
+    assert_eq!(p.sheet.size, "A4");
+    assert!(
+        p.notes
+            .iter()
+            .any(|n| n.text == "Remove all burrs and break sharp edges" && n.placed.is_some())
+    );
+    let note = p
+        .gdt
+        .iter()
+        .find(|n| {
+            n.cells
+                .iter()
+                .any(|s| s == "Mask these features before coating with primer")
+        })
+        .expect("feature flag");
+    let placed = note.placed.as_ref().expect("flag placed");
+    assert!(!placed.lines.is_empty());
+    assert!(placed.strokes.len() >= 3, "triangle flag is visible");
+    assert!(p.problems.iter().all(|p| {
+        !p.refs
+            .iter()
+            .any(|r| r == "manufacturing_requirement:#559" || r == "surface_label:#564")
+    }));
+    let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
+    let svg = model::render(&part, &a, &p, &font).unwrap().svg();
+    assert!(svg.contains("Remove all burrs"));
+    assert!(svg.contains("Mask these features"));
+}
+
+#[test]
+fn pmi_slot_layout_retries_physical_witnesses_without_changing_authored_intent() {
+    let (_, a) = editor_fixture(include_bytes!(
+        "fixtures/pmi/mounting-plate.specify018.step.gz"
+    ));
+    let p = plan(&a, &Spec::default());
+    assert_eq!(p.sheet.size, "A4");
+    assert!(
+        !p.problems
+            .iter()
+            .any(|p| p.code == "extension_through_feature"),
+        "{:?}",
+        p.problems
+            .iter()
+            .filter(|p| p.code == "extension_through_feature")
+            .map(|p| &p.message)
+            .collect::<Vec<_>>()
+    );
+    let draftwright::pmi::Reading::Read(report) = a.pmi.as_ref().unwrap() else {
+        panic!("PMI read")
+    };
+    let ids = report.identities();
+    for r in report
+        .records
+        .iter()
+        .filter(|r| r.category == draftwright::pmi::Category::Dimension)
+    {
+        if let Some(value) = r.value {
+            let identity = ids.id(&r.source_id).unwrap();
+            let claims: Vec<_> = p
+                .dimensions
+                .iter()
+                .flat_map(|d| &d.measurements)
+                .filter(|m| m.feature == identity)
+                .collect();
+            assert_eq!(claims.len(), 1, "{}", r.source_id);
+            assert_eq!(claims[0].value, value);
+        }
+    }
+}
