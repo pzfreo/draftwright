@@ -79,7 +79,7 @@ pub(crate) use interior::{finish_attached_openings, finish_openings, openings_ne
 /// Judge a retried PMI corridor on its finished dependent ink, as the selected
 /// drawing is. Paper acceptance still checks every contact and carried item.
 pub(crate) fn finish_pmi_witness_routes(analysis: &Analysis, plan: &mut crate::model::Plan) {
-    if placement::pmi_witness_retried(analysis) {
+    if placement::pmi_witness_retry(analysis) {
         let spec = plan.spec.clone();
         let compact = plan.sheet.dimension_spacing == crate::model::DimensionSpacing::Compact;
         with_compact(compact, || {

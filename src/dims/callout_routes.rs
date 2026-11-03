@@ -531,7 +531,7 @@ pub(crate) fn finish_frames(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
 }
 
 fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: bool) {
-    let pmi_retry = placement::pmi_witness_retried(analysis);
+    let pmi_retry = placement::pmi_witness_retry(analysis);
     let openings = plan.dimensions.iter().any(|d| {
         d.measurements
             .iter()

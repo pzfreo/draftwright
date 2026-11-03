@@ -561,10 +561,12 @@ pub(super) fn physical_witness_retry(analysis: &Analysis) -> bool {
         && analysis.features.iter().any(|f| matches!(f.kind.as_str(), "slot" | "slot_pattern"))
 }
 
-/// A source-PMI layout has a uniquely clear witness corridor to protect.
-/// Its dependent callouts must be allowed the same ordinary corridor choices.
-pub(super) fn pmi_witness_retried(analysis: &Analysis) -> bool {
-    crate::planning::lookup::<bool>(analysis, "pmi-witness-retry", &[]).unwrap_or(false)
+/// Source-PMI layouts eligible for physical witness retries also give dependent
+/// callouts the ordinary corridor choices, including supplementary references.
+pub(super) fn pmi_witness_retry(analysis: &Analysis) -> bool {
+    crate::planning::memo(analysis, "pmi-witness-retry", Vec::new(), || {
+        physical_witness_retry(analysis) && crate::nominal::authored_pmi(analysis)
+    })
 }
 
 /// The strip of a turned step length anchored on its own body's silhouette (both witnesses off
@@ -848,9 +850,6 @@ pub(super) fn lanes<'a>(
                     side = other;
                 }
                 constrained[i] = home.min(away) == 0 && home != away;
-                if constrained[i] && crate::nominal::authored_pmi(analysis) {
-                    crate::planning::memo(analysis, "pmi-witness-retry", Vec::new(), || true);
-                }
             }
         }
         sides[i] = Some(side);

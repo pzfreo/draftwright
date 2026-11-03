@@ -967,6 +967,10 @@ fn strict_pmi_references_show_only_unstated_engine_quantities() {
     for pmi in [PmiMode::Strict, PmiMode::First] {
         s.pmi = pmi;
         let p = plan(&a, &s);
+        assert_eq!(
+            p.sheet.size, "A4",
+            "supplementary references keep the same paper"
+        );
         assert!(
             !p.dimensions
                 .iter()
@@ -995,16 +999,21 @@ fn strict_pmi_references_show_only_unstated_engine_quantities() {
 #[test]
 fn pmi_width_can_use_the_other_edge_on_view() {
     let (_, a) = editor_fixture(include_bytes!("fixtures/pmi/plate.specify018.step.gz"));
-    let p = plan(&a, &Spec::default());
-    let width = p.dimensions.iter().find(|d| d.label == "100").unwrap();
-    let mut s = Spec::default();
-    s.dimensions.entry(width.id.clone()).or_default().view = Some("plan".into());
-    let other = plan(&a, &s);
-    let d = other.dimensions.iter().find(|d| d.id == width.id).unwrap();
-    assert_eq!(d.view, "v:plan");
-    assert!(d.placed.is_some());
-    assert_eq!(d.measurements, width.measurements);
-    assert_eq!(d.label, width.label);
+    for pmi in [PmiMode::First, PmiMode::Strict] {
+        let mut s = Spec {
+            pmi,
+            ..Default::default()
+        };
+        let p = plan(&a, &s);
+        let width = p.dimensions.iter().find(|d| d.label == "100").unwrap();
+        s.dimensions.entry(width.id.clone()).or_default().view = Some("plan".into());
+        let other = plan(&a, &s);
+        let d = other.dimensions.iter().find(|d| d.id == width.id).unwrap();
+        assert_eq!(d.view, "v:plan");
+        assert!(d.placed.is_some());
+        assert_eq!(d.measurements, width.measurements);
+        assert_eq!(d.label, width.label);
+    }
 }
 
 #[test]
