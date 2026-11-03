@@ -3262,6 +3262,54 @@ fn recover_callouts(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Pla
     if best.sheet.size == "A4" && clean(&best) {
         return Ok(best);
     }
+    // Small PMI slot drawings retain readable A4 before enlargement merely
+    // removes datum shafts crossing dimension strokes. These are still reported;
+    // no text, extension, leader or arrow contact is accepted by this fallback.
+    if spec.sheet.size.is_none()
+        && best.sheet.size == "A3"
+        && crate::dims::pmi_policy::carries(analysis)
+        && analysis
+            .features
+            .iter()
+            .any(|f| matches!(f.kind.as_str(), "slot" | "slot_pattern"))
+    {
+        let mut small = spec.clone();
+        small.sheet.size = Some("A4".into());
+        let seed = plan_escalated_layout(analysis, &small)?;
+        let mut candidate = recover_paper(analysis, &small, seed)?;
+        let residual_datums_only = candidate.problems.iter().all(|p| {
+            if p.code == "annotation_leader_crossing" {
+                !p.crossing_kinds.is_empty()
+                    && p.crossing_kinds.iter().all(|k| k == "dimension_line")
+                    && p.subjects.first().is_some_and(|id| {
+                        candidate
+                            .gdt
+                            .iter()
+                            .any(|g| &g.id == id && g.kind == "datum_feature")
+                    })
+            } else {
+                !p.code.starts_with("annotation_")
+                    && !matches!(
+                        p.code.as_str(),
+                        "extension_through_feature"
+                            | "leader_through_feature"
+                            | "label_crowded"
+                            | "datum_symbol_overlap"
+                    )
+            }
+        });
+        if residual_datums_only
+            && drawn_sheets_fit(analysis, &candidate)
+            && undrawn_gdt(&candidate) == 0
+            && crate::sheet_fit::illegible_steps(analysis, &candidate) == 0
+            && carried(&best).is_subset(&carried(&candidate))
+        {
+            candidate.sheet.basis += "; retain readable A4 before enlargement solely to remove datum shafts crossing dimension strokes; all findings retained";
+            candidate.spec = spec.clone();
+            candidate.sheet.default = true;
+            return Ok(candidate);
+        }
+    }
     let m = crate::pmi_lowering::manufacturing_for(analysis, spec);
     if spec.sheet.size.is_none()
         // A PMI frame remains an authored annotation after its engine dimensions
