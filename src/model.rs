@@ -2519,6 +2519,7 @@ pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
 /// Find the smallest fit and its largest scale; only its immediate larger sheet, with an
 /// enlargement, may compete. Pins keep their canonical sheet; explicit choices override.
 pub fn recover(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
+    let source_analysis = analysis;
     let bound = crate::recognition_corrections::canonical(analysis, spec)?;
     let spec = bound.as_ref();
     // The Spec's datums and controls merged into the PMI reading, once, so every later use of the
@@ -2534,6 +2535,7 @@ pub fn recover(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, In
             finish_nominal_plan(analysis, spec, &mut plan);
         }
         crate::iso_caption::refresh(analysis, &mut plan);
+        crate::hole_exits::report(source_analysis, &mut plan);
         return Ok(plan);
     }
     let analysis_key: [u8; 32] =
@@ -2562,6 +2564,7 @@ pub fn recover(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, In
         finish_nominal_plan(analysis, spec, &mut plan);
     }
     crate::iso_caption::refresh(analysis, &mut plan);
+    crate::hole_exits::report(source_analysis, &mut plan);
     Ok(plan)
 }
 
