@@ -416,7 +416,7 @@ fn compare(file: &str, py: &Value, reading: &Value, a: &Analysis, plan: &Plan) -
         let outcome = match l.map(|l| &l.glyph) {
             Some(Glyph::ControlFrame { .. }) => "control_frame",
             Some(Glyph::Datum { .. }) => "datum_ref",
-            Some(Glyph::Label { .. }) => "note",
+            Some(Glyph::Label { .. } | Glyph::FlagNote { .. }) => "note",
             Some(Glyph::Finish { .. }) => "finish",
             None => "raw",
         };

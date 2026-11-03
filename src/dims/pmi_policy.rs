@@ -33,6 +33,17 @@ pub(crate) fn strict(a: &Analysis, s: &Spec) -> bool {
 pub(super) fn authored(w: &Want) -> bool {
     w.id.starts_with("d:pmi:") || w.measurements.iter().any(|m| m.feature.starts_with("pmi:"))
 }
+/// General-tolerance PMI can be conveyed by an engine carrier without a PMI
+/// claim (#265). It is already stated and must keep its controlling label when
+/// supplementary references are requested.
+pub(super) fn source_dimension(a: &Analysis, w: &Want) -> bool {
+    authored(w)
+        || w.measurements
+            .iter()
+            .any(|m| m.feature.starts_with("specify_general:"))
+        || matches!(&a.pmi, Some(Reading::Read(report)) if report.records.iter().any(|r| pmi_dimensions::conveys(&w.basis, &r.source_id)))
+}
+
 pub(super) fn wants(
     a: &Analysis,
     s: &Spec,

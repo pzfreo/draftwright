@@ -1296,14 +1296,16 @@ fn detail_routes(a: &Analysis, wants: &mut [Want], views: &[PlannedView]) {
 /// A callout's leader sites for the view that carries it, once chosen: a boss's profile
 /// stations, a flat-cut turned band's trimmed outline, a fillet's proven arc in that view.
 fn route_sites(analysis: &Analysis, w: &mut Want, view: &str) {
-    if w.id.starts_with("d:pmi:")
+    if (w.id.starts_with("d:pmi:") || w.id.starts_with("d:specify_general:"))
         && let Some(crate::pmi::Reading::Read(report)) = &analysis.pmi
     {
         let ids = report.identities();
         if let Some(points) = report.records.iter().find_map(|r| {
-            (w.measurements
-                .iter()
-                .any(|m| ids.ids.get(&r.source_id) == Some(&m.feature)))
+            (w.measurements.iter().any(|m| {
+                ids.ids.get(&r.source_id).is_some_and(|id| {
+                    &m.feature == id || m.feature == pmi_dimensions::general_feature(id)
+                })
+            }))
             .then(|| r.geometry.as_ref()?.view_witnesses.get(view).copied())
             .flatten()
         }) && let Shape::Linear { a, b, .. } = &mut w.shape
@@ -3138,7 +3140,7 @@ fn plan_inventory_ordered(
     let references = redundancy::consolidate(analysis, spec, &mut kept, &mut given, &mut omitted);
     if pmi_policy::carries(analysis) && spec.sheet.references == Some(true) {
         for (w, ..) in &mut kept {
-            if !pmi_policy::authored(w) && !w.terms.join(" ").starts_with('(') {
+            if !pmi_policy::source_dimension(analysis, w) && !w.terms.join(" ").starts_with('(') {
                 w.terms = vec![format!("({})", crate::callouts::label(&w.terms))];
                 w.basis += "; reference: an engine dimension not stated by the applied PMI";
             }
