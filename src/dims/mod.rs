@@ -872,7 +872,25 @@ fn wants_uncached(
     // The part's PMI dimensions: on the model's items that state them, or their own.
     let (own, more, notes) = if pmi_policy::strict(analysis, spec) {
         pmi_policy::strict_callouts(analysis, &mut out);
-        pmi_dimensions::lower(&cx, &mut [])
+        if spec.sheet.references == Some(true) {
+            // Source diameters/radii share their ordinary callouts rather than
+            // repeat beside supplementary engine sizes. Keep source linear
+            // witnesses and identities independent of the reference setting.
+            let indices: Vec<_> = out
+                .iter()
+                .enumerate()
+                .filter(|(_, w)| matches!(w.shape, Shape::Callout { .. }))
+                .map(|(i, _)| i)
+                .collect();
+            let mut callouts: Vec<_> = indices.iter().map(|&i| out[i].clone()).collect();
+            let lowered = pmi_dimensions::lower(&cx, &mut callouts);
+            for (i, w) in indices.into_iter().zip(callouts) {
+                out[i] = w;
+            }
+            lowered
+        } else {
+            pmi_dimensions::lower(&cx, &mut [])
+        }
     } else {
         pmi_dimensions::lower(&cx, &mut out)
     };

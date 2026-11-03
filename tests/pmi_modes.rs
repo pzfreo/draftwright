@@ -1008,6 +1008,58 @@ fn pmi_width_can_use_the_other_edge_on_view() {
 }
 
 #[test]
+fn strict_references_share_a_source_diameter_with_its_through_callout() {
+    let (_, a) = editor_fixture(include_bytes!("fixtures/pmi/plate.specify018.step.gz"));
+    let p = plan(
+        &a,
+        &Spec {
+            pmi: PmiMode::Strict,
+            sheet: model::SheetSpec {
+                references: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    let bore: Vec<_> = p
+        .dimensions
+        .iter()
+        .filter(|d| {
+            d.measurements
+                .iter()
+                .any(|m| m.parameter == "bore.diameter" && m.value == 8.)
+        })
+        .collect();
+    assert_eq!(bore.len(), 1);
+    assert!(!bore[0].reference);
+    assert!(
+        bore[0].label.contains("THRU"),
+        "through condition remains stated"
+    );
+    assert!(
+        !p.dimensions
+            .iter()
+            .any(|d| d.reference && d.label.contains("⌀8"))
+    );
+    let draftwright::pmi::Reading::Read(report) = a.pmi.as_ref().unwrap() else {
+        panic!("PMI read")
+    };
+    let record = report
+        .records
+        .iter()
+        .find(|r| r.kind == "diameter" && r.value == Some(8.) && r.faces == [9])
+        .unwrap();
+    let ids = report.identities();
+    let id = ids.id(&record.source_id).unwrap();
+    assert!(
+        bore[0]
+            .measurements
+            .iter()
+            .any(|m| m.feature == id && m.value == 8.)
+    );
+}
+
+#[test]
 fn semantic_text_draws_part_note_and_feature_flag_without_presentation_matching() {
     let (part, a) = editor_fixture(include_bytes!("fixtures/pmi/pmi_plate.xcaf-pmi.step.gz"));
     let p = plan(&a, &Spec::default());
