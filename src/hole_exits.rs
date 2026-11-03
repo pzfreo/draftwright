@@ -129,6 +129,7 @@ mod tests {
         let p = model::plan_recovered(&a, &Spec::default()).unwrap();
         for f in obstructed {
             assert_eq!(f.parameters["bottom"], "through");
+            assert!(drawn_thru(&p, &f.id));
             assert!(
                 p.dimensions.iter().any(|d| d.label.contains("THRU")
                     && d.measurements.iter().any(|m| m.feature == f.id)),
@@ -191,10 +192,14 @@ mod tests {
         assert_fact_only(&plan, &f.id);
 
         let mut plan = model::plan_recovered(&a, &Spec::default()).unwrap();
-        // A recognised through exit alone is insufficient when its callout is unplaced.
+        // The fixture's drawn schedule still states THRU after its callouts are unplaced.
         for d in &mut plan.dimensions {
             d.placed = None;
         }
+        assert!(drawn_thru(&plan, &f.id));
+        // Without either the callout or its schedule, report only the obstruction.
+        plan.hole_table = None;
+        plan.hole_tables.clear();
         report(&a, &mut plan);
         assert_fact_only(&plan, &f.id);
 
