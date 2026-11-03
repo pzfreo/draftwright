@@ -152,8 +152,9 @@ mod tests {
             .iter()
             .find(|f| {
                 f.kind == "hole"
-                    && f.parameters["exit_obstructions"]
-                        .as_array()
+                    && f.parameters
+                        .get("exit_obstructions")
+                        .and_then(|v| v.as_array())
                         .is_some_and(|v| !v.is_empty())
             })
             .unwrap();
