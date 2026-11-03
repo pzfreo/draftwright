@@ -78,7 +78,10 @@ fn warnings(a: &Analysis, plan: &Plan) -> Vec<Problem> {
             let percentage = o["covered_fraction"]
                 .as_f64()
                 .map_or_else(|| "unknown".into(), |f| format!("{:.0}%", 100. * f));
-            let presentation = if f.parameters["bottom"] == "through" && drawn_thru(plan, &f.id) {
+            let presentation = if f.parameters.get("bottom").and_then(|v| v.as_str())
+                == Some("through")
+                && drawn_thru(plan, &f.id)
+            {
                 "; drawn THRU — check the exit is clear"
             } else {
                 ""
@@ -224,6 +227,15 @@ mod tests {
             .insert("bottom".into(), serde_json::json!("flat"));
         let mut plan = model::plan_recovered(&a, &Spec::default()).unwrap();
         assert!(drawn_thru(&plan, &f.id));
+        report(&blind, &mut plan);
+        assert_fact_only(&plan, &f.id);
+        blind
+            .features
+            .iter_mut()
+            .find(|h| h.id == f.id)
+            .unwrap()
+            .parameters
+            .remove("bottom");
         report(&blind, &mut plan);
         assert_fact_only(&plan, &f.id);
     }
