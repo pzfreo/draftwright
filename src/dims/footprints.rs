@@ -654,6 +654,44 @@ impl Footprints {
                 }
             }
         }
+        if let Some(crate::pmi::Reading::Read(report)) = &analysis.pmi {
+            let ids = report.identities();
+            for r in report
+                .records
+                .iter()
+                .filter(|r| r.category == crate::pmi::Category::Dimension)
+            {
+                let Some(g) = r
+                    .geometry
+                    .as_ref()
+                    .filter(|g| g.reasons.is_empty() && g.stations.len() == 2)
+                else {
+                    continue;
+                };
+                let Ok(id) = ids.id(&r.source_id) else {
+                    continue;
+                };
+                for (_, hole) in holes::read(analysis) {
+                    let Ok(h) = hole else { continue };
+                    let Some(along) = h.direction.iter().position(|v| v.abs() > 1. - 1e-6) else {
+                        continue;
+                    };
+                    if r.faces.iter().any(|f| h.feature.faces.contains(f))
+                        && g.stations
+                            .iter()
+                            .any(|p| (0..3).all(|k| k == along || (p[k] - h.at[k]).abs() < 1e-6))
+                    {
+                        // Exclude only the actual witnessed source member, not
+                        // every bore in a composite group. An axis extension may
+                        // leave its own bore; other group members remain obstacles.
+                        members
+                            .entry(id.into())
+                            .or_default()
+                            .insert(h.feature.id.clone());
+                    }
+                }
+            }
+        }
         Self {
             slot_layout: super::placement::automatic_slot_layout(analysis),
             features,
