@@ -548,7 +548,10 @@ fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: b
     // Attached marks move with their authored unit. Before attachment, PMI
     // callouts may retry their changed witness corridors; the ordinary hole
     // attachment pass then proves a place for each frame beside the new label.
-    let coupled: BTreeSet<_> = if (openings || pmi_retry) && !plan.gdt.is_empty() {
+    let coupled: BTreeSet<_> = if (openings || pmi_retry)
+        && !plan.gdt.is_empty()
+        && (!pmi_retry || plan.gdt.iter().any(super::hole_marks::attached))
+    {
         super::hole_marks::attachments(analysis, plan)
             .into_iter()
             .filter(|(id, _)| {

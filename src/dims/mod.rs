@@ -1338,7 +1338,20 @@ fn route_sites(analysis: &Analysis, w: &mut Want, view: &str) {
                     &m.feature == id || m.feature == pmi_dimensions::general_feature(id)
                 })
             }))
-            .then(|| r.geometry.as_ref()?.view_witnesses.get(view).copied())
+            .then(|| {
+                let g = r.geometry.as_ref()?;
+                let preferred = match (g.axis.as_deref(), g.view.as_deref()) {
+                    (Some("X" | "Y"), Some("plan")) => "plan",
+                    (Some("Z" | "Y"), Some("side")) | (Some("Y"), _) => "side",
+                    _ => "front",
+                };
+                let legacy_plan = g.axis.as_deref() == Some("Y")
+                    && view == "plan"
+                    && !matches!(g.view.as_deref(), Some("side" | "plan"));
+                (view != preferred && !legacy_plan)
+                    .then(|| g.view_witnesses.get(view).copied())
+                    .flatten()
+            })
             .flatten()
         }) && let Shape::Linear { a, b, .. } = &mut w.shape
         {
@@ -1863,7 +1876,13 @@ fn lanes_uncached(
         plates::share(analysis, &mut kept, &mut given, &mut omitted);
         share_statements(&mut kept, &mut given, &mut omitted, true);
         let before_pmi = omitted.len();
-        share_pmi(analysis, &mut kept, &mut given, &mut omitted);
+        share_pmi(
+            analysis,
+            spec.sheet.references == Some(true),
+            &mut kept,
+            &mut given,
+            &mut omitted,
+        );
         let pmi_covered: BTreeSet<String> =
             omitted[before_pmi..].iter().map(|o| o.id.clone()).collect();
         let references =
@@ -3052,7 +3071,13 @@ fn plan_inventory_ordered(
         recesses::consolidate(&mut defaults, &mut nominal, &mut unused);
         plates::share(analysis, &mut defaults, &mut nominal, &mut unused);
         share_statements(&mut defaults, &mut nominal, &mut unused, true);
-        share_pmi(analysis, &mut defaults, &mut nominal, &mut unused);
+        share_pmi(
+            analysis,
+            spec.sheet.references == Some(true),
+            &mut defaults,
+            &mut nominal,
+            &mut unused,
+        );
         redundancy::consolidate(analysis, spec, &mut defaults, &mut nominal, &mut unused);
         (defaults, unused)
     });
@@ -3152,7 +3177,13 @@ fn plan_inventory_ordered(
     plates::share(analysis, &mut kept, &mut given, &mut omitted);
     share_statements(&mut kept, &mut given, &mut omitted, true);
     let before_pmi = omitted.len();
-    share_pmi(analysis, &mut kept, &mut given, &mut omitted);
+    share_pmi(
+        analysis,
+        spec.sheet.references == Some(true),
+        &mut kept,
+        &mut given,
+        &mut omitted,
+    );
     // A span the part's PMI states (again, or for a recognised feature's dimension) is one
     // dimension: the item it conveys is not drawn, so it takes its survivor's lane rather than
     // leaving an empty rung in the ladder.
@@ -4794,6 +4825,7 @@ fn share_statements(
 /// PMI precedence is a rooted location network, shared with the drawn-set check.
 fn share_pmi(
     analysis: &Analysis,
+    references: bool,
     kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
@@ -4834,7 +4866,8 @@ fn share_pmi(
                 continue;
             }
             let Some(si) = span(&kept[i]) else { continue };
-            let engine_same = !pmi(&kept[i].0)
+            let engine_same = references
+                && !pmi(&kept[i].0)
                 && kept[i].1
                 && given[i].is_empty()
                 && pmi_policy::same_quantity(analysis, &kept[p].0, &kept[i].0);

@@ -1482,13 +1482,11 @@ fn linear(ids: &Identities, r: &Record, g: &crate::pmi::Geometry, k: usize, valu
         e = s[1];
     }
     if !g.view_witnesses.is_empty() {
-        views.retain(|name| g.view_witnesses.contains_key(*name));
         for name in ["front", "side", "plan"] {
             if g.view_witnesses.contains_key(name) && !views.contains(&name) {
                 views.push(name);
             }
         }
-        [a, e] = g.view_witnesses[views[0]];
     }
     let view = views[0];
     let basis = format!(

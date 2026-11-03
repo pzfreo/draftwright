@@ -1145,3 +1145,24 @@ fn pmi_slot_layout_retries_physical_witnesses_without_changing_authored_intent()
         }
     }
 }
+
+#[test]
+fn local_pmi_witness_retries_preserve_coupled_drawings_paper() {
+    for (bytes, paper) in [
+        (
+            include_bytes!("fixtures/pmi/specify-main-nema-17-bracket.step.gz").as_slice(),
+            "A4",
+        ),
+        (
+            include_bytes!("fixtures/pmi/step/nist_ctc_01_merge.step.gz").as_slice(),
+            "A3",
+        ),
+    ] {
+        let (_, a) = editor_fixture(bytes);
+        let p = plan(&a, &Spec::default());
+        assert_eq!(
+            p.sheet.size, paper,
+            "a local retry must not enlarge a coupled source drawing"
+        );
+    }
+}

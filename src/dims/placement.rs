@@ -553,17 +553,37 @@ pub(super) fn automatic_slot_layout(analysis: &Analysis) -> bool {
 
 /// Physical witness retries also apply to source-authored spans. Only placement changes.
 pub(super) fn physical_witness_retry(analysis: &Analysis) -> bool {
-    !crate::nominal::comparison()
-        && analysis.recognition.as_ref().is_some_and(|r| r.recogniser.starts_with("quiddity-rust "))
-        // Recess drawings already use the joint corridor solver; do not
-        // replace its coupled witness and callout policy with local retries.
-        && !analysis.features.iter().any(|f| f.kind == "section_recess")
-        && analysis.features.iter().any(|f| matches!(f.kind.as_str(), "slot" | "slot_pattern"))
+    if crate::nominal::comparison()
+        || !analysis
+            .recognition
+            .as_ref()
+            .is_some_and(|r| r.recogniser.starts_with("quiddity-rust "))
+        || analysis.features.iter().any(|f| f.kind == "section_recess")
+        || !analysis
+            .features
+            .iter()
+            .any(|f| matches!(f.kind.as_str(), "slot" | "slot_pattern"))
+    {
+        return false;
+    }
+    // Source layouts with local plates, notches or other coupled profiles
+    // retain their joint placement. This local retry is for slots in stock;
+    // it must not spend a neighbouring body's reserved witness corridor.
+    !crate::nominal::authored_pmi(analysis)
+        || analysis.features.iter().all(|f| {
+            matches!(
+                f.kind.as_str(),
+                "hole" | "hole_pattern" | "slot" | "slot_pattern" | "fillet" | "chamfer"
+            )
+        })
 }
 
 /// Source-PMI layouts eligible for physical witness retries also give dependent
 /// callouts the ordinary corridor choices, including supplementary references.
 pub(super) fn pmi_witness_retry(analysis: &Analysis) -> bool {
+    if crate::nominal::comparison() {
+        return false;
+    }
     crate::planning::memo(analysis, "pmi-witness-retry", Vec::new(), || {
         physical_witness_retry(analysis) && crate::nominal::authored_pmi(analysis)
     })
