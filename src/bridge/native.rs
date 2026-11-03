@@ -78,6 +78,7 @@ pub const IDENTITY: [[f64; 3]; 4] = [[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0],
 /// two agree). [`READ`] supplies features and [`EVIDENCE_READ`] geometry-only records;
 /// the rest are known and left to the bridge.
 pub const FAMILIES: &[(&str, &[&str])] = &[
+    ("helical_springs", &["HelicalSpring"]),
     ("fillets", &["Fillet"]),
     ("cylindrical_profiles", &["CylindricalProfile"]),
     ("chamfers", &["Chamfer"]),
