@@ -364,9 +364,17 @@ pub(super) fn same_quantity(a: &Analysis, source: &Want, generated: &Want) -> bo
     let counted = generated
         .terms
         .first()
-        .and_then(|term| term.strip_suffix('×'))
+        .and_then(|term| term.split_once('×').map(|(count, _)| count.trim()))
         .and_then(|n| n.parse::<usize>().ok())
         .is_some_and(|n| n > 1);
+    if counted
+        && generated
+            .measurements
+            .iter()
+            .any(|m| m.parameter.starts_with("grid_pitch.length."))
+    {
+        return false; // One source interval does not state the other counted intervals.
+    }
     if !counted
         && generated
             .measurements

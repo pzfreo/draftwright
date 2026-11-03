@@ -1596,8 +1596,9 @@ pub(crate) fn settle_after_furniture(
         && crate::nominal::geometry_eligible(analysis)
         && default_nominal_intent(spec))
         || crate::nominal::comparison()
-        || crate::nominal::authored_pmi(analysis);
-    if !compact {
+        || (crate::nominal::authored_pmi(analysis)
+            && !super::placement::physical_witness_retry(analysis));
+    if !compact && !crate::nominal::authored_pmi(analysis) {
         super::nearest_shared_witnesses(analysis, spec, views, items);
     }
     let bounded_notches = !crate::notches::requirements(analysis).is_empty();
