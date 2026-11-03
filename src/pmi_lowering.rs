@@ -2281,16 +2281,20 @@ fn projected_plane_to_bore(
             .iter()
             .filter(|c| (c.origin[k] - middle).abs() < 1e-6)
             .collect();
-        if central.is_empty()
-            || cylinders.iter().any(|c| {
-                !cylinders.iter().any(|other| {
-                    (other.origin[k] - (2. * middle - c.origin[k])).abs() < 1e-6
-                        && (other.radius - c.radius).abs() < 1e-6
-                        && (0..2).all(|i| (other.interval[i] - c.interval[i]).abs() < 1e-6)
-                })
-            })
-        {
+        if central.is_empty() {
             return None;
+        }
+        // Reflection preserves multiplicity, not just the set of stations. A
+        // missing corner must not borrow another bore's reflected partner.
+        let mut matched = vec![false; cylinders.len()];
+        for c in &cylinders {
+            let (i, _) = cylinders.iter().enumerate().find(|(i, other)| {
+                !matched[*i]
+                    && (other.origin[k] - (2. * middle - c.origin[k])).abs() < 1e-6
+                    && (other.radius - c.radius).abs() < 1e-6
+                    && (0..2).all(|i| (other.interval[i] - c.interval[i]).abs() < 1e-6)
+            })?;
+            matched[i] = true;
         }
         Some(central)
     })?;
