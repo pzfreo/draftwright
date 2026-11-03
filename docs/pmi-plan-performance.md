@@ -65,7 +65,7 @@ work evaluating dimensions; the GD&T search is a small part of this case.
 
 ## Changes
 
-The recognition fix is in quiddity-rust (pzfreo/quiddity-rust#16, `src/features/volume_probe.rs`,
+The recognition fix is in quiddity-rust (pzfreo/quiddity#16, `src/features/volume_probe.rs`,
 with its equivalence test `tests/volume_probe.rs`); draftwright pins quiddity and haecceity to that
 commit until the next quiddity-rust release. (The first version of this branch vendored quiddity's
 sources to patch them; that copy was dropped in favour of the upstream change.)

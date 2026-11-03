@@ -2,9 +2,9 @@
 
 A pure-Rust port of [draftwright](https://github.com/pzfreo/draftwright): automated,
 fully-annotated engineering drawings from STEP B-rep. No OpenCascade: geometry comes from the
-[haecceity](https://github.com/pzfreo/quiddity-rust/tree/prototype/rust-port/crates/haecceity)
+[haecceity](https://github.com/pzfreo/quiddity/tree/prototype/rust-port/crates/haecceity)
 kernel, and features from the Rust port of quiddity, both in
-[quiddity-rust](https://github.com/pzfreo/quiddity-rust).
+[quiddity-rust](https://github.com/pzfreo/quiddity).
 
 **Status: 0.2.9** (2026-11-02, on quiddity-rust `0.4.3`). Alpha 1's
 gates are in `docs/alpha1.md`; what changed is in `CHANGELOG.md`. It is an
@@ -17,7 +17,7 @@ equivalent, undetermined or not-applicable) in a known-differences list under
 ## Building
 
 The toolchain is pinned in `rust-toolchain.toml`. haecceity and Rust quiddity come by git from
-the public `pzfreo/quiddity-rust`, pinned in `Cargo.lock`, so no secret is needed.
+the public `pzfreo/quiddity`, pinned in `Cargo.lock`, so no secret is needed.
 
 ```
 cargo build --release      # target/release/draftwright and target/release/draftwright-mcp
@@ -304,7 +304,7 @@ every corpus-backed test; without it they are skipped.
 
 ## Taking a new haecceity
 
-haecceity and Rust quiddity come by git from `pzfreo/quiddity-rust`. They are pinned to the
+haecceity and Rust quiddity come by git from `pzfreo/quiddity`. They are pinned to the
 `v0.1.1` tag (commit `a27b7064`) in `Cargo.toml` and that one commit in `Cargo.lock`. To follow the development branch again,
 set `branch = "main"` in place of `tag` in `Cargo.toml`; then, to move the pin to what is pushed
 on that branch:

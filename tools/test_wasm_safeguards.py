@@ -34,7 +34,7 @@ SHA = 'f5ddb726783f2e9384a55164eb7e36a1ec9a6f7c'
 
 def manifest(kind='tag', value='v0.1.0-alpha.4'):
     return '[dependencies]\n' + '\n'.join(
-        f'{name} = {{ git = "https://github.com/pzfreo/quiddity-rust", {kind} = "{value}" }}'
+        f'{name} = {{ git = "https://github.com/pzfreo/quiddity", {kind} = "{value}" }}'
         for name in ('haecceity', 'quiddity'))
 
 
@@ -211,8 +211,8 @@ class KernelPins(unittest.TestCase):
             self.assertEqual(append is not None, release)
 
     def test_internal_disagreement_warns(self):
-        sibling = manifest('rev', SHA).replace(f'haecceity = {{ git = "https://github.com/pzfreo/quiddity-rust", rev = "{SHA}"',
-                                               'haecceity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "' + 'b' * 40 + '"')
+        sibling = manifest('rev', SHA).replace(f'haecceity = {{ git = "https://github.com/pzfreo/quiddity", rev = "{SHA}"',
+                                               'haecceity = { git = "https://github.com/pzfreo/quiddity", rev = "' + 'b' * 40 + '"')
         (status, output), _ = self.run_pin_check(sibling)
         self.assertEqual(status, 0)
         self.assertIn('::warning::', output)

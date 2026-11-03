@@ -342,12 +342,12 @@ See README.md, "Taking a new haecceity".
 `.github/workflows/ci.yml` runs on pushes to `main` and on pull requests: the toolchain from
 `rust-toolchain.toml`, `cargo fmt --all --check`, clippy with `-D warnings`, and
 `cargo test --release` with `DRAFTWRIGHT_CORPUS` at a sparse checkout of the public
-`pzfreo/quiddity`'s `tests/corpus` (pinned to 6d544e060cd0eeb4442d2196e5df757b5a15ea55) and
+`pzfreo/quiddity-python`'s `tests/corpus` (pinned to 6d544e060cd0eeb4442d2196e5df757b5a15ea55) and
 `DRAFTWRIGHT_CORPUS_REQUIRED=1`. Since d-ci-fast (d3b92f8) the build compiles every test binary
 once into a nextest archive and the tests run in parallel shards (`.config/nextest.toml`); about
 11 min per push, every test still run.
 
-haecceity comes by git from the public `pzfreo/quiddity-rust` (Cargo.toml, pinned in
+haecceity comes by git from the public `pzfreo/quiddity` (Cargo.toml, pinned in
 `Cargo.lock`), so CI needs no secret.
 
 The single-sheet byte guard (`tests/sheets.rs::single_sheet_documents_are_byte_identical`) is
