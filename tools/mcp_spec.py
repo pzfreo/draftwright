@@ -84,7 +84,7 @@ def document():
         'annotation': obj({**optional({'text': ref('text'), 'place': ref('place')}), 'omit': B}),
         'feature': obj({**optional({'anchor': ref('anchor'), 'reclassify': enum('hole', 'boss', 'turned_step', 'slot', 'pocket'),
                        'gusset_view': {**enum('front', 'side', 'plan'), 'description': 'Transverse view for a readable gusset group; must look along either leg. Legs remain in the triangle view.'}, 'pattern': ref('pattern'), 'fit': S, 'datum': S, 'finish': ref('finish'),
-                       'modelled_thread': ref('modelled_thread'), 'thread': ref('thread'), 'knurl': ref('knurl'), 'note': S, 'callouts': ref('callouts')}),
+                       'modelled_thread': ref('modelled_thread'), 'spring': {'enum': ['simplified', 'full']}, 'thread': ref('thread'), 'knurl': ref('knurl'), 'note': S, 'callouts': ref('callouts')}),
                        'suppress': B, 'split': B, 'controls': arr(ref('control')), 'note_satisfies': arr(S)}),
         'face': obj({**optional({'datum': S, 'finish': ref('finish'), 'note': S,
                                  'profile_corners': {**enum('auto', 'angle', 'linear'), 'description': 'How the corners of this face\u2019s outer profile are defined: auto (default) calls out a 45\u00b0 corner chamfer by its size (C<leg>, counted when equal), locates any other cut corner\u2019s missing stations with linear dimensions, gives any other non-right corner its angle and a regular polygon one counted angle; angle states every corner\u2019s angle (a reference where linear dimensions already fix it) instead of stations; linear locates the stations of every corner, a regular polygon\u2019s too. Per corner, dimensions/<id> {} shows and omit hides an angle.'}}),
