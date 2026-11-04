@@ -13,6 +13,43 @@ fn states_mm(text: &str, value: f64) -> bool {
         .any(|word| word.eq_ignore_ascii_case("INCH") || word.eq_ignore_ascii_case("INCHES"));
     super::holes::states(text, value / if inch { 25.4 } else { 1. })
 }
+/// A station equation uses the leading nominal, never a tolerance or fit-class number.
+fn nominal_mm(text: &str, value: f64) -> bool {
+    if !value.is_finite() {
+        return false;
+    }
+    let word = text
+        .split('±')
+        .next()
+        .unwrap_or("")
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim_start_matches(['⌀', 'Ø', 'R', '+', '-', '−']);
+    let end = word
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(word.len());
+    let (number, suffix) = word.split_at(end);
+    if number.is_empty()
+        || suffix.starts_with(['e', 'E'])
+        || !number.parse::<f64>().is_ok_and(|n| n.is_finite())
+    {
+        return false;
+    }
+    let number = if number.starts_with('.') {
+        format!("0{number}")
+    } else {
+        number.into()
+    };
+    let inch = text
+        .split_whitespace()
+        .any(|w| w.eq_ignore_ascii_case("INCH") || w.eq_ignore_ascii_case("INCHES"));
+    states_mm(
+        &format!("{number}{}", if inch { " INCH" } else { "" }),
+        value,
+    )
+}
+
 fn printed_depth(text: &str, depth: f64) -> bool {
     if let Some((_, rest)) = text.split_once('↧') {
         return states_mm(rest.split_whitespace().next().unwrap_or(""), depth);
@@ -442,12 +479,19 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                     && k < 3
                     && p.is_finite()
                     && q.is_finite()
-                    && (states_mm(&mark.text, (q - p).abs())
-                        || mark.text.split_once('×').is_some_and(|(n, rest)| {
-                            n.trim()
-                                .parse::<f64>()
-                                .is_ok_and(|n| states_mm(rest.trim(), (q - p).abs() / n))
-                        }))
+                    && (if let Some((n, rest)) = mark.text.split_once('×') {
+                        n.trim().parse::<usize>().is_ok_and(|n| {
+                            n > 0
+                                && (nominal_mm(rest, (q - p).abs())
+                                    || (mark.claims.iter().any(|c| {
+                                        c.parameter.contains("pitch.length")
+                                            || (c.feature == "step_level"
+                                                && c.parameter == "step_height.length")
+                                    }) && nominal_mm(rest, (q - p).abs() / n as f64)))
+                        })
+                    } else {
+                        nominal_mm(&mark.text, (q - p).abs())
+                    })
                 {
                     spans.push((k, p, q));
                 }
@@ -465,7 +509,7 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                         && let Some(k) = ["X", "Y", "Z"]
                             .iter()
                             .position(|v| Some(*v) == g.axis.as_deref())
-                        && states_mm(&mark.text, (g.stations[1][k] - g.stations[0][k]).abs())
+                        && nominal_mm(&mark.text, (g.stations[1][k] - g.stations[0][k]).abs())
                     {
                         spans.push((k, g.stations[0][k], g.stations[1][k]));
                     }
@@ -852,7 +896,7 @@ fn authored_span(a: &Analysis, mark: &Mark, c: &crate::output::Claim) -> Option<
         .collect();
     let along = c.parameter.strip_prefix("linear.")?;
     let m = a.measure_references(&refs, "linear", Some(along)).ok()?;
-    if !states_mm(mark.text.split_whitespace().next()?, m.value) {
+    if !nominal_mm(&mark.text, m.value) {
         return None;
     }
     let [p, q] = m.witnesses?;
@@ -2617,6 +2661,23 @@ mod tests {
             .is_none(),
             "the same number on unrelated witnesses grants no high-end credit"
         );
+        high.claims.last_mut().unwrap().feature = span_claim(0, 100., 40.);
+        for text in ["999±60", "999 H60", "0× 60"] {
+            high.text = text.into();
+            assert!(
+                drawn_proof(
+                    &a,
+                    &drawn_edges(&a, std::slice::from_ref(&high)),
+                    &[0., 100.],
+                    0,
+                    40.,
+                    Some("boss")
+                )
+                .is_none(),
+                "{text} does not state the 60 span"
+            );
+        }
+        high.text = "60".into();
         high.claims.pop();
         high.name = "table-coordinate".into();
         assert!(drawn_edges(&a, std::slice::from_ref(&high)).is_empty());
