@@ -500,3 +500,42 @@ fn written_suggestions_fill_gaps_but_explicit_udas_override_native_values() {
     assert_eq!(row.stock.as_deref(), Some("from stock"));
     assert_eq!(row.revision.as_deref(), Some("C"));
 }
+
+#[test]
+fn assembly_header_uses_root_facts_and_respects_explicit_title_overrides() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("bom-header");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("assembly.step");
+    let source = small().replace(
+        "PRODUCT('pack fixture','pack fixture'",
+        "PRODUCT('ASM-42','pack fixture'",
+    );
+    let file = haecceity::step::StepFile::read(source.as_bytes()).unwrap();
+    let root = &file.assemblies[0];
+    assert_eq!(root.product_definition, 5);
+    let source = append(&source, "#9100=MATERIAL_DESIGNATION('Root steel',(#5));");
+    std::fs::write(&path, &source).unwrap();
+    let default = pack::PackSpec::default();
+    let actual = pack::build(&path, &default).unwrap();
+    assert!(actual.report.general_assembly.is_some());
+    let svg = actual.drawings[0].svg();
+    assert!(svg.contains("Root steel"));
+    assert!(svg.contains("ASM-42"));
+    assert!(actual.report.rows.iter().all(|r| r.bom.material.is_none()));
+    let mut spec = default;
+    spec.ga
+        .drawing
+        .sheet
+        .title
+        .insert("material".into(), "Spec alloy".into());
+    spec.ga
+        .drawing
+        .sheet
+        .title
+        .insert("number".into(), "SPEC-GA".into());
+    let overridden = pack::build(&path, &spec).unwrap();
+    let svg = overridden.drawings[0].svg();
+    assert!(svg.contains("Spec alloy"));
+    assert!(svg.contains("SPEC-GA"));
+    assert!(!svg.contains("Root steel"));
+}

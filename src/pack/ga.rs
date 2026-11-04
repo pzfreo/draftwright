@@ -182,7 +182,11 @@ impl Prepared {
 
 /// Assembly lacks PRODUCT.id in the kernel's summary; follow the public Part 21
 /// graph's definition -> formation -> product chain, with decoded string attributes.
-fn assembly_number(bytes: &[u8], definition: u64) -> Result<String, Error> {
+fn assembly_metadata(
+    bytes: &[u8],
+    definition: u64,
+    name: &str,
+) -> Result<(String, crate::bom::Metadata), Error> {
     let doc = Document::parse(bytes.to_vec()).map_err(|e| Error::failed(e.to_string()))?;
     let attr = |id, index| match doc.get(id)? {
         RawEntity::Simple { attributes, .. } => attributes.get(index),
@@ -192,13 +196,14 @@ fn assembly_number(bytes: &[u8], definition: u64) -> Result<String, Error> {
         Attribute::EntityRef(id) => Some(*id),
         _ => None,
     };
-    Ok(reference(definition, 2)
+    let number = reference(definition, 2)
         .and_then(|formation| reference(formation, 2))
         .and_then(|product| match attr(product, 0)? {
             Attribute::String(s) => Some(s.clone()),
             _ => None,
         })
-        .unwrap_or_default())
+        .unwrap_or_default();
+    Ok((number, crate::bom::read_assembly(&doc, definition, name)))
 }
 
 fn generic(name: &str) -> bool {
@@ -793,12 +798,21 @@ pub(super) fn prepare<'a>(
         || rows.first().map_or("Assembly", |r| r.name.as_str()),
         |a| a.name.as_str(),
     );
-    let number = if let Some(root) = file.assemblies.first() {
-        assembly_number(bytes, root.product_definition)?
+    let (number, metadata) = if let Some(root) = file.assemblies.first() {
+        assembly_metadata(bytes, root.product_definition, &root.name)?
     } else {
-        rows.first().map_or_else(String::new, |r| {
-            file.parts[r.part_indices[0]].product_id.clone()
-        })
+        let definition = rows.first().map(|r| &file.parts[r.part_indices[0]]);
+        (
+            definition.map_or_else(String::new, |d| d.product_id.clone()),
+            definition
+                .map(|d| {
+                    Document::parse(bytes.to_vec())
+                        .map(|doc| crate::bom::read_assembly(&doc, d.product_definition, &d.name))
+                        .map_err(|e| Error::failed(e.to_string()))
+                })
+                .transpose()?
+                .unwrap_or_default(),
+        )
     };
     let horizontal = settings
         .horizontal_axis
@@ -1158,6 +1172,7 @@ pub(super) fn prepare<'a>(
             .map_err(|e| Error::failed(e.to_string()))?;
     }
     profile("detail geometry", started);
+    crate::bom::fill_titles(&metadata, &settings.drawing, &mut plan);
     Ok(Prepared {
         part,
         analysis,

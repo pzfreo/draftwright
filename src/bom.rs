@@ -321,110 +321,121 @@ pub(crate) fn accounts_for(doc: &Document, id: u64, definitions: &[PartDefinitio
 pub fn read(doc: &Document, definitions: &[PartDefinition]) -> Vec<Metadata> {
     definitions
         .iter()
-        .map(|d| {
-            let pd = d.product_definition;
-            let formation = link(doc, pd, "PRODUCT_DEFINITION", 2).unwrap_or(0);
-            let product = link(doc, formation, "PRODUCT_DEFINITION_FORMATION", 2).unwrap_or(0);
-            let mut row = Metadata {
-                name: (!d.name.trim().is_empty()).then(|| d.name.clone()),
-                part_number: at(doc, product, "PRODUCT", 0),
-                description: at(doc, product, "PRODUCT", 2)
-                    .or_else(|| at(doc, pd, "PRODUCT_DEFINITION", 1)),
-                revision: at(doc, formation, "PRODUCT_DEFINITION_FORMATION", 0),
-                make_buy: attrs(
-                    doc,
-                    formation,
-                    "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE",
-                )
-                .and_then(|a| a.last())
-                .and_then(text)
-                .and_then(|s| source(&s)),
-                ..Metadata::default()
-            };
-            let mut occurrences = Vec::new();
-            for &id in doc.referrers(pd) {
-                if link(doc, id, "PRODUCT_DEFINITION_RELATIONSHIP", 4)
-                    .or_else(|| link(doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE", 4))
-                    == Some(pd)
-                    && attrs(doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE").is_some()
-                {
-                    occurrences.push(id);
-                }
-            }
-            let mut numbers = Vec::new();
-            for &id in &occurrences {
-                let rel = attrs(doc, id, "PRODUCT_DEFINITION_RELATIONSHIP")
-                    .or_else(|| attrs(doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE"));
-                let reference = attrs(doc, id, "ASSEMBLY_COMPONENT_USAGE")
-                    .and_then(|a| a.get(if a.len() == 1 { 0 } else { 5 }))
-                    .and_then(text)
-                    .or_else(|| at(doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE", 5));
-                let occurrence_id = rel.and_then(|a| a.first()).and_then(text);
-                row.occurrence_references
-                    .extend(reference.iter().chain(occurrence_id.iter()).cloned());
-                // A reference designator remains a location label. Accept its
-                // positive numeric spelling, or the documented numeric NAUO name.
-                // OCCT's sequential occurrence ids are retained above, not
-                // silently repurposed as parts-list find numbers.
-                let n = reference
-                    .as_deref()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .filter(|n| *n > 0)
-                    .or_else(|| rel.and_then(|a| a.get(1)).and_then(number));
-                numbers.push(n);
-            }
-            if let Some(Some(n)) = numbers.first()
-                && numbers.iter().all(|v| *v == Some(*n))
-            {
-                row.item_number = Some(*n);
-            }
-            for owner in [product, formation, pd, d.shape] {
-                for &id in doc.referrers(owner) {
-                    if let Some(a) = attrs(doc, id, "MATERIAL_DESIGNATION")
-                        && list(a.get(1)).contains(&owner)
-                        && row.material.is_none()
-                    {
-                        row.material = a.first().and_then(text);
-                    }
-                    if let Some(a) = attrs(doc, id, "PRODUCT_RELATED_PRODUCT_CATEGORY")
-                        && list(a.get(if a.len() == 1 { 0 } else { 2 })).contains(&product)
-                        && let Some(name) =
-                            at(doc, id, "PRODUCT_CATEGORY", 0).or_else(|| a.first().and_then(text))
-                    {
-                        row.categories.push(name);
-                    }
-                    if let Some(a) = attrs(doc, id, "APPLIED_CLASSIFICATION_ASSIGNMENT")
-                        && list(a.get(if a.len() == 1 { 0 } else { 2 })).contains(&owner)
-                        && let Some(class) = link(doc, id, "CLASSIFICATION_ASSIGNMENT", 0)
-                            .or_else(|| a.first().and_then(reference))
-                    {
-                        let value =
-                            at(doc, class, "GROUP", 0).or_else(|| at(doc, class, "CLASS", 0));
-                        if let Some(value) = value {
-                            row.classifications.push(value);
-                        }
-                    }
-                }
-                properties(doc, owner, &mut row);
-            }
-            for owner in occurrences {
-                properties(doc, owner, &mut row);
-            }
-            row.categories = row
-                .categories
-                .into_iter()
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            row.classifications = row
-                .classifications
-                .into_iter()
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            row
-        })
+        .map(|d| read_definition(doc, d.product_definition, d.shape, &d.name))
         .collect()
+}
+
+/// Assembly headers use the same public PDM/property path as component rows.
+pub(crate) fn read_assembly(doc: &Document, pd: u64, name: &str) -> Metadata {
+    let shape = doc
+        .referrers(pd)
+        .iter()
+        .copied()
+        .find(|id| link(doc, *id, "PRODUCT_DEFINITION_SHAPE", 2) == Some(pd))
+        .unwrap_or(0);
+    read_definition(doc, pd, shape, name)
+}
+
+fn read_definition(doc: &Document, pd: u64, shape: u64, name: &str) -> Metadata {
+    let formation = link(doc, pd, "PRODUCT_DEFINITION", 2).unwrap_or(0);
+    let product = link(doc, formation, "PRODUCT_DEFINITION_FORMATION", 2).unwrap_or(0);
+    let mut row = Metadata {
+        name: (!name.trim().is_empty()).then(|| name.to_owned()),
+        part_number: at(doc, product, "PRODUCT", 0),
+        description: at(doc, product, "PRODUCT", 2)
+            .or_else(|| at(doc, pd, "PRODUCT_DEFINITION", 1)),
+        revision: at(doc, formation, "PRODUCT_DEFINITION_FORMATION", 0),
+        make_buy: attrs(
+            doc,
+            formation,
+            "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE",
+        )
+        .and_then(|a| a.last())
+        .and_then(text)
+        .and_then(|s| source(&s)),
+        ..Metadata::default()
+    };
+    let mut occurrences = Vec::new();
+    for &id in doc.referrers(pd) {
+        if link(doc, id, "PRODUCT_DEFINITION_RELATIONSHIP", 4)
+            .or_else(|| link(doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE", 4))
+            == Some(pd)
+            && attrs(doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE").is_some()
+        {
+            occurrences.push(id);
+        }
+    }
+    let mut numbers = Vec::new();
+    for &id in &occurrences {
+        let rel = attrs(doc, id, "PRODUCT_DEFINITION_RELATIONSHIP")
+            .or_else(|| attrs(doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE"));
+        let reference = attrs(doc, id, "ASSEMBLY_COMPONENT_USAGE")
+            .and_then(|a| a.get(if a.len() == 1 { 0 } else { 5 }))
+            .and_then(text)
+            .or_else(|| at(doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE", 5));
+        let occurrence_id = rel.and_then(|a| a.first()).and_then(text);
+        row.occurrence_references
+            .extend(reference.iter().chain(occurrence_id.iter()).cloned());
+        // A reference designator remains a location label. Accept its
+        // positive numeric spelling, or the documented numeric NAUO name.
+        // OCCT's sequential occurrence ids are retained above, not
+        // silently repurposed as parts-list find numbers.
+        let n = reference
+            .as_deref()
+            .and_then(|s| s.parse::<u32>().ok())
+            .filter(|n| *n > 0)
+            .or_else(|| rel.and_then(|a| a.get(1)).and_then(number));
+        numbers.push(n);
+    }
+    if let Some(Some(n)) = numbers.first()
+        && numbers.iter().all(|v| *v == Some(*n))
+    {
+        row.item_number = Some(*n);
+    }
+    for owner in [product, formation, pd, shape] {
+        for &id in doc.referrers(owner) {
+            if let Some(a) = attrs(doc, id, "MATERIAL_DESIGNATION")
+                && list(a.get(1)).contains(&owner)
+                && row.material.is_none()
+            {
+                row.material = a.first().and_then(text);
+            }
+            if let Some(a) = attrs(doc, id, "PRODUCT_RELATED_PRODUCT_CATEGORY")
+                && list(a.get(if a.len() == 1 { 0 } else { 2 })).contains(&product)
+                && let Some(name) =
+                    at(doc, id, "PRODUCT_CATEGORY", 0).or_else(|| a.first().and_then(text))
+            {
+                row.categories.push(name);
+            }
+            if let Some(a) = attrs(doc, id, "APPLIED_CLASSIFICATION_ASSIGNMENT")
+                && list(a.get(if a.len() == 1 { 0 } else { 2 })).contains(&owner)
+                && let Some(class) = link(doc, id, "CLASSIFICATION_ASSIGNMENT", 0)
+                    .or_else(|| a.first().and_then(reference))
+            {
+                let value = at(doc, class, "GROUP", 0).or_else(|| at(doc, class, "CLASS", 0));
+                if let Some(value) = value {
+                    row.classifications.push(value);
+                }
+            }
+        }
+        properties(doc, owner, &mut row);
+    }
+    for owner in occurrences {
+        properties(doc, owner, &mut row);
+    }
+    row.categories = row
+        .categories
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    row.classifications = row
+        .classifications
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    row
 }
 
 impl Metadata {
@@ -476,6 +487,15 @@ pub(crate) fn with_titles(
     let Some(metadata) = &analysis.bom else {
         return Ok(plan);
     };
+    fill_titles(metadata, spec, &mut plan);
+    Ok(plan)
+}
+
+pub(crate) fn fill_titles(
+    metadata: &Metadata,
+    spec: &crate::model::Spec,
+    plan: &mut crate::model::Plan,
+) {
     let defaults = [
         ("number", "drawing_number", &metadata.part_number),
         ("material", "material", &metadata.material),
@@ -515,5 +535,4 @@ pub(crate) fn with_titles(
     });
     plan.problems.extend(problems);
     plan.status = crate::completeness::status(&plan.problems);
-    Ok(plan)
 }

@@ -44,3 +44,7 @@ also appear in the row's values and provenance. Descriptions, optional ranges,
 stock and classifications are exported as data; no new visible sheet fields or
 layout are added. File defaults fill the title block after paper and view selection;
 long file values retain their overflow findings without changing the drawing layout.
+
+General-assembly front sheets use the same metadata reader for the root assembly
+and fill their existing MATERIAL and DWG NO cells after layout. Explicit
+`ga.drawing.sheet.title` values take precedence.
