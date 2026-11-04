@@ -1931,6 +1931,9 @@ fn repeated_level(a: &Analysis, mark: &Mark, edges: &[Edge], axis: usize, at: f6
     else {
         return false;
     };
+    if n > a.levels.len() + 1 {
+        return false;
+    }
     let roots = roots(a);
     edges
         .iter()
@@ -1943,6 +1946,13 @@ fn repeated_level(a: &Analysis, mark: &Mark, edges: &[Edge], axis: usize, at: f6
                 return false;
             }
             let pitch = (e.b - e.a) / n as f64;
+            if !(1..n).all(|j| {
+                a.levels
+                    .iter()
+                    .any(|z| (e.a + j as f64 * pitch - z).abs() < super::redundancy::TOL)
+            }) {
+                return false;
+            }
             let j = ((at - e.a) / pitch).round();
             j >= 0. && j <= n as f64 && (e.a + j * pitch - at).abs() < super::redundancy::TOL
         })
@@ -2402,6 +2412,13 @@ mod tests {
             ],
         };
         assert!(native_stations(&a, std::slice::from_ref(&mark)).is_empty());
+        mark.text = "30× 1".into();
+        assert_eq!(
+            native_stations(&a, std::slice::from_ref(&mark)).len(),
+            2,
+            "a false repeat count is not the native three-rise ladder"
+        );
+        mark.text = "3× 10".into();
         mark.claims[0].feature = "another feature".into();
         assert_eq!(native_stations(&a, &[mark]).len(), 2);
     }
