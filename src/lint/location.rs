@@ -327,13 +327,19 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                         .iter()
                         .any(|f| f.id == c.feature && matches!(f.kind.as_str(), "hole" | "boss"))
                 {
-                    if let Some(at) = station(a, &c.feature, k)
-                        && states_mm(
-                            mark.text.split_whitespace().next().unwrap_or(""),
-                            (at - a.envelope[0][k]).abs(),
-                        )
-                    {
-                        spans.push((k, a.envelope[0][k], at));
+                    if let Some(at) = station(a, &c.feature, k) {
+                        for (side, end) in a.envelope.iter().enumerate() {
+                            // Raw engine marks can measure from the high inspection end.
+                            // Table coordinates retain their low-corner convention.
+                            if (side == 0 || mark.name.starts_with("d:"))
+                                && states_mm(
+                                    mark.text.split_whitespace().next().unwrap_or(""),
+                                    (at - end[k]).abs(),
+                                )
+                            {
+                                spans.push((k, end[k], at));
+                            }
+                        }
                     }
                     continue;
                 }
@@ -1833,6 +1839,31 @@ mod tests {
         assert!(drawn_proof(&a, &[e], &[0.], 0, 40., Some("unrelated")).is_none());
         assert!(drawn_proof(&a, &[], &[0.], 0, 40., Some("boss")).is_none());
         assert!(drawn_proof(&a, &[], &[0.], 1, 22., Some("boss")).is_none());
+        let mut high = Mark {
+            name: "d:hole/location.length.x".into(),
+            view: Some("v:plan".into()),
+            text: "60".into(),
+            claims: vec![crate::output::Claim {
+                feature: "hole".into(),
+                parameter: "location.length.x".into(),
+            }],
+        };
+        assert!(
+            drawn_proof(
+                &a,
+                &drawn_edges(&a, std::slice::from_ref(&high)),
+                &[0., 100.],
+                0,
+                40.,
+                Some("boss")
+            )
+            .is_some()
+        );
+        high.name = "table-coordinate".into();
+        assert!(drawn_edges(&a, std::slice::from_ref(&high)).is_empty());
+        high.name = "d:hole/location.length.x".into();
+        high.text = "999 ±60".into();
+        assert!(drawn_edges(&a, &[high]).is_empty());
     }
 
     #[test]
