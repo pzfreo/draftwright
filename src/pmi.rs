@@ -681,12 +681,14 @@ pub(crate) fn attach_with(
     part: &Part,
     defs: Result<&[PartDefinition], &str>,
     chosen: Option<usize>,
-) -> Option<Reading> {
-    attached(
-        bytes,
-        defs.map_err(str::to_string)
-            .and_then(|defs| read_with(bytes, part, defs, chosen)),
-    )
+) -> (Option<Reading>, Option<crate::bom::Metadata>) {
+    match defs
+        .map_err(str::to_string)
+        .and_then(|defs| read_with_metadata(bytes, part, defs, chosen))
+    {
+        Ok((report, metadata)) => (attached(bytes, Ok(report)), metadata),
+        Err(error) => (attached(bytes, Err(error)), None),
+    }
 }
 
 fn attached(bytes: &[u8], read: Result<Report, String>) -> Option<Reading> {
@@ -734,9 +736,22 @@ fn read_with(
     defs: &[PartDefinition],
     chosen: Option<usize>,
 ) -> Result<Report, String> {
+    read_with_metadata(bytes, part, defs, chosen).map(|(report, _)| report)
+}
+
+fn read_with_metadata(
+    bytes: &[u8],
+    part: &Part,
+    defs: &[PartDefinition],
+    chosen: Option<usize>,
+) -> Result<(Report, Option<crate::bom::Metadata>), String> {
     let doc = Document::parse(bytes.to_vec()).map_err(|e| format!("cannot read Part 21: {e}"))?;
+    let metadata = chosen
+        .or_else(|| (defs.len() == 1).then_some(0))
+        .and_then(|i| defs.get(i))
+        .and_then(|d| crate::bom::read(&doc, std::slice::from_ref(d)).pop());
     let read = pmi::read(&doc, defs).map_err(|e| e.to_string())?;
-    report_part(&doc, defs, part, &read, chosen)
+    report_part(&doc, defs, part, &read, chosen).map(|report| (report, metadata))
 }
 
 /// The report of a haecceity reading *read* of *doc* (whose parts are *defs*), on the drawing's

@@ -875,6 +875,7 @@ pub(super) fn prepare<'a>(
             match row.supply {
                 Supply::Make => "make",
                 Supply::Buy => "buy",
+                Supply::Unknown => "unknown",
             }
             .into(),
             String::new(),

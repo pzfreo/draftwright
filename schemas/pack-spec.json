@@ -28,6 +28,7 @@
           "enum": [
             "make",
             "buy",
+            "unknown",
             null
           ]
         },
@@ -59,6 +60,49 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "material": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "part_number": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "optional": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "stock": {
+          "enum": [
+            "from stock",
+            "to be made",
+            null
           ]
         }
       }

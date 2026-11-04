@@ -109,6 +109,9 @@ pub struct Analysis {
     /// omit it and use the binding's file stem for the default drawing title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_name: Option<String>,
+    /// File-stated bill-of-materials data, independent of geometric PMI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bom: Option<crate::bom::Metadata>,
     /// Source file stem when an assembly selection makes `binding.part` the product name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_stem: Option<String>,
@@ -1719,6 +1722,7 @@ pub(crate) fn analyse_pack_assembly(
             part_index: None,
         },
         product_name: None,
+        bom: None,
         source_stem: Some(name.into()),
         envelope: [b.min, b.max],
         solid_count: Some(part.solids.len()),
@@ -1773,7 +1777,7 @@ fn analyse_read_part(
     // the file carries PMI: that is placed, and its frames and sites measured, in the file's
     // axes, so a part with PMI is drawn in them. A motion the kernel refuses leaves the part
     // in the file's axes, as before.
-    let pmi = crate::pmi::attach_with(
+    let (pmi, bom) = crate::pmi::attach_with(
         bytes,
         &part,
         defs.as_deref().map_err(String::as_str),
@@ -1808,6 +1812,7 @@ fn analyse_read_part(
                 .and_then(|i| defs.get(i))
                 .map(|d| d.name.clone())
         }),
+        bom,
         source_stem: chosen.map(|_| stem),
         envelope: [b.min, b.max],
         solid_count: Some(part.solids.len()),
@@ -6777,9 +6782,18 @@ fn plan_with_presentation(
     title
         .entry("title".into())
         .or_insert_with(|| crate::title_block::default_title(analysis));
-    title
-        .entry("number".into())
-        .or_insert_with(|| crate::title_block::default_number(analysis));
+    title.entry("number".into()).or_insert_with(|| {
+        analysis
+            .bom
+            .as_ref()
+            .and_then(|m| m.part_number.clone())
+            .unwrap_or_else(|| crate::title_block::default_number(analysis))
+    });
+    if let Some(material) = analysis.bom.as_ref().and_then(|m| m.material.as_ref()) {
+        title
+            .entry("material".into())
+            .or_insert_with(|| material.clone());
+    }
     // The file's one usable material, unless the spec states one, even blank (draftwright's
     // `_resolve_title_document_defaults`).
     if let Some(crate::pmi::Reading::Read(r)) = &analysis.pmi
