@@ -308,6 +308,46 @@ fn an_authored_location_preserves_the_automatic_owners_shared_coverage() {
 }
 
 #[test]
+fn shared_location_credit_requires_the_shared_measurement_for_both_sources() {
+    let (part, a, datum, holes) = coincident_locations();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    for source in ["auto", "authored"] {
+        let spec = if source == "auto" {
+            Spec::default()
+        } else {
+            parse(json!({"dimension_source":"authored","dimensions":{
+                "d:authored:h1y":{"between":[format!("axis:{}",holes[0]),datum],"along":"y","view":"plan"}
+            }}))
+        };
+        let owner = if source == "auto" {
+            format!("d:{}/location.length.y", holes[0])
+        } else {
+            "d:authored:h1y".into()
+        };
+        let plan = model::plan_recovered(&a, &spec).unwrap();
+        let drawing = model::render(&part, &a, &plan, &font).unwrap();
+        let mut marks = draftwright::lint::marks(&drawing);
+        let missing = |marks: &[draftwright::lint::Mark], hole: &str| {
+            draftwright::lint::check(&a, marks).iter().any(|f| {
+                f.requirements
+                    .iter()
+                    .any(|r| r.feature == hole && r.parameter == "location.length.y")
+            })
+        };
+        for hole in &holes {
+            assert!(!missing(&marks, hole), "{source}: {hole}");
+        }
+        let mark = marks.iter_mut().find(|m| m.name == owner).unwrap();
+        let before = mark.claims.len();
+        mark.claims
+            .retain(|c| c.feature != holes[1] || c.parameter != "location.length.y");
+        assert!(mark.claims.len() < before, "{source}: missing shared claim");
+        assert!(!missing(&marks, &holes[0]), "{source}: primary axis");
+        assert!(missing(&marks, &holes[1]), "{source}: unclaimed peer axis");
+    }
+}
+
+#[test]
 fn a_hole_to_hole_pitch_does_not_absolutely_locate_either_hole() {
     let (part, a, _, holes) = coincident_locations();
     let s = parse(json!({"dimension_source":"authored","dimensions":{

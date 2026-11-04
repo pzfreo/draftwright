@@ -1144,6 +1144,24 @@ fn identify_impl(a: &Analysis, mark: &Mark, spans: Vec<Edge>, authored: bool) ->
                     e.a_feature = node(1);
                     e.b_feature = node(0);
                 }
+                // K6 carries the engine owner's shared measurements onto authored ink.
+                // Expand those explicit axis claims through the same path as engine
+                // dimensions, retaining the other physical reference. Coordinate
+                // coincidence alone never shares a pocket's derived midplane.
+                let mut shared = mark.clone();
+                shared.claims.retain(|c| {
+                    c.parameter == format!("location.length.{}", AXES[k])
+                        && e.a_feature.as_deref() != Some(c.feature.as_str())
+                        && e.b_feature.as_deref() != Some(c.feature.as_str())
+                        && node_feature(a, &c.feature, k).is_some()
+                        && station(a, &c.feature, k).is_some_and(|at| {
+                            (at - e.a).abs() < super::redundancy::TOL
+                                || (at - e.b).abs() < super::redundancy::TOL
+                        })
+                });
+                if !shared.claims.is_empty() {
+                    out.extend(identify_impl(a, &shared, vec![e.clone()], authored));
+                }
                 out.push(e);
             }
             continue;
