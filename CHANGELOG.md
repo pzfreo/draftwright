@@ -20,7 +20,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
   Flag numbers refer to the same continuously numbered notes block; feature text
   is printed there once, with unattachable notes retained in that block.
 - Exclude hole and hole-pattern claims on faces owned by interior cavities,
-  retaining a factual cavity finding with its size and position.
+  retaining a factual cavity finding with its size and position. Keep cavity-cap
+  heights on the parent view without requesting a prismatic-step detail.
 
 - Rectangular through-notches opening on an envelope face need only their
   transverse location; require a shared slot ordinate's actual edge-to-centre

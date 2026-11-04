@@ -50,6 +50,17 @@ fn sealed_cylinders_are_cavities_not_holes_or_pattern_requirements() {
     assert!(a.features.iter().all(|f| f.kind != "hole"));
     assert!(a.recognition.as_ref().unwrap().patterns.is_empty());
     let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    assert!(!p.problems.iter().any(|p| p.code == "detail_unplaceable"));
+    assert!(!p.views.iter().any(|v| v.id.starts_with("v:detail")));
+    for height in [4., 16.] {
+        assert!(
+            p.dimensions.iter().any(|d| d.placed.is_some()
+                && d.measurements
+                    .iter()
+                    .any(|m| m.feature == "step_level" && m.value == height)),
+            "cavity cap height {height} stays on the parent"
+        );
+    }
     assert!(p.dimensions.iter().all(|d| {
         !d.label.contains("2.5")
             && !d
