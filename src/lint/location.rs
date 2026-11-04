@@ -255,8 +255,8 @@ pub(crate) fn round_origin(
 }
 
 /// The established round-outline origin is a drawing datum, not its box tangent (#223).
-/// Only a printed distance from that unique axis may use it. With actual witnesses present,
-/// they must join that axis and the claimed feature; a matching number alone is insufficient.
+/// Only a printed distance whose own witnesses join that unique axis and the claimed
+/// feature may use it; a matching number alone is insufficient.
 fn round_axis_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
     if matches!(&a.pmi, Some(Reading::Read(r)) if !r.records.is_empty()) {
         return Vec::new();
@@ -273,11 +273,10 @@ fn round_axis_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
             .claims
             .iter()
             .any(|c| c.feature == "station_ink" || c.feature.starts_with("station_span:"));
-        let witnessed = if physical {
-            edges(a, std::slice::from_ref(mark))
-        } else {
-            Vec::new()
-        };
+        if !physical {
+            continue;
+        }
+        let witnessed = edges(a, std::slice::from_ref(mark));
         for c in &mark.claims {
             let Some(k) = c
                 .parameter
@@ -2429,7 +2428,10 @@ mod tests {
             )
             .is_some()
         };
-        assert!(proven(std::slice::from_ref(&mark)));
+        assert!(
+            !proven(std::slice::from_ref(&mark)),
+            "a number alone does not name a circular datum"
+        );
         assert!(!proven(&[]));
         assert!(
             drawn_proof(
