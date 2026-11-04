@@ -429,3 +429,32 @@ fn long_file_title_values_keep_the_existing_drawing_layout_and_report_real_overf
                 && p.refs.contains(&"title_block/drawing_number".into()))
     );
 }
+
+#[test]
+fn a_file_name_override_wins_over_a_guessed_merged_label_stem() {
+    let s = small().replace("pin A", "pin_1").replace("pin B", "pin_2");
+    let entities = uda(501, "specify bom", "#9010,#9011")
+        + "
+#9010=DESCRIPTIVE_REPRESENTATION_ITEM('part_number','PIN-42');
+#9011=DESCRIPTIVE_REPRESENTATION_ITEM('name','Stated locating pin');";
+    let second = entities.replace("#501", "#618");
+    let second = (9000..=9011).rev().fold(second, |s, id| {
+        s.replace(&format!("#{id}"), &format!("#{}", id + 100))
+    });
+    let s = append(&s, &(entities + &second));
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("bom-names");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("assembly.step");
+    std::fs::write(&path, s).unwrap();
+    let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
+    let row = pack
+        .report
+        .rows
+        .iter()
+        .find(|r| r.bom.part_number.as_deref() == Some("PIN-42"))
+        .unwrap();
+    assert_eq!(row.qty, 2);
+    assert_eq!(row.key, "pin");
+    assert_eq!(row.name, "Stated locating pin");
+    assert_eq!(row.sources["name"], pack::ValueSource::File);
+}

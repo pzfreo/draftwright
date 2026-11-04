@@ -553,7 +553,15 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
                 .iter()
                 .map(|&i| file.parts[i].name.as_str()),
         ) {
-            row.name = stem.clone();
+            // A common exporter-label stem is only a fallback display name.
+            // An occurrence UDA's explicit name remains a file fact.
+            if row
+                .part_indices
+                .iter()
+                .all(|&i| metadata[i].name.as_deref() == Some(file.parts[i].name.as_str()))
+            {
+                row.name = stem.clone();
+            }
             // A stem must not steal another leaf's key, or another group's alias.
             if !keys
                 .iter()
