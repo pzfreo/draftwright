@@ -22,6 +22,8 @@ pub(crate) struct Edge {
     pub owner: String,
     pub a_feature: Option<String>,
     pub b_feature: Option<String>,
+    /// A circular drawing datum explicitly witnessed at the first endpoint (lint only).
+    pub a_datum: bool,
 }
 
 /// The shortest chain to any root. Parallel authored edges remain separate edges.
@@ -33,22 +35,35 @@ pub(crate) fn route(
     feature: Option<&str>,
     excluded: &BTreeSet<usize>,
 ) -> Option<Vec<usize>> {
-    let mut queue = vec![(at, feature.map(str::to_string), Vec::new())];
-    let mut seen = vec![(at, feature.map(str::to_string))];
-    let mut cursor = 0;
-    while cursor < queue.len() {
-        let (p, node, path) = queue[cursor].clone();
-        cursor += 1;
+    walk(edges, axis, at, feature, excluded, |p, node| {
         // A feature on an origin plane needs no additional zero-length dimension.
         // Analytic feature axes use the tighter tolerance; rounded planes use TOL.
-        if roots.iter().any(|r| {
+        roots.iter().any(|r| {
             (r - p).abs()
                 < if node.is_none() {
                     super::redundancy::TOL
                 } else {
                     EPS
                 }
-        }) {
+        })
+    })
+}
+
+fn walk(
+    edges: &[Edge],
+    axis: usize,
+    at: f64,
+    feature: Option<&str>,
+    excluded: &BTreeSet<usize>,
+    rooted: impl Fn(f64, Option<&str>) -> bool,
+) -> Option<Vec<usize>> {
+    let mut queue = vec![(at, feature.map(str::to_string), Vec::new())];
+    let mut seen = vec![(at, feature.map(str::to_string))];
+    let mut cursor = 0;
+    while cursor < queue.len() {
+        let (p, node, path) = queue[cursor].clone();
+        cursor += 1;
+        if rooted(p, node.as_deref()) {
             return Some(path);
         }
         for (i, e) in edges.iter().enumerate() {
@@ -139,6 +154,92 @@ pub(crate) fn drawing_roots(a: &Analysis, marks: &[Mark]) -> [Vec<f64>; 3] {
             if let Some(v) = station {
                 out[k].push(v);
             }
+        }
+    }
+    out
+}
+
+/// The established round-outline origin is a drawing datum, not its box tangent (#223).
+/// Only a printed distance from that unique axis may use it. With actual witnesses present,
+/// they must join that axis and the claimed feature; a matching number alone is insufficient.
+fn round_axis_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
+    if crate::dims::pmi_policy::carries(a) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut origins = std::collections::BTreeMap::new();
+    for mark in marks.iter().filter(|m| {
+        !m.text.starts_with('(')
+            && !m.name.starts_with("location_network:")
+            && !m.name.starts_with("derived:")
+            && !m.claims.iter().any(|c| c.feature.starts_with("geometry:"))
+    }) {
+        let physical = mark
+            .claims
+            .iter()
+            .any(|c| c.feature == "station_ink" || c.feature.starts_with("station_span:"));
+        let witnessed = if physical {
+            edges(a, std::slice::from_ref(mark))
+        } else {
+            Vec::new()
+        };
+        for c in &mark.claims {
+            let Some(k) = c
+                .parameter
+                .strip_prefix("location.length.")
+                .and_then(|axis| AXES.iter().position(|v| *v == axis))
+            else {
+                continue;
+            };
+            let Some(f) = a
+                .features
+                .iter()
+                .find(|f| f.id == c.feature && matches!(f.kind.as_str(), "hole" | "boss"))
+            else {
+                continue;
+            };
+            let Some(view) = f.fingerprint.axis.and_then(crate::bridge::holes::principal) else {
+                continue;
+            };
+            if view == k {
+                continue;
+            }
+            let Some((owner, origin)) = origins
+                .entry((view, k))
+                .or_insert_with(|| crate::dims::round_origin(a, view, k))
+                .as_ref()
+            else {
+                continue;
+            };
+            let Some(at) = station(a, &f.id, k) else {
+                continue;
+            };
+            if (at - origin[k]).abs() < EPS
+                // A raw table/claim already stating the box coordinate is not an axis datum.
+                || (!physical && states_mm(mark.text.split_whitespace().next().unwrap_or(""),
+                    (at - a.envelope[0][k]).abs()))
+                || !states_mm(
+                    mark.text.split_whitespace().next().unwrap_or(""),
+                    (at - origin[k]).abs(),
+                )
+                || (physical
+                    && !witnessed.iter().any(|e| {
+                        e.axis == k
+                            && (e.a.min(e.b) - at.min(origin[k])).abs() < super::redundancy::TOL
+                            && (e.a.max(e.b) - at.max(origin[k])).abs() < super::redundancy::TOL
+                    }))
+            {
+                continue;
+            }
+            out.push(Edge {
+                axis: k,
+                a: origin[k],
+                b: at,
+                owner: mark.name.clone(),
+                a_feature: Some(owner.clone()),
+                b_feature: Some(f.id.clone()),
+                a_datum: true,
+            });
         }
     }
     out
@@ -267,6 +368,7 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                     owner: mark.name.clone(),
                     a_feature: None,
                     b_feature: None,
+                    a_datum: false,
                 }),
         );
     }
@@ -282,6 +384,7 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
     if !authored {
         return typed;
     }
+    typed.extend(round_axis_edges(a, marks));
     // A printed interval fixes its midpoint relative to either end. Its two
     // halves retain the original owner, so they cannot manufacture a second
     // independent controller. No length in the Analysis alone adds an edge.
@@ -658,6 +761,22 @@ pub(crate) fn proof(
     Some(path)
 }
 
+/// Round-axis datums terminate at their physical owner, never at every feature sharing one
+/// coordinate. The datum must be witnessed by a printed edge from the unique exterior axis.
+fn round_route(edges: &[Edge], axis: usize, at: f64, node: Option<&str>) -> Option<Vec<usize>> {
+    let origins: BTreeSet<_> = edges
+        .iter()
+        .filter(|e| e.axis == axis && e.a_datum)
+        .filter_map(|e| e.a_feature.as_deref())
+        .collect();
+    if origins.is_empty() {
+        return None;
+    }
+    walk(edges, axis, at, node, &BTreeSet::new(), |_, id| {
+        id.is_some_and(|id| origins.contains(id))
+    })
+}
+
 /// A coaxial feature may use the same printed route, without changing planner precedence.
 pub(crate) fn drawn_proof(
     a: &Analysis,
@@ -667,7 +786,9 @@ pub(crate) fn drawn_proof(
     at: f64,
     node: Option<&str>,
 ) -> Option<Vec<usize>> {
-    if let Some(path) = proof(a, edges, roots, axis, at, node) {
+    if let Some(path) =
+        proof(a, edges, roots, axis, at, node).or_else(|| round_route(edges, axis, at, node))
+    {
         return Some(path);
     }
     // Coaxial cylinders share both radial coordinates. Equal coordinates on
@@ -703,7 +824,15 @@ pub(crate) fn drawn_proof(
                 station(a, &other.id, axis)?,
                 Some(&other.id),
                 &BTreeSet::new(),
-            ) {
+            )
+            .or_else(|| {
+                round_route(
+                    edges,
+                    axis,
+                    station(a, &other.id, axis).unwrap_or(other.fingerprint.position[axis]),
+                    Some(&other.id),
+                )
+            }) {
                 return Some(path);
             }
         }
@@ -1568,6 +1697,7 @@ mod tests {
             owner: name.into(),
             a_feature: None,
             b_feature: None,
+            a_datum: false,
         }
     }
     #[test]
@@ -1703,6 +1833,96 @@ mod tests {
         assert!(drawn_proof(&a, &[e], &[0.], 0, 40., Some("unrelated")).is_none());
         assert!(drawn_proof(&a, &[], &[0.], 0, 40., Some("boss")).is_none());
         assert!(drawn_proof(&a, &[], &[0.], 1, 22., Some("boss")).is_none());
+    }
+
+    #[test]
+    fn a_round_datum_needs_a_printed_distance_with_matching_witnesses() {
+        let f = |id: &str, kind: &str, at: [f64; 3]| {
+            serde_json::json!({
+                "id": id, "kind": kind, "faces": [],
+                "parameters": {"axis": [0., 0., 1.], "location": at,
+                    "diameter": 4., "height": 10., "depth": 10., "bottom": "through"},
+                "fingerprint": {"version": "test", "family": "test", "subtype": "test",
+                    "sizes": {}, "position": at, "axis": [0., 0., 1.], "neighbourhood": []}
+            })
+        };
+        let a: Analysis = serde_json::from_value(serde_json::json!({
+            "schema": "draftwright.analysis/2",
+            "binding": {"source_sha256": "", "part": "test", "face_count": 0, "loader": "test"},
+            "envelope": [[0., 0., 0.], [80., 30., 10.]], "iso_bounds": [0., 0., 0., 0.],
+            "features": [f("origin", "boss", [10., 10., 5.]), f("hole", "hole", [50., 12., 5.]), f("unrelated", "hole", [10., 25., 5.])],
+            "edge_ink": {"edges": [], "planes": [], "curved": [{
+                "bounds": [[0., 0., 0.], [20., 20., 10.]],
+                "cylinder": {"origin": [10., 10., 0.], "axis": [0., 0., 1.], "radius": 10.}
+            }]}
+        }))
+        .unwrap();
+        let mark = Mark {
+            name: "printed".into(),
+            view: Some("v:plan".into()),
+            text: "40".into(),
+            claims: vec![crate::output::Claim {
+                feature: "hole".into(),
+                parameter: "location.length.x".into(),
+            }],
+        };
+        let proven = |marks: &[Mark]| {
+            drawn_proof(
+                &a,
+                &drawn_edges(&a, marks),
+                &drawing_roots(&a, marks)[0],
+                0,
+                50.,
+                Some("hole"),
+            )
+            .is_some()
+        };
+        assert!(proven(std::slice::from_ref(&mark)));
+        assert!(!proven(&[]));
+        assert!(
+            drawn_proof(
+                &a,
+                &drawn_edges(&a, std::slice::from_ref(&mark)),
+                &drawing_roots(&a, std::slice::from_ref(&mark))[0],
+                0,
+                10.,
+                Some("unrelated")
+            )
+            .is_none()
+        );
+        let mut ambiguous = a.clone();
+        // The box and the round axis are both 5 from this hole; its table coordinate
+        // cannot establish the circular datum in addition to locating the hole from the box.
+        let h = ambiguous
+            .features
+            .iter_mut()
+            .find(|f| f.id == "hole")
+            .unwrap();
+        h.fingerprint.position[0] = 5.;
+        h.parameters
+            .insert("location".into(), serde_json::json!([5., 12., 5.]));
+        let mut coordinate = mark.clone();
+        coordinate.text = "5".into();
+        assert!(
+            !drawn_edges(&ambiguous, std::slice::from_ref(&coordinate))
+                .iter()
+                .any(|e| e.a_datum)
+        );
+        let mut wrong = mark.clone();
+        wrong.text = "999 ±40".into();
+        assert!(!proven(&[wrong]));
+        let mut witnessed = mark;
+        witnessed.claims.push(crate::output::Claim {
+            feature: "station_ink".into(),
+            parameter: "linear".into(),
+        });
+        witnessed.claims.push(crate::output::Claim {
+            feature: span_claim(0, 10., 50.),
+            parameter: "linear".into(),
+        });
+        assert!(proven(std::slice::from_ref(&witnessed)));
+        witnessed.claims.last_mut().unwrap().feature = span_claim(0, 20., 60.);
+        assert!(!proven(&[witnessed]));
     }
 
     #[test]

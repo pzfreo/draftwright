@@ -799,7 +799,7 @@ const ON_AXIS: f64 = 0.01;
 /// a round face (no plane lies on it) whose axis carries a recognised hole or boss: that
 /// feature's ID and a point on the face's axis (#223). A tangent on a curved outline is no
 /// face to measure from; the axis of the round feature it bounds is.
-fn round_origin(analysis: &Analysis, view: usize, k: usize) -> Option<(String, P3)> {
+pub(crate) fn round_origin(analysis: &Analysis, view: usize, k: usize) -> Option<(String, P3)> {
     let ink = analysis.edge_ink.as_ref()?;
     let lo = analysis.envelope[0][k];
     let flat = ink.planes.iter().any(|p| {
