@@ -6247,8 +6247,11 @@ fn plan_with_presentation(
     let (mut notes_given, omitted_notes, more) =
         crate::notes::reconcile(&requirements, analysis, spec);
     problems.extend(more);
+    let feature_note_ids: BTreeSet<String> = requirements.iter().filter(|requirement| {
+        matches!(&analysis.pmi, Some(crate::pmi::Reading::Read(report)) if report.records.iter().any(|record| record.source_id == requirement.source && record.kind == "flag_note"))
+    }).map(|r| r.id.clone()).collect();
     for note in &mut notes_given {
-        if note.id == crate::notes::ASSEMBLY_NOTE
+        if (note.id == crate::notes::ASSEMBLY_NOTE || feature_note_ids.contains(&note.id))
             && let Some(text) = spec.annotations.get(&note.id).and_then(|a| a.text.as_ref())
         {
             note.text = text
@@ -7587,6 +7590,19 @@ fn plan_with_presentation(
     let (mut notes, mut notes_block, more) =
         crate::notes::plan(&authored, analysis, &sheet, &views, &ink);
     crate::notes::provenance(&mut notes, &requirements, spec);
+    for note in notes
+        .iter_mut()
+        .filter(|n| feature_note_ids.contains(&n.id))
+    {
+        if spec
+            .annotations
+            .get(&note.id)
+            .is_some_and(|a| a.text.is_some())
+        {
+            note.from_spec.push("text".into());
+            note.basis += "; from_spec: text; original note text retained";
+        }
+    }
     if notes_block.is_none() {
         for flag in gdt
             .iter_mut()
@@ -11264,9 +11280,10 @@ fn render_annotations_with_cuts(
     // Each drawing-wide PMI requirement by the runs that state it, for lint and the PMI checks.
     for (name, runs) in stated {
         if let Some(annotation) = annotations.iter_mut().find(|a| a.name == name) {
-            // The flag and its block text are one source requirement, with both
-            // sets of runs retained under its stable editable identity.
-            annotation.runs.extend(runs);
+            // The block holds the normative words. The flag's numbered glyph is
+            // still drawn and identified by its sheet item; do not prepend its
+            // number to the note's semantic text or the wording override.
+            annotation.runs = runs;
         } else {
             annotations.push(Annotation {
                 approved_claims: Vec::new(),

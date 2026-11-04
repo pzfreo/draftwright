@@ -1209,6 +1209,51 @@ fn semantic_text_draws_part_note_and_feature_flag_without_presentation_matching(
 }
 
 #[test]
+fn feature_note_wording_is_applied_to_the_block_and_preserves_the_flag_number() {
+    let (part, a) = semantic_note_plate();
+    let plain = plan(&a, &Spec::default());
+    let note = plain
+        .notes
+        .iter()
+        .find(|n| n.text == "Keep this face unpainted")
+        .unwrap();
+    let mut spec = Spec::default();
+    spec.annotations.entry(note.id.clone()).or_default().text =
+        Some(draftwright::label_text::Text {
+            prefix: Some("INSPECT:".into()),
+            ..Default::default()
+        });
+    let p = plan(&a, &spec);
+    let edited = p.notes.iter().find(|n| n.id == note.id).unwrap();
+    assert_eq!(edited.text, "INSPECT: Keep this face unpainted");
+    assert_eq!(edited.number, note.number);
+    let flag = p.gdt.iter().find(|g| g.id == note.id).unwrap();
+    assert_eq!(flag.cells, vec![note.number.to_string()]);
+    assert_eq!(flag.placed.as_ref().unwrap().runs.len(), 1);
+    let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let annotation = drawing
+        .annotations
+        .iter()
+        .find(|n| n.name == note.id)
+        .unwrap();
+    let words = annotation
+        .runs
+        .iter()
+        .map(|&i| drawing.text[i].text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        words.starts_with(&format!("{}  INSPECT:", note.number)),
+        "{words}"
+    );
+    assert!(
+        !words.starts_with(&format!("{} {}", note.number, note.number)),
+        "flag number is not extra normative text"
+    );
+}
+
+#[test]
 fn feature_note_fallback_and_omission_leave_continuous_drawn_note_numbers() {
     let (_, mut a) = semantic_note_plate();
     let Some(draftwright::pmi::Reading::Read(report)) = &mut a.pmi else {
