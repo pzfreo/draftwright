@@ -80,3 +80,7 @@ path = "tests/session.rs"
 [[test]]
 name = "multi_sheet_latency"
 path = "tests/multi_sheet_latency.rs"
+
+[[test]]
+name = "steerability"
+path = "tests/steerability.rs"

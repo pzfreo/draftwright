@@ -1,0 +1,35 @@
+{
+ "schema": "draftwright.spec/2",
+ "sheet": {
+  "size": "A3",
+  "scale": "1:2",
+  "title": {
+   "tolerance": "ISO 2768-m",
+   "material": "Chromium-molybdenum alloy steel"
+  }
+ },
+ "views": {
+  "side": {
+   "omit": true
+  }
+ },
+ "dimensions": {
+  "d:f:hole:2/location.length.x": {
+   "omit": true
+  },
+  "d:envelope/width.length": {
+   "omit": true
+  },
+  "d:authored:hole2_from_shoulder": {
+   "between": [
+    "face:v1:a6bd768fe74c3575cad2c5cfe2268013d93f33886195ad328cd17fcc8af7792c",
+    "axis:f:hole:2"
+   ],
+   "along": "x",
+   "view": "plan"
+  },
+  "d:f:turned_step:2/step.length": {
+   "view": "front"
+  }
+ }
+}

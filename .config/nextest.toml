@@ -5,6 +5,8 @@
 # nextest (CI run 37848776092) against 57 s for the binary under its own harness (CI run
 # 37851506194), and issue_trust's 314 s against 90 s. The profile leaves those binaries out, and
 # the workflow's `harness` job runs whatever binaries it leaves out whole.
+# Steerability also shares each part analysis and its Spec variants within one process;
+# the existing harness job discovers and runs it whole through this default-filter.
 # Latency gates measure interactive edits; run them without competing test processes.
 # Their native 150 ms assertions remain enabled, including in local shard simulations.
 [[profile.default.overrides]]
@@ -32,7 +34,7 @@ filter = 'test(=problem_wording::only_sheet_problems_have_the_sheet_as_subject) 
 priority = 100
 
 [profile.ci]
-default-filter = 'not (binary(issue_drafting) | binary(issue_trust))'
+default-filter = 'not (binary(issue_drafting) | binary(issue_trust) | binary(steerability))'
 fail-fast = false
 
 # Per-test durations for tools/test_shards.py --record.

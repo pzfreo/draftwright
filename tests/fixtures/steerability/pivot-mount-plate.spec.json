@@ -1,0 +1,62 @@
+{
+ "schema": "draftwright.spec/2",
+ "sheet": {
+  "size": "A4",
+  "scale": "1:1",
+  "title": {
+   "tolerance": "ISO 2768-m",
+   "material": "Aluminium 7075-T651"
+  }
+ },
+ "views": {
+  "side": {
+   "omit": true
+  }
+ },
+ "faces": {
+  "bottom": {
+   "datum": "A"
+  },
+  "front": {
+   "datum": "B"
+  },
+  "left": {
+   "datum": "C"
+  }
+ },
+ "dimensions": {
+  "d:authored:hole_x": {
+   "between": [
+    "face:v1:74999751622e0dde0e24da8b4db716b2f075fc019b0ea1a86d57c4f2979b142c",
+    "axis:f:hole:3"
+   ],
+   "along": "x",
+   "view": "plan"
+  },
+  "d:authored:hole_y": {
+   "between": [
+    "face:v1:66df80c60190beb7bed0f7d259c5d837b3f41541dba5409608365a9eb7d5ed57",
+    "axis:f:hole:1"
+   ],
+   "along": "y",
+   "view": "plan"
+  },
+  "d:f:hole_pattern:1/grid_pitch.length.col": {
+   "place": {
+    "view": "plan",
+    "side": "above",
+    "along": 0.25
+   }
+  },
+  "d:f:hole:4/bore.diameter": {
+   "place": {
+    "view": "plan",
+    "offset": [
+     14,
+     12
+    ],
+    "pinned": true
+   }
+  }
+ }
+}
