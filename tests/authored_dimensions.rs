@@ -1126,10 +1126,11 @@ fn removing_engine_ink_without_replanning_exposes_missing_geometry() {
             assert!(
                 issues.iter().any(|i| (i.code.contains("missing")
                     || i.code == "feature_not_located")
-                    && i.requirements
+                    && i.requirements.iter().any(|r| removed
+                        .measurements
                         .iter()
-                        .any(|r| removed.measurements.iter().any(|m| m.feature == r.feature))),
-                "removed {} must expose its feature: {issues:?}",
+                        .any(|m| m.feature == r.feature && m.parameter == r.parameter))),
+                "removed {} must expose its own geometric role: {issues:?}",
                 removed.id
             );
         }

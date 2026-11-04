@@ -13,6 +13,14 @@ fn states_mm(text: &str, value: f64) -> bool {
         .any(|word| word.eq_ignore_ascii_case("INCH") || word.eq_ignore_ascii_case("INCHES"));
     super::holes::states(text, value / if inch { 25.4 } else { 1. })
 }
+fn printed_depth(text: &str, depth: f64) -> bool {
+    if let Some((_, rest)) = text.split_once('↧') {
+        return states_mm(rest.split_whitespace().next().unwrap_or(""), depth);
+    }
+    text.to_ascii_uppercase()
+        .split_once("DEEP")
+        .is_some_and(|(before, _)| states_mm(before.split_whitespace().last().unwrap_or(""), depth))
+}
 pub(crate) const AXES: [&str; 3] = ["x", "y", "z"];
 #[derive(Clone, Debug)]
 pub(crate) struct Edge {
@@ -487,6 +495,21 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                         .contains(&c.parameter.as_str())
                     && let Some(s) = super::redundancy::span(a, &c.feature, &c.parameter)
                     && states_mm(mark.text.split('±').next().unwrap_or(""), s.hi - s.lo)
+                {
+                    spans.push((s.axis, s.lo, s.hi));
+                }
+                // A compound depth has its own printed depth term and two physical
+                // supports. A width or length with the same number is not depth evidence.
+                if authored
+                    && [
+                        "pocket_depth.length",
+                        "rectangular_blind_slot_depth.length",
+                        "bore.depth",
+                        "circular_step_depth.length",
+                    ]
+                    .contains(&c.parameter.as_str())
+                    && let Some(s) = super::redundancy::span(a, &c.feature, &c.parameter)
+                    && printed_depth(&mark.text, s.hi - s.lo)
                 {
                     spans.push((s.axis, s.lo, s.hi));
                 }
