@@ -1914,6 +1914,40 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     issues
 }
 
+fn repeated_level(a: &Analysis, mark: &Mark, edges: &[Edge], axis: usize, at: f64) -> bool {
+    if axis != 2
+        || !mark
+            .claims
+            .iter()
+            .any(|c| c.feature == "step_level" && c.parameter == "step_height.length")
+    {
+        return false;
+    }
+    let Some(n) = mark
+        .text
+        .split_once('×')
+        .and_then(|(n, _)| n.trim().parse::<usize>().ok())
+        .filter(|n| *n >= 2)
+    else {
+        return false;
+    };
+    let roots = roots(a);
+    edges
+        .iter()
+        .filter(|e| e.owner == mark.name && e.axis == axis)
+        .any(|e| {
+            if ![e.a, e.b]
+                .iter()
+                .any(|v| roots[axis].iter().any(|r| (v - r).abs() < EPS))
+            {
+                return false;
+            }
+            let pitch = (e.b - e.a) / n as f64;
+            let j = ((at - e.a) / pitch).round();
+            j >= 0. && j <= n as f64 && (e.a + j * pitch - at).abs() < super::redundancy::TOL
+        })
+}
+
 /// Native ladder stations belong to the ladder, independently of feature centres.
 /// Several trimmed supports may be one native level; this never aliases a pocket midplane.
 pub(crate) fn native_stations(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
@@ -1958,6 +1992,9 @@ pub(crate) fn native_stations(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         // A native ladder annotation names this level/shoulder explicitly. Its own
         // measured ink must agree; equal values in another feature's mark do not qualify.
         let direct = marks.iter().any(|m| {
+            if repeated_level(a, m, &edges, k, at) {
+                return true;
+            }
             m.claims.iter().any(|c| {
                 c.feature == "step_level"
                     && super::redundancy::span(a, &c.feature, &c.parameter).is_some_and(|s| {
@@ -2341,6 +2378,32 @@ mod tests {
         assert!(printed_depth("6 × 40 × 3 ±0.1 DEEP", 3.));
         assert!(!printed_depth("3 × 40", 3.));
         assert!(!printed_depth("6 × 40 × 99 ±3 DEEP", 3.));
+    }
+
+    #[test]
+    fn counted_ladder_heights_fix_only_their_explicitly_printed_rungs() {
+        let a: Analysis = serde_json::from_value(serde_json::json!({
+            "schema":"draftwright.analysis/2", "binding":{"source_sha256":"", "part":"test", "face_count":0, "loader":"test"},
+            "envelope":[[0.,0.,0.],[20.,20.,30.]], "levels":[10.,20.], "features":[], "iso_bounds":[0.,0.,0.,0.]
+        })).unwrap();
+        let mut mark = Mark {
+            name: "repeated".into(),
+            view: None,
+            text: "3× 10".into(),
+            claims: vec![
+                crate::output::Claim {
+                    feature: "step_level".into(),
+                    parameter: "step_height.length".into(),
+                },
+                crate::output::Claim {
+                    feature: span_claim(2, 0., 30.),
+                    parameter: "station.distance".into(),
+                },
+            ],
+        };
+        assert!(native_stations(&a, std::slice::from_ref(&mark)).is_empty());
+        mark.claims[0].feature = "another feature".into();
+        assert_eq!(native_stations(&a, &[mark]).len(), 2);
     }
 
     #[test]
