@@ -1582,13 +1582,30 @@ fn identify_impl(a: &Analysis, mark: &Mark, spans: Vec<Edge>, authored: bool) ->
                 .any(|c| c.parameter.starts_with("location_slot."))
         {
             let mut e = span;
-            e.b_feature = Some(members[0].clone());
+            if !authored {
+                e.b_feature = Some(members[0].clone());
+            } else if let Some(s) = super::redundancy::span(a, &members[0], "location_slot.length")
+            {
+                if (e.a - s.hi).abs() < super::redundancy::TOL {
+                    e.a_feature = Some(members[0].clone());
+                }
+                if (e.b - s.hi).abs() < super::redundancy::TOL {
+                    e.b_feature = Some(members[0].clone());
+                }
+            }
             out.push(e);
-        } else if location && !right.is_empty() {
+        } else if location && (!right.is_empty() || (authored && !left.is_empty())) {
             for r in right {
                 let mut e = span.clone();
                 e.b_feature = Some(r.clone());
                 out.push(e);
+            }
+            if authored {
+                for l in left {
+                    let mut e = span.clone();
+                    e.a_feature = Some(l.clone());
+                    out.push(e);
+                }
             }
         } else {
             out.push(span);
@@ -1760,55 +1777,121 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     issues
 }
 
-/// The native ladder is geometry, not an inventory supplied by the planner. Check its
-/// actual planar supports even without PMI; anonymous coordinates cannot fix a face.
+/// Native ladder stations belong to the ladder, independently of feature centres.
+/// Several trimmed supports may be one native level; this never aliases a pocket midplane.
 pub(crate) fn native_stations(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
+    if a.features.iter().any(|f| f.kind == "turned_step") {
+        return Vec::new();
+    }
     let edges = drawn_edges(a, marks);
     let roots = drawing_roots(a, marks);
-    let mut issues = Vec::new();
-    for (i, face) in a.face_attachments.iter().enumerate() {
-        let (Some(k), Some(b)) = (face.axis, face.bounds) else {
-            continue;
-        };
-        if face.surface.as_deref() != Some("plane") {
-            continue;
+    let mut wanted: Vec<_> = a.levels.iter().map(|&z| (2, z)).collect();
+    for r in &a.risers {
+        for (axis, positions) in [(&r.axis, &r.positions), (&r.other_axis, &r.other_positions)] {
+            if let Some(k) = AXES.iter().position(|v| *v == axis) {
+                wanted.extend(positions.iter().map(|&p| (k, p)));
+            }
         }
-        let at = b[k];
+    }
+    wanted.sort_by(|(k, p), (l, q)| k.cmp(l).then(p.total_cmp(q)));
+    wanted.dedup_by(|(k, p), (l, q)| k == l && (*p - *q).abs() < super::redundancy::TOL);
+    let mut issues = Vec::new();
+    for (k, at) in wanted {
         if roots[k]
             .iter()
             .any(|r| (r - at).abs() < super::redundancy::TOL)
         {
             continue;
         }
-        let is_level = k == 2
-            && a.levels
-                .iter()
-                .any(|z| (z - at).abs() < super::redundancy::TOL);
-        let is_riser = a.risers.iter().any(|r| {
-            r.vertical
-                && AXES[k] == r.axis
-                && r.positions
-                    .iter()
-                    .any(|p| (p - at).abs() < super::redundancy::TOL)
+        let faces: Vec<_> = a
+            .face_attachments
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| {
+                f.surface.as_deref() == Some("plane")
+                    && f.axis == Some(k)
+                    && f.bounds
+                        .is_some_and(|b| (b[k] - at).abs() < super::redundancy::TOL)
+            })
+            .map(|(i, _)| format!("face:{i}"))
+            .collect();
+        let physical = faces
+            .iter()
+            .any(|face| drawn_proof(a, &edges, &roots[k], k, at, Some(face)).is_some());
+        // A native ladder annotation names this level/shoulder explicitly. Its own
+        // measured ink must agree; equal values in another feature's mark do not qualify.
+        let direct = marks.iter().any(|m| {
+            m.claims.iter().any(|c| {
+                c.feature == "step_level"
+                    && super::redundancy::span(a, &c.feature, &c.parameter).is_some_and(|s| {
+                        s.axis == k
+                            && (s.hi - at).abs() < super::redundancy::TOL
+                            && edges.iter().any(|e| {
+                                e.owner == m.name
+                                    && e.axis == k
+                                    && (e.a.min(e.b) - s.lo).abs() < super::redundancy::TOL
+                                    && (e.a.max(e.b) - s.hi).abs() < super::redundancy::TOL
+                            })
+                    })
+            })
         });
-        if !is_level && !is_riser {
-            continue;
-        }
-        let id = format!("face:{i}");
-        if drawn_proof(a, &edges, &roots[k], k, at, Some(&id)).is_none() {
+        if !physical && !direct {
+            let parameter = if k == 2 {
+                format!(
+                    "step_height.length.h{}",
+                    super::parameters::fmt(at - a.envelope[0][k]).replace('.', "_")
+                )
+            } else {
+                format!(
+                    "step_position.length.{}{}",
+                    AXES[k],
+                    super::parameters::fmt(at - a.envelope[0][k]).replace('.', "_")
+                )
+            };
             issues.push(uncovered(
                 a,
                 "feature_not_located",
-                &id,
-                &format!("location.length.{}", AXES[k]),
+                "step_level",
+                &parameter,
                 format!(
-                    "Physical face {i} on {}: no printed dimension chain reaches an origin.",
+                    "Native ladder station {}={at}: no printed dimension chain reaches an origin.",
                     AXES[k]
                 ),
             ));
         }
     }
     issues
+}
+
+/// Printed owners of a located feature's one-axis proof, for independent mutation audits.
+/// An empty chain means the feature lies on a physical origin, not an inferred midpoint.
+pub fn printed_chain(
+    a: &Analysis,
+    marks: &[Mark],
+    feature: &str,
+    parameter: &str,
+) -> Option<Vec<String>> {
+    let axis = parameter
+        .rsplit('.')
+        .next()
+        .and_then(|s| AXES.iter().position(|axis| *axis == s))
+        .or_else(|| super::redundancy::span(a, feature, parameter).map(|s| s.axis))?;
+    let at = targets(a)
+        .into_iter()
+        .find(|(id, k, _)| id == feature && *k == axis)?
+        .2;
+    let edges = drawn_edges(a, marks);
+    let path = drawn_proof(
+        a,
+        &edges,
+        &drawing_roots(a, marks)[axis],
+        axis,
+        at,
+        drawn_node(a, feature, axis).as_deref(),
+    )?;
+    let mut owners: Vec<_> = path.into_iter().map(|i| edges[i].owner.clone()).collect();
+    owners.dedup();
+    Some(owners)
 }
 
 /// Missing sizes are checked from physical feature claims or the source's attached faces.
@@ -2100,6 +2183,47 @@ mod tests {
         let blocked = first.into_iter().collect();
         assert!(route(&edges, &[0., 100.], 0, 95., None, &blocked).is_some());
     }
+    #[test]
+    fn a_derived_midplane_is_neither_another_feature_nor_a_physical_datum() {
+        let mut start = edge(0., 40., "start");
+        start.b_feature = Some("face:1".into());
+        let mut half = edge(40., 60., "length");
+        half.a_feature = Some("face:1".into());
+        half.b_feature = Some("midplane:p1".into());
+        let edges = [start, half];
+        assert!(route(&edges, &[0.], 0, 60., Some("midplane:p1"), &BTreeSet::new()).is_some());
+        assert!(route(&edges, &[0.], 0, 60., Some("midplane:p2"), &BTreeSet::new()).is_none());
+        assert!(route(&edges, &[0.], 0, 60., Some("face:60"), &BTreeSet::new()).is_none());
+        assert!(route(&[], &[60.], 0, 60., Some("midplane:p1"), &BTreeSet::new()).is_none());
+    }
+
+    #[test]
+    fn a_native_ladder_mark_must_witness_its_own_root_and_level() {
+        let a: Analysis = serde_json::from_value(serde_json::json!({
+            "schema":"draftwright.analysis/2", "binding":{"source_sha256":"", "part":"test", "face_count":0, "loader":"test"},
+            "envelope":[[0.,0.,0.],[20.,20.,10.]], "levels":[4.], "features":[], "iso_bounds":[0.,0.,0.,0.]
+        })).unwrap();
+        let mut mark = Mark {
+            name: "d:step".into(),
+            view: None,
+            text: "4".into(),
+            claims: vec![
+                crate::output::Claim {
+                    feature: "step_level".into(),
+                    parameter: "step_height.length.h4".into(),
+                },
+                crate::output::Claim {
+                    feature: span_claim(2, 0., 4.),
+                    parameter: "station.distance".into(),
+                },
+            ],
+        };
+        assert!(native_stations(&a, std::slice::from_ref(&mark)).is_empty());
+        mark.claims[1].feature = span_claim(2, 4., 8.);
+        assert!(!native_stations(&a, &[mark]).is_empty());
+        assert!(!native_stations(&a, &[]).is_empty());
+    }
+
     /// ctc01: a boss whose centre (2.7e-5 short, from its corners) stands on a hole's location
     /// line is claimed by a mark claiming that line, on that axis only; a hole 0.01 off is
     /// another station and conveys nothing.
@@ -2177,6 +2301,27 @@ mod tests {
             drawn_proof(&a, &[e.clone()], &[0.], 0, 40., Some("boss")),
             Some(vec![0])
         );
+        let mut with_bad_candidate = a.clone();
+        with_bad_candidate.features.insert(
+            0,
+            serde_json::from_value(feature("bad", "hole", [40., 22., 5.])).unwrap(),
+        );
+        with_bad_candidate.recognition = Some(serde_json::from_value(serde_json::json!({
+            "recogniser":"test", "frame":[[0.,0.,0.],[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]],
+            "patterns":[{"id":"bad","arrangement":"linear","members":[],"faces":[],"parameters":{}}]
+        })).unwrap());
+        assert!(
+            drawn_proof(
+                &with_bad_candidate,
+                &[e.clone()],
+                &[0.],
+                0,
+                40.,
+                Some("boss")
+            )
+            .is_some(),
+            "an unreadable candidate must not suppress a later coaxial proof"
+        );
         assert!(drawn_proof(&a, &[e], &[0.], 0, 40., Some("unrelated")).is_none());
         assert!(drawn_proof(&a, &[], &[0.], 0, 40., Some("boss")).is_none());
         assert!(drawn_proof(&a, &[], &[0.], 1, 22., Some("boss")).is_none());
@@ -2207,6 +2352,32 @@ mod tests {
                 Some("boss")
             )
             .is_some()
+        );
+        high.claims.last_mut().unwrap().feature = span_claim(0, 40., 100.);
+        assert!(
+            drawn_proof(
+                &a,
+                &drawn_edges(&a, std::slice::from_ref(&high)),
+                &[0., 100.],
+                0,
+                40.,
+                Some("boss")
+            )
+            .is_some(),
+            "the high-end witness may be drawn second"
+        );
+        high.claims.last_mut().unwrap().feature = span_claim(0, 0., 60.);
+        assert!(
+            drawn_proof(
+                &a,
+                &drawn_edges(&a, std::slice::from_ref(&high)),
+                &[0., 100.],
+                0,
+                40.,
+                Some("boss")
+            )
+            .is_none(),
+            "the same number on unrelated witnesses grants no high-end credit"
         );
         high.claims.pop();
         high.name = "table-coordinate".into();

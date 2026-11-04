@@ -77,7 +77,28 @@ fn main() {
                         .collect::<Vec<_>>()
                 })
                 .collect();
-            rows.push(json!({"removed":removed,"findings":findings,"evidence":evidence}));
+            let chains: Vec<_> = removed
+                .measurements
+                .iter()
+                .filter(|m| m.parameter.contains("location"))
+                .map(|m| {
+                    let proofs: Vec<_> = drawings
+                        .iter()
+                        .filter_map(|d| {
+                            lint::location::printed_chain(
+                                &a,
+                                &lint::marks(d),
+                                &m.feature,
+                                &m.parameter,
+                            )
+                        })
+                        .collect();
+                    json!({"feature":m.feature,"parameter":m.parameter,"proofs":proofs})
+                })
+                .collect();
+            rows.push(
+                json!({"removed":removed,"findings":findings,"evidence":evidence,"chains":chains}),
+            );
         }
         fs::write(
             &path,
