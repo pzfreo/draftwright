@@ -200,18 +200,23 @@ fn properties(doc: &Document, owner: u64, row: &mut Metadata) {
 }
 
 fn apply_items(values: &BTreeMap<String, A>, overrides: bool, row: &mut Metadata) {
-    macro_rules! put {
-        ($field:ident, $value:expr) => {
-            if let Some(value) = $value
-                && (overrides || row.$field.is_none())
-            {
-                row.$field = Some(value);
-            }
-        };
-    }
     for (k, value) in values {
-        // Even accepted suggestions are file statements once written. Their
-        // authoring provenance does not turn them into draftwright guesses.
+        // Written suggestions are file facts, but retain Specify's precedence:
+        // only explicit answers override an already stated native value.
+        let explicit = overrides
+            && !values
+                .get(&format!("default.{k}"))
+                .is_some_and(|v| matches!(v, A::Enum(s) if s == "T"));
+        macro_rules! put {
+            ($field:ident, $value:expr) => {
+                if let Some(value) = $value
+                    && (explicit || row.$field.is_none())
+                {
+                    row.$field = Some(value);
+                }
+            };
+        }
+
         match k.as_str() {
             "part_number" => put!(part_number, text(value)),
             "name" if overrides => put!(name, text(value)),

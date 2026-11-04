@@ -467,3 +467,36 @@ fn a_file_name_override_wins_over_a_guessed_merged_label_stem() {
     assert_eq!(row.name, "Stated locating pin");
     assert_eq!(row.sources["name"], pack::ValueSource::File);
 }
+
+#[test]
+fn written_suggestions_fill_gaps_but_explicit_udas_override_native_values() {
+    let native = small()
+        .replace(
+            "PRODUCT('plate','plate',''",
+            "PRODUCT('PN-A','plate','Native description'",
+        )
+        .replace(
+            "PRODUCT_DEFINITION_FORMATION('','',#41)",
+            "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('B','',#41,.MADE.)",
+        );
+    let entities = uda(
+        384,
+        "specify bom",
+        "#9010,#9011,#9012,#9013,#9014,#9015,#9016,#9017,#9018",
+    ) + "
+#9010=DESCRIPTIVE_REPRESENTATION_ITEM('make_buy','bought');
+#9011=BOOLEAN_REPRESENTATION_ITEM('default.make_buy',.T.);
+#9012=DESCRIPTIVE_REPRESENTATION_ITEM('description','Suggested description');
+#9013=BOOLEAN_REPRESENTATION_ITEM('default.description',.T.);
+#9014=DESCRIPTIVE_REPRESENTATION_ITEM('part_number','PN-B');
+#9015=BOOLEAN_REPRESENTATION_ITEM('default.part_number',.T.);
+#9016=DESCRIPTIVE_REPRESENTATION_ITEM('stock','from stock');
+#9017=BOOLEAN_REPRESENTATION_ITEM('default.stock',.T.);
+#9018=DESCRIPTIVE_REPRESENTATION_ITEM('revision','C');";
+    let row = read(&append(&native, &entities)).remove(0);
+    assert_eq!(row.make_buy.as_deref(), Some("made"));
+    assert_eq!(row.description.as_deref(), Some("Native description"));
+    assert_eq!(row.part_number.as_deref(), Some("PN-A"));
+    assert_eq!(row.stock.as_deref(), Some("from stock"));
+    assert_eq!(row.revision.as_deref(), Some("C"));
+}

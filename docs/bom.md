@@ -10,8 +10,9 @@ single-part analysis reuses the PMI document parse.
 
 The public Specify v0.1.8 occurrence set is `specify bom`. Its items are
 `part_number`, `name`, `description`, `revision`, `make_buy`, `item_number`,
-`optional` and `stock`. This set overrides native fields. Other exporter
-attributes fill missing fields. Keys are case-insensitive, spaces/hyphens are
+`optional` and `stock`. Explicit answers in this set override native fields. Accepted suggestions marked
+by boolean `default.<field>` items, and other exporter attributes, fill missing
+fields. Keys are case-insensitive, spaces/hyphens are
 normalised to underscores, recognised values are normalised, and invalid or
 empty values are ignored. Appended sets are visited in entity order. Written
 suggestions are file statements, regardless of their authoring provenance.
