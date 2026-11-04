@@ -262,9 +262,22 @@ fn authored_location_can_coincide_with_another_features_automatic_owner() {
 #[test]
 fn a_face_axis_alias_and_reversed_references_still_name_the_same_feature() {
     let (_, a, datum, holes) = coincident_locations();
-    let hole = a.features.iter().find(|f| f.id == holes[0]).unwrap();
-    let cylinder = a
-        .dimension_references()
+    let cylinder = cylinder_face(&a, &holes[0]);
+    let s = parse(json!({"dimension_source":"authored","dimensions":{
+        "d:authored:first":{"between":[format!("axis:{}",holes[0]),datum],"along":"y","view":"plan"},
+        "d:authored:second":{"between":[datum,format!("axis:{cylinder}")],"along":"true","view":"side"}
+    }}));
+    let e = model::plan_recovered(&a, &s).unwrap_err();
+    assert_eq!(
+        e.message,
+        "d:authored:second duplicates the quantity owned by d:authored:first; remove d:authored:second and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
+    );
+    assert_eq!(e.choices, ["d:authored:first"]);
+}
+
+fn cylinder_face(a: &Analysis, feature: &str) -> String {
+    let hole = a.features.iter().find(|f| f.id == feature).unwrap();
+    a.dimension_references()
         .iter()
         .find_map(|(key, rs)| {
             let [Reference::Cylinder { bounds, .. }] = rs.as_slice() else {
@@ -282,17 +295,60 @@ fn a_face_axis_alias_and_reversed_references_still_name_the_same_feature() {
                 })
                 .then(|| key.clone())
         })
-        .unwrap();
-    let s = parse(json!({"dimension_source":"authored","dimensions":{
-        "d:authored:first":{"between":[format!("axis:{}",holes[0]),datum],"along":"y","view":"plan"},
-        "d:authored:second":{"between":[datum,format!("axis:{cylinder}")],"along":"true","view":"side"}
+        .unwrap()
+}
+
+#[test]
+fn a_face_axis_alias_does_not_inherit_an_unmeasurable_compound_axis() {
+    let (_, mut a, datum, holes) = coincident_locations();
+    let mut compound = a
+        .features
+        .iter()
+        .find(|f| f.id == holes[0])
+        .unwrap()
+        .clone();
+    compound.id = "f:compound:1".into();
+    compound.kind = "multi_axis_fixture".into();
+    compound.faces.extend(
+        a.features
+            .iter()
+            .find(|f| f.id == holes[1])
+            .unwrap()
+            .faces
+            .iter()
+            .copied(),
+    );
+    a.features.push(compound);
+    assert!(a.dimension_reference("axis:f:compound:1").is_err());
+
+    let mut s = parse(json!({"dimensions":{
+        "d:authored:alias":{"between":[format!("axis:{}",cylinder_face(&a,&holes[0])),datum],"along":"y","view":"plan"}
     }}));
+    let owner = format!("d:{}/location.length.y", holes[0]);
     let e = model::plan_recovered(&a, &s).unwrap_err();
     assert_eq!(
         e.message,
-        "d:authored:second duplicates the quantity owned by d:authored:first; remove d:authored:second and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
+        format!(
+            "d:authored:alias duplicates the quantity owned by {owner}; remove d:authored:alias and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
+        )
     );
-    assert_eq!(e.choices, ["d:authored:first"]);
+    assert_eq!(e.choices, [owner]);
+
+    // Sharing a face does not give the compound a measurable feature axis or
+    // turn the hole's location into a statement about that compound.
+    s.dimension_source = model::DimensionSource::Authored;
+    let p = model::plan_recovered(&a, &s).unwrap();
+    let d = p
+        .dimensions
+        .iter()
+        .find(|d| d.id == "d:authored:alias")
+        .unwrap();
+    assert!(
+        d.measurements
+            .iter()
+            .any(|m| m.feature == holes[0] && m.parameter == "location.length.y")
+    );
+    assert!(!d.measurements.iter().any(|m| m.feature == "f:compound:1"));
 }
 
 #[test]

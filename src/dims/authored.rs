@@ -343,6 +343,7 @@ fn referenced_features(a: &Analysis, refs: &[String]) -> std::collections::BTree
             out.insert(key.to_string());
         } else if let Ok(Reference::Cylinder { bounds, .. }) = a.dimension_reference(key) {
             for f in &a.features {
+                // A compound can contain this face without defining one axis of its own.
                 if f.faces.iter().any(|&i| {
                     a.face_attachments.get(i).is_some_and(|face| {
                         face.bounds.is_some_and(|b| {
@@ -352,7 +353,8 @@ fn referenced_features(a: &Analysis, refs: &[String]) -> std::collections::BTree
                             })
                         })
                     })
-                }) {
+                }) && a.dimension_reference(&format!("axis:{}", f.id)).is_ok()
+                {
                     out.insert(f.id.clone());
                 }
             }
