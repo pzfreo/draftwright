@@ -1,1 +1,314 @@
-{}
+{
+  "293": {
+    "case": "steer_293_inclined_hole",
+    "group": "A",
+    "reason": "Inclined-hole location is still missing and its requested note role is refused.",
+    "checks": [
+      "feature_not_located",
+      "lint_role_accepted"
+    ]
+  },
+  "295": {
+    "case": "steer_295_automatic_sheet",
+    "group": "D",
+    "reason": "Automatic selection chooses a smaller scale than explicit A4 at 1:1.",
+    "checks": [
+      "a4_one_to_one"
+    ]
+  },
+  "296": {
+    "case": "steer_296_reserve_explicit_lane",
+    "group": "C",
+    "reason": "The explicit lane runs off the sheet and raises page_fit_uncertain.",
+    "checks": [
+      "no_annotation_off_sheet",
+      "no_page_fit_uncertain"
+    ]
+  },
+  "297": {
+    "case": "steer_297_reference_roles",
+    "group": "E",
+    "reason": "Reference records expose neither feature membership nor face boundary links.",
+    "checks": [
+      "face_boundaries",
+      "reference_membership"
+    ]
+  },
+  "298": {
+    "case": "steer_298_agent_discovery",
+    "group": "E",
+    "reason": "The release omits MCP/schema/docs; CLI discovery and plan offsets are absent.",
+    "checks": [
+      "--help",
+      "--version",
+      "archive_docs/model.md",
+      "archive_draftwright-mcp",
+      "archive_schemas/spec.json",
+      "callout_offset",
+      "item_options_operation",
+      "schema_operation"
+    ]
+  },
+  "299": {
+    "case": "steer_299_agent_rough_edges",
+    "group": "E",
+    "reason": "The tolerance fix freezes layout, reference rounding is reported, and detail refusal is vague.",
+    "checks": [
+      "detail_reason",
+      "reference_precision",
+      "tolerance_fix_local"
+    ]
+  },
+  "300": {
+    "case": "steer_300_oblique_shoulders",
+    "group": "A",
+    "reason": "Oblique defining dimensions do not discharge the two projected shoulders.",
+    "checks": [
+      "shoulders_defined"
+    ]
+  },
+  "301": {
+    "case": "steer_301_authored_pocket",
+    "group": "A",
+    "reason": "Authored pocket end/size dimensions do not satisfy the pocket requirements.",
+    "checks": [
+      "end_plus_length_locates_centre",
+      "pocket_length.length",
+      "pocket_width.length"
+    ]
+  },
+  "302": {
+    "case": "steer_302_axis_origin",
+    "group": "B",
+    "reason": "The centred keyway gets a tangent location and an axis origin is refused.",
+    "checks": [
+      "axis_origin",
+      "no_tangent_location"
+    ]
+  },
+  "303": {
+    "case": "steer_303_keyway_fit_and_view",
+    "group": "B",
+    "reason": "Keyway fit classes are refused and an authored plan dimension does not retain its view.",
+    "checks": [
+      "JS9",
+      "N9",
+      "P9",
+      "authored_view_kept"
+    ]
+  },
+  "304": {
+    "case": "steer_304_keyway_section",
+    "group": "B",
+    "reason": "The named-feature section request cannot be decoded by the current view API.",
+    "checks": [
+      "named_section"
+    ]
+  },
+  "305": {
+    "case": "steer_305_keyway_depth_wording",
+    "group": "B",
+    "reason": "The generated pocket depth wording still says MAX DEEP.",
+    "checks": [
+      "depth_is_not_a_limit"
+    ]
+  },
+  "307": {
+    "case": "steer_307_completeness_mutations",
+    "group": "A",
+    "reason": "Completeness does not credit geometric constraints, attribute every removal, or report profile redundancy.",
+    "checks": [
+      "angle-bracket_defined",
+      "controlling_overall_is_redundant",
+      "remove_d:authored:base_length",
+      "remove_d:authored:flange_length",
+      "remove_d:authored:flange_thickness",
+      "remove_d:authored:hole2_along_flange",
+      "remove_d:authored:hole2_y",
+      "remove_d:authored:keyway_start",
+      "remove_d:envelope/od.diameter",
+      "remove_d:envelope/width.length",
+      "remove_d:f:chamfer:2/chamfer.length",
+      "remove_d:f:hole:1/bore.diameter",
+      "remove_d:f:hole:1/location.length.x",
+      "remove_d:f:hole:1/location.length.y",
+      "remove_d:f:hole:2/bore.diameter",
+      "remove_d:f:section_recess:1/pocket_width.length",
+      "remove_d:f:turned_step:2/step.length",
+      "remove_d:f:turned_step:3/step.length",
+      "remove_d:step_level/step_height.length.h8",
+      "stepped-shaft-keyway_defined"
+    ]
+  },
+  "308": {
+    "case": "steer_308_refusal_boundary",
+    "group": "B",
+    "reason": "Conventional fit, axis datum, requested note role and small detail requests are refused.",
+    "checks": [
+      "axis_datum_draws",
+      "conventional_fit_draws",
+      "requested_role_draws",
+      "small_detail_reports_layout"
+    ]
+  },
+  "309": {
+    "case": "steer_309_decision_overrides",
+    "group": "B",
+    "reason": "Automatic decision bases do not name their Spec override or a reason none exists.",
+    "checks": [
+      "angle-bracket_basis_names_override",
+      "stepped-shaft-keyway_basis_names_override"
+    ]
+  },
+  "310": {
+    "case": "steer_310_concentric_pattern",
+    "group": "A",
+    "reason": "The concentric bolt-circle centre is still reported missing in x and y.",
+    "checks": [
+      "location.length.x",
+      "location.length.y"
+    ]
+  },
+  "311": {
+    "case": "steer_311_note_is_local",
+    "group": "C",
+    "reason": "Adding a pattern note adds tangent locations to the unrelated central bore.",
+    "checks": [
+      "d:f:hole:3/location.length.x",
+      "d:f:hole:3/location.length.y"
+    ]
+  },
+  "312": {
+    "case": "steer_312_pattern_note_in_plan",
+    "group": "B",
+    "reason": "A pattern note is refused in the plan view that shows the circle.",
+    "checks": [
+      "note_in_plan"
+    ]
+  },
+  "313": {
+    "case": "steer_313_authored_diameter_sign",
+    "group": "E",
+    "reason": "Authored diameter-sign text reaches the drawing with an unsupported font glyph.",
+    "checks": [
+      "note_has_supported_glyphs"
+    ]
+  },
+  "314": {
+    "case": "steer_314_plain_hole_section",
+    "group": "B",
+    "reason": "An explicit section through plain holes is not drawn.",
+    "checks": [
+      "explicit_section_drawn"
+    ]
+  },
+  "315": {
+    "case": "steer_315_broken_front",
+    "group": "B",
+    "reason": "The front view break field is unknown.",
+    "checks": [
+      "broken_view_accepted"
+    ]
+  },
+  "316": {
+    "case": "steer_316_authored_not_reference",
+    "group": "A",
+    "reason": "A reference-only hole location is still credited as a requirement.",
+    "checks": [
+      "reference_does_not_locate"
+    ]
+  },
+  "317": {
+    "case": "steer_317_reference_covers_nothing",
+    "group": "B",
+    "reason": "The reference overall length still covers the required 30 mm spigot length.",
+    "checks": [
+      "length_30"
+    ]
+  },
+  "318": {
+    "case": "steer_318_smaller_isometric_fits",
+    "group": "D",
+    "reason": "Shrinking the isometric raises page_fit_uncertain despite finished items fitting.",
+    "checks": [
+      "no_page_fit_uncertain"
+    ]
+  },
+  "320": {
+    "case": "steer_320_slot_centre_reference",
+    "group": "B",
+    "reason": "The slot centre reference is refused as several cylinder axes.",
+    "checks": [
+      "slot_centre_accepted"
+    ]
+  },
+  "321": {
+    "case": "steer_321_explicit_table_fits",
+    "group": "C",
+    "reason": "The requested table is withdrawn without naming a blocking view or annotation.",
+    "checks": [
+      "table_or_named_blocker"
+    ]
+  },
+  "322": {
+    "case": "steer_322_spatial_table_tags",
+    "group": "C",
+    "reason": "Table tags do not follow row/column order from the origin.",
+    "checks": [
+      "tags_follow_rows_then_columns"
+    ]
+  },
+  "323": {
+    "case": "steer_323_axis_reference_guidance",
+    "group": "E",
+    "reason": "Axis-reference diagnostics give no directly copyable axis key syntax.",
+    "checks": [
+      "copyable_axis_example",
+      "unambiguous_axis_instruction"
+    ]
+  },
+  "324": {
+    "case": "steer_324_spec_selects_part",
+    "group": "B",
+    "reason": "The top-level part field is unknown.",
+    "checks": [
+      "part_field_accepted"
+    ]
+  },
+  "325": {
+    "case": "steer_325_pin_respects_other_placement",
+    "group": "C",
+    "reason": "Another pinned leader silently discards placement and the basis still claims it was applied.",
+    "checks": [
+      "basis_truthful",
+      "placement_kept_or_explained"
+    ]
+  },
+  "327": {
+    "case": "steer_327_unstated_outline_faces",
+    "group": "A",
+    "reason": "Neither unstated inner ear face is identified by completeness lint.",
+    "checks": [
+      "left_ear",
+      "right_ear"
+    ]
+  },
+  "330": {
+    "case": "steer_330_report_gdt_moves",
+    "group": "C",
+    "reason": "Unrelated datum/frame label boxes move without a finding naming the move.",
+    "checks": [
+      "gdt_unchanged_or_move_reported"
+    ]
+  },
+  "331": {
+    "case": "steer_331_finished_sheet_fits",
+    "group": "D",
+    "reason": "Both baseline and placed-510 variants warn about fit; the current 650 also extends out of bounds.",
+    "checks": [
+      "baseline_fits",
+      "finished_items_on_sheet",
+      "placed_510_fits"
+    ]
+  }
+}

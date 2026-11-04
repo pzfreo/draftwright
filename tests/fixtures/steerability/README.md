@@ -20,7 +20,11 @@ committed with its provenance in `../pmi/README.md`; it is not duplicated.
 The named `*.spec.json` files are the corresponding dw-examples `*-ai.spec.json`
 Specs. `inline-293.spec.json` and `inline-301.spec.json` are the complete inline
 Specs from those issue snapshots (also repeated in the related issues). Tests
-apply the issue's requested change to these immutable inputs. No input is read
+apply the issue's requested change to these immutable inputs. CTC-01 now has
+native recognition of its two rectangular notches; `input()` explicitly omits
+the five coincident generated owners (two depths, two widths and the left
+notch's x location) so K6 accepts the original authored statements. This is a
+fixture compatibility edit, not an engine or lint-expectation change. No input is read
 from `repro/`, the network, or an external corpus at test runtime. The missing
 `sections`, `break`, and top-level `part` fields deliberately remain in the
 requests exercised by their cases; deserialization is part of the public API.
@@ -51,7 +55,10 @@ remain hard assertions, outside the expected-failure mechanism.
 Proposal issues #308/#309 are represented by their concrete refusal examples
 and by plan decision bases naming their override. Written policy/inventory
 work is intentionally left to their separately approved implementation stream.
-#298 exercises the built CLI's help/version, service discovery, and plan offset
-metadata; a source test cannot verify the contents of a future release archive.
+#298 exercises the built CLI's help/version, service discovery, plan offset
+metadata, and the actual release packaging recipe. The package step is run in
+a temporary directory with both built binaries and the shipped source assets;
+`tar` member names must include MCP, the schema, and the model docs. No upload
+step is executed. The portable tar branch checks the common staging payload.
 #299 covers items 2–4 from the backlog's test-case column; changing stable ID
 vocabulary (item 1) needs its own geometry-edit identity contract.

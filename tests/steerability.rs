@@ -25,8 +25,23 @@ fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/steerability")
 }
 fn input(name: &str) -> Value {
-    serde_json::from_slice(&std::fs::read(root().join(format!("{name}.spec.json"))).unwrap())
-        .unwrap()
+    let mut value: Value =
+        serde_json::from_slice(&std::fs::read(root().join(format!("{name}.spec.json"))).unwrap())
+            .unwrap();
+    if name == CTC {
+        // Main now recognises the two notches. Keep the issue's authored statements,
+        // explicitly omitting only their newly generated coincident owners (K6).
+        for id in [
+            "d:f:rectangular_through_notch:1/notch_depth.length",
+            "d:f:rectangular_through_notch:2/notch_depth.length",
+            "d:f:rectangular_through_notch:2/location.length.x",
+            "d:f:rectangular_through_notch:1/notch_width.length",
+            "d:f:rectangular_through_notch:2/notch_width.length",
+        ] {
+            value["dimensions"][id] = json!({"omit":true});
+        }
+    }
+    value
 }
 fn minimal() -> Value {
     json!({"schema":"draftwright.spec/2"})
@@ -163,6 +178,8 @@ fn between(a: String, b: String, along: &str, view: &str) -> Value {
 
 #[derive(Deserialize)]
 struct Expected {
+    case: String,
+    group: String,
     reason: String,
     checks: BTreeSet<String>,
 }
@@ -196,7 +213,22 @@ impl Checks {
     fn finish(self, issue: u32) {
         let expected: BTreeMap<u32, Expected> =
             serde_json::from_str(include_str!("fixtures/steerability/expected.json")).unwrap();
+        for (id, e) in &expected {
+            assert!(
+                (293..=331).contains(id)
+                    && *id != 306
+                    && !e.reason.is_empty()
+                    && !e.checks.is_empty(),
+                "invalid expected-failure entry #{id}"
+            );
+        }
         if let Some(e) = expected.get(&issue) {
+            assert_eq!(
+                Some(e.case.as_str()),
+                std::thread::current().name(),
+                "expected entry names the case it governs"
+            );
+            assert!(["A", "B", "C", "D", "E", "F"].contains(&e.group.as_str()));
             assert!(
                 !self.0.is_empty(),
                 "#{issue} now passes: remove its expected-failure entry ({})",
@@ -330,6 +362,85 @@ fn steer_297_reference_roles() {
     c.finish(297);
 }
 
+/// Exercise the release workflow's actual package recipe, locally, without any upload step.
+/// Inspecting archive member names checks the public deliverable rather than workflow text.
+fn release_members() -> BTreeSet<String> {
+    struct Scratch(PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dir =
+        Scratch(std::env::temp_dir().join(format!("dw-steer-release-{}", std::process::id())));
+    std::fs::create_dir(&dir.0).unwrap();
+    fn copy_tree(from: &Path, to: &Path) {
+        if from.is_dir() {
+            std::fs::create_dir(to).unwrap();
+            for entry in std::fs::read_dir(from).unwrap() {
+                let entry = entry.unwrap();
+                copy_tree(&entry.path(), &to.join(entry.file_name()));
+            }
+        } else {
+            std::fs::copy(from, to).unwrap();
+        }
+    }
+    for name in ["LICENSE", "README.md", "schemas", "docs"] {
+        copy_tree(&repo.join(name), &dir.0.join(name));
+    }
+    let bin = dir.0.join("target/fixture-native/release");
+    std::fs::create_dir_all(&bin).unwrap();
+    let suffix = std::env::consts::EXE_SUFFIX;
+    for (name, path) in [
+        ("draftwright", env!("CARGO_BIN_EXE_draftwright")),
+        ("draftwright-mcp", env!("CARGO_BIN_EXE_draftwright-mcp")),
+    ] {
+        std::fs::copy(path, bin.join(format!("{name}{suffix}"))).unwrap();
+    }
+    let workflow = std::fs::read_to_string(repo.join(".github/workflows/cli.yml")).unwrap();
+    let block = workflow
+        .split("      - name: Package and checksum\n")
+        .nth(1)
+        .expect("release packaging step must still be exercised");
+    let script = block
+        .split("        run: |\n")
+        .nth(1)
+        .unwrap()
+        .lines()
+        .take_while(|line| line.starts_with("          ") || line.is_empty())
+        .map(|line| line.strip_prefix("          ").unwrap_or(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .replace("${{ matrix.target }}", "fixture-native")
+        .replace("${{ matrix.exe }}", suffix)
+        // Exercise the portable tar payload on each host; the Windows zip has the same staging directory.
+        .replace("${{ runner.os }}", "Linux");
+    let output = std::process::Command::new("bash")
+        .args(["-euc", &script])
+        .env("RELEASE_TAG", "fixture")
+        .current_dir(&dir.0)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "package recipe: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let archive = dir.0.join("dist/draftwright-fixture-fixture-native.tar.gz");
+    let output = std::process::Command::new("tar")
+        .arg("-tzf")
+        .arg(archive)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "archive must be readable");
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(String::from)
+        .collect()
+}
+
 #[test]
 fn steer_298_agent_discovery() {
     let p = planned(BRACKET, &input("inline-293"));
@@ -352,6 +463,20 @@ fn steer_298_agent_discovery() {
         "callout_offset",
         record.get("callout_offset").is_some() || record.get("offset").is_some(),
     );
+    let members = release_members();
+    for path in ["draftwright-mcp", "schemas/spec.json", "docs/model.md"] {
+        let path = if path == "draftwright-mcp" {
+            format!("{path}{}", std::env::consts::EXE_SUFFIX)
+        } else {
+            path.into()
+        };
+        c.want(
+            &format!("archive_{path}"),
+            members
+                .iter()
+                .any(|name| name.ends_with(&format!("/{path}"))),
+        );
+    }
     c.finish(298);
 }
 
@@ -375,9 +500,10 @@ fn steer_299_agent_rough_edges() {
     let p = planned(BRACKET, &s);
     c.want(
         "reference_precision",
-        !rendered(BRACKET, &p).lint.iter().any(|f| {
+        !rendered(BRACKET, &p).structural.iter().any(|f| {
             f.code == "nominal_rounded"
-                && f.annotation.as_deref() == Some("d:envelope/height.length")
+                && (f.message.contains("38.6")
+                    || f.annotation.as_deref() == Some("d:envelope/height.length"))
         }),
     );
     let mut detail = s;
@@ -525,7 +651,7 @@ fn steer_303_keyway_fit_and_view() {
     let p = planned(SHAFT, &s);
     c.want(
         "authored_view_kept",
-        p.plan.views.iter().any(|v| v.id == "plan") && !has(&p.plan, "dimension_view_not_shown"),
+        p.plan.views.iter().any(|v| v.id == "v:plan") && !has(&p.plan, "dimension_view_not_shown"),
     );
     c.finish(303);
 }
@@ -578,25 +704,7 @@ fn steer_305_keyway_depth_wording() {
 #[test]
 fn steer_307_completeness_mutations() {
     let mut c = Checks::default();
-    for (name, s, authored) in [
-        (
-            BRACKET,
-            input("inline-293"),
-            vec![
-                "d:authored:base_length",
-                "d:authored:flange_length",
-                "d:authored:flange_thickness",
-            ],
-        ),
-        (
-            SHAFT,
-            input("inline-301"),
-            vec![
-                "d:authored:keyway_start",
-                "d:f:section_recess:1/pocket_width.length",
-            ],
-        ),
-    ] {
+    for (name, s) in [(BRACKET, input(BRACKET)), (SHAFT, input(SHAFT))] {
         let p = planned(name, &s);
         let r = rendered(name, &p);
         let relevant = |f: &&LintIssue| {
@@ -614,16 +722,14 @@ fn steer_307_completeness_mutations() {
             &format!("{name}_defined"),
             r.lint.iter().filter(relevant).count() == 0,
         );
-        let mut ids: Vec<String> = authored.into_iter().map(String::from).collect();
-        if name == BRACKET {
-            ids.extend(
-                p.plan
-                    .dimensions
-                    .iter()
-                    .filter(|d| d.kind == "angular" || d.id == "d:step_level/step_height.length.h8")
-                    .map(|d| d.id.clone()),
-            );
-        }
+        let ids: Vec<_> = p
+            .plan
+            .dimensions
+            .iter()
+            .filter(|d| !d.reference && d.placed.is_some())
+            .map(|d| d.id.clone())
+            .collect();
+        assert!(!ids.is_empty());
         let marks: Vec<_> = r.drawings.iter().flat_map(lint::marks).collect();
         for id in ids {
             assert!(
@@ -631,7 +737,8 @@ fn steer_307_completeness_mutations() {
                 "mutation must remove an actually drawn dimension: {id}"
             );
             let reduced: Vec<_> = marks.iter().filter(|m| m.name != id).cloned().collect();
-            let before: BTreeSet<_> = r.lint.iter().map(|f| f.id.as_str()).collect();
+            let baseline = lint::check(&fixture(name).analysis, &marks);
+            let before: BTreeSet<_> = baseline.iter().map(|f| f.id.as_str()).collect();
             let findings = lint::check(&fixture(name).analysis, &reduced);
             let fresh: Vec<_> = findings
                 .iter()
@@ -640,11 +747,30 @@ fn steer_307_completeness_mutations() {
             c.want(
                 &format!("remove_{id}"),
                 fresh.len() == 1
-                    && !fresh[0].subjects.is_empty()
-                    && !fresh[0].requirements.is_empty(),
+                    && marks
+                        .iter()
+                        .filter(|m| m.name == id)
+                        .flat_map(|m| &m.claims)
+                        .any(|claim| {
+                            fresh[0].subjects.contains(&claim.feature)
+                                || fresh[0]
+                                    .requirements
+                                    .iter()
+                                    .any(|q| q.feature == claim.feature)
+                        }),
             );
         }
     }
+    let mut redundant = input(BRACKET);
+    set_dim(&mut redundant, "d:envelope/width.length", json!({}));
+    let p = planned(BRACKET, &redundant);
+    c.want(
+        "controlling_overall_is_redundant",
+        rendered(BRACKET, &p).lint.iter().any(|f| {
+            ["duplicate_measurement", "closed_dimension_chain"].contains(&f.code.as_str())
+                && (!f.related.is_empty() || f.subjects.len() > 1)
+        }),
+    );
     c.finish(307);
 }
 
@@ -688,6 +814,48 @@ fn steer_308_refusal_boundary() {
             .unwrap()
             .contains("no unique z station")
     );
+    let mut axis = input("inline-301");
+    axis["origin"] = json!({"y":"axis:f:turned_step:2"});
+    c.accepts(
+        SHAFT,
+        &axis,
+        "axis_datum_draws",
+        "must identify min, max or one plane normal to y",
+    );
+    let mut detail = input("inline-301");
+    detail["views"]["detail_a"] =
+        json!({"detail":{"around":"f:section_recess:1","from":"side","scale_factor":2}});
+    c.accepts(
+        SHAFT,
+        &detail,
+        "small_detail_reports_layout",
+        "needs its source view and room",
+    );
+    let mut unknown = input("inline-301");
+    unknown["dimensions"]["d:authored:keyway_start"]["between"][0] = json!("face:v1:missing");
+    assert!(
+        plan_result(SHAFT, &unknown)
+            .err()
+            .unwrap()
+            .contains("Unknown reference")
+    );
+    let mut typed = input("inline-301");
+    typed["dimensions"]["d:authored:keyway_start"]["value"] = json!(40);
+    assert!(
+        plan_result(SHAFT, &typed)
+            .err()
+            .unwrap()
+            .contains("unknown field `value`")
+    );
+    let mut zero = input("inline-293");
+    zero["dimensions"]["d:authored:hole2_along_flange"]["between"][1] =
+        json!(plane(BRACKET, 2, 0.));
+    assert!(
+        plan_result(BRACKET, &zero)
+            .err()
+            .unwrap()
+            .contains("no nonzero true distance")
+    );
     c.finish(308);
 }
 
@@ -698,12 +866,12 @@ fn steer_309_decision_overrides() {
         let p = planned(name, &s);
         // Inventory comes from public plan decisions, not a guessed list of internals.
         let choices = std::iter::once(("sheet".to_owned(), p.plan.sheet.basis.as_str()))
-            .chain(
-                p.plan
-                    .views
-                    .iter()
-                    .map(|v| (format!("views/{}", v.id), v.basis.as_str())),
-            )
+            .chain(p.plan.views.iter().map(|v| {
+                (
+                    format!("views/{}", v.id.trim_start_matches("v:")),
+                    v.basis.as_str(),
+                )
+            }))
             .chain(p.plan.dimensions.iter().map(|d| {
                 (
                     format!("dimensions/{}", draftwright::items::key(&d.id)),
@@ -713,7 +881,19 @@ fn steer_309_decision_overrides() {
         for (path, basis) in choices {
             c.want(
                 &format!("{name}_basis_names_override"),
-                basis.contains(&path) || basis.contains("cannot override") || basis.contains("#"),
+                basis.contains(&path)
+                    || [
+                        "sheet/",
+                        "views/",
+                        "dimensions/",
+                        "features/",
+                        "origin/",
+                        "dimension_schemes/",
+                    ]
+                    .iter()
+                    .any(|prefix| basis.contains(prefix))
+                    || basis.contains("cannot override")
+                    || basis.contains('#'),
             );
         }
     }
@@ -774,7 +954,7 @@ fn steer_312_pattern_note_in_plan() {
             p.plan
                 .gdt
                 .iter()
-                .any(|g| &g.id == id && g.view == "plan" && g.placed.is_some()),
+                .any(|g| &g.id == id && g.view == "v:plan" && g.placed.is_some()),
         );
         let r = rendered(FLANGE, &p);
         c.want(
@@ -844,7 +1024,7 @@ fn steer_314_plain_hole_section() {
         p.plan
             .views
             .iter()
-            .any(|v| v.id == "section_aa" && v.cut.is_some())
+            .any(|v| v.id == "v:section_aa" && v.cut.is_some())
             && !has(&p.plan, "section_not_shown"),
     );
     c.finish(314);
@@ -884,7 +1064,12 @@ fn steer_316_authored_not_reference() {
     let mut c = Checks::default();
     c.want(
         "authored_locates",
-        !missing(rendered(BAR, &p), "feature_not_located", "f:hole:2", ""),
+        !missing(
+            rendered(BAR, &p),
+            "feature_not_located",
+            "f:hole:2",
+            "location.length.x",
+        ),
     );
     s["dimensions"]
         .as_object_mut()
@@ -898,7 +1083,12 @@ fn steer_316_authored_not_reference() {
     let p = planned(BAR, &s);
     c.want(
         "reference_does_not_locate",
-        missing(rendered(BAR, &p), "feature_not_located", "f:hole:2", ""),
+        missing(
+            rendered(BAR, &p),
+            "feature_not_located",
+            "f:hole:2",
+            "location.length.x",
+        ),
     );
     c.finish(316);
 }
@@ -918,8 +1108,11 @@ fn steer_317_reference_covers_nothing() {
             &format!("length_{value}"),
             p.plan.dimensions.iter().any(|d| {
                 d.placed.is_some()
+                    && d.kind == "linear"
                     && (d.value - value).abs() < 1e-5
                     && d.reference == (value == 630.)
+                    && (value != 30. || d.id == "d:f:turned_step:2/step.length")
+                    && (value != 630. || d.id == "d:envelope/width.length")
             }),
         );
     }
@@ -1137,10 +1330,10 @@ fn steer_325_pin_respects_other_placement() {
     s["dimensions"]["d:f:hole:4/bore.diameter"]["place"]["offset"] = json!([-20, -14]);
     let after = planned(PIVOT, &s);
     let id = "d:f:hole_pattern:1/grid_pitch.length.col";
-    let unchanged = close(
-        relative_label(&before.plan, id),
-        relative_label(&after.plan, id),
-    );
+    let b = relative_label(&before.plan, id);
+    let a = relative_label(&after.plan, id);
+    let unchanged = ((a[0] + a[2]) - (b[0] + b[2])).abs() < 1e-6
+        && (a[1] + a[3]).signum() == (b[1] + b[3]).signum();
     let reported = after.plan.problems.iter().any(|f| {
         f.subjects.iter().any(|s| s == id)
             && (f.message.contains("place") || f.message.contains("position"))
@@ -1152,6 +1345,36 @@ fn steer_325_pin_respects_other_placement() {
         unchanged || !dim(&after.plan, id).unwrap().basis.contains("spec places"),
     );
     c.finish(325);
+}
+
+fn extension_crossings(p: &Plan, ids: &[&str]) -> usize {
+    let dims: Vec<_> = p
+        .dimensions
+        .iter()
+        .filter(|d| {
+            ids.contains(&d.id.as_str()) && d.placed.as_ref().is_some_and(|q| q.lines.len() >= 3)
+        })
+        .collect();
+    let side = |a: [f64; 2], b: [f64; 2], c: [f64; 2]| {
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    };
+    let mut count = 0;
+    for a in &dims {
+        for b in &dims {
+            if a.id == b.id || a.view != b.view {
+                continue;
+            }
+            for [p, q] in &a.placed.as_ref().unwrap().lines[..2] {
+                let [r, s] = b.placed.as_ref().unwrap().lines[2];
+                if side(*p, *q, r) * side(*p, *q, s) < -1e-8
+                    && side(r, s, *p) * side(r, s, *q) < -1e-8
+                {
+                    count += 1;
+                }
+            }
+        }
+    }
+    count
 }
 
 #[test]
@@ -1194,6 +1417,13 @@ fn steer_326_short_dimensions_inside() {
         compared > 0,
         "must compare overlapping dimensions on the same side"
     );
+    let mut baseline = input(CTC);
+    baseline.as_object_mut().unwrap().remove("dimensions");
+    let baseline = planned(CTC, &baseline);
+    c.want(
+        "extension_crossings_do_not_increase",
+        extension_crossings(&p.plan, &ids) <= extension_crossings(&baseline.plan, &ids),
+    );
     c.finish(326);
 }
 
@@ -1233,21 +1463,15 @@ fn steer_328_slot_location_credit() {
         );
     }
     let mut authored = s;
-    for (slot, coordinate) in [("f:slot:1", -25.), ("f:slot:2", -20.)] {
-        let a = &fixture(CTC).analysis;
-        // End-arc axes have a unique y station even though a slot has two x axes.
-        let f = a.features.iter().find(|f| f.id == slot).unwrap();
-        let _ = coordinate;
-        let face = *f.faces.first().unwrap();
-        let refs = a.dimension_references();
-        // Find a real cylindrical reference on the slot's common y station.
-        let key = refs.iter().find_map(|(key,rs)| rs.iter().any(|r| matches!(r,Reference::Cylinder { origin,.. } if (origin[1]-coordinate).abs()<1e-5)).then(||key.clone())).unwrap_or_else(||panic!("slot {slot}, face {face}: no cylinder"));
+    // The two straight slot walls are 205 and 200 from the front face.
+    // Together with the printed widths they fix the common centre line.
+    for (slot, coordinate) in [("f:slot:1", -20.), ("f:slot:2", -25.)] {
         set_dim(
             &mut authored,
             &format!("d:authored:{}_y", slot.replace(':', "_")),
             between(
                 plane(CTC, 1, fixture(CTC).analysis.envelope[0][1]),
-                format!("axis:{key}"),
+                plane(CTC, 1, coordinate),
                 "y",
                 "plan",
             ),
@@ -1288,10 +1512,7 @@ fn steer_329_valueless_pmi() {
             || r.lint
                 .iter()
                 .any(|f| f.code == "pmi_not_extracted" && f.sources.contains(&record.source_id));
-        let attached = record
-            .geometry
-            .as_ref()
-            .is_some_and(|g| !g.faces.is_empty());
+        let attached = !record.faces.is_empty();
         c.want(
             &format!("pmi_{id}"),
             !unresolved && attached && record.value == Some(value),
