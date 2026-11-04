@@ -50,6 +50,30 @@ fn nominal_mm(text: &str, value: f64) -> bool {
     )
 }
 
+fn span_stated(mark: &Mark, value: f64, strict: bool) -> bool {
+    if !strict {
+        // Planner precedence retains its existing interpretation; lint verifies nominals.
+        return states_mm(&mark.text, value)
+            || mark.text.split_once('×').is_some_and(|(n, rest)| {
+                n.trim()
+                    .parse::<f64>()
+                    .is_ok_and(|n| states_mm(rest.trim(), value / n))
+            });
+    }
+    if let Some((n, rest)) = mark.text.split_once('×') {
+        n.trim().parse::<usize>().is_ok_and(|n| {
+            n > 0
+                && (nominal_mm(rest, value)
+                    || (mark.claims.iter().any(|c| {
+                        c.parameter.contains("pitch.length")
+                            || (c.feature == "step_level" && c.parameter == "step_height.length")
+                    }) && nominal_mm(rest, value / n as f64)))
+        })
+    } else {
+        nominal_mm(&mark.text, value)
+    }
+}
+
 fn printed_depth(text: &str, depth: f64) -> bool {
     if let Some((_, rest)) = text.split_once('↧') {
         return states_mm(rest.split_whitespace().next().unwrap_or(""), depth);
@@ -366,19 +390,12 @@ fn round_axis_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
                 continue;
             };
             if (at - origin[k]).abs() < EPS
-                // A raw table/claim already stating the box coordinate is not an axis datum.
-                || (!physical && states_mm(mark.text.split_whitespace().next().unwrap_or(""),
-                    (at - a.envelope[0][k]).abs()))
-                || !states_mm(
-                    mark.text.split_whitespace().next().unwrap_or(""),
-                    (at - origin[k]).abs(),
-                )
-                || (physical
-                    && !witnessed.iter().any(|e| {
-                        e.axis == k
-                            && (e.a.min(e.b) - at.min(origin[k])).abs() < super::redundancy::TOL
-                            && (e.a.max(e.b) - at.max(origin[k])).abs() < super::redundancy::TOL
-                    }))
+                || !span_stated(mark, (at - origin[k]).abs(), true)
+                || !witnessed.iter().any(|e| {
+                    e.axis == k
+                        && (e.a.min(e.b) - at.min(origin[k])).abs() < super::redundancy::TOL
+                        && (e.a.max(e.b) - at.max(origin[k])).abs() < super::redundancy::TOL
+                })
             {
                 continue;
             }
@@ -479,19 +496,7 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                     && k < 3
                     && p.is_finite()
                     && q.is_finite()
-                    && (if let Some((n, rest)) = mark.text.split_once('×') {
-                        n.trim().parse::<usize>().is_ok_and(|n| {
-                            n > 0
-                                && (nominal_mm(rest, (q - p).abs())
-                                    || (mark.claims.iter().any(|c| {
-                                        c.parameter.contains("pitch.length")
-                                            || (c.feature == "step_level"
-                                                && c.parameter == "step_height.length")
-                                    }) && nominal_mm(rest, (q - p).abs() / n as f64)))
-                        })
-                    } else {
-                        nominal_mm(&mark.text, (q - p).abs())
-                    })
+                    && span_stated(mark, (q - p).abs(), authored)
                 {
                     spans.push((k, p, q));
                 }
@@ -509,7 +514,7 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                         && let Some(k) = ["X", "Y", "Z"]
                             .iter()
                             .position(|v| Some(*v) == g.axis.as_deref())
-                        && nominal_mm(&mark.text, (g.stations[1][k] - g.stations[0][k]).abs())
+                        && span_stated(mark, (g.stations[1][k] - g.stations[0][k]).abs(), authored)
                     {
                         spans.push((k, g.stations[0][k], g.stations[1][k]));
                     }
@@ -2430,6 +2435,27 @@ mod tests {
         assert!(route(&edges, &[0.], 0, 60., Some("midplane:p2"), &BTreeSet::new()).is_none());
         assert!(route(&edges, &[0.], 0, 60., Some("face:60"), &BTreeSet::new()).is_none());
         assert!(route(&[], &[60.], 0, 60., Some("midplane:p1"), &BTreeSet::new()).is_none());
+    }
+
+    #[test]
+    fn physical_equations_do_not_use_fit_classes_tolerances_or_zero_counts() {
+        for text in ["999±40", "999 H40", "0×40"] {
+            let m = Mark {
+                name: "d".into(),
+                view: None,
+                text: text.into(),
+                claims: vec![],
+            };
+            assert!(!span_stated(&m, 40., true), "{text}");
+        }
+        let m = Mark {
+            name: "d".into(),
+            view: None,
+            text: "40 H7 ±0.1".into(),
+            claims: vec![],
+        };
+        assert!(span_stated(&m, 40., true));
+        assert!(!span_stated(&m, 7., true));
     }
 
     #[test]
