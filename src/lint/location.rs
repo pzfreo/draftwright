@@ -520,6 +520,10 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                 {
                     spans.push((s.axis, s.lo, s.hi));
                 }
+                if authored && let Some(span) = blind_size(a, &c.feature, &c.parameter, &mark.text)
+                {
+                    spans.push(span);
+                }
                 // A compound depth has its own printed depth term and two physical
                 // supports. A width or length with the same number is not depth evidence.
                 if authored
@@ -743,6 +747,57 @@ fn pocket_face(a: &Analysis, id: &str, axis: usize, at: f64) -> Option<String> {
     });
     let i = faces.next()?;
     faces.next().is_none().then(|| format!("face:{i}"))
+}
+
+fn blind_size(a: &Analysis, id: &str, role: &str, text: &str) -> Option<(usize, f64, f64)> {
+    use super::section_recesses::{Grammar, grammar};
+    let f = a
+        .features
+        .iter()
+        .find(|f| f.id == id && f.kind == "section_recess")?;
+    let g = grammar(f).ok()?;
+    let (s, round) = match &g {
+        Grammar::RectangularBlindSlot(s) => (s, false),
+        Grammar::RoundBottomBlindSlot(s) => (s, true),
+        _ => return None,
+    };
+    let (axis, size, term) = match role {
+        "rectangular_blind_slot_width.length" if !round => (s.width_axis, s.width, 0),
+        "rectangular_blind_slot_length.length" if !round => (s.axis, s.length, 1),
+        "round_bottom_blind_slot_length.length" if round => (s.axis, s.length, 2),
+        "round_bottom_blind_slot_radius.radius" if round => (s.depth_axis, s.depth, 1),
+        _ => return None,
+    };
+    let body = text.strip_prefix(if round {
+        "ROUND-BOTTOM OPEN SLOT "
+    } else {
+        "OPEN SLOT "
+    })?;
+    let word = body
+        .split('×')
+        .nth(term)?
+        .trim()
+        .split('±')
+        .next()?
+        .split_whitespace()
+        .next()?
+        .trim_start_matches('R');
+    if !word.parse::<f64>().is_ok_and(|v| v.is_finite() && v >= 0.) || !states_mm(word, size) {
+        return None;
+    }
+    let frame = crate::bridge::holes::frame(a);
+    let mut unit = [0.; 3];
+    unit[axis] = 1.;
+    let k = crate::bridge::holes::principal(crate::bridge::holes::dir_to_part(&frame, unit))?;
+    let mut low = s.origin;
+    let mut high = s.origin;
+    low[axis] -= size / 2.;
+    high[axis] += size / 2.;
+    Some((
+        k,
+        crate::bridge::holes::to_part(&frame, low)[k],
+        crate::bridge::holes::to_part(&frame, high)[k],
+    ))
 }
 
 fn blind_axis(a: &Analysis, id: &str) -> Option<(usize, f64)> {
@@ -1756,7 +1811,7 @@ pub(crate) fn targets(a: &Analysis) -> Vec<(String, usize, f64)> {
         }
     }
     // Invariant: The collected positions passed finite coordinate parsing.
-    for f in &a.features {
+    for f in a.features.iter().filter(|f| f.kind == "section_recess") {
         if let Some((k, at)) = blind_axis(a, &f.id) {
             out.push((f.id.clone(), k, at));
         }
