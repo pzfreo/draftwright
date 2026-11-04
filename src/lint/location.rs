@@ -214,6 +214,28 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                 if authored && let Some((k, p, q)) = authored_span(a, mark, c) {
                     spans.push((k, p, q));
                 }
+                // Table cells have no linear witnesses. Their coordinate claims refer to
+                // the analytic feature station, not the trimmed-face fingerprint's centre.
+                // Keep this correction in drawing evidence, outside planner precedence.
+                if authored
+                    && let Some(k) = c
+                        .parameter
+                        .strip_prefix("location.length.")
+                        .and_then(|axis| AXES.iter().position(|v| *v == axis))
+                    && a.features
+                        .iter()
+                        .any(|f| f.id == c.feature && matches!(f.kind.as_str(), "hole" | "boss"))
+                {
+                    if let Some(at) = station(a, &c.feature, k)
+                        && states_mm(
+                            mark.text.split_whitespace().next().unwrap_or(""),
+                            (at - a.envelope[0][k]).abs(),
+                        )
+                    {
+                        spans.push((k, a.envelope[0][k], at));
+                    }
+                    continue;
+                }
                 // A compound pocket callout states each claimed numeric size, even when
                 // that size is not the label's leading number.
                 if authored

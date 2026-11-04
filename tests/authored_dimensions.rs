@@ -975,3 +975,42 @@ fn authored_axis_chain_locates_an_unpatterned_hole_without_pmi() {
         );
     }
 }
+
+#[test]
+fn an_engine_coordinate_uses_the_axis_instead_of_a_trimmed_face_fingerprint() {
+    let (_, mut a) = model::analyse_native(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/scattered_holes.step"),
+    )
+    .unwrap();
+    // The STEP's axis is x=-71, 49 from x=-120. A trimmed bore's
+    // fingerprint centre need not lie on that analytic axis (CTC-02/FTC-08/FTC-09).
+    let f = a.features.iter_mut().find(|f| f.id == "f:hole:1").unwrap();
+    f.fingerprint.position[0] += 0.03;
+    for (text, missing) in [("49", false), ("999 ±49", true)] {
+        let mark = draftwright::lint::Mark {
+            name: "hole_schedule_test/x".into(),
+            view: Some("v:plan".into()),
+            text: text.into(),
+            claims: vec![draftwright::output::Claim {
+                feature: "f:hole:1".into(),
+                parameter: "location.length.x".into(),
+            }],
+        };
+        let issues = draftwright::lint::check(&a, &[mark]);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|i| i.code == "feature_not_located")
+                .flat_map(|i| &i.requirements)
+                .any(|r| r.feature == "f:hole:1" && r.parameter == "location.length.x"),
+            missing
+        );
+        assert!(
+            issues
+                .iter()
+                .filter(|i| i.code == "feature_not_located")
+                .flat_map(|i| &i.requirements)
+                .any(|r| r.feature == "f:hole:1" && r.parameter == "location.length.y")
+        );
+    }
+}
