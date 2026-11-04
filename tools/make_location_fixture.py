@@ -5,15 +5,15 @@ No repro file is read. Run from the repository root to regenerate.
 """
 from pathlib import Path
 import math
+import argparse
 from make_review_fixtures import Step
 
 
 class Pocket(Step):
-    def __init__(self, pockets=((40, 17, 80, 23, 7),), step=False, open_end=False):
+    def __init__(self, pockets=((40, 17, 80, 23, 7),), step=False):
         super().__init__()
         self.pockets = pockets
         self.step = step
-        self.open_end = open_end
 
     def box(self, dims, bores=()):
         points = [(0, 0, 0), (120, 0, 0), (120, 40, 0), (0, 40, 0),
@@ -59,10 +59,6 @@ class Pocket(Step):
             specs += [([a, d, e, b], (1, 0, 0), (0, 1, 0)),
                       ([b, e, f, c], (0, -1, 0), (1, 0, 0)),
                       ([d, 5, f, e], (0, 0, 1), (1, 0, 0))]
-        if self.open_end:
-            assert len(self.pockets) == 1 and self.pockets[0][2] == 120
-            specs[1] = ([4, 5, 9, 8, 11, 10, 6, 7], (0, 0, 1), (1, 0, 0))
-            specs[3] = ([1, 2, 6, 10, 14, 13, 9, 5], (1, 0, 0), (0, 1, 0))
         top = specs[1][0]
         holes = []
         for i, (_, _, _, _, floor) in enumerate(self.pockets):
@@ -71,16 +67,13 @@ class Pocket(Step):
                      ([o+1, o+2, o+6, o+5], (-1, 0, 0), (0, 1, 0)),
                      ([o+2, o+3, o+7, o+6], (0, -1, 0), (-1, 0, 0)),
                      ([o+3, o, o+4, o+7], (1, 0, 0), (0, -1, 0))]
-            if self.open_end:
-                walls.pop(1)
             for indices, normal, x in walls:
                 if floor > 10:
                     indices = list(reversed(indices))
                     normal = tuple(-v for v in normal)
                 specs.append((indices, normal, x))
             specs.append(([o+4, o+5, o+6, o+7], (0, 0, 1), (1, 0, 0)))
-            if not self.open_end:
-                holes.append([o+3, o+2, o+1, o])
+            holes.append([o+3, o+2, o+1, o])
         faces = []
         for indices, normal, x in specs:
             plane = self.add(f"PLANE('',{self.axis(points[indices[0]], normal, x)})")
@@ -90,13 +83,13 @@ class Pocket(Step):
 
 
 if __name__ == "__main__":
-    out = Path("tests/fixtures/parts/location")
-    out.mkdir(exist_ok=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", type=Path, default=Path("tests/fixtures/parts/location"))
+    out = parser.parse_args().out
+    out.mkdir(parents=True, exist_ok=True)
     Pocket().write(out / "pocket.step")
     two = ((40, 17, 80, 23, 7), (50, 27, 70, 33, 7))
     Pocket(two).write(out / "two_pockets.step")
     # An open edge step has a physical wall at the pockets' common x=60.
     Pocket(two, step=True).write(out / "two_pockets_step.step")
     Pocket(((40, 17, 80, 23, 7), (60, 27, 80, 33, 7))).write(out / "two_pockets_sizes.step")
-    Pocket(((40, 17, 120, 23, 7),), open_end=True).write(out / "blind_slot.step")
-    Pocket(((40.00123, 17, 80.00234, 23, 7),)).write(out / "pocket_rounded.step")

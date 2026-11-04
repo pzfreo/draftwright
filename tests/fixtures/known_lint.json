@@ -441,55 +441,6 @@
       "count": 1,
       "verdict": "rust-correct",
       "reason": "Issues #145/#146: the drawn radius shaft violates the middle-arc/radial requirement, which accepts either side."
-    },
-    {
-      "part": "cgb245",
-      "code": "feature_not_located",
-      "count": 2,
-      "verdict": "rust-correct",
-      "reason": "The ungated physical station audit requires each slot transverse axis. Both slot centres are at y=-33.82; the printed compound SLOT 6 × 14.96 and the separate longitudinal ordinates do not state that transverse station. No same-coordinate feature or width value supplies a physical location chain."
-    },
-    {
-      "part": "ctc01",
-      "code": "feature_not_located",
-      "count": 2,
-      "verdict": "undetermined",
-      "reason": "The ungated station audit finds no printed one-axis chain to either slot transverse x station. Size and longitudinal claims do not anchor their transverse centres; retain both findings until an actual printed physical chain or a coupled geometric proof is available."
-    },
-    {
-      "part": "ftc06",
-      "code": "feature_not_located",
-      "count": 2,
-      "verdict": "undetermined",
-      "reason": "The native ladder audit also requires the physical stations y=31.75 and z=-31.75. The existing channel/angled geometry annotations do not yield one-axis physical face chains to these stations. Retain the findings conservatively; coupled angle/plane rank analysis is outside issue #307 step 1."
-    },
-    {
-      "part": "hanger",
-      "code": "feature_not_located",
-      "count": 10,
-      "verdict": "undetermined",
-      "reason": "The native ladder audit cannot prove eight x stations at the angled plate edges (-116.466, -113.001, -87.021, -83.557, 83.557, 87.021, 113.001, 116.466) or y=±10 through printed physical face intervals. These can require coupled plate-angle geometry, outside the one-axis graph; retain all ten conservative findings rather than assume a station from coordinate coincidence."
-    },
-    {
-      "part": "m10046",
-      "code": "feature_not_located",
-      "count": 9,
-      "verdict": "undetermined",
-      "reason": "The native station audit exposes x=9.962,10.412,13.836,14.721,17.789,18.739,25.119 and y=6.492,20.51 without printed one-axis physical chains. Several are profile/angle intersections (the sheet already has angular and profile findings); a coupled plane proof is outside step 1. Keep these conservative missing-station findings."
-    },
-    {
-      "part": "m10127",
-      "code": "feature_not_located",
-      "count": 4,
-      "verdict": "undetermined",
-      "reason": "The native station audit exposes x=4.117,9.846,9.912,12.874 without printed one-axis physical chains. The sheet already reports unrecognised defining geometry and a refused recess. No scalar or unprinted model interval is accepted as a location proof; retain these conservative findings pending a printed or coupled geometric chain."
-    },
-    {
-      "part": "spool132",
-      "code": "feature_not_located",
-      "count": 62,
-      "verdict": "undetermined",
-      "reason": "The ungated graph checks both radial coordinates of all 31 hole axes. The bolt-circle and equal-spacing callouts are coupled circular constraints, not one-axis intervals; they supply no paths in this graph. Preserve all 62 conservative findings. Extending the coupled circular/plane proof or rank check belongs to #307 step 2, and this entry must not be removed merely to make the ledger green."
     }
   ],
   "ledgers": [

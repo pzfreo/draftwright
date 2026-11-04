@@ -454,7 +454,6 @@ fn raw_spans(a: &Analysis, w: &Want) -> Vec<Edge> {
                     owner: w.id.clone(),
                     a_feature: None,
                     b_feature: None,
-                    a_datum: false,
                 }),
             );
         }
@@ -469,7 +468,6 @@ fn raw_spans(a: &Analysis, w: &Want) -> Vec<Edge> {
         owner: w.id.clone(),
         a_feature: None,
         b_feature: None,
-        a_datum: false,
     }]
 }
 

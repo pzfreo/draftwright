@@ -681,10 +681,10 @@ pub fn located(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     let mut sites = sites(analysis, marks);
     for site in &mut sites {
         for (k, root) in roots.iter().enumerate() {
-            // Inclined axes and profiled bores outside the one-axis graph keep
-            // their existing requirements until their own geometry is supported.
+            // Unsupported relations retain main's verdict. Only a positive printed
+            // chain may change it; absence of a graph path is not a new finding.
             if let Some(node) = super::location::node_feature(analysis, &site.subject, k) {
-                site.claimed[k] = super::location::drawn_proof(
+                let proved = super::location::drawn_proof(
                     analysis,
                     &edges,
                     root,
@@ -693,6 +693,12 @@ pub fn located(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     Some(&node),
                 )
                 .is_some();
+                site.claimed[k] = if super::location::fully_modelled(analysis, marks, &site.subject)
+                {
+                    proved
+                } else {
+                    site.claimed[k] || proved
+                };
             }
         }
     }

@@ -575,19 +575,6 @@ pub fn states_bore(text: &str, diameter: f64) -> bool {
         .is_some_and(|(number, decimals)| rounds(number, decimals, diameter))
 }
 
-/// Read this recess's own depth term, excluding bore sizes, fits and tolerances.
-pub(super) fn states_recess_depth(
-    text: &str,
-    parameter: &str,
-    depth: f64,
-    counterbore: bool,
-    outer: usize,
-) -> bool {
-    Callout::read(text)
-        .term(parameter, counterbore, outer)
-        .is_some_and(|(number, decimals)| rounds(number, decimals, depth))
-}
-
 /// A scheduled size cell is one physical hole's complete callout. Its physical riders
 /// (THRU and quantity) are usable only while every size it claims is borne out by that
 /// cell's own ink. A pitch-circle diameter or a number in another row proves nothing.

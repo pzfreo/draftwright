@@ -615,7 +615,6 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     };
     let mut issues = coverage::feature_coverage(analysis, marks);
     issues.extend(scheme_issues);
-    issues.extend(location::native_stations(analysis, printed));
     issues.extend(interior_voids::findings(analysis));
     issues.extend(authored::check(analysis, marks));
     issues.extend(bosses::coverage(analysis, marks));

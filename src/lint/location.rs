@@ -64,36 +64,17 @@ fn span_stated(mark: &Mark, value: f64, strict: bool) -> bool {
         n.trim().parse::<usize>().is_ok_and(|n| {
             n > 0
                 && (nominal_mm(rest, value)
-                    || (mark.claims.iter().any(|c| {
-                        c.parameter.contains("pitch.length")
-                            || (c.feature == "step_level" && c.parameter == "step_height.length")
-                    }) && nominal_mm(rest, value / n as f64)))
+                    || (mark
+                        .claims
+                        .iter()
+                        .any(|c| c.parameter.contains("pitch.length"))
+                        && nominal_mm(rest, value / n as f64)))
         })
     } else {
         nominal_mm(&mark.text, value)
     }
 }
 
-fn printed_depth(text: &str, depth: f64) -> bool {
-    if let Some((_, rest)) = text.split_once('↧') {
-        return states_mm(rest.split_whitespace().next().unwrap_or(""), depth);
-    }
-    text.to_ascii_uppercase()
-        .split_once("DEEP")
-        .is_some_and(|(before, _)| {
-            let term = before
-                .rsplit('×')
-                .next()
-                .unwrap_or(before)
-                .split('±')
-                .next()
-                .unwrap_or("")
-                .split_whitespace()
-                .next_back()
-                .unwrap_or("");
-            term.parse::<f64>().is_ok_and(|n| n.is_finite() && n >= 0.) && states_mm(term, depth)
-        })
-}
 pub(crate) const AXES: [&str; 3] = ["x", "y", "z"];
 #[derive(Clone, Debug)]
 pub(crate) struct Edge {
@@ -103,8 +84,6 @@ pub(crate) struct Edge {
     pub owner: String,
     pub a_feature: Option<String>,
     pub b_feature: Option<String>,
-    /// A circular drawing datum explicitly witnessed at the first endpoint (lint only).
-    pub a_datum: bool,
 }
 
 /// The shortest chain to any root. Parallel authored edges remain separate edges.
@@ -235,319 +214,6 @@ pub(crate) fn drawing_roots(a: &Analysis, marks: &[Mark]) -> [Vec<f64>; 3] {
             };
             if let Some(v) = station {
                 out[k].push(v);
-            }
-        }
-    }
-    out
-}
-
-/// The unique exterior circular datum, measured solely from Analysis geometry.
-/// Shared with automatic origin selection; the audit never reads authoring or planning state.
-pub(crate) fn round_origin(
-    analysis: &Analysis,
-    view: usize,
-    k: usize,
-) -> Option<(String, [f64; 3])> {
-    use crate::bridge::holes as geometry;
-    // Preserve the planner predicate's exact three-component record requirement.
-    fn point(v: Option<&serde_json::Value>) -> Option<[f64; 3]> {
-        let c: Vec<f64> = v?
-            .as_array()?
-            .iter()
-            .map(serde_json::Value::as_f64)
-            .collect::<Option<_>>()?;
-        <[f64; 3]>::try_from(c).ok()
-    }
-    // Legacy recognition records round axis positions to 0.01 mm.
-    const ON_AXIS: f64 = 0.01;
-    let ink = analysis.edge_ink.as_ref()?;
-    let lo = analysis.envelope[0][k];
-    let flat = ink.planes.iter().any(|p| {
-        p.normal[k].abs() > 1.0 - 1e-6
-            && p.edges
-                .iter()
-                .filter_map(|&e| ink.edges.get(e)?.first())
-                .any(|q| (q[k] - lo).abs() < 1e-4)
-    });
-    if flat {
-        return None;
-    }
-    let (u, v) = match view {
-        0 => (1, 2),
-        1 => (0, 2),
-        _ => (0, 1),
-    };
-    let frame = geometry::frame(analysis);
-    let mut found: Option<(String, [f64; 3])> = None;
-    for c in ink.curved.iter().filter_map(|c| {
-        let y = c.cylinder.as_ref()?;
-        (y.axis[view].abs() > 1.0 - 1e-6
-            && (y.origin[k] - y.radius - lo).abs() < 1e-4
-            && (c.bounds[0][k] - lo).abs() < 1e-4)
-            .then_some(y)
-    }) {
-        let on = |at: [f64; 3]| {
-            (at[u] - c.origin[u]).abs() < ON_AXIS && (at[v] - c.origin[v]).abs() < ON_AXIS
-        };
-        // A hole on the axis carries its centre mark there; else a boss standing on it.
-        let owner = geometry::read(analysis)
-            .into_iter()
-            .filter_map(|(f, h)| h.ok().map(|h| (f, h)))
-            .find(|(_, h)| h.direction[view].abs() > 1.0 - 1e-6 && on(h.at))
-            .map(|(f, _)| f.id.clone())
-            .or_else(|| {
-                analysis
-                    .features
-                    .iter()
-                    .filter(|f| f.kind == "boss")
-                    .find(|f| {
-                        let at = point(f.parameters.get("location"));
-                        let d = point(f.parameters.get("axis"));
-                        at.zip(d).is_some_and(|(at, d)| {
-                            geometry::dir_to_part(&frame, d)[view].abs() > 1.0 - 1e-6
-                                && on(geometry::to_part(&frame, at))
-                        })
-                    })
-                    .map(|f| f.id.clone())
-            })
-            .or_else(|| {
-                analysis
-                    .features
-                    .iter()
-                    .filter(|f| f.kind == "turned_body")
-                    .find(|f| {
-                        super::parameters::place(&frame, f.parameters.get("axis_point"))
-                            .zip(super::parameters::direction(
-                                &frame,
-                                f.parameters.get("axis"),
-                            ))
-                            .is_some_and(|(at, d)| d[view].abs() > 1.0 - 1e-6 && on(at))
-                    })
-                    .map(|f| f.id.clone())
-            });
-        let Some(owner) = owner else { continue };
-        match &found {
-            Some((_, at)) if (at[k] - c.origin[k]).abs() > ON_AXIS => return None, // two round sides
-            Some(_) => {}
-            None => found = Some((owner, c.origin)),
-        }
-    }
-    found
-}
-
-/// The established round-outline origin is a drawing datum, not its box tangent (#223).
-/// Only a printed distance whose own witnesses join that unique axis and the claimed
-/// feature may use it; a matching number alone is insufficient.
-fn round_axis_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
-    if has_station_requirements(a) {
-        return Vec::new();
-    }
-    let mut out = round_diameter_edges(a, marks);
-    let mut origins = std::collections::BTreeMap::new();
-    for mark in marks.iter().filter(|m| {
-        !m.text.starts_with('(')
-            && !m.name.starts_with("location_network:")
-            && !m.name.starts_with("derived:")
-            && !m.claims.iter().any(|c| c.feature.starts_with("geometry:"))
-    }) {
-        let physical = mark
-            .claims
-            .iter()
-            .any(|c| c.feature == "station_ink" || c.feature.starts_with("station_span:"));
-        if !physical {
-            continue;
-        }
-        let witnessed = edges(a, std::slice::from_ref(mark));
-        for c in &mark.claims {
-            let Some(k) = c
-                .parameter
-                .strip_prefix("location.length.")
-                .and_then(|axis| AXES.iter().position(|v| *v == axis))
-            else {
-                continue;
-            };
-            let Some(f) = a
-                .features
-                .iter()
-                .find(|f| f.id == c.feature && matches!(f.kind.as_str(), "hole" | "boss"))
-            else {
-                continue;
-            };
-            let Some(view) = f.fingerprint.axis.and_then(crate::bridge::holes::principal) else {
-                continue;
-            };
-            if view == k {
-                continue;
-            }
-            let Some((owner, origin)) = origins
-                .entry((view, k))
-                .or_insert_with(|| round_origin(a, view, k))
-                .as_ref()
-            else {
-                continue;
-            };
-            let Some(at) = station(a, &f.id, k) else {
-                continue;
-            };
-            if (at - origin[k]).abs() < EPS
-                || !span_stated(mark, (at - origin[k]).abs(), true)
-                || !witnessed.iter().any(|e| {
-                    e.axis == k
-                        && (e.a.min(e.b) - at.min(origin[k])).abs() < super::redundancy::TOL
-                        && (e.a.max(e.b) - at.max(origin[k])).abs() < super::redundancy::TOL
-                })
-            {
-                continue;
-            }
-            out.push(Edge {
-                axis: k,
-                a: origin[k],
-                b: at,
-                owner: mark.name.clone(),
-                a_feature: Some(owner.clone()),
-                b_feature: Some(f.id.clone()),
-                a_datum: true,
-            });
-        }
-    }
-    out
-}
-
-/// A printed exterior diameter establishes the physical circular datum. Coaxial bores and
-/// radial bores whose axes intersect it share that datum; a single coincident ordinate does not.
-fn round_diameter_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
-    let frame = crate::bridge::holes::frame(a);
-    let mut out = Vec::new();
-    for view in 0..3 {
-        for k in (0..3).filter(|&k| k != view) {
-            let Some((_, origin)) = round_origin(a, view, k) else {
-                continue;
-            };
-            let diameter = 2. * (origin[k] - a.envelope[0][k]);
-            for mark in marks.iter().filter(|m| !m.text.starts_with('(')) {
-                let printed = mark.claims.iter().any(|c| {
-                    if c.feature == "envelope" && c.parameter == "od.diameter" {
-                        return super::envelope::turning(a, &frame).is_some_and(|(axis, on, d)| {
-                            axis == view
-                                && (d - diameter).abs() < super::redundancy::TOL
-                                && (0..3).all(|j| {
-                                    j == view || (on[j] - origin[j]).abs() < super::redundancy::TOL
-                                })
-                        });
-                    }
-                    c.parameter.ends_with(".diameter")
-                        && super::redundancy::external_span(a, &c.feature, &c.parameter, k)
-                            .is_some_and(|span| {
-                                (span.lo - a.envelope[0][k]).abs() < super::redundancy::TOL
-                                    && (span.hi - (origin[k] + diameter / 2.)).abs()
-                                        < super::redundancy::TOL
-                            })
-                }) && nominal_mm(&mark.text, diameter);
-                if !printed {
-                    continue;
-                }
-                for f in a
-                    .features
-                    .iter()
-                    .filter(|f| matches!(f.kind.as_str(), "hole" | "boss"))
-                {
-                    let Some(q) = f.fingerprint.axis.and_then(crate::bridge::holes::principal)
-                    else {
-                        continue;
-                    };
-                    if q == k {
-                        continue;
-                    }
-                    let Some(at): Option<Vec<_>> = (0..3).map(|j| station(a, &f.id, j)).collect()
-                    else {
-                        continue;
-                    };
-                    let incident =
-                        (0..3).all(|j| j == view || j == q || (at[j] - origin[j]).abs() < EPS);
-                    if incident {
-                        out.push(Edge {
-                            axis: k,
-                            a: at[k],
-                            b: at[k],
-                            owner: mark.name.clone(),
-                            a_feature: Some(f.id.clone()),
-                            b_feature: Some(f.id.clone()),
-                            a_datum: true,
-                        });
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
-/// Recess depths connect the actual mouth and floor planes of their own drilling. Unlike
-/// a bore's THRU rider, the recess depth has an explicit numeric term on the drawing.
-fn recess_depth_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
-    let mut out = Vec::new();
-    for (f, h) in crate::bridge::holes::read(a) {
-        let Ok(h) = h else { continue };
-        let Some((k, sign)) = h.principal else {
-            continue;
-        };
-        let face_at = |at: f64| {
-            let mut faces = a.face_attachments.iter().enumerate().filter(|(_, face)| {
-                face.surface.as_deref() == Some("plane")
-                    && face.axis == Some(k)
-                    && face.bounds.is_some_and(|b| {
-                        (b[k] - at).abs() < super::redundancy::TOL
-                            && (0..3).all(|j| {
-                                j == k || (h.at[j] >= b[j] - EPS && h.at[j] <= b[j + 3] + EPS)
-                            })
-                    })
-            });
-            let (i, _) = faces.next()?;
-            faces.next().is_none().then(|| format!("face:{i}"))
-        };
-        let mut depths = Vec::new();
-        if let Some(depth) = h.counterbore.and_then(|r| r.depth) {
-            depths.push(("counterbore.depth".to_string(), depth));
-        }
-        if let Some(depth) = h.spotface.and_then(|r| r.depth) {
-            depths.push(("spotface.depth".to_string(), depth));
-        }
-        depths.extend(
-            h.outer_steps
-                .iter()
-                .enumerate()
-                .filter_map(|(i, r)| r.depth.map(|d| (format!("outer_steps.{i}.depth"), d))),
-        );
-        for (role, depth) in depths {
-            if !depth.is_finite() || depth <= 0. {
-                continue;
-            }
-            let end = h.at[k] + f64::from(sign) * depth;
-            let (Some(mouth), Some(floor)) = (face_at(h.at[k]), face_at(end)) else {
-                continue;
-            };
-            for mark in marks.iter().filter(|m| {
-                !m.text.starts_with('(')
-                    && m.claims
-                        .iter()
-                        .any(|c| c.feature == f.id && c.parameter == role)
-                    && super::holes::states_recess_depth(
-                        &m.text,
-                        &role,
-                        depth,
-                        h.counterbore.is_some(),
-                        h.outer_steps.len(),
-                    )
-            }) {
-                out.push(Edge {
-                    axis: k,
-                    a: h.at[k],
-                    b: end,
-                    owner: mark.name.clone(),
-                    a_feature: Some(mouth.clone()),
-                    b_feature: Some(floor.clone()),
-                    a_datum: false,
-                });
             }
         }
     }
@@ -690,16 +356,6 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                     }
                     continue;
                 }
-                if authored
-                    && c.parameter == "location_slot_across.length"
-                    && let Some((k, at)) = blind_axis(a, &c.feature)
-                    && states_mm(
-                        mark.text.split_whitespace().next().unwrap_or(""),
-                        (at - a.envelope[0][k]).abs(),
-                    )
-                {
-                    spans.push((k, a.envelope[0][k], at));
-                }
                 // A compound pocket callout states each claimed numeric size, even when
                 // that size is not the label's leading number.
                 if authored
@@ -707,25 +363,6 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                         .contains(&c.parameter.as_str())
                     && let Some(s) = super::redundancy::span(a, &c.feature, &c.parameter)
                     && states_mm(mark.text.split('±').next().unwrap_or(""), s.hi - s.lo)
-                {
-                    spans.push((s.axis, s.lo, s.hi));
-                }
-                if authored && let Some(span) = blind_size(a, &c.feature, &c.parameter, &mark.text)
-                {
-                    spans.push(span);
-                }
-                // A compound depth has its own printed depth term and two physical
-                // supports. A width or length with the same number is not depth evidence.
-                if authored
-                    && [
-                        "pocket_depth.length",
-                        "rectangular_blind_slot_depth.length",
-                        "bore.depth",
-                        "circular_step_depth.length",
-                    ]
-                    .contains(&c.parameter.as_str())
-                    && let Some(s) = super::redundancy::span(a, &c.feature, &c.parameter)
-                    && printed_depth(&mark.text, s.hi - s.lo)
                 {
                     spans.push((s.axis, s.lo, s.hi));
                 }
@@ -750,7 +387,6 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                     owner: mark.name.clone(),
                     a_feature: None,
                     b_feature: None,
-                    a_datum: false,
                 }),
         );
     }
@@ -781,15 +417,6 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                 continue;
             }
             for claim in &mark.claims {
-                if claim.parameter == "location_slot_across.length"
-                    && blind_axis(a, &claim.feature).is_some_and(|(k, p)| {
-                        k == e.axis && (p - at).abs() < super::redundancy::TOL
-                    })
-                {
-                    *node = Some(format!("midplane:{}", claim.feature));
-                    continue;
-                }
-
                 let Some(f) = a
                     .features
                     .iter()
@@ -870,8 +497,6 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
             }
         }
     }
-    typed.extend(round_axis_edges(a, marks));
-    typed.extend(recess_depth_edges(a, marks));
     // A printed interval fixes its midpoint relative to either end. Its two
     // halves retain the original owner, so they cannot manufacture a second
     // independent controller. No length in the Analysis alone adds an edge.
@@ -913,52 +538,6 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                         ..e.clone()
                     });
                 }
-            }
-        }
-    }
-    // A rectangular blind slot uses the same midpoint arithmetic across its width.
-    // Only its own two physical walls may supply the interval; equal coordinates
-    // on another recess or a derived midplane cannot stand in for either wall.
-    for f in a.features.iter().filter(|f| f.kind == "section_recess") {
-        let Some((k, centre)) = blind_axis(a, &f.id) else {
-            continue;
-        };
-        let mut stations: Vec<_> = f
-            .faces
-            .iter()
-            .filter_map(|&i| a.face_attachments.get(i))
-            .filter(|face| face.surface.as_deref() == Some("plane") && face.axis == Some(k))
-            .filter_map(|face| face.bounds.map(|b| b[k]))
-            .collect();
-        stations.sort_by(f64::total_cmp);
-        stations.dedup_by(|p, q| (*p - *q).abs() < EPS);
-        let [lo, hi] = stations.as_slice() else {
-            continue;
-        };
-        let (Some(low), Some(high)) =
-            (pocket_face(a, &f.id, k, *lo), pocket_face(a, &f.id, k, *hi))
-        else {
-            continue;
-        };
-        let intervals: Vec<_> = typed
-            .iter()
-            .filter(|e| {
-                e.axis == k
-                    && ((e.a_feature.as_ref() == Some(&low) && e.b_feature.as_ref() == Some(&high))
-                        || (e.a_feature.as_ref() == Some(&high)
-                            && e.b_feature.as_ref() == Some(&low)))
-            })
-            .cloned()
-            .collect();
-        for e in intervals {
-            for (end, node) in [(e.a, e.a_feature.clone()), (e.b, e.b_feature.clone())] {
-                typed.push(Edge {
-                    a: end,
-                    b: centre,
-                    a_feature: node,
-                    b_feature: Some(format!("midplane:{}", f.id)),
-                    ..e.clone()
-                });
             }
         }
     }
@@ -1004,78 +583,6 @@ fn pocket_face(a: &Analysis, id: &str, axis: usize, at: f64) -> Option<String> {
     faces.next().is_none().then(|| format!("face:{i}"))
 }
 
-fn blind_size(a: &Analysis, id: &str, role: &str, text: &str) -> Option<(usize, f64, f64)> {
-    use super::section_recesses::{Grammar, grammar};
-    let f = a
-        .features
-        .iter()
-        .find(|f| f.id == id && f.kind == "section_recess")?;
-    let g = grammar(f).ok()?;
-    let (s, round) = match &g {
-        Grammar::RectangularBlindSlot(s) => (s, false),
-        Grammar::RoundBottomBlindSlot(s) => (s, true),
-        _ => return None,
-    };
-    let (axis, size, term) = match role {
-        "rectangular_blind_slot_width.length" if !round => (s.width_axis, s.width, 0),
-        "rectangular_blind_slot_length.length" if !round => (s.axis, s.length, 1),
-        "round_bottom_blind_slot_length.length" if round => (s.axis, s.length, 2),
-        "round_bottom_blind_slot_radius.radius" if round => (s.depth_axis, s.depth, 1),
-        _ => return None,
-    };
-    let body = text.strip_prefix(if round {
-        "ROUND-BOTTOM OPEN SLOT "
-    } else {
-        "OPEN SLOT "
-    })?;
-    let word = body
-        .split('×')
-        .nth(term)?
-        .trim()
-        .split('±')
-        .next()?
-        .split_whitespace()
-        .next()?;
-    let word = if role.ends_with(".radius") {
-        word.strip_prefix('R')?
-    } else {
-        word
-    };
-    if !word.parse::<f64>().is_ok_and(|v| v.is_finite() && v >= 0.) || !states_mm(word, size) {
-        return None;
-    }
-    let frame = crate::bridge::holes::frame(a);
-    let mut unit = [0.; 3];
-    unit[axis] = 1.;
-    let k = crate::bridge::holes::principal(crate::bridge::holes::dir_to_part(&frame, unit))?;
-    let mut low = s.origin;
-    let mut high = s.origin;
-    low[axis] -= size / 2.;
-    high[axis] += size / 2.;
-    Some((
-        k,
-        crate::bridge::holes::to_part(&frame, low)[k],
-        crate::bridge::holes::to_part(&frame, high)[k],
-    ))
-}
-
-fn blind_axis(a: &Analysis, id: &str) -> Option<(usize, f64)> {
-    use super::section_recesses::{Grammar, grammar};
-    let f = a
-        .features
-        .iter()
-        .find(|f| f.id == id && f.kind == "section_recess")?;
-    let (Grammar::RectangularBlindSlot(s) | Grammar::RoundBottomBlindSlot(s)) = grammar(f).ok()?
-    else {
-        return None;
-    };
-    let frame = crate::bridge::holes::frame(a);
-    let mut unit = [0.; 3];
-    unit[s.width_axis] = 1.;
-    let k = crate::bridge::holes::principal(crate::bridge::holes::dir_to_part(&frame, unit))?;
-    Some((k, crate::bridge::holes::to_part(&frame, s.origin)[k]))
-}
-
 fn drawn_node(a: &Analysis, id: &str, axis: usize) -> Option<String> {
     if id.starts_with("face:") {
         return Some(id.into());
@@ -1087,9 +594,6 @@ fn drawn_node(a: &Analysis, id: &str, axis: usize) -> Option<String> {
         if axis == p.long_axis && (p.lo - a.envelope[0][axis]).abs() < EPS {
             return pocket_face(a, id, axis, p.lo);
         }
-        return Some(format!("midplane:{id}"));
-    }
-    if blind_axis(a, id).is_some_and(|(k, _)| k == axis) {
         return Some(format!("midplane:{id}"));
     }
     node_feature(a, id, axis)
@@ -1433,33 +937,6 @@ pub(crate) fn proof(
     Some(path)
 }
 
-/// Round-axis datums terminate at their physical owner, never at every feature sharing one
-/// coordinate. The datum must be witnessed by a printed edge from the unique exterior axis.
-fn round_route(edges: &[Edge], axis: usize, at: f64, node: Option<&str>) -> Option<Vec<usize>> {
-    let origins: BTreeSet<_> = edges
-        .iter()
-        .filter(|e| e.axis == axis && e.a_datum)
-        .filter_map(|e| e.a_feature.as_deref())
-        .collect();
-    if origins.is_empty() {
-        return None;
-    }
-    let mut path = walk(edges, axis, at, node, &BTreeSet::new(), |_, id| {
-        id.is_some_and(|id| origins.contains(id))
-    })?;
-    // Retain the diameter that established a zero-length physical datum in the proof.
-    if path.is_empty() {
-        path.extend(
-            edges
-                .iter()
-                .enumerate()
-                .filter(|(_, e)| e.axis == axis && e.a_datum && e.a_feature.as_deref() == node)
-                .map(|(i, _)| i),
-        );
-    }
-    Some(path)
-}
-
 /// A coaxial feature may use the same printed route, without changing planner precedence.
 pub(crate) fn drawn_proof(
     a: &Analysis,
@@ -1469,9 +946,7 @@ pub(crate) fn drawn_proof(
     at: f64,
     node: Option<&str>,
 ) -> Option<Vec<usize>> {
-    if let Some(path) =
-        proof(a, edges, roots, axis, at, node).or_else(|| round_route(edges, axis, at, node))
-    {
+    if let Some(path) = proof(a, edges, roots, axis, at, node) {
         return Some(path);
     }
     // Coaxial cylinders share both radial coordinates. Equal coordinates on
@@ -1510,15 +985,7 @@ pub(crate) fn drawn_proof(
                 other_at,
                 Some(&other.id),
                 &BTreeSet::new(),
-            )
-            .or_else(|| {
-                round_route(
-                    edges,
-                    axis,
-                    station(a, &other.id, axis).unwrap_or(other.fingerprint.position[axis]),
-                    Some(&other.id),
-                )
-            }) {
+            ) {
                 return Some(path);
             }
         }
@@ -2014,7 +1481,7 @@ fn identify_impl(a: &Analysis, mark: &Mark, spans: Vec<Edge>, authored: bool) ->
 
 /// Requirements come from the part, not the engine inventory. Cylindrical features need their
 /// transverse axes located; other prismatic features use their recognised locating station.
-pub(crate) fn targets(a: &Analysis) -> Vec<(String, usize, f64)> {
+fn legacy_targets(a: &Analysis) -> Vec<(String, usize, f64)> {
     let mut out = Vec::new();
     for f in &a.features {
         match f.kind.as_str() {
@@ -2067,13 +1534,6 @@ pub(crate) fn targets(a: &Analysis) -> Vec<(String, usize, f64)> {
     for (f, p) in super::pockets::placed(a) {
         let Ok(p) = p else { continue };
         if p.edge_anchored {
-            // An open end fixes no virtual midpoint. Its remaining physical end face still
-            // needs a printed interval from the open end (or another physical origin).
-            for at in [p.lo, p.hi] {
-                if let Some(face) = pocket_face(a, &f.id, p.long_axis, at) {
-                    out.push((face, p.long_axis, at));
-                }
-            }
             continue;
         }
         for (role, distance) in super::pockets::locations(&p, a.envelope[0]) {
@@ -2088,36 +1548,179 @@ pub(crate) fn targets(a: &Analysis) -> Vec<(String, usize, f64)> {
         }
     }
     // Invariant: The collected positions passed finite coordinate parsing.
-    for f in a.features.iter().filter(|f| f.kind == "section_recess") {
-        if let Some((k, at)) = blind_axis(a, &f.id) {
-            out.push((f.id.clone(), k, at));
-        }
-    }
     out.sort_by(|p, q| p.partial_cmp(q).unwrap());
     out.dedup_by(|p, q| p.0 == q.0 && p.1 == q.1 && (p.2 - q.2).abs() < EPS);
     out
 }
 
+/// The only extra target is an edge-open pocket's remaining physical end face.
+/// Its printed length must connect that face to the open end; no virtual midpoint is a datum.
+pub(crate) fn targets(a: &Analysis) -> Vec<(String, usize, f64)> {
+    let mut out = legacy_targets(a);
+    for (f, p) in super::pockets::placed(a) {
+        let Ok(p) = p else { continue };
+        if p.edge_anchored {
+            for at in [p.lo, p.hi] {
+                if let Some(face) = pocket_face(a, &f.id, p.long_axis, at) {
+                    out.push((face, p.long_axis, at));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Replacement authority is deliberately narrower than positive graph evidence:
+/// only unpatterned principal holes/bosses and planar-mouth pockets in a rectilinear
+/// part, located from actual principal box faces, with no implicit centre or note
+/// relation. Any pattern membership, oblique plane/axis/dimension, curved datum, or
+/// placement note keeps main's verdict. This excludes geometry the one-axis graph
+/// cannot fully represent; it is NOT a test of whether a path happens to be found.
+/// A proved printed chain may still add credit outside this boundary.
+pub(crate) fn fully_modelled(a: &Analysis, marks: &[Mark], feature: &str) -> bool {
+    let pockets = super::pockets::placed(a);
+    let face = feature
+        .strip_prefix("face:")
+        .and_then(|s| s.parse::<usize>().ok());
+    let f = if let Some(face) = face {
+        let owners: Vec<_> = pockets
+            .iter()
+            .filter(|(f, _)| f.faces.contains(&face))
+            .collect();
+        if owners.len() != 1 {
+            return false;
+        }
+        owners[0].0
+    } else {
+        let Some(f) = a.features.iter().find(|f| f.id == feature) else {
+            return false;
+        };
+        f
+    };
+    let axes: Vec<_> = if matches!(f.kind.as_str(), "hole" | "boss") {
+        let Some(axis) = f.fingerprint.axis.and_then(crate::bridge::holes::principal) else {
+            return false;
+        };
+        (0..3).filter(|&k| k != axis).collect()
+    } else if let Some((_, Ok(p))) = pockets.iter().find(|(g, _)| g.id == f.id) {
+        if p.mouth
+            || [
+                (p.long_axis, p.lo, p.hi),
+                (
+                    p.width_axis,
+                    p.w_center - p.width / 2.,
+                    p.w_center + p.width / 2.,
+                ),
+            ]
+            .iter()
+            .any(|&(k, lo, hi)| {
+                [lo, hi].iter().any(|&at| {
+                    pocket_face(a, &f.id, k, at).is_none()
+                        && a.envelope.iter().all(|end| (end[k] - at).abs() > EPS)
+                })
+            })
+        {
+            return false;
+        }
+        vec![p.long_axis, p.width_axis]
+    } else {
+        return false;
+    };
+    if a.recognition.as_ref().is_some_and(|r| {
+        r.patterns
+            .iter()
+            .any(|p| p.id == f.id || p.members.contains(&f.id))
+    }) || super::pocket_patterns::member(a, &f.id)
+        || a.face_attachments
+            .iter()
+            .any(|p| p.surface.as_deref() == Some("plane") && p.axis.is_none())
+        || marks.iter().any(|m| {
+            !m.name.starts_with("location_network:")
+                && m.claims.iter().any(|c| {
+                    c.parameter.contains("angle")
+                        || c.parameter.contains("aligned")
+                        || (c.feature == f.id
+                            && c.parameter.contains("location")
+                            && (!m.text.starts_with(|c: char| {
+                                c.is_ascii_digit() || ['-', '+', '−', '.'].contains(&c)
+                            }) || (!m.name.starts_with("d:")
+                                && !m.name.starts_with("hole_schedule_")
+                                && !m.claims.iter().any(|c| {
+                                    c.feature.starts_with("station_span:")
+                                        || c.feature.starts_with("station_witness:")
+                                }))))
+                })
+        })
+    {
+        return false;
+    }
+    axes.into_iter().all(|k| {
+        let at = pockets
+            .iter()
+            .find(|(g, _)| g.id == f.id)
+            .and_then(|(_, p)| p.as_ref().ok())
+            .map(|p| p.centre[k])
+            .or_else(|| station(a, &f.id, k));
+        // Main's centre exemption is an implied symmetry relation, not a printed linear edge.
+        at.is_some_and(|p| {
+            (p - (a.envelope[0][k] + a.envelope[1][k]) / 2.).abs() > super::coverage::AXIS_TOL
+        }) && a.envelope.iter().all(|end| {
+            a.face_attachments.iter().any(|p| {
+                p.surface.as_deref() == Some("plane")
+                    && p.axis == Some(k)
+                    && p.bounds.is_some_and(|b| (b[k] - end[k]).abs() < EPS)
+            })
+        })
+    })
+}
+
 pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
-    let edges = drawn_edges(a, marks);
+    let drawn = drawn_edges(a, marks);
+    let legacy = edges(a, marks);
+    let previous = legacy_targets(a);
     let roots = drawing_roots(a, marks);
     let mut issues = Vec::new();
     for (feature, k, at) in targets(a) {
+        let modelled = fully_modelled(a, marks, &feature);
+        if !modelled
+            && (!active(a, marks)
+                || !previous
+                    .iter()
+                    .any(|(id, axis, p)| id == &feature && *axis == k && (*p - at).abs() < EPS))
+        {
+            continue;
+        }
+        let edges = if modelled { &drawn } else { &legacy };
+        let node = if modelled {
+            drawn_node(a, &feature, k)
+        } else {
+            node_feature(a, &feature, k)
+        };
         if datum_axis_owner(a, &feature, k).is_some() {
             continue;
         }
         let parameter = format!("location.length.{}", AXES[k]);
-        let first = drawn_proof(
-            a,
-            &edges,
-            &roots[k],
-            k,
-            at,
-            drawn_node(a, &feature, k).as_deref(),
-        );
+        let first = if modelled {
+            drawn_proof(a, edges, &roots[k], k, at, node.as_deref())
+        } else {
+            proof(a, edges, &roots[k], k, at, node.as_deref())
+        };
+        if !modelled
+            && first.is_none()
+            && drawn_proof(
+                a,
+                &drawn,
+                &roots[k],
+                k,
+                at,
+                drawn_node(a, &feature, k).as_deref(),
+            )
+            .is_some()
+        {
+            continue; // Positive credit can remove a legacy miss, never introduce one.
+        }
         let (code, involved) = match first {
             None => {
-                let node = drawn_node(a, &feature, k);
                 let involved: Vec<_> = edges
                     .iter()
                     .enumerate()
@@ -2142,14 +1745,7 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     .filter(|(_, e)| owners.contains(e.owner.as_str()))
                     .map(|(i, _)| i)
                     .collect();
-                let Some(second) = route(
-                    &edges,
-                    &roots[k],
-                    k,
-                    at,
-                    drawn_node(a, &feature, k).as_deref(),
-                    &blocked,
-                ) else {
+                let Some(second) = route(edges, &roots[k], k, at, node.as_deref(), &blocked) else {
                     continue;
                 };
                 (
@@ -2183,145 +1779,6 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         );
         issue.related = names;
         issues.push(issue);
-    }
-    issues
-}
-
-fn repeated_level(a: &Analysis, mark: &Mark, edges: &[Edge], axis: usize, at: f64) -> bool {
-    if axis != 2
-        || !mark
-            .claims
-            .iter()
-            .any(|c| c.feature == "step_level" && c.parameter == "step_height.length")
-    {
-        return false;
-    }
-    let Some((n, nominal)) = mark.text.split_once('×').and_then(|(n, body)| {
-        let n = n.trim().parse::<usize>().ok().filter(|n| *n >= 2)?;
-        let nominal = body.split('±').next()?.split_whitespace().next()?;
-        nominal
-            .parse::<f64>()
-            .ok()
-            .filter(|v| v.is_finite() && *v > 0.)?;
-        Some((n, nominal))
-    }) else {
-        return false;
-    };
-    if n > a.levels.len() + 1 {
-        return false;
-    }
-    let roots = roots(a);
-    edges
-        .iter()
-        .filter(|e| e.owner == mark.name && e.axis == axis)
-        .any(|e| {
-            if ![e.a, e.b]
-                .iter()
-                .any(|v| roots[axis].iter().any(|r| (v - r).abs() < EPS))
-            {
-                return false;
-            }
-            let pitch = (e.b - e.a) / n as f64;
-            if !states_mm(nominal, pitch.abs()) {
-                return false;
-            }
-            if !(1..n).all(|j| {
-                a.levels
-                    .iter()
-                    .any(|z| (e.a + j as f64 * pitch - z).abs() < super::redundancy::TOL)
-            }) {
-                return false;
-            }
-            let j = ((at - e.a) / pitch).round();
-            j >= 0. && j <= n as f64 && (e.a + j * pitch - at).abs() < super::redundancy::TOL
-        })
-}
-
-/// Native ladder stations belong to the ladder, independently of feature centres.
-/// Several trimmed supports may be one native level; this never aliases a pocket midplane.
-pub(crate) fn native_stations(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
-    if a.features.iter().any(|f| f.kind == "turned_step") {
-        return Vec::new();
-    }
-    let edges = drawn_edges(a, marks);
-    let roots = drawing_roots(a, marks);
-    let mut wanted: Vec<_> = a.levels.iter().map(|&z| (2, z)).collect();
-    for r in &a.risers {
-        for (axis, positions) in [(&r.axis, &r.positions), (&r.other_axis, &r.other_positions)] {
-            if let Some(k) = AXES.iter().position(|v| *v == axis) {
-                wanted.extend(positions.iter().map(|&p| (k, p)));
-            }
-        }
-    }
-    wanted.sort_by(|(k, p), (l, q)| k.cmp(l).then(p.total_cmp(q)));
-    wanted.dedup_by(|(k, p), (l, q)| k == l && (*p - *q).abs() < super::redundancy::TOL);
-    let mut issues = Vec::new();
-    for (k, at) in wanted {
-        if roots[k]
-            .iter()
-            .any(|r| (r - at).abs() < super::redundancy::TOL)
-        {
-            continue;
-        }
-        let faces: Vec<_> = a
-            .face_attachments
-            .iter()
-            .enumerate()
-            .filter(|(_, f)| {
-                f.surface.as_deref() == Some("plane")
-                    && f.axis == Some(k)
-                    && f.bounds
-                        .is_some_and(|b| (b[k] - at).abs() < super::redundancy::TOL)
-            })
-            .map(|(i, _)| format!("face:{i}"))
-            .collect();
-        let physical = faces
-            .iter()
-            .any(|face| drawn_proof(a, &edges, &roots[k], k, at, Some(face)).is_some());
-        // A native ladder annotation names this level/shoulder explicitly. Its own
-        // measured ink must agree; equal values in another feature's mark do not qualify.
-        let direct = marks.iter().any(|m| {
-            if repeated_level(a, m, &edges, k, at) {
-                return true;
-            }
-            m.claims.iter().any(|c| {
-                c.feature == "step_level"
-                    && super::redundancy::span(a, &c.feature, &c.parameter).is_some_and(|s| {
-                        s.axis == k
-                            && (s.hi - at).abs() < super::redundancy::TOL
-                            && edges.iter().any(|e| {
-                                e.owner == m.name
-                                    && e.axis == k
-                                    && (e.a.min(e.b) - s.lo).abs() < super::redundancy::TOL
-                                    && (e.a.max(e.b) - s.hi).abs() < super::redundancy::TOL
-                            })
-                    })
-            })
-        });
-        if !physical && !direct {
-            let parameter = if k == 2 {
-                format!(
-                    "step_height.length.h{}",
-                    super::parameters::fmt(at - a.envelope[0][k]).replace('.', "_")
-                )
-            } else {
-                format!(
-                    "step_position.length.{}{}",
-                    AXES[k],
-                    super::parameters::fmt(at - a.envelope[0][k]).replace('.', "_")
-                )
-            };
-            issues.push(uncovered(
-                a,
-                "feature_not_located",
-                "step_level",
-                &parameter,
-                format!(
-                    "Native ladder station {}={at}: no printed dimension chain reaches an origin.",
-                    AXES[k]
-                ),
-            ));
-        }
     }
     issues
 }
@@ -2591,7 +2048,6 @@ mod tests {
             owner: name.into(),
             a_feature: None,
             b_feature: None,
-            a_datum: false,
         }
     }
     #[test]
@@ -2659,101 +2115,6 @@ mod tests {
         assert!(route(&edges, &[0.], 0, 60., Some("midplane:p2"), &BTreeSet::new()).is_none());
         assert!(route(&edges, &[0.], 0, 60., Some("face:60"), &BTreeSet::new()).is_none());
         assert!(route(&[], &[60.], 0, 60., Some("midplane:p1"), &BTreeSet::new()).is_none());
-    }
-
-    #[test]
-    fn physical_equations_do_not_use_fit_classes_tolerances_or_zero_counts() {
-        for text in ["999±40", "999 H40", "0×40"] {
-            let m = Mark {
-                name: "d".into(),
-                view: None,
-                text: text.into(),
-                claims: vec![],
-            };
-            assert!(!span_stated(&m, 40., true), "{text}");
-        }
-        let m = Mark {
-            name: "d".into(),
-            view: None,
-            text: "40 H7 ±0.1".into(),
-            claims: vec![],
-        };
-        assert!(span_stated(&m, 40., true));
-        assert!(!span_stated(&m, 7., true));
-    }
-
-    #[test]
-    fn a_compound_depth_needs_its_own_nominal_not_a_tolerance_or_other_size() {
-        assert!(printed_depth("6 × 40 × 3 DEEP", 3.));
-        assert!(printed_depth("6 × 40 × 3 ±0.1 DEEP", 3.));
-        assert!(!printed_depth("3 × 40", 3.));
-        assert!(!printed_depth("6 × 40 × 99 ±3 DEEP", 3.));
-    }
-
-    #[test]
-    fn counted_ladder_heights_fix_only_their_explicitly_printed_rungs() {
-        let a: Analysis = serde_json::from_value(serde_json::json!({
-            "schema":"draftwright.analysis/2", "binding":{"source_sha256":"", "part":"test", "face_count":0, "loader":"test"},
-            "envelope":[[0.,0.,0.],[20.,20.,30.]], "levels":[10.,20.], "features":[], "iso_bounds":[0.,0.,0.,0.]
-        })).unwrap();
-        let mut mark = Mark {
-            name: "repeated".into(),
-            view: None,
-            text: "3× 10".into(),
-            claims: vec![
-                crate::output::Claim {
-                    feature: "step_level".into(),
-                    parameter: "step_height.length".into(),
-                },
-                crate::output::Claim {
-                    feature: span_claim(2, 0., 30.),
-                    parameter: "station.distance".into(),
-                },
-            ],
-        };
-        assert!(native_stations(&a, std::slice::from_ref(&mark)).is_empty());
-        mark.text = "30× 1".into();
-        assert_eq!(
-            native_stations(&a, std::slice::from_ref(&mark)).len(),
-            2,
-            "a false repeat count is not the native three-rise ladder"
-        );
-        mark.text = "3× 99 ±10".into();
-        assert_eq!(
-            native_stations(&a, std::slice::from_ref(&mark)).len(),
-            2,
-            "a tolerance is not the nominal rise"
-        );
-        mark.text = "3× 10".into();
-        mark.claims[0].feature = "another feature".into();
-        assert_eq!(native_stations(&a, &[mark]).len(), 2);
-    }
-
-    #[test]
-    fn a_native_ladder_mark_must_witness_its_own_root_and_level() {
-        let a: Analysis = serde_json::from_value(serde_json::json!({
-            "schema":"draftwright.analysis/2", "binding":{"source_sha256":"", "part":"test", "face_count":0, "loader":"test"},
-            "envelope":[[0.,0.,0.],[20.,20.,10.]], "levels":[4.], "features":[], "iso_bounds":[0.,0.,0.,0.]
-        })).unwrap();
-        let mut mark = Mark {
-            name: "d:step".into(),
-            view: None,
-            text: "4".into(),
-            claims: vec![
-                crate::output::Claim {
-                    feature: "step_level".into(),
-                    parameter: "step_height.length.h4".into(),
-                },
-                crate::output::Claim {
-                    feature: span_claim(2, 0., 4.),
-                    parameter: "station.distance".into(),
-                },
-            ],
-        };
-        assert!(native_stations(&a, std::slice::from_ref(&mark)).is_empty());
-        mark.claims[1].feature = span_claim(2, 4., 8.);
-        assert!(!native_stations(&a, &[mark]).is_empty());
-        assert!(!native_stations(&a, &[]).is_empty());
     }
 
     #[test]
@@ -2838,6 +2199,101 @@ mod tests {
         assert!(claimed("f:hole:2", "location.length.y").is_empty());
         assert!(claimed("f:hole:1", "hole_diameter.length").is_empty());
     }
+    #[test]
+    fn replacement_authority_is_limited_to_fully_modelled_linear_locations() {
+        let feature = |id: &str, kind: &str, z: f64| {
+            serde_json::json!({
+                "id":id,"kind":kind,"faces":[],"parameters":{"axis":[0.,0.,1.],"location":[40.,22.,z],"diameter":4.,"depth":10.,"height":2.,"bottom":"through"},
+                "fingerprint":{"version":"test","family":"test","subtype":"test","sizes":{},"position":[40.,22.,z],"axis":[0.,0.,1.],"neighbourhood":[]}
+            })
+        };
+        let mut planes = Vec::new();
+        for k in 0..3 {
+            for end in [0., [100., 60., 10.][k]] {
+                let mut b = [0., 0., 0., 100., 60., 10.];
+                b[k] = end;
+                b[k + 3] = end;
+                planes.push(serde_json::json!({"surface":"plane","axis":k,"bounds":b}));
+            }
+        }
+        let a: Analysis = serde_json::from_value(serde_json::json!({
+            "schema":"draftwright.analysis/2","binding":{"source_sha256":"","part":"test","face_count":6,"loader":"test"},
+            "envelope":[[0.,0.,0.],[100.,60.,10.]],"iso_bounds":[0.,0.,0.,0.],
+            "features":[feature("hole","hole",5.)],"face_attachments":planes
+        })).unwrap();
+        let mark = |k: usize, value: f64| Mark {
+            name: format!("d:location.{k}"),
+            view: None,
+            text: value.to_string(),
+            claims: vec![
+                crate::output::Claim {
+                    feature: "hole".into(),
+                    parameter: format!("location.length.{}", AXES[k]),
+                },
+                crate::output::Claim {
+                    feature: span_claim(k, 0., value),
+                    parameter: "station.distance".into(),
+                },
+            ],
+        };
+        let mut marks = vec![mark(0, 40.), mark(1, 22.)];
+        assert!(fully_modelled(&a, &marks, "hole"));
+        assert!(super::super::coverage::located(&a, &marks).is_empty());
+        // Claims alone would pass main; the linear graph must reject these wrong witnesses.
+        marks[0].claims[1].feature = span_claim(0, 0., 70.);
+        assert!(!super::super::coverage::located(&a, &marks).is_empty());
+        let mut cases = Vec::new();
+        let mut oblique = a.clone();
+        oblique.face_attachments[0].axis = None;
+        cases.push(oblique);
+        let mut polar = a.clone();
+        polar.recognition=Some(serde_json::from_value(serde_json::json!({
+            "recogniser":"test","frame":[[0.,0.,0.],[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]],
+            "patterns":[{"id":"pcd","arrangement":"bolt_circle","members":["hole"],"faces":[],"parameters":{}}]
+        })).unwrap());
+        cases.push(polar);
+        for unsupported in cases {
+            assert!(!fully_modelled(&unsupported, &marks, "hole"));
+            assert!(
+                super::super::coverage::located(&unsupported, &marks).is_empty(),
+                "retain main's claim-based verdict"
+            );
+            assert!(
+                coverage(&unsupported, &[]).is_empty(),
+                "absence of a path cannot add a finding outside the model"
+            );
+        }
+        let note = Mark {
+            name: "feature-note".into(),
+            view: None,
+            text: "CENTRED ON AXIS".into(),
+            claims: vec![crate::output::Claim {
+                feature: "hole".into(),
+                parameter: "location.length.x".into(),
+            }],
+        };
+        marks.push(note.clone());
+        assert!(!fully_modelled(&a, &marks, "hole"));
+        assert!(super::super::coverage::located(&a, &marks).is_empty());
+        // Unsupported note relations can still receive positive credit from a real chain.
+        let mut coaxial = a.clone();
+        coaxial
+            .features
+            .push(serde_json::from_value(feature("boss", "boss", 8.)).unwrap());
+        let mut credit = vec![note];
+        assert!(!super::super::coverage::located(&coaxial, &credit).is_empty());
+        for k in 0..2 {
+            let mut m = mark(k, [40., 22.][k]);
+            m.claims[0].feature = "boss".into();
+            credit.push(m);
+        }
+        assert!(!fully_modelled(&coaxial, &credit, "hole"));
+        assert!(
+            super::super::coverage::located(&coaxial, &credit).is_empty(),
+            "a proved coaxial chain may add credit"
+        );
+    }
+
     #[test]
     fn only_true_coaxial_features_share_a_printed_location_chain() {
         let feature = |id: &str, kind: &str, at: [f64; 3]| {
@@ -2964,137 +2420,6 @@ mod tests {
         high.name = "d:hole/location.length.x".into();
         high.text = "999 ±60".into();
         assert!(drawn_edges(&a, &[high]).is_empty());
-    }
-
-    #[test]
-    fn a_printed_exterior_diameter_establishes_only_incident_axes() {
-        let f = |id: &str, kind: &str, at: [f64; 3], axis: [f64; 3], diameter: f64| {
-            serde_json::json!({
-                "id":id,"kind":kind,"faces":[],
-                "parameters":{"axis":axis,"location":at,"diameter":diameter,"height":10.,"depth":10.,"bottom":"through"},
-                "fingerprint":{"version":"test","family":"test","subtype":"test","sizes":{},"position":at,"axis":axis,"neighbourhood":[]}
-            })
-        };
-        let a: Analysis = serde_json::from_value(serde_json::json!({
-            "schema":"draftwright.analysis/2","binding":{"source_sha256":"","part":"test","face_count":0,"loader":"test"},
-            "envelope":[[0.,0.,0.],[20.,20.,10.]],"iso_bounds":[0.,0.,0.,0.],
-            "features":[f("body","boss",[10.,10.,5.],[0.,0.,1.],20.),
-                f("coaxial","hole",[10.,10.,0.],[0.,0.,1.],4.),
-                f("radial","hole",[0.,10.,5.],[1.,0.,0.],4.),
-                f("coincident","hole",[10.,15.,0.],[0.,0.,1.],4.)],
-            "edge_ink":{"edges":[],"planes":[],"curved":[{"bounds":[[0.,0.,0.],[20.,20.,10.]],
-                "cylinder":{"origin":[10.,10.,0.],"axis":[0.,0.,1.],"radius":10.}}]}
-        })).unwrap();
-        let mark = Mark {
-            name: "printed OD".into(),
-            view: Some("v:plan".into()),
-            text: "ø20".into(),
-            claims: vec![crate::output::Claim {
-                feature: "body".into(),
-                parameter: "boss.diameter".into(),
-            }],
-        };
-        let edges = drawn_edges(&a, &[mark]);
-        for (id, k, at) in [("coaxial", 0, 10.), ("coaxial", 1, 10.), ("radial", 1, 10.)] {
-            let path = drawn_proof(&a, &edges, &[0., 20.], k, at, Some(id)).unwrap();
-            assert!(path.iter().any(|&i| edges[i].owner == "printed OD"));
-            assert!(drawn_proof(&a, &[], &[0., 20.], k, at, Some(id)).is_none());
-        }
-        assert!(drawn_proof(&a, &edges, &[0., 20.], 0, 10., Some("coincident")).is_none());
-        assert!(drawn_proof(&a, &edges, &[0., 10.], 2, 5., Some("radial")).is_none());
-    }
-
-    #[test]
-    fn a_round_datum_needs_a_printed_distance_with_matching_witnesses() {
-        let f = |id: &str, kind: &str, at: [f64; 3]| {
-            serde_json::json!({
-                "id": id, "kind": kind, "faces": [],
-                "parameters": {"axis": [0., 0., 1.], "location": at,
-                    "diameter": 4., "height": 10., "depth": 10., "bottom": "through"},
-                "fingerprint": {"version": "test", "family": "test", "subtype": "test",
-                    "sizes": {}, "position": at, "axis": [0., 0., 1.], "neighbourhood": []}
-            })
-        };
-        let a: Analysis = serde_json::from_value(serde_json::json!({
-            "schema": "draftwright.analysis/2",
-            "binding": {"source_sha256": "", "part": "test", "face_count": 0, "loader": "test"},
-            "envelope": [[0., 0., 0.], [80., 30., 10.]], "iso_bounds": [0., 0., 0., 0.],
-            "features": [f("origin", "boss", [10., 10., 5.]), f("hole", "hole", [50., 12., 5.]), f("unrelated", "hole", [10., 25., 5.])],
-            "edge_ink": {"edges": [], "planes": [], "curved": [{
-                "bounds": [[0., 0., 0.], [20., 20., 10.]],
-                "cylinder": {"origin": [10., 10., 0.], "axis": [0., 0., 1.], "radius": 10.}
-            }]}
-        }))
-        .unwrap();
-        let mark = Mark {
-            name: "printed".into(),
-            view: Some("v:plan".into()),
-            text: "40".into(),
-            claims: vec![crate::output::Claim {
-                feature: "hole".into(),
-                parameter: "location.length.x".into(),
-            }],
-        };
-        let proven = |marks: &[Mark]| {
-            drawn_proof(
-                &a,
-                &drawn_edges(&a, marks),
-                &drawing_roots(&a, marks)[0],
-                0,
-                50.,
-                Some("hole"),
-            )
-            .is_some()
-        };
-        assert!(
-            !proven(std::slice::from_ref(&mark)),
-            "a number alone does not name a circular datum"
-        );
-        assert!(!proven(&[]));
-        assert!(
-            drawn_proof(
-                &a,
-                &drawn_edges(&a, std::slice::from_ref(&mark)),
-                &drawing_roots(&a, std::slice::from_ref(&mark))[0],
-                0,
-                10.,
-                Some("unrelated")
-            )
-            .is_none()
-        );
-        let mut ambiguous = a.clone();
-        // The box and the round axis are both 5 from this hole; its table coordinate
-        // cannot establish the circular datum in addition to locating the hole from the box.
-        let h = ambiguous
-            .features
-            .iter_mut()
-            .find(|f| f.id == "hole")
-            .unwrap();
-        h.fingerprint.position[0] = 5.;
-        h.parameters
-            .insert("location".into(), serde_json::json!([5., 12., 5.]));
-        let mut coordinate = mark.clone();
-        coordinate.text = "5".into();
-        assert!(
-            !drawn_edges(&ambiguous, std::slice::from_ref(&coordinate))
-                .iter()
-                .any(|e| e.a_datum)
-        );
-        let mut wrong = mark.clone();
-        wrong.text = "999 ±40".into();
-        assert!(!proven(&[wrong]));
-        let mut witnessed = mark;
-        witnessed.claims.push(crate::output::Claim {
-            feature: "station_ink".into(),
-            parameter: "linear".into(),
-        });
-        witnessed.claims.push(crate::output::Claim {
-            feature: span_claim(0, 10., 50.),
-            parameter: "linear".into(),
-        });
-        assert!(proven(std::slice::from_ref(&witnessed)));
-        witnessed.claims.last_mut().unwrap().feature = span_claim(0, 20., 60.);
-        assert!(!proven(&[witnessed]));
     }
 
     #[test]
