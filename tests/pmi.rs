@@ -817,7 +817,12 @@ fn reader_facts_are_information_without_blockers_or_unread_sources() {
     let report = pmi::report(&doc, &defs, &part, &read).unwrap();
     assert_eq!(report.records, base.records);
     assert_eq!(report.sources, base.sources);
-    let added = &report.reader.problems[base.reader.problems.len()..];
+    let added: Vec<_> = report
+        .reader
+        .problems
+        .iter()
+        .filter(|p| !base.reader.problems.iter().any(|b| b.id == p.id))
+        .collect();
     assert_eq!(added.len(), 3);
     assert!(
         added
