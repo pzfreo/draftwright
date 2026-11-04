@@ -19,7 +19,19 @@ fn printed_depth(text: &str, depth: f64) -> bool {
     }
     text.to_ascii_uppercase()
         .split_once("DEEP")
-        .is_some_and(|(before, _)| states_mm(before.split_whitespace().last().unwrap_or(""), depth))
+        .is_some_and(|(before, _)| {
+            let term = before
+                .rsplit('×')
+                .next()
+                .unwrap_or(before)
+                .split('±')
+                .next()
+                .unwrap_or("")
+                .split_whitespace()
+                .last()
+                .unwrap_or("");
+            term.parse::<f64>().is_ok_and(|n| n.is_finite() && n >= 0.) && states_mm(term, depth)
+        })
 }
 pub(crate) const AXES: [&str; 3] = ["x", "y", "z"];
 #[derive(Clone, Debug)]
@@ -2217,6 +2229,14 @@ mod tests {
         assert!(route(&edges, &[0.], 0, 60., Some("midplane:p2"), &BTreeSet::new()).is_none());
         assert!(route(&edges, &[0.], 0, 60., Some("face:60"), &BTreeSet::new()).is_none());
         assert!(route(&[], &[60.], 0, 60., Some("midplane:p1"), &BTreeSet::new()).is_none());
+    }
+
+    #[test]
+    fn a_compound_depth_needs_its_own_nominal_not_a_tolerance_or_other_size() {
+        assert!(printed_depth("6 × 40 × 3 DEEP", 3.));
+        assert!(printed_depth("6 × 40 × 3 ±0.1 DEEP", 3.));
+        assert!(!printed_depth("3 × 40", 3.));
+        assert!(!printed_depth("6 × 40 × 99 ±3 DEEP", 3.));
     }
 
     #[test]
