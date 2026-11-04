@@ -37,8 +37,9 @@ product IDs that duplicate display labels retain the existing geometry grouping.
 `optional` provides a `quantity_range`, e.g. `0–1` (or `0–2` after a Spec quantity
 override). False yields the fixed range. It never changes placed geometry.
 MATERIAL and DWG NO use the effective material and complete part number in the
-existing title block. Pack revisions use the existing REV field. Sheet title
+existing title block. Explicit Spec revision overrides use the existing REV field. Sheet title
 intent remains in `drawing.sheet.title`; its material/number/revision overrides
 also appear in the row's values and provenance. Descriptions, optional ranges,
 stock and classifications are exported as data; no new visible sheet fields or
-layout are added.
+layout are added. File defaults fill the title block after paper and view selection;
+long file values retain their overflow findings without changing the drawing layout.

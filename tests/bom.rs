@@ -93,8 +93,8 @@ fn foreign_attributes_fill_gaps_and_material_native_homes() {
 #9011=DESCRIPTIVE_REPRESENTATION_ITEM('optional','perhaps');
 #9012=INTEGER_REPRESENTATION_ITEM('item_number',-1);
 #9020=MATERIAL_DESIGNATION('Aluminium 6082',(#39));
-#9021=CLASS('ISO hardware','Standard part','ISO-42',.F.);
-#9022=CLASSIFICATION_ROLE('classification');
+#9021=CLASS('ISO hardware','Standard part');
+#9022=CLASSIFICATION_ROLE('classification',$);
 #9023=APPLIED_CLASSIFICATION_ASSIGNMENT(#9021,#9022,(#41));";
     let row = read(&append(&small(), &entities)).remove(0);
     assert_eq!(row.make_buy.as_deref(), Some("made"));
@@ -157,7 +157,26 @@ fn written_specify_fixture_public_bom_and_pack_provenance() {
         [12, 13]
     );
     assert_eq!(rows[12].quantity_range.as_deref(), Some("0–1"));
-    assert_eq!(rows[0].bom.part_number.as_deref(), Some("GRM-01"));
+    assert_eq!(
+        rows.iter()
+            .map(|r| r.bom.part_number.as_deref().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "GRM-01",
+            "GRM-02",
+            "GRM-06",
+            "GRM-07",
+            "grub screw M4x5",
+            "GRM-04",
+            "flat washer M2",
+            "pan-head screw M2x6",
+            "pan-head screw M2x10",
+            "GRM-03",
+            "GRM-05",
+            "push rod",
+            "spacer"
+        ]
+    );
     assert_eq!(rows[0].bom.revision.as_deref(), Some("B"));
     for row in &rows {
         for field in [
@@ -176,6 +195,13 @@ fn written_specify_fixture_public_bom_and_pack_provenance() {
             );
         }
         assert!(row.buy_reasons.is_empty());
+        assert!(
+            !row.problems.iter().any(|p| p.code == "pmi_not_extracted"
+                && p.refs.iter().any(|r| r.contains("assembly-pmi"))),
+            "{} {:?}",
+            row.name,
+            row.problems
+        );
         assert!(row.error.is_none(), "{} {:?}", row.name, row.error);
         if row.supply == pack::Supply::Make {
             let drawing = &pack.drawings[row.sheets[0] - 1];
@@ -258,4 +284,148 @@ fn no_bom_data_keeps_guesses_and_absent_values_unsourced() {
             assert!(!row.sources.contains_key(field));
         }
     }
+}
+
+#[test]
+fn complex_typed_udas_and_explicit_unknown_are_facts() {
+    let entities = uda(384, "specify bom", "#9010,#9011,#9012")
+        + "
+#9010=(INTEGER_REPRESENTATION_ITEM(29) REPRESENTATION_ITEM('item_number'));
+#9011=(BOOLEAN_REPRESENTATION_ITEM(.T.) REPRESENTATION_ITEM('optional'));
+#9012=DESCRIPTIVE_REPRESENTATION_ITEM('make_buy','NOT-KNOWN');";
+    let s = append(&small(), &entities);
+    let row = read(&s).remove(0);
+    assert_eq!((row.item_number, row.optional), (Some(29), Some(true)));
+    assert_eq!(row.make_buy.as_deref(), Some("not known"));
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("bom-unknown");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("assembly.step");
+    std::fs::write(&path, s).unwrap();
+    let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
+    let row = pack.report.rows.iter().find(|r| r.item == 29).unwrap();
+    assert_eq!(row.supply, pack::Supply::Unknown);
+    assert_eq!(row.sources["supply"], pack::ValueSource::File);
+    assert!(!row.sheets.is_empty());
+    assert!(
+        !pack
+            .report
+            .findings
+            .iter()
+            .any(|f| f.code.ends_with("_guess") && f.products.contains(&row.key))
+    );
+}
+
+#[test]
+fn different_stated_bom_identities_prevent_shape_merging() {
+    let s = small()
+        .replace("PRODUCT('pin A','pin A'", "PRODUCT('PIN-A','pin A'")
+        .replace("PRODUCT('pin B','pin B'", "PRODUCT('PIN-B','pin B'");
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("bom-identity");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("assembly.step");
+    std::fs::write(&path, s).unwrap();
+    let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
+    assert_eq!(pack.report.rows.len(), 4);
+    for pn in ["PIN-A", "PIN-B"] {
+        let row = pack
+            .report
+            .rows
+            .iter()
+            .find(|r| r.bom.part_number.as_deref() == Some(pn))
+            .unwrap();
+        assert_eq!(row.qty, 1);
+        assert_eq!(row.sources["part_number"], pack::ValueSource::File);
+    }
+}
+
+#[test]
+fn bom_accounting_requires_usable_fields_and_a_leaf_owner() {
+    for (field, value, consumed) in [
+        ("make_buy", "made", true),
+        ("make_buy", "invalid", false),
+        ("manufacturing_process", "grind", false),
+    ] {
+        let entities = uda(384, "specify bom", "#9010")
+            + &format!(
+                "
+#9004=GENERAL_PROPERTY('','specify bom',$);
+#9005=GENERAL_PROPERTY_ASSOCIATION('',$,#9004,#9000);
+#9010=DESCRIPTIVE_REPRESENTATION_ITEM('{field}','{value}');"
+            );
+        let (_, analysis) = model::analyse_native_bytes_part(
+            "accounting.step",
+            append(&small(), &entities).as_bytes(),
+            Some(0),
+        )
+        .unwrap();
+        let Some(draftwright::pmi::Reading::Read(report)) = analysis.pmi else {
+            panic!("PMI accounting present")
+        };
+        let sources: Vec<_> = report
+            .sources
+            .iter()
+            .filter(|s| s.instances.contains(&9004) || s.instances.contains(&9005))
+            .collect();
+        assert!(!sources.is_empty());
+        for source in sources {
+            assert_eq!(
+                source.outcome == draftwright::pmi::Outcome::Extracted,
+                consumed,
+                "{field} {value}: {source:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn complex_categories_and_classification_groups_are_read_without_supply_judgments() {
+    let s = append(
+        &small(),
+        "
+#9020=(PRODUCT_CATEGORY('catalog parts',$) PRODUCT_RELATED_PRODUCT_CATEGORY((#41)));
+#9021=(CLASS() GROUP('ISO fastener','Catalog classification'));
+#9022=CLASSIFICATION_ROLE('standard part',$);
+#9023=(APPLIED_CLASSIFICATION_ASSIGNMENT((#41)) CLASSIFICATION_ASSIGNMENT(#9021,#9022));",
+    );
+    let row = read(&s).remove(0);
+    assert!(row.categories.contains(&"catalog parts".into()));
+    assert_eq!(row.classifications, ["ISO fastener"]);
+    assert_eq!(row.make_buy, None);
+}
+
+#[test]
+fn long_file_title_values_keep_the_existing_drawing_layout_and_report_real_overflow() {
+    let path = fixture("pack-small.step.gz");
+    let bytes = model::read_step_file(&path).unwrap();
+    let (_, mut analysis) =
+        model::analyse_native_bytes_part("plate.step", &bytes, Some(0)).unwrap();
+    analysis.bom = None;
+    let before = model::plan_recovered(&analysis, &model::Spec::default()).unwrap();
+    let number = "FILE-PART-NUMBER-".repeat(12);
+    analysis.bom = Some(bom::Metadata {
+        part_number: Some(number.clone()),
+        material: Some("Brass".into()),
+        ..Default::default()
+    });
+    let after = model::plan_recovered(&analysis, &model::Spec::default()).unwrap();
+    assert_eq!(before.sheet.size, after.sheet.size);
+    assert_eq!(before.sheet.scale, after.sheet.scale);
+    assert_eq!(before.sheets.len(), after.sheets.len());
+    assert_eq!(
+        serde_json::to_value(&before.views).unwrap(),
+        serde_json::to_value(&after.views).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&before.dimensions).unwrap(),
+        serde_json::to_value(&after.dimensions).unwrap()
+    );
+    assert_eq!(after.sheet.title["number"], number);
+    assert_eq!(after.sheet.title["material"], "Brass");
+    assert!(
+        after
+            .problems
+            .iter()
+            .any(|p| p.code == "title_field_overflow"
+                && p.refs.contains(&"title_block/drawing_number".into()))
+    );
 }

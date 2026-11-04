@@ -107,12 +107,20 @@ fn stock(s: &str) -> Option<String> {
     )
 }
 fn boolean(a: &A) -> Option<bool> {
+    if let A::Enum(value) = a {
+        return match value.as_str() {
+            "T" => Some(true),
+            "F" => Some(false),
+            _ => None,
+        };
+    }
     match term(&text(a)?).as_str() {
-        "t" | "yes" | "true" => Some(true),
-        "f" | "no" | "false" => Some(false),
+        "yes" | "true" => Some(true),
+        "no" | "false" => Some(false),
         _ => None,
     }
 }
+
 fn number(a: &A) -> Option<u32> {
     let n = match a {
         A::Integer(n) => u32::try_from(*n).ok()?,
@@ -167,8 +175,8 @@ fn properties(doc: &Document, owner: u64, row: &mut Metadata) {
         if term(&set) == "material property"
             && at(doc, p, "PROPERTY_DEFINITION", 1).is_some_and(|s| term(&s) == "material name")
         {
-            // Match haecceity's CAx-IF R2.1 material read: descriptive text,
-            // falling back to the item's identifying name when text is absent.
+            // Preserve the material designation used by the existing title
+            // block. Descriptive text is a fallback when no designation exists.
             let names: Vec<_> = doc
                 .referrers(p)
                 .iter()
@@ -179,40 +187,104 @@ fn properties(doc: &Document, owner: u64, row: &mut Metadata) {
                 })
                 .flat_map(|rep| list(attrs(doc, rep, "REPRESENTATION").and_then(|v| v.get(1))))
                 .filter_map(|id| {
-                    at(doc, id, "DESCRIPTIVE_REPRESENTATION_ITEM", 1)
-                        .or_else(|| at(doc, id, "DESCRIPTIVE_REPRESENTATION_ITEM", 0))
+                    at(doc, id, "DESCRIPTIVE_REPRESENTATION_ITEM", 0)
+                        .or_else(|| at(doc, id, "DESCRIPTIVE_REPRESENTATION_ITEM", 1))
                 })
                 .collect();
             if let [name] = names.as_slice() {
                 row.material = Some(name.clone());
             }
         }
-        let override_file = term(&set) == "specify bom";
-        macro_rules! put {
-            ($field:ident, $value:expr) => {
-                if let Some(value) = $value
-                    && (override_file || row.$field.is_none())
-                {
-                    row.$field = Some(value);
-                }
-            };
-        }
-        for (k, value) in &values {
-            // Even accepted suggestions are file statements once written. Their
-            // authoring provenance does not turn them into draftwright guesses.
-            match k.as_str() {
-                "part_number" => put!(part_number, text(value)),
-                "name" if override_file => put!(name, text(value)),
-                "description" => put!(description, text(value)),
-                "revision" => put!(revision, text(value)),
-                "make_buy" | "make_or_buy" => put!(make_buy, text(value).and_then(|s| source(&s))),
-                "optional" => put!(optional, boolean(value)),
-                "stock" => put!(stock, text(value).and_then(|s| stock(&s))),
-                "item_number" | "find_number" => put!(item_number, number(value)),
-                _ => {}
+        apply_items(&values, term(&set) == "specify bom", row);
+    }
+}
+
+fn apply_items(values: &BTreeMap<String, A>, overrides: bool, row: &mut Metadata) {
+    macro_rules! put {
+        ($field:ident, $value:expr) => {
+            if let Some(value) = $value
+                && (overrides || row.$field.is_none())
+            {
+                row.$field = Some(value);
             }
+        };
+    }
+    for (k, value) in values {
+        // Even accepted suggestions are file statements once written. Their
+        // authoring provenance does not turn them into draftwright guesses.
+        match k.as_str() {
+            "part_number" => put!(part_number, text(value)),
+            "name" if overrides => put!(name, text(value)),
+            "description" => put!(description, text(value)),
+            "revision" => put!(revision, text(value)),
+            "make_buy" | "make_or_buy" => put!(make_buy, text(value).and_then(|s| source(&s))),
+            "optional" => put!(optional, boolean(value)),
+            "stock" => put!(stock, text(value).and_then(|s| stock(&s))),
+            "item_number" | "find_number" => put!(item_number, number(value)),
+            _ => {}
         }
     }
+}
+
+/// BOM property associations are not manufacturing annotations. Mark only
+/// properties with usable public values and a resolved BOM owner as accounted
+/// for; unknown sets/invalid values still follow ordinary PMI accounting.
+pub(crate) fn accounts_for(doc: &Document, id: u64, definitions: &[PartDefinition]) -> bool {
+    if attrs(doc, id, "GENERAL_PROPERTY").is_some() {
+        let associations: Vec<_> = doc
+            .referrers(id)
+            .iter()
+            .copied()
+            .filter(|&a| link(doc, a, "GENERAL_PROPERTY_ASSOCIATION", 2) == Some(id))
+            .collect();
+        return !associations.is_empty()
+            && associations
+                .iter()
+                .all(|&a| accounts_for(doc, a, definitions));
+    }
+    let property = link(doc, id, "GENERAL_PROPERTY_ASSOCIATION", 3)
+        .or_else(|| link(doc, id, "PROPERTY_DEFINITION_REPRESENTATION", 0))
+        .unwrap_or(id);
+    let Some(owner) = link(doc, property, "PROPERTY_DEFINITION", 2) else {
+        if let Some(a) = attrs(doc, id, "MATERIAL_DESIGNATION") {
+            return a.first().and_then(text).is_some()
+                && definitions.iter().any(|d| {
+                    list(a.get(1))
+                        .iter()
+                        .any(|o| *o == d.product_definition || *o == d.shape)
+                });
+        }
+        return false;
+    };
+    let Some(set) = at(doc, property, "PROPERTY_DEFINITION", 0) else {
+        return false;
+    };
+    let values = items(doc, property);
+    if term(&set) == "specify bom item numbers" {
+        return link(doc, owner, "PRODUCT_DEFINITION_SHAPE", 2)
+            .is_some_and(|pd| attrs(doc, pd, "PRODUCT_DEFINITION").is_some())
+            && values.iter().any(|(k, v)| {
+                k.strip_prefix("history.").is_some_and(|suffix| {
+                    suffix.len() == 6 && suffix.bytes().all(|c| c.is_ascii_digit())
+                }) && text(v).is_some()
+            });
+    }
+    let is_leaf_owner = definitions.iter().any(|d| {
+        let pd = d.product_definition;
+        let product = link(doc, pd, "PRODUCT_DEFINITION", 2)
+            .and_then(|f| link(doc, f, "PRODUCT_DEFINITION_FORMATION", 2));
+        owner == pd
+            || owner == d.shape
+            || Some(owner) == product
+            || link(doc, owner, "NEXT_ASSEMBLY_USAGE_OCCURRENCE", 4) == Some(pd)
+            || link(doc, owner, "PRODUCT_DEFINITION_RELATIONSHIP", 4) == Some(pd)
+    });
+    if !is_leaf_owner {
+        return false;
+    }
+    let mut facts = Metadata::default();
+    apply_items(&values, term(&set) == "specify bom", &mut facts);
+    facts != Metadata::default()
 }
 
 /// Read only metadata for the supplied leaf definitions. Reverse references keep
@@ -277,7 +349,7 @@ pub fn read(doc: &Document, definitions: &[PartDefinition]) -> Vec<Metadata> {
             {
                 row.item_number = Some(*n);
             }
-            for owner in [product, pd, d.shape] {
+            for owner in [product, formation, pd, d.shape] {
                 for &id in doc.referrers(owner) {
                     if let Some(a) = attrs(doc, id, "MATERIAL_DESIGNATION")
                         && list(a.get(1)).contains(&owner)
@@ -286,17 +358,19 @@ pub fn read(doc: &Document, definitions: &[PartDefinition]) -> Vec<Metadata> {
                         row.material = a.first().and_then(text);
                     }
                     if let Some(a) = attrs(doc, id, "PRODUCT_RELATED_PRODUCT_CATEGORY")
-                        && list(a.get(2)).contains(&product)
-                        && let Some(name) = a.first().and_then(text)
+                        && list(a.get(if a.len() == 1 { 0 } else { 2 })).contains(&product)
+                        && let Some(name) =
+                            at(doc, id, "PRODUCT_CATEGORY", 0).or_else(|| a.first().and_then(text))
                     {
                         row.categories.push(name);
                     }
                     if let Some(a) = attrs(doc, id, "APPLIED_CLASSIFICATION_ASSIGNMENT")
-                        && list(a.get(2)).contains(&owner)
-                        && let Some(class) = a.first().and_then(reference)
+                        && list(a.get(if a.len() == 1 { 0 } else { 2 })).contains(&owner)
+                        && let Some(class) = link(doc, id, "CLASSIFICATION_ASSIGNMENT", 0)
+                            .or_else(|| a.first().and_then(reference))
                     {
-                        let value = at(doc, class, "CLASS", 0)
-                            .or_else(|| at(doc, class, "CLASSIFICATION_ITEM", 0));
+                        let value =
+                            at(doc, class, "GROUP", 0).or_else(|| at(doc, class, "CLASS", 0));
                         if let Some(value) = value {
                             row.classifications.push(value);
                         }
@@ -344,4 +418,73 @@ impl Metadata {
         }
         a == b
     }
+}
+
+thread_local! {
+    static PLANNING_TITLES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// File defaults fill existing cells after the drawing's layout is settled.
+/// A long exported id must not select different paper, views or dimensions.
+/// All real title-cell overflow remains reported on the returned plan.
+pub(crate) fn with_titles(
+    analysis: &crate::model::Analysis,
+    spec: &crate::model::Spec,
+    run: impl FnOnce() -> Result<crate::model::Plan, crate::model::Invalid>,
+) -> Result<crate::model::Plan, crate::model::Invalid> {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PLANNING_TITLES.set(self.0);
+        }
+    }
+    let nested = PLANNING_TITLES.replace(true);
+    let _restore = Restore(nested);
+    let mut plan = run()?;
+    if nested {
+        return Ok(plan);
+    }
+    let Some(metadata) = &analysis.bom else {
+        return Ok(plan);
+    };
+    let defaults = [
+        ("number", "drawing_number", &metadata.part_number),
+        ("material", "material", &metadata.material),
+    ];
+    let mut problems = Vec::new();
+    let mut changed = BTreeSet::new();
+    for sheet in std::iter::once(&mut plan.sheet).chain(&mut plan.sheets) {
+        for (key, field, value) in defaults {
+            if spec.sheet.title.contains_key(key) {
+                continue;
+            }
+            let Some(value) = value else {
+                continue;
+            };
+            if sheet.title.get(key) == Some(value) {
+                continue;
+            }
+            sheet.title.insert(key.into(), value.clone());
+            for cell in sheet.title_cells.iter_mut().filter(|c| c.field == field) {
+                cell.value = Some(value.clone());
+                changed.insert(format!("title_block/{field}"));
+                for mut problem in
+                    crate::title_block::problems(std::slice::from_ref(cell), sheet.page)
+                {
+                    if sheet.number > 1 {
+                        problem.id += &format!(":sheet:{}", sheet.number);
+                        problem.subjects = vec![format!("sheet:{}", sheet.number)];
+                    }
+                    problems.push(problem);
+                }
+            }
+        }
+    }
+    plan.problems.retain(|p| {
+        !(["title_field_overflow", "annotation_off_sheet"].contains(&p.code.as_str())
+            && p.refs.iter().any(|r| changed.contains(r)))
+    });
+    plan.problems.extend(problems);
+    plan.status = crate::completeness::status(&plan.problems);
+    Ok(plan)
 }

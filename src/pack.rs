@@ -416,6 +416,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
     let doc =
         haecceity::p21::Document::parse(bytes.clone()).map_err(|e| Error::failed(e.to_string()))?;
     let metadata = crate::bom::read(&doc, &file.parts);
+    drop(doc);
     let keys = keys::keys(
         file.parts
             .iter()
@@ -757,21 +758,27 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
                 );
             }
         }
-        if let Some(material) = &row.bom.material {
+        if row.sources.get("material") == Some(&ValueSource::Spec)
+            && let Some(material) = &row.bom.material
+        {
             drawing_spec
                 .sheet
                 .title
                 .entry("material".into())
                 .or_insert_with(|| material.clone());
         }
-        if let Some(number) = &row.bom.part_number {
+        if row.sources.get("part_number") == Some(&ValueSource::Spec)
+            && let Some(number) = &row.bom.part_number
+        {
             drawing_spec
                 .sheet
                 .title
                 .entry("number".into())
                 .or_insert_with(|| number.clone());
         }
-        if let Some(revision) = &row.bom.revision {
+        if row.sources.get("revision") == Some(&ValueSource::Spec)
+            && let Some(revision) = &row.bom.revision
+        {
             drawing_spec
                 .sheet
                 .title
@@ -800,6 +807,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             .get("number")
             .filter(|s| !s.trim().is_empty())
             .cloned()
+            .or_else(|| row.bom.part_number.clone())
             .unwrap_or_else(|| row.key.clone());
         if file.parts.len() == 1 && file.parts[0].placements.len() > 1 {
             findings.push(finding("pack_single_product", "one product with multiple placements; quantity counts placements, geometry is drawn once in its own frame".into(), row.products.clone()));
@@ -1035,7 +1043,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
         }
     };
     for (mut row, p, timing, _) in rows {
-        row.bom.name = Some(row.name.clone());
+        row.bom.name = (!row.name.trim().is_empty()).then(|| row.name.clone());
         row.bom.item_number = None; // `item` is the effective pack item, with provenance.
         if let Some(p) = p {
             row.problems.extend(p.plan.problems);

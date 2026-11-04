@@ -686,7 +686,7 @@ pub(crate) fn attach_with(
         .map_err(str::to_string)
         .and_then(|defs| read_with_metadata(bytes, part, defs, chosen))
     {
-        Ok((report, metadata)) => (attached(bytes, Ok(report)), metadata),
+        Ok(read) => (attached(bytes, read.pmi), read.bom),
         Err(error) => (attached(bytes, Err(error)), None),
     }
 }
@@ -736,7 +736,12 @@ fn read_with(
     defs: &[PartDefinition],
     chosen: Option<usize>,
 ) -> Result<Report, String> {
-    read_with_metadata(bytes, part, defs, chosen).map(|(report, _)| report)
+    read_with_metadata(bytes, part, defs, chosen).and_then(|read| read.pmi)
+}
+
+struct WithMetadata {
+    pmi: Result<Report, String>,
+    bom: Option<crate::bom::Metadata>,
 }
 
 fn read_with_metadata(
@@ -744,14 +749,19 @@ fn read_with_metadata(
     part: &Part,
     defs: &[PartDefinition],
     chosen: Option<usize>,
-) -> Result<(Report, Option<crate::bom::Metadata>), String> {
+) -> Result<WithMetadata, String> {
     let doc = Document::parse(bytes.to_vec()).map_err(|e| format!("cannot read Part 21: {e}"))?;
     let metadata = chosen
         .or_else(|| (defs.len() == 1).then_some(0))
         .and_then(|i| defs.get(i))
         .and_then(|d| crate::bom::read(&doc, std::slice::from_ref(d)).pop());
-    let read = pmi::read(&doc, defs).map_err(|e| e.to_string())?;
-    report_part(&doc, defs, part, &read, chosen).map(|report| (report, metadata))
+    let report = pmi::read(&doc, defs)
+        .map_err(|e| e.to_string())
+        .and_then(|read| report_part(&doc, defs, part, &read, chosen));
+    Ok(WithMetadata {
+        pmi: report,
+        bom: metadata,
+    })
 }
 
 /// The report of a haecceity reading *read* of *doc* (whose parts are *defs*), on the drawing's
@@ -899,7 +909,8 @@ pub fn report_part(
             continue;
         }
         let subject = f.ids.first().copied().unwrap_or(0);
-        let bookkeeping = is_legacy_answers(doc, subject);
+        let bom_fact = crate::bom::accounts_for(doc, subject, defs);
+        let bookkeeping = is_legacy_answers(doc, subject) || bom_fact;
         sources.push(Source {
             id: format!("finding:#{subject}"),
             category: category_of_entity(&f.entity),
@@ -910,7 +921,9 @@ pub fn report_part(
             } else {
                 Outcome::NotExtracted
             },
-            reason: if bookkeeping {
+            reason: if bom_fact {
+                "File-stated BOM property or BOM bookkeeping (not a drawing requirement)".into()
+            } else if bookkeeping {
                 format!(
                     "Draftwright stored answers (not a drawing requirement); {}",
                     f.detail
@@ -1951,6 +1964,9 @@ impl PartReader<'_> {
                 let instances = ids.get(i).cloned().unwrap_or_default();
                 let bookkeeping = item == "attribute_set"
                     && (is_draftwright_record(&pmi.attributes[i])
+                        || instances.iter().any(|&id| {
+                            crate::bom::accounts_for(self.doc, id, std::slice::from_ref(self.def))
+                        })
                         || (pmi.attributes[i].name == "specify pmi origin"
                             && matches!(pmi.attributes[i].on, Some(NoteOwner::Dimension(_))))
                         || (characteristic_value(&pmi.attributes[i]).is_some()
