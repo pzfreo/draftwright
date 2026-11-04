@@ -340,18 +340,27 @@ fn different_stated_bom_identities_prevent_shape_merging() {
 
 #[test]
 fn bom_accounting_requires_usable_fields_and_a_leaf_owner() {
-    for (field, value, consumed) in [
-        ("make_buy", "made", true),
-        ("make_buy", "invalid", false),
-        ("manufacturing_process", "grind", false),
+    for (field, value, extra, consumed) in [
+        ("make_buy", "made", false, true),
+        ("make_buy", "invalid", false, false),
+        ("manufacturing_process", "grind", false, false),
+        ("description", "A BOM description", true, false),
     ] {
-        let entities = uda(384, "specify bom", "#9010")
-            + &format!(
-                "
+        let entities = uda(
+            384,
+            "specify bom",
+            if extra { "#9010,#9011" } else { "#9010" },
+        ) + &format!(
+            "
 #9004=GENERAL_PROPERTY('','specify bom',$);
 #9005=GENERAL_PROPERTY_ASSOCIATION('',$,#9004,#9000);
 #9010=DESCRIPTIVE_REPRESENTATION_ITEM('{field}','{value}');"
-            );
+        );
+        let entities = if extra {
+            entities + "\n#9011=DESCRIPTIVE_REPRESENTATION_ITEM('manufacturing_process','grind');"
+        } else {
+            entities
+        };
         let (_, analysis) = model::analyse_native_bytes_part(
             "accounting.step",
             append(&small(), &entities).as_bytes(),

@@ -263,7 +263,8 @@ pub(crate) fn accounts_for(doc: &Document, id: u64, definitions: &[PartDefinitio
     if term(&set) == "specify bom item numbers" {
         return link(doc, owner, "PRODUCT_DEFINITION_SHAPE", 2)
             .is_some_and(|pd| attrs(doc, pd, "PRODUCT_DEFINITION").is_some())
-            && values.iter().any(|(k, v)| {
+            && !values.is_empty()
+            && values.iter().all(|(k, v)| {
                 k.strip_prefix("history.").is_some_and(|suffix| {
                     suffix.len() == 6 && suffix.bytes().all(|c| c.is_ascii_digit())
                 }) && text(v).is_some()
@@ -280,6 +281,29 @@ pub(crate) fn accounts_for(doc: &Document, id: u64, definitions: &[PartDefinitio
             || link(doc, owner, "PRODUCT_DEFINITION_RELATIONSHIP", 4) == Some(pd)
     });
     if !is_leaf_owner {
+        return false;
+    }
+    // A recognised BOM value does not account for an unrelated attribute in
+    // the same set. Keep mixed manufacturing/property sets reportable.
+    let fields = [
+        "part_number",
+        "name",
+        "description",
+        "revision",
+        "make_buy",
+        "make_or_buy",
+        "optional",
+        "stock",
+        "item_number",
+        "find_number",
+    ];
+    if values.keys().any(|k| {
+        !fields.contains(&k.as_str())
+            && k != "item_number_source"
+            && !k
+                .strip_prefix("default.")
+                .is_some_and(|field| fields.contains(&field))
+    }) {
         return false;
     }
     let mut facts = Metadata::default();
