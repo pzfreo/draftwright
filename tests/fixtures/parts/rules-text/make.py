@@ -35,6 +35,9 @@ cases.update({
     "central-prismatic": Box(80, 60, 20) - Cylinder(4, 20),
     "central-prismatic-wide": Box(100, 70, 15) - Cylinder(6, 15),
     "central-prismatic-square": Box(60, 60, 10) - Cylinder(3, 10),
+    # This Hole starts inside the centred cylinder: retained as a closed-cavity
+    # negative control. tools/make_review_fixtures.py writes the true opening used
+    # by the axis-ink placement pin (synthetic-coaxial-cylinder-x.step).
     "coaxial-cylinder-x": Rotation(0, 90, 0) * drilled.part,
     "coaxial-step-x": Rotation(0, 90, 0) * (
         Cylinder(6, 12, align=(Align.CENTER, Align.CENTER, b))

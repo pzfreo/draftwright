@@ -4,6 +4,7 @@
 //! detail clips the source projection, retaining exact curve intervals rather than
 //! manufacturing a cut face. Bounds and recovered dimension IDs remain in the plan.
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 use crate::bridge::holes;
 use crate::layout::{Rect, Scaled};
@@ -12,6 +13,31 @@ use crate::model::{Analysis, Invalid, PlannedView, Spec};
 pub const NAMES: [&str; 8] = [
     "detail_a", "detail_b", "detail_c", "detail_d", "detail_e", "detail_f", "detail_g", "detail_h",
 ];
+
+/// A closed cavity's cap is not a step in the outside silhouette. Its height
+/// dimensions stay on the parent; it does not request an automatic step detail.
+/// An external face at the same level prevents this exclusion.
+fn cavity_only_level(a: &Analysis, z: f64, closed: &BTreeSet<usize>) -> bool {
+    if closed.is_empty() {
+        return false;
+    }
+    let mut found = false;
+    for (i, face) in a.face_attachments.iter().enumerate() {
+        if face.surface.as_deref() != Some("plane") || face.axis != Some(2) {
+            continue;
+        }
+        let Some(bounds) = face.bounds else {
+            return false;
+        };
+        if (bounds[2] - z).abs() < 1e-3 && (bounds[5] - z).abs() < 1e-3 {
+            found = true;
+            if !closed.contains(&i) {
+                return false;
+            }
+        }
+    }
+    found
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -574,7 +600,24 @@ fn requests_uncached(a: &Analysis, spec: &Spec, sheet: f64) -> Vec<(String, Deta
         }
     } else if bands.is_empty() && available("front") && !a.level_supports.is_empty() {
         // Recover only approved height rungs rejected by the parent spacing gate.
-        let mut levels = a.levels.clone();
+        let closed: BTreeSet<_> = a
+            .features
+            .iter()
+            .filter(|f| {
+                f.kind == "interior_void"
+                    && f.parameters
+                        .get("openings")
+                        .and_then(|v| v.as_array())
+                        .is_some_and(|v| v.is_empty())
+            })
+            .flat_map(|f| f.faces.iter().copied())
+            .collect();
+        let mut levels: Vec<_> = a
+            .levels
+            .iter()
+            .copied()
+            .filter(|&z| !cavity_only_level(a, z, &closed))
+            .collect();
         levels.sort_by(f64::total_cmp);
         let legible = crate::layout::legible_steps(&levels, a.envelope[0][2], sheet);
         let omitted: Vec<_> = levels
@@ -1032,6 +1075,33 @@ pub(crate) fn marker_ink(
 mod tests {
     use super::*;
     use crate::output::Curve;
+
+    #[test]
+    fn an_external_step_at_a_cavity_cap_height_is_not_excluded() {
+        let (_, mut a) = crate::model::analyse_native_step(
+            std::path::Path::new("synthetic-voids.step"),
+            include_bytes!("../tests/fixtures/parts/synthetic_sealed_voids.step"),
+        )
+        .unwrap();
+        let closed = a
+            .features
+            .iter()
+            .filter(|f| f.kind == "interior_void")
+            .flat_map(|f| f.faces.iter().copied())
+            .collect();
+        assert!(cavity_only_level(&a, 4., &closed));
+        // Analysis-level negative control: an exterior horizontal face at the
+        // same Z is independent evidence of a real external step, even where a
+        // cavity also has a cap. It must retain the ordinary detail policy.
+        let mut exterior = a.face_attachments[0].clone();
+        let mut bounds = exterior.bounds.unwrap();
+        bounds[2] = 4.;
+        bounds[5] = 4.;
+        exterior.bounds = Some(bounds);
+        exterior.support = vec![4.];
+        a.face_attachments.push(exterior);
+        assert!(!cavity_only_level(&a, 4., &closed));
+    }
 
     #[test]
     fn every_cut_endpoint_meets_a_thin_break_and_whole_curves_need_none() {

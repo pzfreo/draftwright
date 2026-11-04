@@ -889,3 +889,476 @@ fn schedule_aliases_keep_existing_source_covered_ids_unique() {
         assert!(ids.insert(item.id.clone()), "duplicate item {}", item.id);
     }
 }
+
+fn editor_fixture(bytes: &[u8]) -> (draftwright::haecceity::Part, Analysis) {
+    use std::io::Read as _;
+    let mut step = Vec::new();
+    flate2::read::GzDecoder::new(bytes)
+        .read_to_end(&mut step)
+        .unwrap();
+    model::analyse_native_step(Path::new("editor.step"), &step).unwrap()
+}
+
+#[test]
+fn specify_composite_location_uses_the_datum_normal_not_a_box_diagonal() {
+    let (part, a) = editor_fixture(include_bytes!("fixtures/pmi/plate.specify018.step.gz"));
+    let draftwright::pmi::Reading::Read(report) = a.pmi.as_ref().unwrap() else {
+        panic!("PMI read")
+    };
+    let r = report
+        .records
+        .iter()
+        .find(|r| r.source_id == "dimension:#1100")
+        .unwrap();
+    assert_eq!(r.face_groups, [vec![1], vec![6, 7, 8, 10, 11, 12, 13]]);
+    assert_eq!(r.value, Some(30.));
+    assert!(r.basic);
+    let g = r.geometry.as_ref().unwrap();
+    assert!(g.reasons.is_empty(), "{:?}", g.reasons);
+    assert_eq!(g.axis.as_deref(), Some("Y"));
+    assert!((g.stations[1][1] - g.stations[0][1] - 30.).abs() < 1e-8);
+    // An actual source member carries the centre station. Choosing it must not
+    // depend on a nominal that happens to match a different bore.
+    assert_eq!(g.stations[1][0], 45.);
+    let mut wrong = r.clone();
+    wrong.value = Some(31.);
+    let refused = draftwright::pmi_lowering::dimension_geometry(&part, &wrong);
+    assert!(
+        refused
+            .reasons
+            .iter()
+            .any(|s| s.contains("30 mm differs from nominal 31 mm"))
+    );
+    let p = plan(&a, &Spec::default());
+    assert!(
+        !p.problems.iter().any(|p| p.code == "feature_not_located"),
+        "composite normal locations retain their included pattern's centre station"
+    );
+    assert!(p.dimensions.iter().any(|d| {
+        d.measurements
+            .iter()
+            .any(|m| m.feature.contains("f1,6,7,8,10,11,12,13"))
+            && d.placed.is_some()
+    }));
+}
+
+#[test]
+fn strict_pmi_references_show_only_unstated_engine_quantities() {
+    let (_, a) = editor_fixture(include_bytes!(
+        "fixtures/pmi/mounting-plate.specify018.step.gz"
+    ));
+    let mut s = Spec {
+        pmi: PmiMode::Strict,
+        ..Default::default()
+    };
+    let strict = plan(&a, &s);
+    s.sheet.references = Some(true);
+    let refs = plan(&a, &s);
+    assert!(
+        refs.dimensions
+            .iter()
+            .any(|d| d.reference && d.placed.is_some())
+    );
+    for d in &refs.dimensions {
+        if !d.measurements.iter().any(|m| m.feature.starts_with("pmi:")) {
+            assert!(d.reference, "{} {}", d.id, d.label);
+        }
+    }
+    for pmi in [PmiMode::Strict, PmiMode::First] {
+        s.pmi = pmi;
+        let p = plan(&a, &s);
+        assert_eq!(
+            p.sheet.size, "A4",
+            "supplementary references keep the same paper"
+        );
+        for frame in &p.gdt {
+            if let Some(placed) = &frame.placed {
+                assert!(
+                    placed.runs.iter().filter(|r| r.text == "4×").count() <= 1,
+                    "a repaired pattern frame must state its count only once"
+                );
+            }
+        }
+        assert!(
+            !p.dimensions
+                .iter()
+                .any(|d| d.reference && ["(76)", "(48)"].contains(&d.label.as_str())),
+            "PMI pitches repeated as references"
+        );
+    }
+    for d in &strict.dimensions {
+        let same = refs.dimensions.iter().find(|r| r.id == d.id).unwrap();
+        assert_eq!(same.label, d.label);
+        let source: Vec<_> = same
+            .measurements
+            .iter()
+            .filter(|m| m.feature.starts_with("pmi:"))
+            .collect();
+        let original: Vec<_> = d
+            .measurements
+            .iter()
+            .filter(|m| m.feature.starts_with("pmi:"))
+            .collect();
+        assert_eq!(source, original);
+        assert!(!same.reference);
+    }
+}
+
+#[test]
+fn pmi_width_can_use_the_other_edge_on_view() {
+    let (_, a) = editor_fixture(include_bytes!("fixtures/pmi/plate.specify018.step.gz"));
+    for pmi in [PmiMode::First, PmiMode::Strict] {
+        let mut s = Spec {
+            pmi,
+            ..Default::default()
+        };
+        let p = plan(&a, &s);
+        let width = p.dimensions.iter().find(|d| d.label == "100").unwrap();
+        s.dimensions.entry(width.id.clone()).or_default().view = Some("plan".into());
+        let other = plan(&a, &s);
+        let d = other.dimensions.iter().find(|d| d.id == width.id).unwrap();
+        assert_eq!(d.view, "v:plan");
+        assert!(d.placed.is_some());
+        assert_eq!(d.measurements, width.measurements);
+        assert_eq!(d.label, width.label);
+    }
+}
+
+#[test]
+fn strict_references_share_a_source_diameter_with_its_through_callout() {
+    let (_, a) = editor_fixture(include_bytes!("fixtures/pmi/plate.specify018.step.gz"));
+    let p = plan(
+        &a,
+        &Spec {
+            pmi: PmiMode::Strict,
+            sheet: model::SheetSpec {
+                references: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    let bore: Vec<_> = p
+        .dimensions
+        .iter()
+        .filter(|d| {
+            d.measurements
+                .iter()
+                .any(|m| m.parameter == "bore.diameter" && m.value == 8.)
+        })
+        .collect();
+    assert_eq!(bore.len(), 1);
+    assert!(!bore[0].reference);
+    assert!(
+        bore[0].label.contains("THRU"),
+        "through condition remains stated"
+    );
+    assert!(
+        !p.dimensions
+            .iter()
+            .any(|d| d.reference && d.label.contains("⌀8"))
+    );
+    let draftwright::pmi::Reading::Read(report) = a.pmi.as_ref().unwrap() else {
+        panic!("PMI read")
+    };
+    let record = report
+        .records
+        .iter()
+        .find(|r| r.kind == "diameter" && r.value == Some(8.) && r.faces == [9])
+        .unwrap();
+    let ids = report.identities();
+    let id = ids.id(&record.source_id).unwrap();
+    assert!(
+        bore[0]
+            .measurements
+            .iter()
+            .any(|m| m.feature == id && m.value == 8.)
+    );
+}
+
+/// Written from our own six-face plate; no outside-user geometry or note text.
+fn semantic_note_plate() -> (draftwright::haecceity::Part, Analysis) {
+    let mut p = PartPmi::default();
+    let top = face(&mut p, 1);
+    p.notes = vec![
+        Note {
+            kind: "semantic text".into(),
+            text: "Clean all surfaces before packing".into(),
+            on: None,
+            callouts: vec![],
+        },
+        Note {
+            kind: "semantic text".into(),
+            text: "Keep this face unpainted".into(),
+            on: Some(NoteOwner::Feature(top)),
+            callouts: vec![],
+        },
+    ];
+    synthetic_plate_with(p)
+}
+
+fn synthetic_plate_with(p: PartPmi) -> (draftwright::haecceity::Part, Analysis) {
+    let input = include_bytes!("fixtures/parts/synthetic_note_plate.step");
+    let parts = read_part_definitions(input).unwrap();
+    let doc = Document::parse(input.to_vec()).unwrap();
+    let (edit, report) = hp::write(
+        &doc,
+        &parts,
+        &[(PartId(0), p)],
+        hp::write::Mode::Replace,
+        hp::write::PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    assert!(report.added > 0);
+    let written = doc.apply(&edit).unwrap().bytes;
+    model::analyse_native_step(Path::new("synthetic-notes.step"), &written).unwrap()
+}
+
+#[test]
+fn nominal_mismatch_refusal_uses_typed_geometry_even_when_diagnostic_wording_changes() {
+    let mut p = PartPmi::default();
+    distance(&mut p, 5, 3, 55., true);
+    let (_, mut a) = synthetic_plate_with(p);
+    let p = plan(&a, &Spec::default());
+    assert!(p.problems.iter().any(
+        |p| p.message.contains("span 60 mm differs from nominal 55 mm")
+            && p.message.contains("reference face groups")
+            && p.message.contains("STEP faces")
+    ));
+    let Some(draftwright::pmi::Reading::Read(report)) = &mut a.pmi else {
+        panic!("PMI read")
+    };
+    let record = report
+        .records
+        .iter_mut()
+        .find(|r| r.category == draftwright::pmi::Category::Dimension)
+        .unwrap();
+    let g = record.geometry.as_mut().unwrap();
+    assert_eq!(
+        g.refusal,
+        Some(draftwright::pmi::GeometryRefusal::NominalMismatch {
+            measured: 60.,
+            nominal: 55.
+        })
+    );
+    g.reasons = vec!["synthetic diagnostic with different wording".into()];
+    let p = plan(&a, &Spec::default());
+    assert!(p.problems.iter().any(|p| {
+        p.message
+            .contains("synthetic diagnostic with different wording")
+            && p.message.contains("reference face groups")
+            && p.message.contains("STEP faces")
+    }));
+}
+
+#[test]
+fn semantic_text_draws_part_note_and_feature_flag_without_presentation_matching() {
+    let (part, a) = semantic_note_plate();
+    let mut spec = Spec::default();
+    spec.notes.push(draftwright::notes::NoteSpec {
+        id: "n:1".into(),
+        text: "Pack in a clean sleeve".into(),
+    });
+    let p = plan(&a, &spec);
+    assert_eq!(p.sheet.size, "A4");
+    let drawn: Vec<_> = p.notes.iter().filter(|n| n.placed.is_some()).collect();
+    assert_eq!(drawn.len(), 3);
+    assert_eq!(
+        drawn.iter().map(|n| n.number).collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    let feature = drawn
+        .iter()
+        .find(|n| n.text == "Keep this face unpainted")
+        .unwrap();
+    let note = p
+        .gdt
+        .iter()
+        .find(|n| n.id == feature.id)
+        .expect("feature flag");
+    assert_eq!(note.cells, vec![feature.number.to_string()]);
+    let placed = note.placed.as_ref().expect("flag placed");
+    assert!(!placed.lines.is_empty());
+    assert_eq!(
+        placed.strokes.len(),
+        3,
+        "triangle without adjacent note text"
+    );
+    assert_eq!(
+        placed
+            .runs
+            .iter()
+            .map(|r| r.text.as_str())
+            .collect::<Vec<_>>(),
+        vec![feature.number.to_string()]
+    );
+    assert!(!p.problems.iter().any(|p| p.code == "pmi_not_lowered"));
+    let mut ids = std::collections::BTreeSet::new();
+    for item in draftwright::items::items(&p) {
+        assert!(ids.insert(item.id));
+    }
+    let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let mut ids = std::collections::BTreeSet::new();
+    for item in &drawing.annotations {
+        assert!(ids.insert(&item.name));
+    }
+    let svg = drawing.svg();
+    assert!(svg.contains("Clean all surfaces"));
+    assert!(svg.contains("Keep this face"));
+}
+
+#[test]
+fn feature_note_wording_is_applied_to_the_block_and_preserves_the_flag_number() {
+    let (part, a) = semantic_note_plate();
+    let plain = plan(&a, &Spec::default());
+    let note = plain
+        .notes
+        .iter()
+        .find(|n| n.text == "Keep this face unpainted")
+        .unwrap();
+    let mut spec = Spec::default();
+    spec.annotations.entry(note.id.clone()).or_default().text =
+        Some(draftwright::label_text::Text {
+            prefix: Some("INSPECT:".into()),
+            ..Default::default()
+        });
+    let p = plan(&a, &spec);
+    let edited = p.notes.iter().find(|n| n.id == note.id).unwrap();
+    assert_eq!(edited.text, "INSPECT: Keep this face unpainted");
+    assert_eq!(edited.number, note.number);
+    let flag = p.gdt.iter().find(|g| g.id == note.id).unwrap();
+    assert_eq!(flag.cells, vec![note.number.to_string()]);
+    assert_eq!(flag.placed.as_ref().unwrap().runs.len(), 1);
+    let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let annotation = drawing
+        .annotations
+        .iter()
+        .find(|n| n.name == note.id)
+        .unwrap();
+    let words = annotation
+        .runs
+        .iter()
+        .map(|&i| drawing.text[i].text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        words.starts_with(&format!("{}  INSPECT:", note.number)),
+        "{words}"
+    );
+    assert!(
+        !words.starts_with(&format!("{} {}", note.number, note.number)),
+        "flag number is not extra normative text"
+    );
+}
+
+#[test]
+fn feature_note_fallback_and_omission_leave_continuous_drawn_note_numbers() {
+    let (_, mut a) = semantic_note_plate();
+    let Some(draftwright::pmi::Reading::Read(report)) = &mut a.pmi else {
+        panic!("PMI read")
+    };
+    let record = report
+        .records
+        .iter_mut()
+        .find(|r| r.kind == "flag_note")
+        .unwrap();
+    record
+        .geometry
+        .as_mut()
+        .unwrap()
+        .reasons
+        .push("synthetic unsupported leader attachment".into());
+    let p = plan(&a, &Spec::default());
+    assert!(p.gdt.iter().all(|g| g.placed.is_none()));
+    let drawn: Vec<_> = p.notes.iter().filter(|n| n.placed.is_some()).collect();
+    assert_eq!(
+        drawn.iter().map(|n| n.number).collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    assert!(
+        drawn.iter().any(|n| n.text == "Keep this face unpainted"),
+        "fallback retains the requirement in the block"
+    );
+    let mut spec = Spec::default();
+    spec.annotations
+        .entry(drawn[0].id.clone())
+        .or_default()
+        .omit = true;
+    let p = plan(&a, &spec);
+    assert_eq!(
+        p.notes
+            .iter()
+            .filter(|n| n.placed.is_some())
+            .map(|n| n.number)
+            .collect::<Vec<_>>(),
+        vec![1]
+    );
+}
+
+#[test]
+fn pmi_slot_layout_retries_physical_witnesses_without_changing_authored_intent() {
+    let (_, a) = editor_fixture(include_bytes!(
+        "fixtures/pmi/mounting-plate.specify018.step.gz"
+    ));
+    let p = plan(&a, &Spec::default());
+    assert_eq!(p.sheet.size, "A4");
+    assert!(
+        !p.problems.iter().any(|p| p.code == "feature_not_located"),
+        "shared pitches retain every pattern location constraint"
+    );
+    assert!(
+        !p.problems
+            .iter()
+            .any(|p| p.code == "extension_through_feature"),
+        "{:?}",
+        p.problems
+            .iter()
+            .filter(|p| p.code == "extension_through_feature")
+            .map(|p| &p.message)
+            .collect::<Vec<_>>()
+    );
+    let draftwright::pmi::Reading::Read(report) = a.pmi.as_ref().unwrap() else {
+        panic!("PMI read")
+    };
+    let ids = report.identities();
+    for r in report
+        .records
+        .iter()
+        .filter(|r| r.category == draftwright::pmi::Category::Dimension)
+    {
+        if let Some(value) = r.value {
+            let identity = ids.id(&r.source_id).unwrap();
+            let claims: Vec<_> = p
+                .dimensions
+                .iter()
+                .flat_map(|d| &d.measurements)
+                .filter(|m| m.feature == identity)
+                .collect();
+            assert_eq!(claims.len(), 1, "{}", r.source_id);
+            assert_eq!(claims[0].value, value);
+        }
+    }
+}
+
+#[test]
+fn local_pmi_witness_retries_preserve_coupled_drawings_paper() {
+    for (bytes, paper) in [
+        (
+            include_bytes!("fixtures/pmi/specify-main-nema-17-bracket.step.gz").as_slice(),
+            "A4",
+        ),
+        (
+            include_bytes!("fixtures/pmi/step/nist_ctc_01_merge.step.gz").as_slice(),
+            "A3",
+        ),
+    ] {
+        let (_, a) = editor_fixture(bytes);
+        let p = plan(&a, &Spec::default());
+        assert_eq!(
+            p.sheet.size, paper,
+            "a local retry must not enlarge a coupled source drawing"
+        );
+    }
+}

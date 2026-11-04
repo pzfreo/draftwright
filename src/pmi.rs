@@ -541,8 +541,17 @@ pub enum DerivedKind {
 /// Where a geometric tolerance or datum attaches to the part, in the drawing's frame (the
 /// file's), as draftwright measures it from the record's faces (`_datum_geometry_from_shapes`,
 /// `_datum_reference_normal` and `_common_principal_cylinder_axis`), and where a dimension does.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GeometryRefusal {
+    NominalMismatch { measured: f64, nominal: f64 },
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Geometry {
+    /// Machine-readable attachment refusal; prose is diagnostic, never a decision key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<GeometryRefusal>,
     /// One entry per authored reference group when any is derived. Direct companion
     /// planes/axes are resolved during lowering; unmeasurable groups remain `None`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -574,6 +583,10 @@ pub struct Geometry {
     /// along, when it is x, y or z ([`crate::pmi_lowering::dimension_geometry`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stations: Vec<[f64; 3]>,
+    /// Trimmed planar witnesses, separately proven in each edge-on principal view.
+    /// Routing may choose among them without changing the authored face groups or span.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub view_witnesses: BTreeMap<String, [[f64; 3]; 2]>,
     /// A diameter's or radius's exact cylinders (draftwright's `cylindrical_refs`), identical
     /// ones once; its `axis` is then their common axis, when it is x, y or z. A thread's or
     /// knurl's too ([`crate::pmi_lowering::requirement_geometry`]).
@@ -1468,7 +1481,7 @@ impl PartReader<'_> {
                 .to_lowercase()
         };
         for (i, a) in self.pmi.attributes.iter().enumerate() {
-            if used.attributes[i] || a.on.is_some() || normalized(&a.name) != "semantic text" {
+            if used.attributes[i] || normalized(&a.name) != "semantic text" {
                 continue;
             }
             let notes: Vec<_> = a
@@ -1476,6 +1489,7 @@ impl PartReader<'_> {
                 .iter()
                 .filter(|(kind, _)| {
                     crate::pmi_lowering::part_note_kind(&normalized(kind)).is_some()
+                        || normalized(kind) == "semantic text"
                 })
                 .collect();
             if notes.is_empty() {
@@ -1491,17 +1505,27 @@ impl PartReader<'_> {
                 blockers.push("part semantic text must state one note per attribute set".into());
             }
             let (kind, value) = notes[0];
-            let mut r = self.record(
-                Category::ManufacturingRequirement,
-                pdef,
-                ids,
-                Support::default(),
-                blockers,
-            );
-            r.kind = crate::pmi_lowering::part_note_kind(&normalized(kind))
-                // Invariant: The iterator filtered for exactly the parsed part-note kinds matched here.
-                .expect("filtered part note kind")
-                .into();
+            let (category, kind, support) = match a.on {
+                None => (
+                    Category::ManufacturingRequirement,
+                    crate::pmi_lowering::part_note_kind(&normalized(kind))
+                        .unwrap_or("general_note"),
+                    Support::default(),
+                ),
+                Some(NoteOwner::Feature(f)) => {
+                    (Category::SurfaceLabel, "flag_note", self.support(&[f]))
+                }
+                _ => {
+                    blockers.push("semantic text attached to a dimension or tolerance needs an explicit annotation owner".into());
+                    (
+                        Category::ManufacturingRequirement,
+                        "semantic_text",
+                        Support::default(),
+                    )
+                }
+            };
+            let mut r = self.record(category, pdef, ids, support, blockers);
+            r.kind = kind.into();
             if let AttributeValue::Text(text) = value {
                 r.label = text.clone();
             } else {
@@ -2926,6 +2950,18 @@ impl PartReader<'_> {
                 });
                 continue;
             };
+            if note.kind.trim().eq_ignore_ascii_case("semantic text") {
+                let (category, kind, support, blockers) = match note.on {
+                    None => (Category::ManufacturingRequirement, "general_note", Support::default(), Vec::new()),
+                    Some(NoteOwner::Feature(f)) => (Category::SurfaceLabel, "flag_note", self.support(&[f]), Vec::new()),
+                    _ => (Category::ManufacturingRequirement, "semantic_text", Support::default(), vec!["semantic text attached to a dimension or tolerance needs an explicit annotation owner".into()]),
+                };
+                let mut r = self.record(category, pdef, ids, support, blockers);
+                r.kind = kind.into();
+                r.label = note.text.clone();
+                out.push(r);
+                continue;
+            }
             // Retain the association the existing legacy requirement reader just used.
             // Triage must neither repeat nor broaden its name-based correspondence.
             for c in &shown.callouts {

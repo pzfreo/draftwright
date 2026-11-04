@@ -33,6 +33,17 @@ pub(crate) fn strict(a: &Analysis, s: &Spec) -> bool {
 pub(super) fn authored(w: &Want) -> bool {
     w.id.starts_with("d:pmi:") || w.measurements.iter().any(|m| m.feature.starts_with("pmi:"))
 }
+/// General-tolerance PMI can be conveyed by an engine carrier without a PMI
+/// claim (#265). It is already stated and must keep its controlling label when
+/// supplementary references are requested.
+pub(super) fn source_dimension(a: &Analysis, w: &Want) -> bool {
+    authored(w)
+        || w.measurements
+            .iter()
+            .any(|m| m.feature.starts_with("specify_general:"))
+        || matches!(&a.pmi, Some(Reading::Read(report)) if report.records.iter().any(|r| pmi_dimensions::conveys(&w.basis, &r.source_id)))
+}
+
 pub(super) fn wants(
     a: &Analysis,
     s: &Spec,
@@ -344,6 +355,74 @@ fn spans(a: &Analysis, w: &Want) -> Vec<Edge> {
     };
     location::identify(a, &mark, raw_spans(a, w))
 }
+/// Physical endpoints, including feature-axis identities, independent of the
+/// view that happens to carry the label. Equal numbers alone are insufficient.
+pub(super) fn same_quantity(a: &Analysis, source: &Want, generated: &Want) -> bool {
+    // A native uniform pattern's pitch is stated by a source face pair from
+    // that pattern at these same end stations. The location network expands
+    // pitches into centre/member edges, so compare that size before expansion.
+    let counted = generated
+        .terms
+        .first()
+        .and_then(|term| term.split_once('×').map(|(count, _)| count.trim()))
+        .and_then(|n| n.parse::<usize>().ok())
+        .is_some_and(|n| n > 1);
+    if counted
+        && generated
+            .measurements
+            .iter()
+            .any(|m| m.parameter.starts_with("grid_pitch.length."))
+    {
+        return false; // One source interval does not state the other counted intervals.
+    }
+    if !counted
+        && generated
+            .measurements
+            .iter()
+            .any(|m| m.parameter.starts_with("grid_pitch.length."))
+        && let Some(Reading::Read(report)) = &a.pmi
+    {
+        let ids = report.identities();
+        if report.records.iter().any(|r| {
+            ids.ids
+                .get(&r.source_id)
+                .is_some_and(|id| source.measurements.iter().any(|m| &m.feature == id))
+                && r.face_groups.len() == 2
+                && r.face_groups.iter().all(|g| !g.is_empty())
+                && generated.measurements.iter().any(|m| {
+                    a.recognition.iter().flat_map(|r| &r.patterns).any(|p| {
+                        p.id == m.feature
+                            && r.faces.iter().all(|face| {
+                                p.members.iter().any(|member| {
+                                    a.features
+                                        .iter()
+                                        .any(|f| &f.id == member && f.faces.contains(face))
+                                })
+                            })
+                    })
+                })
+        }) {
+            return true;
+        }
+    }
+    let stated = spans(a, source);
+    let wanted = spans(a, generated);
+    !wanted.is_empty()
+        && wanted.iter().all(|w| {
+            stated.iter().any(|s| {
+                s.axis == w.axis
+                    && ((s.a - w.a).abs() < 1e-6
+                        && (s.b - w.b).abs() < 1e-6
+                        && s.a_feature == w.a_feature
+                        && s.b_feature == w.b_feature
+                        || (s.a - w.b).abs() < 1e-6
+                            && (s.b - w.a).abs() < 1e-6
+                            && s.a_feature == w.b_feature
+                            && s.b_feature == w.a_feature)
+            })
+        })
+}
+
 fn raw_spans(a: &Analysis, w: &Want) -> Vec<Edge> {
     let Shape::Linear {
         a: p,

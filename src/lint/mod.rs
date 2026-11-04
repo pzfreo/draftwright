@@ -64,6 +64,7 @@ pub mod grooves;
 pub mod gussets;
 pub mod hole_patterns;
 pub mod holes;
+mod interior_voids;
 pub mod leaders;
 pub mod location;
 pub(crate) mod notch_evidence;
@@ -585,6 +586,7 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     };
     let mut issues = coverage::feature_coverage(analysis, marks);
     issues.extend(scheme_issues);
+    issues.extend(interior_voids::findings(analysis));
     issues.extend(authored::check(analysis, marks));
     issues.extend(bosses::coverage(analysis, marks));
     if !location::active(analysis, printed) {

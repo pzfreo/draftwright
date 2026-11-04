@@ -39,6 +39,7 @@ pub mod holes;
 pub mod native;
 pub mod recess_patterns;
 pub(crate) mod refused_threads;
+pub(crate) mod voids;
 
 pub const RECOGNITION_FORMAT: &str = "draftwright.recognition/1";
 pub const FINGERPRINT_VERSION: &str = "draftwright-bridge/2";
@@ -561,7 +562,8 @@ pub fn read(part: &Part, sha256: &str, json: &str) -> Result<(Recognition, Vec<F
         )?;
     }
     flats::merge(part, &frame, &mut features);
-    let patterns = hole_patterns(&derived.hole_patterns, &features)?;
+    let mut patterns = hole_patterns(&derived.hole_patterns, &features)?;
+    voids::reconcile(part, &mut features, &mut patterns);
     // Records with no ID are ordered by everything they carry.
     let key = |r: &Record| {
         (

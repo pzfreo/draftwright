@@ -152,6 +152,7 @@ catalogue! {
     "hole_table_entry_invalid" => Incomplete, Code, "The drawn evidence does not correctly state the required source information.";
     "hole_table_escalated" => Advisory, Code, "A hole table replaced crowded individual callouts.";
     "hole_table_unavailable" => Advisory, Code, "Individual dimensions remain when the requested table cannot be used.";
+    "interior_void" => Advisory, Feature, "A factual inventory of an internal cavity; its faces do not establish a hole opening.";
     "iso_projection_empty" => Incomplete, Code, "The requested isometric view has no projected geometry.";
     "label_centerline_overlap" => Readability, Code, "A centreline crosses label ink.";
     "label_crowded" => Readability, Code, "Text lies within 0.5 mm of another label or of foreign line-work; it stays legible but reads as touching.";
@@ -218,6 +219,7 @@ catalogue! {
     "pmi_not_lowered" => Incomplete, Source, "A read PMI requirement has no supported drawing representation.";
     "pmi_not_read" => Incomplete, Code, "The PMI reading cannot supply the required annotation.";
     "pmi_not_rendered" => Incomplete, Source, "The rendered drawing does not state the source PMI requirement.";
+    "pmi_note_unattached" => Incomplete, Source, "The note is stated in the notes block but its feature attachment has no supported flag leader.";
     "pmi_presentation_not_read" => Incomplete, Code, "The source presentation PMI is not available as drawing information.";
     "pmi_read_nonconformance" => Advisory, Source, "A source PMI nonconformance was read through an explicit interpretation.";
     "pmi_source_site_mismatch" => Incomplete, Source, "The drawn evidence does not correctly state the required source information.";

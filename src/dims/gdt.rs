@@ -189,6 +189,11 @@ fn width(s: &str, size: f64) -> f64 {
 /// (ISO 1101: the number of features above the tolerance frame), its box grown to hold it.
 pub(super) fn with_count(p: &mut GdtPlaced, n: usize) {
     let count = format!("{n}×");
+    // Final witness repairs can revisit a frame already led to the same group.
+    // Its translated glyph already carries the count and reserves its paper.
+    if p.runs.iter().any(|run| run.text == count) {
+        return;
+    }
     let b = p.label_box;
     let w = width(&count, TEXT);
     let at = [b[0] + 0.5 * w, b[3] + PAD + 0.5 * TEXT];
@@ -274,6 +279,22 @@ fn label(s: &str) -> Laid {
     laid
 }
 
+/// A numbered triangular flag refers to the text in the existing notes block.
+/// Its triangle participates in the ordinary callout collision and routing machinery.
+fn flag_note(number: usize) -> Laid {
+    let h = 2.5 * TEXT;
+    let y = h / 2.0;
+    let corners = [[0.0, y], [h, 0.0], [h, h]];
+    let number = text(&number.to_string(), [0.68 * h, y], TEXT);
+    Laid {
+        size: [h, h],
+        strokes: (0..3).map(|i| [corners[i], corners[(i + 1) % 3]]).collect(),
+        letters: vec![number.clone()],
+        runs: vec![number],
+        arcs: Vec::new(),
+    }
+}
+
 /// The least gap between a finish's leader or shelf and a dimension or extension line it runs
 /// alongside, mm: one text height.
 const FINISH_PARALLEL_GAP: f64 = TEXT;
@@ -332,7 +353,9 @@ impl Shape {
         match glyph {
             Glyph::Datum { .. } => Shape::Datum,
             Glyph::Finish { .. } => Shape::Finish,
-            Glyph::ControlFrame { .. } | Glyph::Label { .. } => Shape::Frame,
+            Glyph::ControlFrame { .. } | Glyph::Label { .. } | Glyph::FlagNote { .. } => {
+                Shape::Frame
+            }
         }
     }
 }
@@ -999,6 +1022,32 @@ pub(crate) fn demand_with_spec(
     shown: &dyn Fn(&str) -> bool,
 ) -> Vec<crate::layout::Gdt> {
     let (mut items, _) = crate::pmi_lowering::lower(analysis, shown);
+    if items
+        .iter()
+        .any(|i| matches!(i.glyph, Glyph::FlagNote { .. }))
+    {
+        // The exact same reconciled list reserves and numbers the notes block. A feature
+        // whose leader cannot be lowered still has its text there, without a dangling flag.
+        let (requirements, _) = crate::pmi_lowering::sheet_requirements(analysis);
+        let (notes, inactive, _) = crate::notes::reconcile(&requirements, analysis, spec);
+        for item in &mut items {
+            if let Glyph::FlagNote { number, .. } = &mut item.glyph {
+                let id = inactive
+                    .iter()
+                    .find(|n| n.id == item.id)
+                    .and_then(|n| {
+                        if let crate::items::State::Covered { by } = &n.state {
+                            Some(by.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(&item.id);
+                *number = notes.iter().position(|n| n.id == id).map_or(0, |i| i + 1);
+            }
+        }
+        items.retain(|i| !matches!(i.glyph, Glyph::FlagNote { number: 0, .. }));
+    }
     // Invariant: plan_with validates these same annotation texts before demand and placement.
     crate::label_text::annotations(&mut items, spec).expect("validated annotation wording");
     if spec.sheet.uncited_datums != Some(true) || spec.annotations.values().any(|a| a.omit) {
@@ -1016,6 +1065,7 @@ pub(crate) fn demand_with_spec(
             let size = match &item.glyph {
                 Glyph::Datum { .. } => [H, H],
                 Glyph::Label { text } => label(text).size,
+                Glyph::FlagNote { number, .. } => flag_note(*number).size,
                 Glyph::Finish { texture, .. } => finish_symbol(texture).0.size,
                 g => control_frame(g).0.size,
             };
@@ -1284,6 +1334,27 @@ fn plan_search(
     });
     let shown = |name: &str| views.iter().any(|v| v.id == format!("v:{name}"));
     let (mut items, mut problems) = crate::pmi_lowering::lower(analysis, &shown);
+    // The exact same reconciled list reserves and numbers the notes block. A feature
+    // whose leader cannot be lowered still has its text there, without a dangling flag.
+    let (requirements, _) = crate::pmi_lowering::sheet_requirements(analysis);
+    let (notes, inactive, _) = crate::notes::reconcile(&requirements, analysis, spec);
+    for item in &mut items {
+        if let Glyph::FlagNote { number, .. } = &mut item.glyph {
+            let id = inactive
+                .iter()
+                .find(|n| n.id == item.id)
+                .and_then(|n| {
+                    if let crate::items::State::Covered { by } = &n.state {
+                        Some(by.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(&item.id);
+            *number = notes.iter().position(|n| n.id == id).map_or(0, |i| i + 1);
+        }
+    }
+    items.retain(|i| !matches!(i.glyph, Glyph::FlagNote { number: 0, .. }));
     // Invariant: plan_with validates these same annotation texts before demand and placement.
     crate::label_text::annotations(&mut items, spec).expect("validated annotation wording");
     if items.is_empty() {
@@ -1414,6 +1485,7 @@ fn plan_search(
         let (laid, cells) = match &item.glyph {
             Glyph::Datum { letter, .. } => (datum_frame(letter), vec![letter.clone()]),
             Glyph::Label { text } => (label(text), vec![text.clone()]),
+            Glyph::FlagNote { number, .. } => (flag_note(*number), vec![number.to_string()]),
             Glyph::Finish { texture, .. } => finish_symbol(texture),
             g => control_frame(g),
         };
@@ -1427,7 +1499,10 @@ fn plan_search(
                 .filter(|(_, on)| *on)
                 .map(|(m, _)| m.to_string())
                 .collect(),
-            Glyph::Datum { .. } | Glyph::Label { .. } | Glyph::Finish { .. } => Vec::new(),
+            Glyph::Datum { .. }
+            | Glyph::Label { .. }
+            | Glyph::FlagNote { .. }
+            | Glyph::Finish { .. } => Vec::new(),
         };
         let mut planned = PlannedGdt {
             from_spec: if spec
@@ -1442,7 +1517,7 @@ fn plan_search(
             id: item.id.clone(),
             kind: match item.glyph {
                 Glyph::Datum { .. } => "datum_feature",
-                Glyph::Label { .. } => "label",
+                Glyph::Label { .. } | Glyph::FlagNote { .. } => "label",
                 Glyph::ControlFrame { .. } => "control_frame",
                 Glyph::Finish { .. } => "surface_finish",
             }
@@ -2311,7 +2386,7 @@ fn placement_choices(
                 _ => return None,
             };
             match &item.glyph {
-                Glyph::ControlFrame { .. } | Glyph::Label { .. } => {
+                Glyph::ControlFrame { .. } | Glyph::Label { .. } | Glyph::FlagNote { .. } => {
                     (name == item.view).then(|| (name, vec!["above", "below", "left", "right"]))
                 }
                 Glyph::Datum { surface, .. } | Glyph::Finish { surface, .. }

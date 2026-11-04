@@ -75,6 +75,20 @@ pub(crate) use holes::grid_lattice;
 pub(crate) mod inspection;
 pub(crate) mod interior;
 pub(crate) use interior::{finish_attached_openings, finish_openings, openings_need_settling};
+
+/// Judge a retried PMI corridor on its finished dependent ink, as the selected
+/// drawing is. Paper acceptance still checks every contact and carried item.
+pub(crate) fn finish_pmi_witness_routes(analysis: &Analysis, plan: &mut crate::model::Plan) {
+    if placement::pmi_witness_retry(analysis) {
+        let spec = plan.spec.clone();
+        let compact = plan.sheet.dimension_spacing == crate::model::DimensionSpacing::Compact;
+        with_compact(compact, || {
+            callout_routes::finish(analysis, &spec, plan);
+            hole_marks::attach(analysis, &spec, plan);
+            size_datums::attach(analysis, &spec, plan);
+        });
+    }
+}
 mod label_lanes;
 mod modelled_threads;
 pub(crate) use modelled_threads::{possible_threads, refused as refused_threads};
@@ -858,7 +872,25 @@ fn wants_uncached(
     // The part's PMI dimensions: on the model's items that state them, or their own.
     let (own, more, notes) = if pmi_policy::strict(analysis, spec) {
         pmi_policy::strict_callouts(analysis, &mut out);
-        pmi_dimensions::lower(&cx, &mut [])
+        if spec.sheet.references == Some(true) {
+            // Source diameters/radii share their ordinary callouts rather than
+            // repeat beside supplementary engine sizes. Keep source linear
+            // witnesses and identities independent of the reference setting.
+            let indices: Vec<_> = out
+                .iter()
+                .enumerate()
+                .filter(|(_, w)| matches!(w.shape, Shape::Callout { .. }))
+                .map(|(i, _)| i)
+                .collect();
+            let mut callouts: Vec<_> = indices.iter().map(|&i| out[i].clone()).collect();
+            let lowered = pmi_dimensions::lower(&cx, &mut callouts);
+            for (i, w) in indices.into_iter().zip(callouts) {
+                out[i] = w;
+            }
+            lowered
+        } else {
+            pmi_dimensions::lower(&cx, &mut [])
+        }
     } else {
         pmi_dimensions::lower(&cx, &mut out)
     };
@@ -1296,6 +1328,36 @@ fn detail_routes(a: &Analysis, wants: &mut [Want], views: &[PlannedView]) {
 /// A callout's leader sites for the view that carries it, once chosen: a boss's profile
 /// stations, a flat-cut turned band's trimmed outline, a fillet's proven arc in that view.
 fn route_sites(analysis: &Analysis, w: &mut Want, view: &str) {
+    if (w.id.starts_with("d:pmi:") || w.id.starts_with("d:specify_general:"))
+        && let Some(crate::pmi::Reading::Read(report)) = &analysis.pmi
+    {
+        let ids = report.identities();
+        if let Some(points) = report.records.iter().find_map(|r| {
+            (w.measurements.iter().any(|m| {
+                ids.ids.get(&r.source_id).is_some_and(|id| {
+                    &m.feature == id || m.feature == pmi_dimensions::general_feature(id)
+                })
+            }))
+            .then(|| {
+                let g = r.geometry.as_ref()?;
+                let preferred = match (g.axis.as_deref(), g.view.as_deref()) {
+                    (Some("X" | "Y"), Some("plan")) => "plan",
+                    (Some("Z" | "Y"), Some("side")) | (Some("Y"), _) => "side",
+                    _ => "front",
+                };
+                let legacy_plan = g.axis.as_deref() == Some("Y")
+                    && view == "plan"
+                    && !matches!(g.view.as_deref(), Some("side" | "plan"));
+                (view != preferred && !legacy_plan)
+                    .then(|| g.view_witnesses.get(view).copied())
+                    .flatten()
+            })
+            .flatten()
+        }) && let Shape::Linear { a, b, .. } = &mut w.shape
+        {
+            [*a, *b] = points;
+        }
+    }
     bosses::route_profile(analysis, w, view);
     turned::route_profile(analysis, w, view);
     edges::route_profile(analysis, w, view);
@@ -1814,7 +1876,13 @@ fn lanes_uncached(
         plates::share(analysis, &mut kept, &mut given, &mut omitted);
         share_statements(&mut kept, &mut given, &mut omitted, true);
         let before_pmi = omitted.len();
-        share_pmi(analysis, &mut kept, &mut given, &mut omitted);
+        share_pmi(
+            analysis,
+            spec.sheet.references == Some(true),
+            &mut kept,
+            &mut given,
+            &mut omitted,
+        );
         let pmi_covered: BTreeSet<String> =
             omitted[before_pmi..].iter().map(|o| o.id.clone()).collect();
         let references =
@@ -3003,7 +3071,13 @@ fn plan_inventory_ordered(
         recesses::consolidate(&mut defaults, &mut nominal, &mut unused);
         plates::share(analysis, &mut defaults, &mut nominal, &mut unused);
         share_statements(&mut defaults, &mut nominal, &mut unused, true);
-        share_pmi(analysis, &mut defaults, &mut nominal, &mut unused);
+        share_pmi(
+            analysis,
+            spec.sheet.references == Some(true),
+            &mut defaults,
+            &mut nominal,
+            &mut unused,
+        );
         redundancy::consolidate(analysis, spec, &mut defaults, &mut nominal, &mut unused);
         (defaults, unused)
     });
@@ -3027,6 +3101,7 @@ fn plan_inventory_ordered(
     for ((w, view), along) in wants.into_iter().zip(chosen.iter().copied()).zip(end_on) {
         let entry = spec.dimensions.get(&w.id);
         if pmi_policy::strict(analysis, spec)
+            && spec.sheet.references != Some(true)
             && !pmi_policy::authored(&w)
             && !(spec.dimension_source == DimensionSource::Authored && entry.is_some())
         {
@@ -3102,7 +3177,13 @@ fn plan_inventory_ordered(
     plates::share(analysis, &mut kept, &mut given, &mut omitted);
     share_statements(&mut kept, &mut given, &mut omitted, true);
     let before_pmi = omitted.len();
-    share_pmi(analysis, &mut kept, &mut given, &mut omitted);
+    share_pmi(
+        analysis,
+        spec.sheet.references == Some(true),
+        &mut kept,
+        &mut given,
+        &mut omitted,
+    );
     // A span the part's PMI states (again, or for a recognised feature's dimension) is one
     // dimension: the item it conveys is not drawn, so it takes its survivor's lane rather than
     // leaving an empty rung in the ladder.
@@ -3120,6 +3201,18 @@ fn plan_inventory_ordered(
         }
     }
     let references = redundancy::consolidate(analysis, spec, &mut kept, &mut given, &mut omitted);
+    if pmi_policy::carries(analysis) && spec.sheet.references == Some(true) {
+        for ((w, ..), authored) in kept.iter_mut().zip(&given) {
+            if authored.is_empty()
+                && spec.dimension_source == DimensionSource::Auto
+                && !pmi_policy::source_dimension(analysis, w)
+                && !w.terms.join(" ").starts_with('(')
+            {
+                w.terms = vec![format!("({})", crate::callouts::label(&w.terms))];
+                w.basis += "; reference: an engine dimension not stated by the applied PMI";
+            }
+        }
+    }
     problems.extend(pmi_dimensions::omitted(analysis, &all, &kept, &omitted));
 
     // Then everything the part would have is placed: each item's lane, and where its label
@@ -3558,7 +3651,7 @@ fn plan_inventory_ordered(
         .iter()
         .enumerate()
         .map(|(i, w)| {
-            if !placement::automatic_slot_layout(analysis)
+            if !placement::physical_witness_retry(analysis)
                 || !matches!(w.shape, Shape::Linear { .. })
             {
                 return false;
@@ -4614,14 +4707,12 @@ fn share_statements(
     let level = |p: &str| p.starts_with("step_height.length.");
     let span = |(w, _, view, _): &(Want, bool, Option<&'static str>, Vec<&'static str>)| {
         let parameter = &w.measurements.first()?.parameter;
-        // The recess consolidator owns these spans, including claims transferred to a
-        // level or envelope carrier. Keep them out of point-location sharing so a hole's
-        // table cells and a slot's independent datum identity remain intact.
-        if w.measurements.iter().any(|m| {
-            m.parameter.starts_with("seat_location.")
-                || m.parameter.starts_with("location_pocket.")
-                || m.parameter.starts_with("location_pocket_pattern.")
-        }) {
+        // Seat witnesses have their own datum contract. Pocket and pattern centres
+        // may share a location when their physical intervals and view coincide.
+        if w.measurements
+            .iter()
+            .any(|m| m.parameter.starts_with("seat_location."))
+        {
             return None;
         }
         if !(SHARED.iter().any(|(p, _)| p == parameter)
@@ -4734,6 +4825,7 @@ fn share_statements(
 /// PMI precedence is a rooted location network, shared with the drawn-set check.
 fn share_pmi(
     analysis: &Analysis,
+    references: bool,
     kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
@@ -4774,8 +4866,16 @@ fn share_pmi(
                 continue;
             }
             let Some(si) = span(&kept[i]) else { continue };
-            let same = sp.0 == si.0
-                && sp.1 == si.1
+            let engine_same = references
+                && !pmi(&kept[i].0)
+                && kept[i].1
+                && given[i].is_empty()
+                && pmi_policy::same_quantity(analysis, &kept[p].0, &kept[i].0);
+            let same = (if pmi(&kept[i].0) {
+                sp.0 == si.0
+            } else {
+                engine_same
+            }) && sp.1 == si.1
                 && (sp.2 - si.2).abs() <= SAME_SPAN
                 && (sp.3 - si.3).abs() <= SAME_SPAN;
             if !same {
@@ -4790,6 +4890,8 @@ fn share_pmi(
                     continue;
                 }
                 "the part's PMI states the same span again"
+            } else if engine_same {
+                "the part's PMI states this same physical quantity, independently of its carrying view"
             } else {
                 continue;
             };

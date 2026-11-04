@@ -164,7 +164,9 @@ pub(crate) fn annotations(
     }
     for item in items {
         if let Some(text) = spec.annotations.get(&item.id).and_then(|a| a.text.as_ref()) {
-            let crate::pmi_lowering::Glyph::Label { text: original } = &mut item.glyph else {
+            let (crate::pmi_lowering::Glyph::Label { text: original }
+            | crate::pmi_lowering::Glyph::FlagNote { text: original, .. }) = &mut item.glyph
+            else {
                 return Err(bad(
                     &item.id,
                     "datums, control frames and finish symbols have structured meanings; edit their feature fields instead",

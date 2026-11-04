@@ -551,6 +551,46 @@ pub(super) fn automatic_slot_layout(analysis: &Analysis) -> bool {
             .any(|f| matches!(f.kind.as_str(), "slot" | "slot_pattern"))
 }
 
+/// Physical witness retries also apply to source-authored spans. Only placement changes.
+pub(super) fn physical_witness_retry(analysis: &Analysis) -> bool {
+    if !crate::nominal::authored_pmi(analysis) {
+        return automatic_slot_layout(analysis);
+    }
+    if crate::nominal::comparison()
+        || !analysis
+            .recognition
+            .as_ref()
+            .is_some_and(|r| r.recogniser.starts_with("quiddity-rust "))
+        || analysis.features.iter().any(|f| f.kind == "section_recess")
+        || !analysis
+            .features
+            .iter()
+            .any(|f| matches!(f.kind.as_str(), "slot" | "slot_pattern"))
+    {
+        return false;
+    }
+    // Source layouts with local plates, notches or other coupled profiles
+    // retain their joint placement. This local retry is for slots in stock;
+    // it must not spend a neighbouring body's reserved witness corridor.
+    analysis.features.iter().all(|f| {
+        matches!(
+            f.kind.as_str(),
+            "hole" | "hole_pattern" | "slot" | "slot_pattern" | "fillet" | "chamfer"
+        )
+    })
+}
+
+/// Source-PMI layouts eligible for physical witness retries also give dependent
+/// callouts the ordinary corridor choices, including supplementary references.
+pub(super) fn pmi_witness_retry(analysis: &Analysis) -> bool {
+    if crate::nominal::comparison() {
+        return false;
+    }
+    crate::planning::memo(analysis, "pmi-witness-retry", Vec::new(), || {
+        physical_witness_retry(analysis) && crate::nominal::authored_pmi(analysis)
+    })
+}
+
 /// The strip of a turned step length anchored on its own body's silhouette (both witnesses off
 /// the outline: [`super::turned`]'s chains on a part of several turned bodies, ARCH0020-2): the
 /// side of the view its witnesses leave the body on, so they never cross a sibling body.
@@ -715,7 +755,7 @@ pub(super) fn lanes<'a>(
 ) -> (Vec<Option<Side>>, Vec<usize>) {
     let items: Vec<_> = items.collect();
     let n = items.len();
-    let ordinary = automatic_slot_layout(analysis)
+    let ordinary = physical_witness_retry(analysis)
         && !analysis
             .features
             .iter()
@@ -764,7 +804,7 @@ pub(super) fn lanes<'a>(
                     {
                         side
                     } else if let Some(side) =
-                        body_strip(f, w, horizontal, automatic_slot_layout(analysis))
+                        body_strip(f, w, horizontal, physical_witness_retry(analysis))
                     {
                         side
                     } else if w.measurements.iter().any(|m| {
@@ -3198,10 +3238,8 @@ fn clear_linear_ordered(
         };
         // Recess drawings already have a guarded joint corridor solve. The
         // new ordinary-witness retry must not bypass that established policy.
-        let feature_conflict = automatic_slot_layout(analysis)
-            && !recess_context
-            && !semantic_pmi
-            && feature_crossings(p) > 0;
+        let feature_conflict =
+            physical_witness_retry(analysis) && !recess_context && feature_crossings(p) > 0;
         let crossings = |c: &Placed| {
             let features = feature_crossings(c);
             let geometry = c
@@ -3280,7 +3318,10 @@ fn clear_linear_ordered(
         let max_lane = (((paper[2] - paper[0]).max(paper[3] - paper[1]) / super::lane_pitch())
             .ceil() as usize)
             .max(16);
-        let choices: Vec<_> = if recess_context || feature_conflict {
+        let choices: Vec<_> = if recess_context
+            || feature_conflict
+            || (semantic_pmi && physical_witness_retry(analysis))
+        {
             [side, opposite(side)]
                 .into_iter()
                 .flat_map(|side| {

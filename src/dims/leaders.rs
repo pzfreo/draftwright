@@ -1203,7 +1203,8 @@ fn place_with_obstacles_uncached(
         .collect();
     // Semantic PMI uses the legacy floor; its unused footprint-aware baseline need not be
     // sorted. The furniture-aware inventory and the legacy survivors stay fully measured.
-    let semantic_pmi = has_semantic_pmi(analysis, frames);
+    let semantic_pmi =
+        has_semantic_pmi(analysis, frames) && !super::placement::pmi_witness_retry(analysis);
     let profile_proofs = if items.iter().any(boss_profile) {
         super::interior::proofs(analysis, views)
     } else {
@@ -1596,8 +1597,9 @@ pub(crate) fn settle_after_furniture(
         && crate::nominal::geometry_eligible(analysis)
         && default_nominal_intent(spec))
         || crate::nominal::comparison()
-        || crate::nominal::authored_pmi(analysis);
-    if !compact {
+        || (crate::nominal::authored_pmi(analysis)
+            && !super::placement::pmi_witness_retry(analysis));
+    if !compact && !crate::nominal::authored_pmi(analysis) {
         super::nearest_shared_witnesses(analysis, spec, views, items);
     }
     let bounded_notches = !crate::notches::requirements(analysis).is_empty();
@@ -7455,9 +7457,33 @@ pub(super) fn settled_routes(
             [b[2] - b[0], (b[3] - b[1]) / 2.0],
         )
     };
-    let sites = radius
-        .as_ref()
-        .map_or(sites, |arcs| radius_route_sites(arcs, shaft[0]));
+    let sites = radius.as_ref().map_or(sites, |arcs| {
+        let mut sites = radius_route_sites(arcs, shaft[0]);
+        if super::placement::pmi_witness_retry(analysis) {
+            // A counted group can spend all eight seeds on arc middles.
+            // Retain nearby proven middle-half endpoints too; the sweep still
+            // examines eight nearest sites and the same radial proof applies.
+            let mut ends: Vec<_> = arcs
+                .iter()
+                .flat_map(|a| a.tips.first().into_iter().chain(a.tips.last()).copied())
+                .collect();
+            ends.sort_by(|a, b| {
+                (a[0] - shaft[0][0])
+                    .hypot(a[1] - shaft[0][1])
+                    .total_cmp(&(b[0] - shaft[0][0]).hypot(b[1] - shaft[0][1]))
+            });
+            for tip in ends {
+                if sites.len() >= 3 * SWEEP_SITES {
+                    break;
+                }
+                let site = (tip, 0., None);
+                if !sites.contains(&site) {
+                    sites.push(site);
+                }
+            }
+        }
+        sites
+    });
     if sites.is_empty() {
         return Vec::new();
     }
@@ -7543,8 +7569,14 @@ pub(super) fn settled_routes(
     } else {
         let mut exterior = job.clone();
         exterior.interior_proof = None;
+        // Retain the proven shaft beside the margin while trying either shelf.
+        let other_shelf = super::placement::pmi_witness_retry(analysis) && radius.is_some();
         let mut candidates: Vec<_> = sweep(&exterior, shaft[0])
             .into_iter()
+            .flat_map(|(tip, elbow, right)| {
+                std::iter::once((tip, elbow, right))
+                    .chain(other_shelf.then_some((tip, elbow, !right)))
+            })
             .filter_map(|(tip, elbow, right)| measure_bounds(&exterior, tip, elbow, right, &page))
             .filter(|c| !boxes_overlap(c.label_box, job.outline) && c.hard == 0)
             .collect();
@@ -7608,13 +7640,15 @@ pub(super) fn settled_routes(
     let hidden = resolved
         .as_ref()
         .map_or(0, |r| r.hidden.route_crossings(old_lines));
-    let compact_shoulders = peers.iter().any(|q| {
-        (q.view == d.view
-            || want.is_some_and(|w| !w.measurements.iter().any(|m| m.feature.starts_with("pmi:"))))
-            && q.measurements
-                .iter()
-                .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
-    });
+    let compact_shoulders = super::placement::pmi_witness_retry(analysis)
+        || peers.iter().any(|q| {
+            (q.view == d.view
+                || want
+                    .is_some_and(|w| !w.measurements.iter().any(|m| m.feature.starts_with("pmi:"))))
+                && q.measurements
+                    .iter()
+                    .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+        });
     let mut near = Vec::new();
     let admissible = |c: &Candidate| {
         let extensions = fixed.extension_index.contacts(&c.segments(), c.label_box);

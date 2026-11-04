@@ -461,7 +461,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             lo,
             hi,
             order,
-            super::placement::automatic_slot_layout(analysis),
+            super::placement::physical_witness_retry(analysis),
         )
     };
     let mut problems = Vec::new();

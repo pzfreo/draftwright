@@ -531,6 +531,7 @@ pub(crate) fn finish_frames(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
 }
 
 fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: bool) {
+    let pmi_retry = placement::pmi_witness_retry(analysis);
     let openings = plan.dimensions.iter().any(|d| {
         d.measurements
             .iter()
@@ -539,17 +540,28 @@ fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: b
     let repair_issue = |code: &str| route_issue(code) || (openings && code == "label_crowded");
     // Added lanes must not leave an otherwise unreported leader alongside
     // an extension. Use the placer's existing one-mm contact predicate.
-    let extension_sets = if openings {
+    let extension_sets = if openings || pmi_retry {
         extension_sets(plan)
     } else {
         BTreeMap::new()
     };
-    // Source statements and attached marks move with their authored unit;
-    // extension-only retries are for free engine callouts.
-    let coupled: BTreeSet<_> = if openings && !plan.gdt.is_empty() {
+    // Attached marks move with their authored unit. Before attachment, PMI
+    // callouts may retry their changed witness corridors; the ordinary hole
+    // attachment pass then proves a place for each frame beside the new label.
+    let coupled: BTreeSet<_> = if (openings || pmi_retry)
+        && !plan.gdt.is_empty()
+        && (!pmi_retry || plan.gdt.iter().any(super::hole_marks::attached))
+    {
         super::hole_marks::attachments(analysis, plan)
-            .into_values()
-            .flatten()
+            .into_iter()
+            .filter(|(id, _)| {
+                !pmi_retry
+                    || plan
+                        .gdt
+                        .iter()
+                        .any(|g| &g.id == id && super::hole_marks::attached(g))
+            })
+            .filter_map(|(_, callout)| callout)
             .collect()
     } else {
         BTreeSet::new()
@@ -560,7 +572,7 @@ fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: b
         .filter(|d| {
             d.kind == "callout"
                 && !coupled.contains(&d.id)
-                && !d.measurements.iter().any(|m| m.feature.starts_with("pmi:"))
+                && (pmi_retry || !d.measurements.iter().any(|m| m.feature.starts_with("pmi:")))
         })
         .filter_map(|d| {
             let p = d.placed.as_ref()?;
@@ -626,9 +638,12 @@ fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: b
         .views
         .iter()
         .filter_map(|v| {
-            let name = v.id.strip_prefix("v:")?;
-            (super::NAMES.contains(&name) || crate::detail::NAMES.contains(&name))
-                .then(|| (name, placement::Frame::new(analysis, v)))
+            let name = super::NAMES
+                .iter()
+                .chain(crate::detail::NAMES.iter())
+                .copied()
+                .find(|name| v.id.strip_prefix("v:") == Some(*name))?;
+            Some((name, placement::Frame::new(analysis, v)))
         })
         .collect();
     super::detail_routes(analysis, &mut wants, &plan.views);
@@ -748,6 +763,7 @@ fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: b
                 }
                 let id = d.id.clone();
                 let old = d.placed.clone();
+                let mut grown_area = None;
                 let limit = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
                     candidates.len()
                 } else {
@@ -816,8 +832,29 @@ fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: b
                     }
 
                     all[i].placed = Some(next.clone());
-                    let mut after =
-                        placement::collisions_for(analysis, &all, sheet, &plan.views, &cache, &id);
+                    // A free source callout can need a little more of its view's
+                    // annotation band after witness lanes move. Reuse the hole
+                    // attachment proof: grow only into vacant drawable paper.
+                    let area = if pmi_retry && extension_retry && i < dimension_count {
+                        super::ink_box(&all[i]).and_then(|ink| {
+                            super::hole_marks::grown(view, ink, sheet, &plan.views, &peers)
+                        })
+                    } else {
+                        None
+                    };
+                    let trial_views = area.map(|area| {
+                        let mut views = plan.views.clone();
+                        views.iter_mut().find(|v| v.id == view.id).unwrap().area = area;
+                        views
+                    });
+                    let mut after = placement::collisions_for(
+                        analysis,
+                        &all,
+                        sheet,
+                        trial_views.as_deref().unwrap_or(&plan.views),
+                        &cache,
+                        &id,
+                    );
                     if openings && i < dimension_count {
                         after.extend(crowding(analysis, plan, &all, dimension_count, &id));
                     }
@@ -896,10 +933,14 @@ fn finish_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, only_frames: b
                             fixed = furniture(plan);
                         }
                         changed.insert(id.clone());
+                        grown_area = area.map(|area| (view.id.clone(), area));
                         moved = true;
                         break;
                     }
                     all[i].placed.clone_from(&old);
+                }
+                if let Some((id, area)) = grown_area {
+                    plan.views.iter_mut().find(|v| v.id == id).unwrap().area = area;
                 }
             }
             if !moved {
