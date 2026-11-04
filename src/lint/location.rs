@@ -500,6 +500,16 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                     }
                     continue;
                 }
+                if authored
+                    && c.parameter == "location_slot_across.length"
+                    && let Some((k, at)) = blind_axis(a, &c.feature)
+                    && states_mm(
+                        mark.text.split_whitespace().next().unwrap_or(""),
+                        (at - a.envelope[0][k]).abs(),
+                    )
+                {
+                    spans.push((k, a.envelope[0][k], at));
+                }
                 // A compound pocket callout states each claimed numeric size, even when
                 // that size is not the label's leading number.
                 if authored
@@ -577,6 +587,15 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                 continue;
             }
             for claim in &mark.claims {
+                if claim.parameter == "location_slot_across.length"
+                    && blind_axis(a, &claim.feature).is_some_and(|(k, p)| {
+                        k == e.axis && (p - at).abs() < super::redundancy::TOL
+                    })
+                {
+                    *node = Some(format!("midplane:{}", claim.feature));
+                    continue;
+                }
+
                 let Some(f) = a
                     .features
                     .iter()
@@ -726,6 +745,23 @@ fn pocket_face(a: &Analysis, id: &str, axis: usize, at: f64) -> Option<String> {
     faces.next().is_none().then(|| format!("face:{i}"))
 }
 
+fn blind_axis(a: &Analysis, id: &str) -> Option<(usize, f64)> {
+    use super::section_recesses::{Grammar, grammar};
+    let f = a
+        .features
+        .iter()
+        .find(|f| f.id == id && f.kind == "section_recess")?;
+    let (Grammar::RectangularBlindSlot(s) | Grammar::RoundBottomBlindSlot(s)) = grammar(f).ok()?
+    else {
+        return None;
+    };
+    let frame = crate::bridge::holes::frame(a);
+    let mut unit = [0.; 3];
+    unit[s.width_axis] = 1.;
+    let k = crate::bridge::holes::principal(crate::bridge::holes::dir_to_part(&frame, unit))?;
+    Some((k, crate::bridge::holes::to_part(&frame, s.origin)[k]))
+}
+
 fn drawn_node(a: &Analysis, id: &str, axis: usize) -> Option<String> {
     if id.starts_with("face:") {
         return Some(id.into());
@@ -737,6 +773,9 @@ fn drawn_node(a: &Analysis, id: &str, axis: usize) -> Option<String> {
         if axis == p.long_axis && (p.lo - a.envelope[0][axis]).abs() < EPS {
             return pocket_face(a, id, axis, p.lo);
         }
+        return Some(format!("midplane:{id}"));
+    }
+    if blind_axis(a, id).is_some_and(|(k, _)| k == axis) {
         return Some(format!("midplane:{id}"));
     }
     node_feature(a, id, axis)
@@ -1717,6 +1756,11 @@ pub(crate) fn targets(a: &Analysis) -> Vec<(String, usize, f64)> {
         }
     }
     // Invariant: The collected positions passed finite coordinate parsing.
+    for f in &a.features {
+        if let Some((k, at)) = blind_axis(a, &f.id) {
+            out.push((f.id.clone(), k, at));
+        }
+    }
     out.sort_by(|p, q| p.partial_cmp(q).unwrap());
     out.dedup_by(|p, q| p.0 == q.0 && p.1 == q.1 && (p.2 - q.2).abs() < EPS);
     out
@@ -1912,8 +1956,9 @@ pub fn printed_chain(
         .or_else(|| super::redundancy::span(a, feature, parameter).map(|s| s.axis))?;
     let at = targets(a)
         .into_iter()
-        .find(|(id, k, _)| id == feature && *k == axis)?
-        .2;
+        .find(|(id, k, _)| id == feature && *k == axis)
+        .map(|(_, _, at)| at)
+        .or_else(|| pattern(a, feature).and_then(|_| station(a, feature, axis)))?;
     let edges = drawn_edges(a, marks);
     let path = drawn_proof(
         a,
