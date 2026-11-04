@@ -1,4 +1,4 @@
-//! Compatibility with quiddity 0.4.5: a cavity's skin can also be published as holes.
+//! Guard against contradictory cavity and hole claims (fixed upstream in quiddity 0.4.7).
 //! Keep the cavity and its physical bounds, and remove the contradictory opening claims.
 use std::collections::BTreeSet;
 

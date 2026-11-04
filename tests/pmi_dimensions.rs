@@ -2490,19 +2490,16 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
         );
         let d = stating(&plan, &a, r).expect("measured PMI retains a drawn carrier");
         assert!(d.placed.is_some());
-        let warnings: Vec<_> = plan
+        let facts: Vec<_> = plan
             .problems
             .iter()
-            .filter(|p| p.code == "pmi_read_nonconformance" && p.refs.contains(&r.source_id))
+            .filter(|p| p.code == "pmi_read_fact" && p.refs.contains(&r.source_id))
             .collect();
-        assert_eq!(warnings.len(), 1);
-        assert_eq!(warnings[0].severity, "warning");
-        assert!(warnings[0].message.contains("was measured"));
-        assert_eq!(json!(warnings[0])["impact"], "advisory");
-        assert_eq!(
-            json!(warnings[0])["group"],
-            "pmi_read_nonconformance:dimension"
-        );
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].severity, "info");
+        assert!(facts[0].message.contains("was measured"));
+        assert_eq!(json!(facts[0])["impact"], "advisory");
+        assert_eq!(json!(facts[0])["group"], "pmi_read_fact:dimension");
         assert!(
             !plan
                 .problems

@@ -793,6 +793,48 @@ fn haecceity_findings_are_sources_or_record_blockers() {
 }
 
 #[test]
+fn reader_facts_are_information_without_blockers_or_unread_sources() {
+    let (doc, defs, part, mut read) = reading(CTC01);
+    let base = pmi::report(&doc, &defs, &part, &read).unwrap();
+    let on = base
+        .records
+        .iter()
+        .find(|r| r.category == Category::GeometricTolerance && r.blockers.is_empty())
+        .unwrap();
+    for (ids, detail) in [
+        (vec![on.part21_id], "attached preserved statement"),
+        (vec![99_999_999], "standalone preserved statement"),
+        (Vec::new(), "preserved statement without entity ids"),
+    ] {
+        read.findings.push(hpmi::Finding {
+            kind: hpmi::FindingKind::Fact,
+            part: Some(hpmi::PartId(0)),
+            ids,
+            entity: "projected_zone_definition".into(),
+            detail: detail.into(),
+        });
+    }
+    let report = pmi::report(&doc, &defs, &part, &read).unwrap();
+    assert_eq!(report.records, base.records);
+    assert_eq!(report.sources, base.sources);
+    let added: Vec<_> = report
+        .reader
+        .problems
+        .iter()
+        .filter(|p| !base.reader.problems.iter().any(|b| b.id == p.id))
+        .collect();
+    assert_eq!(added.len(), 3);
+    assert!(
+        added
+            .iter()
+            .all(|p| p.code == "pmi_read_fact" && p.severity == "info")
+    );
+    assert!(added[0].refs.contains(&format!("#{}", on.part21_id)));
+    assert!(added[1].refs.contains(&"#99999999".into()));
+    assert!(added[2].refs.is_empty());
+}
+
+#[test]
 fn requirements_are_records_and_what_is_not_projected_is_a_source() {
     let (doc, defs, part, read) = reading("spool_fits.step.gz");
     let r = pmi::report(&doc, &defs, &part, &read).unwrap();
@@ -1036,8 +1078,8 @@ fn every_item_and_finding_is_accounted_for_and_the_output_is_deterministic() {
                 .iter()
                 .any(|s| s.id == format!("finding:#{}", f.ids[0]) && s.reason.ends_with(&f.detail));
             let interpreted = r.reader.problems.iter().any(|p| {
-                p.code == "pmi_read_nonconformance"
-                    && p.severity == "warning"
+                ((p.code == "pmi_read_nonconformance" && p.severity == "warning")
+                    || (p.code == "pmi_read_fact" && p.severity == "info"))
                     && f.ids.iter().all(|id| p.refs.contains(&format!("#{id}")))
                     && p.message.contains(&f.detail)
             });

@@ -20,8 +20,8 @@ fn sealed_cylinders_are_cavities_not_holes_or_pattern_requirements() {
         haecceity::classify::State::In
     );
     let raw = quiddity::correspondence::recognise(&part);
-    // This asserts the provider defect itself, so the regression cannot pass on an
-    // empty or incorrectly constructed specimen. Remove the workaround after its fix.
+    // Quiddity 0.4.7 reports exact closed shells, without contradictory holes.
+    // Keep these provider preconditions separate from draftwright's drawing guard.
     let doc = quiddity::recognition::document(&raw, part.faces.len());
     let voids: Vec<_> = doc
         .records
@@ -31,13 +31,14 @@ fn sealed_cylinders_are_cavities_not_holes_or_pattern_requirements() {
     assert_eq!(voids.len(), 4);
     assert_eq!(
         doc.records.iter().filter(|r| r.family == "holes").count(),
-        4
+        0
     );
-    assert!(doc.records.iter().any(|r| r.family == "hole_patterns"));
+    assert!(!doc.records.iter().any(|r| r.family == "hole_patterns"));
     assert!(
         voids
             .iter()
-            .all(|v| v.parameters["openings"].as_array().unwrap().is_empty())
+            .all(|v| v.parameters["openings"].as_array().unwrap().is_empty()
+                && v.parameters["volume_method"] == "closed_shell")
     );
     let (part, a) = model::analyse_native_step(Path::new("sealed-cylinders.step"), INPUT).unwrap();
     assert_eq!(
@@ -95,6 +96,50 @@ fn cavity_face_ownership_drops_mixed_patterns_but_keeps_unclaimed_holes() {
     let part = haecceity::read_step(INPUT).unwrap();
     let raw = quiddity::correspondence::recognise(&part);
     let mut doc = quiddity::recognition::document(&raw, part.faces.len());
+    // Explicitly inject the old contradictory claims: the current recognizer no
+    // longer supplies them. Each cylinder's faces and bounds come from the specimen.
+    let mut holes = Vec::new();
+    for void in doc.records.iter().filter(|r| r.family == "interior_voids") {
+        let face = *void
+            .faces
+            .iter()
+            .find(|&&f| {
+                matches!(
+                    part.faces[f].surface,
+                    haecceity::geom::Surface::Cylinder { .. }
+                )
+            })
+            .unwrap();
+        let bounds = part.face_bounds(face);
+        let parameters = serde_json::json!({
+            "axis": [0., 0., -1.],
+            "location": [(bounds.min[0]+bounds.max[0])/2., (bounds.min[1]+bounds.max[1])/2., bounds.max[2]],
+            "diameter": 2.5, "depth": 12., "bottom": "flat",
+            "cbore": null, "spotface": null, "csink": null
+        });
+        let mut hole = void.clone();
+        hole.id = format!("holes/{}", holes.len());
+        hole.family = "holes".into();
+        hole.record_type = "HoleRecord".into();
+        hole.faces = vec![face];
+        hole.parameters = parameters.as_object().unwrap().clone();
+        holes.push(hole);
+    }
+    assert_eq!(holes.len(), 4);
+    let mut pattern = holes[0].clone();
+    pattern.id = "hole_patterns/0".into();
+    pattern.family = "hole_patterns".into();
+    pattern.record_type = "RectangularHoleSet".into();
+    pattern.faces = holes.iter().flat_map(|h| h.faces.iter().copied()).collect();
+    pattern.parameters = serde_json::json!({
+        "holes": holes.iter().map(|h| &h.parameters).collect::<Vec<_>>(),
+        "center": [16., 12., 16.], "width": 16., "height": 8., "angle": 0.
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    doc.records.extend(holes);
+    doc.records.push(pattern);
     let mut kept_void = false;
     // Contract-level negative control: only one cavity is claimed by this provider
     // document. The other three hole records must not disappear by equal diameter,

@@ -2050,8 +2050,9 @@ cylinder sizes cannot supply a value. A stated nominal still has to agree with t
 The record carries `nominal source: geometry (no stated value)` and retains its PMI identity,
 including its originally empty label discriminator where another requirement shares its faces.
 The drawing uses the ordinary formatter and only explicitly stated tolerances. One
-`pmi_read_nonconformance` warning per recovered record names the missing representation and
-measured value (severity warning, advisory impact, grouped by source kind). Matching native
+`pmi_read_fact` information finding per recovered record names the absent representation and
+measured value (severity info, advisory impact, grouped by source kind). Reader facts, including
+projected zones whose end has no geometry, are also information findings and never block lowering. Matching native
 sizes and already toleranced PMI callouts retain a single carrier with all source claims.
 Other reader or geometry blockers remain refusals.
 
