@@ -9,10 +9,11 @@ from make_review_fixtures import Step
 
 
 class Pocket(Step):
-    def __init__(self, pockets=((40, 17, 80, 23, 7),), step=False):
+    def __init__(self, pockets=((40, 17, 80, 23, 7),), step=False, open_end=False):
         super().__init__()
         self.pockets = pockets
         self.step = step
+        self.open_end = open_end
 
     def box(self, dims, bores=()):
         points = [(0, 0, 0), (120, 0, 0), (120, 40, 0), (0, 40, 0),
@@ -58,6 +59,10 @@ class Pocket(Step):
             specs += [([a, d, e, b], (1, 0, 0), (0, 1, 0)),
                       ([b, e, f, c], (0, -1, 0), (1, 0, 0)),
                       ([d, 5, f, e], (0, 0, 1), (1, 0, 0))]
+        if self.open_end:
+            assert len(self.pockets) == 1 and self.pockets[0][2] == 120
+            specs[1] = ([4, 5, 9, 8, 11, 10, 6, 7], (0, 0, 1), (1, 0, 0))
+            specs[3] = ([1, 2, 6, 10, 14, 13, 9, 5], (1, 0, 0), (0, 1, 0))
         top = specs[1][0]
         holes = []
         for i, (_, _, _, _, floor) in enumerate(self.pockets):
@@ -66,13 +71,16 @@ class Pocket(Step):
                      ([o+1, o+2, o+6, o+5], (-1, 0, 0), (0, 1, 0)),
                      ([o+2, o+3, o+7, o+6], (0, -1, 0), (-1, 0, 0)),
                      ([o+3, o, o+4, o+7], (1, 0, 0), (0, -1, 0))]
+            if self.open_end:
+                walls.pop(1)
             for indices, normal, x in walls:
                 if floor > 10:
                     indices = list(reversed(indices))
                     normal = tuple(-v for v in normal)
                 specs.append((indices, normal, x))
             specs.append(([o+4, o+5, o+6, o+7], (0, 0, 1), (1, 0, 0)))
-            holes.append([o+3, o+2, o+1, o])
+            if not self.open_end:
+                holes.append([o+3, o+2, o+1, o])
         faces = []
         for indices, normal, x in specs:
             plane = self.add(f"PLANE('',{self.axis(points[indices[0]], normal, x)})")
@@ -90,3 +98,4 @@ if __name__ == "__main__":
     # An open edge step has a physical wall at the pockets' common x=60.
     Pocket(two, step=True).write(out / "two_pockets_step.step")
     Pocket(((40, 17, 80, 23, 7), (60, 27, 80, 33, 7))).write(out / "two_pockets_sizes.step")
+    Pocket(((40, 17, 120, 23, 7),), open_end=True).write(out / "blind_slot.step")

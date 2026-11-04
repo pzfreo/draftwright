@@ -780,8 +780,12 @@ fn blind_size(a: &Analysis, id: &str, role: &str, text: &str) -> Option<(usize, 
         .split('±')
         .next()?
         .split_whitespace()
-        .next()?
-        .trim_start_matches('R');
+        .next()?;
+    let word = if role.ends_with(".radius") {
+        word.strip_prefix('R')?
+    } else {
+        word
+    };
     if !word.parse::<f64>().is_ok_and(|v| v.is_finite() && v >= 0.) || !states_mm(word, size) {
         return None;
     }

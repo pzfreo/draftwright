@@ -1197,3 +1197,50 @@ fn another_pockets_half_length_is_not_a_dimension_between_this_pockets_faces() {
         "the second pocket's 20 is not the first pocket's half interval"
     );
 }
+
+#[test]
+fn removing_an_engine_blind_slots_transverse_dimension_exposes_its_location() {
+    let (part, a) = model::analyse_native(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/location/blind_slot.step"),
+    )
+    .unwrap();
+    let id = &a
+        .features
+        .iter()
+        .find(|f| f.kind == "section_recess")
+        .unwrap()
+        .id;
+    let mut plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let location = plan
+        .dimensions
+        .iter()
+        .find(|d| {
+            d.measurements
+                .iter()
+                .any(|m| m.feature == *id && m.parameter == "location_slot_across.length")
+        })
+        .unwrap()
+        .id
+        .clone();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let missing = |drawing: &draftwright::output::Drawing| {
+        draftwright::lint::lint(&a, drawing).iter().any(|i| {
+            i.code == "feature_not_located"
+                && i.requirements
+                    .iter()
+                    .any(|r| r.feature == *id && r.parameter == "location.length.y")
+        })
+    };
+    let original = model::render(&part, &a, &plan, &font).unwrap();
+    assert!(
+        !missing(&original),
+        "the printed transverse dimension fixes this slot"
+    );
+    plan.dimensions.retain(|d| d.id != location);
+    let mutation = model::render(&part, &a, &plan, &font).unwrap();
+    assert!(
+        missing(&mutation),
+        "the size callout alone does not fix the transverse centre"
+    );
+}
