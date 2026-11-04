@@ -202,6 +202,17 @@ pub(crate) fn edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
                     }
                 }
             } else if !physical {
+                if let Some((k, p, q)) = authored_span(a, mark, c) {
+                    spans.push((k, p, q));
+                }
+                // A compound pocket callout states each claimed numeric size, even when
+                // that size is not the label's leading number.
+                if ["pocket_width.length", "pocket_length.length"].contains(&c.parameter.as_str())
+                    && let Some(s) = super::redundancy::span(a, &c.feature, &c.parameter)
+                    && states_mm(mark.text.split('±').next().unwrap_or(""), s.hi - s.lo)
+                {
+                    spans.push((s.axis, s.lo, s.hi));
+                }
                 spans.extend(
                     super::schemes::supports(a, &c.feature, &c.parameter, &mark.text)
                         .into_iter()
@@ -235,7 +246,69 @@ pub(crate) fn edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
             .collect();
         typed.extend(identify(a, mark, spans));
     }
+    // A printed interval fixes its midpoint relative to either end. Its two
+    // halves retain the original owner, so they cannot manufacture a second
+    // independent controller. No length in the Analysis alone adds an edge.
+    for (f, p) in super::pockets::placed(a) {
+        let Ok(p) = p else { continue };
+        for role in ["pocket_width.length", "pocket_length.length"] {
+            let Some(s) = super::redundancy::span(a, &f.id, role) else {
+                continue;
+            };
+            let intervals: Vec<_> = typed
+                .iter()
+                .filter(|e| {
+                    e.axis == s.axis
+                        && e.a_feature.is_none()
+                        && e.b_feature.is_none()
+                        && ((e.a.min(e.b) - s.lo).abs() < EPS)
+                        && ((e.a.max(e.b) - s.hi).abs() < EPS)
+                })
+                .cloned()
+                .collect();
+            let centre = if s.axis == p.long_axis {
+                (p.lo + p.hi) / 2.
+            } else {
+                p.w_center
+            };
+            for e in intervals {
+                for end in [e.a, e.b] {
+                    typed.push(Edge {
+                        a: end,
+                        b: centre,
+                        a_feature: None,
+                        b_feature: Some(f.id.clone()),
+                        ..e.clone()
+                    });
+                }
+            }
+        }
+    }
     typed
+}
+
+/// Authored evidence must state the re-measured nominal. A true distance only
+/// enters this graph if the supports also have unique stations on that axis;
+/// an oblique length never becomes its nominal projection.
+fn authored_span(a: &Analysis, mark: &Mark, c: &crate::output::Claim) -> Option<(usize, f64, f64)> {
+    let refs: Vec<_> = c
+        .feature
+        .strip_prefix("geometry:")?
+        .split('|')
+        .map(String::from)
+        .collect();
+    let along = c.parameter.strip_prefix("linear.")?;
+    let m = a.measure_references(&refs, "linear", Some(along)).ok()?;
+    if !states_mm(mark.text.split_whitespace().next()?, m.value) {
+        return None;
+    }
+    let [p, q] = m.witnesses?;
+    let k = AXES
+        .iter()
+        .position(|axis| *axis == along)
+        .or_else(|| (0..3).find(|&k| (0..3).all(|j| j == k || (q[j] - p[j]).abs() < EPS)))?;
+    let principal = a.measure_references(&refs, "linear", Some(AXES[k])).ok()?;
+    ((principal.value - m.value).abs() < EPS).then_some((k, p[k], q[k]))
 }
 
 /// Re-measure a principal-axis constraint from the actual two witnesses and the drawn view
@@ -330,15 +403,7 @@ pub(crate) fn drawn_constraints(
     drawing: &crate::output::Drawing,
     marks: &mut [Mark],
 ) {
-    if drawing.sheet.frames.is_empty()
-        || (!has_station_requirements(a)
-            && !drawing.annotations.iter().any(|annotation| {
-                annotation.coordinate_origin.is_some()
-                    && drawing.sheet.items.iter().any(|item| {
-                        item.name == annotation.name && item.kind == crate::output::Kind::Dimension
-                    })
-            }))
-    {
+    if drawing.sheet.frames.is_empty() {
         return;
     }
     for mark in marks {
@@ -403,6 +468,15 @@ pub(crate) fn node_feature(a: &Analysis, id: &str, k: usize) -> Option<String> {
         && p.members.iter().all(|id| node_feature(a, id, k).is_some())
     {
         return Some(id.into());
+    }
+    if a.features
+        .iter()
+        .any(|f| f.id == id && f.kind == "section_recess")
+        && let Some((_, Ok(p))) = super::pockets::placed(a)
+            .into_iter()
+            .find(|(f, _)| f.id == id)
+    {
+        return [p.long_axis, p.width_axis].contains(&k).then(|| id.into());
     }
     if let Some(f) = a
         .features
@@ -473,6 +547,21 @@ pub(crate) fn station(a: &Analysis, id: &str, k: usize) -> Option<f64> {
         let points = points?;
         return (!points.is_empty()).then(|| points.iter().sum::<f64>() / points.len() as f64);
     }
+    if a.features
+        .iter()
+        .any(|f| f.id == id && f.kind == "section_recess")
+        && let Some((_, Ok(p))) = super::pockets::placed(a)
+            .into_iter()
+            .find(|(f, _)| f.id == id)
+    {
+        return Some(if k == p.long_axis {
+            (p.lo + p.hi) / 2.
+        } else if k == p.width_axis {
+            p.w_center
+        } else {
+            p.centre[k]
+        });
+    }
     if let Some(f) = a.features.iter().find(|f| f.id == id) {
         if f.kind == "hole"
             && let Ok(h) = crate::bridge::holes::Hole::read(f, &crate::bridge::holes::frame(a))
@@ -541,6 +630,44 @@ pub(crate) fn proof(
     }
     if let Some(path) = route(edges, roots, axis, at, node, &BTreeSet::new()) {
         return Some(path);
+    }
+    // Coaxial cylinders share both radial coordinates. Equal coordinates on
+    // just one axis are not a geometric relation between unrelated features.
+    if let Some(f) = node.and_then(|id| a.features.iter().find(|f| f.id == id))
+        && matches!(f.kind.as_str(), "hole" | "boss")
+        && let Some(d) = f.fingerprint.axis
+        && d[axis].abs() < EPS
+    {
+        for other in a
+            .features
+            .iter()
+            .filter(|g| g.id != f.id && matches!(g.kind.as_str(), "hole" | "boss"))
+        {
+            let Some(e) = other.fingerprint.axis else {
+                continue;
+            };
+            if ((0..3).map(|k| d[k] * e[k]).sum::<f64>().abs() - 1.).abs() > EPS {
+                continue;
+            }
+            let delta: [f64; 3] = std::array::from_fn(|k| {
+                station(a, &other.id, k).unwrap_or(other.fingerprint.position[k])
+                    - station(a, &f.id, k).unwrap_or(f.fingerprint.position[k])
+            });
+            let axial = (0..3).map(|k| delta[k] * d[k]).sum::<f64>();
+            if (0..3).any(|k| (delta[k] - axial * d[k]).abs() > EPS) {
+                continue;
+            }
+            if let Some(path) = route(
+                edges,
+                roots,
+                axis,
+                station(a, &other.id, axis)?,
+                Some(&other.id),
+                &BTreeSet::new(),
+            ) {
+                return Some(path);
+            }
+        }
     }
     let p = pattern(a, node?)?;
     let mut path = Vec::new();
@@ -679,6 +806,38 @@ pub(crate) fn identify(a: &Analysis, mark: &Mark, spans: Vec<Edge>) -> Vec<Edge>
     }
 
     for span in spans {
+        if let Some(c) = mark
+            .claims
+            .iter()
+            .find(|c| c.feature.starts_with("geometry:"))
+        {
+            if let Some((k, p, q)) = authored_span(a, mark, c)
+                && k == span.axis
+                && (p.min(q) - span.a.min(span.b)).abs() < EPS
+                && (p.max(q) - span.a.max(span.b)).abs() < EPS
+            {
+                let refs: Vec<_> = c
+                    .feature
+                    .trim_start_matches("geometry:")
+                    .split('|')
+                    .collect();
+                let node = |side: usize| {
+                    refs.get(side)
+                        .and_then(|r| r.strip_prefix("axis:"))
+                        .and_then(|id| node_feature(a, id, k))
+                };
+                let mut e = span;
+                if (p - e.a).abs() < EPS {
+                    e.a_feature = node(0);
+                    e.b_feature = node(1);
+                } else {
+                    e.a_feature = node(1);
+                    e.b_feature = node(0);
+                }
+                out.push(e);
+            }
+            continue;
+        }
         if let Some(c) = mark
             .claims
             .iter()
@@ -1076,13 +1235,13 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             continue;
         }
         let parameter = format!("location.length.{}", AXES[k]);
-        let first = route(
+        let first = proof(
+            a,
             &edges,
             &roots[k],
             k,
             at,
             node_feature(a, &feature, k).as_deref(),
-            &BTreeSet::new(),
         );
         let (code, involved) = match first {
             None => {
@@ -1211,21 +1370,18 @@ pub fn sizes(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
 /// Canonical legacy coverage roles derived from the physical network. These are arithmetic
 /// evidence for the older family checks; they are never extra printed dimensions.
 pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> Vec<Mark> {
-    if !active(a, marks) {
-        return vec![];
-    }
     let edges = edges(a, marks);
     let roots = drawing_roots(a, marks);
     let mut extra = Vec::new();
     let pockets = super::pockets::placed(a);
     for (feature, k, at) in targets(a) {
-        if route(
+        if proof(
+            a,
             &edges,
             &roots[k],
             k,
             at,
             node_feature(a, &feature, k).as_deref(),
-            &BTreeSet::new(),
         )
         .is_none()
         {
@@ -1264,6 +1420,24 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> Vec<Mark> {
             text: format!("{}", (at - a.envelope[0][k]).abs()),
             claims,
         });
+    }
+    for (f, _) in &pockets {
+        for role in ["pocket_width.length", "pocket_length.length"] {
+            let Some(s) = super::redundancy::span(a, &f.id, role) else {
+                continue;
+            };
+            if route(&edges, &[s.lo], s.axis, s.hi, None, &BTreeSet::new()).is_some() {
+                extra.push(Mark {
+                    name: format!("location_network:{}/{role}", f.id),
+                    view: None,
+                    text: super::parameters::fmt(s.hi - s.lo),
+                    claims: vec![crate::output::Claim {
+                        feature: f.id.clone(),
+                        parameter: role.into(),
+                    }],
+                });
+            }
+        }
     }
     extra
 }
@@ -1458,6 +1632,36 @@ mod tests {
         assert!(claimed("f:hole:2", "location.length.y").is_empty());
         assert!(claimed("f:hole:1", "hole_diameter.length").is_empty());
     }
+    #[test]
+    fn only_true_coaxial_features_share_a_printed_location_chain() {
+        let feature = |id: &str, kind: &str, at: [f64; 3]| {
+            serde_json::json!({
+                "id": id, "kind": kind, "faces": [], "parameters": {},
+                "fingerprint": {"version": "test", "family": "test", "subtype": "test",
+                    "sizes": {}, "position": at, "axis": [0., 0., 1.], "neighbourhood": []}
+            })
+        };
+        let a: Analysis = serde_json::from_value(serde_json::json!({
+            "schema": "draftwright.analysis/2",
+            "binding": {"source_sha256": "", "part": "test", "face_count": 0, "loader": "test"},
+            "envelope": [[0., 0., 0.], [100., 60., 20.]],
+            "features": [feature("hole", "hole", [40., 22., 5.]),
+                feature("boss", "boss", [40., 22., 15.]),
+                feature("unrelated", "boss", [40., 32., 15.])],
+            "iso_bounds": [0., 0., 0., 0.]
+        }))
+        .unwrap();
+        let mut e = edge(0., 40., "printed hole location");
+        e.b_feature = Some("hole".into());
+        assert_eq!(
+            proof(&a, &[e.clone()], &[0.], 0, 40., Some("boss")),
+            Some(vec![0])
+        );
+        assert!(proof(&a, &[e], &[0.], 0, 40., Some("unrelated")).is_none());
+        assert!(proof(&a, &[], &[0.], 0, 40., Some("boss")).is_none());
+        assert!(proof(&a, &[], &[0.], 1, 22., Some("boss")).is_none());
+    }
+
     #[test]
     fn direct_pitch_requires_its_drawn_centre_lines_and_arrowheads() {
         let lines = [

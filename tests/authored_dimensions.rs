@@ -781,3 +781,150 @@ fn authored_dimensions_keep_label_overrides_geometry_schema_and_live_lint() {
         );
     }
 }
+
+/// The independent fixture has a 40-long pocket starting 40 from the left.
+/// Its centre at 60 is deliberately absent from the authored drawing.
+fn pocket_fixture() -> (draftwright::haecceity::Part, Analysis, String) {
+    let (part, a) = model::analyse_native(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/location/pocket.step"),
+    )
+    .unwrap();
+    assert!(!draftwright::lint::location::coverage(&a, &[]).is_empty());
+    let pocket = draftwright::lint::pockets::placed(&a);
+    assert_eq!(pocket.len(), 1);
+    let (f, p) = &pocket[0];
+    let p = p.as_ref().unwrap();
+    assert_eq!((p.lo, p.hi, p.width), (40., 80., 6.));
+    (part, a.clone(), f.id.clone())
+}
+
+fn pocket_spec(a: &Analysis, id: &str, compound: bool) -> Spec {
+    let x = planes(a, 0);
+    let y = planes(a, 1);
+    let face = |refs: &[(String, f64)], at: f64| {
+        refs.iter()
+            .find(|(_, v)| (v - at).abs() < 1e-6)
+            .unwrap()
+            .0
+            .clone()
+    };
+    let mut dims = json!({
+        "d:authored:start": {"between": [face(&x, 0.), face(&x, 40.)], "along": "x", "view": "plan"},
+        format!("d:{id}/location_pocket.location.y"): {}
+    });
+    if compound {
+        dims[format!("d:{id}/pocket_width.length")] = json!({});
+    } else {
+        dims["d:authored:length"] =
+            json!({"between": [face(&x, 40.), face(&x, 80.)], "along": "x", "view": "plan"});
+        dims["d:authored:width"] =
+            json!({"between": [face(&y, 17.), face(&y, 23.)], "along": "y", "view": "plan"});
+    }
+    parse(json!({"dimension_source": "authored", "dimensions": dims, "views": {"plan": {}}}))
+}
+
+fn pocket_requirements(a: &Analysis, drawing: &draftwright::output::Drawing) -> Vec<String> {
+    draftwright::lint::lint(a, drawing)
+        .into_iter()
+        .filter(|i| i.code.starts_with("pocket_requirement_"))
+        .flat_map(|i| i.requirements.into_iter().map(|r| r.parameter))
+        .collect()
+}
+
+#[test]
+fn printed_start_and_compound_or_authored_length_fix_the_pocket_centre_without_pmi() {
+    let (part, a, id) = pocket_fixture();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    for compound in [true, false] {
+        let spec = pocket_spec(&a, &id, compound);
+        let plan = model::plan_recovered(&a, &spec).unwrap();
+        assert!(
+            !plan
+                .dimensions
+                .iter()
+                .any(|d| d.id == format!("d:{id}/location_pocket.location.x"))
+        );
+        let drawing = model::render(&part, &a, &plan, &font).unwrap();
+        assert_eq!(
+            pocket_requirements(&a, &drawing),
+            if compound {
+                vec![]
+            } else {
+                vec!["pocket_depth.length"]
+            }
+        );
+        assert!(
+            !draftwright::lint::lint(&a, &drawing)
+                .iter()
+                .any(|i| i.code == "authored_dimension_invalid")
+        );
+    }
+}
+
+#[test]
+fn a_pocket_end_alone_or_length_alone_does_not_fix_its_centre() {
+    let (part, a, id) = pocket_fixture();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    for compound in [true, false] {
+        let spec = pocket_spec(&a, &id, compound);
+        for remove in [
+            "d:authored:start".to_string(),
+            if compound {
+                format!("d:{id}/pocket_width.length")
+            } else {
+                "d:authored:length".into()
+            },
+        ] {
+            let mut missing = spec.clone();
+            missing.dimensions.remove(&remove);
+            let plan = model::plan_recovered(&a, &missing).unwrap();
+            let drawing = model::render(&part, &a, &plan, &font).unwrap();
+            assert!(
+                pocket_requirements(&a, &drawing).contains(&"location_pocket.location.x".into()),
+                "{compound}: removed {remove}"
+            );
+        }
+    }
+}
+
+#[test]
+fn reference_wrong_nominal_or_wrong_witnesses_do_not_locate_a_pocket() {
+    let (part, a, id) = pocket_fixture();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let spec = pocket_spec(&a, &id, false);
+    for reference in ["d:authored:start", "d:authored:length"] {
+        let mut s = spec.clone();
+        s.dimensions.get_mut(reference).unwrap().style =
+            Some(serde_json::from_value(json!("reference")).unwrap());
+        let plan = model::plan_recovered(&a, &s).unwrap();
+        let drawing = model::render(&part, &a, &plan, &font).unwrap();
+        assert!(pocket_requirements(&a, &drawing).contains(&"location_pocket.location.x".into()));
+    }
+    let plan = model::plan_recovered(&a, &spec).unwrap();
+    let drawing = model::render(&part, &a, &plan, &font).unwrap();
+    let mut wrong = drawing.clone();
+    let runs = wrong
+        .annotations
+        .iter()
+        .find(|d| d.name == "d:authored:start")
+        .unwrap()
+        .runs
+        .clone();
+    for run in runs {
+        wrong.text[run].text = "99 ±40".into();
+    }
+    assert!(pocket_requirements(&a, &wrong).contains(&"location_pocket.location.x".into()));
+    let mut wrong = drawing;
+    let item = wrong
+        .sheet
+        .items
+        .iter_mut()
+        .find(|d| d.name == "d:authored:start")
+        .unwrap();
+    for line in &mut item.lines {
+        for p in line {
+            p[0] += 2.;
+        }
+    }
+    assert!(pocket_requirements(&a, &wrong).contains(&"location_pocket.location.x".into()));
+}

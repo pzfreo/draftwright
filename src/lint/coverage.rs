@@ -676,8 +676,22 @@ fn centre(analysis: &Analysis) -> [f64; 3] {
 
 /// The `feature_not_located` finding on a drawing whose annotations are *marks*.
 pub fn located(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
+    let edges = super::location::edges(analysis, marks);
+    let roots = super::location::drawing_roots(analysis, marks);
+    let mut sites = sites(analysis, marks);
+    for site in &mut sites {
+        for (k, root) in roots.iter().enumerate() {
+            // Inclined axes and profiled bores outside the one-axis graph keep
+            // their existing requirements until their own geometry is supported.
+            if let Some(node) = super::location::node_feature(analysis, &site.subject, k) {
+                site.claimed[k] =
+                    super::location::proof(analysis, &edges, root, k, site.at[k], Some(&node))
+                        .is_some();
+            }
+        }
+    }
     location(
-        &sites(analysis, marks),
+        &sites,
         centre(analysis),
         &Page::default(),
         Severity::Warning,
