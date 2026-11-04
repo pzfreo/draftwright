@@ -853,10 +853,18 @@ fn printed_start_and_compound_or_authored_length_fix_the_pocket_centre_without_p
                 vec!["pocket_depth.length"]
             }
         );
+        let findings = draftwright::lint::lint(&a, &drawing);
         assert!(
-            !draftwright::lint::lint(&a, &drawing)
+            !findings
                 .iter()
                 .any(|i| i.code == "authored_dimension_invalid")
+        );
+        assert!(
+            !findings
+                .iter()
+                .flat_map(|i| &i.requirements)
+                .any(|r| r.feature.starts_with("station_")),
+            "local graph bookkeeping is not a repeated physical measurement"
         );
     }
 }
@@ -927,4 +935,43 @@ fn reference_wrong_nominal_or_wrong_witnesses_do_not_locate_a_pocket() {
         }
     }
     assert!(pocket_requirements(&a, &wrong).contains(&"location_pocket.location.x".into()));
+}
+
+#[test]
+fn authored_axis_chain_locates_an_unpatterned_hole_without_pmi() {
+    let (part, a) = model::analyse_native(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/scattered_holes.step"),
+    )
+    .unwrap();
+    let x = planes(&a, 0);
+    let spec = parse(json!({"dimension_source":"authored", "dimensions": {
+        "d:authored:start": {"between":[x[0].0, "axis:f:hole:1"], "along":"x", "view":"plan"},
+        "d:authored:link": {"between":["axis:f:hole:1", "axis:f:hole:2"], "along":"x", "view":"plan"}
+    }}));
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    for remove in [None, Some("d:authored:start"), Some("d:authored:link")] {
+        let mut s = spec.clone();
+        if let Some(id) = remove {
+            s.dimensions.remove(id);
+        }
+        let plan = model::plan_recovered(&a, &s).unwrap();
+        let drawing = model::render(&part, &a, &plan, &font).unwrap();
+        let issues = draftwright::lint::lint(&a, &drawing);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|i| i.code == "feature_not_located")
+                .flat_map(|i| &i.requirements)
+                .any(|r| r.feature == "f:hole:2" && r.parameter == "location.length.x"),
+            remove.is_some(),
+            "{remove:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .filter(|i| i.code == "feature_not_located")
+                .flat_map(|i| &i.requirements)
+                .any(|r| r.feature == "f:hole:2" && r.parameter == "location.length.y")
+        );
+    }
 }

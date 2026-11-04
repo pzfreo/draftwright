@@ -151,6 +151,15 @@ pub(crate) fn span_claim(axis: usize, a: f64, b: f64) -> String {
 }
 
 pub(crate) fn edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
+    build_edges(a, marks, false)
+}
+
+/// Extended drawing evidence is local to lint; planner precedence keeps its existing graph.
+pub(crate) fn drawn_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
+    build_edges(a, marks, true)
+}
+
+fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
     let mut out = Vec::new();
     let report = match &a.pmi {
         Some(Reading::Read(r)) => Some((r, r.identities())),
@@ -202,12 +211,14 @@ pub(crate) fn edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
                     }
                 }
             } else if !physical {
-                if let Some((k, p, q)) = authored_span(a, mark, c) {
+                if authored && let Some((k, p, q)) = authored_span(a, mark, c) {
                     spans.push((k, p, q));
                 }
                 // A compound pocket callout states each claimed numeric size, even when
                 // that size is not the label's leading number.
-                if ["pocket_width.length", "pocket_length.length"].contains(&c.parameter.as_str())
+                if authored
+                    && ["pocket_width.length", "pocket_length.length"]
+                        .contains(&c.parameter.as_str())
                     && let Some(s) = super::redundancy::span(a, &c.feature, &c.parameter)
                     && states_mm(mark.text.split('±').next().unwrap_or(""), s.hi - s.lo)
                 {
@@ -244,7 +255,10 @@ pub(crate) fn edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
             .filter(|e| e.owner == mark.name)
             .cloned()
             .collect();
-        typed.extend(identify(a, mark, spans));
+        typed.extend(identify_impl(a, mark, spans, authored));
+    }
+    if !authored {
+        return typed;
     }
     // A printed interval fixes its midpoint relative to either end. Its two
     // halves retain the original owner, so they cannot manufacture a second
@@ -277,7 +291,7 @@ pub(crate) fn edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
                         a: end,
                         b: centre,
                         a_feature: None,
-                        b_feature: Some(f.id.clone()),
+                        b_feature: None,
                         ..e.clone()
                     });
                 }
@@ -469,15 +483,6 @@ pub(crate) fn node_feature(a: &Analysis, id: &str, k: usize) -> Option<String> {
     {
         return Some(id.into());
     }
-    if a.features
-        .iter()
-        .any(|f| f.id == id && f.kind == "section_recess")
-        && let Some((_, Ok(p))) = super::pockets::placed(a)
-            .into_iter()
-            .find(|(f, _)| f.id == id)
-    {
-        return [p.long_axis, p.width_axis].contains(&k).then(|| id.into());
-    }
     if let Some(f) = a
         .features
         .iter()
@@ -546,21 +551,6 @@ pub(crate) fn station(a: &Analysis, id: &str, k: usize) -> Option<f64> {
         let points: Option<Vec<_>> = p.members.iter().map(|id| station(a, id, k)).collect();
         let points = points?;
         return (!points.is_empty()).then(|| points.iter().sum::<f64>() / points.len() as f64);
-    }
-    if a.features
-        .iter()
-        .any(|f| f.id == id && f.kind == "section_recess")
-        && let Some((_, Ok(p))) = super::pockets::placed(a)
-            .into_iter()
-            .find(|(f, _)| f.id == id)
-    {
-        return Some(if k == p.long_axis {
-            (p.lo + p.hi) / 2.
-        } else if k == p.width_axis {
-            p.w_center
-        } else {
-            p.centre[k]
-        });
     }
     if let Some(f) = a.features.iter().find(|f| f.id == id) {
         if f.kind == "hole"
@@ -631,6 +621,33 @@ pub(crate) fn proof(
     if let Some(path) = route(edges, roots, axis, at, node, &BTreeSet::new()) {
         return Some(path);
     }
+    let p = pattern(a, node?)?;
+    let mut path = Vec::new();
+    for id in &p.members {
+        path.extend(route(
+            edges,
+            roots,
+            axis,
+            station(a, id, axis)?,
+            Some(id),
+            &BTreeSet::new(),
+        )?);
+    }
+    Some(path)
+}
+
+/// A coaxial feature may use the same printed route, without changing planner precedence.
+pub(crate) fn drawn_proof(
+    a: &Analysis,
+    edges: &[Edge],
+    roots: &[f64],
+    axis: usize,
+    at: f64,
+    node: Option<&str>,
+) -> Option<Vec<usize>> {
+    if let Some(path) = proof(a, edges, roots, axis, at, node) {
+        return Some(path);
+    }
     // Coaxial cylinders share both radial coordinates. Equal coordinates on
     // just one axis are not a geometric relation between unrelated features.
     if let Some(f) = node.and_then(|id| a.features.iter().find(|f| f.id == id))
@@ -669,19 +686,7 @@ pub(crate) fn proof(
             }
         }
     }
-    let p = pattern(a, node?)?;
-    let mut path = Vec::new();
-    for id in &p.members {
-        path.extend(route(
-            edges,
-            roots,
-            axis,
-            station(a, id, axis)?,
-            Some(id),
-            &BTreeSet::new(),
-        )?);
-    }
-    Some(path)
+    None
 }
 
 fn pitch_states(a: &Analysis, p: &crate::bridge::HolePattern, k: usize, text: &str) -> bool {
@@ -776,6 +781,10 @@ fn slot_end_witness(
 }
 
 pub(crate) fn identify(a: &Analysis, mark: &Mark, spans: Vec<Edge>) -> Vec<Edge> {
+    identify_impl(a, mark, spans, false)
+}
+
+fn identify_impl(a: &Analysis, mark: &Mark, spans: Vec<Edge>, authored: bool) -> Vec<Edge> {
     if spans.is_empty() {
         return Vec::new();
     }
@@ -801,15 +810,16 @@ pub(crate) fn identify(a: &Analysis, mark: &Mark, spans: Vec<Edge>) -> Vec<Edge>
         if !claims.is_empty() {
             let mut pitch = mark.clone();
             pitch.claims = claims;
-            out.extend(identify(a, &pitch, spans.clone()));
+            out.extend(identify_impl(a, &pitch, spans.clone(), authored));
         }
     }
 
     for span in spans {
-        if let Some(c) = mark
-            .claims
-            .iter()
-            .find(|c| c.feature.starts_with("geometry:"))
+        if authored
+            && let Some(c) = mark
+                .claims
+                .iter()
+                .find(|c| c.feature.starts_with("geometry:"))
         {
             if let Some((k, p, q)) = authored_span(a, mark, c)
                 && k == span.axis
@@ -1227,7 +1237,7 @@ pub(crate) fn targets(a: &Analysis) -> Vec<(String, usize, f64)> {
 }
 
 pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
-    let edges = edges(a, marks);
+    let edges = drawn_edges(a, marks);
     let roots = drawing_roots(a, marks);
     let mut issues = Vec::new();
     for (feature, k, at) in targets(a) {
@@ -1235,7 +1245,7 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             continue;
         }
         let parameter = format!("location.length.{}", AXES[k]);
-        let first = proof(
+        let first = drawn_proof(
             a,
             &edges,
             &roots[k],
@@ -1370,12 +1380,12 @@ pub fn sizes(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
 /// Canonical legacy coverage roles derived from the physical network. These are arithmetic
 /// evidence for the older family checks; they are never extra printed dimensions.
 pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> Vec<Mark> {
-    let edges = edges(a, marks);
+    let edges = drawn_edges(a, marks);
     let roots = drawing_roots(a, marks);
     let mut extra = Vec::new();
     let pockets = super::pockets::placed(a);
     for (feature, k, at) in targets(a) {
-        if proof(
+        if drawn_proof(
             a,
             &edges,
             &roots[k],
@@ -1426,7 +1436,15 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> Vec<Mark> {
             let Some(s) = super::redundancy::span(a, &f.id, role) else {
                 continue;
             };
-            if route(&edges, &[s.lo], s.axis, s.hi, None, &BTreeSet::new()).is_some() {
+            // A size is stated between its two physical faces. A feature axis
+            // merely sharing one face's coordinate is not a witness to that face.
+            let excluded = edges
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| e.a_feature.is_some() || e.b_feature.is_some())
+                .map(|(i, _)| i)
+                .collect();
+            if route(&edges, &[s.lo], s.axis, s.hi, None, &excluded).is_some() {
                 extra.push(Mark {
                     name: format!("location_network:{}/{role}", f.id),
                     view: None,
@@ -1507,6 +1525,9 @@ pub(crate) fn has_station_requirements(a: &Analysis) -> bool {
     }))
 }
 
+/// Source-PMI audits additionally check every station and independent duplicate
+/// routes. Other drawings use the same graph over the existing family/location
+/// requirement inventory, retaining unsupported (for example inclined) axes.
 pub(crate) fn active(a: &Analysis, marks: &[Mark]) -> bool {
     has_station_requirements(a)
         || marks.iter().flat_map(|m| &m.claims).any(|c| {
@@ -1654,12 +1675,12 @@ mod tests {
         let mut e = edge(0., 40., "printed hole location");
         e.b_feature = Some("hole".into());
         assert_eq!(
-            proof(&a, &[e.clone()], &[0.], 0, 40., Some("boss")),
+            drawn_proof(&a, &[e.clone()], &[0.], 0, 40., Some("boss")),
             Some(vec![0])
         );
-        assert!(proof(&a, &[e], &[0.], 0, 40., Some("unrelated")).is_none());
-        assert!(proof(&a, &[], &[0.], 0, 40., Some("boss")).is_none());
-        assert!(proof(&a, &[], &[0.], 1, 22., Some("boss")).is_none());
+        assert!(drawn_proof(&a, &[e], &[0.], 0, 40., Some("unrelated")).is_none());
+        assert!(drawn_proof(&a, &[], &[0.], 0, 40., Some("boss")).is_none());
+        assert!(drawn_proof(&a, &[], &[0.], 1, 22., Some("boss")).is_none());
     }
 
     #[test]
