@@ -159,11 +159,105 @@ pub(crate) fn drawing_roots(a: &Analysis, marks: &[Mark]) -> [Vec<f64>; 3] {
     out
 }
 
+/// The unique exterior circular datum, measured solely from Analysis geometry.
+/// Shared with automatic origin selection; the audit never reads authoring or planning state.
+pub(crate) fn round_origin(
+    analysis: &Analysis,
+    view: usize,
+    k: usize,
+) -> Option<(String, [f64; 3])> {
+    use crate::bridge::holes as geometry;
+    // Preserve the planner predicate's exact three-component record requirement.
+    fn point(v: Option<&serde_json::Value>) -> Option<[f64; 3]> {
+        let c: Vec<f64> = v?
+            .as_array()?
+            .iter()
+            .map(serde_json::Value::as_f64)
+            .collect::<Option<_>>()?;
+        <[f64; 3]>::try_from(c).ok()
+    }
+    // Legacy recognition records round axis positions to 0.01 mm.
+    const ON_AXIS: f64 = 0.01;
+    let ink = analysis.edge_ink.as_ref()?;
+    let lo = analysis.envelope[0][k];
+    let flat = ink.planes.iter().any(|p| {
+        p.normal[k].abs() > 1.0 - 1e-6
+            && p.edges
+                .iter()
+                .filter_map(|&e| ink.edges.get(e)?.first())
+                .any(|q| (q[k] - lo).abs() < 1e-4)
+    });
+    if flat {
+        return None;
+    }
+    let (u, v) = match view {
+        0 => (1, 2),
+        1 => (0, 2),
+        _ => (0, 1),
+    };
+    let frame = geometry::frame(analysis);
+    let mut found: Option<(String, [f64; 3])> = None;
+    for c in ink.curved.iter().filter_map(|c| {
+        let y = c.cylinder.as_ref()?;
+        (y.axis[view].abs() > 1.0 - 1e-6
+            && (y.origin[k] - y.radius - lo).abs() < 1e-4
+            && (c.bounds[0][k] - lo).abs() < 1e-4)
+            .then_some(y)
+    }) {
+        let on = |at: [f64; 3]| {
+            (at[u] - c.origin[u]).abs() < ON_AXIS && (at[v] - c.origin[v]).abs() < ON_AXIS
+        };
+        // A hole on the axis carries its centre mark there; else a boss standing on it.
+        let owner = geometry::read(analysis)
+            .into_iter()
+            .filter_map(|(f, h)| h.ok().map(|h| (f, h)))
+            .find(|(_, h)| h.direction[view].abs() > 1.0 - 1e-6 && on(h.at))
+            .map(|(f, _)| f.id.clone())
+            .or_else(|| {
+                analysis
+                    .features
+                    .iter()
+                    .filter(|f| f.kind == "boss")
+                    .find(|f| {
+                        let at = point(f.parameters.get("location"));
+                        let d = point(f.parameters.get("axis"));
+                        at.zip(d).is_some_and(|(at, d)| {
+                            geometry::dir_to_part(&frame, d)[view].abs() > 1.0 - 1e-6
+                                && on(geometry::to_part(&frame, at))
+                        })
+                    })
+                    .map(|f| f.id.clone())
+            })
+            .or_else(|| {
+                analysis
+                    .features
+                    .iter()
+                    .filter(|f| f.kind == "turned_body")
+                    .find(|f| {
+                        super::parameters::place(&frame, f.parameters.get("axis_point"))
+                            .zip(super::parameters::direction(
+                                &frame,
+                                f.parameters.get("axis"),
+                            ))
+                            .is_some_and(|(at, d)| d[view].abs() > 1.0 - 1e-6 && on(at))
+                    })
+                    .map(|f| f.id.clone())
+            });
+        let Some(owner) = owner else { continue };
+        match &found {
+            Some((_, at)) if (at[k] - c.origin[k]).abs() > ON_AXIS => return None, // two round sides
+            Some(_) => {}
+            None => found = Some((owner, c.origin)),
+        }
+    }
+    found
+}
+
 /// The established round-outline origin is a drawing datum, not its box tangent (#223).
 /// Only a printed distance from that unique axis may use it. With actual witnesses present,
 /// they must join that axis and the claimed feature; a matching number alone is insufficient.
 fn round_axis_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
-    if crate::dims::pmi_policy::carries(a) {
+    if matches!(&a.pmi, Some(Reading::Read(r)) if !r.records.is_empty()) {
         return Vec::new();
     }
     let mut out = Vec::new();
@@ -206,7 +300,7 @@ fn round_axis_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
             }
             let Some((owner, origin)) = origins
                 .entry((view, k))
-                .or_insert_with(|| crate::dims::round_origin(a, view, k))
+                .or_insert_with(|| round_origin(a, view, k))
                 .as_ref()
             else {
                 continue;

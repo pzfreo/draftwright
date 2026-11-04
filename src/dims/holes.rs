@@ -799,75 +799,8 @@ const ON_AXIS: f64 = 0.01;
 /// a round face (no plane lies on it) whose axis carries a recognised hole or boss: that
 /// feature's ID and a point on the face's axis (#223). A tangent on a curved outline is no
 /// face to measure from; the axis of the round feature it bounds is.
-pub(crate) fn round_origin(analysis: &Analysis, view: usize, k: usize) -> Option<(String, P3)> {
-    let ink = analysis.edge_ink.as_ref()?;
-    let lo = analysis.envelope[0][k];
-    let flat = ink.planes.iter().any(|p| {
-        p.normal[k].abs() > 1.0 - 1e-6
-            && p.edges
-                .iter()
-                .filter_map(|&e| ink.edges.get(e)?.first())
-                .any(|q| (q[k] - lo).abs() < 1e-4)
-    });
-    if flat {
-        return None;
-    }
-    let (u, v) = in_view(view);
-    let frame = holes::frame(analysis);
-    let mut found: Option<(String, P3)> = None;
-    for c in ink.curved.iter().filter_map(|c| {
-        let y = c.cylinder.as_ref()?;
-        (y.axis[view].abs() > 1.0 - 1e-6
-            && (y.origin[k] - y.radius - lo).abs() < 1e-4
-            && (c.bounds[0][k] - lo).abs() < 1e-4)
-            .then_some(y)
-    }) {
-        let on =
-            |at: P3| (at[u] - c.origin[u]).abs() < ON_AXIS && (at[v] - c.origin[v]).abs() < ON_AXIS;
-        // A hole on the axis carries its centre mark there; else a boss standing on it.
-        let owner = holes::read(analysis)
-            .into_iter()
-            .filter_map(|(f, h)| h.ok().map(|h| (f, h)))
-            .find(|(_, h)| h.direction[view].abs() > 1.0 - 1e-6 && on(h.at))
-            .map(|(f, _)| f.id.clone())
-            .or_else(|| {
-                analysis
-                    .features
-                    .iter()
-                    .filter(|f| f.kind == "boss")
-                    .find(|f| {
-                        let at = point(f.parameters.get("location"));
-                        let d = point(f.parameters.get("axis"));
-                        at.zip(d).is_some_and(|(at, d)| {
-                            holes::dir_to_part(&frame, d)[view].abs() > 1.0 - 1e-6
-                                && on(holes::to_part(&frame, at))
-                        })
-                    })
-                    .map(|f| f.id.clone())
-            })
-            .or_else(|| {
-                analysis
-                    .features
-                    .iter()
-                    .filter(|f| f.kind == "turned_body")
-                    .find(|f| {
-                        crate::lint::parameters::place(&frame, f.parameters.get("axis_point"))
-                            .zip(crate::lint::parameters::direction(
-                                &frame,
-                                f.parameters.get("axis"),
-                            ))
-                            .is_some_and(|(at, d)| d[view].abs() > 1.0 - 1e-6 && on(at))
-                    })
-                    .map(|f| f.id.clone())
-            });
-        let Some(owner) = owner else { continue };
-        match &found {
-            Some((_, at)) if (at[k] - c.origin[k]).abs() > ON_AXIS => return None, // two round sides
-            Some(_) => {}
-            None => found = Some((owner, c.origin)),
-        }
-    }
-    found
+fn round_origin(analysis: &Analysis, view: usize, k: usize) -> Option<(String, P3)> {
+    crate::lint::location::round_origin(analysis, view, k)
 }
 
 /// Whether one round face about *axis*, seen along world axis *view*, is the part's outline on
