@@ -99,3 +99,4 @@ if __name__ == "__main__":
     Pocket(two, step=True).write(out / "two_pockets_step.step")
     Pocket(((40, 17, 80, 23, 7), (60, 27, 80, 33, 7))).write(out / "two_pockets_sizes.step")
     Pocket(((40, 17, 120, 23, 7),), open_end=True).write(out / "blind_slot.step")
+    Pocket(((40.00123, 17, 80.00234, 23, 7),)).write(out / "pocket_rounded.step")

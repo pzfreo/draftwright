@@ -729,8 +729,8 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                         && e.b_feature == pocket_face(a, &f.id, s.axis, e.b)
                         && e.a_feature.is_some()
                         && e.b_feature.is_some()
-                        && ((e.a.min(e.b) - s.lo).abs() < EPS)
-                        && ((e.a.max(e.b) - s.hi).abs() < EPS)
+                        && ((e.a.min(e.b) - s.lo).abs() < super::redundancy::TOL)
+                        && ((e.a.max(e.b) - s.hi).abs() < super::redundancy::TOL)
                 })
                 .cloned()
                 .collect();
@@ -753,6 +753,52 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                         ..e.clone()
                     });
                 }
+            }
+        }
+    }
+    // A rectangular blind slot uses the same midpoint arithmetic across its width.
+    // Only its own two physical walls may supply the interval; equal coordinates
+    // on another recess or a derived midplane cannot stand in for either wall.
+    for f in a.features.iter().filter(|f| f.kind == "section_recess") {
+        let Some((k, centre)) = blind_axis(a, &f.id) else {
+            continue;
+        };
+        let mut stations: Vec<_> = f
+            .faces
+            .iter()
+            .filter_map(|&i| a.face_attachments.get(i))
+            .filter(|face| face.surface.as_deref() == Some("plane") && face.axis == Some(k))
+            .filter_map(|face| face.bounds.map(|b| b[k]))
+            .collect();
+        stations.sort_by(f64::total_cmp);
+        stations.dedup_by(|p, q| (*p - *q).abs() < EPS);
+        let [lo, hi] = stations.as_slice() else {
+            continue;
+        };
+        let (Some(low), Some(high)) =
+            (pocket_face(a, &f.id, k, *lo), pocket_face(a, &f.id, k, *hi))
+        else {
+            continue;
+        };
+        let intervals: Vec<_> = typed
+            .iter()
+            .filter(|e| {
+                e.axis == k
+                    && ((e.a_feature.as_ref() == Some(&low) && e.b_feature.as_ref() == Some(&high))
+                        || (e.a_feature.as_ref() == Some(&high)
+                            && e.b_feature.as_ref() == Some(&low)))
+            })
+            .cloned()
+            .collect();
+        for e in intervals {
+            for (end, node) in [(e.a, e.a_feature.clone()), (e.b, e.b_feature.clone())] {
+                typed.push(Edge {
+                    a: end,
+                    b: centre,
+                    a_feature: node,
+                    b_feature: Some(format!("midplane:{}", f.id)),
+                    ..e.clone()
+                });
             }
         }
     }

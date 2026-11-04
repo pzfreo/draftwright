@@ -1244,3 +1244,34 @@ fn removing_an_engine_blind_slots_transverse_dimension_exposes_its_location() {
         "the size callout alone does not fix the transverse centre"
     );
 }
+
+#[test]
+fn measured_face_identity_survives_native_station_rounding() {
+    let (part, a) = model::analyse_native(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/location/pocket_rounded.step"),
+    )
+    .unwrap();
+    let id = &draftwright::lint::pockets::placed(&a)[0].0.id;
+    let x = planes(&a, 0);
+    let y = planes(&a, 1);
+    let spec = parse(
+        json!({"dimension_source":"authored", "views":{"plan":{}},"dimensions":{
+            "d:authored:start":{"between":[x[0].0,x[1].0],"along":"x","view":"plan"},
+            "d:authored:length":{"between":[x[1].0,x[2].0],"along":"x","view":"plan"},
+            "d:authored:width":{"between":[y[1].0,y[2].0],"along":"y","view":"plan"},
+            format!("d:{id}/location_pocket.location.y"):{}
+        }}),
+    );
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let plan = model::plan_recovered(&a, &spec).unwrap();
+    let drawing = model::render(&part, &a, &plan, &font).unwrap();
+    assert_eq!(
+        pocket_requirements(&a, &drawing),
+        vec!["pocket_depth.length"]
+    );
+    let mut missing = plan.clone();
+    missing.dimensions.retain(|d| d.id != "d:authored:length");
+    let drawing = model::render(&part, &a, &missing, &font).unwrap();
+    assert!(pocket_requirements(&a, &drawing).contains(&"location_pocket.location.x".into()));
+}
