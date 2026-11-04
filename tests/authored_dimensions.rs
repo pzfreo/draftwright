@@ -262,7 +262,7 @@ fn an_automatic_owners_additional_feature_claim_is_also_a_k6_duplicate() {
                 "d:authored:other_y duplicates the quantity owned by {owner}; remove d:authored:other_y and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
             )
         );
-        assert_eq!(e.choices, [owner.clone()]);
+        assert_eq!(e.choices.as_slice(), std::slice::from_ref(&owner));
     }
 }
 
