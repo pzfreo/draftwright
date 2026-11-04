@@ -2721,20 +2721,6 @@ mod tests {
         crate::dims::callout_routes::finish(&a, &s, &mut b);
         crate::dims::contacts::report(&a, &mut b);
         model::note_final_conflicts(&mut b);
-        // #267: the public boundary fills DWG NO from this fixture's native
-        // PRODUCT.id after selection. Retain the full-plan passthrough check;
-        // only this independently expected title value changes.
-        assert_eq!(
-            a.bom.as_ref().unwrap().part_number.as_deref(),
-            Some("COMPOUND")
-        );
-        b.sheet.title.insert("number".into(), "COMPOUND".into());
-        b.sheet
-            .title_cells
-            .iter_mut()
-            .find(|c| c.field == "drawing_number")
-            .unwrap()
-            .value = Some("COMPOUND".into());
         let p = model::plan_recovered(&a, &s).unwrap();
         assert!(p.sheet_candidates.is_empty());
         assert_eq!(

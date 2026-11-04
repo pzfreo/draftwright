@@ -13,6 +13,13 @@ pub struct Metadata {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_number: Option<String>,
+    /// Whether Specify BOM records identify this file's product ids as part numbers.
+    /// Raw PRODUCT.id remains exported even when this evidence is absent.
+    #[serde(skip_serializing_if = "is_false")]
+    pub part_number_is_explicit: bool,
+    /// Native PRODUCT ids, retained separately from overridden/evidenced part numbers.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub product_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -34,6 +41,10 @@ pub struct Metadata {
     pub classifications: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub occurrence_references: Vec<String>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 fn attrs<'a>(doc: &'a Document, id: u64, ty: &str) -> Option<&'a [A]> {
@@ -319,9 +330,14 @@ pub(crate) fn accounts_for(doc: &Document, id: u64, definitions: &[PartDefinitio
 /// Read only metadata for the supplied leaf definitions. Reverse references keep
 /// the work proportional to their properties, rather than scanning per leaf.
 pub fn read(doc: &Document, definitions: &[PartDefinition]) -> Vec<Metadata> {
+    let explicit = has_specify_bom_records(doc);
     definitions
         .iter()
-        .map(|d| read_definition(doc, d.product_definition, d.shape, &d.name))
+        .map(|d| {
+            let mut row = read_definition(doc, d.product_definition, d.shape, &d.name);
+            row.part_number_is_explicit = explicit && row.part_number.is_some();
+            row
+        })
         .collect()
 }
 
@@ -333,7 +349,48 @@ pub(crate) fn read_assembly(doc: &Document, pd: u64, name: &str) -> Metadata {
         .copied()
         .find(|id| link(doc, *id, "PRODUCT_DEFINITION_SHAPE", 2) == Some(pd))
         .unwrap_or(0);
-    read_definition(doc, pd, shape, name)
+    let mut row = read_definition(doc, pd, shape, name);
+    row.part_number_is_explicit = has_specify_bom_records(doc) && row.part_number.is_some();
+    row
+}
+
+/// Specify's public, usable BOM property records attest the native PDM mapping.
+/// Ordinary PRODUCT ids and manufacturing PMI alone do not provide that evidence.
+fn has_specify_bom_records(doc: &Document) -> bool {
+    doc.graph().entities.iter().any(|(&id, entity)| {
+        let property = match entity {
+            RawEntity::Simple { name, .. } => name == "PROPERTY_DEFINITION",
+            RawEntity::Complex { parts, .. } => {
+                parts.iter().any(|p| p.name == "PROPERTY_DEFINITION")
+            }
+        };
+        if !property {
+            return false;
+        }
+        if at(doc, id, "PROPERTY_DEFINITION", 0).is_none_or(|s| term(&s) != "specify bom") {
+            return false;
+        }
+        let Some(owner) = link(doc, id, "PROPERTY_DEFINITION", 2) else {
+            return false;
+        };
+        let pd = link(doc, owner, "PRODUCT_DEFINITION_SHAPE", 2)
+            .or_else(|| link(doc, owner, "NEXT_ASSEMBLY_USAGE_OCCURRENCE", 4))
+            .or_else(|| link(doc, owner, "PRODUCT_DEFINITION_RELATIONSHIP", 4))
+            .unwrap_or(owner);
+        if ![
+            "PRODUCT",
+            "PRODUCT_DEFINITION",
+            "PRODUCT_DEFINITION_FORMATION",
+        ]
+        .iter()
+        .any(|ty| attrs(doc, pd, ty).is_some())
+        {
+            return false;
+        }
+        let mut facts = Metadata::default();
+        apply_items(&items(doc, id), true, &mut facts);
+        facts != Metadata::default()
+    })
 }
 
 fn read_definition(doc: &Document, pd: u64, shape: u64, name: &str) -> Metadata {
@@ -342,6 +399,7 @@ fn read_definition(doc: &Document, pd: u64, shape: u64, name: &str) -> Metadata 
     let mut row = Metadata {
         name: (!name.trim().is_empty()).then(|| name.to_owned()),
         part_number: at(doc, product, "PRODUCT", 0),
+        product_ids: at(doc, product, "PRODUCT", 0).into_iter().collect(),
         description: at(doc, product, "PRODUCT", 2)
             .or_else(|| at(doc, pd, "PRODUCT_DEFINITION", 1)),
         revision: at(doc, formation, "PRODUCT_DEFINITION_FORMATION", 0),
@@ -439,6 +497,12 @@ fn read_definition(doc: &Document, pd: u64, shape: u64, name: &str) -> Metadata 
 }
 
 impl Metadata {
+    pub(crate) fn stated_part_number(&self) -> Option<&String> {
+        self.part_number
+            .as_ref()
+            .filter(|_| self.part_number_is_explicit)
+    }
+
     /// Names and occurrence location labels do not prevent legacy shape grouping.
     /// Stated BOM identities and manufacturing facts do.
     pub(crate) fn compatible(&self, other: &Self) -> bool {
@@ -448,12 +512,13 @@ impl Metadata {
         b.name = None;
         a.occurrence_references.clear();
         b.occurrence_references.clear();
-        // Exporters commonly repeat the display name as PRODUCT.id. Such labels
-        // have always been eligible for pack's conservative geometry grouping.
-        if a.part_number == self.name {
+        a.product_ids.clear();
+        b.product_ids.clear();
+        // PRODUCT.id alone is a raw exporter fact, not part-number evidence.
+        if !a.part_number_is_explicit {
             a.part_number = None;
         }
-        if b.part_number == other.name {
+        if !b.part_number_is_explicit {
             b.part_number = None;
         }
         a == b
@@ -497,8 +562,8 @@ pub(crate) fn fill_titles(
     plan: &mut crate::model::Plan,
 ) {
     let defaults = [
-        ("number", "drawing_number", &metadata.part_number),
-        ("material", "material", &metadata.material),
+        ("number", "drawing_number", metadata.stated_part_number()),
+        ("material", "material", metadata.material.as_ref()),
     ];
     let mut problems = Vec::new();
     let mut changed = BTreeSet::new();

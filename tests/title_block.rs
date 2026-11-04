@@ -836,7 +836,7 @@ fn default_titles_prefer_meaningful_products_and_preserve_explicit_titles() {
 }
 
 #[test]
-fn drawing_number_uses_the_stated_product_id() {
+fn drawing_number_prefers_the_products_leading_part_number() {
     let bytes = std::fs::read_to_string(fixture("parts/plate.step"))
         .unwrap()
         .replace(
@@ -850,10 +850,7 @@ fn drawing_number_uses_the_stated_product_id() {
     .unwrap();
     assert_eq!(a.product_name.as_deref(), Some("GRM-02 Shaft"));
     let p = model::plan(&a, &Spec::default()).unwrap();
-    assert_eq!(
-        cell(&p, "drawing_number").value.as_deref(),
-        Some("GRM-02 Shaft")
-    );
+    assert_eq!(cell(&p, "drawing_number").value.as_deref(), Some("GRM-02"));
     // Keep #108's complete readable title, even when its number is also in DWG NO.
     assert_eq!(cell(&p, "title").value.as_deref(), Some("GRM 02 SHAFT"));
 }
@@ -862,7 +859,6 @@ fn drawing_number_uses_the_stated_product_id() {
 fn drawing_number_uses_the_stem_when_the_product_has_no_part_number() {
     for product in [None, Some("Thumbwheel drive screw"), Some("Bracket 42")] {
         let mut a = plate().1.clone();
-        a.bom = None; // Exercise legacy guessing with no file-stated part number.
         a.product_name = product.map(String::from);
         a.binding.part = "GRM-03_thumbwheel_drive_screw_ap242_pmi".into();
         let p = model::plan(&a, &Spec::default()).unwrap();
@@ -870,7 +866,6 @@ fn drawing_number_uses_the_stem_when_the_product_has_no_part_number() {
     }
     // A selected assembly member keeps the file's stem separately from its binding.
     let mut a = plate().1.clone();
-    a.bom = None; // Exercise legacy guessing with no file-stated part number.
     a.product_name = Some("Thumbwheel drive screw".into());
     a.binding.part = "Thumbwheel drive screw".into();
     a.source_stem = Some("GRM-03_thumbwheel_drive_screw_ap242_pmi".into());
@@ -883,7 +878,6 @@ fn drawing_number_uses_the_stem_when_the_product_has_no_part_number() {
 #[test]
 fn a_numeric_stem_is_a_drawing_number() {
     let mut a = plate().1.clone();
-    a.bom = None; // Exercise legacy guessing with no file-stated part number.
     a.product_name = None;
     a.binding.part = "10000".into();
     let p = model::plan(&a, &Spec::default()).unwrap();
@@ -891,18 +885,14 @@ fn a_numeric_stem_is_a_drawing_number() {
 }
 
 #[test]
-fn a_stated_product_id_wins_over_the_plain_word_stem() {
+fn a_plain_word_stem_keeps_the_fallback_drawing_number() {
     let p = model::plan(&plate().1, &Spec::default()).unwrap();
-    assert_eq!(
-        cell(&p, "drawing_number").value.as_deref(),
-        Some("COMPOUND")
-    );
+    assert_eq!(cell(&p, "drawing_number").value.as_deref(), Some("DWG-001"));
 }
 
 #[test]
 fn an_explicit_spec_drawing_number_wins() {
     let mut a = plate().1.clone();
-    a.bom = None; // Exercise legacy guessing with no file-stated part number.
     a.product_name = Some("GRM-03 Thumbwheel".into());
     let mut s = Spec::default();
     s.sheet.title.insert("number".into(), "AUTHOR-42".into());
@@ -916,7 +906,6 @@ fn an_explicit_spec_drawing_number_wins() {
 #[test]
 fn an_explicit_blank_spec_drawing_number_wins() {
     let mut a = plate().1.clone();
-    a.bom = None; // Exercise legacy guessing with no file-stated part number.
     a.product_name = Some("GRM-03 Thumbwheel".into());
     for blank in ["", "   "] {
         let mut s = Spec::default();
@@ -939,7 +928,6 @@ fn drawing_numbers_require_a_leading_token_with_only_internal_hyphens() {
         ("Bracket GRM-03", "DWG-001"),
     ] {
         let mut a = plate().1.clone();
-        a.bom = None; // Exercise legacy guessing with no file-stated part number.
         a.product_name = Some(product.into());
         let p = model::plan(&a, &Spec::default()).unwrap();
         assert_eq!(p.sheet.title["number"], expected, "{product}");

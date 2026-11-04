@@ -323,6 +323,11 @@ fn different_stated_bom_identities_prevent_shape_merging() {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("bom-identity");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("assembly.step");
+    let s = append(
+        &s,
+        &(uda(501, "specify bom", "#9010")
+            + "\n#9010=DESCRIPTIVE_REPRESENTATION_ITEM('part_number','PIN-A');"),
+    );
     std::fs::write(&path, s).unwrap();
     let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
     assert_eq!(pack.report.rows.len(), 4);
@@ -413,6 +418,7 @@ fn long_file_title_values_keep_the_existing_drawing_layout_and_report_real_overf
     let number = "FILE-PART-NUMBER-".repeat(12);
     analysis.bom = Some(bom::Metadata {
         part_number: Some(number.clone()),
+        part_number_is_explicit: true,
         material: Some("Brass".into()),
         ..Default::default()
     });
@@ -538,4 +544,117 @@ fn assembly_header_uses_root_facts_and_respects_explicit_title_overrides() {
     assert!(svg.contains("Spec alloy"));
     assert!(svg.contains("SPEC-GA"));
     assert!(!svg.contains("Root steel"));
+}
+
+#[test]
+fn raw_exporter_ids_remain_facts_without_changing_titles_or_grouping() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("bom-raw-ids");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("assembly.step");
+    let source = small()
+        .replace("PRODUCT('pin A','pin A'", "PRODUCT('RAW-ID-A','pin A'")
+        .replace("PRODUCT('pin B','pin B'", "PRODUCT('RAW-ID-B','pin B'");
+    std::fs::write(&path, &source).unwrap();
+    let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
+    assert_eq!(pack.report.rows.len(), 3);
+    let row = pack.report.rows.iter().find(|r| r.qty == 2).unwrap();
+    assert_eq!(row.bom.product_ids, ["RAW-ID-A", "RAW-ID-B"]);
+    assert_eq!(row.sources["product_ids"], pack::ValueSource::File);
+    assert_eq!(row.sources["part_number"], pack::ValueSource::File);
+    assert!(!row.bom.part_number_is_explicit);
+    let svg = pack.drawings[row.sheets[0] - 1].svg();
+    assert!(!svg.contains("RAW-ID-A"));
+    assert!(!svg.contains("RAW-ID-B"));
+    let csv = pack.report.csv();
+    assert!(csv.contains("RAW-ID-A; RAW-ID-B"));
+    let json = serde_json::to_value(&pack.report).unwrap();
+    let row = json["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["qty"] == 2)
+        .unwrap();
+    assert_eq!(
+        row["product_ids"],
+        serde_json::json!(["RAW-ID-A", "RAW-ID-B"])
+    );
+}
+
+#[test]
+fn only_usable_specify_bom_records_attest_native_part_numbers() {
+    for (set, owner, field, value, expected) in [
+        (
+            "Specify answers",
+            384,
+            "description",
+            "Manufacturing PMI",
+            false,
+        ),
+        ("specify bom", 384, "make_buy", "invalid", false),
+        ("specify bom", 31, "part_number", "ORPHAN", false),
+        ("specify bom", 384, "part_number", "PN-42", true),
+        ("specify bom", 384, "optional", "yes", true),
+    ] {
+        let source = append(
+            &small(),
+            &(uda(owner, set, "#9010")
+                + &format!("\n#9010=DESCRIPTIVE_REPRESENTATION_ITEM('{field}','{value}');")),
+        );
+        let rows = read(&source);
+        assert!(
+            rows.iter().all(|r| r.part_number_is_explicit == expected),
+            "{set}/{owner}/{field}"
+        );
+        let (_, analysis) =
+            model::analyse_native_bytes_part("plate.step", source.as_bytes(), Some(0)).unwrap();
+        let actual = model::plan_recovered(&analysis, &model::Spec::default()).unwrap();
+        if expected {
+            assert_eq!(
+                actual.sheet.title["number"],
+                rows[0].part_number.as_deref().unwrap()
+            );
+        } else {
+            let mut legacy = analysis.clone();
+            legacy.bom = None;
+            assert_eq!(
+                actual.sheet.title["number"],
+                model::plan_recovered(&legacy, &model::Spec::default())
+                    .unwrap()
+                    .sheet
+                    .title["number"]
+            );
+        }
+    }
+}
+
+#[test]
+fn editor_sample_and_vslot_keep_legacy_ink_and_grouping() {
+    let sample =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/samples/mounting-plate.step.gz");
+    let (_, mut analysis) = model::analyse_native(&sample).unwrap();
+    assert!(!analysis.bom.as_ref().unwrap().part_number_is_explicit);
+    let actual = model::plan_recovered(&analysis, &model::Spec::default()).unwrap();
+    analysis.bom = None;
+    let legacy = model::plan_recovered(&analysis, &model::Spec::default()).unwrap();
+    assert_eq!(actual.sheet.title["number"], legacy.sheet.title["number"]);
+    assert!(!actual.problems.iter().any(|p| {
+        ["title_field_overflow", "annotation_off_sheet"].contains(&p.code.as_str())
+            && p.refs.iter().any(|r| r.starts_with("title_block/"))
+    }));
+    let pack = pack::build(
+        &fixture("vslot-20x20-100.step.gz"),
+        &pack::PackSpec::default(),
+    )
+    .unwrap();
+    assert_eq!(pack.report.pages, 1);
+    assert_eq!(pack.report.rows.len(), 1);
+    assert_eq!(pack.report.rows[0].qty, 3);
+    assert_eq!(
+        pack.report.rows[0].bom.product_ids,
+        ["Pad", "VSlot2020-100"]
+    );
+    assert_eq!(
+        pack.report.rows[0].sources["product_ids"],
+        pack::ValueSource::File
+    );
 }

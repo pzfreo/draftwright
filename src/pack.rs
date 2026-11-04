@@ -502,6 +502,11 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             );
             let row = &mut groups[j].row;
             row.products.push(key.clone());
+            row.bom
+                .product_ids
+                .extend(metadata[i].product_ids.iter().cloned());
+            row.bom.product_ids.sort();
+            row.bom.product_ids.dedup();
             row.part_indices.push(i);
             row.qty = row
                 .qty
@@ -695,6 +700,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
         for (field, present) in [
             ("name", row.bom.name.is_some()),
             ("part_number", row.bom.part_number.is_some()),
+            ("product_ids", !row.bom.product_ids.is_empty()),
             ("description", row.bom.description.is_some()),
             ("revision", row.bom.revision.is_some()),
             ("make_buy", row.bom.make_buy.is_some()),
@@ -815,7 +821,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             .get("number")
             .filter(|s| !s.trim().is_empty())
             .cloned()
-            .or_else(|| row.bom.part_number.clone())
+            .or_else(|| row.bom.stated_part_number().cloned())
             .unwrap_or_else(|| row.key.clone());
         if file.parts.len() == 1 && file.parts[0].placements.len() > 1 {
             findings.push(finding("pack_single_product", "one product with multiple placements; quantity counts placements, geometry is drawn once in its own frame".into(), row.products.clone()));
@@ -1092,7 +1098,7 @@ impl Report {
             format!("\"{}\"", s.replace('"', "\"\""))
         }
         let mut out =
-            "item,name,products,qty,supply,buy_reasons,sheets,reference,material,description,part_number,revision,quantity_range,optional,stock,make_buy,categories,classifications,occurrence_references,supply_source,item_source,material_source,name_source,description_source,part_number_source,revision_source,quantity_range_source,optional_source,stock_source,make_buy_source,qty_source,categories_source,classifications_source,occurrence_references_source\r\n".to_string();
+            "item,name,products,qty,supply,buy_reasons,sheets,reference,material,description,part_number,revision,quantity_range,optional,stock,make_buy,categories,classifications,occurrence_references,supply_source,item_source,material_source,name_source,description_source,part_number_source,revision_source,quantity_range_source,optional_source,stock_source,make_buy_source,qty_source,categories_source,classifications_source,occurrence_references_source,product_ids,product_ids_source\r\n".to_string();
         for row in &self.rows {
             let source = |field: &str| {
                 row.sources
@@ -1149,6 +1155,8 @@ impl Report {
                 source("categories"),
                 source("classifications"),
                 source("occurrence_references"),
+                row.bom.product_ids.join("; "),
+                source("product_ids"),
             ];
             out.push_str(
                 &fields

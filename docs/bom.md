@@ -32,13 +32,22 @@ designators are retained as `occurrence_references`. An exporter's sequential
 placement IDs are not repurposed as find numbers. Repeated occurrences must
 agree on a native find number; explicit Specify item UDAs take precedence.
 Duplicate effective item numbers refuse the pack instead of renumbering file
-facts. Different stated BOM facts prevent automatic geometry merging. Legacy
-product IDs that duplicate display labels retain the existing geometry grouping.
+facts. Different stated BOM facts prevent automatic geometry merging. Raw PRODUCT ids
+alone do not split geometry groups. Native ids count as part numbers only when
+usable public `specify bom` records on resolved product/definition/occurrence
+owners attest the file's BOM mapping. Manufacturing PMI or a number-like name
+alone is insufficient. No other explicit PDM part-number convention is currently
+promoted to drawing identity.
 
 `optional` provides a `quantity_range`, e.g. `0–1` (or `0–2` after a Spec quantity
 override). False yields the fixed range. It never changes placed geometry.
-MATERIAL and DWG NO use the effective material and complete part number in the
-existing title block. Explicit Spec revision overrides use the existing REV field. Sheet title
+MATERIAL uses the effective file material. DWG NO uses an explicit part number
+from a BOM-carrying file, or a Spec override. Without that evidence it retains
+main's original title-number selection. Raw PRODUCT.id is still exported as
+`part_number` with file provenance, and `part_number_is_explicit` records positive
+BOM evidence in JSON/Analysis without a judging finding. `product_ids` retains
+all native ids (including ids from shape-merged products or overridden numbers)
+with file provenance in both JSON and CSV. Explicit Spec revision overrides use the existing REV field. Sheet title
 intent remains in `drawing.sheet.title`; its material/number/revision overrides
 also appear in the row's values and provenance. Descriptions, optional ranges,
 stock and classifications are exported as data; no new visible sheet fields or
