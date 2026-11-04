@@ -539,7 +539,7 @@ fn the_service_and_mcp_list_parts_and_take_a_part() {
 }
 
 /// A file of one part: choosing it (`--part 0`) draws what the file draws without `--part`, byte
-/// for byte, with the title its file stem gives (not the STEP product's name, `COMPOUND` here).
+/// for byte. TITLE keeps the file stem; DWG NO states the native product id.
 #[test]
 fn part_zero_of_a_single_part_file_draws_as_without_part() {
     let plate = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -568,7 +568,11 @@ fn part_zero_of_a_single_part_file_draws_as_without_part() {
         whole_pdf == part_pdf,
         "--part 0 of a single part changes the PDF"
     );
-    assert!(!String::from_utf8_lossy(&part_svg).contains(">COMPOUND<"));
+    // A generic-looking id is still a file-stated part number (#267).
+    let (code, plan) = run(&["plan", &plate, "--part", "0"]);
+    assert_eq!(code, Some(0), "{plan}");
+    assert_eq!(plan["sheet"]["title"]["title"], "PLATE");
+    assert_eq!(plan["sheet"]["title"]["number"], "COMPOUND");
     // An analysis of the whole file is one of its part 0.
     let (code, a) = run(&["analyse", &plate, "--no-features"]);
     assert_eq!(code, Some(0), "{a}");
