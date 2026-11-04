@@ -1923,12 +1923,15 @@ fn repeated_level(a: &Analysis, mark: &Mark, edges: &[Edge], axis: usize, at: f6
     {
         return false;
     }
-    let Some(n) = mark
-        .text
-        .split_once('×')
-        .and_then(|(n, _)| n.trim().parse::<usize>().ok())
-        .filter(|n| *n >= 2)
-    else {
+    let Some((n, nominal)) = mark.text.split_once('×').and_then(|(n, body)| {
+        let n = n.trim().parse::<usize>().ok().filter(|n| *n >= 2)?;
+        let nominal = body.split('±').next()?.split_whitespace().next()?;
+        nominal
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && *v > 0.)?;
+        Some((n, nominal))
+    }) else {
         return false;
     };
     if n > a.levels.len() + 1 {
@@ -1946,6 +1949,9 @@ fn repeated_level(a: &Analysis, mark: &Mark, edges: &[Edge], axis: usize, at: f6
                 return false;
             }
             let pitch = (e.b - e.a) / n as f64;
+            if !states_mm(nominal, pitch.abs()) {
+                return false;
+            }
             if !(1..n).all(|j| {
                 a.levels
                     .iter()
@@ -2417,6 +2423,12 @@ mod tests {
             native_stations(&a, std::slice::from_ref(&mark)).len(),
             2,
             "a false repeat count is not the native three-rise ladder"
+        );
+        mark.text = "3× 99 ±10".into();
+        assert_eq!(
+            native_stations(&a, std::slice::from_ref(&mark)).len(),
+            2,
+            "a tolerance is not the nominal rise"
         );
         mark.text = "3× 10".into();
         mark.claims[0].feature = "another feature".into();
