@@ -44,9 +44,20 @@ fn main() {
             !d.reference
                 && d.placed.is_some()
                 && d.measurements.iter().any(|m| {
-                    m.parameter.contains("length")
-                        || m.parameter.contains("location")
-                        || m.parameter.contains("angle")
+                    [
+                        "length",
+                        "location",
+                        "angle",
+                        "radius",
+                        "diameter",
+                        "depth",
+                        "thickness",
+                        "width",
+                        "height",
+                        "pitch",
+                    ]
+                    .iter()
+                    .any(|role| m.parameter.contains(role))
                 })
         }) {
             let mut mutation = plan.clone();
