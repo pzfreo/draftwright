@@ -151,5 +151,8 @@ if __name__ == "__main__":
 
     Step().write(directory / "synthetic_opposed_taps.step", (40, 40, 20),
                  bores=[(20, 20, 20, 14, 1), (20, 20, 0, 3, 2)])
+    # Different holes share y=20 but each needs its own location witness (#294).
+    Step().write(directory / "synthetic_coincident_locations.step", (60, 40, 8),
+                 bores=[(15, 20, 8, 3, 3), (40, 20, 8, 2, 4)])
     Step(along_x=True).write(directory / "rules-text/synthetic-coaxial-cylinder-x.step",
                             cylinder=(6, 20, 0.8, 8))

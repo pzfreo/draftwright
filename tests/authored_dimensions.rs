@@ -143,6 +143,158 @@ fn duplicates_are_refused_with_the_existing_owner_and_bad_references_are_actiona
     );
 }
 
+fn coincident_locations() -> (draftwright::haecceity::Part, Analysis, String, Vec<String>) {
+    let (part, a) = model::analyse_native(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/synthetic_coincident_locations.step"),
+    )
+    .unwrap();
+    let datum = planes(&a, 1).first().unwrap().0.clone();
+    let holes: Vec<_> = a
+        .features
+        .iter()
+        .filter(|f| f.kind == "hole")
+        .map(|f| f.id.clone())
+        .collect();
+    assert_eq!(holes.len(), 2);
+    (part, a, datum, holes)
+}
+
+#[test]
+fn coincident_locations_on_different_features_are_drawn_and_fill_their_own_roles() {
+    let (part, a, datum, holes) = coincident_locations();
+    let mut dimensions = serde_json::Map::new();
+    for (i, hole) in holes.iter().enumerate() {
+        dimensions.insert(
+            format!("d:authored:hole{i}_y"),
+            json!({"between":[format!("axis:{hole}"),datum],"along":"y","view":"plan"}),
+        );
+    }
+    let s = parse(json!({"dimension_source":"authored","dimensions":dimensions}));
+    let p = model::plan_recovered(&a, &s).unwrap();
+    for (i, hole) in holes.iter().enumerate() {
+        let id = format!("d:authored:hole{i}_y");
+        let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
+        assert_eq!(d.value, 20.0);
+        assert!(d.placed.is_some());
+        assert!(
+            d.measurements
+                .iter()
+                .any(|m| m.feature == *hole && m.parameter == "location.length.y")
+        );
+        assert!(!d.measurements.iter().any(|m| m.feature == holes[1 - i]));
+    }
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let findings = draftwright::lint::lint(&a, &drawing);
+    // Equal stations locate distinct holes: these are separate requirements,
+    // not repeated claims of one physical feature's measurement.
+    assert!(!findings.iter().any(|f| f.code == "duplicate_measurement"));
+    for hole in &holes {
+        assert!(
+            !findings.iter().any(|f| f
+                .requirements
+                .iter()
+                .any(|r| r.feature == *hole && r.parameter == "location.length.y")),
+            "{findings:?}"
+        );
+    }
+}
+
+#[test]
+fn coincident_location_on_the_same_feature_keeps_the_k6_refusal() {
+    let (_, a, datum, holes) = coincident_locations();
+    let owner = format!("d:{}/location.length.y", holes[0]);
+    let s = parse(json!({"dimensions":{
+        "d:authored:hole_y":{"between":[format!("axis:{}",holes[0]),datum],"along":"y"}
+    }}));
+    let e = model::plan_recovered(&a, &s).unwrap_err();
+    assert_eq!(
+        e.message,
+        format!(
+            "d:authored:hole_y duplicates the quantity owned by {owner}; remove d:authored:hole_y and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
+        )
+    );
+    assert_eq!(e.choices, [owner]);
+}
+
+#[test]
+fn authored_location_can_coincide_with_another_features_automatic_owner() {
+    let (part, a, datum, holes) = coincident_locations();
+    let owner = format!("d:{}/location.length.y", holes[0]);
+    let s = parse(json!({"dimension_source":"authored","dimensions":{
+        owner.clone(): {"view":"plan"},
+        "d:authored:other_y":{"between":[format!("axis:{}",holes[1]),datum],"along":"y","view":"plan"}
+    }}));
+    let p = model::plan_recovered(&a, &s).unwrap();
+    for id in [owner.as_str(), "d:authored:other_y"] {
+        assert!(
+            p.dimensions
+                .iter()
+                .any(|d| d.id == id && d.placed.is_some())
+        );
+    }
+    let other = p
+        .dimensions
+        .iter()
+        .find(|d| d.id == "d:authored:other_y")
+        .unwrap();
+    assert!(
+        other
+            .measurements
+            .iter()
+            .any(|m| m.feature == holes[1] && m.parameter == "location.length.y")
+    );
+    assert!(!other.measurements.iter().any(|m| m.feature == holes[0]));
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let findings = draftwright::lint::lint(&a, &drawing);
+    let duplicates: Vec<_> = findings
+        .iter()
+        .filter(|f| f.code == "duplicate_measurement")
+        .collect();
+    // The automatic owner's shared claim still conveys hole 2's location.
+    // Repeating that semantic claim is advisory; it must not prevent drawing.
+    assert_eq!(duplicates.len(), 1, "{findings:?}");
+    assert_eq!(duplicates[0].severity, draftwright::lint::Severity::Warning);
+}
+
+#[test]
+fn a_face_axis_alias_and_reversed_references_still_name_the_same_feature() {
+    let (_, a, datum, holes) = coincident_locations();
+    let hole = a.features.iter().find(|f| f.id == holes[0]).unwrap();
+    let cylinder = a
+        .dimension_references()
+        .iter()
+        .find_map(|(key, rs)| {
+            let [Reference::Cylinder { bounds, .. }] = rs.as_slice() else {
+                return None;
+            };
+            hole.faces
+                .iter()
+                .any(|&i| {
+                    a.face_attachments[i].bounds.is_some_and(|b| {
+                        (0..3).all(|k| {
+                            (b[k] - bounds[0][k]).abs() < 1e-6
+                                && (b[k + 3] - bounds[1][k]).abs() < 1e-6
+                        })
+                    })
+                })
+                .then(|| key.clone())
+        })
+        .unwrap();
+    let s = parse(json!({"dimension_source":"authored","dimensions":{
+        "d:authored:first":{"between":[format!("axis:{}",holes[0]),datum],"along":"y","view":"plan"},
+        "d:authored:second":{"between":[datum,format!("axis:{cylinder}")],"along":"true","view":"side"}
+    }}));
+    let e = model::plan_recovered(&a, &s).unwrap_err();
+    assert_eq!(
+        e.message,
+        "d:authored:second duplicates the quantity owned by d:authored:first; remove d:authored:second and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
+    );
+    assert_eq!(e.choices, ["d:authored:first"]);
+}
+
 #[test]
 fn vertex_true_distance_edge_angle_and_face_angle_are_authored() {
     let (_, a) = plate();

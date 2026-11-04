@@ -177,7 +177,7 @@ pub(super) fn append(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<()
             "angle" => format!("{}°", fmt(m.value)),
             _ => fmt(m.value),
         };
-        let w = Want {
+        let mut w = Want {
             id: id.clone(),
             views,
             value: m.value,
@@ -194,6 +194,18 @@ pub(super) fn append(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<()
             shape,
             turning: None,
         };
+        // A transverse axis reference locates the feature it names, even if another
+        // feature happens to occupy the same station. Retain that identity in ink
+        // so the location audit can attach the witness to the correct feature.
+        if let Some((axis, ..)) = linear_span(&w.shape) {
+            for feature in referenced_features(a, refs) {
+                w.measurements.push(Measurement {
+                    feature,
+                    parameter: format!("location.length.{}", ["x", "y", "z"][axis]),
+                    value: m.value,
+                });
+            }
+        }
         // Only compare physical supports, never scalar equality alone.
         for existing in wants.iter().filter(|w| {
             !d.omit
@@ -218,9 +230,8 @@ pub(super) fn append(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<()
     super::schemes::check_authored(s, wants)
 }
 
-fn duplicate(a: &Analysis, w: &Want, o: &Want, refs: &[String], kind: &str) -> bool {
-    let close = |a: f64, b: f64| (a - b).abs() < 1e-5;
-    let span = |s: &Shape| match s {
+fn linear_span(s: &Shape) -> Option<(usize, f64, f64)> {
+    match s {
         Shape::Linear { a, b, axis, .. } => {
             Some((*axis, a[*axis].min(b[*axis]), a[*axis].max(b[*axis])))
         }
@@ -230,14 +241,18 @@ fn duplicate(a: &Analysis, w: &Want, o: &Want, refs: &[String], kind: &str) -> b
             Some((k, a[k].min(b[k]), a[k].max(b[k])))
         }
         _ => None,
-    };
-    if let (Some((k, p, q)), Some((j, r, s))) = (span(&w.shape), span(&o.shape)) {
-        return k == j && close(p, r) && close(q, s);
+    }
+}
+
+fn duplicate(a: &Analysis, w: &Want, o: &Want, refs: &[String], kind: &str) -> bool {
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-5;
+    if let (Some((k, p, q)), Some((j, r, s))) = (linear_span(&w.shape), linear_span(&o.shape)) {
+        return k == j && close(p, r) && close(q, s) && same_features(a, refs, o);
     }
     if let (Shape::Aligned { a: p, b: q }, Shape::Aligned { a: r, b: s }) = (&w.shape, &o.shape) {
         let eq = |p: &[f64; 3], q: &[f64; 3]| (0..3).all(|k| close(p[k], q[k]));
         if (eq(p, r) && eq(q, s)) || (eq(p, s) && eq(q, r)) {
-            return true;
+            return same_features(a, refs, o);
         }
     }
     if o.measurements.iter().any(|m| {
@@ -320,6 +335,50 @@ fn duplicate(a: &Analysis, w: &Want, o: &Want, refs: &[String], kind: &str) -> b
     false
 }
 
+/// Feature-axis identities, including the stable face spelling of the same axis.
+fn referenced_features(a: &Analysis, refs: &[String]) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for key in refs.iter().filter_map(|r| r.strip_prefix("axis:")) {
+        if a.features.iter().any(|f| f.id == key) {
+            out.insert(key.to_string());
+        } else if let Ok(Reference::Cylinder { bounds, .. }) = a.dimension_reference(key) {
+            for f in &a.features {
+                if f.faces.iter().any(|&i| {
+                    a.face_attachments.get(i).is_some_and(|face| {
+                        face.bounds.is_some_and(|b| {
+                            (0..3).all(|k| {
+                                (bounds[0][k] - b[k]).abs() < 1e-6
+                                    && (bounds[1][k] - b[k + 3]).abs() < 1e-6
+                            })
+                        })
+                    })
+                }) {
+                    out.insert(f.id.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+fn same_features(a: &Analysis, refs: &[String], other: &Want) -> bool {
+    let named = referenced_features(a, refs);
+    if named.is_empty() {
+        // Untyped face/vertex spans keep their existing physical-support check.
+        return true;
+    }
+    let Some(owner) = other.measurements.first() else {
+        return false;
+    };
+    if let Some(refs) = owner.feature.strip_prefix("geometry:") {
+        named == referenced_features(a, &refs.split('|').map(String::from).collect::<Vec<_>>())
+    } else {
+        // Automatic locations may also convey other coincident features. Their
+        // physical witness still belongs to the first (owning) feature.
+        named.len() == 1 && named.contains(&owner.feature)
+    }
+}
+
 /// Hand only the numerically stated roles to a new owner. Compound riders remain required.
 #[derive(Default)]
 pub(super) struct Ownership {
@@ -338,6 +397,7 @@ pub(super) fn ownership(a: &Analysis, s: &Spec, wants: &[Want]) -> Ownership {
         };
         let Some(refs) = &d.between else { continue };
         let kind = d.kind.as_deref().unwrap_or("linear");
+        let named = referenced_features(a, refs);
         for original in wants
             .iter()
             .filter(|o| !o.id.starts_with("d:authored:") && !s.dimensions.contains_key(&o.id))
@@ -349,7 +409,8 @@ pub(super) fn ownership(a: &Analysis, s: &Spec, wants: &[Want]) -> Ownership {
                 .measurements
                 .iter()
                 .filter(|m| {
-                    (m.value - w.value).abs() < 1e-6
+                    (named.is_empty() || named.contains(&m.feature))
+                        && (m.value - w.value).abs() < 1e-6
                         && match kind {
                             "linear" => matches!(
                                 original.shape,
@@ -368,8 +429,10 @@ pub(super) fn ownership(a: &Analysis, s: &Spec, wants: &[Want]) -> Ownership {
             }
             let claims = out.claims.entry(w.id.clone()).or_default();
             for m in stated {
-                if !claims
+                if !w
+                    .measurements
                     .iter()
+                    .chain(claims.iter())
                     .any(|c| c.feature == m.feature && c.parameter == m.parameter)
                 {
                     claims.push(m);
