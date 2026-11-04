@@ -28,7 +28,7 @@ fn printed_depth(text: &str, depth: f64) -> bool {
                 .next()
                 .unwrap_or("")
                 .split_whitespace()
-                .last()
+                .next_back()
                 .unwrap_or("");
             term.parse::<f64>().is_ok_and(|n| n.is_finite() && n >= 0.) && states_mm(term, depth)
         })
