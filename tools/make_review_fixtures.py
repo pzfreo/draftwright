@@ -2,24 +2,31 @@
 
 No source STEP is read. The plate is 60 x 40 x 8 mm. The void specimen is a
 32 x 24 x 20 mm block with four sealed diameter-2.5, length-12 cylinders.
-Run from the repository root to regenerate the two uncompressed fixtures.
+It also writes genuine opposed blind openings and a turned axial blind opening
+for placement pins whose old fixtures accidentally contained sealed cavities.
+Run from the repository root to regenerate these uncompressed fixtures.
 """
 from pathlib import Path
 import math
 
 
 class Step:
-    def __init__(self):
+    def __init__(self, along_x=False):
         self.entities = []
+        self.along_x = along_x
 
     def add(self, body):
         self.entities.append(body)
         return f"#{len(self.entities)}"
 
     def point(self, xyz):
+        if self.along_x:
+            xyz = (xyz[2], xyz[0], xyz[1])
         return self.add("CARTESIAN_POINT('',(" + ",".join(f"{v:.9f}" for v in xyz) + "))")
 
     def direction(self, xyz):
+        if self.along_x:
+            xyz = (xyz[2], xyz[0], xyz[1])
         return self.add("DIRECTION('',(" + ",".join(f"{v:.9f}" for v in xyz) + "))")
 
     def axis(self, at, z=(0, 0, 1), x=(1, 0, 0)):
@@ -28,11 +35,28 @@ class Step:
     def loop(self, edges):
         return self.add("EDGE_LOOP('',(" + ",".join(self.add(f"ORIENTED_EDGE('',*,*,{e},{sense})") for e, sense in edges) + "))")
 
-    def face(self, edges, surface, sense=".T."):
-        bound = self.add(f"FACE_OUTER_BOUND('',{self.loop(edges)},.T.)")
-        return self.add(f"ADVANCED_FACE('',({bound}),{surface},{sense})")
+    def face(self, edges, surface, sense=".T.", inner=()):
+        bounds = [self.add(f"FACE_OUTER_BOUND('',{self.loop(edges)},.T.)")]
+        bounds += [self.add(f"FACE_BOUND('',{self.loop(loop)},.T.)") for loop in inner]
+        return self.add(f"ADVANCED_FACE('',({','.join(bounds)}),{surface},{sense})")
 
-    def box(self, dims):
+    def circle_edge(self, x, y, z, radius):
+        circle = self.add(f"CIRCLE('',{self.axis((x, y, z))},{radius})")
+        vertex = self.add(f"VERTEX_POINT('',{self.point((x+radius, y, z))})")
+        return self.add(f"EDGE_CURVE('',{vertex},{vertex},{circle},.T.)")
+
+    def blind_bore(self, x, y, mouth, floor, radius):
+        low, high = sorted((mouth, floor))
+        edges = {z: self.circle_edge(x, y, z, radius) for z in (low, high)}
+        cylinder = self.add(f"CYLINDRICAL_SURFACE('',{self.axis((x, y, low))},{radius})")
+        bounds = [self.add(f"FACE_BOUND('',{self.loop([(edges[z], sense)])},.T.)") for z, sense in ((low, ".F."), (high, ".T."))]
+        side = self.add(f"ADVANCED_FACE('',({','.join(bounds)}),{cylinder},.F.)")
+        plane = self.add(f"PLANE('',{self.axis((x, y, floor))})")
+        sense = ".T." if mouth > floor else ".F."
+        cap = self.face([(edges[floor], sense)], plane, sense)
+        return edges[mouth], [side, cap]
+
+    def box(self, dims, bores=()):
         pts = [(0, 0, 0), (dims[0], 0, 0), (dims[0], dims[1], 0), (0, dims[1], 0),
                (0, 0, dims[2]), (dims[0], 0, dims[2]), tuple(dims), (0, dims[1], dims[2])]
         vertices = [self.add(f"VERTEX_POINT('',{self.point(p)})") for p in pts]
@@ -49,6 +73,12 @@ class Step:
                 cache[key] = self.add(f"EDGE_CURVE('',{vertices[u]},{vertices[v]},{line},.T.)")
             return cache[key], ".T." if a < b else ".F."
 
+        mouths = {0: [], dims[2]: []}
+        bore_faces = []
+        for x, y, mouth, floor, radius in bores:
+            edge_at_mouth, inside = self.blind_bore(x, y, mouth, floor, radius)
+            mouths[mouth].append([(edge_at_mouth, ".T." if mouth == 0 else ".F.")])
+            bore_faces.extend(inside)
         faces = []
         for indices, normal, x in [((0, 3, 2, 1), (0, 0, -1), (1, 0, 0)),
                                    ((4, 5, 6, 7), (0, 0, 1), (1, 0, 0)),
@@ -57,8 +87,9 @@ class Step:
                                    ((2, 3, 7, 6), (0, 1, 0), (-1, 0, 0)),
                                    ((3, 0, 4, 7), (-1, 0, 0), (0, -1, 0))]:
             plane = self.add(f"PLANE('',{self.axis(pts[indices[0]], normal, x)})")
-            faces.append(self.face([edge(indices[i], indices[(i+1) % 4]) for i in range(4)], plane))
-        return self.add("CLOSED_SHELL('',(" + ",".join(faces) + "))")
+            inner = mouths[0] if normal == (0, 0, -1) else mouths[dims[2]] if normal == (0, 0, 1) else []
+            faces.append(self.face([edge(indices[i], indices[(i+1) % 4]) for i in range(4)], plane, inner=inner))
+        return self.add("CLOSED_SHELL('',(" + ",".join(faces + bore_faces) + "))")
 
     def cavity(self, x, y):
         # One periodic cylinder and two circular caps, all oriented into the void.
@@ -76,8 +107,20 @@ class Step:
         shell = self.add("CLOSED_SHELL('',(" + ",".join(faces) + "))")
         return self.add(f"ORIENTED_CLOSED_SHELL('',*,{shell},.T.)")
 
-    def write(self, path, dims, voids=False):
-        shell = self.box(dims)
+    def cylinder(self, radius, height, bore_radius, depth):
+        bottom = self.circle_edge(0, 0, 0, radius)
+        top = self.circle_edge(0, 0, height, radius)
+        mouth, inside = self.blind_bore(0, 0, height, height-depth, bore_radius)
+        cylinder = self.add(f"CYLINDRICAL_SURFACE('',{self.axis((0, 0, 0))},{radius})")
+        bounds = [self.add(f"FACE_BOUND('',{self.loop([(e, sense)])},.T.)") for e, sense in ((bottom, ".F."), (top, ".T."))]
+        side = self.add(f"ADVANCED_FACE('',({','.join(bounds)}),{cylinder},.T.)")
+        low = self.add(f"PLANE('',{self.axis((0, 0, 0))})")
+        high = self.add(f"PLANE('',{self.axis((0, 0, height))})")
+        faces = [side, self.face([(bottom, ".F.")], low, ".F."), self.face([(top, ".T.")], high, inner=[[(mouth, ".F.")]]), *inside]
+        return self.add("CLOSED_SHELL('',(" + ",".join(faces) + "))")
+
+    def write(self, path, dims=None, voids=False, bores=(), cylinder=None):
+        shell = self.cylinder(*cylinder) if cylinder else self.box(dims, bores)
         if voids:
             inner = [self.cavity(x, y) for x, y in ((8, 8), (24, 8), (8, 16), (24, 16))]
             solid = self.add(f"BREP_WITH_VOIDS('',{shell},({','.join(inner)}))")
@@ -105,3 +148,8 @@ if __name__ == "__main__":
     directory = Path("tests/fixtures/parts")
     Step().write(directory / "synthetic_note_plate.step", (60, 40, 8))
     Step().write(directory / "synthetic_sealed_voids.step", (32, 24, 20), True)
+
+    Step().write(directory / "synthetic_opposed_taps.step", (40, 40, 20),
+                 bores=[(20, 20, 20, 14, 1), (20, 20, 0, 3, 2)])
+    Step(along_x=True).write(directory / "rules-text/synthetic-coaxial-cylinder-x.step",
+                            cylinder=(6, 20, 0.8, 8))

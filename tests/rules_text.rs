@@ -129,10 +129,13 @@ fn prismatic_central_bores_keep_their_row_and_turned_bores_clear_axis_ink() {
         ("central-prismatic", false),
         ("central-prismatic-wide", false),
         ("central-prismatic-square", false),
-        ("coaxial-cylinder-x", true),
+        ("synthetic-coaxial-cylinder-x", true),
         ("coaxial-step-x", true),
     ] {
         let (part, a) = model::analyse_native(&fixture(name)).unwrap();
+        if name == "synthetic-coaxial-cylinder-x" {
+            assert!(part.solid_is_geometrically_valid(0));
+        }
         let mut spec = model::Spec::default();
         if turned {
             spec.sheet.scale = Some("2:1".into());
@@ -186,4 +189,40 @@ fn prismatic_central_bores_keep_their_row_and_turned_bores_clear_axis_ink() {
             "{name}: horizontal ink through bore text: {crossings:?}"
         );
     }
+}
+
+#[test]
+fn the_old_coaxial_cylinder_is_a_sealed_cavity_not_a_bore_callout() {
+    // build123d's Hole was started on the centred cylinder's middle workplane,
+    // so its entire eight-millimetre cut is enclosed. Keep it as a negative pin;
+    // the axis-ink rule above now uses a genuine opening, not a false hole.
+    let (_, a) = model::analyse_native(&fixture("coaxial-cylinder-x")).unwrap();
+    assert!(draftwright::bridge::holes::read(&a).is_empty());
+    let voids: Vec<_> = a
+        .features
+        .iter()
+        .filter(|f| f.kind == "interior_void")
+        .collect();
+    assert_eq!(voids.len(), 1);
+    assert!(
+        voids[0].parameters["openings"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let p = model::plan_recovered(&a, &model::Spec::default()).unwrap();
+    assert!(p.dimensions.iter().all(|d| {
+        d.kind != "callout"
+            || !d
+                .measurements
+                .iter()
+                .any(|m| m.parameter == "bore.diameter")
+    }));
+    assert_eq!(
+        draftwright::lint::check(&a, &[])
+            .iter()
+            .filter(|f| f.code == "interior_void")
+            .count(),
+        1
+    );
 }

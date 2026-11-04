@@ -181,13 +181,23 @@ fn grm04_taper_corners_are_determined_by_tangency_to_located_circles() {
 
 #[test]
 fn opposed_coaxial_taps_keep_authored_left_and_right_callouts() {
-    let (part, a) = source("opposed.step", Some("opposed.recognition.json"));
+    // The archived opposed.step has a sealed M2-sized cavity, not two taps.
+    // Preserve this two-opening placement pin on independently authored geometry.
+    let (part, a) = model::analyse_native_step(
+        Path::new("synthetic_opposed_taps.step"),
+        include_bytes!("fixtures/parts/synthetic_opposed_taps.step"),
+    )
+    .unwrap();
+    assert!(part.solid_is_geometrically_valid(0));
+    assert!(a.features.iter().all(|f| f.kind != "interior_void"));
     let mut holes: Vec<_> = draftwright::bridge::holes::read(&a)
         .into_iter()
         .map(|(f, h)| (f, h.unwrap()))
         .collect();
     holes.sort_by(|(_, a), (_, b)| a.diameter.total_cmp(&b.diameter));
     assert_eq!(holes.len(), 2);
+    assert_eq!([holes[0].1.at[2], holes[1].1.at[2]], [20., 0.]);
+    assert!(holes[0].1.direction[2] * holes[1].1.direction[2] < 0.);
     let mut s: Spec = serde_json::from_value(
         json!({"sheet":{"size":"A3","scale":"2:1","title":{"tolerance":"ISO 2768-m"}}}),
     )
@@ -240,8 +250,8 @@ fn opposed_coaxial_taps_keep_authored_left_and_right_callouts() {
         .filter(|i| i.severity != draftwright::lint::Severity::Info)
         .collect();
     assert!(issues.is_empty(), "{issues:?}");
-    // #226: neither tap opens on the face the plan looks at (the M4 opens below, the M2 is
-    // closed), so both circles print dashed and the Spec-pinned plan leaders end on hidden ink.
+    // The M2 opens on top and is visible in plan; only the M4 opens below.
+    // Keep the hidden-ink warning for that real underside opening, not for the top tap.
     let mut problems: Vec<_> = p
         .problems
         .iter()
@@ -253,6 +263,7 @@ fn opposed_coaxial_taps_keep_authored_left_and_right_callouts() {
         problems,
         holes
             .iter()
+            .filter(|(_, h)| h.at[2] == 0.)
             .map(|(f, _)| (
                 "leader_to_hidden_edge",
                 vec![format!("d:{}/bore.diameter", f.id), "v:plan".to_string()]
@@ -376,9 +387,69 @@ fn rigid_motion_preserves_intrinsic_native_feature_sizes() {
             .map(|f| (f.kind.clone(), f.fingerprint.sizes.clone()))
             .collect::<Vec<_>>()
     };
-    assert_eq!(original.features.len(), 1);
+    // This fixture also has a closed rectangular cavity, formerly unconsumed.
+    // Its newly retained record must not invalidate the real through-hole pin.
+    assert_eq!(original.features.len(), 2);
+    assert_eq!(
+        original
+            .features
+            .iter()
+            .map(|f| f.kind.as_str())
+            .collect::<Vec<_>>(),
+        vec!["hole", "interior_void"]
+    );
+    assert!(
+        original.features[1].parameters["openings"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(original.features[0].kind, "hole");
     approx(original.features[0].fingerprint.sizes["diameter"], 8.0);
     approx(original.features[0].fingerprint.sizes["depth"], 20.0);
     assert_eq!(sizes(&original), sizes(&moved));
+    for key in ["estimated_volume", "grid_pitch"] {
+        approx(
+            original.features[1].parameters[key].as_f64().unwrap(),
+            moved.features[1].parameters[key].as_f64().unwrap(),
+        );
+    }
+}
+
+#[test]
+fn the_archived_opposed_fixture_has_one_open_hole_and_one_closed_cavity() {
+    for recognition in [None, Some("opposed.recognition.json")] {
+        let (_, a) = source("opposed.step", recognition);
+        let holes = draftwright::bridge::holes::read(&a);
+        assert_eq!(holes.len(), 1);
+        let h = holes[0].1.as_ref().unwrap();
+        approx(h.diameter, 4.);
+        approx(h.depth.unwrap(), 3.);
+        let voids: Vec<_> = a
+            .features
+            .iter()
+            .filter(|f| f.kind == "interior_void")
+            .collect();
+        assert_eq!(voids.len(), 1);
+        assert!(
+            voids[0].parameters["openings"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert!(p.dimensions.iter().all(|d| {
+            !d.measurements
+                .iter()
+                .any(|m| m.parameter == "bore.diameter" && m.value == 2.)
+        }));
+        let findings = draftwright::lint::check(&a, &[]);
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|f| f.code == "interior_void")
+                .count(),
+            1
+        );
+    }
 }
