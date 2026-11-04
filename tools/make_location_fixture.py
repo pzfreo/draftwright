@@ -9,11 +9,22 @@ from make_review_fixtures import Step
 
 
 class Pocket(Step):
+    def __init__(self, pockets=((40, 17, 80, 23, 7),), step=False):
+        super().__init__()
+        self.pockets = pockets
+        self.step = step
+
     def box(self, dims, bores=()):
         points = [(0, 0, 0), (120, 0, 0), (120, 40, 0), (0, 40, 0),
-                  (0, 0, 10), (120, 0, 10), (120, 40, 10), (0, 40, 10),
-                  (40, 17, 10), (80, 17, 10), (80, 23, 10), (40, 23, 10),
-                  (40, 17, 7), (80, 17, 7), (80, 23, 7), (40, 23, 7)]
+                  (0, 0, 10), (120, 0, 10), (120, 40, 10), (0, 40, 10)]
+        for x0, y0, x1, y1, floor in self.pockets:
+            points += [(x0, y0, 10), (x1, y0, 10), (x1, y1, 10), (x0, y1, 10),
+                       (x0, y0, floor), (x1, y0, floor), (x1, y1, floor), (x0, y1, floor)]
+        step_offset = len(points)
+        if self.step:
+            points[5] = (120, 0, 8)
+            points += [(60, 0, 10), (60, 9, 10), (120, 9, 10),
+                       (60, 0, 8), (60, 9, 8), (120, 9, 8)]
         vertices = [self.add(f"VERTEX_POINT('',{self.point(p)})") for p in points]
         edges = {}
 
@@ -31,22 +42,41 @@ class Pocket(Step):
                 result.append((edges[key], ".T." if a < b else ".F."))
             return result
 
-        faces = []
-        for indices, normal, x in [
+        specs = [
             ([0, 3, 2, 1], (0, 0, -1), (1, 0, 0)),
             ([4, 5, 6, 7], (0, 0, 1), (1, 0, 0)),
             ([0, 1, 5, 4], (0, -1, 0), (1, 0, 0)),
             ([1, 2, 6, 5], (1, 0, 0), (0, 1, 0)),
             ([2, 3, 7, 6], (0, 1, 0), (-1, 0, 0)),
             ([3, 0, 4, 7], (-1, 0, 0), (0, -1, 0)),
-            ([8, 9, 13, 12], (0, 1, 0), (1, 0, 0)),
-            ([9, 10, 14, 13], (-1, 0, 0), (0, 1, 0)),
-            ([10, 11, 15, 14], (0, -1, 0), (-1, 0, 0)),
-            ([11, 8, 12, 15], (1, 0, 0), (0, -1, 0)),
-            ([12, 13, 14, 15], (0, 0, 1), (1, 0, 0)),
-        ]:
+        ]
+        if self.step:
+            a, b, c, d, e, f = range(step_offset, step_offset+6)
+            specs[1] = ([4, a, b, c, 6, 7], (0, 0, 1), (1, 0, 0))
+            specs[2] = ([0, 1, 5, d, a, 4], (0, -1, 0), (1, 0, 0))
+            specs[3] = ([1, 2, 6, c, f, 5], (1, 0, 0), (0, 1, 0))
+            specs += [([a, d, e, b], (1, 0, 0), (0, 1, 0)),
+                      ([b, e, f, c], (0, -1, 0), (1, 0, 0)),
+                      ([d, 5, f, e], (0, 0, 1), (1, 0, 0))]
+        top = specs[1][0]
+        holes = []
+        for i, (_, _, _, _, floor) in enumerate(self.pockets):
+            o = 8 + 8*i
+            walls = [([o, o+1, o+5, o+4], (0, 1, 0), (1, 0, 0)),
+                     ([o+1, o+2, o+6, o+5], (-1, 0, 0), (0, 1, 0)),
+                     ([o+2, o+3, o+7, o+6], (0, -1, 0), (-1, 0, 0)),
+                     ([o+3, o, o+4, o+7], (1, 0, 0), (0, -1, 0))]
+            for indices, normal, x in walls:
+                if floor > 10:
+                    indices = list(reversed(indices))
+                    normal = tuple(-v for v in normal)
+                specs.append((indices, normal, x))
+            specs.append(([o+4, o+5, o+6, o+7], (0, 0, 1), (1, 0, 0)))
+            holes.append([o+3, o+2, o+1, o])
+        faces = []
+        for indices, normal, x in specs:
             plane = self.add(f"PLANE('',{self.axis(points[indices[0]], normal, x)})")
-            inner = [loop([11, 10, 9, 8])] if indices == [4, 5, 6, 7] else []
+            inner = [loop(indices) for indices in holes] if indices == top else []
             faces.append(self.face(loop(indices), plane, inner=inner))
         return self.add("CLOSED_SHELL('',(" + ",".join(faces) + "))")
 
@@ -55,3 +85,7 @@ if __name__ == "__main__":
     out = Path("tests/fixtures/parts/location")
     out.mkdir(exist_ok=True)
     Pocket().write(out / "pocket.step")
+    two = ((40, 17, 80, 23, 7), (50, 27, 70, 33, 7))
+    Pocket(two).write(out / "two_pockets.step")
+    # An open edge step has a physical wall at the pockets' common x=60.
+    Pocket(two, step=True).write(out / "two_pockets_step.step")

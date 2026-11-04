@@ -38,14 +38,15 @@ pub(crate) fn route(
     walk(edges, axis, at, feature, excluded, |p, node| {
         // A feature on an origin plane needs no additional zero-length dimension.
         // Analytic feature axes use the tighter tolerance; rounded planes use TOL.
-        roots.iter().any(|r| {
-            (r - p).abs()
-                < if node.is_none() {
-                    super::redundancy::TOL
-                } else {
-                    EPS
-                }
-        })
+        !node.is_some_and(|id| id.starts_with("midplane:"))
+            && roots.iter().any(|r| {
+                (r - p).abs()
+                    < if node.is_none() {
+                        super::redundancy::TOL
+                    } else {
+                        EPS
+                    }
+            })
     })
 }
 
@@ -351,7 +352,52 @@ pub(crate) fn edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
 
 /// Extended drawing evidence is local to lint; planner precedence keeps its existing graph.
 pub(crate) fn drawn_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
-    build_edges(a, marks, true)
+    if !marks.iter().any(|m| {
+        m.claims
+            .iter()
+            .any(|c| c.feature.starts_with("station_witness:"))
+    }) {
+        return build_edges(a, marks, true);
+    }
+    let mut witnessed = marks.to_vec();
+    for mark in &mut witnessed {
+        if mark.claims.iter().any(|c| c.feature == "station_ink") {
+            continue;
+        }
+        let span = mark.claims.iter().find_map(|c| {
+            let word = c.feature.strip_prefix("station_witness:")?;
+            type Witness = ([f64; 3], [f64; 3], [f64; 2], f64, Vec<[[f64; 2]; 2]>);
+            let (direction, up, at, scale, lines): Witness = serde_json::from_str(word).ok()?;
+            ink_span(
+                a,
+                &crate::output::DrawnFrame {
+                    direction,
+                    up,
+                    at,
+                    scale,
+                    half_axis: None,
+                },
+                &lines,
+            )
+        });
+        if mark
+            .claims
+            .iter()
+            .any(|c| c.feature.starts_with("station_witness:"))
+        {
+            mark.claims.push(crate::output::Claim {
+                feature: "station_ink".into(),
+                parameter: "witnesses".into(),
+            });
+            if let Some((k, p, q)) = span {
+                mark.claims.push(crate::output::Claim {
+                    feature: span_claim(k, p, q),
+                    parameter: "station.distance".into(),
+                });
+            }
+        }
+    }
+    build_edges(a, &witnessed, true)
 }
 
 fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
@@ -422,15 +468,13 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                         .any(|f| f.id == c.feature && matches!(f.kind.as_str(), "hole" | "boss"))
                 {
                     if let Some(at) = station(a, &c.feature, k) {
-                        for (side, end) in a.envelope.iter().enumerate() {
-                            // Raw engine marks can measure from the high inspection end.
-                            // Table coordinates retain their low-corner convention.
-                            if (side == 0 || mark.name.starts_with("d:"))
-                                && states_mm(
-                                    mark.text.split_whitespace().next().unwrap_or(""),
-                                    (at - end[k]).abs(),
-                                )
-                            {
+                        for end in a.envelope.iter().take(1) {
+                            // Unwitnessed coordinates use only the documented low-corner
+                            // convention. High-end distances require their own ink span.
+                            if states_mm(
+                                mark.text.split_whitespace().next().unwrap_or(""),
+                                (at - end[k]).abs(),
+                            ) {
                                 spans.push((k, end[k], at));
                             }
                         }
@@ -484,6 +528,83 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
     if !authored {
         return typed;
     }
+    // Bind pocket walls and midplanes before deriving any half interval. Physical
+    // faces share a node only by face identity, never by equal coordinates.
+    let pocket_ids: BTreeSet<_> = super::pockets::placed(a)
+        .into_iter()
+        .map(|(f, _)| f.id.as_str())
+        .collect();
+    for e in &mut typed {
+        let Some(mark) = marks.iter().find(|m| m.name == e.owner) else {
+            continue;
+        };
+        for (at, node) in [(&e.a, &mut e.a_feature), (&e.b, &mut e.b_feature)] {
+            if node.is_some() {
+                continue;
+            }
+            for claim in &mark.claims {
+                let Some(f) = a
+                    .features
+                    .iter()
+                    .find(|f| f.id == claim.feature && pocket_ids.contains(f.id.as_str()))
+                else {
+                    continue;
+                };
+                if claim.parameter.starts_with("location_pocket.")
+                    && super::redundancy::span(a, &f.id, &claim.parameter).is_some_and(|s| {
+                        s.axis == e.axis && (s.hi - at).abs() < super::redundancy::TOL
+                    })
+                {
+                    *node = drawn_node(a, &f.id, e.axis);
+                } else if ["pocket_width.length", "pocket_length.length"]
+                    .contains(&claim.parameter.as_str())
+                {
+                    *node = pocket_face(a, &f.id, e.axis, *at);
+                }
+            }
+        }
+    }
+    for e in &mut typed {
+        let Some(mark) = marks.iter().find(|m| m.name == e.owner) else {
+            continue;
+        };
+        for (at, node) in [(e.a, &mut e.a_feature), (e.b, &mut e.b_feature)] {
+            if node.is_some() {
+                continue;
+            }
+            let faces: BTreeSet<_> = mark
+                .claims
+                .iter()
+                .flat_map(|c| {
+                    let owned: Vec<_> = if c.feature == "step_level" {
+                        (0..a.face_attachments.len()).collect()
+                    } else {
+                        a.features
+                            .iter()
+                            .find(|f| f.id == c.feature)
+                            .map(|f| f.faces.clone())
+                            .unwrap_or_default()
+                    };
+                    owned
+                        .into_iter()
+                        .filter(|&i| {
+                            a.face_attachments.get(i).is_some_and(|face| {
+                                face.surface.as_deref() == Some("plane")
+                                    && face.axis == Some(e.axis)
+                                    && face.bounds.is_some_and(|b| {
+                                        (b[e.axis] - at).abs() < super::redundancy::TOL
+                                            && (b[e.axis + 3] - at).abs() < super::redundancy::TOL
+                                    })
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            if faces.len() == 1 {
+                *node = Some(format!("face:{}", faces.first().unwrap()));
+            }
+        }
+    }
     typed.extend(round_axis_edges(a, marks));
     // A printed interval fixes its midpoint relative to either end. Its two
     // halves retain the original owner, so they cannot manufacture a second
@@ -498,8 +619,10 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                 .iter()
                 .filter(|e| {
                     e.axis == s.axis
-                        && e.a_feature.is_none()
-                        && e.b_feature.is_none()
+                        && e.a_feature == pocket_face(a, &f.id, s.axis, e.a)
+                        && e.b_feature == pocket_face(a, &f.id, s.axis, e.b)
+                        && e.a_feature.is_some()
+                        && e.b_feature.is_some()
                         && ((e.a.min(e.b) - s.lo).abs() < EPS)
                         && ((e.a.max(e.b) - s.hi).abs() < EPS)
                 })
@@ -515,8 +638,12 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                     typed.push(Edge {
                         a: end,
                         b: centre,
-                        a_feature: None,
-                        b_feature: None,
+                        a_feature: if (end - e.a).abs() < EPS {
+                            e.a_feature.clone()
+                        } else {
+                            e.b_feature.clone()
+                        },
+                        b_feature: Some(format!("midplane:{}", f.id)),
                         ..e.clone()
                     });
                 }
@@ -524,6 +651,61 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
         }
     }
     typed
+}
+
+/// An authored plane reference names an actual trimmed face, not its infinite plane.
+fn reference_node(a: &Analysis, key: &str, axis: usize) -> Option<String> {
+    if let Some(id) = key.strip_prefix("axis:") {
+        return node_feature(a, id, axis);
+    }
+    if let Some(i) = a.dimension_reference_face(key, axis) {
+        return Some(format!("face:{i}"));
+    }
+    (["edge:", "vertex:"]
+        .iter()
+        .any(|prefix| key.starts_with(prefix))
+        && a.dimension_reference(key).is_ok())
+    .then(|| key.into())
+}
+
+fn physical_node(node: Option<&str>) -> bool {
+    node.is_some_and(|id| {
+        ["face:", "edge:", "vertex:"]
+            .iter()
+            .any(|prefix| id.starts_with(prefix))
+    })
+}
+
+fn pocket_face(a: &Analysis, id: &str, axis: usize, at: f64) -> Option<String> {
+    let f = a.features.iter().find(|f| f.id == id)?;
+    let mut faces = f.faces.iter().filter(|&&i| {
+        a.face_attachments.get(i).is_some_and(|face| {
+            face.surface.as_deref() == Some("plane")
+                && face.axis == Some(axis)
+                && face.bounds.is_some_and(|b| {
+                    (b[axis] - at).abs() < super::redundancy::TOL
+                        && (b[axis + 3] - at).abs() < super::redundancy::TOL
+                })
+        })
+    });
+    let i = faces.next()?;
+    faces.next().is_none().then(|| format!("face:{i}"))
+}
+
+fn drawn_node(a: &Analysis, id: &str, axis: usize) -> Option<String> {
+    if id.starts_with("face:") {
+        return Some(id.into());
+    }
+    if let Some((_, Ok(p))) = super::pockets::placed(a)
+        .into_iter()
+        .find(|(f, _)| f.id == id)
+    {
+        if axis == p.long_axis && (p.lo - a.envelope[0][axis]).abs() < EPS {
+            return pocket_face(a, id, axis, p.lo);
+        }
+        return Some(format!("midplane:{id}"));
+    }
+    node_feature(a, id, axis)
 }
 
 /// Authored evidence must state the re-measured nominal. A true distance only
@@ -665,8 +847,11 @@ pub(crate) fn drawn_constraints(
                 });
             }
         }
-        mark.claims
-            .retain(|c| !c.feature.starts_with("station_span:") && c.feature != "station_ink");
+        mark.claims.retain(|c| {
+            !c.feature.starts_with("station_span:")
+                && !c.feature.starts_with("station_witness:")
+                && c.feature != "station_ink"
+        });
         mark.claims.push(crate::output::Claim {
             feature: "station_ink".into(),
             parameter: "witnesses".into(),
@@ -917,11 +1102,14 @@ pub(crate) fn drawn_proof(
             if (0..3).any(|k| (delta[k] - axial * d[k]).abs() > EPS) {
                 continue;
             }
+            let Some(other_at) = station(a, &other.id, axis) else {
+                continue;
+            };
             if let Some(path) = route(
                 edges,
                 roots,
                 axis,
-                station(a, &other.id, axis)?,
+                other_at,
                 Some(&other.id),
                 &BTreeSet::new(),
             )
@@ -1082,11 +1270,7 @@ fn identify_impl(a: &Analysis, mark: &Mark, spans: Vec<Edge>, authored: bool) ->
                     .trim_start_matches("geometry:")
                     .split('|')
                     .collect();
-                let node = |side: usize| {
-                    refs.get(side)
-                        .and_then(|r| r.strip_prefix("axis:"))
-                        .and_then(|id| node_feature(a, id, k))
-                };
+                let node = |side: usize| refs.get(side).and_then(|r| reference_node(a, r, k));
                 let mut e = span;
                 if (p - e.a).abs() < EPS {
                     e.a_feature = node(0);
@@ -1502,11 +1686,11 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             &roots[k],
             k,
             at,
-            node_feature(a, &feature, k).as_deref(),
+            drawn_node(a, &feature, k).as_deref(),
         );
         let (code, involved) = match first {
             None => {
-                let node = node_feature(a, &feature, k);
+                let node = drawn_node(a, &feature, k);
                 let involved: Vec<_> = edges
                     .iter()
                     .enumerate()
@@ -1536,7 +1720,7 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     &roots[k],
                     k,
                     at,
-                    node_feature(a, &feature, k).as_deref(),
+                    drawn_node(a, &feature, k).as_deref(),
                     &blocked,
                 ) else {
                     continue;
@@ -1572,6 +1756,57 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         );
         issue.related = names;
         issues.push(issue);
+    }
+    issues
+}
+
+/// The native ladder is geometry, not an inventory supplied by the planner. Check its
+/// actual planar supports even without PMI; anonymous coordinates cannot fix a face.
+pub(crate) fn native_stations(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
+    let edges = drawn_edges(a, marks);
+    let roots = drawing_roots(a, marks);
+    let mut issues = Vec::new();
+    for (i, face) in a.face_attachments.iter().enumerate() {
+        let (Some(k), Some(b)) = (face.axis, face.bounds) else {
+            continue;
+        };
+        if face.surface.as_deref() != Some("plane") {
+            continue;
+        }
+        let at = b[k];
+        if roots[k]
+            .iter()
+            .any(|r| (r - at).abs() < super::redundancy::TOL)
+        {
+            continue;
+        }
+        let is_level = k == 2
+            && a.levels
+                .iter()
+                .any(|z| (z - at).abs() < super::redundancy::TOL);
+        let is_riser = a.risers.iter().any(|r| {
+            r.vertical
+                && AXES[k] == r.axis
+                && r.positions
+                    .iter()
+                    .any(|p| (p - at).abs() < super::redundancy::TOL)
+        });
+        if !is_level && !is_riser {
+            continue;
+        }
+        let id = format!("face:{i}");
+        if drawn_proof(a, &edges, &roots[k], k, at, Some(&id)).is_none() {
+            issues.push(uncovered(
+                a,
+                "feature_not_located",
+                &id,
+                &format!("location.length.{}", AXES[k]),
+                format!(
+                    "Physical face {i} on {}: no printed dimension chain reaches an origin.",
+                    AXES[k]
+                ),
+            ));
+        }
     }
     issues
 }
@@ -1642,7 +1877,7 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> Vec<Mark> {
             &roots[k],
             k,
             at,
-            node_feature(a, &feature, k).as_deref(),
+            drawn_node(a, &feature, k).as_deref(),
         )
         .is_none()
         {
@@ -1692,10 +1927,22 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> Vec<Mark> {
             let excluded = edges
                 .iter()
                 .enumerate()
-                .filter(|(_, e)| e.a_feature.is_some() || e.b_feature.is_some())
+                .filter(|(_, e)| {
+                    !physical_node(e.a_feature.as_deref()) || !physical_node(e.b_feature.as_deref())
+                })
                 .map(|(i, _)| i)
                 .collect();
-            if route(&edges, &[s.lo], s.axis, s.hi, None, &excluded).is_some() {
+            let (Some(lo), Some(hi)) = (
+                pocket_face(a, &f.id, s.axis, s.lo),
+                pocket_face(a, &f.id, s.axis, s.hi),
+            ) else {
+                continue;
+            };
+            if walk(&edges, s.axis, s.hi, Some(&hi), &excluded, |_, node| {
+                node == Some(lo.as_str())
+            })
+            .is_some()
+            {
                 extra.push(Mark {
                     name: format!("location_network:{}/{role}", f.id),
                     view: None,
@@ -1943,6 +2190,14 @@ mod tests {
             }],
         };
         assert!(
+            drawn_edges(&a, std::slice::from_ref(&high)).is_empty(),
+            "a matching number is not a high-end witness"
+        );
+        high.claims.push(crate::output::Claim {
+            feature: span_claim(0, 100., 40.),
+            parameter: "station.distance".into(),
+        });
+        assert!(
             drawn_proof(
                 &a,
                 &drawn_edges(&a, std::slice::from_ref(&high)),
@@ -1953,6 +2208,7 @@ mod tests {
             )
             .is_some()
         );
+        high.claims.pop();
         high.name = "table-coordinate".into();
         assert!(drawn_edges(&a, std::slice::from_ref(&high)).is_empty());
         high.name = "d:hole/location.length.x".into();

@@ -252,12 +252,36 @@ pub fn marks(drawing: &Drawing) -> Vec<Mark> {
                 .label_text
                 .get(&a.name)
                 .map(|wording| wording.body(&drawn_text));
-            let claims =
+            let mut claims =
                 if !matches!(body, Some(None)) && schedule_evidence::verified(a, &drawn_text) {
                     a.claims.clone()
                 } else {
                     Vec::new()
                 };
+            // Preserve the mark's own witness geometry for callers of the mark-only
+            // audit too. Coordinates are reconstructed from Analysis by location, never
+            // inferred by a matching high-end number. This metadata is not drawn.
+            if let Some(item) = drawing.sheet.items.iter().find(|d| d.name == a.name)
+                && item.kind == crate::output::Kind::Dimension
+                && item.elbow.is_none()
+                && let Some(frame) = a
+                    .view
+                    .as_deref()
+                    .and_then(|v| drawing.sheet.frames.get(v.trim_start_matches("v:")))
+            {
+                let witness = serde_json::to_string(&(
+                    frame.direction,
+                    frame.up,
+                    frame.at,
+                    frame.scale,
+                    &item.lines,
+                ))
+                .unwrap();
+                claims.push(crate::output::Claim {
+                    feature: format!("station_witness:{witness}"),
+                    parameter: "witnesses".into(),
+                });
+            }
             let text = body.flatten().unwrap_or(drawn_text);
             Mark {
                 name: a.name.clone(),
@@ -586,6 +610,7 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     };
     let mut issues = coverage::feature_coverage(analysis, marks);
     issues.extend(scheme_issues);
+    issues.extend(location::native_stations(analysis, printed));
     issues.extend(interior_voids::findings(analysis));
     issues.extend(authored::check(analysis, marks));
     issues.extend(bosses::coverage(analysis, marks));
@@ -637,6 +662,22 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     issues.extend(redundancy::references(analysis, printed));
     if location::active(analysis, printed) {
         issues.extend(location::coverage(analysis, printed));
+    } else {
+        // The legacy backstop omits centred holes and transverse slot locations.
+        // The printed graph must also fail closed for those geometric requirements.
+        let missing = location::coverage(analysis, printed)
+            .into_iter()
+            .filter(|i| i.code == "feature_not_located");
+        for issue in missing {
+            if !issue.requirements.iter().all(|r| {
+                issues.iter().any(|i| {
+                    (i.code.contains("missing") || i.code == "feature_not_located")
+                        && i.requirements.contains(r)
+                })
+            }) {
+                issues.push(issue);
+            }
+        }
     }
     if location::has_station_requirements(analysis) {
         issues.extend(location::sizes(analysis, printed));
