@@ -852,6 +852,24 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
             }
         }
     }
+    // Recognition records may round a support's coordinate. Once its own unique physical
+    // face is identified, use that face's station; never relax coordinate matching globally.
+    for e in &mut typed {
+        for (at, node) in [(&mut e.a, &e.a_feature), (&mut e.b, &e.b_feature)] {
+            if let Some(face) = node
+                .as_deref()
+                .and_then(|id| id.strip_prefix("face:"))
+                .and_then(|id| id.parse::<usize>().ok())
+                .and_then(|i| a.face_attachments.get(i))
+                && face.surface.as_deref() == Some("plane")
+                && face.axis == Some(e.axis)
+                && let Some(bounds) = face.bounds
+                && (*at - bounds[e.axis]).abs() < super::redundancy::TOL
+            {
+                *at = bounds[e.axis];
+            }
+        }
+    }
     typed.extend(round_axis_edges(a, marks));
     typed.extend(recess_depth_edges(a, marks));
     // A printed interval fixes its midpoint relative to either end. Its two
@@ -2736,6 +2754,36 @@ mod tests {
         mark.claims[1].feature = span_claim(2, 4., 8.);
         assert!(!native_stations(&a, &[mark]).is_empty());
         assert!(!native_stations(&a, &[]).is_empty());
+    }
+
+    #[test]
+    fn a_rounded_record_uses_only_its_identified_physical_supports() {
+        let a: Analysis = serde_json::from_value(serde_json::json!({
+            "schema":"draftwright.analysis/2","binding":{"source_sha256":"","part":"test","face_count":2,"loader":"test"},
+            "envelope":[[0.,0.,0.],[20.,20.,10.]],"levels":[4.],"features":[],"iso_bounds":[0.,0.,0.,0.],
+            "face_attachments":[{"surface":"plane","axis":2,"bounds":[0.,0.,0.,20.,20.,0.]},
+                {"surface":"plane","axis":2,"bounds":[0.,0.,4.,20.,20.,4.]}]
+        })).unwrap();
+        let mut mark = Mark {
+            name: "printed".into(),
+            view: None,
+            text: "4".into(),
+            claims: vec![
+                crate::output::Claim {
+                    feature: "step_level".into(),
+                    parameter: "step_height.length.h4".into(),
+                },
+                crate::output::Claim {
+                    feature: span_claim(2, 0.00047, 4.00047),
+                    parameter: "station.distance".into(),
+                },
+            ],
+        };
+        let edges = drawn_edges(&a, std::slice::from_ref(&mark));
+        assert!(drawn_proof(&a, &edges, &[0., 10.], 2, 4., Some("face:1")).is_some());
+        mark.claims[0].feature = "another feature".into();
+        let edges = drawn_edges(&a, &[mark]);
+        assert!(drawn_proof(&a, &edges, &[0., 10.], 2, 4., Some("face:1")).is_none());
     }
 
     /// ctc01: a boss whose centre (2.7e-5 short, from its corners) stands on a hole's location
