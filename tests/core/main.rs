@@ -60,3 +60,6 @@ mod test_support;
 
 #[path = "../pack.rs"]
 mod pack;
+
+#[path = "../sealed_voids.rs"]
+mod sealed_voids;

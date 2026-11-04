@@ -159,11 +159,14 @@ pub(crate) fn geometry(part: &Part, r: &Record, g: &mut Geometry) {
         Ok(a) => {
             match a.degrees() {
                 Some(d) if r.value.is_none_or(|value| (d - value).abs() <= 0.01) => {}
-                Some(d) => g.reasons.push(format!(
-                    "angular reference angle {} deg differs from nominal {} deg",
-                    sig6(d),
-                    sig6(r.value.unwrap_or(f64::NAN))
-                )),
+                Some(d) => {
+                    let nominal = r.value.unwrap_or(f64::NAN);
+                    g.refusal = Some(crate::pmi::GeometryRefusal::NominalMismatch { measured: d, nominal });
+                    g.reasons.push(format!(
+                        "angular reference angle {} deg differs from nominal {} deg",
+                        sig6(d), sig6(nominal)
+                    ));
+                }
                 None => g.reasons.push(
                     "angular reference is invalid (angular reference rays must not be parallel or collinear)"
                         .into(),

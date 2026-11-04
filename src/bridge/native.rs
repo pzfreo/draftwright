@@ -158,8 +158,9 @@ pub const FAMILIES: &[(&str, &[&str])] = &[
 
 /// The families consumed here, including evidence and refusals. Oriented slot patterns are
 /// checked and not kept (see the module docs). Threads are retained pending depiction.
-pub const READ: [&str; 41] = [
+pub const READ: [&str; 42] = [
     "helical_springs",
+    "interior_voids",
     "holes",
     "hole_patterns",
     "fillets",
@@ -229,6 +230,8 @@ pub enum Field {
     Count,
     /// Strictly ascending face indices (possibly empty).
     Faces,
+    /// Lists of face-index lists (the exterior openings of a cavity).
+    FaceLists,
     /// Points of three numbers, any number of them.
     PointList,
     /// An axis letter and a coordinate along it (a plane across that axis).
@@ -257,6 +260,18 @@ pub enum Field {
 /// so a change to it does not refuse a read that would not use it. `a.b` is field `b` of object
 /// field `a`, checked when `a` is not null (`a` is listed first).
 pub const FIELDS: &[(&str, &[(&str, Field)])] = &[
+    (
+        "InteriorVoid",
+        &[("void_faces", Field::Faces), ("openings", Field::FaceLists)],
+    ),
+    (
+        "InteriorVoidRefusal",
+        &[
+            ("void_faces", Field::Faces),
+            ("openings", Field::FaceLists),
+            ("reason", Field::Text),
+        ],
+    ),
     (
         "HelicalSpring",
         &[
@@ -844,6 +859,15 @@ pub fn read(part: &Part, doc: &RecognitionDocument) -> Result<Native, String> {
                     parameters: r.parameters.clone(),
                 });
             }
+            "interior_voids" if r.record_type == "InteriorVoidRefusal" => {
+                check(&r.parameters, &r.record_type)?;
+                refusals.push(super::Record {
+                    family: r.family.clone(),
+                    subtype: r.record_type.clone(),
+                    faces: r.faces.clone(),
+                    parameters: r.parameters.clone(),
+                });
+            }
             "holes" => holes.push(r),
             "hole_patterns" => patterns.push(r),
             "oriented_slot_patterns" => oriented_patterns.push(r),
@@ -944,7 +968,7 @@ pub fn read(part: &Part, doc: &RecognitionDocument) -> Result<Native, String> {
     for (n, f) in features.iter_mut().enumerate() {
         f.id = format!("f:hole:{}", n + 1);
     }
-    let patterns = super::hole_patterns(&qs, &features)?;
+    let mut patterns = super::hole_patterns(&qs, &features)?;
 
     let mut others = others
         .into_iter()
@@ -984,6 +1008,9 @@ pub fn read(part: &Part, doc: &RecognitionDocument) -> Result<Native, String> {
     };
     evidence.sort_by_cached_key(key);
     refusals.sort_by_cached_key(key);
+    features.extend(others);
+    super::voids::reconcile(part, &mut features, &mut patterns);
+    let (features, others) = features.into_iter().partition(|f| f.kind == "hole");
     Ok(Native {
         recogniser: format!(
             "{} {} ({})",
@@ -1159,6 +1186,16 @@ fn check(record: &Map<String, Value>, record_type: &str) -> Result<(), String> {
                 a.iter()
                     .all(|v| v.as_u64().is_some_and(|n| usize::try_from(n).is_ok()))
                     && a.windows(2).all(|w| w[0].as_u64() < w[1].as_u64())
+            }),
+            Field::FaceLists => v.as_array().is_some_and(|a| {
+                a.iter().all(|group| {
+                    group.as_array().is_some_and(|faces| {
+                        faces
+                            .iter()
+                            .all(|f| f.as_u64().is_some_and(|n| usize::try_from(n).is_ok()))
+                            && faces.windows(2).all(|w| w[0].as_u64() < w[1].as_u64())
+                    })
+                })
             }),
             Field::PointList => v
                 .as_array()

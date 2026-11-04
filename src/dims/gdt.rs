@@ -279,24 +279,20 @@ fn label(s: &str) -> Laid {
     laid
 }
 
-/// A numbered triangular flag and its text form one ordinary routed callout.
-/// Keep the triangle in the glyph bounds so the existing collision solver sees it.
-fn flag_note(s: &str, number: usize) -> Laid {
-    let mut laid = label(s);
+/// A numbered triangular flag refers to the text in the existing notes block.
+/// Its triangle participates in the ordinary callout collision and routing machinery.
+fn flag_note(number: usize) -> Laid {
     let h = 2.5 * TEXT;
-    let offset = h + TEXT;
-    for run in laid.letters.iter_mut().chain(&mut laid.runs) {
-        run.at[0] += offset;
-    }
-    let y = laid.size[1].max(h) / 2.0;
-    let corners = [[0.0, y], [h, y - h / 2.0], [h, y + h / 2.0]];
-    laid.strokes
-        .extend((0..3).map(|i| [corners[i], corners[(i + 1) % 3]]));
+    let y = h / 2.0;
+    let corners = [[0.0, y], [h, 0.0], [h, h]];
     let number = text(&number.to_string(), [0.68 * h, y], TEXT);
-    laid.letters.push(number.clone());
-    laid.runs.push(number);
-    laid.size = [laid.size[0] + offset, laid.size[1].max(h)];
-    laid
+    Laid {
+        size: [h, h],
+        strokes: (0..3).map(|i| [corners[i], corners[(i + 1) % 3]]).collect(),
+        letters: vec![number.clone()],
+        runs: vec![number],
+        arcs: Vec::new(),
+    }
 }
 
 /// The least gap between a finish's leader or shelf and a dimension or extension line it runs
@@ -1026,6 +1022,32 @@ pub(crate) fn demand_with_spec(
     shown: &dyn Fn(&str) -> bool,
 ) -> Vec<crate::layout::Gdt> {
     let (mut items, _) = crate::pmi_lowering::lower(analysis, shown);
+    if items
+        .iter()
+        .any(|i| matches!(i.glyph, Glyph::FlagNote { .. }))
+    {
+        // The exact same reconciled list reserves and numbers the notes block. A feature
+        // whose leader cannot be lowered still has its text there, without a dangling flag.
+        let (requirements, _) = crate::pmi_lowering::sheet_requirements(analysis);
+        let (notes, inactive, _) = crate::notes::reconcile(&requirements, analysis, spec);
+        for item in &mut items {
+            if let Glyph::FlagNote { number, .. } = &mut item.glyph {
+                let id = inactive
+                    .iter()
+                    .find(|n| n.id == item.id)
+                    .and_then(|n| {
+                        if let crate::items::State::Covered { by } = &n.state {
+                            Some(by.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(&item.id);
+                *number = notes.iter().position(|n| n.id == id).map_or(0, |i| i + 1);
+            }
+        }
+        items.retain(|i| !matches!(i.glyph, Glyph::FlagNote { number: 0, .. }));
+    }
     // Invariant: plan_with validates these same annotation texts before demand and placement.
     crate::label_text::annotations(&mut items, spec).expect("validated annotation wording");
     if spec.sheet.uncited_datums != Some(true) || spec.annotations.values().any(|a| a.omit) {
@@ -1043,7 +1065,7 @@ pub(crate) fn demand_with_spec(
             let size = match &item.glyph {
                 Glyph::Datum { .. } => [H, H],
                 Glyph::Label { text } => label(text).size,
-                Glyph::FlagNote { text, number } => flag_note(text, *number).size,
+                Glyph::FlagNote { number, .. } => flag_note(*number).size,
                 Glyph::Finish { texture, .. } => finish_symbol(texture).0.size,
                 g => control_frame(g).0.size,
             };
@@ -1312,6 +1334,27 @@ fn plan_search(
     });
     let shown = |name: &str| views.iter().any(|v| v.id == format!("v:{name}"));
     let (mut items, mut problems) = crate::pmi_lowering::lower(analysis, &shown);
+    // The exact same reconciled list reserves and numbers the notes block. A feature
+    // whose leader cannot be lowered still has its text there, without a dangling flag.
+    let (requirements, _) = crate::pmi_lowering::sheet_requirements(analysis);
+    let (notes, inactive, _) = crate::notes::reconcile(&requirements, analysis, spec);
+    for item in &mut items {
+        if let Glyph::FlagNote { number, .. } = &mut item.glyph {
+            let id = inactive
+                .iter()
+                .find(|n| n.id == item.id)
+                .and_then(|n| {
+                    if let crate::items::State::Covered { by } = &n.state {
+                        Some(by.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(&item.id);
+            *number = notes.iter().position(|n| n.id == id).map_or(0, |i| i + 1);
+        }
+    }
+    items.retain(|i| !matches!(i.glyph, Glyph::FlagNote { number: 0, .. }));
     // Invariant: plan_with validates these same annotation texts before demand and placement.
     crate::label_text::annotations(&mut items, spec).expect("validated annotation wording");
     if items.is_empty() {
@@ -1442,10 +1485,7 @@ fn plan_search(
         let (laid, cells) = match &item.glyph {
             Glyph::Datum { letter, .. } => (datum_frame(letter), vec![letter.clone()]),
             Glyph::Label { text } => (label(text), vec![text.clone()]),
-            Glyph::FlagNote { text, number } => (
-                flag_note(text, *number),
-                vec![number.to_string(), text.clone()],
-            ),
+            Glyph::FlagNote { number, .. } => (flag_note(*number), vec![number.to_string()]),
             Glyph::Finish { texture, .. } => finish_symbol(texture),
             g => control_frame(g),
         };

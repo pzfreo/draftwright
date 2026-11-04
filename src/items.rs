@@ -232,7 +232,13 @@ pub fn items(plan: &Plan) -> Vec<Item> {
         let label = Some(o.label.clone());
         out.push(item(&o.id, "dimension", None, &o.state, label));
     }
-    for g in &plan.gdt {
+    // A feature note has two physical carriers (block text and flag), but one
+    // editable requirement ID. Its note inventory entry represents both.
+    for g in plan
+        .gdt
+        .iter()
+        .filter(|g| !plan.notes.iter().any(|n| n.id == g.id))
+    {
         let label = Some(g.label.clone());
         out.push(item(&g.id, &g.kind, Some(&g.view), &g.state, label));
     }
@@ -253,7 +259,12 @@ pub fn items(plan: &Plan) -> Vec<Item> {
     }
     for n in &plan.notes {
         let label = Some(n.rows.join("\n"));
-        out.push(item(&n.id, "note", None, &n.state, label));
+        let view = plan
+            .gdt
+            .iter()
+            .find(|g| g.id == n.id && g.placed.is_some())
+            .map(|g| g.view.as_str());
+        out.push(item(&n.id, "note", view, &n.state, label));
     }
     for t in &plan.tables {
         let mut i = item(&t.id, "table", None, &t.state, None);

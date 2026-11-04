@@ -1141,7 +1141,10 @@ fn refusal(r: &Record, code: &str, why: &str) -> Problem {
     } else {
         ""
     };
-    let faces = if why.contains("differs from nominal") {
+    let faces = if matches!(
+        r.geometry.as_ref().and_then(|g| g.refusal.as_ref()),
+        Some(crate::pmi::GeometryRefusal::NominalMismatch { .. })
+    ) {
         format!(
             "; reference face groups {:?} (STEP faces {:?})",
             r.face_groups, r.face_ids

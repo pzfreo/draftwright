@@ -7173,7 +7173,7 @@ fn plan_with_presentation(
     let mut annotation_obstacles = dimensions.clone();
     let furniture_ink: Vec<_> = furniture.into_iter().filter(|d| d.kind == "ink").collect();
     annotation_obstacles.extend(furniture_ink.iter().cloned());
-    let (gdt, more) = crate::dims::gdt::plan_anchored(
+    let (mut gdt, more) = crate::dims::gdt::plan_anchored(
         analysis,
         spec,
         &sheet,
@@ -7587,6 +7587,17 @@ fn plan_with_presentation(
     let (mut notes, mut notes_block, more) =
         crate::notes::plan(&authored, analysis, &sheet, &views, &ink);
     crate::notes::provenance(&mut notes, &requirements, spec);
+    if notes_block.is_none() {
+        for flag in gdt
+            .iter_mut()
+            .filter(|g| notes.iter().any(|n| n.id == g.id))
+        {
+            flag.placed = None;
+            flag.state = ItemState::NotDrawable {
+                reason_code: "notes_not_placed".into(),
+            };
+        }
+    }
     problems.extend(more);
     // Authored tables keep their established priority; automatic radii use the space left.
     let (mut tables, more) = crate::tables::plan(
@@ -11251,16 +11262,24 @@ fn render_annotations_with_cuts(
             .extend(labelled(&caption.id, Kind::Caption, &dims[from..]));
     }
     // Each drawing-wide PMI requirement by the runs that state it, for lint and the PMI checks.
-    annotations.extend(stated.into_iter().map(|(name, runs)| Annotation {
-        approved_claims: Vec::new(),
-        approved_text: None,
-        coordinate_origin: None,
-        satisfies: Vec::new(),
-        name,
-        view: None,
-        runs,
-        claims: Vec::new(),
-    }));
+    for (name, runs) in stated {
+        if let Some(annotation) = annotations.iter_mut().find(|a| a.name == name) {
+            // The flag and its block text are one source requirement, with both
+            // sets of runs retained under its stable editable identity.
+            annotation.runs.extend(runs);
+        } else {
+            annotations.push(Annotation {
+                approved_claims: Vec::new(),
+                approved_text: None,
+                coordinate_origin: None,
+                satisfies: Vec::new(),
+                name,
+                view: None,
+                runs,
+                claims: Vec::new(),
+            });
+        }
+    }
     // Rendered feature notes retain their explicit authority, separately from measurements.
     for a in &mut annotations {
         if let Some(g) = plan

@@ -57,7 +57,7 @@ pub struct PlannedNote {
     pub id: String,
     /// The note as the spec gives it, without surrounding whitespace.
     pub text: String,
-    /// Its number in the block, from 1; zero for an omitted or covered note.
+    /// Its number in the block, from 1; zero for an undrawn or covered note.
     pub number: usize,
     /// The rows it is printed as, numbered and wrapped.
     pub rows: Vec<String>,
@@ -626,8 +626,8 @@ fn plan_with_rows(
                 measurements: Vec::new(),
                 id: n.id.clone(),
                 text: n.text.trim().into(),
-                number: i + 1,
-                rows,
+                number: if placed.is_some() { i + 1 } else { 0 },
+                rows: if placed.is_some() { rows } else { wrap(&n.text) },
                 default: source.is_some(),
                 basis: match source {
                     Some(s) => format!(

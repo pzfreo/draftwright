@@ -110,7 +110,7 @@ pub enum Glyph {
     },
     /// A surface or common label's text.
     Label { text: String },
-    /// A semantic feature note: a numbered flag beside its authoritative text,
+    /// A semantic feature note: a numbered flag referring to the notes block,
     /// routed by the same callout machinery as the other labels.
     FlagNote { text: String, number: usize },
     /// A face's ISO 1302 surface texture symbol: the requirement haecceity's shared notation
@@ -236,7 +236,6 @@ fn lower_uncached(
     };
     let mut owned: Option<Manufacturing> = None;
     let ids = report.identities();
-    let mut flag_number = 0;
     for r in &report.records {
         match r.category {
             Category::GeometricTolerance | Category::Datum => {
@@ -297,15 +296,19 @@ fn lower_uncached(
             // A surface label, and a common label (read as a dimension), is drawn as its text.
             Category::SurfaceLabel => {
                 if r.kind == "flag_note" {
-                    flag_number += 1;
                     match identified(label(r, centre), &ids, r) {
                         Ok(mut item) => {
                             item.glyph = Glyph::FlagNote {
                                 text: r.label.clone(),
-                                number: flag_number,
+                                number: 0,
                             };
                             items.push(item);
                         }
+                        Err(reasons) if r.blockers.is_empty() && !r.label.trim().is_empty() => problems.push(Problem {
+                            id: format!("p:pmi_note_unattached:{}", r.source_id), code: "pmi_note_unattached".into(), severity: "warning".into(),
+                            message: format!("Feature note {} is stated in the notes block without a flag: {}.", r.source_id, crate::pmi::reader_reason(&reasons.join("; "))),
+                            refs: vec![r.source_id.clone()], ..Default::default()
+                        }),
                         Err(_) => labelled(&mut items, &mut problems, &ids, r, centre),
                     }
                 } else {
@@ -719,7 +722,10 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
     let records: Vec<&Record> = report
         .records
         .iter()
-        .filter(|r| r.category == Category::ManufacturingRequirement && sheet_kind(&r.kind))
+        .filter(|r| {
+            (r.category == Category::ManufacturingRequirement && sheet_kind(&r.kind))
+                || r.kind == "flag_note"
+        })
         .collect();
     let ids = report.identities();
     for r in &records {
@@ -835,7 +841,11 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
         .filter(|r| {
             matches!(
                 r.kind.as_str(),
-                "edge_condition" | "general_note" | "surface_treatment" | "heat_treatment"
+                "edge_condition"
+                    | "general_note"
+                    | "surface_treatment"
+                    | "heat_treatment"
+                    | "flag_note"
             )
         })
         .collect();
@@ -847,7 +857,7 @@ pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Pr
         (r.part, order.is_none(), order.unwrap_or(0), r.part21_id)
     });
     for r in notes {
-        if !r.faces.is_empty() || !r.edges.is_empty() {
+        if r.kind != "flag_note" && (!r.faces.is_empty() || !r.edges.is_empty()) {
             refuse(
                 &mut problems,
                 r,
@@ -1706,12 +1716,9 @@ fn linear_geometry(part: &Part, r: &Record, value: Option<f64>, g: &mut Geometry
                 g.view = Some(witness.view.into());
                 g.sites = stations.to_vec();
             } else if r.kind == "linear" && faces_only && mixed(part, groups) {
-                g.reasons.extend(
-                    stations_proof(stations, value, None)
-                        .2
-                        .into_iter()
-                        .map(|s| word(&s)),
-                );
+                let (_, _, reasons, refusal) = stations_proof(stations, value, None);
+                g.refusal = refusal;
+                g.reasons.extend(reasons.into_iter().map(|s| word(&s)));
                 g.reasons.push(
                     "plane-to-bore location has no proven face-supported axis witness".into(),
                 );
@@ -1745,7 +1752,8 @@ fn linear_geometry(part: &Part, r: &Record, value: Option<f64>, g: &mut Geometry
             g.sites = witness.to_vec();
         }
     }
-    let (points, axis, reasons) = stations_proof(stations, value, plane_axis);
+    let (points, axis, reasons, refusal) = stations_proof(stations, value, plane_axis);
+    g.refusal = refusal;
     g.stations = points.to_vec();
     g.axis = axis.map(|k| XYZ[k].to_string());
     g.reasons.extend(reasons.into_iter().map(|s| word(&s)));
@@ -1879,7 +1887,8 @@ fn derived_linear_geometry(part: &Part, r: &Record, value: Option<f64>, g: &mut 
     g.targets = vec![Some(a.clone()), Some(b.clone())];
     match derived_stations(&a, &b, centre) {
         Ok(s) => {
-            let (points, axis, reasons) = stations_proof(s, value, None);
+            let (points, axis, reasons, refusal) = stations_proof(s, value, None);
+            g.refusal = refusal;
             g.stations = points.to_vec();
             g.axis = axis.map(|k| XYZ[k].into());
             g.reasons.extend(reasons);
@@ -2404,7 +2413,12 @@ fn stations_proof(
     s: [[f64; 3]; 2],
     nominal: Option<f64>,
     plane_axis: Option<usize>,
-) -> ([[f64; 3]; 2], Option<usize>, Vec<String>) {
+) -> (
+    [[f64; 3]; 2],
+    Option<usize>,
+    Vec<String>,
+    Option<crate::pmi::GeometryRefusal>,
+) {
     let delta = [0, 1, 2].map(|i| s[1][i] - s[0][i]);
     let m = delta.map(f64::abs);
     let k = plane_axis.unwrap_or_else(|| (0..3).fold(0, |k, i| if m[i] > m[k] { i } else { k }));
@@ -2414,6 +2428,7 @@ fn stations_proof(
             s,
             None,
             vec!["linear reference groups occupy the same station".into()],
+            None,
         );
     }
     let transverse = (0..3).filter(|&i| i != k).map(|i| m[i]).fold(0.0, f64::max);
@@ -2428,6 +2443,7 @@ fn stations_proof(
                 g6(delta[1]),
                 g6(delta[2])
             )],
+            None,
         );
     }
     let span = if oblique {
@@ -2447,9 +2463,13 @@ fn stations_proof(
                 g6(span),
                 g6(nominal)
             )],
+            Some(crate::pmi::GeometryRefusal::NominalMismatch {
+                measured: span,
+                nominal,
+            }),
         );
     }
-    (s, axis, Vec::new())
+    (s, axis, Vec::new(), None)
 }
 
 /// The principal view whose plane holds a span (draftwright's `_linear_projection_view`): the

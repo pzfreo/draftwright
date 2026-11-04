@@ -148,6 +148,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `hole_table_entry_invalid` | incomplete | The drawn evidence does not correctly state the required source information. |
 | `hole_table_escalated` | advisory | A hole table replaced crowded individual callouts. |
 | `hole_table_unavailable` | advisory | Individual dimensions remain when the requested table cannot be used. |
+| `interior_void` | advisory | A factual inventory of an internal cavity; its faces do not establish a hole opening. |
 | `iso_projection_empty` | incomplete | The requested isometric view has no projected geometry. |
 | `label_centerline_overlap` | readability | A centreline crosses label ink. |
 | `label_crowded` | readability | Text lies within 0.5 mm of another label or of foreign line-work; it stays legible but reads as touching. |
@@ -214,6 +215,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `pmi_not_lowered` | incomplete | A read PMI requirement has no supported drawing representation. |
 | `pmi_not_read` | incomplete | The PMI reading cannot supply the required annotation. |
 | `pmi_not_rendered` | incomplete | The rendered drawing does not state the source PMI requirement. |
+| `pmi_note_unattached` | incomplete | The note is stated in the notes block but its feature attachment has no supported flag leader. |
 | `pmi_presentation_not_read` | incomplete | The source presentation PMI is not available as drawing information. |
 | `pmi_read_nonconformance` | advisory | A source PMI nonconformance was read through an explicit interpretation. |
 | `pmi_source_site_mismatch` | incomplete | The drawn evidence does not correctly state the required source information. |

@@ -17,6 +17,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
   parentheses. State coincident pocket and pattern centre locations once.
 - Draw CAx-IF semantic-text part notes in GENERAL NOTES and feature notes as
   numbered flags with routed leaders, without requiring graphical presentation.
+  Flag numbers refer to the same continuously numbered notes block; feature text
+  is printed there once, with unattachable notes retained in that block.
+- Exclude hole and hole-pattern claims on faces owned by interior cavities,
+  retaining a factual cavity finding with its size and position.
 
 - Rectangular through-notches opening on an envelope face need only their
   transverse location; require a shared slot ordinate's actual edge-to-centre
