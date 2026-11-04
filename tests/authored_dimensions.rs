@@ -1136,3 +1136,64 @@ fn removing_engine_ink_without_replanning_exposes_missing_geometry() {
         }
     }
 }
+
+#[test]
+fn another_pockets_half_length_is_not_a_dimension_between_this_pockets_faces() {
+    let (part, a) = model::analyse_native(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/location/two_pockets_sizes.step"),
+    )
+    .unwrap();
+    let pockets = draftwright::lint::pockets::placed(&a);
+    let first = pockets
+        .iter()
+        .find(|(_, p)| p.as_ref().is_ok_and(|p| (p.lo - 40.).abs() < 1e-6))
+        .unwrap()
+        .0;
+    let second = pockets
+        .iter()
+        .find(|(_, p)| p.as_ref().is_ok_and(|p| (p.lo - 60.).abs() < 1e-6))
+        .unwrap()
+        .0;
+    let refs = planes(&a, 0);
+    let face = |owner: Option<&draftwright::bridge::Feature>, at: f64| {
+        refs.iter()
+            .find(|(key, v)| {
+                (v - at).abs() < 1e-6
+                    && owner.is_none_or(|f| {
+                        a.dimension_reference_face(key, 0)
+                            .is_some_and(|i| f.faces.contains(&i))
+                    })
+            })
+            .unwrap()
+            .0
+            .clone()
+    };
+    let spec = parse(
+        json!({"dimension_source":"authored", "views":{"plan":{}}, "dimensions":{
+            "d:authored:start":{"between":[face(None,0.),face(Some(first),40.)],"along":"x","view":"plan"},
+            "d:authored:length":{"between":[face(Some(first),40.),face(Some(first),80.)],"along":"x","view":"plan"},
+            format!("d:{}/location_pocket.location.x",second.id):{}
+        }}),
+    );
+    let plan = model::plan_recovered(&a, &spec).unwrap();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &plan, &font).unwrap();
+    let issues = draftwright::lint::lint(&a, &drawing);
+    let missing = |id: &str| {
+        issues.iter().any(|i| {
+            i.code == "pocket_requirement_missing"
+                && i.requirements
+                    .iter()
+                    .any(|r| r.feature == id && r.parameter == "pocket_length.length")
+        })
+    };
+    assert!(
+        !missing(&first.id),
+        "the first pocket has its printed 40 length"
+    );
+    assert!(
+        missing(&second.id),
+        "the second pocket's 20 is not the first pocket's half interval"
+    );
+}

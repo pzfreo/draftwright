@@ -89,3 +89,4 @@ if __name__ == "__main__":
     Pocket(two).write(out / "two_pockets.step")
     # An open edge step has a physical wall at the pockets' common x=60.
     Pocket(two, step=True).write(out / "two_pockets_step.step")
+    Pocket(((40, 17, 80, 23, 7), (60, 27, 80, 33, 7))).write(out / "two_pockets_sizes.step")
