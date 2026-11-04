@@ -221,6 +221,7 @@ catalogue! {
     "pmi_not_rendered" => Incomplete, Source, "The rendered drawing does not state the source PMI requirement.";
     "pmi_note_unattached" => Incomplete, Source, "The note is stated in the notes block but its feature attachment has no supported flag leader.";
     "pmi_presentation_not_read" => Incomplete, Code, "The source presentation PMI is not available as drawing information.";
+    "pmi_read_fact" => Advisory, Source, "A source PMI statement is preserved or measured drawing information is identified.";
     "pmi_read_nonconformance" => Advisory, Source, "A source PMI nonconformance was read through an explicit interpretation.";
     "pmi_source_site_mismatch" => Incomplete, Source, "The drawn evidence does not correctly state the required source information.";
     "pmi_source_text_mismatch" => Incomplete, Source, "The drawn evidence does not correctly state the required source information.";

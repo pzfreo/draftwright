@@ -785,21 +785,32 @@ pub fn report_part(
     let mut reader_problems = read
         .findings
         .iter()
-        .filter(|f| f.part.is_none_or(|p| drawn(p.0)) && repaired_read(f))
-        .map(|f| crate::model::Problem {
-            id: format!(
-                "p:pmi_read_nonconformance:{}:{}",
-                f.ids.first().unwrap_or(&0),
-                f.detail
-            ),
-            code: "pmi_read_nonconformance".into(),
-            severity: "warning".into(),
-            message: format!(
-                "The STEP reader interpreted a nonconforming PMI statement: {}.",
-                f.detail
-            ),
-            refs: f.ids.iter().map(|id| format!("#{id}")).collect(),
-            ..Default::default()
+        .filter(|f| {
+            f.part.is_none_or(|p| drawn(p.0))
+                && (repaired_read(f) || f.kind == pmi::FindingKind::Fact)
+        })
+        .map(|f| {
+            let fact = f.kind == pmi::FindingKind::Fact;
+            let code = if fact {
+                "pmi_read_fact"
+            } else {
+                "pmi_read_nonconformance"
+            };
+            crate::model::Problem {
+                id: format!("p:{code}:{}:{}", f.ids.first().unwrap_or(&0), f.detail),
+                code: code.into(),
+                severity: if fact { "info" } else { "warning" }.into(),
+                message: if fact {
+                    format!("The STEP reader preserved a PMI statement: {}.", f.detail)
+                } else {
+                    format!(
+                        "The STEP reader interpreted a nonconforming PMI statement: {}.",
+                        f.detail
+                    )
+                },
+                refs: f.ids.iter().map(|id| format!("#{id}")).collect(),
+                ..Default::default()
+            }
         })
         .collect::<Vec<_>>();
     for record in &records {
@@ -815,10 +826,10 @@ pub fn report_part(
                     && missing_nominal_finding(f)
             }).map_or("a dimension without a dimensional_characteristic_representation: no value is stated", |f| f.detail.as_str());
             reader_problems.push(crate::model::Problem {
-                id: format!("p:pmi_read_nonconformance:{}:measured_nominal", record.source_id),
-                code: "pmi_read_nonconformance".into(),
-                severity: "warning".into(),
-                message: format!("PMI dimension {}: {detail}. Its nominal {} {} was measured from the referenced geometry; this recovers the missing nominal and retains only explicitly stated tolerances.", record.source_id, fmt(record.value.expect("measured nominal"), None), units),
+                id: format!("p:pmi_read_fact:{}:measured_nominal", record.source_id),
+                code: "pmi_read_fact".into(),
+                severity: "info".into(),
+                message: format!("PMI dimension {}: {detail}. Its nominal {} {} was measured from the referenced geometry; the file states no nominal, and only explicitly stated tolerances are retained.", record.source_id, fmt(record.value.expect("measured nominal"), None), units),
                 refs: vec![record.source_id.clone(), format!("#{}", record.part21_id)],
                 ..Default::default()
             });
@@ -826,7 +837,7 @@ pub fn report_part(
     }
     for record in &mut records {
         for (i, f) in read.findings.iter().enumerate() {
-            if repaired_read(f) {
+            if repaired_read(f) || f.kind == pmi::FindingKind::Fact {
                 attached[i] = true;
                 continue;
             }
@@ -869,7 +880,7 @@ pub fn report_part(
         if f.part.is_some_and(|p| !drawn(p.0)) {
             continue;
         }
-        if repaired_read(f) {
+        if repaired_read(f) || f.kind == pmi::FindingKind::Fact {
             continue;
         }
         let subject = f.ids.first().copied().unwrap_or(0);
