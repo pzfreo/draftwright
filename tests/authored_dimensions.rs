@@ -1097,6 +1097,12 @@ fn a_pocket_midplane_never_locates_another_pocket_or_a_coincident_step_face() {
                     .map(|(i, _)| format!("face:{i}"))
                     .collect();
                 assert!(!step_faces.is_empty());
+                assert!(
+                    issues.iter().any(|i| i.code == "feature_not_located"
+                        && i.requirements.iter().any(|r| r.feature == "step_level"
+                            && r.parameter == "step_position.length.x60")),
+                    "the actual step at 60 must remain undimensioned: {issues:?}"
+                );
             }
         }
     }
