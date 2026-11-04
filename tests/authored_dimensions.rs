@@ -163,6 +163,21 @@ fn coincident_locations() -> (draftwright::haecceity::Part, Analysis, String, Ve
 #[test]
 fn coincident_locations_on_different_features_are_drawn_and_fill_their_own_roles() {
     let (part, a, datum, holes) = coincident_locations();
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let unlocated =
+        model::plan_recovered(&a, &parse(json!({"dimension_source":"authored"}))).unwrap();
+    let drawing = model::render(&part, &a, &unlocated, &font).unwrap();
+    let missing = draftwright::lint::lint(&a, &drawing);
+    // Negative control: neither off-centre hole is exempt from y coverage.
+    for hole in &holes {
+        assert!(
+            missing.iter().any(|f| f.code == "feature_not_located"
+                && f.requirements
+                    .iter()
+                    .any(|r| r.feature == *hole && r.parameter == "location.length.y")),
+            "{missing:?}"
+        );
+    }
     let mut dimensions = serde_json::Map::new();
     for (i, hole) in holes.iter().enumerate() {
         dimensions.insert(
@@ -175,7 +190,7 @@ fn coincident_locations_on_different_features_are_drawn_and_fill_their_own_roles
     for (i, hole) in holes.iter().enumerate() {
         let id = format!("d:authored:hole{i}_y");
         let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
-        assert_eq!(d.value, 20.0);
+        assert_eq!(d.value, 12.0);
         assert!(d.placed.is_some());
         assert!(
             d.measurements
@@ -184,7 +199,6 @@ fn coincident_locations_on_different_features_are_drawn_and_fill_their_own_roles
         );
         assert!(!d.measurements.iter().any(|m| m.feature == holes[1 - i]));
     }
-    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let findings = draftwright::lint::lint(&a, &drawing);
     // Equal stations locate distinct holes: these are separate requirements,
@@ -219,44 +233,111 @@ fn coincident_location_on_the_same_feature_keeps_the_k6_refusal() {
 }
 
 #[test]
-fn authored_location_can_coincide_with_another_features_automatic_owner() {
+fn an_automatic_owners_additional_feature_claim_is_also_a_k6_duplicate() {
+    let (_, a, datum, holes) = coincident_locations();
+    let owner = format!("d:{}/location.length.y", holes[0]);
+    let automatic = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let d = automatic.dimensions.iter().find(|d| d.id == owner).unwrap();
+    for hole in &holes {
+        assert!(
+            d.measurements
+                .iter()
+                .any(|m| m.feature == *hole && m.parameter == "location.length.y")
+        );
+    }
+    for source in ["auto", "authored"] {
+        let mut spec = json!({"dimension_source":source,"dimensions":{
+            "d:authored:other_y":{"between":[format!("axis:{}",holes[1]),datum],"along":"y","view":"plan"}
+        }});
+        if source == "authored" {
+            spec["dimensions"][&owner] = json!({"view":"plan"});
+        }
+        let s = parse(spec);
+        let e = model::plan_recovered(&a, &s).unwrap_err();
+        // This owner already states hole 2's location: a second 12 is a real
+        // same-feature duplicate, not merely a coincident foreign feature.
+        assert_eq!(
+            e.message,
+            format!(
+                "d:authored:other_y duplicates the quantity owned by {owner}; remove d:authored:other_y and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
+            )
+        );
+        assert_eq!(e.choices, [owner.clone()]);
+    }
+}
+
+#[test]
+fn an_authored_location_preserves_the_automatic_owners_shared_coverage() {
     let (part, a, datum, holes) = coincident_locations();
     let owner = format!("d:{}/location.length.y", holes[0]);
     let s = parse(json!({"dimension_source":"authored","dimensions":{
-        owner.clone(): {"view":"plan"},
-        "d:authored:other_y":{"between":[format!("axis:{}",holes[1]),datum],"along":"y","view":"plan"}
+        "d:authored:h1y":{"between":[format!("axis:{}",holes[0]),datum],"along":"y","view":"plan"}
     }}));
     let p = model::plan_recovered(&a, &s).unwrap();
-    for id in [owner.as_str(), "d:authored:other_y"] {
-        assert!(
-            p.dimensions
-                .iter()
-                .any(|d| d.id == id && d.placed.is_some())
-        );
-    }
-    let other = p
+    let d = p
         .dimensions
         .iter()
-        .find(|d| d.id == "d:authored:other_y")
+        .find(|d| d.id == "d:authored:h1y")
         .unwrap();
+    for hole in &holes {
+        assert!(
+            d.measurements
+                .iter()
+                .any(|m| m.feature == *hole && m.parameter == "location.length.y")
+        );
+    }
+    assert!(p.omitted.iter().any(|o| o.id == owner
+        && matches!(&o.state,draftwright::items::State::Covered{by} if by == "d:authored:h1y")));
     assert!(
-        other
-            .measurements
+        !p.problems
             .iter()
-            .any(|m| m.feature == holes[1] && m.parameter == "location.length.y")
+            .any(|f| f.code == "dimension_not_authored" && f.subjects.contains(&owner))
     );
-    assert!(!other.measurements.iter().any(|m| m.feature == holes[0]));
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let findings = draftwright::lint::lint(&a, &drawing);
-    let duplicates: Vec<_> = findings
+    for hole in &holes {
+        assert!(
+            !findings.iter().any(|f| f
+                .requirements
+                .iter()
+                .any(|r| r.feature == *hole && r.parameter == "location.length.y")),
+            "{findings:?}"
+        );
+    }
+}
+
+#[test]
+fn a_hole_to_hole_pitch_does_not_absolutely_locate_either_hole() {
+    let (part, a, _, holes) = coincident_locations();
+    let s = parse(json!({"dimension_source":"authored","dimensions":{
+        "d:authored:pitch":{"between":[format!("axis:{}",holes[0]),format!("axis:{}",holes[1])],"along":"x","view":"plan"}
+    }}));
+    let p = model::plan_recovered(&a, &s).unwrap();
+    let d = p
+        .dimensions
         .iter()
-        .filter(|f| f.code == "duplicate_measurement")
-        .collect();
-    // The automatic owner's shared claim still conveys hole 2's location.
-    // Repeating that semantic claim is advisory; it must not prevent drawing.
-    assert_eq!(duplicates.len(), 1, "{findings:?}");
-    assert_eq!(duplicates[0].severity, draftwright::lint::Severity::Warning);
+        .find(|d| d.id == "d:authored:pitch")
+        .unwrap();
+    assert!(d.placed.is_some());
+    assert_eq!(d.value, 25.0);
+    assert!(
+        !d.measurements
+            .iter()
+            .any(|m| m.parameter.starts_with("location.length."))
+    );
+    let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let findings = draftwright::lint::lint(&a, &drawing);
+    for hole in &holes {
+        assert!(
+            findings.iter().any(|f| f.code == "feature_not_located"
+                && f.requirements
+                    .iter()
+                    .any(|r| r.feature == *hole && r.parameter == "location.length.x")),
+            "{findings:?}"
+        );
+    }
 }
 
 #[test]
@@ -349,6 +430,34 @@ fn a_face_axis_alias_does_not_inherit_an_unmeasurable_compound_axis() {
             .any(|m| m.feature == holes[0] && m.parameter == "location.length.y")
     );
     assert!(!d.measurements.iter().any(|m| m.feature == "f:compound:1"));
+}
+
+#[test]
+fn a_face_axis_shared_by_measurable_features_is_refused_with_its_candidates() {
+    let (_, mut a, datum, holes) = coincident_locations();
+    let cylinder = cylinder_face(&a, &holes[0]);
+    let mut alias = a
+        .features
+        .iter()
+        .find(|f| f.id == holes[0])
+        .unwrap()
+        .clone();
+    alias.id = "f:shared:1".into();
+    a.features.push(alias);
+    assert!(a.dimension_reference("axis:f:shared:1").is_ok());
+    let s = parse(json!({"dimension_source":"authored","dimensions":{
+        "d:authored:ambiguous":{"between":[format!("axis:{cylinder}"),datum],"along":"y","view":"plan"}
+    }}));
+    let e = model::plan_recovered(&a, &s).unwrap_err();
+    assert!(e.message.contains("ambiguous"), "{e:?}");
+    assert!(
+        e.message.contains(&holes[0]) && e.message.contains("f:shared:1"),
+        "{e:?}"
+    );
+    assert_eq!(
+        e.choices,
+        [format!("axis:{}", holes[0]), "axis:f:shared:1".into()]
+    );
 }
 
 #[test]

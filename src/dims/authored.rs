@@ -82,6 +82,19 @@ pub(super) fn append(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<()
     for (id, d) in s.dimensions.iter().filter(|(_, d)| d.between.is_some()) {
         // Invariant: This loop selects authored dimensions with between references.
         let refs = d.between.as_ref().unwrap();
+        for reference in refs {
+            let candidates = reference_features(a, reference);
+            if candidates.len() > 1 {
+                return Err(Invalid {
+                    message: format!(
+                        "dimensions/{id}: reference {reference} is ambiguous between features {}; name an explicit feature axis.",
+                        candidates.iter().cloned().collect::<Vec<_>>().join(", ")
+                    ),
+                    choices: candidates.iter().map(|f| format!("axis:{f}")).collect(),
+                    ..invalid("")
+                });
+            }
+        }
         if s.binding
             .as_ref()
             .is_some_and(|b| b.source_sha256 != a.binding.source_sha256)
@@ -194,10 +207,16 @@ pub(super) fn append(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<()
             shape,
             turning: None,
         };
-        // A transverse axis reference locates the feature it names, even if another
-        // feature happens to occupy the same station. Retain that identity in ink
-        // so the location audit can attach the witness to the correct feature.
-        if let Some((axis, ..)) = linear_span(&w.shape) {
+        // A feature-to-feature span is relative: it does not anchor either feature.
+        // Only attach an absolute location when the other reference is a datum or
+        // non-feature station. Shared automatic claims are transferred by ownership.
+        if let Some((axis, ..)) = linear_span(&w.shape)
+            && refs
+                .iter()
+                .filter(|r| !reference_features(a, r).is_empty())
+                .count()
+                == 1
+        {
             for feature in referenced_features(a, refs) {
                 w.measurements.push(Measurement {
                     feature,
@@ -213,7 +232,9 @@ pub(super) fn append(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<()
                 && (s.dimension_source == crate::model::DimensionSource::Auto
                     || s.dimensions.contains_key(&w.id))
         }) {
-            if duplicate(a, &w, existing, refs, kind) {
+            if duplicate(a, &w, existing, refs, kind)
+                && (kind != "linear" || same_features(a, refs, existing))
+            {
                 return Err(Invalid {
                     path: None,
                     also: Vec::new(),
@@ -247,12 +268,12 @@ fn linear_span(s: &Shape) -> Option<(usize, f64, f64)> {
 fn duplicate(a: &Analysis, w: &Want, o: &Want, refs: &[String], kind: &str) -> bool {
     let close = |a: f64, b: f64| (a - b).abs() < 1e-5;
     if let (Some((k, p, q)), Some((j, r, s))) = (linear_span(&w.shape), linear_span(&o.shape)) {
-        return k == j && close(p, r) && close(q, s) && same_features(a, refs, o);
+        return k == j && close(p, r) && close(q, s);
     }
     if let (Shape::Aligned { a: p, b: q }, Shape::Aligned { a: r, b: s }) = (&w.shape, &o.shape) {
         let eq = |p: &[f64; 3], q: &[f64; 3]| (0..3).all(|k| close(p[k], q[k]));
         if (eq(p, r) && eq(q, s)) || (eq(p, s) && eq(q, r)) {
-            return same_features(a, refs, o);
+            return true;
         }
     }
     if o.measurements.iter().any(|m| {
@@ -337,8 +358,12 @@ fn duplicate(a: &Analysis, w: &Want, o: &Want, refs: &[String], kind: &str) -> b
 
 /// Feature-axis identities, including the stable face spelling of the same axis.
 fn referenced_features(a: &Analysis, refs: &[String]) -> std::collections::BTreeSet<String> {
+    refs.iter().flat_map(|r| reference_features(a, r)).collect()
+}
+
+fn reference_features(a: &Analysis, reference: &str) -> std::collections::BTreeSet<String> {
     let mut out = std::collections::BTreeSet::new();
-    for key in refs.iter().filter_map(|r| r.strip_prefix("axis:")) {
+    if let Some(key) = reference.strip_prefix("axis:") {
         if a.features.iter().any(|f| f.id == key) {
             out.insert(key.to_string());
         } else if let Ok(Reference::Cylinder { bounds, .. }) = a.dimension_reference(key) {
@@ -375,9 +400,11 @@ fn same_features(a: &Analysis, refs: &[String], other: &Want) -> bool {
     if let Some(refs) = owner.feature.strip_prefix("geometry:") {
         named == referenced_features(a, &refs.split('|').map(String::from).collect::<Vec<_>>())
     } else {
-        // Automatic locations may also convey other coincident features. Their
-        // physical witness still belongs to the first (owning) feature.
-        named.len() == 1 && named.contains(&owner.feature)
+        // A shared automatic owner states every one of its measurements, not
+        // just its first feature's role.
+        named
+            .iter()
+            .all(|f| other.measurements.iter().any(|m| m.feature == *f))
     }
 }
 
@@ -399,7 +426,6 @@ pub(super) fn ownership(a: &Analysis, s: &Spec, wants: &[Want]) -> Ownership {
         };
         let Some(refs) = &d.between else { continue };
         let kind = d.kind.as_deref().unwrap_or("linear");
-        let named = referenced_features(a, refs);
         for original in wants
             .iter()
             .filter(|o| !o.id.starts_with("d:authored:") && !s.dimensions.contains_key(&o.id))
@@ -411,8 +437,7 @@ pub(super) fn ownership(a: &Analysis, s: &Spec, wants: &[Want]) -> Ownership {
                 .measurements
                 .iter()
                 .filter(|m| {
-                    (named.is_empty() || named.contains(&m.feature))
-                        && (m.value - w.value).abs() < 1e-6
+                    (m.value - w.value).abs() < 1e-6
                         && match kind {
                             "linear" => matches!(
                                 original.shape,
@@ -431,6 +456,19 @@ pub(super) fn ownership(a: &Analysis, s: &Spec, wants: &[Want]) -> Ownership {
             }
             let claims = out.claims.entry(w.id.clone()).or_default();
             for m in stated {
+                // Preserve shared claims unless another authored witness already
+                // explicitly locates that feature. Coincidence alone does not
+                // make two distinct features' explicit locations duplicates.
+                if wants.iter().any(|other| {
+                    other.id != w.id
+                        && other.id.starts_with("d:authored:")
+                        && other
+                            .measurements
+                            .iter()
+                            .any(|c| c.feature == m.feature && c.parameter == m.parameter)
+                }) {
+                    continue;
+                }
                 if !w
                     .measurements
                     .iter()
