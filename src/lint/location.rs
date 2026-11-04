@@ -25,7 +25,7 @@ fn nominal_mm(text: &str, value: f64) -> bool {
         .split_whitespace()
         .next()
         .unwrap_or("")
-        .trim_start_matches(['⌀', 'Ø', 'R', '+', '-', '−']);
+        .trim_start_matches(['⌀', 'Ø', 'ø', 'R', '+', '-', '−']);
     let end = word
         .find(|c: char| !c.is_ascii_digit() && c != '.')
         .unwrap_or(word.len());
@@ -339,10 +339,10 @@ pub(crate) fn round_origin(
 /// Only a printed distance whose own witnesses join that unique axis and the claimed
 /// feature may use it; a matching number alone is insufficient.
 fn round_axis_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
-    if matches!(&a.pmi, Some(Reading::Read(r)) if !r.records.is_empty()) {
+    if has_station_requirements(a) {
         return Vec::new();
     }
-    let mut out = Vec::new();
+    let mut out = round_diameter_edges(a, marks);
     let mut origins = std::collections::BTreeMap::new();
     for mark in marks.iter().filter(|m| {
         !m.text.starts_with('(')
@@ -408,6 +408,147 @@ fn round_axis_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
                 b_feature: Some(f.id.clone()),
                 a_datum: true,
             });
+        }
+    }
+    out
+}
+
+/// A printed exterior diameter establishes the physical circular datum. Coaxial bores and
+/// radial bores whose axes intersect it share that datum; a single coincident ordinate does not.
+fn round_diameter_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
+    let frame = crate::bridge::holes::frame(a);
+    let mut out = Vec::new();
+    for view in 0..3 {
+        for k in (0..3).filter(|&k| k != view) {
+            let Some((_, origin)) = round_origin(a, view, k) else {
+                continue;
+            };
+            let diameter = 2. * (origin[k] - a.envelope[0][k]);
+            for mark in marks.iter().filter(|m| !m.text.starts_with('(')) {
+                let printed = mark.claims.iter().any(|c| {
+                    if c.feature == "envelope" && c.parameter == "od.diameter" {
+                        return super::envelope::turning(a, &frame).is_some_and(|(axis, on, d)| {
+                            axis == view
+                                && (d - diameter).abs() < super::redundancy::TOL
+                                && (0..3).all(|j| {
+                                    j == view || (on[j] - origin[j]).abs() < super::redundancy::TOL
+                                })
+                        });
+                    }
+                    c.parameter.ends_with(".diameter")
+                        && super::redundancy::external_span(a, &c.feature, &c.parameter, k)
+                            .is_some_and(|span| {
+                                (span.lo - a.envelope[0][k]).abs() < super::redundancy::TOL
+                                    && (span.hi - (origin[k] + diameter / 2.)).abs()
+                                        < super::redundancy::TOL
+                            })
+                }) && nominal_mm(&mark.text, diameter);
+                if !printed {
+                    continue;
+                }
+                for f in a
+                    .features
+                    .iter()
+                    .filter(|f| matches!(f.kind.as_str(), "hole" | "boss"))
+                {
+                    let Some(q) = f.fingerprint.axis.and_then(crate::bridge::holes::principal)
+                    else {
+                        continue;
+                    };
+                    if q == k {
+                        continue;
+                    }
+                    let Some(at): Option<Vec<_>> = (0..3).map(|j| station(a, &f.id, j)).collect()
+                    else {
+                        continue;
+                    };
+                    let incident =
+                        (0..3).all(|j| j == view || j == q || (at[j] - origin[j]).abs() < EPS);
+                    if incident {
+                        out.push(Edge {
+                            axis: k,
+                            a: at[k],
+                            b: at[k],
+                            owner: mark.name.clone(),
+                            a_feature: Some(f.id.clone()),
+                            b_feature: Some(f.id.clone()),
+                            a_datum: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Recess depths connect the actual mouth and floor planes of their own drilling. Unlike
+/// a bore's THRU rider, the recess depth has an explicit numeric term on the drawing.
+fn recess_depth_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
+    let mut out = Vec::new();
+    for (f, h) in crate::bridge::holes::read(a) {
+        let Ok(h) = h else { continue };
+        let Some((k, sign)) = h.principal else {
+            continue;
+        };
+        let face_at = |at: f64| {
+            let mut faces = a.face_attachments.iter().enumerate().filter(|(_, face)| {
+                face.surface.as_deref() == Some("plane")
+                    && face.axis == Some(k)
+                    && face.bounds.is_some_and(|b| {
+                        (b[k] - at).abs() < super::redundancy::TOL
+                            && (0..3).all(|j| {
+                                j == k || (h.at[j] >= b[j] - EPS && h.at[j] <= b[j + 3] + EPS)
+                            })
+                    })
+            });
+            let (i, _) = faces.next()?;
+            faces.next().is_none().then(|| format!("face:{i}"))
+        };
+        let mut depths = Vec::new();
+        if let Some(depth) = h.counterbore.and_then(|r| r.depth) {
+            depths.push(("counterbore.depth".to_string(), depth));
+        }
+        if let Some(depth) = h.spotface.and_then(|r| r.depth) {
+            depths.push(("spotface.depth".to_string(), depth));
+        }
+        depths.extend(
+            h.outer_steps
+                .iter()
+                .enumerate()
+                .filter_map(|(i, r)| r.depth.map(|d| (format!("outer_steps.{i}.depth"), d))),
+        );
+        for (role, depth) in depths {
+            if !depth.is_finite() || depth <= 0. {
+                continue;
+            }
+            let end = h.at[k] + f64::from(sign) * depth;
+            let (Some(mouth), Some(floor)) = (face_at(h.at[k]), face_at(end)) else {
+                continue;
+            };
+            for mark in marks.iter().filter(|m| {
+                !m.text.starts_with('(')
+                    && m.claims
+                        .iter()
+                        .any(|c| c.feature == f.id && c.parameter == role)
+                    && super::holes::states_recess_depth(
+                        &m.text,
+                        &role,
+                        depth,
+                        h.counterbore.is_some(),
+                        h.outer_steps.len(),
+                    )
+            }) {
+                out.push(Edge {
+                    axis: k,
+                    a: h.at[k],
+                    b: end,
+                    owner: mark.name.clone(),
+                    a_feature: Some(mouth.clone()),
+                    b_feature: Some(floor.clone()),
+                    a_datum: false,
+                });
+            }
         }
     }
     out
@@ -712,6 +853,7 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
         }
     }
     typed.extend(round_axis_edges(a, marks));
+    typed.extend(recess_depth_edges(a, marks));
     // A printed interval fixes its midpoint relative to either end. Its two
     // halves retain the original owner, so they cannot manufacture a second
     // independent controller. No length in the Analysis alone adds an edge.
@@ -1284,9 +1426,20 @@ fn round_route(edges: &[Edge], axis: usize, at: f64, node: Option<&str>) -> Opti
     if origins.is_empty() {
         return None;
     }
-    walk(edges, axis, at, node, &BTreeSet::new(), |_, id| {
+    let mut path = walk(edges, axis, at, node, &BTreeSet::new(), |_, id| {
         id.is_some_and(|id| origins.contains(id))
-    })
+    })?;
+    // Retain the diameter that established a zero-length physical datum in the proof.
+    if path.is_empty() {
+        path.extend(
+            edges
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| e.axis == axis && e.a_datum && e.a_feature.as_deref() == node)
+                .map(|(i, _)| i),
+        );
+    }
+    Some(path)
 }
 
 /// A coaxial feature may use the same printed route, without changing planner precedence.
@@ -1896,6 +2049,13 @@ pub(crate) fn targets(a: &Analysis) -> Vec<(String, usize, f64)> {
     for (f, p) in super::pockets::placed(a) {
         let Ok(p) = p else { continue };
         if p.edge_anchored {
+            // An open end fixes no virtual midpoint. Its remaining physical end face still
+            // needs a printed interval from the open end (or another physical origin).
+            for at in [p.lo, p.hi] {
+                if let Some(face) = pocket_face(a, &f.id, p.long_axis, at) {
+                    out.push((face, p.long_axis, at));
+                }
+            }
             continue;
         }
         for (role, distance) in super::pockets::locations(&p, a.envelope[0]) {
@@ -2756,6 +2916,44 @@ mod tests {
         high.name = "d:hole/location.length.x".into();
         high.text = "999 ±60".into();
         assert!(drawn_edges(&a, &[high]).is_empty());
+    }
+
+    #[test]
+    fn a_printed_exterior_diameter_establishes_only_incident_axes() {
+        let f = |id: &str, kind: &str, at: [f64; 3], axis: [f64; 3], diameter: f64| {
+            serde_json::json!({
+                "id":id,"kind":kind,"faces":[],
+                "parameters":{"axis":axis,"location":at,"diameter":diameter,"height":10.,"depth":10.,"bottom":"through"},
+                "fingerprint":{"version":"test","family":"test","subtype":"test","sizes":{},"position":at,"axis":axis,"neighbourhood":[]}
+            })
+        };
+        let a: Analysis = serde_json::from_value(serde_json::json!({
+            "schema":"draftwright.analysis/2","binding":{"source_sha256":"","part":"test","face_count":0,"loader":"test"},
+            "envelope":[[0.,0.,0.],[20.,20.,10.]],"iso_bounds":[0.,0.,0.,0.],
+            "features":[f("body","boss",[10.,10.,5.],[0.,0.,1.],20.),
+                f("coaxial","hole",[10.,10.,0.],[0.,0.,1.],4.),
+                f("radial","hole",[0.,10.,5.],[1.,0.,0.],4.),
+                f("coincident","hole",[10.,15.,0.],[0.,0.,1.],4.)],
+            "edge_ink":{"edges":[],"planes":[],"curved":[{"bounds":[[0.,0.,0.],[20.,20.,10.]],
+                "cylinder":{"origin":[10.,10.,0.],"axis":[0.,0.,1.],"radius":10.}}]}
+        })).unwrap();
+        let mark = Mark {
+            name: "printed OD".into(),
+            view: Some("v:plan".into()),
+            text: "ø20".into(),
+            claims: vec![crate::output::Claim {
+                feature: "body".into(),
+                parameter: "boss.diameter".into(),
+            }],
+        };
+        let edges = drawn_edges(&a, &[mark]);
+        for (id, k, at) in [("coaxial", 0, 10.), ("coaxial", 1, 10.), ("radial", 1, 10.)] {
+            let path = drawn_proof(&a, &edges, &[0., 20.], k, at, Some(id)).unwrap();
+            assert!(path.iter().any(|&i| edges[i].owner == "printed OD"));
+            assert!(drawn_proof(&a, &[], &[0., 20.], k, at, Some(id)).is_none());
+        }
+        assert!(drawn_proof(&a, &edges, &[0., 20.], 0, 10., Some("coincident")).is_none());
+        assert!(drawn_proof(&a, &edges, &[0., 10.], 2, 5., Some("radial")).is_none());
     }
 
     #[test]

@@ -65,7 +65,10 @@ struct Carrier {
 
 /// The part's overall diameter: the turning axis, a point on it and the largest diameter, when
 /// every readable turned step shares one axis line.
-fn turning(analysis: &Analysis, frame: &[[f64; 3]; 4]) -> Option<(usize, [f64; 3], f64)> {
+pub(super) fn turning(
+    analysis: &Analysis,
+    frame: &[[f64; 3]; 4],
+) -> Option<(usize, [f64; 3], f64)> {
     if let Some(body) = crate::bridge::turned_body(analysis) {
         return Some(body);
     }

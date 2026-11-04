@@ -1892,7 +1892,7 @@ fn lint_reads_the_drawings_annotations() {
     };
     let s = |a: &str, b: &str| (a.to_string(), b.to_string());
     // Clearing every annotation also removes envelope, pattern location and pitch proof.
-    let missing = vec![
+    let mut missing = vec![
         s("missing_principal_dimension", "width.length"),
         s("missing_principal_dimension", "depth.length"),
         s("missing_principal_dimension", "height.length"),
@@ -1901,6 +1901,12 @@ fn lint_reads_the_drawings_annotations() {
         s("hole_pattern_requirement_missing", "grid_pitch.length.col"),
         s("hole_pattern_requirement_missing", "grid_pitch.length.row"),
     ];
+    // The ungated station audit also checks each of the four member axes. With
+    // every location and pitch annotation removed, none has a printed chain.
+    for _ in 0..4 {
+        missing.push(s("feature_not_located", "location.length.x"));
+        missing.push(s("feature_not_located", "location.length.y"));
+    }
     assert_eq!(with("4× ⌀6 THRU"), missing);
     // The misprinted ⌀6.5 leaves the ø6 uncovered by the diameter backstop as well.
     let mut wrong = vec![
