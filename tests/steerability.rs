@@ -825,12 +825,24 @@ fn steer_308_refusal_boundary() {
     let mut detail = input("inline-301");
     detail["views"]["detail_a"] =
         json!({"detail":{"around":"f:section_recess:1","from":"side","scale_factor":2}});
-    c.accepts(
+    if let Some(p) = c.accepts(
         SHAFT,
         &detail,
         "small_detail_reports_layout",
         "needs its source view and room",
-    );
+    ) {
+        c.want(
+            "small_detail_reports_layout",
+            p.plan
+                .views
+                .iter()
+                .any(|v| v.id == "v:detail_a" && v.detail.is_some())
+                || p.plan
+                    .problems
+                    .iter()
+                    .any(|f| f.subjects.iter().any(|id| id == "v:detail_a")),
+        );
+    }
     let mut unknown = input("inline-301");
     unknown["dimensions"]["d:authored:keyway_start"]["between"][0] = json!("face:v1:missing");
     assert!(
@@ -1043,7 +1055,20 @@ fn steer_315_broken_front() {
                 .iter()
                 .any(|d| (d.value - 600.).abs() < 1e-5 && d.placed.is_some()),
         );
-        c.want("larger_scale", p.plan.sheet.scale_factor > 0.5);
+        // Compare automatic choices: the issue's explicit 1:2 is still author intent.
+        let mut automatic = s.clone();
+        automatic["sheet"].as_object_mut().unwrap().remove("size");
+        automatic["sheet"].as_object_mut().unwrap().remove("scale");
+        let broken = planned(BAR, &automatic);
+        automatic["views"]["front"]
+            .as_object_mut()
+            .unwrap()
+            .remove("break");
+        let whole = planned(BAR, &automatic);
+        c.want(
+            "larger_scale",
+            broken.plan.sheet.scale_factor > whole.plan.sheet.scale_factor,
+        );
         c.want(
             "broken_view_recorded",
             serde_json::to_value(&p.plan.views)
