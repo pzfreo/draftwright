@@ -761,6 +761,33 @@ impl Analysis {
             .map(|e| &e.references)
             .unwrap_or_else(|| EMPTY.get_or_init(BTreeMap::new))
     }
+    /// Resolve a planar dimension reference to its unique trimmed physical face.
+    /// Coplanar faces with different bounds remain distinct stations in lint.
+    pub fn dimension_reference_face(&self, key: &str, axis: usize) -> Option<usize> {
+        let Reference::Plane { bounds, normal, .. } = self.dimension_reference(key).ok()? else {
+            return None;
+        };
+        let mut faces = self
+            .face_attachments
+            .iter()
+            .enumerate()
+            .filter(|(_, face)| {
+                face.surface.as_deref() == Some("plane")
+                    && face.axis == Some(axis)
+                    && face.normal.is_some_and(|n| {
+                        ((0..3).map(|k| n[k] * normal[k]).sum::<f64>().abs() - 1.).abs() < 1e-6
+                    })
+                    && face.bounds.is_some_and(|b| {
+                        (0..3).all(|k| {
+                            (b[k] - bounds[0][k]).abs() < 1e-6
+                                && (b[k + 3] - bounds[1][k]).abs() < 1e-6
+                        })
+                    })
+            });
+        let (i, _) = faces.next()?;
+        faces.next().is_none().then_some(i)
+    }
+
     pub fn dimension_reference(&self, key: &str) -> Result<Reference, String> {
         if self.dimension_references().is_empty() {
             return Err("This Analysis records no dimension references; analyse the STEP again, then copy stable keys from Analysis.edge_ink.references.".into());

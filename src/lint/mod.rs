@@ -242,6 +242,10 @@ pub struct Mark {
 /// The drawing's annotations as marks: each label's text read back from the drawing's own text
 /// runs, never from the item it was drawn from.
 pub fn marks(drawing: &Drawing) -> Vec<Mark> {
+    drawing_marks(drawing, true)
+}
+
+fn drawing_marks(drawing: &Drawing, witnesses: bool) -> Vec<Mark> {
     drawing
         .annotations
         .iter()
@@ -252,12 +256,37 @@ pub fn marks(drawing: &Drawing) -> Vec<Mark> {
                 .label_text
                 .get(&a.name)
                 .map(|wording| wording.body(&drawn_text));
-            let claims =
+            let mut claims =
                 if !matches!(body, Some(None)) && schedule_evidence::verified(a, &drawn_text) {
                     a.claims.clone()
                 } else {
                     Vec::new()
                 };
+            // Preserve the mark's own witness geometry for callers of the mark-only
+            // audit too. Coordinates are reconstructed from Analysis by location, never
+            // inferred by a matching high-end number. This metadata is not drawn.
+            if witnesses
+                && let Some(item) = drawing.sheet.items.iter().find(|d| d.name == a.name)
+                && item.kind == crate::output::Kind::Dimension
+                && item.elbow.is_none()
+                && let Some(frame) = a
+                    .view
+                    .as_deref()
+                    .and_then(|v| drawing.sheet.frames.get(v.trim_start_matches("v:")))
+            {
+                let witness = serde_json::to_string(&(
+                    frame.direction,
+                    frame.up,
+                    frame.at,
+                    frame.scale,
+                    &item.lines,
+                ))
+                .unwrap();
+                claims.push(crate::output::Claim {
+                    feature: format!("station_witness:{witness}"),
+                    parameter: "witnesses".into(),
+                });
+            }
             let text = body.flatten().unwrap_or(drawn_text);
             Mark {
                 name: a.name.clone(),
@@ -274,7 +303,7 @@ pub fn marks(drawing: &Drawing) -> Vec<Mark> {
 /// passes the Analysis with them merged into its PMI reading ([`crate::spec_gdt::effective`]), as
 /// [`crate::api::review`] does.
 pub fn lint(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
-    let mut marks = marks(drawing);
+    let mut marks = drawing_marks(drawing, false);
     location::conveyed_boss_locations(analysis, &mut marks);
     location::drawn_constraints(analysis, drawing, &mut marks);
     slots::conveyed_locations(analysis, &mut marks);
@@ -637,6 +666,22 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     issues.extend(redundancy::references(analysis, printed));
     if location::active(analysis, printed) {
         issues.extend(location::coverage(analysis, printed));
+    } else {
+        // The legacy backstop omits centred holes and transverse slot locations.
+        // The printed graph must also fail closed for those geometric requirements.
+        let missing = location::coverage(analysis, printed)
+            .into_iter()
+            .filter(|i| i.code == "feature_not_located");
+        for issue in missing {
+            if !issue.requirements.iter().all(|r| {
+                issues.iter().any(|i| {
+                    (i.code.contains("missing") || i.code == "feature_not_located")
+                        && i.requirements.contains(r)
+                })
+            }) {
+                issues.push(issue);
+            }
+        }
     }
     if location::has_station_requirements(analysis) {
         issues.extend(location::sizes(analysis, printed));

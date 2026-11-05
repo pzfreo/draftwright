@@ -181,8 +181,10 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `oriented_slot_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `oriented_slot_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |
 | `over_dimensioned_pattern` | advisory | Repeated pattern dimensions are redundant information. |
+| `pack_bom_suggestion` | advisory | Stored BOM suggestions retain their provenance and remain reviewable guesses. |
 | `pack_buy_guess` | advisory | A purchased-part candidate is listed with its detection reason and can be overridden. |
 | `pack_compound` | advisory | One product contains multiple solids; the pack reports the upstream part-definition limit. |
+| `pack_duplicate_item` | advisory | Conflicting file find numbers are reported and replaced by automatic allocation. |
 | `pack_ga_balloon_unplaced` | incomplete | A visible assembly item has no clear item-reference route. |
 | `pack_ga_failed` | incomplete | The requested general assembly front sheet could not be drawn. |
 | `pack_ga_not_visible` | advisory | No face of this listed assembly item has proven visibility; no leader is fabricated. |

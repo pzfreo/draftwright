@@ -21,7 +21,10 @@
 //!   as `pocket_location_coincident_with_datum`, inapplicable in its lint.
 //!
 //! Python follows a Z pocket's two locations through one structured fact that covers both
-//! (`location_pocket.location`); here each is a requirement its claiming annotation must print.
+//! (`location_pocket.location`); here each is an independent requirement. The location
+//! network can also prove it from printed station chains: a stated interval fixes its centre
+//! relative to either end. Width and length can be stated between their physical faces;
+//! neither relation grants an unstated depth.
 //! Pattern members belong to [`super::pocket_patterns`]. Rounded pockets retain four
 //! independent corner-radius requirements, including pattern members.
 //!

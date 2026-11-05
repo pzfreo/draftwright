@@ -119,21 +119,30 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 |n| pitch_states(text, value, n),
             )
         };
-        let member_locations: Vec<_> = members
-            .iter()
-            .map(|&i| {
-                [u, v].map(|k| {
-                    let distance = read[i].at[k] - analysis.envelope[0][k];
-                    let parameter = format!("location.length.{}", ["x", "y", "z"][k]);
-                    distance.abs() <= 1e-6
-                        || marks.iter().any(|m| {
-                            m.claims.iter().any(|c| {
-                                c.feature == read[i].feature.id && c.parameter == parameter
-                            }) && holes::states(&m.text, distance)
-                        })
+        let locations = |printed_only: bool| -> Vec<_> {
+            members
+                .iter()
+                .map(|&i| {
+                    [u, v].map(|k| {
+                        let distance = read[i].at[k] - analysis.envelope[0][k];
+                        let parameter = format!("location.length.{}", ["x", "y", "z"][k]);
+                        distance.abs() <= 1e-6
+                            || marks
+                                .iter()
+                                .filter(|m| {
+                                    !printed_only || !m.name.starts_with("location_network:")
+                                })
+                                .any(|m| {
+                                    m.claims.iter().any(|c| {
+                                        c.feature == read[i].feature.id && c.parameter == parameter
+                                    }) && holes::states(&m.text, distance)
+                                })
+                    })
                 })
-            })
-            .collect();
+                .collect()
+        };
+        let member_locations = locations(false);
+        let printed_member_locations = locations(true);
         let all_members_located = member_locations.iter().all(|axes| axes.iter().all(|b| *b));
         let member_anchor_with_pitch = member_locations.iter().any(|axes| axes.iter().all(|b| *b))
             && requirements.iter().all(|(parameter, value)| {
@@ -165,14 +174,10 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         // Stream K6 (ADR4-U1): a pitch along an axis on which every member is also located
         // states a separation the locations already fix: over-dimensioning that is neither
         // identical nor coincident. Each such pitch is reported, naming its marks.
-        if member_spacing
-            && !marks
-                .iter()
-                .any(|m| m.name.starts_with("location_network:"))
-        {
+        if member_spacing {
             for (position, k) in [u, v].into_iter().enumerate() {
                 let along = if position == 0 { &cols } else { &rows };
-                if along.len() < 2 || !member_locations.iter().all(|axes| axes[position]) {
+                if along.len() < 2 || !printed_member_locations.iter().all(|axes| axes[position]) {
                     continue;
                 }
                 let parameter = if p.arrangement == "grid" {
