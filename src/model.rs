@@ -3551,11 +3551,14 @@ fn recover_candidates(
             // automatic search gives its candidates (so the pinned pair is drawn as the search
             // would draw it; a no-op for pinned placements).
             let mut corrected = first.clone();
-            if !drawn_items_fit(analysis, &corrected) {
+            if !crate::sheet_fit::inside_frames(analysis, &corrected) {
                 crate::sheet_fit::correct_estimate(analysis, &mut corrected);
                 compact_authored_row(analysis, &mut corrected);
             }
-            if drawn_items_fit(analysis, &corrected) {
+            // Reserved view bands can overlap or exceed the frame after the actual
+            // ink has settled. They are packing estimates, not rendered overflow.
+            // Include captions, line work and furniture in the physical frame check.
+            if crate::sheet_fit::inside_frames(analysis, &corrected) {
                 first = corrected;
                 first.problems.remove(i);
                 first.sheet.fill = crate::sheet_fit::fill(analysis, &first);

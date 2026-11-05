@@ -226,14 +226,6 @@
       "length_30"
     ]
   },
-  "318": {
-    "case": "steer_318_smaller_isometric_fits",
-    "group": "D",
-    "reason": "Shrinking the isometric raises page_fit_uncertain despite finished items fitting.",
-    "checks": [
-      "no_page_fit_uncertain"
-    ]
-  },
   "319": {
     "case": "steer_319_table_does_not_locate_slot",
     "group": "A",
@@ -322,10 +314,9 @@
   "331": {
     "case": "steer_331_finished_sheet_fits",
     "group": "D",
-    "reason": "Main's generated 650 really overflows (3.1/0.1 mm); moving that 650 below makes both renders fit, yet placing the 510 still raises page_fit_uncertain.",
+    "reason": "The generated 650 really overflows (3.1/0.1 mm) in the original placement; the fitting false-warning variants now pass.",
     "checks": [
-      "annotations_in_bounds",
-      "fitting_variant_no_warning"
+      "annotations_in_bounds"
     ]
   }
 }

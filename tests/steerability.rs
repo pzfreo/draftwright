@@ -1813,6 +1813,12 @@ fn steer_331_finished_sheet_fits() {
         annotations_in_bounds(rendered(CTC, &original))
             && annotations_in_bounds(rendered(CTC, &original_baseline)),
     );
+    for p in [&original, &original_baseline] {
+        assert!(
+            has(&p.plan, "page_fit_uncertain"),
+            "the original 650 overflow must retain its page-fit warning"
+        );
+    }
 
     // Keep every dimension and the original A3 1:5. Moving only the 650 below
     // restores the false-warning premise, paired with/without the 510 placement.
