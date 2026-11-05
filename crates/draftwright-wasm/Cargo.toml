@@ -10,7 +10,7 @@ repository = "https://github.com/pzfreo/draftwright-rust"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-draftwright = { path = "../.." }
+draftwright = { path = "../..", default-features = false }
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

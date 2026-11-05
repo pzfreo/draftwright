@@ -6,8 +6,21 @@ autotests = false
 license = "AGPL-3.0-only"
 description = "Automated technical drawings from STEP B-rep: a Rust port of draftwright."
 
+[[bin]]
+name = "draftwright"
+path = "src/bin/draftwright.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+# The `draftwright` command line's parser and its shell completion scripts. The WASM crate turns
+# it off so clap stays out of the browser build.
+cli = ["dep:clap", "dep:clap_complete"]
+
 [dependencies]
 chrono = { version = "0.4", default-features = false }
+clap = { version = "4.6.1", features = ["derive"], optional = true }
+clap_complete = { version = "4.6", optional = true }
 dxf = { version = "0.6.2", features = ["serialize"] }
 flate2 = "1.1.10"
 haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.7" }

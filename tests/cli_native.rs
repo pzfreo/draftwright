@@ -330,3 +330,89 @@ fn sheet_recognition(name: &str) -> Option<PathBuf> {
     std::fs::write(&path, text).unwrap();
     Some(path)
 }
+
+/// The command line is clap's (#345): `completions` prints a script for each shell, every
+/// subcommand bash selects has its case, and a bad command line is clap's usage error (exit 2,
+/// on stderr), while a bad value is still refused as JSON.
+#[test]
+fn the_command_line_completes_and_refuses_bad_usage() {
+    let raw = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_draftwright"))
+            .args(args)
+            .output()
+            .unwrap();
+        (
+            out.status.code(),
+            String::from_utf8(out.stdout).unwrap(),
+            String::from_utf8(out.stderr).unwrap(),
+        )
+    };
+    let (code, help, _) = raw(&["--help"]);
+    assert_eq!(code, Some(0));
+    for command in [
+        "analyse",
+        "plan",
+        "render",
+        "review",
+        "edit",
+        "spec",
+        "parts",
+        "pack",
+        "diff",
+        "spec_schema",
+        "item_options",
+        "serve",
+        "mcp-stdio",
+        "mcp-http",
+        "completions",
+    ] {
+        assert!(help.contains(&format!("  {command} ")), "{command}: {help}");
+    }
+    for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
+        let (code, script, stderr) = raw(&["completions", shell]);
+        assert_eq!((code, stderr.as_str()), (Some(0), ""), "{shell}");
+        assert!(script.contains("draftwright"), "{shell}");
+        assert!(script.contains("no-features"), "{shell}");
+    }
+    let (_, bash, _) = raw(&["completions", "bash"]);
+    let selected: Vec<&str> = bash
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("cmd=\""))
+        .filter_map(|l| l.strip_suffix('"'))
+        .filter(|cmd| !cmd.is_empty())
+        .collect();
+    assert!(selected.len() > 10, "{selected:?}");
+    for cmd in selected {
+        assert!(
+            bash.contains(&format!("\n        {cmd})\n")),
+            "no case for {cmd}"
+        );
+    }
+    for usage in [
+        &["completions", "tcsh"][..],
+        &[],
+        &["bogus"],
+        &["render", "part.step"],
+        &["plan"],
+        &["analyse", "part.step", "--unknown"],
+    ] {
+        let (code, stdout, stderr) = raw(usage);
+        assert_eq!(code, Some(2), "{usage:?}");
+        assert!(stdout.is_empty(), "{usage:?}: {stdout}");
+        assert!(
+            stderr.starts_with("error: ") || stderr.contains("Usage: draftwright"),
+            "{usage:?}: {stderr}"
+        );
+    }
+    // Values that look like negative numbers reach the command's own check.
+    let step = fixture("parts/plate.step");
+    let (code, e) = run(&["plan", step.to_str().unwrap(), "--part", "-1"]);
+    assert_eq!(code, Some(2));
+    assert!(
+        e["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("is not a part's index"),
+        "{e}"
+    );
+}

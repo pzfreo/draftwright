@@ -6,6 +6,23 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+### Added
+
+- `draftwright completions SHELL` prints a shell completion script (bash, zsh, fish,
+  powershell or elvish) to stdout; the README gives the install one-liners.
+
+### Changed
+
+- The `draftwright` command line is parsed by clap instead of by hand. Commands, flags,
+  defaults, exit codes and the JSON errors for bad values (`--part`, `--dpi`, `--no-features`
+  with `--features` or `--analysis`) are unchanged. Help and usage errors are clap's: a missing
+  argument, a missing `-o`, an unknown command or flag is reported on stderr (exit 2, as
+  before) instead of as a JSON `invalid` error on stdout; `--help` works on each command; a
+  flag a command does not take (such as `-o` on `plan`) is now refused rather than ignored; a
+  positional may follow the flags; and a repeated flag's last value wins (it was the first). The WASM crate builds
+  without the command line (the root crate's default `cli` feature, off for
+  `draftwright-wasm`), so clap stays out of the browser build.
+
 ## 0.2.11 (2026-11-05)
 
 - Choose the largest clean and legible preferred scale on the smallest sheet that
