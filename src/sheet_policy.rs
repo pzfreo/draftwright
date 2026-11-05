@@ -924,12 +924,10 @@ fn select_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 // Only a lack of room (clipping, hard layout findings or space drops)
                 // earns compact spacing or the smaller scale; a routing refusal would only
                 // repeat itself.
-                let cramped = model::findings(&plan).hard > 0
+                let frame_conflict = !frame_conflicts(&plan).is_empty();
+                let cramped = frame_conflict
+                    || model::findings(&plan).hard > 0
                     || model::findings(&plan).dropped > 0
-                    // A physically fitting drawing can still have reserved
-                    // annotation frames on furniture or each other. Try compact
-                    // lanes on this paper before spending a larger sheet.
-                    || !frame_conflicts(&plan).is_empty()
                     || plan
                         .problems
                         .iter()
@@ -937,11 +935,24 @@ fn select_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                     || !sheet_fit::inside_frames(fit, &plan);
                 cramped_first = cramped_first.or(Some(cramped));
                 if compact && cramped && !spaced {
-                    lanes_may_help = compact_may_help(fit, &plan);
+                    lanes_may_help = frame_conflict || compact_may_help(fit, &plan);
                 }
+                let replay_explicit = max == 1 && frame_conflict;
                 chosen = judge(plan, &mut scales, &mut outcome);
                 if chosen.is_some() {
                     break 'scales;
+                }
+                // The same paper and scale must not be refused merely because
+                // automatic composition differs from a clean explicit request.
+                // The bounded replay is judged by the same physical fit, loss,
+                // readability and crossing gates.
+                if replay_explicit
+                    && let Ok(Some(explicit)) = model::explicit_fit_candidate(analysis, &forced)
+                {
+                    chosen = judge(explicit, &mut scales, &mut outcome);
+                    if chosen.is_some() {
+                        break 'scales;
+                    }
                 }
                 // A smaller readable scale may fit individual views even when
                 // the unrestricted reference's scale cannot. Plan its ink on
@@ -1072,16 +1083,14 @@ fn compact_may_help(analysis: &Analysis, plan: &Plan) -> bool {
     // the sheet or onto the title block. Collisions between items (overlaps) are local
     // placement, which tighter lanes do not relieve.
     let dimensioned = |p: &model::Problem| p.subjects.iter().any(|s| s.starts_with("d:"));
-    !frame_conflicts(plan).is_empty()
-        || plan
-            .problems
-            .iter()
-            .filter(|p| p.severity != "info")
-            .any(|p| match p.code.as_str() {
-                "page_fit_uncertain" | "views_do_not_fit" => true,
-                "annotation_off_sheet" | "annotation_over_title_block" => dimensioned(p),
-                code => crate::hole_table::DROPS.contains(&code),
-            })
+    plan.problems
+        .iter()
+        .filter(|p| p.severity != "info")
+        .any(|p| match p.code.as_str() {
+            "page_fit_uncertain" | "views_do_not_fit" => true,
+            "annotation_off_sheet" | "annotation_over_title_block" => dimensioned(p),
+            code => crate::hole_table::DROPS.contains(&code),
+        })
 }
 
 /// The most paper mm compact spacing can save across each axis of a view: per side, 3 mm on
@@ -1632,18 +1641,16 @@ mod tests {
     }
 
     #[test]
-    fn reserved_frames_on_furniture_try_compact_before_larger_paper() {
+    fn page_fit_repair_keeps_a_clean_a4_at_full_size() {
         let Some(a) = corpus("mfcadpp/10247.step") else {
             return;
         };
         let plan = select(&a, &Spec::default()).unwrap();
         assert_eq!(
             (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
-            ("A4", "1:1")
-        );
-        assert_eq!(
-            plan.sheet.dimension_spacing,
-            model::DimensionSpacing::Compact
+            ("A4", "1:1"),
+            "{}",
+            plan.sheet.basis
         );
         assert!(frame_conflicts(&plan).is_empty());
         assert!(sheet_fit::inside_frames(&a, &plan));
@@ -2325,6 +2332,16 @@ mod tests {
             assert!(crate::planning::is_fixed_pair());
             crate::nominal::with_comparison(|| assert!(!crate::planning::is_fixed_pair()));
             assert!(crate::planning::is_fixed_pair());
+            crate::planning::explicit_pair(|| {
+                assert!(!crate::planning::is_fixed_pair());
+                assert!(crate::planning::bounded_pair());
+            });
+            assert!(crate::planning::is_fixed_pair());
+            let explicit_panicked = std::panic::catch_unwind(|| {
+                crate::planning::explicit_pair(|| panic!("explicit trial refused"))
+            });
+            assert!(explicit_panicked.is_err());
+            assert!(crate::planning::is_fixed_pair());
             let panicked = std::panic::catch_unwind(|| {
                 crate::planning::fixed_pair(|| panic!("trial refused"))
             });
@@ -2332,6 +2349,7 @@ mod tests {
             assert!(crate::planning::is_fixed_pair());
         });
         assert!(!crate::planning::is_fixed_pair());
+        assert!(!crate::planning::bounded_pair());
     }
 
     #[test]

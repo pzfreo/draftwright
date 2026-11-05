@@ -2499,6 +2499,27 @@ fn finished_items_fit(analysis: &Analysis, p: &Plan) -> bool {
     items_fit(analysis, p, false)
 }
 
+/// A rejected automatic pair still earns its explicit presentation. The trial
+/// is bounded: an unfitting replay cannot start fit-fix searches.
+pub(crate) fn explicit_fit_candidate(
+    analysis: &Analysis,
+    spec: &Spec,
+) -> Result<Option<Plan>, Invalid> {
+    crate::planning::explicit_pair(|| {
+        crate::planning::isolated(analysis, || {
+            // The automatic trial's synthetic max=1 is equivalent to the default
+            // single-sheet request. Do not let it change nominal finishing order.
+            let mut explicit = spec.clone();
+            if crate::sheets::max_only(&explicit) {
+                explicit.sheets = None;
+            }
+            let spec = &explicit;
+            let plan = plan_automatic(analysis, spec)?;
+            Ok(plan.sheets.is_empty().then_some(plan))
+        })
+    })
+}
+
 fn items_fit(analysis: &Analysis, p: &Plan, reservations: bool) -> bool {
     let inside = |b: [f64; 4]| {
         b[0] >= layout::margin() - 1e-6
@@ -2622,7 +2643,7 @@ struct FittingFix {
 }
 
 fn fit_fix(analysis: &Analysis, spec: &Spec) -> Result<Option<FittingFix>, Invalid> {
-    if crate::planning::is_fixed_pair() {
+    if crate::planning::bounded_pair() {
         return Ok(None);
     }
     let (Some(size), Some(scale)) = (&spec.sheet.size, &spec.sheet.scale) else {
@@ -3593,7 +3614,7 @@ fn recover_candidates(
             // automatic search gives its candidates (so the pinned pair is drawn as the search
             // would draw it; a no-op for pinned placements).
             let mut corrected = first.clone();
-            if !crate::sheet_fit::inside_frames(analysis, &corrected) {
+            if !drawn_items_fit(analysis, &corrected) {
                 crate::sheet_fit::correct_estimate(analysis, &mut corrected);
                 compact_authored_row(analysis, &mut corrected);
             }

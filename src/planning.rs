@@ -23,6 +23,7 @@ struct Active {
 thread_local! {
     static ACTIVE: RefCell<Option<Active>> = const { RefCell::new(None) };
     static FIXED_PAIR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static EXPLICIT_TRIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static TRIAL_RADIUS_REFERENCE: RefCell<Option<(crate::model::Plan, [u8; 32])>> = const { RefCell::new(None) };
     static PIN_REFERENCE: RefCell<Option<(crate::model::Plan, [u8; 32])>> = const { RefCell::new(None) };
     static DEFER_NOMINALS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -56,6 +57,23 @@ pub(crate) fn fixed_pair<T>(run: impl FnOnce() -> T) -> T {
     }
     let _restore = Restore(FIXED_PAIR.replace(true));
     run()
+}
+
+/// Replay the user's explicit-pair presentation within an automatic paper trial.
+pub(crate) fn explicit_pair<T>(run: impl FnOnce() -> T) -> T {
+    struct Restore(bool, bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            FIXED_PAIR.set(self.0);
+            EXPLICIT_TRIAL.set(self.1);
+        }
+    }
+    let _restore = Restore(FIXED_PAIR.replace(false), EXPLICIT_TRIAL.replace(true));
+    run()
+}
+
+pub(crate) fn bounded_pair() -> bool {
+    is_fixed_pair() || EXPLICIT_TRIAL.get()
 }
 
 /// A paper trial retains the author's unedited radius corridors. Rebuilding
@@ -314,6 +332,7 @@ pub(crate) fn policy_key(
     Option<[u8; 32]>,
     bool,
     Option<Option<&'static str>>,
+    bool,
 ) {
     (
         lookup::<bool>(analysis, "canonical-circular-recipes", &[]).unwrap_or(false),
@@ -323,6 +342,7 @@ pub(crate) fn policy_key(
         PIN_REFERENCE.with(|r| r.borrow().as_ref().map(|r| r.1)),
         crate::dims::compact(),
         crate::dims::idle_given(),
+        EXPLICIT_TRIAL.get(),
     )
 }
 
