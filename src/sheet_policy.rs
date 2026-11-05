@@ -1764,14 +1764,24 @@ fn only_bare_pins(spec: &Spec, base: &Spec, canonical: &Plan) -> bool {
         )
     {
         let Some(p) = place.as_ref() else { continue };
+        // An empty editor placement carries no layout decision. Keep the
+        // published peers just as for an absent placement, even beside a pin.
+        if *p == Default::default() {
+            *place = None;
+            continue;
+        }
         if !crate::placement_intent::automatic_pin(p) {
             return false;
         }
+        // A removed revision item must pass through ordinary lowering so its
+        // inactive-entry diagnostic and removal remedy are retained.
+        let Some(carrier) = crate::placement_intent::carrier(canonical, id) else {
+            return false;
+        };
         if let Some(view) = p.view.as_deref() {
             // A matching carrier is an anchor hint. A different or invalid
             // carrier must go through normal placement and validation.
-            let carrier = crate::placement_intent::carrier(canonical, id);
-            if carrier.as_deref().and_then(|v| v.strip_prefix("v:")) != Some(view) {
+            if carrier.strip_prefix("v:") != Some(view) {
                 return false;
             }
         }
