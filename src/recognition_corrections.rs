@@ -1724,6 +1724,7 @@ pub fn effective<'a>(a: &'a Analysis, s: &Spec) -> Result<Cow<'a, Analysis>, Inv
         faces: vec![],
         parameters: object(json!({"targets":targets,"declaration_aliases":declaration_aliases})),
     });
+    crate::model::dimension_geometry::memberships(&mut out);
     Ok(Cow::Owned(out))
 }
 

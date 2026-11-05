@@ -359,6 +359,67 @@ fn steer_297_reference_roles() {
                     .all(|r| r.get("edges").is_some() && r.get("vertices").is_some())
             }),
     );
+    let f = fixture(BRACKET);
+    for (key, records) in f.analysis.dimension_references() {
+        for r in records {
+            let m = r.membership();
+            assert!(!m.faces.is_empty(), "{key} needs incident topology");
+            let expected: BTreeSet<_> = f
+                .analysis
+                .features
+                .iter()
+                .filter(|feature| feature.faces.iter().any(|i| m.faces.contains(i)))
+                .map(|feature| feature.id.clone())
+                .collect();
+            assert_eq!(
+                m.features.iter().cloned().collect::<BTreeSet<_>>(),
+                expected
+            );
+            assert_eq!(
+                m.stock_faces,
+                m.faces
+                    .iter()
+                    .filter(|i| f.analysis.stock_faces.contains(i))
+                    .copied()
+                    .collect::<Vec<_>>()
+            );
+            if key.starts_with("face:") {
+                let face = m.faces[0];
+                let expected: BTreeSet<_> = f.part.faces[face]
+                    .loops
+                    .iter()
+                    .flat_map(|l| &l.edges)
+                    .map(|(e, _)| *e)
+                    .collect();
+                let edges = m.edges.as_ref().unwrap();
+                assert_eq!(
+                    edges.iter().map(|e| e.index).collect::<BTreeSet<_>>(),
+                    expected
+                );
+                for e in edges {
+                    if let Some(key) = &e.reference {
+                        assert!(f.analysis.dimension_references().contains_key(key));
+                    }
+                    for key in &e.vertices {
+                        assert!(f.analysis.dimension_references().contains_key(key));
+                    }
+                }
+                assert!(
+                    m.vertices
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .all(|key| f.analysis.dimension_references().contains_key(key))
+                );
+            }
+        }
+    }
+    let restored: Analysis =
+        serde_json::from_value(serde_json::to_value(&f.analysis).unwrap()).unwrap();
+    assert_eq!(
+        restored.dimension_references(),
+        f.analysis.dimension_references()
+    );
     c.finish(297);
 }
 

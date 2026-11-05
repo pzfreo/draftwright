@@ -25,15 +25,6 @@
       "no_page_fit_uncertain"
     ]
   },
-  "297": {
-    "case": "steer_297_reference_roles",
-    "group": "E",
-    "reason": "Reference records expose neither feature membership nor face boundary links.",
-    "checks": [
-      "face_boundaries",
-      "reference_membership"
-    ]
-  },
   "299": {
     "case": "steer_299_agent_rough_edges",
     "group": "E",

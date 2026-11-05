@@ -2215,6 +2215,17 @@ fingerprints with complete keys from the Analysis):
   feature, refusing a feature with several axes. Prefer the face spelling when saving across
   revisions. Index-based `face:12`, `edge:12`, and page-coordinate references are not accepted.
   Older Analyses lacking evidence still plan their defaults; authoring requires analysing again.
+  Each record adds `features` (owning Analysis feature IDs), `stock_faces` (incident indices
+  in `Analysis.stock_faces`) and `faces` (all incident B-rep face indices). Empty ownership
+  lists mean that recognition assigned no such role; no role is guessed from coordinates.
+  A face also lists `edges` and `vertices`. Each boundary edge gives its `index` in
+  `Analysis.edge_ink.edges`, endpoint `vertices` as complete reference keys, and, for a
+  straight edge, its copyable `reference` key. Curved boundary edges are included but have
+  no straight-edge dimension reference. Face `vertices` is a sorted unique list of their
+  endpoint keys. Closed edges include their seam vertex. Coincident records retain their
+  separate memberships. These indices are discovery addresses for this Analysis only;
+  authored dimensions always store full fingerprint keys. Metadata refreshes after native,
+  bridge or authored recognition changes and is excluded from the fingerprint.
 - **Fingerprint contract.** The `v1` spelling and its content are fixed: SHA-256 of canonical
   sorted-key JSON containing the exact analytic record and sorted face-boundary endpoint
   signatures, with numbers rounded to 1e-6 mm. Plane normals and cylinder axes have their

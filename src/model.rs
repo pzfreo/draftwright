@@ -1929,6 +1929,7 @@ fn analyse_read_part(
         analysis.iso_bounds = bounds;
     }
     analysis.edge_ink = Some(projected_ink::evidence(&part));
+    dimension_geometry::memberships(&mut analysis);
     Ok((part, analysis))
 }
 
@@ -1967,6 +1968,7 @@ pub fn recognise(part: &Part, analysis: &mut Analysis, json: &str) -> Result<(),
     analysis.radius_arcs = crate::radius::evidence(part, &features);
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
+    dimension_geometry::memberships(analysis);
     analysis.unrecognised.clear();
     Ok(())
 }
@@ -2086,6 +2088,7 @@ pub fn recognise_document(
     analysis.radius_arcs = crate::radius::evidence(part, &features);
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
+    dimension_geometry::memberships(analysis);
     analysis.modelled_thread_ink = crate::modelled_threads::evidence(part, analysis);
     // Physical threads use conventional carriers. Their raw helix HLR would be
     // thrown away by the planner and renderer; keep raw conservative evidence
