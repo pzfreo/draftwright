@@ -234,6 +234,12 @@ fn tools() -> Value {
         ),
     ] {
         let mut input = draftwright::mcp::schema(name, false).expect("published discovery schema");
+        if name == "item_options" {
+            // The standalone adapter presents required inputs explicitly, even when the
+            // compact schema shares their string shape through additionalProperties.
+            input["properties"]["part_ref"] = path("Content key returned by inspect_part.");
+            input["properties"]["id"] = path("The stable item ID, for example sheet or v:plan.");
+        }
         input
             .as_object_mut()
             .expect("object schema")
