@@ -269,11 +269,12 @@ impl Estimate {
                 std::array::from_fn::<_, 2, _>(|k| outline[k] * scale / self.scale + band[k]);
             if (0..2).any(|k| footprint[k] > available[k]) {
                 return Some(format!(
-                    "view {id}{} needs at least {:.0} × {:.0} mm at {at}; {frame}",
+                    "{}{} needs at least {:.0} × {:.0} mm at {at}; {frame}",
+                    crate::wording::view(id),
                     if band.iter().any(|b| *b > 0.0) {
                         " with its annotation bands"
                     } else {
-                        " geometry"
+                        ""
                     },
                     footprint[0],
                     footprint[1]
@@ -3400,9 +3401,23 @@ mod tests {
         assert_eq!(estimate.scale("A4", 1, 0.5), None);
         assert_eq!(
             estimate.ruled_out("A4", 1, 0.5),
-            "ruled out: view v:front with its annotation bands needs at least 330 × 55 mm at 1:2; \
+            "ruled out: the front view with its annotation bands needs at least 330 × 55 mm at 1:2; \
              A4 drawable area is 271 × 184 mm; 1:2 is the smallest readable scale"
         );
+        // These trials also appear in public recovery messages, including
+        // when a principal view was omitted. Name views as the drawing does.
+        for (id, name) in [
+            ("v:front", "the front view"),
+            ("v:plan", "the plan view"),
+            ("v:side", "the side view"),
+            ("v:section_aa", "section A–A"),
+        ] {
+            let mut named = estimate.clone();
+            named.views[0].0 = id.into();
+            let message = named.ruled_out("A4", 1, 0.5);
+            assert!(message.starts_with(&format!("ruled out: {name} with its annotation bands")));
+            assert_eq!(crate::wording::carries_id(&message), None, "{message}");
+        }
         // A floor above every standard scale has no smallest readable scale to cite.
         assert!(
             estimate
