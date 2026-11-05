@@ -514,6 +514,23 @@ const UNREADABLE: &[&str] = &[
 /// printed-step breaches, drops) that the automatic baseline does not have. Warnings the
 /// baseline shares never make a crowded-but-readable drawing lose to an enlargement.
 /// `Err` names the check that refused the candidate, for the sheet-choice basis.
+fn actual_space_drops(plan: &Plan) -> usize {
+    plan.problems
+        .iter()
+        .filter(|p| crate::hole_table::DROPS.contains(&p.code.as_str()))
+        .count()
+}
+
+fn finished_preview(analysis: &Analysis, spec: &Spec, plan: &Plan) -> Result<Plan, Invalid> {
+    crate::planning::isolated(analysis, || {
+        let mut preview = plan.clone();
+        preview.spec = spec.clone();
+        let mut preview = model::finish_presentation(analysis, spec, preview)?;
+        crate::dims::contacts::report(analysis, &mut preview);
+        Ok(preview)
+    })
+}
+
 fn crowded_labels(plan: &Plan) -> usize {
     crate::dims::crowded_labels(plan)
 }
@@ -536,7 +553,7 @@ fn isolated_contacts_readable(
 }
 
 fn usable(analysis: &Analysis, plan: &Plan, reference: &Plan, floor: f64) -> Result<(), String> {
-    usable_with_base_contacts(analysis, plan, reference, floor, None)
+    usable_with_base_contacts(analysis, plan, reference, floor, None, false)
 }
 
 fn usable_with_base_contacts(
@@ -545,6 +562,7 @@ fn usable_with_base_contacts(
     reference: &Plan,
     floor: f64,
     base_contacts: Option<&Plan>,
+    strict_routes: bool,
 ) -> Result<(), String> {
     let drops = |p: &Plan| {
         p.problems
@@ -574,6 +592,8 @@ fn usable_with_base_contacts(
         Some("more undrawn GD&T")
     } else if !unreported_losses(plan).is_subset(&unreported_losses(reference)) {
         Some("unreported lost dimensions")
+    } else if strict_routes && model::longer_callouts(plan, reference) {
+        Some("a callout grows more than 2 paper mm beyond the displaced drawing")
     } else if pictorial_only_sheet(&plan.spec, plan) {
         Some("a sheet carries only the pictorial view")
     } else {
@@ -604,7 +624,10 @@ fn usable_with_base_contacts(
     let reported = plan
         .problems
         .iter()
-        .filter(|p| unreadable(&p.code, &p.severity))
+        .filter(|p| {
+            unreadable(&p.code, &p.severity)
+                || (strict_routes && p.code == "annotation_leader_crossing")
+        })
         .map(problem_key);
     // Measured from final ink rather than reported: a leader on an extension line reads as
     // that line. Leader runs beside model ink, hidden-edge crossings and route lengths are
@@ -617,7 +640,8 @@ fn usable_with_base_contacts(
         .filter(|(code, _)| {
             code == "leader_on_extension"
                 || code == "annotation_off_sheet"
-                || (split && (code == "leader_ink_run" || code == "leader_hidden_crossing"))
+                || ((split || strict_routes)
+                    && (code == "leader_ink_run" || code == "leader_hidden_crossing"))
         })
         .collect();
     measured.extend(frame_conflicts(plan));
@@ -839,6 +863,11 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
     if !automatic(spec) {
         return Ok(baseline);
     }
+    let reference = if maximise {
+        finished_preview(analysis, spec, &baseline)?
+    } else {
+        baseline.clone()
+    };
     let intent = baseline.spec.clone();
     let effective = crate::spec_gdt::effective(analysis, &intent)?;
     let fit = effective.as_ref();
@@ -906,9 +935,13 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                 .collect::<Vec<_>>(),
         );
         // Judge each trial as soon as it exists and stop at the largest clean scale.
-        let mut judge = |mut plan: Plan, scales: &mut Vec<String>, outcome: &mut String| {
+        let mut judge = |mut plan: Plan,
+                         scales: &mut Vec<String>,
+                         outcome: &mut String,
+                         reuse_reference: bool| {
             let scale = plan.sheet.scale.clone();
             let spacing = plan.sheet.dimension_spacing;
+            let mut unpolished = None;
             let result = (|| {
                 crate::dims::finish_pmi_witness_routes(fit, &mut plan);
                 if !scales.contains(&plan.sheet.scale) {
@@ -921,21 +954,44 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                     );
                     return None;
                 }
+                if maximise {
+                    unpolished = Some(plan.clone());
+                    plan = match if reuse_reference {
+                        Ok(reference.clone())
+                    } else {
+                        finished_preview(analysis, &intent, &plan)
+                    } {
+                        Ok(preview) => preview,
+                        Err(error) => {
+                            *outcome = format!("final presentation refused: {}", error.message);
+                            return None;
+                        }
+                    };
+                }
                 let findings = model::findings(&plan);
                 let finished_fit = !maximise || model::finished_sheets_fit(fit, &plan);
-                if maximise && (!findings.clean() || model::undrawn_gdt(&plan) > 0 || !finished_fit)
+                if maximise
+                    && (findings.hard > 0
+                        || actual_space_drops(&plan) > 0
+                        || model::undrawn_gdt(&plan) > 0
+                        || !finished_fit)
                 {
                     *outcome = format!(
                         "rejected: {} hard findings {:?}, {} space drops, {} undrawn GD&T; finished footprints fit {}",
                         findings.hard,
                         model::hard_layout_codes(&plan),
-                        findings.dropped,
+                        actual_space_drops(&plan),
                         model::undrawn_gdt(&plan),
                         finished_fit
                     );
                     return None;
                 }
-                let reason = match usable(fit, &plan, &baseline, floor) {
+                let usability = if maximise {
+                    usable_with_base_contacts(fit, &plan, &reference, floor, None, true)
+                } else {
+                    usable(fit, &plan, &baseline, floor)
+                };
+                let reason = match usability {
                     Ok(()) => return Some(plan),
                     Err(reason) => reason,
                 };
@@ -948,6 +1004,8 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                         .iter()
                         .any(|p| p.code != "leader_on_extension" && layout_problem(p))
                     && model::finished_items_fit(fit, &plan)
+                    && (crate::nominal::comparison()
+                        || !crate::dims::converging_terminations(fit, &plan))
                     && first_estimate
                         .get_or_init(|| model::plan_escalated(analysis, spec).ok())
                         .as_ref()
@@ -961,17 +1019,19 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                                     .problems
                                     .iter()
                                     .any(|p| p.code != "leader_on_extension" && layout_problem(p))
+                                && crowded_labels(&plan) <= crowded_labels(base)
                                 && usable_with_base_contacts(
                                     fit,
                                     &plan,
                                     &baseline,
                                     floor,
                                     Some(base),
+                                    false,
                                 )
                                 .is_ok()
                         });
                 let readability = if maximise {
-                    isolated_contacts_readable(fit, &plan, &baseline)
+                    isolated_contacts_readable(fit, &plan, &reference)
                 } else {
                     Ok(())
                 };
@@ -981,7 +1041,8 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                         .problems
                         .iter()
                         .any(|p| p.code != "leader_on_extension" && layout_problem(p))
-                    && usable_with_base_contacts(fit, &plan, &baseline, floor, Some(&plan)).is_ok();
+                    && usable_with_base_contacts(fit, &plan, &reference, floor, Some(&plan), true)
+                        .is_ok();
                 if seed_contacts || isolated_contacts {
                     plan.sheet.basis +=
                         "; isolated cosmetic leader/extension contacts retain this fitting pair";
@@ -1003,7 +1064,7 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                 if let Err(refusal) = readability {
                     *outcome += &format!("; {refusal}");
                 }
-                if best.as_ref().is_none_or(|b| rank(&plan) < rank(b)) {
+                if !maximise && best.as_ref().is_none_or(|b| rank(&plan) < rank(b)) {
                     best = Some(plan);
                 }
                 None
@@ -1016,7 +1077,14 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                     outcome.as_str()
                 }
             ));
-            result
+            result.map(|settled| {
+                if let Some(mut raw) = unpolished {
+                    raw.sheet.basis = settled.sheet.basis;
+                    raw
+                } else {
+                    settled
+                }
+            })
         };
         let mut chosen = None;
         // Smallest paper first; on it try every geometrically possible preferred
@@ -1033,7 +1101,7 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
             let baseline_fits = baseline.sheet.size == size && baseline.sheets.len() < max;
             if baseline_fits {
                 outcome = "automatic baseline reused".into();
-                chosen = judge(baseline.clone(), &mut scales, &mut outcome);
+                chosen = judge(baseline.clone(), &mut scales, &mut outcome, true);
             } else {
                 // The finished baseline's whole annotated views, repacked at its own
                 // (roomiest) scale, cost no new plan: try them before any forced trial.
@@ -1044,7 +1112,7 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                             .or_else(|| crate::sheets::reflow_tall_tables(fit, &baseline, size))
                     });
                 if let Some(plan) = split.as_ref().filter(|p| p.sheets.len() < max) {
-                    chosen = judge(plan.clone(), &mut scales, &mut outcome);
+                    chosen = judge(plan.clone(), &mut scales, &mut outcome, false);
                 }
             }
             // At most one smaller readable standard scale: a crowded estimate may
@@ -1080,7 +1148,7 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                 && baseline.sheet.scale_factor == scale
                 && baseline.sheets.len() < max
             {
-                chosen = judge(baseline.clone(), &mut scales, &mut outcome);
+                chosen = judge(baseline.clone(), &mut scales, &mut outcome, true);
                 if chosen.is_some() {
                     break 'scales;
                 }
@@ -1164,7 +1232,7 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                     && findings.dropped == 0
                     && model::undrawn_gdt(&plan) == 0
                     && sheet_fit::inside_frames(fit, &plan);
-                chosen = judge(plan, &mut scales, &mut outcome);
+                chosen = judge(plan, &mut scales, &mut outcome, false);
                 if chosen.is_some() {
                     break 'scales;
                 }
@@ -1175,7 +1243,7 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                 if replay_explicit
                     && let Ok(Some(explicit)) = model::explicit_fit_candidate(analysis, &forced)
                 {
-                    chosen = judge(explicit, &mut scales, &mut outcome);
+                    chosen = judge(explicit, &mut scales, &mut outcome, false);
                     if chosen.is_some() {
                         break 'scales;
                     }
@@ -1203,7 +1271,7 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                                 .or_else(|| crate::sheets::reflow_tall_tables(fit, source, size))
                         });
                     if let Some(plan) = split.as_ref().filter(|p| p.sheets.len() < max) {
-                        chosen = judge(plan.clone(), &mut scales, &mut outcome);
+                        chosen = judge(plan.clone(), &mut scales, &mut outcome, false);
                         if chosen.is_some() {
                             break 'scales;
                         }
@@ -2687,9 +2755,9 @@ mod tests {
             ("mfcadpp/10163.step", "A4", "1:1"),
             // Usable on preferred A3, as on main: nothing clipped and nothing lost.
             ("cadgenbench_inputs/cgb245.step", "A3", "1:5"),
-            // The old A3 1:5 inherits two crowded location drops. Compact A2
-            // at 1:2 is the first complete candidate after exhausting smaller paper.
-            ("nist/nist_ftc_07_asme1_rd.stp", "A2", "1:2"),
+            // The close-ordinate estimate is not an actual drop: the final
+            // schedule and dimensions carry all required locations on A3.
+            ("nist/nist_ftc_07_asme1_rd.stp", "A3", "1:5"),
         ] {
             let Some(a) = corpus(file) else {
                 return;

@@ -146,7 +146,7 @@ fn grm04_uses_the_largest_clean_scale_on_a4_before_spending_more_paper() {
         "A4 at 10:1",
         "A4 at 5:1 (Normal)",
         "A4 at 5:1 (Compact)",
-        "base choice before scale maximisation A4 at 2:1",
+        "base choice before scale maximisation A3 at 5:1",
     ] {
         assert!(
             plan.sheet.basis.contains(outcome),

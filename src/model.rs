@@ -2355,7 +2355,7 @@ pub(crate) fn note_final_conflicts(plan: &mut Plan) {
     }
 }
 
-fn longer_callouts(candidate: &Plan, baseline: &Plan) -> bool {
+pub(crate) fn longer_callouts(candidate: &Plan, baseline: &Plan) -> bool {
     let length = |d: &crate::dims::PlannedDimension| {
         d.placed.as_ref().map_or(0.0, |p| {
             p.lines
@@ -4563,7 +4563,7 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
         return crate::dims::pmi_policy::ignore(analysis, spec, plan_recovered);
     }
     crate::planning::with(analysis, || {
-        let mut plan = if spec.sheet.keep_layout == Some(true) {
+        let plan = if spec.sheet.keep_layout == Some(true) {
             let fixed = crate::local_layout::forced(spec)?;
             let mut plan = crate::planning::fixed_pair(|| plan_automatic(analysis, &fixed))?;
             plan.spec = spec.clone();
@@ -4571,55 +4571,64 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
         } else {
             crate::sheet_policy::select(analysis, spec)?
         };
-        // Finish the selected drawing with the spacing it was planned with, which may be the
-        // automatic compact fallback ([`crate::sheet_policy`]).
-        let compact = plan.sheet.dimension_spacing == DimensionSpacing::Compact;
-        crate::dims::with_compact(compact, || {
-            let effective = crate::spec_gdt::effective(analysis, &plan.spec)?;
-            // Added notch callouts can leave a fixed-pair paper trial with
-            // deferred routes. Finish that expanded inventory in its chosen
-            // frame, just as canonical pin replay does. Existing annotation
-            // families retain their established finishing path.
-            let expanded_notches = plan.dimensions.iter().any(|d| {
-                d.measurements
-                    .iter()
-                    .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
-            });
-            if expanded_notches {
-                finish_nominal_plan(effective.as_ref(), spec, &mut plan);
-            }
-            // Repair only the selected drawing. Candidate paper/scale trials keep their
-            // established costs, so a clearer route cannot force a larger sheet.
-            // A reference that cannot be planned (an authored item duplicating an automatic
-            // one) leaves the drawing to its own pass.
-            let natural = natural_spec(spec).and_then(|full| plan_recovered(analysis, &full).ok());
-            crate::dims::callout_routes::prefer_interior(
-                effective.as_ref(),
-                spec,
-                &mut plan,
-                natural.as_ref(),
-            );
-            crate::dims::finish_openings(effective.as_ref(), spec, &mut plan);
-            crate::dims::callout_routes::finish(effective.as_ref(), spec, &mut plan);
+        finish_presentation(analysis, spec, plan)
+    })
+}
+
+/// The same final routes are used by paper-choice previews and by the selected drawing.
+/// Previews run in an isolated scope; only the selected drawing publishes these repairs.
+pub(crate) fn finish_presentation(
+    analysis: &Analysis,
+    spec: &Spec,
+    mut plan: Plan,
+) -> Result<Plan, Invalid> {
+    // Finish the selected drawing with the spacing it was planned with, which may be the
+    // automatic compact fallback ([`crate::sheet_policy`]).
+    let compact = plan.sheet.dimension_spacing == DimensionSpacing::Compact;
+    crate::dims::with_compact(compact, || {
+        let effective = crate::spec_gdt::effective(analysis, &plan.spec)?;
+        // Added notch callouts can leave a fixed-pair paper trial with
+        // deferred routes. Finish that expanded inventory in its chosen
+        // frame, just as canonical pin replay does. Existing annotation
+        // families retain their established finishing path.
+        let expanded_notches = plan.dimensions.iter().any(|d| {
+            d.measurements
+                .iter()
+                .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+        });
+        if expanded_notches {
+            finish_nominal_plan(effective.as_ref(), spec, &mut plan);
+        }
+        // Paper trials preview these same repairs before accepting a new scale.
+        // A reference that cannot be planned (an authored item duplicating an automatic
+        // one) leaves the drawing to its own pass.
+        let natural = natural_spec(spec).and_then(|full| plan_recovered(analysis, &full).ok());
+        crate::dims::callout_routes::prefer_interior(
+            effective.as_ref(),
+            spec,
+            &mut plan,
+            natural.as_ref(),
+        );
+        crate::dims::finish_openings(effective.as_ref(), spec, &mut plan);
+        crate::dims::callout_routes::finish(effective.as_ref(), spec, &mut plan);
+        crate::dims::hole_marks::attach(effective.as_ref(), spec, &mut plan);
+        crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
+        if crate::dims::openings_need_settling(&plan) {
+            crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
             crate::dims::hole_marks::attach(effective.as_ref(), spec, &mut plan);
             crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
-            if crate::dims::openings_need_settling(&plan) {
-                crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
-                crate::dims::hole_marks::attach(effective.as_ref(), spec, &mut plan);
-                crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
-                crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
-                crate::dims::callout_routes::finish_frames(effective.as_ref(), spec, &mut plan);
-            }
-            crate::dims::gdt::cited_undrawn(&mut plan);
-            crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
-            if expanded_notches
-                || crate::dims::pmi_policy::carries(effective.as_ref())
-                || !spec.origin.is_empty()
-            {
-                crate::fixes::attach(effective.as_ref(), &mut plan);
-            }
-            Ok(plan)
-        })
+            crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
+            crate::dims::callout_routes::finish_frames(effective.as_ref(), spec, &mut plan);
+        }
+        crate::dims::gdt::cited_undrawn(&mut plan);
+        crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
+        if expanded_notches
+            || crate::dims::pmi_policy::carries(effective.as_ref())
+            || !spec.origin.is_empty()
+        {
+            crate::fixes::attach(effective.as_ref(), &mut plan);
+        }
+        Ok(plan)
     })
 }
 
