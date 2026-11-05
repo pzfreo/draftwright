@@ -339,14 +339,46 @@ fn steer_297_reference_roles() {
     let refs = refs["references"].as_object().unwrap();
     assert!(!refs.is_empty());
     let mut c = Checks::default();
+    let a = &fixture(BRACKET).analysis;
+    // Independently locate the issue's foot and far stock face by fixture geometry;
+    // discovering them by their role is precisely the agent-facing behavior under test.
+    let bottom = a
+        .dimension_reference(&plane(BRACKET, 2, a.envelope[0][2]))
+        .unwrap();
+    let far_side = a
+        .dimension_reference(&plane(BRACKET, 0, a.envelope[0][0]))
+        .unwrap();
+    let foot_edges: Vec<_> = bottom
+        .membership()
+        .edges
+        .as_ref()
+        .unwrap()
+        .iter()
+        .filter_map(|edge| edge.reference.as_ref())
+        .map(|key| a.dimension_reference(key).unwrap())
+        .collect();
+    let plate = "f:plate:1";
     c.want(
         "reference_membership",
-        refs.values().all(|v| {
-            v.as_array()
-                .unwrap()
+        bottom.membership().features.iter().any(|id| id == plate)
+            && bottom
+                .membership()
+                .stock_sides
                 .iter()
-                .all(|r| r.get("features").is_some() || r.get("stock_faces").is_some())
-        }),
+                .any(|side| side == "bottom")
+            && far_side
+                .membership()
+                .stock_sides
+                .iter()
+                .any(|side| side == "left")
+            && !foot_edges.is_empty()
+            && foot_edges.iter().all(|r| {
+                r.membership().features.iter().any(|id| id == plate)
+                    && r.membership()
+                        .stock_sides
+                        .iter()
+                        .any(|side| side == "bottom")
+            }),
     );
     c.want(
         "face_boundaries",
@@ -567,7 +599,13 @@ fn steer_298_agent_discovery() {
         schema
     );
     let members = release_members();
-    for path in ["draftwright-mcp", "schemas/spec.json", "docs/model.md"] {
+    for path in [
+        "draftwright-mcp",
+        "schemas/spec.json",
+        "docs/model.md",
+        "docs/mcp.md",
+        "docs/rules/README.md",
+    ] {
         let path = if path == "draftwright-mcp" {
             format!("{path}{}", std::env::consts::EXE_SUFFIX)
         } else {
@@ -580,6 +618,26 @@ fn steer_298_agent_discovery() {
                 .any(|name| name.ends_with(&format!("/{path}"))),
         );
     }
+    // Check the actual archive payload, not just the positive staging recipe.
+    let docs: BTreeSet<_> = members
+        .iter()
+        .filter_map(|name| name.split_once("/docs/"))
+        .map(|(_, path)| path)
+        .filter(|path| !path.is_empty() && !path.ends_with('/'))
+        .collect();
+    assert!(
+        !docs.contains("next-session.md"),
+        "internal working notes must not ship"
+    );
+    assert!(
+        docs.iter()
+            .all(|path| matches!(*path, "model.md" | "mcp.md") || path.starts_with("rules/")),
+        "release documentation must be allowlisted: {docs:?}"
+    );
+    assert!(
+        include_str!("../docs/model.md").contains("](rules/README.md)"),
+        "the rules catalogue ships because the agent guide links to it"
+    );
     c.finish(298);
 }
 

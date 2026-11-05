@@ -2426,7 +2426,7 @@ Every plan item records which of these it is, so nothing changes without a trace
 
 ## How the port is checked
 
-- **The rules catalogue** (`docs/rules/`) lists every rule the Python version learnt, from its
+- **The [rules catalogue](rules/README.md)** lists every rule the Python version learnt, from its
   ADRs, its lint rules and its issue regressions. Each rule is classified and tracked as pending,
   ported, translated or retired.
 - **A differential comparison** checks Rust's plan against Python's sheets, fact by fact

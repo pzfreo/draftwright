@@ -392,3 +392,38 @@ fn edge_mouth_notches_need_no_opening_direction_location() {
         );
     }
 }
+
+#[test]
+fn analysis_references_reject_unknown_fields_with_flat_membership() {
+    let analysis = api::analyse(&fixture("parts/plate.step"), None).unwrap();
+    let base = serde_json::to_value(analysis).unwrap();
+    // Cover each variant, including legacy documents without membership metadata.
+    for reference in [
+        json!({"kind":"plane","origin":[0,0,0],"normal":[0,0,1],"bounds":[[0,0,0],[1,1,0]]}),
+        json!({"kind":"cylinder","origin":[0,0,0],"axis":[0,0,1],"radius":1,"bounds":[[-1,-1,0],[1,1,2]],"sites":[[1,0,0]]}),
+        json!({"kind":"sphere","centre":[0,0,0],"radius":1,"bounds":[[-1,-1,-1],[1,1,1]],"sites":[[1,0,0]]}),
+        json!({"kind":"edge","ends":[[0,0,0],[1,0,0]]}),
+        json!({"kind":"vertex","point":[0,0,0]}),
+    ] {
+        let mut value = base.clone();
+        value["edge_ink"]["references"] = json!({"face:v1:read-contract":[reference]});
+        let loaded: Analysis = serde_json::from_value(value).unwrap();
+        let mut value = serde_json::to_value(loaded).unwrap();
+        let record = &mut value["edge_ink"]["references"]["face:v1:read-contract"][0];
+        assert!(
+            record.get("membership").is_none(),
+            "membership remains flat"
+        );
+        for field in ["features", "stock_faces", "stock_sides", "faces"] {
+            assert!(record[field].is_array());
+        }
+        record["unexpected_reference_field"] = json!(true);
+        let error = serde_json::from_value::<Analysis>(value)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("unknown field `unexpected_reference_field`"),
+            "{error}"
+        );
+    }
+}

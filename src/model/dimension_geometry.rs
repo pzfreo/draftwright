@@ -47,7 +47,7 @@ pub struct BoundaryEdge {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case", from = "ReferenceRead")]
 pub enum Reference {
     Plane {
         #[serde(flatten)]
@@ -83,6 +83,218 @@ pub enum Reference {
         membership: Membership,
         point: P,
     },
+}
+
+// Serde does not support flatten with deny_unknown_fields. Keep membership flat on
+// this read shape so unknown fields (including geometry from another variant) are
+// rejected, while the public Reference API and serialized document remain unchanged.
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum ReferenceRead {
+    Plane {
+        #[serde(default)]
+        features: Vec<String>,
+        #[serde(default)]
+        stock_faces: Vec<usize>,
+        #[serde(default)]
+        stock_sides: Vec<String>,
+        #[serde(default)]
+        faces: Vec<usize>,
+        #[serde(default)]
+        edges: Option<Vec<BoundaryEdge>>,
+        #[serde(default)]
+        vertices: Option<Vec<String>>,
+        origin: P,
+        normal: P,
+        bounds: [P; 2],
+    },
+    Cylinder {
+        #[serde(default)]
+        features: Vec<String>,
+        #[serde(default)]
+        stock_faces: Vec<usize>,
+        #[serde(default)]
+        stock_sides: Vec<String>,
+        #[serde(default)]
+        faces: Vec<usize>,
+        #[serde(default)]
+        edges: Option<Vec<BoundaryEdge>>,
+        #[serde(default)]
+        vertices: Option<Vec<String>>,
+        origin: P,
+        axis: P,
+        radius: f64,
+        bounds: [P; 2],
+        sites: Vec<P>,
+    },
+    Sphere {
+        #[serde(default)]
+        features: Vec<String>,
+        #[serde(default)]
+        stock_faces: Vec<usize>,
+        #[serde(default)]
+        stock_sides: Vec<String>,
+        #[serde(default)]
+        faces: Vec<usize>,
+        #[serde(default)]
+        edges: Option<Vec<BoundaryEdge>>,
+        #[serde(default)]
+        vertices: Option<Vec<String>>,
+        centre: P,
+        radius: f64,
+        bounds: [P; 2],
+        sites: Vec<P>,
+    },
+    Edge {
+        #[serde(default)]
+        features: Vec<String>,
+        #[serde(default)]
+        stock_faces: Vec<usize>,
+        #[serde(default)]
+        stock_sides: Vec<String>,
+        #[serde(default)]
+        faces: Vec<usize>,
+        #[serde(default)]
+        edges: Option<Vec<BoundaryEdge>>,
+        #[serde(default)]
+        vertices: Option<Vec<String>>,
+        ends: [P; 2],
+    },
+    Vertex {
+        #[serde(default)]
+        features: Vec<String>,
+        #[serde(default)]
+        stock_faces: Vec<usize>,
+        #[serde(default)]
+        stock_sides: Vec<String>,
+        #[serde(default)]
+        faces: Vec<usize>,
+        #[serde(default)]
+        edges: Option<Vec<BoundaryEdge>>,
+        #[serde(default)]
+        vertices: Option<Vec<String>>,
+        point: P,
+    },
+}
+
+impl From<ReferenceRead> for Reference {
+    fn from(value: ReferenceRead) -> Self {
+        match value {
+            ReferenceRead::Plane {
+                features,
+                stock_faces,
+                stock_sides,
+                faces,
+                edges,
+                vertices,
+                origin,
+                normal,
+                bounds,
+            } => Self::Plane {
+                membership: Membership {
+                    features,
+                    stock_faces,
+                    stock_sides,
+                    faces,
+                    edges,
+                    vertices,
+                },
+                origin,
+                normal,
+                bounds,
+            },
+            ReferenceRead::Cylinder {
+                features,
+                stock_faces,
+                stock_sides,
+                faces,
+                edges,
+                vertices,
+                origin,
+                axis,
+                radius,
+                bounds,
+                sites,
+            } => Self::Cylinder {
+                membership: Membership {
+                    features,
+                    stock_faces,
+                    stock_sides,
+                    faces,
+                    edges,
+                    vertices,
+                },
+                origin,
+                axis,
+                radius,
+                bounds,
+                sites,
+            },
+            ReferenceRead::Sphere {
+                features,
+                stock_faces,
+                stock_sides,
+                faces,
+                edges,
+                vertices,
+                centre,
+                radius,
+                bounds,
+                sites,
+            } => Self::Sphere {
+                membership: Membership {
+                    features,
+                    stock_faces,
+                    stock_sides,
+                    faces,
+                    edges,
+                    vertices,
+                },
+                centre,
+                radius,
+                bounds,
+                sites,
+            },
+            ReferenceRead::Edge {
+                features,
+                stock_faces,
+                stock_sides,
+                faces,
+                edges,
+                vertices,
+                ends,
+            } => Self::Edge {
+                membership: Membership {
+                    features,
+                    stock_faces,
+                    stock_sides,
+                    faces,
+                    edges,
+                    vertices,
+                },
+                ends,
+            },
+            ReferenceRead::Vertex {
+                features,
+                stock_faces,
+                stock_sides,
+                faces,
+                edges,
+                vertices,
+                point,
+            } => Self::Vertex {
+                membership: Membership {
+                    features,
+                    stock_faces,
+                    stock_sides,
+                    faces,
+                    edges,
+                    vertices,
+                },
+                point,
+            },
+        }
+    }
 }
 
 impl Reference {

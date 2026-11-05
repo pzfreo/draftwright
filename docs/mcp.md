@@ -458,7 +458,9 @@ session assembly selects that renderer's page and ink without allocating anew.
 
 ## CLI release discovery
 
-The CLI release archive includes `draftwright`, `draftwright-mcp`, `schemas/` and `docs/`.
+The CLI release archive includes `draftwright`, `draftwright-mcp`, `schemas/`,
+`docs/model.md`, `docs/mcp.md` and the linked `docs/rules/` catalogue. Internal working notes
+are excluded.
 `draftwright --help` lists commands and discovery paths; `draftwright --version` prints the
 release version. `draftwright spec_schema` returns the full Spec schema. To discover an item's
 choices, obtain a `part_ref` from `inspect_part` through `draftwright mcp-stdio` (or the
@@ -468,7 +470,9 @@ choices, obtain a `part_ref` from `inspect_part` through `draftwright mcp-stdio`
 `serve` also accepts `spec_schema` and `item_options`, with the same arguments and results as
 MCP. Use `{"id":1,"op":"spec_schema","arguments":{}}` or
 `{"id":2,"op":"item_options","arguments":{"part_ref":"…","id":"sheet"}}`.
-The nested arguments keep the item's ID separate from the request correlation ID.
+`serve` requires a nested `arguments` object for `item_options` (including `mcp_item_options`):
+it keeps the item's ID separate from the request correlation ID. Missing, null or non-object
+`arguments` are refused. CLI and direct API calls still take flat tool arguments.
 The standalone `draftwright-mcp` also advertises both discovery tools.
 
 A placed callout's Plan dimension record includes `callout_offset: [dx,dy]`, in paper mm,

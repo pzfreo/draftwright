@@ -60,7 +60,10 @@ jobs:
           mkdir -p dist "$name"
           cp "target/${{ matrix.target }}/release/draftwright${{ matrix.exe }}" LICENSE README.md "$name/"
           cp "target/${{ matrix.target }}/release/draftwright-mcp${{ matrix.exe }}" "$name/"
-          cp -R schemas docs "$name/"
+          cp -R schemas "$name/"
+          mkdir -p "$name/docs"
+          cp docs/model.md docs/mcp.md "$name/docs/"
+          cp -R docs/rules "$name/docs/"
           if [ "${{ runner.os }}" = Windows ]; then
             asset="$name.zip"; 7z a -bd "dist/$asset" "$name" > /dev/null
           else

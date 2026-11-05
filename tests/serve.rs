@@ -283,3 +283,49 @@ fn the_service_keeps_a_session_and_answers_deltas_and_queries() {
     assert!(!replies[6]["result"].as_array().unwrap().is_empty());
     assert_eq!(replies[9]["result"]["schema"], "draftwright.plan/1");
 }
+
+#[test]
+fn item_options_requires_nested_arguments_to_separate_item_and_request_ids() {
+    let step = PathBuf::from(part("prismatic.step"));
+    let key = draftwright::stateless::Cache::environment()
+        .register(&step, None)
+        .unwrap();
+    let arguments = json!({"part_ref":key,"id":"sheet"});
+    let expected = draftwright::api::call("item_options", &arguments).unwrap();
+    let mut requests = Vec::new();
+    for op in ["item_options", "mcp_item_options"] {
+        for id in [json!(17), json!("sheet")] {
+            requests.push(json!({"id":id,"op":op,"part_ref":key}).to_string());
+        }
+        for bad in [Value::Null, json!([]), json!("sheet")] {
+            requests.push(json!({"id":18,"op":op,"arguments":bad}).to_string());
+        }
+    }
+    // serde_json keeps the last duplicate key: it must still refuse the ambiguous shape.
+    requests.push(format!(
+        r#"{{"id":19,"op":"item_options","part_ref":{},"id":"sheet"}}"#,
+        json!(key)
+    ));
+    requests.push(json!({"id":20,"op":"item_options","arguments":arguments}).to_string());
+    requests.push(json!({"id":21,"op":"mcp_item_options","arguments":arguments}).to_string());
+    let replies = serve(&requests);
+    assert_eq!(replies.len(), requests.len());
+    for (request, reply) in requests.iter().zip(&replies).take(requests.len() - 2) {
+        let request: Value = serde_json::from_str(request).unwrap();
+        assert_eq!(reply["id"], request["id"]);
+        assert_eq!(reply["ok"], false, "{reply}");
+        assert_eq!(reply["error"]["code"], "invalid");
+        let message = reply["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("nested arguments object")
+                && message.contains("arguments.id")
+                && message.contains("request id"),
+            "{message}"
+        );
+    }
+    for (reply, id) in replies[replies.len() - 2..].iter().zip([20, 21]) {
+        assert_eq!(reply["id"], id);
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert_eq!(reply["result"], expected);
+    }
+}
