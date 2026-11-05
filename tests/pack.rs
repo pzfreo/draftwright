@@ -363,6 +363,37 @@ fn nested_drawing_spec_keeps_multiple_sheets_and_pack_fields_on_each_page() {
     let pack = pack::build(&fixture("pack-small.step.gz"), &spec).unwrap();
     assert_eq!(pack.report.rows[0].sheets, [2, 3]);
     assert_eq!(pack.report.rows[1].sheets, [4]);
+    assert_eq!(pack.report.general_assembly.as_ref().unwrap().sheet, 1);
+    assert_eq!(
+        pack.report
+            .rows
+            .iter()
+            .flat_map(|r| r.sheets.iter().copied())
+            .collect::<Vec<_>>(),
+        (2..=4).collect::<Vec<_>>()
+    );
+    for page in 1..=pack.report.pages {
+        let svg = pack.page_svg(page).unwrap();
+        assert_eq!(svg, pack.drawings[page - 1].svg());
+        assert!(svg.contains(&format!(">{page}/4<")));
+        if page > 1 {
+            let row = pack
+                .report
+                .rows
+                .iter()
+                .find(|r| r.sheets.contains(&page))
+                .unwrap();
+            assert!(
+                pack.drawings[page - 1]
+                    .text
+                    .iter()
+                    .any(|run| run.text == row.name)
+            );
+        }
+    }
+    for page in [0, pack.report.pages + 1, usize::MAX] {
+        assert_eq!(pack.page_svg(page).unwrap_err().code, "invalid");
+    }
     for (i, drawing) in pack.drawings[1..3].iter().enumerate() {
         let texts: Vec<_> = drawing.text.iter().map(|t| t.text.as_str()).collect();
         for value in ["plate", "SHOP", "ITEM", "QTY", "1", &format!("{}/4", i + 2)] {
@@ -1120,5 +1151,83 @@ fn ga_item_hatch_override_survives_conventional_thread_rendering() {
     assert!(
         hatch >= 3,
         "the item's authored hatch angle must survive the thread carrier's section cache key"
+    );
+}
+
+#[test]
+fn bytes_and_path_builds_match_on_every_assembly_fixture() {
+    let mut paths: Vec<_> = std::fs::read_dir(fixture(""))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.to_string_lossy().ends_with(".step.gz"))
+        .collect();
+    paths.sort();
+    assert!(!paths.is_empty());
+    for path in paths {
+        let name = path.display().to_string();
+        let bytes = std::fs::read(&path).unwrap();
+        let a = pack::build(&path, &PackSpec::default()).unwrap();
+        let b = pack::build_bytes(&name, &bytes, &PackSpec::default()).unwrap();
+        assert_eq!(
+            serde_json::to_value(&a.report).unwrap(),
+            serde_json::to_value(&b.report).unwrap(),
+            "{name}"
+        );
+        assert_eq!(a.drawings.len(), b.drawings.len(), "{name}");
+        assert_eq!(a.pdf(), b.pdf(), "{name}");
+        assert_eq!(a.report.csv(), b.report.csv(), "{name}");
+        for page in 1..=a.report.pages {
+            assert_eq!(
+                a.page_svg(page).unwrap(),
+                b.page_svg(page).unwrap(),
+                "{name}: {page}"
+            );
+        }
+    }
+}
+
+#[test]
+fn byte_render_and_cli_outputs_match_and_failed_rows_keep_keys() {
+    let path = fixture("pack-small.step.gz");
+    let bytes = std::fs::read(&path).unwrap();
+    let (_, files) = pack::render_bytes(
+        &path.display().to_string(),
+        &bytes,
+        &PackSpec::default(),
+        &pack::FORMATS,
+    )
+    .unwrap();
+    let dir =
+        std::env::temp_dir().join(format!("draftwright-pack-bytes-cli-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+        .arg("pack")
+        .arg(&path)
+        .arg("-o")
+        .arg(&dir)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output);
+    for (format, bytes) in files {
+        assert_eq!(
+            bytes,
+            std::fs::read(dir.join(format!("pack.{format}"))).unwrap(),
+            "{format}"
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let spec =
+        serde_json::from_value(json!({"parts":{"plate":{"drawing":{"sheet":{"size":"INVALID"}}}}}))
+            .unwrap();
+    let pack = pack::build_bytes("pack-small.step.gz", &bytes, &spec).unwrap();
+    let failed = pack.report.rows.iter().find(|r| r.error.is_some()).unwrap();
+    assert_eq!(failed.key, "plate");
+    assert!(failed.products.contains(&"plate".into()));
+    assert!(
+        pack.report
+            .findings
+            .iter()
+            .filter(|f| !f.code.starts_with("pack_ga_failed"))
+            .all(|f| !f.products.is_empty())
     );
 }

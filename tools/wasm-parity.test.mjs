@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import init, { Engine, specOps, start } from '../crates/draftwright-wasm/pkg/draftwright_wasm.js';
+import init, { Engine, Pack, listParts, specOps, start } from '../crates/draftwright-wasm/pkg/draftwright_wasm.js';
 
 await init({ module_or_path: readFileSync(new URL('../crates/draftwright-wasm/pkg/draftwright_wasm_bg.wasm', import.meta.url)) });
 start(); // Also called automatically by wasm-bindgen's start hook; idempotent.
@@ -367,4 +367,58 @@ test('openSpec sets aside what the part no longer has, and specOps turns one Spe
       [{ op: 'set', path: 'x/b~1c', value: [2] }, { op: 'remove', path: 'x/d' }]);
     invalid(() => specOps('{', '{}'));
   } finally { engine.free(); }
+});
+
+
+test('Pack: gzip assembly, native equality, pages, transactional rebuild and disposal', () => {
+  const part = 'tests/fixtures/assembly/pack-small.step.gz';
+  const bytes = readFileSync(new URL(`../${part}`, import.meta.url));
+  const pack = new Pack(part, bytes);
+  const native = (op, extra = {}) => {
+    const result = spawnSync(process.env.DRAFTWRIGHT_BIN ?? 'target/release/draftwright', ['serve'], {
+      cwd: root, input: JSON.stringify({op, step: part, ...extra}) + '\n', encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    });
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+    const reply = JSON.parse(result.stdout);
+    assert.equal(reply.ok, true, JSON.stringify(reply));
+    return reply.result;
+  };
+  try {
+    assert.deepEqual(JSON.parse(listParts(part, bytes)), native('parts'));
+    const report = JSON.parse(pack.reportJson());
+    assert.equal(report.schema, 'draftwright.pack/1');
+    assert.equal(report.general_assembly.sheet, 1);
+    assert.equal(pack.pageCount(), report.pages);
+    for (let page = 1; page <= pack.pageCount(); page++) {
+      const svg = pack.pageSvg(page);
+      assert.equal(typeof svg, 'string');
+      assert.match(svg, /<svg/);
+      assert.ok(svg.includes(`>${page}/${report.pages}<`));
+    }
+    for (const row of report.rows) {
+      for (const page of row.sheets) {
+        assert.ok(pack.pageSvg(page).includes(`>${row.name}<`));
+      }
+    }
+    invalid(() => pack.pageSvg(0));
+    invalid(() => pack.pageSvg(pack.pageCount() + 1));
+    const reference = native('pack');
+    assert.deepEqual(report, reference.report);
+    for (const file of reference.files) {
+      const actual = file.name.endsWith('.pdf') ? pack.pdf() :
+        new TextEncoder().encode(file.name.endsWith('.csv') ? pack.csv() : pack.reportJson());
+      equalBytes(actual, Buffer.from(file.blob, 'base64'), file.name);
+    }
+    const before = pack.reportJson(), spec = pack.specJson();
+    invalid(() => pack.setSpec('{'));
+    invalid(() => pack.setSpec('{"schema":"wrong"}'));
+    assert.equal(pack.reportJson(), before);
+    assert.equal(pack.specJson(), spec);
+    pack.setSpec('{"ga":{"include":false}}');
+    assert.equal(JSON.parse(pack.specJson()).ga.include, false);
+    assert.equal(pack.pageCount(), report.pages - 1);
+    assert.deepEqual(JSON.parse(pack.reportJson()), native('pack', {spec: {ga: {include: false}}}).report);
+  } finally { pack.free(); }
+  invalid(() => new Pack(part, bytes, '{"schema":"wrong"}'));
+  invalid(() => listParts('bad.step', new Uint8Array([1, 2, 3])));
 });

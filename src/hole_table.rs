@@ -1440,7 +1440,6 @@ fn assign_bands(
 
 /// Place assembly references using the same capacitated bands and crossing predicates as
 /// hole-table tags. Targets are already proven visible by the assembly reader's face sources.
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn item_references(
     targets: &[(String, [f64; 2])],
     analysis: &Analysis,

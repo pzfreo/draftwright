@@ -591,7 +591,6 @@ pub(crate) fn number_sheets(plan: &mut crate::model::Plan) {
 
 /// Pack-only top row: keep owner and document type, adding independent item and quantity
 /// cells. Ordinary drawing Specs and their title blocks are byte-for-byte unchanged.
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn pack_cells(sheet: &mut crate::model::PlannedSheet, item: u32, qty: usize) {
     sheet.title_cells = cells(sheet.title_block, &sheet.title, &sheet.size);
     let owner = &mut sheet.title_cells[0];

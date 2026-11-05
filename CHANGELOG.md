@@ -6,6 +6,15 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Expose drawing packs through byte-based core build/render APIs and the native
+  JSON-lines `pack` operation, with base64 files and the shared pack report.
+
+### WASM API
+
+- Add `Pack` (build, report/spec JSON, one-based page SVG, PDF, CSV, transactional
+  `setSpec`, `free`) and `listParts(name, bytes)`. Build packs in a Worker; v1 has
+  no progress callback. Existing Engine APIs are unchanged.
+
 ## 0.2.10 (2026-11-03)
 
 - Retry obstructed source-PMI linear placements using the existing witness solver,

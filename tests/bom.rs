@@ -130,7 +130,13 @@ fn numeric_reference_designator_and_numeric_nauo_name() {
 #[test]
 fn written_specify_fixture_public_bom_and_pack_provenance() {
     let path = fixture("bom-small.step.gz");
-    let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
+    let compressed = std::fs::read(&path).unwrap();
+    let pack = pack::build_bytes(
+        &path.display().to_string(),
+        &compressed,
+        &pack::PackSpec::default(),
+    )
+    .unwrap();
     let bytes = model::read_step_file(&path).unwrap();
     let file = haecceity::step::StepFile::read(&bytes).unwrap();
     assert_eq!(file.assemblies[0].name, "ASSEMBLY");
@@ -213,6 +219,13 @@ fn written_specify_fixture_public_bom_and_pack_provenance() {
         ]
     );
     assert_eq!(rows[0].bom.revision.as_deref(), Some("B"));
+    for row in &rows {
+        assert!(row.bom.make_buy.is_some());
+        assert_eq!(row.sources["make_buy"], pack::ValueSource::File);
+        if row.bom.part_number.is_some() {
+            assert_eq!(row.sources["part_number"], pack::ValueSource::File);
+        }
+    }
     for row in &rows {
         for field in [
             "supply",
