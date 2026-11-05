@@ -293,6 +293,8 @@ fn pdf_fonts_hold_only_the_glyphs_shown() {
                 .iter()
                 .filter(|r| r.font == file)
                 .flat_map(|r| r.text.chars())
+                // U+2300 keeps its Unicode text but uses the bundled slashed-o glyph.
+                .map(|ch| if ch == '⌀' { 'ø' } else { ch })
                 .map(|ch| whole.glyph_index(ch).map_or(0, |g| g.0))
                 .chain([0])
                 .collect();
@@ -344,7 +346,8 @@ fn pdf_fonts_hold_only_the_glyphs_shown() {
             // Each CID shown has a width (the ToUnicode map also holds its code space range).
             for (cid, width) in &widths {
                 let ch = unicode[cid].chars().next().unwrap();
-                let g = ttf_parser::GlyphId(whole.glyph_index(ch).map_or(0, |g| g.0));
+                let printed = if ch == '⌀' { 'ø' } else { ch };
+                let g = ttf_parser::GlyphId(whole.glyph_index(printed).map_or(0, |g| g.0));
                 let s = ttf_parser::GlyphId(map[*cid as usize]);
                 let advance = whole.glyph_hor_advance(g).unwrap();
                 assert_eq!(subset.glyph_hor_advance(s), Some(advance), "{name} {ch:?}");
