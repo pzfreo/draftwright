@@ -47,7 +47,8 @@ fn native_product_formation_description_source_and_categories() {
             "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('C','',#41,.BOUGHT.)",
         );
     let rows = read(&s);
-    assert_eq!(rows[0].part_number.as_deref(), Some("PN-42"));
+    assert_eq!(rows[0].part_number, None);
+    assert_eq!(rows[0].product_ids, ["PN-42"]);
     assert_eq!(rows[0].description.as_deref(), Some("Plate description"));
     assert_eq!(rows[0].revision.as_deref(), Some("C"));
     assert_eq!(rows[0].make_buy.as_deref(), Some("bought"));
@@ -76,7 +77,8 @@ fn case_normalisation_invalid_values_and_last_specify_override() {
 #9018=DESCRIPTIVE_REPRESENTATION_ITEM('Name','A stated name');";
     let rows = read(&append(&s, &entities));
     let row = &rows[0];
-    assert_eq!(row.part_number.as_deref(), Some("PN-42"));
+    assert_eq!(row.part_number, None);
+    assert_eq!(row.product_ids, ["PN-42"]);
     assert_eq!(row.name.as_deref(), Some("A stated name"));
     assert_eq!(row.description.as_deref(), Some("Override, with a comma"));
     assert_eq!(row.revision, None);
@@ -110,17 +112,18 @@ fn product_definition_description_and_complex_source_formation() {
     let row = read(&s).remove(0);
     assert_eq!(row.description.as_deref(), Some("Definition text"));
     assert_eq!(row.revision.as_deref(), Some("D"));
-    assert_eq!(row.make_buy.as_deref(), Some("not known"));
+    assert_eq!(row.make_buy, None);
+    assert_eq!(row.file_make_buy.as_deref(), Some("not known"));
 }
 
 #[test]
 fn numeric_reference_designator_and_numeric_nauo_name() {
-    for occurrence in [
-        "'placement','plate','',#5,#39,'23'",
-        "'placement','23','',#5,#39,$",
+    for (occurrence, expected) in [
+        ("'placement','plate','',#5,#39,'23'", None),
+        ("'placement','23','',#5,#39,$", Some(23)),
     ] {
         let s = small().replace("'1','plate','',#5,#39,$", occurrence);
-        assert_eq!(read(&s)[0].item_number, Some(23));
+        assert_eq!(read(&s)[0].item_number, expected);
     }
 }
 
@@ -128,6 +131,20 @@ fn numeric_reference_designator_and_numeric_nauo_name() {
 fn written_specify_fixture_public_bom_and_pack_provenance() {
     let path = fixture("bom-small.step.gz");
     let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
+    let bytes = model::read_step_file(&path).unwrap();
+    let file = haecceity::step::StepFile::read(&bytes).unwrap();
+    assert_eq!(file.assemblies[0].name, "ASSEMBLY");
+    assert!(file.parts.iter().all(|p| p.product_id == "SOLID"));
+    for drawing in &pack.drawings {
+        assert!(!drawing.svg().contains(">SOLID<"));
+        assert!(!drawing.svg().contains(">ASSEMBLY<"));
+    }
+    assert!(
+        pack.report
+            .rows
+            .iter()
+            .all(|r| r.reference != "SOLID" && r.reference != "ASSEMBLY")
+    );
     assert_eq!(pack.report.rows.len(), 13);
     let mut rows: Vec<_> = pack.report.rows.iter().collect();
     rows.sort_by_key(|r| r.item);
@@ -157,24 +174,42 @@ fn written_specify_fixture_public_bom_and_pack_provenance() {
         [12, 13]
     );
     assert_eq!(rows[12].quantity_range.as_deref(), Some("0–1"));
+    assert!(rows[..12].iter().all(|r| r.quantity_range.is_none()));
+    let table = pack
+        .report
+        .general_assembly
+        .as_ref()
+        .unwrap()
+        .parts_list
+        .as_ref()
+        .unwrap();
+    for row in &rows {
+        assert!(
+            table
+                .rows
+                .iter()
+                .any(|cells| cells[0] == row.item.to_string()
+                    && cells[5] == row.bom.material.as_deref().unwrap())
+        );
+    }
     assert_eq!(
         rows.iter()
-            .map(|r| r.bom.part_number.as_deref().unwrap())
+            .map(|r| r.bom.part_number.as_deref())
             .collect::<Vec<_>>(),
         [
-            "GRM-01",
-            "GRM-02",
-            "GRM-06",
-            "GRM-07",
-            "grub screw M4x5",
-            "GRM-04",
-            "flat washer M2",
-            "pan-head screw M2x6",
-            "pan-head screw M2x10",
-            "GRM-03",
-            "GRM-05",
-            "push rod",
-            "spacer"
+            Some("GRM-01"),
+            Some("GRM-02"),
+            Some("GRM-06"),
+            Some("GRM-07"),
+            None,
+            Some("GRM-04"),
+            None,
+            None,
+            None,
+            Some("GRM-03"),
+            Some("GRM-05"),
+            None,
+            None
         ]
     );
     assert_eq!(rows[0].bom.revision.as_deref(), Some("B"));
@@ -303,15 +338,14 @@ fn complex_typed_udas_and_explicit_unknown_are_facts() {
     std::fs::write(&path, s).unwrap();
     let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
     let row = pack.report.rows.iter().find(|r| r.item == 29).unwrap();
-    assert_eq!(row.supply, pack::Supply::Unknown);
-    assert_eq!(row.sources["supply"], pack::ValueSource::File);
+    assert_eq!(row.supply, pack::Supply::Make);
+    assert_eq!(row.sources["supply"], pack::ValueSource::Guess);
     assert!(!row.sheets.is_empty());
     assert!(
-        !pack
-            .report
+        pack.report
             .findings
             .iter()
-            .any(|f| f.code.ends_with("_guess") && f.products.contains(&row.key))
+            .any(|f| f.code == "pack_make_guess" && f.products.contains(&row.key))
     );
 }
 
@@ -323,11 +357,14 @@ fn different_stated_bom_identities_prevent_shape_merging() {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("bom-identity");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("assembly.step");
-    let s = append(
-        &s,
-        &(uda(501, "specify bom", "#9010")
-            + "\n#9010=DESCRIPTIVE_REPRESENTATION_ITEM('part_number','PIN-A');"),
+    let a = uda(501, "specify bom", "#9010")
+        + "\n#9010=DESCRIPTIVE_REPRESENTATION_ITEM('part_number','PIN-A');";
+    let b = (9000..=9010).rev().fold(
+        uda(618, "specify bom", "#9010")
+            + "\n#9010=DESCRIPTIVE_REPRESENTATION_ITEM('part_number','PIN-B');",
+        |s, id| s.replace(&format!("#{id}"), &format!("#{}", id + 100)),
     );
+    let s = append(&s, &(a + b.as_str()));
     std::fs::write(&path, s).unwrap();
     let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
     assert_eq!(pack.report.rows.len(), 4);
@@ -502,7 +539,10 @@ fn written_suggestions_fill_gaps_but_explicit_udas_override_native_values() {
     let row = read(&append(&native, &entities)).remove(0);
     assert_eq!(row.make_buy.as_deref(), Some("made"));
     assert_eq!(row.description.as_deref(), Some("Native description"));
-    assert_eq!(row.part_number.as_deref(), Some("PN-A"));
+    assert_eq!(row.part_number, None); // A raw native id is not a stated part number.
+    assert_eq!(row.product_ids, ["PN-A"]);
+    assert_eq!(row.part_number_suggestion.as_deref(), Some("PN-B"));
+    assert!(row.suggested_fields.contains("stock"));
     assert_eq!(row.stock.as_deref(), Some("from stock"));
     assert_eq!(row.revision.as_deref(), Some("C"));
 }
@@ -560,7 +600,8 @@ fn raw_exporter_ids_remain_facts_without_changing_titles_or_grouping() {
     let row = pack.report.rows.iter().find(|r| r.qty == 2).unwrap();
     assert_eq!(row.bom.product_ids, ["RAW-ID-A", "RAW-ID-B"]);
     assert_eq!(row.sources["product_ids"], pack::ValueSource::File);
-    assert_eq!(row.sources["part_number"], pack::ValueSource::File);
+    assert!(!row.sources.contains_key("part_number")); // Only explicit row UDAs populate this column.
+    assert_eq!(row.bom.part_number, None);
     assert!(!row.bom.part_number_is_explicit);
     let svg = pack.drawings[row.sheets[0] - 1].svg();
     assert!(!svg.contains("RAW-ID-A"));
@@ -581,7 +622,7 @@ fn raw_exporter_ids_remain_facts_without_changing_titles_or_grouping() {
 }
 
 #[test]
-fn only_usable_specify_bom_records_attest_native_part_numbers() {
+fn only_the_rows_explicit_part_number_uda_sets_its_number() {
     for (set, owner, field, value, expected) in [
         (
             "Specify answers",
@@ -593,7 +634,7 @@ fn only_usable_specify_bom_records_attest_native_part_numbers() {
         ("specify bom", 384, "make_buy", "invalid", false),
         ("specify bom", 31, "part_number", "ORPHAN", false),
         ("specify bom", 384, "part_number", "PN-42", true),
-        ("specify bom", 384, "optional", "yes", true),
+        ("specify bom", 384, "optional", "yes", false),
     ] {
         let source = append(
             &small(),
@@ -602,7 +643,8 @@ fn only_usable_specify_bom_records_attest_native_part_numbers() {
         );
         let rows = read(&source);
         assert!(
-            rows.iter().all(|r| r.part_number_is_explicit == expected),
+            rows[0].part_number_is_explicit == expected
+                && rows[1..].iter().all(|r| !r.part_number_is_explicit),
             "{set}/{owner}/{field}"
         );
         let (_, analysis) =
@@ -657,4 +699,142 @@ fn editor_sample_and_vslot_keep_legacy_ink_and_grouping() {
         pack.report.rows[0].sources["product_ids"],
         pack::ValueSource::File
     );
+}
+
+#[test]
+fn duplicate_file_find_claims_are_reported_and_allocated_without_refusal() {
+    let mut source = small();
+    for (i, owner) in [384, 501, 618].into_iter().enumerate() {
+        let entities = uda(owner, "specify bom", "#9010")
+            + "\n#9010=INTEGER_REPRESENTATION_ITEM('item_number',1);";
+        let entities = (9000..=9010).rev().fold(entities, |s, id| {
+            s.replace(&format!("#{id}"), &format!("#{}", id + i * 100))
+        });
+        source = append(&source, &entities);
+    }
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("bom-duplicate-finds");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("assembly.step");
+    std::fs::write(&path, source).unwrap();
+    let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
+    assert_eq!(
+        pack.report.rows.iter().map(|r| r.item).collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+    let conflicts = pack
+        .report
+        .findings
+        .iter()
+        .filter(|f| f.code == "pack_duplicate_item")
+        .collect::<Vec<_>>();
+    assert_eq!(conflicts.len(), 1);
+    let claimants = pack
+        .report
+        .rows
+        .iter()
+        .filter(|r| r.bom.item_number == Some(1))
+        .collect::<Vec<_>>();
+    assert_eq!(claimants.len(), 2);
+    for row in claimants {
+        assert!(conflicts[0].message.contains(&row.key));
+        assert!(conflicts[0].products.contains(&row.key));
+        assert_eq!(row.sources["item"], pack::ValueSource::Guess);
+        assert_eq!(row.sources["item_number"], pack::ValueSource::File);
+    }
+}
+
+#[test]
+fn stored_supply_suggestions_remain_guesses_and_spec_overrides_win() {
+    let source = append(
+        &small(),
+        &(uda(384, "specify bom", "#9010,#9011,#9012,#9013,#9014,#9015")
+            + "
+#9010=DESCRIPTIVE_REPRESENTATION_ITEM('make_buy','bought');
+#9011=BOOLEAN_REPRESENTATION_ITEM('default.make_buy',.T.);
+#9012=DESCRIPTIVE_REPRESENTATION_ITEM('description','Suggested plate');
+#9013=BOOLEAN_REPRESENTATION_ITEM('default.description',.T.);
+#9014=DESCRIPTIVE_REPRESENTATION_ITEM('part_number','PROPOSED-42');
+#9015=BOOLEAN_REPRESENTATION_ITEM('default.part_number',.T.);"),
+    );
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("bom-suggestions");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("assembly.step");
+    std::fs::write(&path, source).unwrap();
+    let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
+    let row = pack.report.rows.iter().find(|r| r.key == "plate").unwrap();
+    assert_eq!(row.supply, pack::Supply::Buy);
+    assert_eq!(row.sources["supply"], pack::ValueSource::Suggested);
+    assert_eq!(row.sources["make_buy"], pack::ValueSource::Suggested);
+    assert_eq!(row.sources["description"], pack::ValueSource::Suggested);
+    assert_eq!(
+        row.sources["part_number_suggestion"],
+        pack::ValueSource::Suggested
+    );
+    assert_eq!(row.bom.part_number, None);
+    assert!(
+        pack.report
+            .findings
+            .iter()
+            .any(|f| f.code == "pack_buy_guess" && f.products.contains(&row.key))
+    );
+    assert!(!row.reference.contains("PROPOSED-42"));
+    let spec: pack::PackSpec = serde_json::from_value(
+        serde_json::json!({"parts":{"plate":{"supply":"make","stock":"  FROM_STOCK  "}}}),
+    )
+    .unwrap();
+    let overridden = pack::build(&path, &spec).unwrap();
+    let row = overridden
+        .report
+        .rows
+        .iter()
+        .find(|r| r.key == "plate")
+        .unwrap();
+    assert_eq!(row.supply, pack::Supply::Make);
+    assert_eq!(row.sources["supply"], pack::ValueSource::Spec);
+    assert_eq!(row.bom.stock.as_deref(), Some("from stock"));
+    assert_eq!(row.sources["stock"], pack::ValueSource::Spec);
+}
+
+#[test]
+fn ga_uses_only_its_roots_own_part_number_and_unknown_native_supply_is_unstated() {
+    let source = small()
+        .replace(
+            "PRODUCT('pack fixture','pack fixture'",
+            "PRODUCT('ASSEMBLY','ASSEMBLY'",
+        )
+        .replace(
+            "PRODUCT_DEFINITION_FORMATION('','',#41)",
+            "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#41,.NOT_KNOWN.)",
+        );
+    let source = append(
+        &source,
+        &(uda(384, "specify bom", "#9010")
+            + "\n#9010=DESCRIPTIVE_REPRESENTATION_ITEM('part_number','PLATE-42');"),
+    );
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("bom-root-scope");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("fixture.step");
+    std::fs::write(&path, &source).unwrap();
+    let pack = pack::build(&path, &pack::PackSpec::default()).unwrap();
+    let svg = pack.drawings[0].svg();
+    assert!(!svg.contains(">ASSEMBLY<"));
+    assert!(svg.contains(">fixture<")); // The table may cite PLATE-42; the GA number stays its stem.
+    let row = pack.report.rows.iter().find(|r| r.key == "plate").unwrap();
+    assert_eq!(row.bom.file_make_buy.as_deref(), Some("not known"));
+    assert_eq!(row.sources["file_make_buy"], pack::ValueSource::File);
+    assert_eq!(row.sources["supply"], pack::ValueSource::Guess);
+    assert!(
+        pack.report
+            .findings
+            .iter()
+            .any(|f| f.code == "pack_make_guess" && f.products.contains(&row.key))
+    );
+    let root = (9000..=9010).rev().fold(
+        uda(5, "specify bom", "#9010")
+            + "\n#9010=DESCRIPTIVE_REPRESENTATION_ITEM('part_number','ASSEMBLY-42');",
+        |s, id| s.replace(&format!("#{id}"), &format!("#{}", id + 100)),
+    );
+    std::fs::write(&path, append(&source, &root)).unwrap();
+    let numbered = pack::build(&path, &pack::PackSpec::default()).unwrap();
+    assert!(numbered.drawings[0].svg().contains(">ASSEMBLY-42<"));
 }

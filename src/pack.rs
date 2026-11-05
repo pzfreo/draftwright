@@ -111,6 +111,7 @@ pub struct Row {
 pub enum ValueSource {
     Spec,
     File,
+    Suggested,
     Guess,
 }
 
@@ -416,7 +417,6 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
     let doc =
         haecceity::p21::Document::parse(bytes.clone()).map_err(|e| Error::failed(e.to_string()))?;
     let metadata = crate::bom::read(&doc, &file.parts);
-    drop(doc);
     let keys = keys::keys(
         file.parts
             .iter()
@@ -639,11 +639,12 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
                 values.first().map(|v| (*v).clone())
             }};
         }
-        let stated_supply = row.bom.make_buy.as_deref().map(|v| match v {
-            "bought" => Supply::Buy,
-            "made" => Supply::Make,
-            _ => Supply::Unknown,
+        let stated_supply = row.bom.make_buy.as_deref().and_then(|v| match v {
+            "bought" => Some(Supply::Buy),
+            "made" => Some(Supply::Make),
+            _ => None,
         });
+        let suggested_supply = row.bom.suggested_fields.contains("make_buy");
         let supply_override = resolve!(supply);
         let supply = supply_override.or(stated_supply);
         row.sources.insert(
@@ -651,7 +652,11 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             if supply_override.is_some() {
                 ValueSource::Spec
             } else if stated_supply.is_some() {
-                ValueSource::File
+                if suggested_supply {
+                    ValueSource::Suggested
+                } else {
+                    ValueSource::File
+                }
             } else {
                 ValueSource::Guess
             },
@@ -660,6 +665,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             ($field:ident) => {
                 if let Some(value) = resolve!($field).filter(|s| !s.trim().is_empty()) {
                     row.bom.$field = Some(value.trim().into());
+                    row.bom.suggested_fields.remove(stringify!($field));
                     row.sources
                         .insert(stringify!($field).into(), ValueSource::Spec);
                 }
@@ -672,15 +678,14 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
         text_override!(name);
         if let Some(value) = resolve!(optional) {
             row.bom.optional = Some(value);
+            row.bom.suggested_fields.remove("optional");
             row.sources.insert("optional".into(), ValueSource::Spec);
         }
         if let Some(value) = resolve!(stock) {
-            if !["from stock", "to be made"].contains(&value.as_str()) {
-                return Err(Error::invalid(
-                    "pack stock must be from stock or to be made",
-                ));
-            }
+            let value = crate::bom::stock(&value)
+                .ok_or_else(|| Error::invalid("pack stock must be from stock or to be made"))?;
             row.bom.stock = Some(value);
+            row.bom.suggested_fields.remove("stock");
             row.sources.insert("stock".into(), ValueSource::Spec);
         }
         if let Some(value) = &row.bom.name {
@@ -695,11 +700,18 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
                 }
                 .into(),
             );
+            row.bom.suggested_fields.remove("make_buy");
             row.sources.insert("make_buy".into(), ValueSource::Spec);
         }
         for (field, present) in [
             ("name", row.bom.name.is_some()),
             ("part_number", row.bom.part_number.is_some()),
+            (
+                "part_number_suggestion",
+                row.bom.part_number_suggestion.is_some(),
+            ),
+            ("file_make_buy", row.bom.file_make_buy.is_some()),
+            ("item_number", row.bom.item_number.is_some()),
             ("product_ids", !row.bom.product_ids.is_empty()),
             ("description", row.bom.description.is_some()),
             ("revision", row.bom.revision.is_some()),
@@ -715,7 +727,13 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             ),
         ] {
             if present {
-                row.sources.entry(field.into()).or_insert(ValueSource::File);
+                row.sources.entry(field.into()).or_insert(
+                    if row.bom.suggested_fields.contains(field) {
+                        ValueSource::Suggested
+                    } else {
+                        ValueSource::File
+                    },
+                );
             }
         }
         row.sources.insert("qty".into(), ValueSource::File);
@@ -725,14 +743,13 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
         }
         let item_override = resolve!(item);
         if let Some(item) = item_override.or(row.bom.item_number) {
-            if !reserved.insert(item) {
-                return Err(Error::invalid(format!("duplicate pack item {item}")));
-            }
             row.item = item;
             row.sources.insert(
                 "item".into(),
                 if item_override.is_some() {
                     ValueSource::Spec
+                } else if row.bom.suggested_fields.contains("item_number") {
+                    ValueSource::Suggested
                 } else {
                     ValueSource::File
                 },
@@ -802,7 +819,8 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
         row.quantity_range = row
             .bom
             .optional
-            .map(|optional| format!("{}–{}", if optional { 0 } else { row.qty }, row.qty));
+            .filter(|optional| *optional)
+            .map(|_| format!("0–{}", row.qty));
         if row.quantity_range.is_some() {
             row.sources.insert(
                 "quantity_range".into(),
@@ -810,10 +828,24 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
                     || row.sources.get("qty") == Some(&ValueSource::Spec)
                 {
                     ValueSource::Spec
+                } else if row.sources.get("optional") == Some(&ValueSource::Suggested) {
+                    ValueSource::Suggested
                 } else {
                     ValueSource::File
                 },
             );
+        }
+        for field in &row.bom.suggested_fields {
+            if field != "make_buy" && row.sources.get(field) == Some(&ValueSource::Suggested) {
+                findings.push(finding(
+                    "pack_bom_suggestion",
+                    format!(
+                        "{}: {field} is a stored Specify suggestion, not an explicit answer",
+                        row.name
+                    ),
+                    row.products.clone(),
+                ));
+            }
         }
         row.reference = drawing_spec
             .sheet
@@ -876,8 +908,27 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             Supply::Make
         };
         row.supply = supply.unwrap_or(guessed);
-        if stated_supply.is_some() {
+        if stated_supply.is_some() && !suggested_supply {
             row.buy_reasons.clear();
+        } else if suggested_supply && supply_override.is_none() {
+            let code = if row.supply == Supply::Buy {
+                "pack_buy_guess"
+            } else {
+                "pack_make_guess"
+            };
+            findings.push(finding(
+                code,
+                format!(
+                    "{}: stored Specify name-token suggestion for {} (supply override wins)",
+                    row.name,
+                    if row.supply == Supply::Buy {
+                        "buy"
+                    } else {
+                        "make"
+                    }
+                ),
+                row.products.clone(),
+            ));
         } else if !row.buy_reasons.is_empty() {
             findings.push(finding(
                 "pack_buy_guess",
@@ -943,6 +994,40 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
         ));
     }
     rows.sort_by_key(|(row, ..)| row.supply == Supply::Buy);
+    // Conflicting file claims are facts to report, not reasons to refuse a pack.
+    let mut claims: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    for (index, (row, ..)) in rows.iter().enumerate() {
+        if row.item > 0 {
+            claims.entry(row.item).or_default().push(index);
+        }
+    }
+    for (item, owners) in claims {
+        let explicit: Vec<_> = owners
+            .iter()
+            .copied()
+            .filter(|i| rows[*i].0.sources.get("item") == Some(&ValueSource::Spec))
+            .collect();
+        if explicit.len() > 1 {
+            return Err(Error::invalid(format!("duplicate pack item {item}")));
+        }
+        if owners.len() > 1 {
+            let names = owners
+                .iter()
+                .map(|i| rows[*i].0.key.clone())
+                .collect::<Vec<_>>();
+            findings.push(finding("pack_duplicate_item", format!("item {item} is claimed by rows {}; retaining the file claims and allocating conflicting rows automatically", names.join(", ")), names));
+            for index in owners {
+                if !explicit.contains(&index) {
+                    rows[index].0.item = 0;
+                }
+            }
+        }
+        if let Some(&index) = explicit.first() {
+            reserved.insert(rows[index].0.item);
+        } else if rows.iter().any(|(r, ..)| r.item == item) {
+            reserved.insert(item);
+        }
+    }
     let mut next = 1u32;
     for (row, ..) in &mut rows {
         if row.item == 0 {
@@ -968,7 +1053,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
     let mut ga = if spec.ga.include.unwrap_or(rows.len() > 1) {
         match ga::prepare(
             step,
-            &bytes,
+            &doc,
             &file,
             &spec.ga,
             rows.iter().map(|(r, ..)| r),
@@ -1058,7 +1143,6 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
     };
     for (mut row, p, timing, _) in rows {
         row.bom.name = (!row.name.trim().is_empty()).then(|| row.name.clone());
-        row.bom.item_number = None; // `item` is the effective pack item, with provenance.
         if let Some(p) = p {
             row.problems.extend(p.plan.problems);
             for sheet in std::iter::once(&p.plan.sheet).chain(p.plan.sheets.iter()) {
@@ -1098,7 +1182,7 @@ impl Report {
             format!("\"{}\"", s.replace('"', "\"\""))
         }
         let mut out =
-            "item,name,products,qty,supply,buy_reasons,sheets,reference,material,description,part_number,revision,quantity_range,optional,stock,make_buy,categories,classifications,occurrence_references,supply_source,item_source,material_source,name_source,description_source,part_number_source,revision_source,quantity_range_source,optional_source,stock_source,make_buy_source,qty_source,categories_source,classifications_source,occurrence_references_source,product_ids,product_ids_source\r\n".to_string();
+            "item,name,products,qty,supply,buy_reasons,sheets,reference,material,description,part_number,revision,quantity_range,optional,stock,make_buy,categories,classifications,occurrence_references,supply_source,item_source,material_source,name_source,description_source,part_number_source,revision_source,quantity_range_source,optional_source,stock_source,make_buy_source,qty_source,categories_source,classifications_source,occurrence_references_source,product_ids,product_ids_source,stated_item_number,stated_item_number_source,file_make_buy,file_make_buy_source,part_number_suggestion,part_number_suggestion_source\r\n".to_string();
         for row in &self.rows {
             let source = |field: &str| {
                 row.sources
@@ -1107,6 +1191,7 @@ impl Report {
                         ValueSource::Spec => "spec",
                         ValueSource::File => "file",
                         ValueSource::Guess => "guess",
+                        ValueSource::Suggested => "suggested",
                     })
                     .unwrap_or("")
                     .to_string()
@@ -1157,6 +1242,15 @@ impl Report {
                 source("occurrence_references"),
                 row.bom.product_ids.join("; "),
                 source("product_ids"),
+                row.bom
+                    .item_number
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                source("item_number"),
+                row.bom.file_make_buy.clone().unwrap_or_default(),
+                source("file_make_buy"),
+                row.bom.part_number_suggestion.clone().unwrap_or_default(),
+                source("part_number_suggestion"),
             ];
             out.push_str(
                 &fields

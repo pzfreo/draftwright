@@ -46,9 +46,12 @@ this repository's licence, gzip without a timestamp.
 name ASSEMBLY. It exercises distinguishable section/detail item references and
 root-title fallback. Shared under this repository's licence.
 
-`bom-small.step.gz` (#267) is an original 13-box synthetic assembly, 37 KiB
+`bom-small.step.gz` (#267) is an original 13-box synthetic assembly, about 40 KiB
 compressed. It carries native product/category records and Specify v0.1.8's
-public UDA 1.8 BOM and CAx-IF material property graphs. Geometry is not gramil's.
+public UDA 1.8 BOM and CAx-IF material property graphs. Its root is ASSEMBLY;
+each named part wrapper contains a SOLID leaf, matching real gramil's exporter
+structure. Only explicitly answered GRM part numbers are drawing identities;
+unanswered SOLID ids remain raw facts. Geometry is not gramil's.
 `tools/make_bom_fixture.py` generates it using the real Specify CLI, first
 writing the committed `revisions/gramil_assembly.new.step.gz` from Specify
 v0.1.8, then a spacer variant, and finally this reduced assembly. The real

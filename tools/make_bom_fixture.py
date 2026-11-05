@@ -63,7 +63,10 @@ def shapes(source, target, rows=None):
     from OCP.STEPControl import STEPControl_AsIs
     from OCP.TCollection import TCollection_ExtendedString
     from OCP.TDataStd import TDataStd_Name
-    from OCP.collections import Sequence_TDF_Label as TDF_LabelSequence
+    try:
+        from OCP.TDF import TDF_LabelSequence
+    except ImportError:
+        from OCP.collections import Sequence_TDF_Label as TDF_LabelSequence
     from OCP.TDocStd import TDocStd_Document
     from OCP.TopLoc import TopLoc_Location
     from OCP.TopoDS import TopoDS_Compound
@@ -86,12 +89,21 @@ def shapes(source, target, rows=None):
         BRep_Builder().MakeCompound(compound)
         root = tool.AddShape(compound, True)
         entries = [(r['name']['value'], r['quantity']['value']) for r in rows]
-        TDataStd_Name.Set_s(root, TCollection_ExtendedString('Synthetic BOM assembly'))
+        TDataStd_Name.Set_s(root, TCollection_ExtendedString('ASSEMBLY'))
     count = 0
     for i, (name, qty) in enumerate(entries):
         shape = BRepPrimAPI_MakeBox(8 + i, 6, 3).Shape() if rows is not None else BRepPrimAPI_MakeBox(1, 3.6, 23).Shape()
         label = tool.AddShape(shape, False)
-        TDataStd_Name.Set_s(label, TCollection_ExtendedString(name))
+        TDataStd_Name.Set_s(label, TCollection_ExtendedString('SOLID' if rows is not None else name))
+        if rows is not None:
+            # Real gramil uses a generic solid beneath a meaningful named wrapper.
+            wrapper = tool.NewShape()
+            empty = TopoDS_Compound()
+            BRep_Builder().MakeCompound(empty)
+            tool.SetShape(wrapper, empty)
+            tool.AddComponent(wrapper, label, TopLoc_Location())
+            TDataStd_Name.Set_s(wrapper, TCollection_ExtendedString(name))
+            label = wrapper
         for _ in range(qty):
             tr = gp_Trsf()
             tr.SetTranslation(gp_Vec((count % 5) * 30, (count // 5) * 20, 0))
@@ -102,6 +114,32 @@ def shapes(source, target, rows=None):
     writer.SetNameMode(True)
     assert writer.Transfer(doc, STEPControl_AsIs)
     assert writer.Write(str(target)) == 1
+
+
+def reduce_bom(synthetic, written, output):
+    # Reduce the written file to original geometry plus the public BOM/material
+    # property graphs. Private history and default PMI are deliberately outside
+    # this fixture's scope; Specify's real gramil writes remain intact in --work.
+    import re
+    data = written.read_text()
+    records = dict((int(m[0]), m[1]) for m in re.findall(r'#(\d+)\s*=\s*(.*?);', data, re.S))
+    original_ids = {int(i) for i in re.findall(r'#(\d+)\s*=', synthetic.read_text())}
+    public = {i for i, r in records.items() if r.startswith('PROPERTY_DEFINITION(')
+              and any(f"'{n}'" in r for n in ('specify bom', 'material property'))}
+    incoming = {i for i, r in records.items()
+                if r.startswith(('PROPERTY_DEFINITION_REPRESENTATION(', 'GENERAL_PROPERTY_ASSOCIATION('))
+                and any(int(v) in public for v in re.findall(r'#(\d+)', r))}
+    keep = set(original_ids)
+    todo = list(public | incoming)
+    while todo:
+        i = todo.pop()
+        if i in keep:
+            continue
+        keep.add(i)
+        todo.extend(int(v) for v in re.findall(r'#(\d+)', records[i]))
+    data = re.sub(r'#(\d+)\s*=\s*.*?;', lambda m: m[0] if int(m[1]) in keep else '', data, flags=re.S)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(gzip.compress(data.encode(), mtime=0))
 
 
 def main():
@@ -128,29 +166,7 @@ def main():
     shapes(None, synthetic, variant_rows)
     written, rows = write_bom(a.specify, synthetic, a.work / 'reduced', reduced=True)
     assert [r['quantity']['value'] for r in rows] == [1, 1, 4, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-    # Reduce the written file to original geometry plus the public BOM/material
-    # property graphs. Private history and default PMI are deliberately outside
-    # this fixture's scope; Specify's real gramil writes remain intact in --work.
-    import re
-    data = written.read_text()
-    records = dict((int(m[0]), m[1]) for m in re.findall(r'#(\d+)\s*=\s*(.*?);', data, re.S))
-    original_ids = {int(i) for i in re.findall(r'#(\d+)\s*=', synthetic.read_text())}
-    public = {i for i, r in records.items() if r.startswith('PROPERTY_DEFINITION(')
-              and any(f"'{n}'" in r for n in ('specify bom', 'material property'))}
-    incoming = {i for i, r in records.items()
-                if r.startswith(('PROPERTY_DEFINITION_REPRESENTATION(', 'GENERAL_PROPERTY_ASSOCIATION('))
-                and any(int(v) in public for v in re.findall(r'#(\d+)', r))}
-    keep = set(original_ids)
-    todo = list(public | incoming)
-    while todo:
-        i = todo.pop()
-        if i in keep:
-            continue
-        keep.add(i)
-        todo.extend(int(v) for v in re.findall(r'#(\d+)', records[i]))
-    data = re.sub(r'#(\d+)\s*=\s*.*?;', lambda m: m[0] if int(m[1]) in keep else '', data, flags=re.S)
-    a.output.parent.mkdir(parents=True, exist_ok=True)
-    a.output.write_bytes(gzip.compress(data.encode(), mtime=0))
+    reduce_bom(synthetic, written, a.output)
     print(json.dumps({'original': str(original_written), 'variant': str(variant_written), 'fixture': str(a.output), 'bytes': a.output.stat().st_size}))
 
 

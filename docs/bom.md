@@ -1,59 +1,48 @@
 # File-stated BOM data
 
-Drawing packs read native product number, name, description, formation revision
-and make/buy source, product categories, applied classifications, material
-designations and CAx-IF `material property` / `material name` properties. They
-also read UDA 1.8 properties on the product, definition, definition shape and
-immediate leaf occurrences. No Specify library or saved interview payload is
-needed. `bom::read` accepts the pinned haecceity P21 document and leaf definitions;
-single-part analysis reuses the PMI document parse.
+Drawing packs read native product ids, names, descriptions, formation revisions
+and make/buy source, product categories, classifications, material designations
+and CAx-IF `material property` / `material name` properties. UDA 1.8 properties on
+the row's product, formation, definition, definition shape and immediate leaf
+occurrences are read through pinned haecceity P21 access. No Specify dependency,
+private saved-answer payload, or document-wide BOM attestation is used.
 
-The public Specify v0.1.8 occurrence set is `specify bom`. Its items are
-`part_number`, `name`, `description`, `revision`, `make_buy`, `item_number`,
-`optional` and `stock`. Explicit answers in this set override native fields. Accepted suggestions marked
-by boolean `default.<field>` items, and other exporter attributes, fill missing
-fields. Keys are case-insensitive, spaces/hyphens are
-normalised to underscores, recognised values are normalised, and invalid or
-empty values are ignored. Appended sets are visited in entity order. Written
-suggestions are file statements, regardless of their authoring provenance.
+`part_number` is populated only by that row's own explicit `specify bom`
+`part_number` item (or a pack Spec override). Raw PRODUCT.id is never a part number:
+all native ids remain in `product_ids`, with file provenance, including ids of
+merged products and ids whose numbers are overridden. Stored `default.part_number`
+proposals are retained separately as `part_number_suggestion`, with suggested
+provenance. Neither raw ids nor suggestions change DWG NO, REFERENCE or identity
+grouping. The GA header likewise needs its root's own explicit part-number UDA;
+otherwise its existing generic-name/file-stem selection is preserved.
 
-Pack Spec fields override file values; missing supply and item numbers retain
-pack's guesses/allocation and their existing findings. Every populated field has
-`spec`, `file` or `guess` provenance in the JSON row's `sources` map and the CSV's
-corresponding `_source` column. Missing optional fields are absent from JSON and
-empty in CSV, with no source. `item` is the effective find number; `make_buy`
-retains `made`, `bought` or `not known`. Explicitly unknown supply is `unknown`;
-it receives a drawing without a make/buy judgment. Stock and standard-part
-classification do not imply supply.
+Explicit Specify answers override native values. Stored items flagged by boolean
+`default.<field>=T` fill gaps but keep source `suggested`; native facts win over
+these suggestions. Keys are case-insensitive with spaces/hyphens normalised to
+underscores. Known values are normalised; invalid and blank values are ignored.
+Pack Spec overrides win over both. JSON `sources` and CSV `_source` fields use
+`spec`, `file`, `suggested` and `guess`; absent values have no source. Suggested
+supply produces the existing make/buy guess finding. Other active stored
+suggestions produce `pack_bom_suggestion`, rather than being asserted as facts.
 
-A positive numeric occurrence reference designator or unambiguous numeric NAUO
-name can supply a find number. All occurrence IDs and populated reference
-designators are retained as `occurrence_references`. An exporter's sequential
-placement IDs are not repurposed as find numbers. Repeated occurrences must
-agree on a native find number; explicit Specify item UDAs take precedence.
-Duplicate effective item numbers refuse the pack instead of renumbering file
-facts. Different stated BOM facts prevent automatic geometry merging. Raw PRODUCT ids
-alone do not split geometry groups. Native ids count as part numbers only when
-usable public `specify bom` records on resolved product/definition/occurrence
-owners attest the file's BOM mapping. Manufacturing PMI or a number-like name
-alone is insufficient. No other explicit PDM part-number convention is currently
-promoted to drawing identity.
+Native MADE/BOUGHT are supply statements. Native NOT_KNOWN is retained in
+`file_make_buy` with source `file`, but does not select supply: the ordinary guess
+and its finding apply. Stock and standard-part classification do not imply supply.
+Stock overrides accept the same case/underscore/hyphen aliases as file values and
+are stored as `from stock` or `to be made`.
 
-`optional` provides a `quantity_range`, e.g. `0–1` (or `0–2` after a Spec quantity
-override). False yields the fixed range. It never changes placed geometry.
-MATERIAL uses the effective file material. DWG NO uses an explicit part number
-from a BOM-carrying file, or a Spec override. Without that evidence it retains
-main's original title-number selection. Raw PRODUCT.id is still exported as
-`part_number` with file provenance, and `part_number_is_explicit` records positive
-BOM evidence in JSON/Analysis without a judging finding. `product_ids` retains
-all native ids (including ids from shape-merged products or overridden numbers)
-with file provenance in both JSON and CSV. Explicit Spec revision overrides use the existing REV field. Sheet title
-intent remains in `drawing.sheet.title`; its material/number/revision overrides
-also appear in the row's values and provenance. Descriptions, optional ranges,
-stock and classifications are exported as data; no new visible sheet fields or
-layout are added. File defaults fill the title block after paper and view selection;
-long file values retain their overflow findings without changing the drawing layout.
+Find numbers come from the row's `item_number` UDA or an unambiguous positive
+numeric NAUO.name, as Specify documents. Occurrence ids and reference designators
+remain in `occurrence_references`; numeric reference designators are not find
+numbers. Duplicate effective file claims produce `pack_duplicate_item`, naming
+all affected rows. Their original `item_number` values and provenance are retained;
+automatic find allocation follows the existing made/bought row order. A Spec
+number wins over conflicting file claims; conflicting Spec numbers still refuse
+invalid intent.
 
-General-assembly front sheets use the same metadata reader for the root assembly
-and fill their existing MATERIAL and DWG NO cells after layout. Explicit
-`ga.drawing.sheet.title` values take precedence.
+Only optional rows receive a `quantity_range`, e.g. `0–1` or `0–2` after a Spec
+quantity override. Placed quantities are unchanged. MATERIAL and qualified DWG NO
+fill the existing title cells after layout; explicit sheet title overrides win.
+The GA's existing MATERIAL column uses each row's material. Descriptions,
+revisions, optional ranges, stock and classifications remain data-only; no new
+sheet elements are added. Real title/table overflow remains reported.

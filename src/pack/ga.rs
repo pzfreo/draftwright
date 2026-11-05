@@ -183,11 +183,10 @@ impl Prepared {
 /// Assembly lacks PRODUCT.id in the kernel's summary; follow the public Part 21
 /// graph's definition -> formation -> product chain, with decoded string attributes.
 fn assembly_metadata(
-    bytes: &[u8],
+    doc: &Document,
     definition: u64,
     name: &str,
 ) -> Result<(String, crate::bom::Metadata), Error> {
-    let doc = Document::parse(bytes.to_vec()).map_err(|e| Error::failed(e.to_string()))?;
     let attr = |id, index| match doc.get(id)? {
         RawEntity::Simple { attributes, .. } => attributes.get(index),
         _ => None,
@@ -203,7 +202,7 @@ fn assembly_metadata(
             _ => None,
         })
         .unwrap_or_default();
-    Ok((number, crate::bom::read_assembly(&doc, definition, name)))
+    Ok((number, crate::bom::read_assembly(doc, definition, name)))
 }
 
 fn generic(name: &str) -> bool {
@@ -734,13 +733,14 @@ fn layout(
 
 pub(super) fn prepare<'a>(
     step: &Path,
-    bytes: &[u8],
+    document: &Document,
     file: &StepFile,
     settings: &GaSpec,
     rows: impl Iterator<Item = &'a Row>,
     reused: &BTreeMap<usize, (&haecceity::Part, &Analysis)>,
     aliases: &BTreeMap<usize, super::Alias>,
 ) -> Result<Prepared, Error> {
+    let bytes = document.bytes();
     let started = std::time::Instant::now();
     let rows: Vec<_> = rows.collect();
     let radius = settings.balloon_radius.unwrap_or_else(|| {
@@ -799,18 +799,13 @@ pub(super) fn prepare<'a>(
         |a| a.name.as_str(),
     );
     let (number, metadata) = if let Some(root) = file.assemblies.first() {
-        assembly_metadata(bytes, root.product_definition, &root.name)?
+        assembly_metadata(document, root.product_definition, &root.name)?
     } else {
         let definition = rows.first().map(|r| &file.parts[r.part_indices[0]]);
         (
             definition.map_or_else(String::new, |d| d.product_id.clone()),
             definition
-                .map(|d| {
-                    Document::parse(bytes.to_vec())
-                        .map(|doc| crate::bom::read_assembly(&doc, d.product_definition, &d.name))
-                        .map_err(|e| Error::failed(e.to_string()))
-                })
-                .transpose()?
+                .map(|d| crate::bom::read_assembly(document, d.product_definition, &d.name))
                 .unwrap_or_default(),
         )
     };
@@ -892,7 +887,7 @@ pub(super) fn prepare<'a>(
                 Supply::Unknown => "unknown",
             }
             .into(),
-            String::new(),
+            row.bom.material.clone().unwrap_or_default(),
         ]);
     }
     if settings.parts_list != Some(false) {

@@ -13,13 +13,20 @@ pub struct Metadata {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_number: Option<String>,
-    /// Whether Specify BOM records identify this file's product ids as part numbers.
-    /// Raw PRODUCT.id remains exported even when this evidence is absent.
+    /// This row has its own explicitly answered Specify part_number UDA.
     #[serde(skip_serializing_if = "is_false")]
     pub part_number_is_explicit: bool,
     /// Native PRODUCT ids, retained separately from overridden/evidenced part numbers.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub product_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part_number_suggestion: Option<String>,
+    /// Fields filled from stored default.<field> suggestions, not file statements.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub suggested_fields: BTreeSet<String>,
+    /// Native source retained even when NOT_KNOWN falls through to guessing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_make_buy: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,7 +114,7 @@ fn source(s: &str) -> Option<String> {
         .into(),
     )
 }
-fn stock(s: &str) -> Option<String> {
+pub(crate) fn stock(s: &str) -> Option<String> {
     Some(
         match term(s).as_str() {
             "from stock" | "stock" | "in stock" => "from stock",
@@ -212,8 +219,7 @@ fn properties(doc: &Document, owner: u64, row: &mut Metadata) {
 
 fn apply_items(values: &BTreeMap<String, A>, overrides: bool, row: &mut Metadata) {
     for (k, value) in values {
-        // Written suggestions are file facts, but retain Specify's precedence:
-        // only explicit answers override an already stated native value.
+        // Explicit answers override; stored suggestions fill gaps and keep their provenance.
         let explicit = overrides
             && !values
                 .get(&format!("default.{k}"))
@@ -224,12 +230,25 @@ fn apply_items(values: &BTreeMap<String, A>, overrides: bool, row: &mut Metadata
                     && (explicit || row.$field.is_none())
                 {
                     row.$field = Some(value);
+                    let field = stringify!($field).to_string();
+                    if overrides && !explicit {
+                        row.suggested_fields.insert(field);
+                    } else {
+                        row.suggested_fields.remove(&field);
+                    }
                 }
             };
         }
 
         match k.as_str() {
-            "part_number" => put!(part_number, text(value)),
+            "part_number" if overrides && explicit => {
+                put!(part_number, text(value));
+                row.part_number_is_explicit = row.part_number.is_some();
+                row.part_number_suggestion = None;
+            }
+            "part_number" if overrides => {
+                put!(part_number_suggestion, text(value));
+            }
             "name" if overrides => put!(name, text(value)),
             "description" => put!(description, text(value)),
             "revision" => put!(revision, text(value)),
@@ -330,14 +349,9 @@ pub(crate) fn accounts_for(doc: &Document, id: u64, definitions: &[PartDefinitio
 /// Read only metadata for the supplied leaf definitions. Reverse references keep
 /// the work proportional to their properties, rather than scanning per leaf.
 pub fn read(doc: &Document, definitions: &[PartDefinition]) -> Vec<Metadata> {
-    let explicit = has_specify_bom_records(doc);
     definitions
         .iter()
-        .map(|d| {
-            let mut row = read_definition(doc, d.product_definition, d.shape, &d.name);
-            row.part_number_is_explicit = explicit && row.part_number.is_some();
-            row
-        })
+        .map(|d| read_definition(doc, d.product_definition, d.shape, &d.name))
         .collect()
 }
 
@@ -349,48 +363,7 @@ pub(crate) fn read_assembly(doc: &Document, pd: u64, name: &str) -> Metadata {
         .copied()
         .find(|id| link(doc, *id, "PRODUCT_DEFINITION_SHAPE", 2) == Some(pd))
         .unwrap_or(0);
-    let mut row = read_definition(doc, pd, shape, name);
-    row.part_number_is_explicit = has_specify_bom_records(doc) && row.part_number.is_some();
-    row
-}
-
-/// Specify's public, usable BOM property records attest the native PDM mapping.
-/// Ordinary PRODUCT ids and manufacturing PMI alone do not provide that evidence.
-fn has_specify_bom_records(doc: &Document) -> bool {
-    doc.graph().entities.iter().any(|(&id, entity)| {
-        let property = match entity {
-            RawEntity::Simple { name, .. } => name == "PROPERTY_DEFINITION",
-            RawEntity::Complex { parts, .. } => {
-                parts.iter().any(|p| p.name == "PROPERTY_DEFINITION")
-            }
-        };
-        if !property {
-            return false;
-        }
-        if at(doc, id, "PROPERTY_DEFINITION", 0).is_none_or(|s| term(&s) != "specify bom") {
-            return false;
-        }
-        let Some(owner) = link(doc, id, "PROPERTY_DEFINITION", 2) else {
-            return false;
-        };
-        let pd = link(doc, owner, "PRODUCT_DEFINITION_SHAPE", 2)
-            .or_else(|| link(doc, owner, "NEXT_ASSEMBLY_USAGE_OCCURRENCE", 4))
-            .or_else(|| link(doc, owner, "PRODUCT_DEFINITION_RELATIONSHIP", 4))
-            .unwrap_or(owner);
-        if ![
-            "PRODUCT",
-            "PRODUCT_DEFINITION",
-            "PRODUCT_DEFINITION_FORMATION",
-        ]
-        .iter()
-        .any(|ty| attrs(doc, pd, ty).is_some())
-        {
-            return false;
-        }
-        let mut facts = Metadata::default();
-        apply_items(&items(doc, id), true, &mut facts);
-        facts != Metadata::default()
-    })
+    read_definition(doc, pd, shape, name)
 }
 
 fn read_definition(doc: &Document, pd: u64, shape: u64, name: &str) -> Metadata {
@@ -398,12 +371,11 @@ fn read_definition(doc: &Document, pd: u64, shape: u64, name: &str) -> Metadata 
     let product = link(doc, formation, "PRODUCT_DEFINITION_FORMATION", 2).unwrap_or(0);
     let mut row = Metadata {
         name: (!name.trim().is_empty()).then(|| name.to_owned()),
-        part_number: at(doc, product, "PRODUCT", 0),
         product_ids: at(doc, product, "PRODUCT", 0).into_iter().collect(),
         description: at(doc, product, "PRODUCT", 2)
             .or_else(|| at(doc, pd, "PRODUCT_DEFINITION", 1)),
         revision: at(doc, formation, "PRODUCT_DEFINITION_FORMATION", 0),
-        make_buy: attrs(
+        file_make_buy: attrs(
             doc,
             formation,
             "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE",
@@ -413,6 +385,7 @@ fn read_definition(doc: &Document, pd: u64, shape: u64, name: &str) -> Metadata 
         .and_then(|s| source(&s)),
         ..Metadata::default()
     };
+    row.make_buy = row.file_make_buy.clone().filter(|s| s != "not known");
     let mut occurrences = Vec::new();
     for &id in doc.referrers(pd) {
         if link(doc, id, "PRODUCT_DEFINITION_RELATIONSHIP", 4)
@@ -434,15 +407,9 @@ fn read_definition(doc: &Document, pd: u64, shape: u64, name: &str) -> Metadata 
         let occurrence_id = rel.and_then(|a| a.first()).and_then(text);
         row.occurrence_references
             .extend(reference.iter().chain(occurrence_id.iter()).cloned());
-        // A reference designator remains a location label. Accept its
-        // positive numeric spelling, or the documented numeric NAUO name.
-        // OCCT's sequential occurrence ids are retained above, not
-        // silently repurposed as parts-list find numbers.
-        let n = reference
-            .as_deref()
-            .and_then(|s| s.parse::<u32>().ok())
-            .filter(|n| *n > 0)
-            .or_else(|| rel.and_then(|a| a.get(1)).and_then(number));
+        // Specify's native find-number convention is NAUO.name, not its id
+        // or reference_designator (which identifies occurrence locations).
+        let n = rel.and_then(|a| a.get(1)).and_then(number);
         numbers.push(n);
     }
     if let Some(Some(n)) = numbers.first()
@@ -514,6 +481,13 @@ impl Metadata {
         b.occurrence_references.clear();
         a.product_ids.clear();
         b.product_ids.clear();
+        // Raw source diagnostics and proposed numbers do not assert identity.
+        a.file_make_buy = None;
+        b.file_make_buy = None;
+        a.part_number_suggestion = None;
+        b.part_number_suggestion = None;
+        a.suggested_fields.remove("part_number_suggestion");
+        b.suggested_fields.remove("part_number_suggestion");
         // PRODUCT.id alone is a raw exporter fact, not part-number evidence.
         if !a.part_number_is_explicit {
             a.part_number = None;
