@@ -492,6 +492,36 @@ pub(crate) fn leader_on_extension(dimensions: &[PlannedDimension]) -> BTreeSet<V
     pairs
 }
 
+pub(crate) fn crowded_labels(plan: &crate::model::Plan) -> usize {
+    contacts::contacts(plan)
+        .iter()
+        .filter(|p| p.code == "label_crowded")
+        .count()
+}
+
+/// Two distinct annotations terminating on an opening smaller than 8 paper mm
+/// need space to be read independently. Count owners, not the two heads of one size.
+pub(crate) fn converging_terminations(analysis: &Analysis, plan: &crate::model::Plan) -> bool {
+    let cache = footprints::Cache::default();
+    plan.views.iter().any(|view| {
+        let tips: Vec<_> = plan
+            .dimensions
+            .iter()
+            .filter(|d| d.view == view.id && d.kind == "callout")
+            .filter_map(|d| d.placed.as_ref().map(|p| (d, p)))
+            .flat_map(|(d, p)| p.arrows.iter().map(move |a| (d.id.as_str(), a[0])))
+            .chain(
+                plan.gdt
+                    .iter()
+                    .filter(|g| g.view == view.id)
+                    .filter_map(|g| g.placed.as_ref().map(|p| (g, p)))
+                    .flat_map(|(g, p)| p.arrows.iter().map(move |a| (g.id.as_str(), a[0]))),
+            )
+            .collect();
+        cache.get(analysis, view).converging_terminations(&tips)
+    })
+}
+
 /// A dimension's ink, mm on the page.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2317,25 +2347,60 @@ pub(crate) fn reserve_linear_intent(
 
 /// Judge the final drawn ink, including arrow flares, after all ordinary lane passes.
 pub(crate) fn authored_placement_clear(spec: &Spec, dims: &[PlannedDimension]) -> bool {
-    dims.iter()
-        .filter(|d| {
-            spec.dimensions.get(&d.id).is_some_and(|entry| {
-                entry.between.is_some()
-                    && (d.kind == "angular"
-                        || (d.kind == "linear"
-                            && entry.along.as_deref().is_none_or(|a| a == "true")))
-            })
+    dims.iter().filter(|d| oblique_authored(spec, d)).all(|d| {
+        d.placed.as_ref().is_some_and(|p| {
+            dims.iter()
+                .filter(|q| q.id != d.id)
+                .filter_map(|q| q.placed.as_ref())
+                .all(|q| {
+                    placement::annotations_clear(p, q) && placement::dimension_lines_clear(p, q)
+                })
         })
-        .all(|d| {
-            d.placed.as_ref().is_some_and(|p| {
-                dims.iter()
-                    .filter(|q| q.id != d.id)
-                    .filter_map(|q| q.placed.as_ref())
-                    .all(|q| {
-                        placement::annotations_clear(p, q) && placement::dimension_lines_clear(p, q)
-                    })
-            })
-        })
+    })
+}
+
+fn oblique_authored(spec: &Spec, d: &PlannedDimension) -> bool {
+    spec.dimensions.get(&d.id).is_some_and(|entry| {
+        entry.between.is_some()
+            && (d.kind == "angular"
+                || (d.kind == "linear" && entry.along.as_deref().is_none_or(|a| a == "true")))
+    })
+}
+
+/// Conflicting owners, so paper trials can distinguish new contacts from the
+/// seed's inherited contacts, which its later finishing passes may repair.
+pub(crate) fn authored_placement_conflicts(
+    spec: &Spec,
+    dims: &[PlannedDimension],
+) -> BTreeSet<(String, String)> {
+    let mut conflicts = BTreeSet::new();
+    if !spec
+        .dimensions
+        .values()
+        .any(|entry| entry.between.is_some())
+    {
+        return conflicts;
+    }
+    for d in dims.iter().filter(|d| oblique_authored(spec, d)) {
+        let Some(p) = &d.placed else {
+            conflicts.insert((d.id.clone(), d.id.clone()));
+            continue;
+        };
+        for q in dims.iter().filter(|q| q.id != d.id) {
+            if let Some(other) = &q.placed
+                && (!placement::annotations_clear(p, other)
+                    || !placement::dimension_lines_clear(p, other))
+            {
+                let (a, b) = if d.id < q.id {
+                    (&d.id, &q.id)
+                } else {
+                    (&q.id, &d.id)
+                };
+                conflicts.insert((a.clone(), b.clone()));
+            }
+        }
+    }
+    conflicts
 }
 
 /// A slot chain must have room for its arrows and its own text between its ends.

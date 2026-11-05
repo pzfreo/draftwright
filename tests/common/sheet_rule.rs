@@ -1,5 +1,7 @@
-//! An independent oracle for the maintainer's sheet rule (2026-10-12), read from the candidates
-//! a plan's sheet basis records. It does not call the planner's selection code.
+//! An independent oracle for the maintainer's sheet rule, read from the recorded candidates.
+//! Live automatic choices exhaust descending preferred scales on each paper before growing it.
+//! The legacy recovery trace below retains its historical fill rule (2026-10-12).
+//! This oracle does not call the planner's selection code.
 //!
 //! 1. The smallest fit is the smallest sheet with a valid complete candidate (no hard finding or
 //!    loss, no more annotations over another view than the first estimate), at its largest such
@@ -111,9 +113,16 @@ pub fn assert_follows(name: &str, plan: &Plan, seed: (&str, &str)) -> (String, S
                 candidate.preferred_max_sheets,
                 plan.spec.sheet.preferred_max_sheets.unwrap_or(2) as usize
             );
+            let scales: Vec<_> = candidate.scales.iter().map(|s| factor(s)).collect();
             assert!(
-                candidate.scales.len() <= 2,
-                "{name}: unbounded scale search"
+                scales
+                    .iter()
+                    .all(|s| draftwright::layout::SCALES.contains(s)),
+                "{name}: non-preferred scale"
+            );
+            assert!(
+                scales.windows(2).all(|w| w[0] > w[1]),
+                "{name}: preferred scales must descend without repeats"
             );
             // A request ruled out before planning has no trial scale and states why.
             if candidate.kind.as_deref() == Some(draftwright::sheet_policy::RULED_OUT) {
@@ -144,6 +153,11 @@ pub fn assert_follows(name: &str, plan: &Plan, seed: (&str, &str)) -> (String, S
             );
             assert_eq!(winner.size, plan.sheet.size);
             assert!(winner.scales.contains(&plan.sheet.scale));
+            assert_eq!(
+                winner.scales.last(),
+                Some(&plan.sheet.scale),
+                "{name}: largest clean scale must be the last trial"
+            );
             assert!(plan.sheets.len() < winner.max);
             assert!(
                 plan.sheet

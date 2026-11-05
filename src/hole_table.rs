@@ -2388,6 +2388,24 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
         if !matches!(view.id.as_str(), "v:front" | "v:plan" | "v:side") {
             continue;
         }
+        // An automatic coordinate schedule cannot replace an authored pitch,
+        // nor control the same pattern beside that pitch. Keep its ladder;
+        // the paper search must find room for the author's printed statement.
+        if plan.spec.hole_table == Setting::Auto
+            && plan.spec.features.iter().any(|(id, f)| {
+                f.pattern.is_some()
+                    && plan.dimensions.iter().any(|d| {
+                        d.view == view.id
+                            && d.measurements.iter().any(|m| {
+                                m.feature == *id
+                                    && (m.parameter.starts_with("pitch.")
+                                        || m.parameter.starts_with("grid_pitch."))
+                            })
+                    })
+            })
+        {
+            continue;
+        }
         let axes: Vec<_> = (0..3).filter(|k| *k != axis).collect();
         let callouts: Vec<_> = plan
             .dimensions

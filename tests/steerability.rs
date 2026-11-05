@@ -310,6 +310,33 @@ fn steer_295_automatic_sheet() {
         "a4_one_to_one",
         auto.plan.sheet.size == "A4" && auto.plan.sheet.scale == "1:1",
     );
+    for p in [&explicit, &auto] {
+        assert!(annotations_in_bounds(rendered(BRACKET, p)));
+        assert!(!has(&p.plan, "page_fit_uncertain"));
+        assert!(
+            !rendered(BRACKET, p)
+                .structural
+                .iter()
+                .any(|f| f.code == "annotation_overlap")
+        );
+    }
+    let rejected: Vec<_> = auto
+        .plan
+        .sheet
+        .basis
+        .split(';')
+        .filter(|entry| entry.contains("hard layout finding"))
+        .collect();
+    assert!(
+        !rejected.is_empty(),
+        "oversized candidates must be rejected"
+    );
+    for entry in rejected {
+        assert!(
+            entry.contains(" [") && entry.contains(": ") && entry.contains(']'),
+            "hard candidate findings must be named: {entry}"
+        );
+    }
     c.finish(295);
 }
 
@@ -1974,6 +2001,12 @@ fn steer_331_finished_sheet_fits() {
         annotations_in_bounds(rendered(CTC, &original))
             && annotations_in_bounds(rendered(CTC, &original_baseline)),
     );
+    for p in [&original, &original_baseline] {
+        assert!(
+            has(&p.plan, "page_fit_uncertain"),
+            "the original 650 overflow must retain its page-fit warning"
+        );
+    }
 
     // Keep every dimension and the original A3 1:5. Moving only the 650 below
     // restores the false-warning premise, paired with/without the 510 placement.

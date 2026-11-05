@@ -87,6 +87,98 @@ mod corpus;
 mod sheet_rule;
 
 #[test]
+fn cosmetic_contacts_keep_the_thickened_plate_on_a4_at_full_scale() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/revisions/plate_thickened.new.step.gz");
+    let a = model::analyse_native(&path).unwrap().1;
+    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    assert_eq!(
+        (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+        ("A4", "1:1"),
+        "{}",
+        plan.sheet.basis
+    );
+    assert!(plan.sheets.is_empty());
+    assert!(!plan.problems.iter().any(|p| matches!(
+        p.code.as_str(),
+        "annotation_off_sheet"
+            | "annotation_overlap"
+            | "annotation_ink_overlap"
+            | "page_fit_uncertain"
+            | "views_do_not_fit"
+    )));
+    let explicit = model::plan_recovered(&a, &named("A4", "1:1")).unwrap();
+    let statements = |p: &model::Plan| {
+        p.dimensions
+            .iter()
+            .filter(|d| d.placed.is_some())
+            .flat_map(|d| &d.measurements)
+            .map(|m| (m.feature.clone(), m.parameter.clone()))
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    assert_eq!(statements(&plan), statements(&explicit));
+}
+
+#[test]
+fn grm04_uses_the_largest_clean_scale_on_a4_before_spending_more_paper() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/rule_pins/grm04_drive_plate.step.gz");
+    let a = model::analyse_native(&path).unwrap().1;
+    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    assert_eq!(
+        (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+        ("A4", "5:1")
+    );
+    assert!(plan.sheets.is_empty());
+    assert_eq!(
+        plan.sheet.dimension_spacing,
+        model::DimensionSpacing::Compact
+    );
+    assert!(!plan.problems.iter().any(|p| matches!(
+        p.code.as_str(),
+        "page_fit_uncertain"
+            | "annotation_off_sheet"
+            | "views_do_not_fit"
+            | "callout_dropped"
+            | "location_ref_dropped"
+            | "leader_along_centreline"
+    )));
+    let conflicts = plan
+        .problems
+        .iter()
+        .filter(|p| {
+            matches!(
+                p.code.as_str(),
+                "annotation_ink_overlap"
+                    | "annotation_over_view"
+                    | "annotation_line_over_view"
+                    | "annotation_leader_crossing"
+                    | "annotation_outside_area"
+            )
+        })
+        .count();
+    assert!(plan.sheet.basis.contains(&format!("A4 at 5:1 (Compact): valid and complete; usable; {conflicts} final annotation conflicts")),"{}",plan.sheet.basis);
+    for outcome in [
+        "A4 at 10:1",
+        "A4 at 5:1 (Normal)",
+        "A4 at 5:1 (Compact)",
+        "base choice before scale maximisation A3 at 5:1",
+    ] {
+        assert!(
+            plan.sheet.basis.contains(outcome),
+            "{outcome}: {}",
+            plan.sheet.basis
+        );
+    }
+    assert!(
+        plan.views
+            .iter()
+            .filter(|v| v.id != "v:iso")
+            .all(|v| v.scale == 5.0)
+    );
+}
+
+#[test]
 fn grm03_keeps_a4_once_its_extension_contact_is_finished_away() {
     let Some(dir) = corpus::dir() else {
         return;
@@ -554,11 +646,12 @@ fn assert_small_single_sheet(name: &str, expected: (&str, &str)) {
     );
 }
 
-/// A crowded but readable A4 is usable: a small part is not enlarged onto A3.
+/// Readability is required even when a smaller scale physically fits A4.
 #[test]
-fn small_10224_fits_one_a4_sheet() {
-    // One sheet still; A3 at 2:1 since the 3 mm frame gutter (2026-10-25) leaves A4 at 1:1
-    // with hard layout findings (formerly A4 1:1).
+fn small_10224_keeps_readable_features_at_two_to_one() {
+    // Repacking the section lets A4 1:1 fit, but its 1.296 mm diameter
+    // is below the 1.5 paper-mm reduction floor. A4 2:1 does not fit
+    // the complete layout, so retain main's readable A3 2:1.
     assert_small_single_sheet("10224", ("A3", "2:1"));
 }
 
@@ -601,8 +694,7 @@ fn overflow_honours_named_paper_and_sheet_count() {
         .1;
     for (intent, size, count) in [
         (json!({"sheet":{"size":"A2"}}), "A2", 1),
-        // A hard one-sheet limit keeps the preference order: the first usable paper is A3
-        // since the 3 mm frame gutter (2026-10-25); A4 was.
+        // A one-sheet limit must not trade the 1.5 mm feature minimum for A4.
         (json!({"sheets":{"max":1}}), "A3", 1),
     ] {
         let spec: Spec = serde_json::from_value(intent).unwrap();
@@ -610,6 +702,9 @@ fn overflow_honours_named_paper_and_sheet_count() {
         assert_eq!(p.sheet.size, size);
         assert_eq!(1 + p.sheets.len(), count);
         assert_eq!(p.spec.sheets, spec.sheets);
+        if spec.sheet.size.is_none() {
+            assert_eq!(p.sheet.scale, "2:1");
+        }
     }
     let spec: Spec = serde_json::from_value(json!({"sheets":{"max":2}})).unwrap();
     let p = model::plan_recovered(&a, &spec).unwrap();

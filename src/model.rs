@@ -2238,12 +2238,38 @@ fn drops(plan: &Plan) -> usize {
         .count()
 }
 
+/// Name the reported hard findings counted by the recovery, including the Spec's scale floor.
+pub(crate) fn hard_layout_codes(plan: &Plan) -> BTreeMap<&str, usize> {
+    let mut codes = BTreeMap::new();
+    for p in plan.problems.iter().filter(|p| {
+        HARD_LAYOUT.contains(&p.code.as_str())
+            && p.severity != "info"
+            && !p.message.ends_with(RADIUS_DEFAULT_WITHDRAWN)
+    }) {
+        *codes.entry(p.code.as_str()).or_default() += 1;
+    }
+    if crate::sheets::floor(&plan.spec).is_some_and(|floor| plan.sheet.scale_factor < floor) {
+        codes.insert("sheet_below_smallest_scale", 1);
+    }
+    codes
+}
+
 /// What a plan's recovery findings are, in words; *dropped* of them are hole items dropped.
-fn said(f: layout::Findings, dropped: usize) -> String {
-    let hard = match f.hard {
+fn said(f: layout::Findings, dropped: usize, codes: BTreeMap<&str, usize>) -> String {
+    let mut hard = match f.hard {
         1 => "1 hard layout finding".to_string(),
         n => format!("{n} hard layout findings"),
     };
+    if !codes.is_empty() {
+        hard += &format!(
+            " [{}]",
+            codes
+                .into_iter()
+                .map(|(code, count)| format!("{code}: {count}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     let crowded = match f.dropped - dropped {
         0 => None,
         1 => Some("1 hole location too close to read".to_string()),
@@ -2352,7 +2378,7 @@ pub(crate) fn note_final_conflicts(plan: &mut Plan) {
     }
 }
 
-fn longer_callouts(candidate: &Plan, baseline: &Plan) -> bool {
+pub(crate) fn longer_callouts(candidate: &Plan, baseline: &Plan) -> bool {
     let length = |d: &crate::dims::PlannedDimension| {
         d.placed.as_ref().map_or(0.0, |p| {
             p.lines
@@ -2467,6 +2493,17 @@ pub(crate) fn carries_required(required: &Plan, candidate: &Plan) -> bool {
 /// Check actual bounds independently on each sheet; coincident coordinates on different
 /// pages are expected. Keep the single-sheet gate identical.
 pub(crate) fn drawn_sheets_fit(analysis: &Analysis, plan: &Plan) -> bool {
+    sheets_fit(analysis, plan, true)
+}
+
+pub(crate) fn finished_sheets_fit(analysis: &Analysis, plan: &Plan) -> bool {
+    sheets_fit(analysis, plan, false)
+}
+
+fn sheets_fit(analysis: &Analysis, plan: &Plan, reservations: bool) -> bool {
+    if plan.sheets.is_empty() {
+        return items_fit(analysis, plan, reservations);
+    }
     std::iter::once(&plan.sheet)
         .chain(&plan.sheets)
         .all(|sheet| {
@@ -2487,11 +2524,42 @@ pub(crate) fn drawn_sheets_fit(analysis: &Analysis, plan: &Plan) -> bool {
                 local.radius_table = None;
                 local.requirements.clear();
             }
-            drawn_items_fit(analysis, &local)
+            items_fit(analysis, &local, reservations)
         })
 }
 
 fn drawn_items_fit(analysis: &Analysis, p: &Plan) -> bool {
+    items_fit(analysis, p, true)
+}
+
+/// Final paper candidates are judged by drawn views, not their estimated bands.
+/// Intermediate packing/repair still needs the reservations to remain disjoint.
+pub(crate) fn finished_items_fit(analysis: &Analysis, p: &Plan) -> bool {
+    items_fit(analysis, p, false)
+}
+
+/// A rejected automatic pair still earns its explicit presentation. The trial
+/// is bounded: an unfitting replay cannot start fit-fix searches.
+pub(crate) fn explicit_fit_candidate(
+    analysis: &Analysis,
+    spec: &Spec,
+) -> Result<Option<Plan>, Invalid> {
+    crate::planning::explicit_pair(|| {
+        crate::planning::isolated(analysis, || {
+            // The automatic trial's synthetic max=1 is equivalent to the default
+            // single-sheet request. Do not let it change nominal finishing order.
+            let mut explicit = spec.clone();
+            if crate::sheets::max_only(&explicit) {
+                explicit.sheets = None;
+            }
+            let spec = &explicit;
+            let plan = plan_automatic(analysis, spec)?;
+            Ok(plan.sheets.is_empty().then_some(plan))
+        })
+    })
+}
+
+fn items_fit(analysis: &Analysis, p: &Plan, reservations: bool) -> bool {
     let inside = |b: [f64; 4]| {
         b[0] >= layout::margin() - 1e-6
             && b[1] >= layout::margin() - 1e-6
@@ -2508,26 +2576,32 @@ fn drawn_items_fit(analysis: &Analysis, p: &Plan) -> bool {
     };
     let mut title = p.sheet.title_block;
     title[3] = title_block::top(title);
-    crate::sheet_fit::footprints(analysis, p)
+    let footprints = crate::sheet_fit::footprints(analysis, p);
+    // View reservations include empty annotation lanes. The finished dimensions
+    // are checked separately; overlapping reservations do not mean that
+    // the rendered views overlap (#295).
+    let view_bounds = |i: usize| {
+        if reservations {
+            p.views[i].area
+        } else {
+            footprints[i]
+        }
+    };
+    footprints.iter().copied().all(|b| {
+        if framed.contains(&b) {
+            on_frame(b)
+        } else {
+            inside(b)
+        }
+    }) && crate::sheet_fit::furniture_footprints(analysis, p)
         .into_iter()
-        .all(|b| {
-            if framed.contains(&b) {
-                on_frame(b)
-            } else {
-                inside(b)
-            }
+        .all(|b| !rect_overlap(b, title))
+        && (0..p.views.len()).all(|i| {
+            let b = view_bounds(i);
+            inside(b) && !rect_overlap(b, p.sheet.title_block)
         })
-        && crate::sheet_fit::furniture_footprints(analysis, p)
-            .into_iter()
-            .all(|b| !rect_overlap(b, title))
-        && p.views
-            .iter()
-            .all(|v| inside(v.area) && !rect_overlap(v.area, p.sheet.title_block))
-        && p.views.iter().enumerate().all(|(i, a)| {
-            p.views[i + 1..]
-                .iter()
-                .all(|b| !rect_overlap(a.area, b.area))
-        })
+        && (0..p.views.len())
+            .all(|i| (i + 1..p.views.len()).all(|j| !rect_overlap(view_bounds(i), view_bounds(j))))
 }
 
 pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
@@ -2608,7 +2682,7 @@ struct FittingFix {
 }
 
 fn fit_fix(analysis: &Analysis, spec: &Spec) -> Result<Option<FittingFix>, Invalid> {
-    if crate::planning::is_fixed_pair() {
+    if crate::planning::bounded_pair() {
         return Ok(None);
     }
     let (Some(size), Some(scale)) = (&spec.sheet.size, &spec.sheet.scale) else {
@@ -3583,7 +3657,11 @@ fn recover_candidates(
                 crate::sheet_fit::correct_estimate(analysis, &mut corrected);
                 compact_authored_row(analysis, &mut corrected);
             }
-            if drawn_items_fit(analysis, &corrected) {
+            // Reserved view bands can overlap or exceed the frame after the actual
+            // ink has settled. They are packing estimates, not rendered overflow.
+            // As in automatic trials, include captions, line work and furniture,
+            // and reject actual view/view or view/title-block overlaps.
+            if finished_items_fit(analysis, &corrected) {
                 first = corrected;
                 first.problems.remove(i);
                 first.sheet.fill = crate::sheet_fit::fill(analysis, &first);
@@ -3643,6 +3721,8 @@ fn recover_candidates(
         && crate::sheet_fit::illegible_steps(analysis, &first) == 0
         && undrawn_gdt(&first) == 0
         && drawn_items_fit(analysis, &first);
+    let authored_reference = (!crate::nominal::comparison())
+        .then(|| crate::dims::authored_placement_conflicts(spec, &first.dimensions));
     // A2 and larger only for a part whose views do not fit A3 at 1:1; asked at most once, and
     // only when a large sheet is in play (a named sheet is the user's choice).
     let mut small_part: Option<bool> = None;
@@ -3665,6 +3745,9 @@ fn recover_candidates(
         && extra_existing_crossings(&first) == 0;
     let required = carried(&first);
     let mut tried = Vec::new();
+    // Basis traces name hard codes. Retained recovery diagnoses keep their
+    // established wording, rather than changing merely because a search ran.
+    let mut diagnostic_assessments = Vec::new();
     let mut candidates = Vec::new();
     let mut fitting_incomplete: Option<(usize, usize, usize, Plan)> = None;
     let mut smallest = None;
@@ -3901,14 +3984,30 @@ fn recover_candidates(
                 }
                 crate::iso_caption::refresh(analysis, &mut p);
                 // An estimate's iso budget can refuse a sheet whose finished drawing fits.
-                // Only discharge that estimate when all actual item bounds and reserved views fit.
-                let actual_fit = drawn_items_fit(analysis, &p);
+                // Only discharge that estimate when all actual item bounds and view extents fit.
+                // Historical route comparisons are unrendered, pre-polish
+                // templates. Keep their conservative reservations; only live
+                // finished candidates can discharge an estimate from drawn bounds.
+                let actual_fit = if crate::nominal::comparison() {
+                    drawn_items_fit(analysis, &p)
+                } else {
+                    finished_items_fit(analysis, &p)
+                };
                 if actual_fit {
                     p.problems.retain(|q| q.code != "page_fit_uncertain");
                 }
                 p.status = crate::completeness::status(&p.problems);
                 let mut f = findings(&p);
                 f.hard += usize::from(!actual_fit);
+                // Releasing empty reservations must not add oblique authored
+                // stroke conflicts. Inherited contacts retain their existing
+                // finishing path, just as the other crossing budgets do.
+                let authored_conflicts = authored_reference.as_ref().map_or(0, |reference| {
+                    crate::dims::authored_placement_conflicts(spec, &p.dimensions)
+                        .difference(reference)
+                        .count()
+                });
+                f.hard += authored_conflicts;
                 let unreadable_steps = crate::sheet_fit::illegible_steps(analysis, &p);
                 f.hard += unreadable_steps;
                 f.dropped += required.difference(&carried(&p)).count();
@@ -3931,11 +4030,30 @@ fn recover_candidates(
                         || feature_crossings(&p) > feature_crossings(&first)
                         || (p.views.iter().any(|v| v.detail.is_some())
                             && longer_callouts(&p, &first)));
-                let verdict = if quality_veto {
-                    format!("detail quality veto; {}", said(f, drops(&p)))
+                let mut hard_codes = hard_layout_codes(&p);
+                if !actual_fit {
+                    hard_codes.insert("finished_items_do_not_fit", 1);
+                }
+                if authored_conflicts > 0 {
+                    hard_codes.insert("authored_annotation_conflict", authored_conflicts);
+                }
+                if unreadable_steps > 0 {
+                    hard_codes.insert("unreadable_step_span", unreadable_steps);
+                }
+                let plain_verdict = if quality_veto {
+                    format!(
+                        "detail quality veto; {}",
+                        said(f, drops(&p), BTreeMap::new())
+                    )
                 } else {
-                    said(f, drops(&p))
+                    said(f, drops(&p), BTreeMap::new())
                 };
+                let verdict = if quality_veto {
+                    format!("detail quality veto; {}", said(f, drops(&p), hard_codes))
+                } else {
+                    said(f, drops(&p), hard_codes)
+                };
+                diagnostic_assessments.push((verdict.clone(), plain_verdict));
                 let selection_fill =
                     crate::sheet_fit::selection_fill(analysis, &p, compare_diagram_fill);
                 tried.push(format!(
@@ -4144,16 +4262,37 @@ fn recover_candidates(
         } else {
             String::new()
         };
+        let f = findings(&first);
+        let clean_retained = f.clean() && !illegible;
+        let assessment = if clean_retained {
+            "has no hard layout findings or space drops".into()
+        } else {
+            format!("has {}", said(f, drops(&first), BTreeMap::new()))
+        };
+        let diagnostic_trials = if clean_retained {
+            tried.join("; ")
+        } else {
+            diagnostic_assessments
+                .iter()
+                .fold(tried.join("; "), |trace, (coded, plain)| {
+                    trace.replace(coded, plain)
+                })
+        };
+        let conclusion = if clean_retained {
+            "no alternative standard sheet and legible scale passed every layout, coverage and annotation-quality check"
+        } else {
+            "no standard sheet and legible scale yields a valid complete drawing"
+        };
         first.problems.push(Problem {
             id: "p:layout_recovery_exhausted:sheet".into(),
             code: "layout_recovery_exhausted".into(),
             severity: if illegible { "warning" } else { "info" }.into(),
             message: format!(
-                "{} at {} has {}{below}; no standard sheet and legible scale yields a valid complete drawing, so this drawing and its findings are kept. Tried {}.",
+                "{} at {} {}{below}; {conclusion}, so this drawing and its findings are kept. Tried {}.",
                 first.sheet.size,
                 first.sheet.scale,
-                said(findings(&first), drops(&first)),
-                tried.join("; ")
+                assessment,
+                diagnostic_trials
             ),
             subjects: vec!["sheet".into()],
             ..Default::default()
@@ -4456,18 +4595,25 @@ fn plan_recovered_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid
     }
     let prepared = crate::modelled_threads::planning(analysis, spec);
     let mut plan = crate::dims::pmi_policy::planning(|| plan_recovered_inner(&prepared, spec))?;
-    crate::half_section::apply(&prepared, &mut plan);
+    if spec.sheet.keep_layout == Some(true) || !crate::sheet_policy::finishes_selection(spec) {
+        finish_selected(&prepared, &mut plan);
+    }
     crate::modelled_threads::source_hash(
         analysis,
         matches!(&prepared, std::borrow::Cow::Owned(_)),
         &mut plan,
     );
-    crate::sheets::furnish(&mut plan);
-    crate::fixes::retain_local_layout(&mut plan);
-    crate::dims::contacts::report(&prepared, &mut plan);
     note_final_conflicts(&mut plan);
-    crate::characteristics::apply(analysis, &mut plan);
     Ok(plan)
+}
+
+/// The final dependent ink and findings, shared by candidate acceptance and publication.
+pub(crate) fn finish_selected(analysis: &Analysis, plan: &mut Plan) {
+    crate::half_section::apply(analysis, plan);
+    crate::sheets::furnish(plan);
+    crate::fixes::retain_local_layout(plan);
+    crate::dims::contacts::report(analysis, plan);
+    crate::characteristics::apply(analysis, plan);
 }
 
 fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
@@ -4475,7 +4621,7 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
         return crate::dims::pmi_policy::ignore(analysis, spec, plan_recovered);
     }
     crate::planning::with(analysis, || {
-        let mut plan = if spec.sheet.keep_layout == Some(true) {
+        let plan = if spec.sheet.keep_layout == Some(true) {
             let fixed = crate::local_layout::forced(spec)?;
             let mut plan = crate::planning::fixed_pair(|| plan_automatic(analysis, &fixed))?;
             plan.spec = spec.clone();
@@ -4483,55 +4629,68 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
         } else {
             crate::sheet_policy::select(analysis, spec)?
         };
-        // Finish the selected drawing with the spacing it was planned with, which may be the
-        // automatic compact fallback ([`crate::sheet_policy`]).
-        let compact = plan.sheet.dimension_spacing == DimensionSpacing::Compact;
-        crate::dims::with_compact(compact, || {
-            let effective = crate::spec_gdt::effective(analysis, &plan.spec)?;
-            // Added notch callouts can leave a fixed-pair paper trial with
-            // deferred routes. Finish that expanded inventory in its chosen
-            // frame, just as canonical pin replay does. Existing annotation
-            // families retain their established finishing path.
-            let expanded_notches = plan.dimensions.iter().any(|d| {
-                d.measurements
-                    .iter()
-                    .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
-            });
-            if expanded_notches {
-                finish_nominal_plan(effective.as_ref(), spec, &mut plan);
-            }
-            // Repair only the selected drawing. Candidate paper/scale trials keep their
-            // established costs, so a clearer route cannot force a larger sheet.
-            // A reference that cannot be planned (an authored item duplicating an automatic
-            // one) leaves the drawing to its own pass.
-            let natural = natural_spec(spec).and_then(|full| plan_recovered(analysis, &full).ok());
-            crate::dims::callout_routes::prefer_interior(
-                effective.as_ref(),
-                spec,
-                &mut plan,
-                natural.as_ref(),
-            );
-            crate::dims::finish_openings(effective.as_ref(), spec, &mut plan);
-            crate::dims::callout_routes::finish(effective.as_ref(), spec, &mut plan);
+        if spec.sheet.keep_layout != Some(true) && crate::sheet_policy::finishes_selection(spec) {
+            Ok(plan)
+        } else {
+            finish_presentation(analysis, spec, plan)
+        }
+    })
+}
+
+/// The same final routes are used by paper-choice previews and by the selected drawing.
+/// Previews run in an isolated scope; only the selected drawing publishes these repairs.
+pub(crate) fn finish_presentation(
+    analysis: &Analysis,
+    spec: &Spec,
+    mut plan: Plan,
+) -> Result<Plan, Invalid> {
+    // Finish the selected drawing with the spacing it was planned with, which may be the
+    // automatic compact fallback ([`crate::sheet_policy`]).
+    let compact = plan.sheet.dimension_spacing == DimensionSpacing::Compact;
+    crate::dims::with_compact(compact, || {
+        let effective = crate::spec_gdt::effective(analysis, &plan.spec)?;
+        // Added notch callouts can leave a fixed-pair paper trial with
+        // deferred routes. Finish that expanded inventory in its chosen
+        // frame, just as canonical pin replay does. Existing annotation
+        // families retain their established finishing path.
+        let expanded_notches = plan.dimensions.iter().any(|d| {
+            d.measurements
+                .iter()
+                .any(|m| m.feature.starts_with("f:rectangular_through_notch:"))
+        });
+        if expanded_notches {
+            finish_nominal_plan(effective.as_ref(), spec, &mut plan);
+        }
+        // Paper trials preview these same repairs before accepting a new scale.
+        // A reference that cannot be planned (an authored item duplicating an automatic
+        // one) leaves the drawing to its own pass.
+        let natural = natural_spec(spec).and_then(|full| plan_recovered(analysis, &full).ok());
+        crate::dims::callout_routes::prefer_interior(
+            effective.as_ref(),
+            spec,
+            &mut plan,
+            natural.as_ref(),
+        );
+        crate::dims::finish_openings(effective.as_ref(), spec, &mut plan);
+        crate::dims::callout_routes::finish(effective.as_ref(), spec, &mut plan);
+        crate::dims::hole_marks::attach(effective.as_ref(), spec, &mut plan);
+        crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
+        if crate::dims::openings_need_settling(&plan) {
+            crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
             crate::dims::hole_marks::attach(effective.as_ref(), spec, &mut plan);
             crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
-            if crate::dims::openings_need_settling(&plan) {
-                crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
-                crate::dims::hole_marks::attach(effective.as_ref(), spec, &mut plan);
-                crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
-                crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
-                crate::dims::callout_routes::finish_frames(effective.as_ref(), spec, &mut plan);
-            }
-            crate::dims::gdt::cited_undrawn(&mut plan);
-            crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
-            if expanded_notches
-                || crate::dims::pmi_policy::carries(effective.as_ref())
-                || !spec.origin.is_empty()
-            {
-                crate::fixes::attach(effective.as_ref(), &mut plan);
-            }
-            Ok(plan)
-        })
+            crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
+            crate::dims::callout_routes::finish_frames(effective.as_ref(), spec, &mut plan);
+        }
+        crate::dims::gdt::cited_undrawn(&mut plan);
+        crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
+        if expanded_notches
+            || crate::dims::pmi_policy::carries(effective.as_ref())
+            || !spec.origin.is_empty()
+        {
+            crate::fixes::attach(effective.as_ref(), &mut plan);
+        }
+        Ok(plan)
     })
 }
 
