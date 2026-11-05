@@ -2216,7 +2216,8 @@ fingerprints with complete keys from the Analysis):
   revisions. Index-based `face:12`, `edge:12`, and page-coordinate references are not accepted.
   Older Analyses lacking evidence still plan their defaults; authoring requires analysing again.
   Each record adds `features` (owning Analysis feature IDs), `stock_faces` (incident indices
-  in `Analysis.stock_faces`) and `faces` (all incident B-rep face indices). Empty ownership
+  in `Analysis.stock_faces`), `stock_sides` (their `bottom`/`top`/`left`/`right`/`front`/`back`
+  names, using the same resolver as Spec face names), and `faces` (all incident B-rep face indices). Empty ownership
   lists mean that recognition assigned no such role; no role is guessed from coordinates.
   A face also lists `edges` and `vertices`. Each boundary edge gives its `index` in
   `Analysis.edge_ink.edges`, endpoint `vertices` as complete reference keys, and, for a

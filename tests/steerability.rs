@@ -383,6 +383,12 @@ fn steer_297_reference_roles() {
                     .copied()
                     .collect::<Vec<_>>()
             );
+            for side in &m.stock_sides {
+                assert!(
+                    ["bottom", "top", "left", "right", "front", "back"].contains(&side.as_str())
+                );
+                assert!(!m.stock_faces.is_empty());
+            }
             if key.starts_with("face:") {
                 let face = m.faces[0];
                 let expected: BTreeSet<_> = f.part.faces[face]

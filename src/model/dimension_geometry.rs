@@ -21,6 +21,9 @@ pub struct Membership {
     /// Incident stock-face indices, as listed in Analysis.stock_faces.
     #[serde(default)]
     pub stock_faces: Vec<usize>,
+    /// Named stock sides from the same resolver as Spec faces: bottom/top/left/right/front/back.
+    #[serde(default)]
+    pub stock_sides: Vec<String>,
     /// Incident B-rep face indices (one for a face record).
     #[serde(default)]
     pub faces: Vec<usize>,
@@ -106,7 +109,14 @@ impl Reference {
 fn geometry_value(r: &Reference) -> serde_json::Value {
     let mut value = serde_json::to_value(r).expect("finite geometry");
     let fields = value.as_object_mut().expect("reference object");
-    for key in ["features", "stock_faces", "faces", "edges", "vertices"] {
+    for key in [
+        "features",
+        "stock_faces",
+        "stock_sides",
+        "faces",
+        "edges",
+        "vertices",
+    ] {
         fields.remove(key);
     }
     value
@@ -115,6 +125,14 @@ fn geometry_value(r: &Reference) -> serde_json::Value {
 /// Refresh discovery after native/bridge recognition or authored recognition corrections.
 /// Geometry and fingerprints never depend on recognised ownership.
 pub(crate) fn memberships(analysis: &mut Analysis) {
+    let sides: Vec<_> = crate::spec_gdt::SIDES
+        .iter()
+        .filter_map(|(name, ..)| {
+            crate::spec_gdt::named_faces(analysis, name)
+                .ok()
+                .map(|faces| (*name, faces))
+        })
+        .collect();
     let Some(ink) = &mut analysis.edge_ink else {
         return;
     };
@@ -133,6 +151,11 @@ pub(crate) fn memberships(analysis: &mut Analysis) {
             .iter()
             .filter(|i| analysis.stock_faces.contains(i))
             .copied()
+            .collect();
+        m.stock_sides = sides
+            .iter()
+            .filter(|(_, faces)| faces.iter().any(|i| m.stock_faces.contains(i)))
+            .map(|(name, _)| name.to_string())
             .collect();
     }
 }
