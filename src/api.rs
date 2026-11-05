@@ -36,7 +36,7 @@ pub use crate::png::DPI;
 pub type Files = Vec<(String, Vec<u8>)>;
 
 /// The operations [`call`] answers, in the order they are usually used.
-pub const OPERATIONS: [&str; 9] = [
+pub const OPERATIONS: [&str; 10] = [
     "analyse",
     "plan",
     "edit",
@@ -44,6 +44,7 @@ pub const OPERATIONS: [&str; 9] = [
     "review",
     "spec",
     "parts",
+    "pack",
     "spec_schema",
     "item_options",
 ];
@@ -182,3 +183,10 @@ fn spec_diff(
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::*;
+
+/// Plan in-memory analysis with the same recovery as the native API, without
+/// the optional filesystem plan cache in a browser.
+#[cfg(target_arch = "wasm32")]
+pub fn plan_analysed(analysis: &model::Analysis, spec: &model::Spec) -> Result<model::Plan, Error> {
+    Ok(model::plan_recovered(analysis, spec)?)
+}

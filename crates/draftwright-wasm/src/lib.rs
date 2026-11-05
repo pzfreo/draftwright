@@ -218,6 +218,65 @@ impl Session {
     }
 }
 
+/// In-memory pack state shared by native tests and the wasm-bindgen adapter.
+/// A rebuild is transactional: an invalid spec leaves the last pack intact.
+pub struct PackSession {
+    name: String,
+    bytes: Vec<u8>,
+    spec: draftwright::pack::PackSpec,
+    pack: draftwright::pack::Pack,
+}
+
+impl PackSession {
+    pub fn open(name: &str, bytes: &[u8], spec_json: Option<&str>) -> Result<Self, Error> {
+        let spec = Self::parse_spec(spec_json.unwrap_or("{}"))?;
+        let pack = draftwright::pack::build_bytes(name, bytes, &spec)?;
+        Ok(Self {
+            name: name.into(),
+            bytes: bytes.into(),
+            spec,
+            pack,
+        })
+    }
+    fn parse_spec(json: &str) -> Result<draftwright::pack::PackSpec, Error> {
+        serde_json::from_str(json).map_err(|e| Error::invalid(format!("invalid pack spec: {e}")))
+    }
+    pub fn report_json(&self) -> String {
+        serde_json::to_string_pretty(&self.pack.report).expect("report serialises")
+    }
+    pub fn spec_json(&self) -> String {
+        serde_json::to_string(&self.spec).expect("spec serialises")
+    }
+    pub fn page_count(&self) -> usize {
+        self.pack.drawings.len()
+    }
+    pub fn page_svg(&self, page: usize) -> Result<String, Error> {
+        self.pack.page_svg(page)
+    }
+    pub fn pdf(&self) -> Vec<u8> {
+        self.pack.pdf()
+    }
+    pub fn csv(&self) -> String {
+        self.pack.report.csv()
+    }
+    pub fn set_spec(&mut self, json: &str) -> Result<(), Error> {
+        let spec = Self::parse_spec(json)?;
+        let pack = draftwright::pack::build_bytes(&self.name, &self.bytes, &spec)?;
+        self.spec = spec;
+        self.pack = pack;
+        Ok(())
+    }
+}
+
+/// The CLI `parts` document, from STEP or gzip bytes.
+pub fn list_parts_json(name: &str, bytes: &[u8]) -> Result<String, Error> {
+    let parts = model::parts(std::path::Path::new(name), bytes)?;
+    Ok(
+        serde_json::to_string_pretty(&serde_json::json!({"parts": parts}))
+            .expect("parts serialise"),
+    )
+}
+
 #[cfg(target_arch = "wasm32")]
 pub mod wasm {
     use super::{Session, error_json, spec_ops_json};
@@ -254,6 +313,55 @@ export interface CalloutOffset {
     pub fn spec_ops(before: &str, after: &str) -> Result<String, JsValue> {
         spec_ops_json(before, after).map_err(js)
     }
+    #[wasm_bindgen(js_name = listParts)]
+    pub fn list_parts(name: &str, bytes: &[u8]) -> Result<String, JsValue> {
+        super::list_parts_json(name, bytes).map_err(js)
+    }
+
+    #[wasm_bindgen]
+    pub struct Pack(super::PackSession);
+    #[wasm_bindgen]
+    impl Pack {
+        #[wasm_bindgen(constructor)]
+        #[allow(non_snake_case)]
+        pub fn new(
+            name: &str,
+            bytes: &[u8],
+            #[wasm_bindgen(unchecked_optional_param_type = "string")] specJson: Option<String>,
+        ) -> Result<Pack, JsValue> {
+            super::PackSession::open(name, bytes, specJson.as_deref())
+                .map(Pack)
+                .map_err(js)
+        }
+        #[wasm_bindgen(js_name = reportJson)]
+        pub fn report_json(&self) -> String {
+            self.0.report_json()
+        }
+        #[wasm_bindgen(js_name = specJson)]
+        pub fn spec_json(&self) -> String {
+            self.0.spec_json()
+        }
+        #[wasm_bindgen(js_name = pageCount)]
+        pub fn page_count(&self) -> usize {
+            self.0.page_count()
+        }
+        #[wasm_bindgen(js_name = pageSvg)]
+        pub fn page_svg(&self, page: usize) -> Result<String, JsValue> {
+            self.0.page_svg(page).map_err(js)
+        }
+        pub fn pdf(&self) -> Vec<u8> {
+            self.0.pdf()
+        }
+        pub fn csv(&self) -> String {
+            self.0.csv()
+        }
+        #[wasm_bindgen(js_name = setSpec)]
+        #[allow(non_snake_case)]
+        pub fn set_spec(&mut self, specJson: &str) -> Result<(), JsValue> {
+            self.0.set_spec(specJson).map_err(js)
+        }
+    }
+
     #[wasm_bindgen]
     pub struct Engine(Session);
     #[wasm_bindgen]

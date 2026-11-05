@@ -30,9 +30,24 @@ export class Engine {
   undo(): string;
 }
 
+export class Pack {
+  [Symbol.dispose](): void;
+  constructor(name: string, bytes: Uint8Array, specJson?: string);
+  csv(): string;
+  free(): void;
+  pageCount(): number;
+  pageSvg(page: number): string;
+  pdf(): Uint8Array;
+  reportJson(): string;
+  setSpec(specJson: string): void;
+  specJson(): string;
+}
+
 export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;
 
 export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
+
+export function listParts(name: string, bytes: Uint8Array): string;
 
 export function specOps(before: string, after: string): string;
 
@@ -60,6 +75,7 @@ export interface CalloutSpan {
 export interface InitOutput {
   readonly __externref_table_dealloc: (a: number) => void;
   readonly __wbg_engine_free: (a: number, b: number) => void;
+  readonly __wbg_pack_free: (a: number, b: number) => void;
   readonly __wbindgen_externrefs: WebAssembly.Table;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
@@ -92,7 +108,16 @@ export interface InitOutput {
   readonly engine_snapshot: (a: number) => [number, number, number, number];
   readonly engine_spec: (a: number) => [number, number];
   readonly engine_undo: (a: number) => [number, number, number, number];
+  readonly listParts: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly memory: WebAssembly.Memory;
+  readonly pack_csv: (a: number) => [number, number];
+  readonly pack_new: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+  readonly pack_pageCount: (a: number) => number;
+  readonly pack_pageSvg: (a: number, b: number) => [number, number, number, number];
+  readonly pack_pdf: (a: number) => [number, number];
+  readonly pack_reportJson: (a: number) => [number, number];
+  readonly pack_setSpec: (a: number, b: number, c: number) => [number, number];
+  readonly pack_specJson: (a: number) => [number, number];
   readonly specOps: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly start: () => void;
 }

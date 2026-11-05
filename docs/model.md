@@ -3234,3 +3234,36 @@ slashed-o used by generated diameter symbols. Authored `⌀80` and `ø80` theref
 identical ink and spacing in both bundled fonts. Searchable text keeps the authored Unicode.
 Generated callout symbols retain their established one-em symbol cells and token spacing;
 prose keeps the spaces the author typed.
+
+
+### Pack bytes and JSON-lines operation
+
+`pack::build_bytes(name, bytes, &PackSpec)` and `pack::render_bytes(name, bytes,
+&PackSpec, formats)` accept STEP or gzip bytes without filesystem access. `name`
+supplies the same filename stem as the CLI path. Path-based build/render use
+these same implementations. Row errors/problems retain `key` and `products`;
+per-part report findings carry `products`.
+
+`draftwright serve` accepts:
+
+```json
+{"id":1,"op":"pack","step":"assembly.step.gz","spec":{},"formats":["pdf","csv","json"]}
+```
+
+`spec` defaults to PackSpec's defaults and `formats` defaults to all three formats.
+The reply is `{"id":1,"ok":true,"result":{"report":<pack Report>,"files":[
+{"name":"pack.pdf","mimeType":"application/pdf","blob":"<base64>"}, ...]}}`.
+All files use base64 `blob` and `mimeType`, as the binary resource envelope does.
+The report is the same shape as WASM `Pack.reportJson()` and CLI `pack.json`.
+No files are written to disk by this operation. Errors use the ordinary
+`{"id":1,"ok":false,"error":{"code":"invalid","message":"..."}}` envelope.
+
+`step` also accepts a registered part ref from `mcp_inspect_part`; alternatively
+pass `part_ref` in place of `step`. A selected-part registration uses its retained
+whole source assembly for the pack. The registered filename and source hash are
+preserved and validated. `parts` already accepts `{"op":"parts","step":"..."}`
+and returns `{parts:[...]}`.
+
+Page references are 1-based in exact PDF order: GA first when present, then
+made-part sheets. Failed and bought rows have no sheets. The WASM Pack API is
+documented in [wasm.md](wasm.md#assembly-drawing-packs).

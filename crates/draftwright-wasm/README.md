@@ -20,3 +20,24 @@ callout attaches radially to the member nearest its elbow, retaining the automat
 member on ties. The automatic `tip` remains the offset origin; changing members
 keeps the elbow, shoulder and label position. Reapplying the automatic offset
 retains the exact automatic ink.
+
+`new Pack(name, bytes, specJson?)` builds an assembly drawing pack once. Use
+`reportJson()`, `specJson()`, `pageCount()`, `pageSvg(page)` (a string), `pdf()`
+(`Uint8Array`) and `csv()`. Pages are **1-based**, in PDF order: GA first when
+present, then made-part sheets; `rows[].sheets` uses the same numbering.
+`listParts(name, bytes)` returns the same JSON as `draftwright parts`.
+
+Build a pack in a **Worker**: construction and `setSpec(specJson)` are synchronous,
+with no progress callback in v1. `setSpec` rebuilds using the retained STEP bytes
+and keeps the instance; a refusal leaves its previous pack intact. Call `free()`
+when finished to release its retained source and drawings. Errors are thrown as
+JSON strings through the same `error_json` function as Engine.
+
+`pageSvg(page)` uses wasm-bindgen's unsigned 32-bit number coercion: fractions
+truncate toward zero and negatives wrap modulo 2³² before the 1-based range
+check. Thus `1.9` selects page 1 and `-1` is out of range; callers should pass
+positive integer page numbers. No JavaScript-side integer validation is added.
+
+During `setSpec`, the previous pack stays alive until the replacement succeeds;
+peak pack memory can briefly be approximately **2×** during a rebuild (plus the
+retained source and temporary analysis allocations).

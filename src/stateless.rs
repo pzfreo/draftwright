@@ -238,6 +238,23 @@ impl Cache {
         }
         Ok(key)
     }
+    /// Original registered STEP bytes and filename, for whole-assembly consumers.
+    /// A selected-part registration still retains the complete source assembly.
+    pub(crate) fn source(&self, part_ref: &str) -> Result<(String, Vec<u8>), Error> {
+        let dir = self.dir(part_ref)?;
+        let _lock = Self::lock(&dir)?;
+        let bytes = fs::read(dir.join("source.step")).map_err(io)?;
+        if part_ref.split_once('-').and_then(|(key, _)| source_of(key))
+            != Some(hash(&bytes).as_str())
+        {
+            return Err(Error::invalid(
+                "cached STEP differs from part_ref; remove the damaged entry and register the original STEP again",
+            ));
+        }
+        let registration: Registration = read(&dir.join("registration.json"))?;
+        Ok((registration.name, bytes))
+    }
+
     fn session_unlocked(&self, dir: &Path, spec: &Spec) -> Result<Session, Error> {
         let source = fs::read(dir.join("source.step")).map_err(io)?;
         let source_hash = hash(&source);
@@ -575,7 +592,7 @@ impl Cache {
         };
         if hash.len() != 64
             || !hash.bytes().all(|b| b.is_ascii_hexdigit())
-            || !["json", "png", "pdf"].contains(&ext)
+            || !["json", "png", "pdf", "csv"].contains(&ext)
         {
             return Err(Error::invalid("use an artifact_ref returned by a tool"));
         }

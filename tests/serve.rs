@@ -329,3 +329,104 @@ fn item_options_requires_nested_arguments_to_separate_item_and_request_ids() {
         assert_eq!(reply["result"], expected);
     }
 }
+
+#[test]
+fn pack_round_trip_has_library_report_and_decodable_files() {
+    use draftwright::pack::{self, PackSpec};
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assembly/pack-small.step.gz");
+    let (report, files) = pack::render(&path, &PackSpec::default(), &pack::FORMATS).unwrap();
+    let cache_root = scratch(&format!("pack-cache-{}", std::process::id()));
+    let cache = draftwright::stateless::Cache::new(&cache_root);
+    let key = cache.register(&path, None).unwrap();
+    let lines = [
+        json!({"id":1,"op":"pack","step":path,"formats":["pdf","csv","json"]}),
+        json!({"id":2,"op":"pack","step":key}),
+        json!({"id":3,"op":"pack","part_ref":key,"spec":{}}),
+        json!({"id":4,"op":"parts","step":path}),
+        json!({"id":5,"op":"pack","step":path,"formats":["svg"]}),
+        json!({"id":6,"op":"pack","step":path,"spec":{"schema":"wrong"}}),
+        json!({"id":7,"op":"hello"}),
+    ];
+    let mut child = Command::new(env!("CARGO_BIN_EXE_draftwright"))
+        .arg("serve")
+        .env("DRAFTWRIGHT_CACHE", &cache_root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let writer = std::thread::spawn(move || {
+        for request in lines {
+            writeln!(stdin, "{request}").unwrap();
+        }
+    });
+    let out = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    assert!(out.status.success());
+    let replies: Vec<Value> = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(replies.len(), 7);
+    for (i, reply) in replies[..3].iter().enumerate() {
+        assert_eq!(reply["id"], i + 1);
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert_eq!(
+            reply["result"]["report"],
+            serde_json::to_value(&report).unwrap()
+        );
+        let returned = reply["result"]["files"].as_array().unwrap();
+        assert_eq!(returned.len(), files.len());
+        for (file, (format, bytes)) in returned.iter().zip(&files) {
+            assert_eq!(file["name"], format!("pack.{format}"));
+            assert_eq!(
+                file["mimeType"],
+                match format.as_str() {
+                    "pdf" => "application/pdf",
+                    "csv" => "text/csv",
+                    _ => "application/json",
+                }
+            );
+            assert_eq!(decode_base64(file["blob"].as_str().unwrap()), *bytes);
+        }
+    }
+    assert_eq!(
+        replies[3]["result"]["parts"],
+        serde_json::to_value(draftwright::api::parts(&path).unwrap()).unwrap()
+    );
+    for reply in &replies[4..6] {
+        assert_eq!(reply["error"]["code"], "invalid", "{reply}");
+    }
+    assert!(
+        replies[6]["result"]["ops"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("pack"))
+    );
+    std::fs::remove_dir_all(cache_root).unwrap();
+}
+
+fn decode_base64(encoded: &str) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut bits = 0u32;
+    let mut count = 0;
+    for byte in encoded.bytes().take_while(|b| *b != b'=') {
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => panic!("invalid base64"),
+        };
+        bits = (bits << 6) | u32::from(value);
+        count += 6;
+        if count >= 8 {
+            count -= 8;
+            output.push((bits >> count) as u8);
+        }
+    }
+    output
+}

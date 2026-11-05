@@ -254,3 +254,46 @@ number, its PMI source, original plan item, drawn carrier, sheet and expected ri
 The values are file-owned; undrawn requirements remain listed. Dimensions, tolerance
 frames and datum features support numbers. Surface textures and semantic notes have no
 number owner in haecceity 0.2.5 and retain their existing drawing behavior.
+
+## Assembly drawing packs
+
+Import `Pack` and `listParts` beside `Engine`:
+
+```ts
+const parts = JSON.parse(listParts(name, bytes)); // same {parts} as CLI parts
+const pack = new Pack(name, bytes);              // optional third arg: PackSpec JSON
+try {
+  const report = JSON.parse(pack.reportJson()); // same report as pack --formats json
+  const effectiveSpec = JSON.parse(pack.specJson());
+  for (let page = 1; page <= pack.pageCount(); page++) {
+    const svg = pack.pageSvg(page);              // SVG string, same drawing form as Engine
+  }
+  const pdf = pack.pdf();                        // Uint8Array, same writer as CLI
+  const csv = pack.csv();
+  pack.setSpec(JSON.stringify({ga: {include: false}}));
+} finally {
+  pack.free();
+}
+```
+
+Construct and rebuild packs in a **Worker**. Both calls are synchronous; v1 has
+no progress callback. The instance owns its STEP bytes and rendered drawings;
+`setSpec` keeps that instance and replaces its effective PackSpec and pack only
+on success. A failed rebuild preserves the last successful pack. Release the
+instance with `free()` when finished, and do not use it afterwards.
+
+Pages are **1-based**, exactly in PDF order: the GA first when present, followed
+by each made part's sheets. `rows[].sheets` contains those same page numbers;
+bought or failed parts have no sheets. An empty pack has zero pages. Page zero
+and pages above `pageCount()` throw an `invalid` API error. Errors use Engine's
+`error_json` JSON string encoding. Per-part failures live on rows with `key` and
+`products`; per-part findings carry `products`.
+
+`pageSvg(page)` uses wasm-bindgen's unsigned 32-bit number coercion: fractions
+truncate toward zero and negatives wrap modulo 2³² before the 1-based range
+check. Thus `1.9` selects page 1 and `-1` is out of range; callers should pass
+positive integer page numbers. No JavaScript-side integer validation is added.
+
+During `setSpec`, the previous pack stays alive until the replacement succeeds;
+peak pack memory can briefly be approximately **2×** during a rebuild (plus the
+retained source and temporary analysis allocations).

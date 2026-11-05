@@ -116,7 +116,7 @@ pub(super) struct Prepared {
 
 impl Prepared {
     pub fn render(&mut self, total: usize, font: &Font) -> Result<Drawing, Error> {
-        let started = std::time::Instant::now();
+        let started = crate::pack::Instant::now();
         let sheet = &mut self.plan.sheet;
         sheet.title.insert("sheet".into(), format!("1/{total}"));
         crate::title_block::pack_cells(sheet, 0, 0);
@@ -741,7 +741,7 @@ pub(super) fn prepare<'a>(
     aliases: &BTreeMap<usize, super::Alias>,
 ) -> Result<Prepared, Error> {
     let bytes = document.bytes();
-    let started = std::time::Instant::now();
+    let started = crate::pack::Instant::now();
     let rows: Vec<_> = rows.collect();
     let radius = settings.balloon_radius.unwrap_or_else(|| {
         rows.iter()
@@ -830,7 +830,7 @@ pub(super) fn prepare<'a>(
     let (part, mut analysis, frame) =
         model::analyse_pack_assembly(stem, bytes, horizontal).map_err(Error::from)?;
     profile("read", started);
-    let started = std::time::Instant::now();
+    let started = crate::pack::Instant::now();
     let mut spec = settings.drawing.clone();
     spec.sheet.hidden.get_or_insert(false);
     spec.sheet
@@ -907,10 +907,10 @@ pub(super) fn prepare<'a>(
     }
     let mut plan = layout(&part, &analysis, &spec, None)?;
     profile("layout", started);
-    let started = std::time::Instant::now();
+    let started = crate::pack::Instant::now();
     let mut candidates = sites(&part, &analysis, &plan, file, &rows, settings);
     profile("external visibility", started);
-    let started = std::time::Instant::now();
+    let started = crate::pack::Instant::now();
     let mut hatches = BTreeMap::new();
     let mut cut_material = std::collections::BTreeSet::new();
     let recovery = (settings.sections != Some(false))
@@ -943,7 +943,7 @@ pub(super) fn prepare<'a>(
         );
     }
     profile("sections", started);
-    let started = std::time::Instant::now();
+    let started = crate::pack::Instant::now();
     centres(&part, &analysis, &mut plan);
     let mut report = GeneralAssembly {
         sheet: 1,
@@ -1137,7 +1137,7 @@ pub(super) fn prepare<'a>(
     report.balloons.sort_by_key(|b| b.item);
     report.unballooned.sort_unstable();
     profile("balloons", started);
-    let started = std::time::Instant::now();
+    let started = crate::pack::Instant::now();
     let conventional = threads::prepare(&part, &mut analysis, file, &frame, reused, aliases);
     if std::env::var_os("DRAFTWRIGHT_GA_PROFILE").is_some() {
         eprintln!(
@@ -1160,7 +1160,7 @@ pub(super) fn prepare<'a>(
         &mut projections,
     )?;
     profile("component projections", started);
-    let started = std::time::Instant::now();
+    let started = crate::pack::Instant::now();
     for view in plan.views.iter().filter(|v| v.detail.is_some()) {
         projections
             .assembly_crop(&part, &analysis, &plan, view)
@@ -1232,7 +1232,7 @@ fn centres(part: &haecceity::Part, a: &Analysis, plan: &mut Plan) {
     }
 }
 
-fn profile(stage: &str, started: std::time::Instant) {
+fn profile(stage: &str, started: crate::pack::Instant) {
     if std::env::var_os("DRAFTWRIGHT_GA_PROFILE").is_some() {
         eprintln!("GA {stage}: {:.3}s", started.elapsed().as_secs_f64());
     }

@@ -777,7 +777,86 @@ fn dispatch(cache: &Cache, tool: &str, args: &Value) -> Result<Value, Error> {
 fn rpc_error(id: Value, code: i32, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
-fn base64(bytes: &[u8]) -> String {
+/// Pack delivery for the document-passing MCP adapter. Native `pack` keeps its
+/// own envelope and defaults; this adapter never exports files implicitly.
+pub fn pack_tool(cache: &Cache, args: &Value) -> Result<Value, Error> {
+    let formats = match args.get("formats") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(list)) => list
+            .iter()
+            .map(|format| {
+                format
+                    .as_str()
+                    .filter(|f| crate::pack::FORMATS.contains(f))
+                    .ok_or_else(|| Error::invalid("pack formats must be pdf,csv,json"))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(_) => {
+            return Err(Error::invalid(
+                "pack formats must be a list of pdf,csv,json",
+            ));
+        }
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    if formats.iter().any(|format| !seen.insert(*format)) {
+        return Err(Error::invalid(
+            "pack formats must be unique; remove duplicate formats",
+        ));
+    }
+    let spec = args
+        .get("spec")
+        .filter(|v| !v.is_null())
+        .map(|v| serde_json::from_value::<crate::pack::PackSpec>(v.clone()))
+        .transpose()
+        .map_err(|e| Error::invalid(format!("invalid pack spec: {e}")))?
+        .unwrap_or_default();
+    let step = args.get("step").filter(|v| !v.is_null());
+    let part_ref = args.get("part_ref").filter(|v| !v.is_null());
+    if step.is_some() && part_ref.is_some() {
+        return Err(Error::invalid("pack takes step or part_ref, not both"));
+    }
+    let source = step.or(part_ref).and_then(Value::as_str).ok_or_else(|| {
+        Error::invalid("pack needs step (a path or registered part ref) or part_ref")
+    })?;
+    let registered = part_ref.is_some()
+        || source.split_once('-').is_some_and(|(key, _)| {
+            key.len() >= 64 && key.bytes().take(64).all(|b| b.is_ascii_hexdigit())
+        });
+    let pack = if registered {
+        let (name, bytes) = cache.source(source)?;
+        crate::pack::build_bytes(&name, &bytes, &spec)?
+    } else {
+        crate::pack::build(Path::new(source), &spec)?
+    };
+    let mut content = Vec::new();
+    // JSON delivery replaces the inline report, so it never appears twice.
+    if !formats.contains(&"json") {
+        let report = serde_json::to_value(&pack.report).expect("report serialises");
+        content.push(json!({"type":"text","text":serde_json::to_string(&report).expect("report serialises")}));
+    }
+    let failures = pack
+        .report
+        .rows
+        .iter()
+        .filter(|row| row.error.is_some())
+        .count();
+    content.push(json!({"type":"text","text":format!("Drawing pack: {} rows; {} pages; {failures} failed parts; {} findings.", pack.report.rows.len(), pack.report.pages, pack.report.findings.len())}));
+    for format in formats {
+        let (bytes, mime) = match format {
+            "pdf" => (pack.pdf(), "application/pdf"),
+            "csv" => (pack.report.csv().into_bytes(), "text/csv"),
+            _ => (
+                serde_json::to_vec_pretty(&pack.report).expect("report serialises"),
+                "application/json",
+            ),
+        };
+        let key = cache.artifact(&bytes, format)?;
+        content.push(json!({"type":"resource_link","uri":format!("draftwright:{key}"),"name":format!("pack.{format}"),"mimeType":mime,"size":bytes.len()}));
+    }
+    Ok(json!({"content":content,"isError":false}))
+}
+
+pub(crate) fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for b in bytes.chunks(3) {
@@ -871,7 +950,7 @@ pub fn reply(cache: &Cache, request: &Value) -> Option<Value> {
                     if uri.ends_with(".json") {
                         json!({"contents":[{"uri":uri,"mimeType":"application/json","text":String::from_utf8_lossy(&bytes)}]})
                     } else {
-                        json!({"contents":[{"uri":uri,"mimeType":if uri.ends_with(".png"){"image/png"}else{"application/pdf"},"blob":base64(&bytes)}]})
+                        json!({"contents":[{"uri":uri,"mimeType":if uri.ends_with(".png"){"image/png"}else if uri.ends_with(".csv"){"text/csv"}else{"application/pdf"},"blob":base64(&bytes)}]})
                     }
                 }
                 Err(e) => return Some(rpc_error(id, -32602, &e.to_string())),

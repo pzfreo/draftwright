@@ -478,6 +478,7 @@ pub fn spec(drawing: &Path) -> Result<Spec, Error> {
 /// | `render` | `step`, `features`? or `analysis`?, `spec`?, `output`, `formats`?, `dpi`? | `{written, problems}` |
 /// | `review` | `step`, `features`? or `analysis`?, `spec`? | `{svg, problems, lint}` |
 /// | `spec` | `drawing` | the Spec embedded in the drawing |
+/// | `pack` | `step` or `part_ref`, `spec`?, `formats`? | `{report, files: [{name, mimeType, blob}]}` (base64) |
 /// | `parts` | `step` | `{parts}`: the file's distinct parts ([`parts`]) |
 ///
 /// `analyse`, `plan`, `render` and `review` also take `part`, the index of one part of an
@@ -579,6 +580,50 @@ fn dispatch(op: &str, args: &Value) -> Result<Value, Error> {
     match op {
         "analyse" => Ok(json_of(&analyse_part(text("step")?, part, features)?)),
         "parts" => Ok(json!({ "parts": parts(text("step")?)? })),
+        "pack" => {
+            let spec = args
+                .get("spec")
+                .filter(|v| !v.is_null())
+                .map(|v| serde_json::from_value::<crate::pack::PackSpec>(v.clone()))
+                .transpose()
+                .map_err(|e| Error::invalid(format!("invalid pack spec: {e}")))?
+                .unwrap_or_default();
+            let formats = match args.get("formats") {
+                None | Some(Value::Null) => crate::pack::FORMATS.to_vec(),
+                Some(Value::Array(list)) => list
+                    .iter()
+                    .map(|v| {
+                        v.as_str()
+                            .ok_or_else(|| Error::invalid("\"formats\" is a list of format names"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+                Some(_) => return Err(Error::invalid("\"formats\" is a list of format names")),
+            };
+            let step = args.get("step").filter(|v| !v.is_null());
+            let part_ref = args.get("part_ref").filter(|v| !v.is_null());
+            if step.is_some() && part_ref.is_some() {
+                return Err(Error::invalid("pack takes step or part_ref, not both"));
+            }
+            let source = step.or(part_ref).and_then(Value::as_str).ok_or_else(|| {
+                Error::invalid("pack needs step (a path or registered part ref) or part_ref")
+            })?;
+            let registered = part_ref.is_some()
+                || source.split_once('-').is_some_and(|(key, _)| {
+                    key.len() >= 64 && key.bytes().take(64).all(|b| b.is_ascii_hexdigit())
+                });
+            let (report, files) = if registered {
+                let (name, bytes) = crate::stateless::Cache::environment().source(source)?;
+                crate::pack::render_bytes(&name, &bytes, &spec, &formats)?
+            } else {
+                crate::pack::render(Path::new(source), &spec, &formats)?
+            };
+            let files: Vec<_> = files.into_iter().map(|(format, bytes)| json!({
+                "name": format!("pack.{format}"),
+                "mimeType": match format.as_str() { "pdf" => "application/pdf", "csv" => "text/csv", _ => "application/json" },
+                "blob": crate::mcp::base64(&bytes),
+            })).collect();
+            Ok(json!({"report": report, "files": files}))
+        }
         "plan" => match analysis()? {
             Some(analysis) => {
                 if args.get("step").is_some_and(|s| !s.is_null()) {
