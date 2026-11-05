@@ -6,6 +6,25 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+## 0.2.11 (2026-11-05)
+
+- Choose the largest clean and legible preferred scale on the smallest sheet that
+  fits, judged on finished view bounds. Reduced scales need a 1.5 mm minimum feature
+  size on paper and no converging leaders; cosmetic `leader_on_extension` contacts
+  alone never choose paper. Authored sheets and scales are never overridden.
+- Read bill-of-materials data from the STEP (native PDM fields and Specify's
+  `specify bom` UDAs) with per-value provenance; exporter product ids never reach
+  DWG NO or the GA title.
+- Accept an authored dimension locating a different feature over the same span as
+  another feature's location (K6); same-feature duplicates stay refused.
+- Credit printed one-axis chains of authored and engine dimensions without PMI in
+  the completeness lint.
+- Agent-facing gaps: `--help`/`--version`, CLI `spec_schema` and `item_options`,
+  `callout_offset` in plan records, copyable axis references, the bundled ø glyph
+  for authored ⌀, and feature membership and boundary links in reference records.
+  Release archives ship `draftwright-mcp`, `schemas/` and the agent docs.
+- Add the steerability test suite (`tests/steerability.rs`).
+
 - Keep MCP `pack` responses to one compact report and summary by default.
   Export only explicitly requested formats through resource links; JSON replaces
   the inline report and duplicate formats are refused. Native pack defaults and
