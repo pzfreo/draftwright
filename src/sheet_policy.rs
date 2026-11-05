@@ -521,10 +521,15 @@ fn actual_space_drops(plan: &Plan) -> usize {
         .count()
 }
 
-fn finished_preview(analysis: &Analysis, spec: &Spec, plan: &Plan) -> Result<Plan, Invalid> {
+fn finished_preview(
+    analysis: &Analysis,
+    spec: &Spec,
+    intent: &Spec,
+    plan: &Plan,
+) -> Result<Plan, Invalid> {
     crate::planning::isolated(analysis, || {
         let mut preview = plan.clone();
-        preview.spec = spec.clone();
+        preview.spec = intent.clone();
         let mut preview = model::finish_presentation(analysis, spec, preview)?;
         crate::dims::contacts::report(analysis, &mut preview);
         Ok(preview)
@@ -863,12 +868,12 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
     if !automatic(spec) {
         return Ok(baseline);
     }
+    let intent = baseline.spec.clone();
     let reference = if maximise {
-        finished_preview(analysis, spec, &baseline)?
+        finished_preview(analysis, spec, &intent, &baseline)?
     } else {
         baseline.clone()
     };
-    let intent = baseline.spec.clone();
     let effective = crate::spec_gdt::effective(analysis, &intent)?;
     let fit = effective.as_ref();
     let radius_reference = model::radius_edit_reference(analysis, &intent, true);
@@ -941,7 +946,6 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                          reuse_reference: bool| {
             let scale = plan.sheet.scale.clone();
             let spacing = plan.sheet.dimension_spacing;
-            let mut unpolished = None;
             let result = (|| {
                 crate::dims::finish_pmi_witness_routes(fit, &mut plan);
                 if !scales.contains(&plan.sheet.scale) {
@@ -955,11 +959,10 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                     return None;
                 }
                 if maximise {
-                    unpolished = Some(plan.clone());
                     plan = match if reuse_reference {
                         Ok(reference.clone())
                     } else {
-                        finished_preview(analysis, &intent, &plan)
+                        finished_preview(analysis, spec, &intent, &plan)
                     } {
                         Ok(preview) => preview,
                         Err(error) => {
@@ -1077,14 +1080,7 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                     outcome.as_str()
                 }
             ));
-            result.map(|settled| {
-                if let Some(mut raw) = unpolished {
-                    raw.sheet.basis = settled.sheet.basis;
-                    raw
-                } else {
-                    settled
-                }
-            })
+            result
         };
         let mut chosen = None;
         // Smallest paper first; on it try every geometrically possible preferred
@@ -1318,6 +1314,9 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
                 );
             }
             plan.sheet.basis += &format!("; preferred scale trials: {}", search_trace.join("; "));
+            if maximise {
+                selected_trial_basis(&mut plan);
+            }
             return Ok(finish_choice(plan, &intent, candidates, &reason));
         }
         let kind = (ruled_out.as_ref() == Some(&outcome)).then(|| RULED_OUT.to_string());
@@ -1343,6 +1342,12 @@ fn select_scales(analysis: &Analysis, spec: &Spec, maximise: bool) -> Result<Pla
         message:"No usable automatic layout was found through A0 within sheets.max; the least-bad unclipped candidate is retained. Its remaining layout, readability and required-information limitations are reported.".into(),
         subjects:vec!["sheet".into()],..Default::default()
     });
+    if maximise {
+        best.spec = intent.clone();
+        best = model::finish_presentation(analysis, spec, best)?;
+        crate::dims::contacts::report(analysis, &mut best);
+        selected_trial_basis(&mut best);
+    }
     best.sheet.basis += &format!("; preferred scale trials: {}", search_trace.join("; "));
     let reason = "least-bad unclipped candidate; supported-paper search exhausted";
     Ok(finish_choice(best, &intent, candidates, reason))
@@ -1428,6 +1433,23 @@ fn compact_savings(plan: &Plan, view: &str, o: [f64; 4]) -> [f64; 2] {
         side(0, -1.0, o[0]) + side(0, 1.0, o[2]),
         side(1, -1.0, o[1]) + side(1, 1.0, o[3]),
     ]
+}
+
+/// Live, unpinned automatic choices are already finished and quality-checked.
+/// Explicit controls and historical routing templates keep their existing finishing path.
+pub(crate) fn finishes_selection(spec: &Spec) -> bool {
+    automatic(spec) && !crate::placement_intent::has_pins(spec) && !crate::nominal::comparison()
+}
+
+fn selected_trial_basis(plan: &mut Plan) {
+    plan.sheet.basis = format!(
+        "selected {} {} fill {:.1}% ({} annotation conflicts); {}",
+        plan.sheet.size,
+        plan.sheet.scale,
+        plan.sheet.fill * 100.,
+        model::ink_findings(plan),
+        plan.sheet.basis
+    );
 }
 
 fn automatic(spec: &Spec) -> bool {

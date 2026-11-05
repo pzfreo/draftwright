@@ -4571,7 +4571,11 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
         } else {
             crate::sheet_policy::select(analysis, spec)?
         };
-        finish_presentation(analysis, spec, plan)
+        if spec.sheet.keep_layout != Some(true) && crate::sheet_policy::finishes_selection(spec) {
+            Ok(plan)
+        } else {
+            finish_presentation(analysis, spec, plan)
+        }
     })
 }
 
