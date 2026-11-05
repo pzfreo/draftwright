@@ -9,9 +9,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 ## 0.2.11 (2026-11-05)
 
 - Choose the largest clean and legible preferred scale on the smallest sheet that
-  fits, judged on finished view bounds. Reduced scales need a 1.5 mm minimum feature
-  size on paper and no converging leaders; cosmetic `leader_on_extension` contacts
-  alone never choose paper. Authored sheets and scales are never overridden.
+  fits, judged on finished view bounds. A scale smaller than the automatic choice is
+  refused if a dimensioned hole, boss or slot would be under 1.5 mm on paper, or if
+  two callouts or frames would end within 1 mm of a feature under 8 mm on paper.
+  Cosmetic `leader_on_extension` contacts alone never choose paper. Authored sheets and scales are never overridden.
 - Read bill-of-materials data from the STEP (native PDM fields and Specify's
   `specify bom` UDAs) with per-value provenance; exporter product ids never reach
   DWG NO or the GA title.
@@ -24,12 +25,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
   for authored ⌀, and feature membership and boundary links in reference records.
   Release archives ship `draftwright-mcp`, `schemas/` and the agent docs.
 - Add the steerability test suite (`tests/steerability.rs`).
-
-- Keep MCP `pack` responses to one compact report and summary by default.
+- Add an MCP `pack` tool that returns one compact report and summary by default.
   Export only explicitly requested formats through resource links; JSON replaces
   the inline report and duplicate formats are refused. Native pack defaults and
   WASM signatures are unchanged.
-
 - Expose drawing packs through byte-based core build/render APIs and the native
   JSON-lines `pack` operation, with base64 files and the shared pack report.
 
