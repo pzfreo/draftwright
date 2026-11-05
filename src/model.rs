@@ -2490,6 +2490,16 @@ pub(crate) fn drawn_sheets_fit(analysis: &Analysis, plan: &Plan) -> bool {
 }
 
 fn drawn_items_fit(analysis: &Analysis, p: &Plan) -> bool {
+    items_fit(analysis, p, true)
+}
+
+/// Final paper candidates are judged by drawn views, not their estimated bands.
+/// Intermediate packing/repair still needs the reservations to remain disjoint.
+fn finished_items_fit(analysis: &Analysis, p: &Plan) -> bool {
+    items_fit(analysis, p, false)
+}
+
+fn items_fit(analysis: &Analysis, p: &Plan, reservations: bool) -> bool {
     let inside = |b: [f64; 4]| {
         b[0] >= layout::margin() - 1e-6
             && b[1] >= layout::margin() - 1e-6
@@ -2510,7 +2520,13 @@ fn drawn_items_fit(analysis: &Analysis, p: &Plan) -> bool {
     // View reservations include empty annotation lanes. The finished dimensions
     // are checked separately; overlapping reservations do not mean that
     // the rendered views overlap (#295).
-    let views = &footprints[..p.views.len()];
+    let view_bounds = |i: usize| {
+        if reservations {
+            p.views[i].area
+        } else {
+            footprints[i]
+        }
+    };
     footprints.iter().copied().all(|b| {
         if framed.contains(&b) {
             on_frame(b)
@@ -2520,11 +2536,12 @@ fn drawn_items_fit(analysis: &Analysis, p: &Plan) -> bool {
     }) && crate::sheet_fit::furniture_footprints(analysis, p)
         .into_iter()
         .all(|b| !rect_overlap(b, title))
-        && views.iter().all(|b| !rect_overlap(*b, p.sheet.title_block))
-        && views
-            .iter()
-            .enumerate()
-            .all(|(i, a)| views[i + 1..].iter().all(|b| !rect_overlap(*a, *b)))
+        && (0..p.views.len()).all(|i| {
+            let b = view_bounds(i);
+            inside(b) && !rect_overlap(b, p.sheet.title_block)
+        })
+        && (0..p.views.len())
+            .all(|i| (i + 1..p.views.len()).all(|j| !rect_overlap(view_bounds(i), view_bounds(j))))
 }
 
 pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
@@ -3901,8 +3918,8 @@ fn recover_candidates(
                 }
                 crate::iso_caption::refresh(analysis, &mut p);
                 // An estimate's iso budget can refuse a sheet whose finished drawing fits.
-                // Only discharge that estimate when all actual item bounds and reserved views fit.
-                let actual_fit = drawn_items_fit(analysis, &p);
+                // Only discharge that estimate when all actual item bounds and view extents fit.
+                let actual_fit = finished_items_fit(analysis, &p);
                 if actual_fit {
                     p.problems.retain(|q| q.code != "page_fit_uncertain");
                 }

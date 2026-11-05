@@ -926,6 +926,10 @@ fn select_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 // repeat itself.
                 let cramped = model::findings(&plan).hard > 0
                     || model::findings(&plan).dropped > 0
+                    // A physically fitting drawing can still have reserved
+                    // annotation frames on furniture or each other. Try compact
+                    // lanes on this paper before spending a larger sheet.
+                    || !frame_conflicts(&plan).is_empty()
                     || plan
                         .problems
                         .iter()
@@ -1068,14 +1072,16 @@ fn compact_may_help(analysis: &Analysis, plan: &Plan) -> bool {
     // the sheet or onto the title block. Collisions between items (overlaps) are local
     // placement, which tighter lanes do not relieve.
     let dimensioned = |p: &model::Problem| p.subjects.iter().any(|s| s.starts_with("d:"));
-    plan.problems
-        .iter()
-        .filter(|p| p.severity != "info")
-        .any(|p| match p.code.as_str() {
-            "page_fit_uncertain" | "views_do_not_fit" => true,
-            "annotation_off_sheet" | "annotation_over_title_block" => dimensioned(p),
-            code => crate::hole_table::DROPS.contains(&code),
-        })
+    !frame_conflicts(plan).is_empty()
+        || plan
+            .problems
+            .iter()
+            .filter(|p| p.severity != "info")
+            .any(|p| match p.code.as_str() {
+                "page_fit_uncertain" | "views_do_not_fit" => true,
+                "annotation_off_sheet" | "annotation_over_title_block" => dimensioned(p),
+                code => crate::hole_table::DROPS.contains(&code),
+            })
 }
 
 /// The most paper mm compact spacing can save across each axis of a view: per side, 3 mm on
@@ -1623,6 +1629,25 @@ mod tests {
             (&after.sheet.size, &after.sheet.scale),
             (&before.sheet.size, &before.sheet.scale)
         );
+    }
+
+    #[test]
+    fn reserved_frames_on_furniture_try_compact_before_larger_paper() {
+        let Some(a) = corpus("mfcadpp/10247.step") else {
+            return;
+        };
+        let plan = select(&a, &Spec::default()).unwrap();
+        assert_eq!(
+            (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+            ("A4", "1:1")
+        );
+        assert_eq!(
+            plan.sheet.dimension_spacing,
+            model::DimensionSpacing::Compact
+        );
+        assert!(frame_conflicts(&plan).is_empty());
+        assert!(sheet_fit::inside_frames(&a, &plan));
+        assert!(model::findings(&plan).clean());
     }
 
     #[test]
