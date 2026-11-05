@@ -989,8 +989,11 @@ fn select_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                     }
                 }
             }
-            // Only a lack of room earns the smaller scale.
-            if cramped_first == Some(false) {
+            // Default A4 also earns the smaller readable scale after a routing
+            // refusal: scaling down can clear a leader/extension contact even
+            // when the larger drawing had enough room. Exhaust that bounded
+            // trial before spending more paper.
+            if cramped_first == Some(false) && !(size == "A4" && max == 1) {
                 break;
             }
         }
@@ -1663,6 +1666,29 @@ mod tests {
     }
 
     #[test]
+    fn a4_routing_refusal_tries_a_smaller_readable_scale_before_a3() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/revisions/plate_thickened.new.step.gz");
+        let a = model::analyse_native(&path).unwrap().1;
+        let spec = Spec::default();
+        let baseline = model::plan_automatic(&a, &spec).unwrap();
+        let plan = select(&a, &spec).unwrap();
+        assert_eq!(
+            (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+            ("A4", "1:2"),
+            "{}",
+            plan.sheet.basis
+        );
+        let floor = readable_floor(&a, &baseline, &spec);
+        assert!(usable(&a, &plan, &baseline, floor).is_ok());
+        assert!(
+            failures(&a, &plan, floor)
+                .iter()
+                .all(|(code, _)| code != "leader_on_extension")
+        );
+    }
+
+    #[test]
     fn compact_is_retried_only_for_a_lack_of_lane_room() {
         let a = fixture();
         let plan = model::plan_automatic(&a, &Spec::default()).unwrap();
@@ -2214,14 +2240,10 @@ mod tests {
     }
 
     #[test]
-    fn a_routing_refusal_without_space_drops_does_not_repeat_the_scale() {
-        // GRM-02's unclipped A4 trial keeps a leader/extension contact through its finishing
-        // pass, with no hard findings or drops: a smaller scale would repeat the same routing,
-        // so it is not tried. (LM10UU was this case until the #219-#226 stack left its A4
-        // trial usable at 2:1, and the gear blank until #163 judged its A4 trial by its ink
-        // rather than an empty band past the border.) For quiddity-rust#134 the full
-        // boss height is conveyed by the overall; the refused trial also has an ink
-        // run. Its rejection and single-scale budget remain unchanged.
+    fn an_a4_routing_refusal_has_one_smaller_scale_budget() {
+        // GRM-02 keeps its leader/extension contact at the next smaller readable
+        // scale too. Default A4 earns that bounded trial, but the routing defect
+        // must still refuse it. A usable first trial needs no smaller replay.
         let a = model::analyse_native(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/grm02.step"),
         )
@@ -2230,15 +2252,14 @@ mod tests {
         let p = model::plan_recovered(&a, &Spec::default()).unwrap();
         let a4 = &p.sheet_candidates[0];
         assert_eq!((a4.size.as_str(), a4.max), ("A4", 1));
+        assert!(a4.outcome.starts_with("refused at 1:1:"), "{}", a4.outcome);
         assert!(
-            a4.outcome.ends_with(
-                "(0 hard, 0 drops; annotation_outside_area, extension_through_feature, \
-                 leader_ink_run, leader_on_extension)"
-            ),
+            a4.outcome.contains("new leader_on_extension"),
             "{}",
             a4.outcome
         );
-        assert_eq!(a4.scales.len(), 1, "{}", p.sheet.basis);
+        assert!(a4.outcome.contains("0 hard, 0 drops"), "{}", a4.outcome);
+        assert_eq!(a4.scales, ["2:1", "1:1"], "{}", p.sheet.basis);
         // The gear blank's A4 trial is usable at its first scale (#163).
         let a = model::analyse_native(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/gear_blank.step"),
