@@ -8,6 +8,7 @@ pub use haecceity;
 pub mod api;
 pub mod arc;
 pub mod blends;
+pub mod bom;
 pub mod bridge;
 pub mod callouts;
 pub mod centrelines;

@@ -45,3 +45,26 @@ this repository's licence, gzip without a timestamp.
 60 × 40 × 6 plate, a concentric bushing and a 0.25 mm liner, with generic root
 name ASSEMBLY. It exercises distinguishable section/detail item references and
 root-title fallback. Shared under this repository's licence.
+
+`bom-small.step.gz` (#267) is an original 13-box synthetic assembly, about 40 KiB
+compressed. It carries native product/category records and Specify v0.1.8's
+public UDA 1.8 BOM and CAx-IF material property graphs. Its root is ASSEMBLY;
+each named part wrapper contains a SOLID leaf, matching real gramil's exporter
+structure. Only explicitly answered GRM part numbers are drawing identities;
+unanswered SOLID ids remain raw facts. Geometry is not gramil's.
+`tools/make_bom_fixture.py` generates it using the real Specify CLI, first
+writing the committed `revisions/gramil_assembly.new.step.gz` from Specify
+v0.1.8, then a spacer variant, and finally this reduced assembly. The real
+assemblies (about 2 MB each) stay in scratch. Public metadata is preserved;
+private interview/allocation histories and default manufacturing PMI are omitted.
+The box geometry/tool are under this repository's licence. Gramil names and
+acceptance-table provenance are attributed to pzfreo/gramil; its actual supplied
+licence is OCL v1 (the accompanying `LICENSE-gramil`), not Apache.
+
+Regenerate in an OCP environment, with Specify built from source into scratch:
+
+```sh
+python tools/make_bom_fixture.py --specify /scratch/specify-target/release/specify-core \
+  --source /scratch/sp-src/tests/fixtures/revisions/gramil_assembly.new.step.gz \
+  --work /scratch/bom267 --output tests/fixtures/assembly/bom-small.step.gz
+```

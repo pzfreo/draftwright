@@ -28,6 +28,7 @@
           "enum": [
             "make",
             "buy",
+            "unknown",
             null
           ]
         },
@@ -60,6 +61,53 @@
               "type": "null"
             }
           ]
+        },
+        "material": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "part_number": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "optional": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "stock": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "examples": [
+            "from stock",
+            "to be made"
+          ],
+          "description": "Case-insensitive stock status; spaces, underscores and hyphens are normalised. Known aliases match the file reader."
         }
       }
     },
