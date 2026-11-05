@@ -1056,18 +1056,53 @@ fn select_scales(
         return pinned(analysis, spec);
     }
     if automatic(spec)
+        && !crate::nominal::comparison()
         && let Some(base) = tolerance_reference(spec)
     {
         let canonical = select(analysis, &base)?;
         let compact = canonical.sheet.dimension_spacing == model::DimensionSpacing::Compact;
-        return crate::dims::with_compact(compact, || {
-            replay_pins(analysis, spec, &base, canonical)
+        let reused = crate::dims::with_compact(compact, || {
+            let plan = replay_pins(analysis, spec, &base, canonical.clone())?;
+            let mut plan = model::finish_presentation(analysis, spec, plan)?;
+            model::finish_selected(analysis, &mut plan);
+            Ok::<_, Invalid>(plan)
         });
+        let refused = match reused {
+            Ok(plan) => {
+                let warnings = new_tolerance_warnings(analysis, &plan, &canonical);
+                if warnings.is_empty() {
+                    return Ok(plan);
+                }
+                warnings.into_iter().collect::<Vec<_>>().join(", ")
+            }
+            Err(error) => error.message,
+        };
+        // The tolerance is part of the full request. Bypass only this shortcut,
+        // including in the inner recovery pass, rather than stripping its ink.
+        let mut selected = select_scales_full(analysis, spec, maximise, forced_trials)?;
+        // Match replay's migrated authored intent rather than publishing a
+        // forced trial's automatically generated source binding.
+        let migrated = model::migrate(spec, analysis)?;
+        selected.spec =
+            crate::recognition_corrections::canonical(analysis, &migrated)?.into_owned();
+        selected.sheet.basis += &format!(
+            "; tolerance-only retained frame refused: {refused}; full paper/scale selection used"
+        );
+        return Ok(selected);
     }
+    select_scales_full(analysis, spec, maximise, forced_trials)
+}
+
+fn select_scales_full(
+    analysis: &Analysis,
+    spec: &Spec,
+    maximise: bool,
+    forced_trials: &mut ForcedTrials,
+) -> Result<Plan, Invalid> {
     // The displaced drawing is the actual paper-policy choice, not an
     // escalated estimate or a fill winner on different paper.
     let baseline = if maximise && automatic(spec) {
-        select_scales(analysis, spec, false, forced_trials)?
+        select_scales_full(analysis, spec, false, forced_trials)?
     } else {
         model::plan_automatic(analysis, spec)?
     };
@@ -2028,10 +2063,7 @@ fn compact_savings(plan: &Plan, view: &str, o: [f64; 4]) -> [f64; 2] {
 /// Live, unpinned automatic choices are already finished and quality-checked.
 /// Explicit controls and historical routing templates keep their existing finishing path.
 pub(crate) fn finishes_selection(spec: &Spec) -> bool {
-    automatic(spec)
-        && !crate::placement_intent::has_pins(spec)
-        && !annotation_only_tolerance(spec)
-        && !crate::nominal::comparison()
+    automatic(spec) && !crate::placement_intent::has_pins(spec) && !crate::nominal::comparison()
 }
 
 fn selected_trial_basis(plan: &mut Plan) {
@@ -2052,6 +2084,31 @@ fn annotation_only_tolerance(spec: &Spec) -> bool {
         // An authored measurement changes the geometric inventory, even when
         // the same transaction also gives it a tolerance.
         && !spec.dimensions.values().any(|d| d.kind.is_some() || d.between.is_some())
+}
+
+// Compare the finished ink, including collisions that a forced replay can
+// leave unreported until publication. A shared pre-existing warning is inherited.
+fn new_tolerance_warnings(analysis: &Analysis, plan: &Plan, reference: &Plan) -> BTreeSet<String> {
+    let warnings = |p: &Plan| {
+        p.problems
+            .iter()
+            .cloned()
+            .chain(crate::dims::recheck(analysis, p))
+            .chain(crate::dims::contacts::fixed_stroke_contacts(p))
+            .filter(|p| matches!(p.severity.as_str(), "warning" | "error"))
+            .map(|p| (problem_key(&p), p.severity))
+            .collect::<BTreeSet<_>>()
+    };
+    let inherited = warnings(reference);
+    let mut new: BTreeSet<_> = warnings(plan)
+        .difference(&inherited)
+        .map(|((code, _), _)| code.clone())
+        .collect();
+    if !model::finished_items_fit(analysis, plan) && model::finished_items_fit(analysis, reference)
+    {
+        new.insert("page_fit_uncertain".into());
+    }
+    new
 }
 
 fn tolerance_reference(spec: &Spec) -> Option<Spec> {
@@ -3386,14 +3443,16 @@ mod tests {
             ),
             ("A4", "1:2", 0)
         );
-        let trial = p
-            .sheet_candidates
-            .iter()
-            .find(|c| c.size == "A4" && c.max == 1)
-            .unwrap();
+        assert_eq!(p.sheet_candidates.len(), 1);
+        let trial = p.sheet_candidates.last().unwrap();
+        assert_eq!((trial.size.as_str(), trial.max), ("A4", 1));
         assert_eq!(trial.kind, None);
-        assert!(trial.scales.contains(&"1:2".into()));
-        assert!(preferred_scales_descend(trial));
+        assert_eq!(trial.scales, ["1:1", "1:2"]);
+        assert_eq!(trial.scales.last(), Some(&p.sheet.scale));
+        assert_eq!(
+            trial.outcome,
+            "A4: usable at 1:2 (1 sheet(s)); nothing clipped, readable scale, no unreadable ink or required losses"
+        );
         crate::planning::with(&a, || {
             let baseline = model::plan_automatic(&a, &spec).unwrap();
             let estimate = Estimate::new(&a, &baseline);
@@ -4207,6 +4266,54 @@ mod tests {
     }
 
     #[test]
+    fn tolerance_labels_that_add_warnings_use_full_selection() {
+        let a = fixture();
+        let baseline = model::plan_recovered(&a, &Spec::default()).unwrap();
+        let mut spec = Spec::default();
+        for d in baseline
+            .dimensions
+            .iter()
+            .filter(|d| d.kind == "linear" && d.placed.is_some())
+        {
+            spec.dimensions.entry(d.id.clone()).or_default().tolerance =
+                Some("±0.123456789123456789".into());
+        }
+        let retained = crate::planning::with(&a, || {
+            let plan = replay_pins(&a, &spec, &Spec::default(), baseline.clone()).unwrap();
+            let mut plan = model::finish_presentation(&a, &spec, plan).unwrap();
+            model::finish_selected(&a, &mut plan);
+            plan
+        });
+        let warnings = new_tolerance_warnings(&a, &retained, &baseline);
+        assert!(
+            !warnings.is_empty(),
+            "the enlarged labels must fail the retained frame"
+        );
+        let selected = model::plan_recovered(&a, &spec).unwrap();
+        assert!(
+            selected
+                .sheet
+                .basis
+                .contains("full paper/scale selection used"),
+            "{}",
+            selected.sheet.basis
+        );
+        assert_eq!(warnings, BTreeSet::from(["page_fit_uncertain".into()]));
+        assert_eq!(
+            (retained.sheet.size.as_str(), retained.sheet.scale.as_str()),
+            ("A4", "2:1")
+        );
+        assert_eq!(
+            (selected.sheet.size.as_str(), selected.sheet.scale.as_str()),
+            ("A4", "1:1")
+        );
+        assert!(model::finished_items_fit(&a, &selected));
+        assert!(new_tolerance_warnings(&a, &selected, &baseline).is_empty());
+        assert!(model::carries_required(&baseline, &selected));
+        assert_eq!(selected.spec, spec);
+    }
+
+    #[test]
     fn tolerance_only_edits_retain_the_canonical_paper_and_scale() {
         let a = fixture();
         crate::planning::with_retained(&a, || {
@@ -4233,6 +4340,19 @@ mod tests {
                     baseline.sheets.len()
                 )
             );
+            assert!(
+                edited
+                    .sheet
+                    .basis
+                    .contains("retained annotation reference:")
+            );
+            assert!(
+                !edited
+                    .sheet
+                    .basis
+                    .contains("full paper/scale selection used")
+            );
+            assert!(new_tolerance_warnings(&a, &edited, &baseline).is_empty());
             assert_eq!(edited.spec, spec);
             assert!(
                 edited
