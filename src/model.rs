@@ -904,6 +904,26 @@ pub struct Plan {
 }
 
 impl Plan {
+    fn record_callout_offsets(&mut self) {
+        let offsets: Vec<_> = self
+            .dimensions
+            .iter()
+            .map(|d| {
+                if d.kind != "callout" {
+                    return None;
+                }
+                let (view, tip) = self.automatic_callout_tip(&d.id)?;
+                if view != d.view {
+                    return None;
+                }
+                let bend = d.placed.as_ref()?.lines.first()?[1];
+                Some([bend[0] - tip[0], bend[1] - tip[1]])
+            })
+            .collect();
+        for (d, offset) in self.dimensions.iter_mut().zip(offsets) {
+            d.callout_offset = offset;
+        }
+    }
     /// A linear dimension's canonical label position in paper mm. Planning metadata only.
     pub fn automatic_dimension_label(&self, id: &str) -> Option<(&str, [f64; 2])> {
         let (view, label) = self.dimension_labels.get(id)?;
@@ -4268,6 +4288,7 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
                 manufacturing_fallback(analysis, spec, plan, |s| plan_recovered_once(analysis, s))?;
             crate::graphical_pmi::apply(analysis, &mut plan);
             crate::hole_exits::report(analysis, &mut plan);
+            plan.record_callout_offsets();
             Ok(plan)
         },
     )
@@ -5257,6 +5278,7 @@ pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 manufacturing_fallback(analysis, spec, plan, |s| plan_once(analysis, s))?;
             crate::graphical_pmi::apply(analysis, &mut plan);
             crate::hole_exits::report(analysis, &mut plan);
+            plan.record_callout_offsets();
             Ok(plan)
         },
     )
@@ -8691,6 +8713,7 @@ fn settle_finished_nominals(
 fn radius_furniture(plan: &Plan) -> Vec<crate::dims::PlannedDimension> {
     let proxy =
         |id: String, view: String, label_box: [f64; 4], lines| crate::dims::PlannedDimension {
+            callout_offset: None,
             id,
             view,
             kind: "furniture".into(),

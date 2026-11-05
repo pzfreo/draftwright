@@ -2174,6 +2174,7 @@ pub fn symbol_collisions<'a>(items: impl IntoIterator<Item = &'a PlannedGdt>) ->
 pub fn proxy(g: &PlannedGdt) -> Option<PlannedDimension> {
     let p = g.placed.as_ref()?;
     Some(PlannedDimension {
+        callout_offset: None,
         reference: false,
         determined_by: Vec::new(),
         region: None,
@@ -2204,6 +2205,7 @@ pub fn proxy(g: &PlannedGdt) -> Option<PlannedDimension> {
 pub fn finish_proxy(r: &crate::pmi_lowering::PlannedRequirement) -> Option<PlannedDimension> {
     let p = r.placed.as_ref()?;
     Some(PlannedDimension {
+        callout_offset: None,
         reference: false,
         determined_by: Vec::new(),
         region: None,

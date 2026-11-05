@@ -2525,7 +2525,9 @@ view, sheet or this callout's text. It describes explicit exterior `side/lane/al
 placement. Automatic labels can lie inside the view or use the automatic solver's
 other exterior candidates; read their actual geometry through `item`/`plan`.
 A bare pin retains that automatic geometry. To pin a label dragged anywhere, including into
-the view's open space, use `place.offset`: `Session::callout_offset(address)` returns
+the view's open space, use `place.offset`: a placed callout dimension record exposes `callout_offset: [dx,dy]`
+(in paper mm, y up; omitted without a canonical placement). It equals bend minus the automatic
+tip, so it can be copied into `place.offset`. `Session::callout_offset(address)` returns
 `CalloutOffset { view, tip, bend, offset, members }` (paper mm), where `tip` is the automatic leader tip
 the offset is measured from, `bend` the bend as drawn now and `offset = bend - tip`. Pinning a
 drop at `b` is `{"offset": b - tip, "pinned": true}`; pinning the returned `offset` keeps the

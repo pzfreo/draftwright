@@ -818,6 +818,7 @@ pub(crate) fn obstacles(views: &[PlannedView]) -> Vec<PlannedDimension> {
     for v in views {
         for w in &v.line_work {
             let mut obstacle = PlannedDimension {
+                callout_offset: None,
                 reference: false,
                 determined_by: Vec::new(),
                 region: None,

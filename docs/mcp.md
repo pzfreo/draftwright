@@ -454,3 +454,25 @@ delta encoding, and reports actual sheet steps. It retains the 150 ms bound unle
 `DRAFTWRIGHT_LATENCY_GATE=0`; local loaded-machine timings do not establish speed.
 I2 owns later-sheet title numbering, zones and cross-reference furniture; the I3
 session assembly selects that renderer's page and ink without allocating anew.
+
+
+## CLI release discovery
+
+The CLI release archive includes `draftwright`, `draftwright-mcp`, `schemas/` and `docs/`.
+`draftwright --help` lists commands and discovery paths; `draftwright --version` prints the
+release version. `draftwright spec_schema` returns the full Spec schema. To discover an item's
+choices, obtain a `part_ref` from `inspect_part` through `draftwright mcp-stdio` (or the
+`mcp_inspect_part` serve operation), then run
+`draftwright item_options <part_ref> <id> [--spec spec.json]`.
+
+`serve` also accepts `spec_schema` and `item_options`, with the same arguments and results as
+MCP. Use `{"id":1,"op":"spec_schema","arguments":{}}` or
+`{"id":2,"op":"item_options","arguments":{"part_ref":"…","id":"sheet"}}`.
+The nested arguments keep the item's ID separate from the request correlation ID.
+The standalone `draftwright-mcp` also advertises both discovery tools.
+
+A placed callout's Plan dimension record includes `callout_offset: [dx,dy]`, in paper mm,
+y up. It is its current bend minus the canonical automatic tip, exactly the `offset` from
+`Session::callout_offset`. Use it as `place.offset` with `pinned: true` to retain the bend.
+The field is absent for other dimension kinds, undrawn callouts and non-canonical carrier
+views. Older saved plans can omit it.

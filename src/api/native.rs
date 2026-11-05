@@ -510,6 +510,18 @@ pub fn call(op: &str, args: &Value) -> Result<Value, Error> {
 }
 
 fn dispatch(op: &str, args: &Value) -> Result<Value, Error> {
+    if matches!(op, "spec_schema" | "item_options") {
+        // These discovery operations share MCP's published argument and result shapes.
+        // Service envelopes are transport metadata, never tool arguments.
+        let mut args = args.get("arguments").unwrap_or(args).clone();
+        if let Some(fields) = args.as_object_mut() {
+            fields.remove("op");
+            if op == "spec_schema" {
+                fields.remove("id");
+            }
+        }
+        return crate::mcp::call(&crate::stateless::Cache::environment(), op, &args);
+    }
     let text = |key: &str| {
         args.get(key)
             .and_then(Value::as_str)

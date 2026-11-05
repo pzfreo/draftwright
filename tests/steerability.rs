@@ -463,6 +463,42 @@ fn steer_298_agent_discovery() {
         "callout_offset",
         record.get("callout_offset").is_some() || record.get("offset").is_some(),
     );
+    if let Some(offset) = d.callout_offset {
+        let (view, tip) = p.plan.automatic_callout_tip(&d.id).unwrap();
+        assert_eq!(view, d.view);
+        let bend = d.placed.as_ref().unwrap().lines[0][1];
+        assert_eq!(offset, [bend[0] - tip[0], bend[1] - tip[1]]);
+        let mut pinned = input("inline-293");
+        pinned["dimensions"][&d.id]["place"] = json!({"offset":offset,"pinned":true});
+        let replay = planned(BRACKET, &pinned);
+        let replay = dim(&replay.plan, &d.id).unwrap();
+        assert_eq!(replay.placed.as_ref().unwrap().lines[0][1], bend);
+        assert_eq!(replay.callout_offset, Some(offset));
+    }
+    let schema = api::call("spec_schema", &json!({})).unwrap();
+    assert_eq!(
+        schema["spec"]["$schema"],
+        "https://json-schema.org/draft/2020-12/schema"
+    );
+    let mut service = api::Service::default();
+    assert_eq!(
+        service
+            .call(
+                "spec_schema",
+                &json!({"id":1,"op":"spec_schema","arguments":{}})
+            )
+            .unwrap(),
+        schema
+    );
+    let cli = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+        .arg("spec_schema")
+        .output()
+        .unwrap();
+    assert!(cli.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&cli.stdout).unwrap(),
+        schema
+    );
     let members = release_members();
     for path in ["draftwright-mcp", "schemas/spec.json", "docs/model.md"] {
         let path = if path == "draftwright-mcp" {

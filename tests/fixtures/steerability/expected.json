@@ -34,21 +34,6 @@
       "reference_membership"
     ]
   },
-  "298": {
-    "case": "steer_298_agent_discovery",
-    "group": "E",
-    "reason": "The release omits MCP/schema/docs; CLI discovery and plan offsets are absent.",
-    "checks": [
-      "--help",
-      "--version",
-      "archive_docs/model.md",
-      "archive_draftwright-mcp",
-      "archive_schemas/spec.json",
-      "callout_offset",
-      "item_options_operation",
-      "schema_operation"
-    ]
-  },
   "299": {
     "case": "steer_299_agent_rough_edges",
     "group": "E",
