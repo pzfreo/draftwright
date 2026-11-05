@@ -65,6 +65,7 @@ fn session_with_cache(messages: &[Value], cache: Option<&Path>) -> Vec<Value> {
     assert_eq!(init["protocolVersion"], "2025-06-18");
     assert_eq!(init["serverInfo"]["name"], "draftwright");
     assert!(init["capabilities"]["tools"].is_object());
+    assert!(init["capabilities"]["resources"].is_object());
     replies[1..].to_vec()
 }
 
@@ -166,7 +167,7 @@ fn a_drawing_is_planned_edited_rendered_and_resumed() {
             json!({ "step": step, "spec": { "views": { "top": {} } } }),
         ),
         call(5, "draw", json!({})),
-        json!({ "jsonrpc": "2.0", "id": 6, "method": "resources/list" }),
+        json!({ "jsonrpc": "2.0", "id": 6, "method": "unknown/method" }),
         json!({ "jsonrpc": "2.0", "id": 7, "method": "ping" }),
     ]);
     let plan = first(&replies[0]);
@@ -321,6 +322,11 @@ fn pack_explicit_exports_are_readable_resources_and_json_replaces_inline_report(
         ],
         Some(&cache),
     );
+    let listing = session_with_cache(
+        &[json!({"jsonrpc":"2.0","id":1,"method":"resources/list"})],
+        Some(&cache),
+    );
+    assert_eq!(listing[0]["result"], json!({"resources":[]}));
     let content = replies[0]["result"]["content"].as_array().unwrap();
     assert_eq!(replies[0]["result"]["isError"], false);
     assert_eq!(content.len(), 4);

@@ -320,7 +320,7 @@ fn answer(message: &Value) -> Option<Value> {
         }
         "ping" => json!({}),
         "tools/list" => json!({ "tools": tools() }),
-        "resources/read" => {
+        "resources/list" | "resources/read" => {
             return draftwright::mcp::reply(&draftwright::stateless::Cache::environment(), message);
         }
         "tools/call" => {
