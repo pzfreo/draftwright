@@ -347,3 +347,70 @@ fn clear_fixed_sheet_finish_preserves_inventory_and_passes_fresh_audit() {
         });
     }
 }
+
+#[test]
+fn fixed_page_fit_warning_keeps_real_view_and_title_overlaps() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
+    let (_, a) = analyse_native(&path).unwrap();
+    let mut spec: Spec = serde_json::from_value(serde_json::json!({
+        "sheet": {"size": "A3", "scale": "1:1"}
+    }))
+    .unwrap();
+    let seed = plan_escalated(&a, &spec).unwrap();
+    spec.sheet.keep_layout = Some(true);
+    for on_title in [false, true] {
+        let mut plan = seed.clone();
+        plan.spec = spec.clone();
+        plan.views
+            .retain(|v| v.id == "v:front" || (!on_title && v.id == "v:plan"));
+        assert_eq!(plan.views.len(), if on_title { 1 } else { 2 });
+        plan.dimensions.clear();
+        plan.gdt.clear();
+        plan.captions.clear();
+        plan.notes.clear();
+        plan.notes_block = None;
+        plan.radius_notes_block = None;
+        plan.radius_table = None;
+        plan.tables.clear();
+        plan.hole_table = None;
+        plan.hole_tables.clear();
+        plan.balloons.clear();
+        plan.requirements.clear();
+        let centre = if on_title {
+            let b = plan.sheet.title_block;
+            [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0]
+        } else {
+            [90.0, 140.0]
+        };
+        let boxes = crate::sheet_fit::footprints(&a, &plan);
+        for (view, b) in plan.views.iter_mut().zip(boxes) {
+            for k in 0..2 {
+                let delta = centre[k] - (b[k] + b[k + 2]) / 2.0;
+                view.at[k] += delta;
+                view.area[k] += delta;
+                view.area[k + 2] += delta;
+            }
+        }
+        assert!(crate::sheet_fit::inside_frames(&a, &plan));
+        assert!(!finished_items_fit(&a, &plan));
+        plan.problems.clear();
+        plan.problems.push(Problem {
+            id: "p:page_fit_uncertain:sheet".into(),
+            code: "page_fit_uncertain".into(),
+            severity: "warning".into(),
+            message: "The views may not fit.".into(),
+            subjects: vec!["sheet".into()],
+            ..Default::default()
+        });
+        let repaired =
+            crate::planning::fixed_pair(|| recover_candidates(&a, &spec, plan, true, false))
+                .unwrap();
+        assert!(
+            repaired
+                .problems
+                .iter()
+                .any(|p| p.code == "page_fit_uncertain")
+        );
+    }
+}

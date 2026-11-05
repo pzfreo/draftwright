@@ -3620,8 +3620,9 @@ fn recover_candidates(
             }
             // Reserved view bands can overlap or exceed the frame after the actual
             // ink has settled. They are packing estimates, not rendered overflow.
-            // Include captions, line work and furniture in the physical frame check.
-            if crate::sheet_fit::inside_frames(analysis, &corrected) {
+            // As in automatic trials, include captions, line work and furniture,
+            // and reject actual view/view or view/title-block overlaps.
+            if finished_items_fit(analysis, &corrected) {
                 first = corrected;
                 first.problems.remove(i);
                 first.sheet.fill = crate::sheet_fit::fill(analysis, &first);
@@ -4210,15 +4211,21 @@ fn recover_candidates(
         } else {
             String::new()
         };
+        let f = findings(&first);
+        let assessment = if f.clean() {
+            "has no hard layout findings or space drops".into()
+        } else {
+            format!("has {}", said(f, drops(&first), hard_layout_codes(&first)))
+        };
         first.problems.push(Problem {
             id: "p:layout_recovery_exhausted:sheet".into(),
             code: "layout_recovery_exhausted".into(),
             severity: if illegible { "warning" } else { "info" }.into(),
             message: format!(
-                "{} at {} has {}{below}; no standard sheet and legible scale yields a valid complete drawing, so this drawing and its findings are kept. Tried {}.",
+                "{} at {} {}{below}; no alternative standard sheet and legible scale passed every layout, coverage and annotation-quality check, so this drawing and its findings are kept. Tried {}.",
                 first.sheet.size,
                 first.sheet.scale,
-                said(findings(&first), drops(&first), hard_layout_codes(&first)),
+                assessment,
                 tried.join("; ")
             ),
             subjects: vec!["sheet".into()],
