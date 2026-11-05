@@ -480,6 +480,84 @@ fn steer_298_agent_discovery() {
     c.finish(298);
 }
 
+fn detail_refusal_names_condition(message: &str) -> bool {
+    let text = message.to_lowercase();
+    let source = text.contains("source")
+        && [
+            "missing",
+            "absent",
+            "omitted",
+            "not shown",
+            "not drawn",
+            "does not exist",
+            "doesn't exist",
+            "unavailable",
+            "no source",
+        ]
+        .iter()
+        .any(|word| text.contains(word));
+    let space = ["crop", "room", "space", "fit", "layout", "sheet"]
+        .iter()
+        .any(|word| text.contains(word))
+        && [
+            "too large",
+            "too big",
+            "no room",
+            "not enough",
+            "insufficient",
+            "does not fit",
+            "doesn't fit",
+            "cannot fit",
+            "can't fit",
+            "won't fit",
+            "no reserved",
+            "no clear",
+            "no space",
+            "cannot be placed",
+        ]
+        .iter()
+        .any(|word| text.contains(word));
+    // A minimal fix may simply say "needs room for its crop" or "requires its
+    // source view". Those name one condition; the old conjunction names neither.
+    let demand = text.contains("needs") || text.contains("requires");
+    let mentions_source = text.contains("source");
+    let mentions_space = ["crop", "room", "space", "fit", "layout", "sheet"]
+        .iter()
+        .any(|word| text.contains(word));
+    source || space || (demand && mentions_source != mentions_space)
+}
+
+fn check_detail(name: &str, spec: &Value, c: &mut Checks, check: &str) {
+    match plan_result(name, spec) {
+        Err(message) => {
+            assert!(message.contains("detail_a"), "unrelated refusal: {message}");
+            if message.contains("needs its source view and room for its crop") {
+                c.want(check, false);
+            } else {
+                assert!(
+                    detail_refusal_names_condition(&message),
+                    "detail refusal must name the failed condition: {message}"
+                );
+            }
+        }
+        Ok(p) => {
+            let drawn = p
+                .plan
+                .views
+                .iter()
+                .any(|v| v.id == "v:detail_a" && v.detail.is_some());
+            let reported = p.plan.problems.iter().any(|f| {
+                (f.code.contains("detail") || f.code.contains("layout"))
+                    && f.subjects
+                        .iter()
+                        .chain(&f.refs)
+                        .any(|id| id == "v:detail_a" || id == "detail_a")
+            });
+            c.want(check, drawn || reported);
+        }
+    }
+}
+
 #[test]
 fn steer_299_agent_rough_edges() {
     let p = planned(BRACKET, &minimal());
@@ -509,13 +587,25 @@ fn steer_299_agent_rough_edges() {
     let mut detail = s;
     detail["views"] =
         json!({"detail_a":{"detail":{"around":"f:hole:2","from":"side","scale_factor":2}}});
-    match plan_result(BRACKET, &detail) {
-        Ok(_) => {}
-        Err(e) => {
-            assert!(e.contains("needs its source view and room"), "{e}");
-            c.want("detail_reason", false);
-        }
-    }
+    check_detail(BRACKET, &detail, &mut c, "detail_reason");
+    // Exercise a real, already-specific source refusal and an accepted roomier crop.
+    // These are controls for the acceptance criterion, not more expected failures.
+    let mut controls = Checks::default();
+    let mut source_missing = detail.clone();
+    source_missing["views"]["detail_a"]["detail"]["from"] = json!("section_aa");
+    check_detail(
+        BRACKET,
+        &source_missing,
+        &mut controls,
+        "specific_source_refusal",
+    );
+    detail["sheet"]["size"] = json!("A2");
+    check_detail(BRACKET, &detail, &mut controls, "accepted_detail");
+    assert!(
+        controls.0.is_empty(),
+        "valid detail outcomes must pass: {:?}",
+        controls.0
+    );
     c.finish(299);
 }
 
@@ -591,6 +681,21 @@ fn steer_301_authored_pocket() {
             && f.requirements.iter().any(|q| q.parameter.contains("depth"))),
         "the unstated depth must remain required"
     );
+    let mut unlocated = input("inline-301");
+    unlocated["dimensions"]
+        .as_object_mut()
+        .unwrap()
+        .remove("d:authored:keyway_start");
+    let unlocated = planned(SHAFT, &unlocated);
+    assert!(
+        missing(
+            rendered(SHAFT, &unlocated),
+            "pocket_requirement_missing",
+            "f:section_recess:1",
+            "location_pocket.location.x"
+        ),
+        "an unstated pocket location must still be reported"
+    );
     c.finish(301);
 }
 
@@ -608,13 +713,32 @@ fn steer_302_axis_origin() {
         "no_tangent_location",
         dim(&p.plan, "d:f:section_recess:1/location_pocket.location.y").is_none(),
     );
+    c.want(
+        "centred_keyway_located",
+        !missing(
+            rendered(SHAFT, &p),
+            "pocket_requirement_missing",
+            "f:section_recess:1",
+            "location_pocket.location.y",
+        ),
+    );
     s["origin"] = json!({"y":"axis:f:turned_step:2"});
-    c.accepts(
+    if let Some(p) = c.accepts(
         SHAFT,
         &s,
         "axis_origin",
         "must identify min, max or one plane normal to y",
-    );
+    ) {
+        c.want(
+            "centred_keyway_located",
+            !missing(
+                rendered(SHAFT, &p),
+                "pocket_requirement_missing",
+                "f:section_recess:1",
+                "location_pocket.location.y",
+            ),
+        );
+    }
     c.finish(302);
 }
 
@@ -659,9 +783,25 @@ fn steer_303_keyway_fit_and_view() {
 #[test]
 fn steer_304_keyway_section() {
     let mut s = input("inline-301");
+    let _baseline = planned(SHAFT, &s);
+    let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
+    draftwright::mcp::validate(&schema, &s).expect("the unmodified Spec is valid");
     s["views"]["sections"] = json!([{"id":"A", "through":"f:section_recess:1"}]);
     let mut c = Checks::default();
-    if let Some(p) = c.accepts(SHAFT, &s, "named_section", "invalid type") {
+    let p = match serde_json::from_value::<Spec>(s.clone()) {
+        Ok(_) => Some(planned(SHAFT, &s)),
+        Err(error) => {
+            let path = draftwright::mcp::validate(&schema, &s).unwrap_err();
+            assert!(
+                path.starts_with("input/views/sections:"),
+                "unexpected field refused: {path}; {error}"
+            );
+            eprintln!("REFUSAL views/sections: {error}; {path}");
+            c.want("named_section", false);
+            None
+        }
+    };
+    if let Some(p) = p {
         c.want(
             "named_section",
             p.plan.views.iter().any(|v| v.cut.is_some()),
@@ -825,24 +965,7 @@ fn steer_308_refusal_boundary() {
     let mut detail = input("inline-301");
     detail["views"]["detail_a"] =
         json!({"detail":{"around":"f:section_recess:1","from":"side","scale_factor":2}});
-    if let Some(p) = c.accepts(
-        SHAFT,
-        &detail,
-        "small_detail_reports_layout",
-        "needs its source view and room",
-    ) {
-        c.want(
-            "small_detail_reports_layout",
-            p.plan
-                .views
-                .iter()
-                .any(|v| v.id == "v:detail_a" && v.detail.is_some())
-                || p.plan
-                    .problems
-                    .iter()
-                    .any(|f| f.subjects.iter().any(|id| id == "v:detail_a")),
-        );
-    }
+    check_detail(SHAFT, &detail, &mut c, "small_detail_reports_layout");
     let mut unknown = input("inline-301");
     unknown["dimensions"]["d:authored:keyway_start"]["between"][0] = json!("face:v1:missing");
     assert!(
@@ -926,6 +1049,20 @@ fn steer_310_concentric_pattern() {
                 "f:hole_pattern:1",
                 role,
             ),
+        );
+    }
+    // An unannotated rectangular CTC grid has no round-outline axis to locate it.
+    // The same location-missing code must survive this negative control.
+    let unlocated = lint::check(&fixture(CTC).analysis, &[]);
+    for role in ["location.length.x", "location.length.y"] {
+        assert!(
+            unlocated
+                .iter()
+                .any(|f| f.code == "hole_pattern_requirement_missing"
+                    && f.requirements
+                        .iter()
+                        .any(|q| q.feature == "f:hole_pattern:1" && q.parameter == role)),
+            "an unstated off-axis grid location must still be reported: {role}"
         );
     }
     c.finish(310);
@@ -1170,11 +1307,21 @@ fn steer_319_table_does_not_locate_slot() {
     let p = planned(PLATE, &s);
     assert!(!p.plan.hole_tables.is_empty(), "reproducer needs its table");
     let r = rendered(PLATE, &p);
-    let stated = dim(&p.plan, "d:f:slot:1/location_slot_across.length").is_some();
+    let stated = p.plan.dimensions.iter().any(|d| {
+        d.kind == "linear"
+            && d.placed.is_some()
+            && p.plan.views.iter().any(|v| v.id == d.view)
+            && d.measurements
+                .iter()
+                .any(|m| m.feature == "f:slot:1" && m.parameter == "location_slot_across.length")
+    });
     let reported = r.lint.iter().any(|f| {
-        f.requirements
-            .iter()
-            .any(|q| q.feature == "f:slot:1" && q.parameter == "location_slot_across.length")
+        ["feature_not_located", "slot_requirement_missing"].contains(&f.code.as_str())
+            && f.requirements.iter().any(|q| {
+                q.feature == "f:slot:1"
+                    && ["location_slot_across.length", "location.length.y"]
+                        .contains(&q.parameter.as_str())
+            })
     });
     let mut c = Checks::default();
     c.want("slot_across_stated_or_reported", stated || reported);
@@ -1372,12 +1519,14 @@ fn steer_325_pin_respects_other_placement() {
     c.finish(325);
 }
 
-fn extension_crossings(p: &Plan, ids: &[&str]) -> usize {
+fn extension_crossings(p: &Plan, view: &str) -> usize {
     let dims: Vec<_> = p
         .dimensions
         .iter()
         .filter(|d| {
-            ids.contains(&d.id.as_str()) && d.placed.as_ref().is_some_and(|q| q.lines.len() >= 3)
+            d.view == view
+                && d.kind == "linear"
+                && d.placed.as_ref().is_some_and(|q| q.lines.len() >= 3)
         })
         .collect();
     let side = |a: [f64; 2], b: [f64; 2], c: [f64; 2]| {
@@ -1386,7 +1535,7 @@ fn extension_crossings(p: &Plan, ids: &[&str]) -> usize {
     let mut count = 0;
     for a in &dims {
         for b in &dims {
-            if a.id == b.id || a.view != b.view {
+            if a.id == b.id {
                 continue;
             }
             for [p, q] in &a.placed.as_ref().unwrap().lines[..2] {
@@ -1402,58 +1551,109 @@ fn extension_crossings(p: &Plan, ids: &[&str]) -> usize {
     count
 }
 
+struct StackDimension<'a> {
+    dimension: &'a PlannedDimension,
+    axis: usize,
+    span: [f64; 2],
+    offset: f64,
+}
+
+fn linear_stack<'a>(p: &'a Plan, view: &str) -> Vec<StackDimension<'a>> {
+    let v = p.views.iter().find(|v| v.id == view).unwrap();
+    p.dimensions
+        .iter()
+        .filter_map(|d| {
+            if d.kind != "linear" || d.view != view {
+                return None;
+            }
+            let placed = d.placed.as_ref()?;
+            if placed.lines.len() < 3 {
+                return None;
+            }
+            let [a, b] = placed.lines[2];
+            let axis = if (a[1] - b[1]).abs() < 1e-6 && (a[0] - b[0]).abs() > 1e-6 {
+                0
+            } else if (a[0] - b[0]).abs() < 1e-6 && (a[1] - b[1]).abs() > 1e-6 {
+                1
+            } else {
+                return None;
+            };
+            let x = placed.lines[0][0][axis];
+            let y = placed.lines[1][0][axis];
+            Some(StackDimension {
+                dimension: d,
+                axis,
+                span: [x.min(y), x.max(y)],
+                offset: a[1 - axis] - v.at[1 - axis],
+            })
+        })
+        .collect()
+}
+
 #[test]
 fn steer_326_short_dimensions_inside() {
     let p = planned(CTC, &input(CTC));
-    let ids = [
-        "d:authored:ear_left",
-        "d:f:slot:1/slot_length.length",
-        "d:f:slot:2/location_slot.length",
-        "d:f:hole_pattern:1/location.length.x",
-    ];
-    let ds: Vec<_> = ids.iter().map(|id| dim(&p.plan, id).unwrap()).collect();
+    let stack = linear_stack(&p.plan, "v:plan");
+    assert!(
+        stack
+            .iter()
+            .any(|d| d.dimension.id.starts_with("d:authored:"))
+    );
+    assert!(
+        stack
+            .iter()
+            .any(|d| !d.dimension.id.starts_with("d:authored:"))
+    );
     let mut c = Checks::default();
-    let mut compared = 0;
-    for (i, a) in ds.iter().enumerate() {
-        for b in ds.iter().skip(i + 1) {
-            let (a, b) = if a.value < b.value { (a, b) } else { (b, a) };
-            if a.view != b.view {
-                continue;
-            }
-            let pa = a.placed.as_ref().unwrap();
-            let pb = b.placed.as_ref().unwrap();
-            assert!(pa.lines.len() >= 3 && pb.lines.len() >= 3);
-            let range = |d: &draftwright::dims::Placed| {
-                let a = d.lines[0][0][0];
-                let b = d.lines[1][0][0];
-                [a.min(b), a.max(b)]
-            };
-            let (ra, rb) = (range(pa), range(pb));
-            let v = p.plan.views.iter().find(|v| v.id == a.view).unwrap();
-            let ay = (pa.label_box[1] + pa.label_box[3]) / 2. - v.at[1];
-            let by = (pb.label_box[1] + pb.label_box[3]) / 2. - v.at[1];
-            if ra[0] < rb[1] && rb[0] < ra[1] && ay.signum() == by.signum() {
+    for (axis, check) in [(0, "horizontal_nesting"), (1, "vertical_nesting")] {
+        let mut compared = 0;
+        let mut violations = Vec::new();
+        for (i, a) in stack.iter().enumerate().filter(|(_, d)| d.axis == axis) {
+            for b in stack.iter().skip(i + 1).filter(|d| d.axis == axis) {
+                let alen = a.span[1] - a.span[0];
+                let blen = b.span[1] - b.span[0];
+                if a.offset * b.offset <= 0.
+                    || a.span[1].min(b.span[1]) - a.span[0].max(b.span[0]) <= 1e-6
+                    || (alen - blen).abs() <= 1e-6
+                {
+                    continue;
+                }
+                let (short, long) = if alen < blen { (a, b) } else { (b, a) };
                 compared += 1;
-                c.want("shorter_nearer_view", ay.abs() <= by.abs() + 1e-6);
+                if short.offset.abs() > long.offset.abs() + 1e-6 {
+                    violations.push(format!(
+                        "{} ({}) outside {} ({})",
+                        short.dimension.id,
+                        short.dimension.value,
+                        long.dimension.id,
+                        long.dimension.value
+                    ));
+                }
             }
         }
+        assert!(
+            compared > 0,
+            "must compare overlapping dimensions on both axes"
+        );
+        eprintln!("{check}: {} violations: {violations:?}", violations.len());
+        c.want(check, violations.is_empty());
     }
-    assert!(
-        compared > 0,
-        "must compare overlapping dimensions on the same side"
-    );
     let mut baseline = input(CTC);
     baseline.as_object_mut().unwrap().remove("dimensions");
     let baseline = planned(CTC, &baseline);
-    c.want(
-        "extension_crossings_do_not_increase",
-        extension_crossings(&p.plan, &ids) <= extension_crossings(&baseline.plan, &ids),
+    let (before, after) = (
+        extension_crossings(&baseline.plan, "v:plan"),
+        extension_crossings(&p.plan, "v:plan"),
     );
+    eprintln!("extension crossings: baseline {before}, authored {after}");
+    c.want("extension_crossings_do_not_increase", after <= before);
     c.finish(326);
 }
 
 #[test]
 fn steer_327_unstated_outline_faces() {
+    // Main recognises/dimensions the notches; the schema-only drawing still
+    // neither states nor reports the inner ear faces at x = +/-192.5.
     let p = planned(CTC, &minimal());
     let r = rendered(CTC, &p);
     let mut c = Checks::default();
@@ -1473,6 +1673,8 @@ fn steer_327_unstated_outline_faces() {
 
 #[test]
 fn steer_328_slot_location_credit() {
+    // Unlike the issue, main credits both slot y locations despite its extra
+    // notch dimensions. The authored variant must also print the 205 and 200.
     let s = input(CTC);
     let p = planned(CTC, &s);
     let mut c = Checks::default();
@@ -1503,6 +1705,13 @@ fn steer_328_slot_location_credit() {
         );
     }
     let p = planned(CTC, &authored);
+    for (slot, value) in [("f:slot:1", 205.), ("f:slot:2", 200.)] {
+        let id = format!("d:authored:{}_y", slot.replace(':', "_"));
+        c.want(
+            &format!("placed_{slot}"),
+            dim(&p.plan, &id).is_some_and(|d| (d.value - value).abs() < 1e-5),
+        );
+    }
     for slot in ["f:slot:1", "f:slot:2"] {
         c.want(
             &format!("authored_{slot}"),
@@ -1581,24 +1790,63 @@ fn steer_330_report_gdt_moves() {
     c.finish(330);
 }
 
+fn annotations_in_bounds(r: &Rendered) -> bool {
+    !r.structural
+        .iter()
+        .any(|f| f.code.contains("off_sheet") || f.code.contains("out_of_bounds"))
+}
+
 #[test]
 fn steer_331_finished_sheet_fits() {
     let mut s = input(CTC);
-    let after = planned(CTC, &s);
+    let original = planned(CTC, &s);
     s["dimensions"]
         .as_object_mut()
         .unwrap()
         .remove("d:envelope/notch_location_x.length.f97_e104_e108");
-    let before = planned(CTC, &s);
+    let original_baseline = planned(CTC, &s);
     let mut c = Checks::default();
-    c.want("baseline_fits", !has(&before.plan, "page_fit_uncertain"));
-    c.want("placed_510_fits", !has(&after.plan, "page_fit_uncertain"));
+    // Main's additional generated dimensions have changed the issue's premise:
+    // the 650 really overflows by 3.1 mm with the 510 placed, 0.1 mm without it.
     c.want(
-        "finished_items_on_sheet",
-        !rendered(CTC, &after)
-            .structural
-            .iter()
-            .any(|f| f.code.contains("off_sheet") || f.code.contains("out_of_bounds")),
+        "annotations_in_bounds",
+        annotations_in_bounds(rendered(CTC, &original))
+            && annotations_in_bounds(rendered(CTC, &original_baseline)),
+    );
+
+    // Keep every dimension and the original A3 1:5. Moving only the 650 below
+    // restores the false-warning premise, paired with/without the 510 placement.
+    let mut fitting = input(CTC);
+    fitting["dimensions"]["d:f:hole_pattern:2/grid_pitch.length.col"] =
+        json!({"place":{"side":"below","lane":0}});
+    let after = planned(CTC, &fitting);
+    fitting["dimensions"]
+        .as_object_mut()
+        .unwrap()
+        .remove("d:envelope/notch_location_x.length.f97_e104_e108");
+    let before = planned(CTC, &fitting);
+    for p in [&before, &after] {
+        assert!(
+            annotations_in_bounds(rendered(CTC, p)),
+            "the false-warning control must actually fit"
+        );
+        for (id, value) in [
+            ("d:f:hole_pattern:2/grid_pitch.length.col", 650.),
+            ("d:envelope/notch_location_x.length.f97_e104_e108", 510.),
+        ] {
+            assert!(
+                dim(&p.plan, id).is_some_and(|d| (d.value - value).abs() < 1e-5),
+                "the fitting variant must retain {value}"
+            );
+        }
+    }
+    c.want(
+        "fitting_baseline_no_warning",
+        !has(&before.plan, "page_fit_uncertain"),
+    );
+    c.want(
+        "fitting_variant_no_warning",
+        !has(&after.plan, "page_fit_uncertain"),
     );
     c.finish(331);
 }

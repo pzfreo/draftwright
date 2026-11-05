@@ -100,7 +100,7 @@
   "304": {
     "case": "steer_304_keyway_section",
     "group": "B",
-    "reason": "The named-feature section request cannot be decoded by the current view API.",
+    "reason": "The proposed named-feature section request is rejected specifically at input/views/sections by the public schema validator; serde alone gives a generic type error.",
     "checks": [
       "named_section"
     ]
@@ -234,6 +234,14 @@
       "no_page_fit_uncertain"
     ]
   },
+  "319": {
+    "case": "steer_319_table_does_not_locate_slot",
+    "group": "A",
+    "reason": "The slot across location is only covered by another hole's table cells; duplicate_measurement credits that defective coverage, and no location-missing finding reports it.",
+    "checks": [
+      "slot_across_stated_or_reported"
+    ]
+  },
   "320": {
     "case": "steer_320_slot_centre_reference",
     "group": "B",
@@ -284,10 +292,20 @@
       "placement_kept_or_explained"
     ]
   },
+  "326": {
+    "case": "steer_326_short_dimensions_inside",
+    "group": "C",
+    "reason": "Main moves the original 150/120 below 635/400, but its added 507.5/350 notch dimensions expose four horizontal and four vertical nesting inversions; crossings rise 18 to 24.",
+    "checks": [
+      "extension_crossings_do_not_increase",
+      "horizontal_nesting",
+      "vertical_nesting"
+    ]
+  },
   "327": {
     "case": "steer_327_unstated_outline_faces",
     "group": "A",
-    "reason": "Neither unstated inner ear face is identified by completeness lint.",
+    "reason": "Unlike the issue main recognises/dimensions both rectangular notches, but its schema-only drawing still does not report either unstated inner ear face at x = +/-192.5.",
     "checks": [
       "left_ear",
       "right_ear"
@@ -304,11 +322,10 @@
   "331": {
     "case": "steer_331_finished_sheet_fits",
     "group": "D",
-    "reason": "Both baseline and placed-510 variants warn about fit; the current 650 also extends out of bounds.",
+    "reason": "Main's generated 650 really overflows (3.1/0.1 mm); moving that 650 below makes both renders fit, yet placing the 510 still raises page_fit_uncertain.",
     "checks": [
-      "baseline_fits",
-      "finished_items_on_sheet",
-      "placed_510_fits"
+      "annotations_in_bounds",
+      "fitting_variant_no_warning"
     ]
   }
 }

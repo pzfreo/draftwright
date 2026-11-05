@@ -62,3 +62,33 @@ a temporary directory with both built binaries and the shipped source assets;
 step is executed. The portable tar branch checks the common staging payload.
 #299 covers items 2–4 from the backlog's test-case column; changing stable ID
 vocabulary (item 1) needs its own geometry-edit identity contract.
+
+## CTC-01 differences from the issue snapshots
+
+The engine source is main at `040ca8bb` (PR #332 included). The five K6
+omissions above only permit the authored notch statements; they do **not**
+restore the v0.2.9 layout. Main additionally generates the other notch's 507.5
+x location, its 350 y location, an envelope notch angle of 60°, and an envelope
+notch depth of 50. These retained statements change the dimension stacks and
+page fit. Each CTC case is checked against this current layout:
+
+| Case | Current reason/outcome and difference from the issue |
+| --- | --- |
+| #326 | Expected failure. The issue's 150/120 now sit below the plan view, opposite the 635/400. All horizontal **and** vertical linear dimensions, authored and generated, are compared per side. The 400, 207.5 and 85 outside 507.5 and the 100 outside 207.5 reproduce four horizontal inversions. There are also four vertical inversions around the 350 and 225. Total extension crossings increase from 18 to 24. |
+| #327 | Expected failure. The schema-only drawing now recognises and dimensions the rectangular notches instead of reporting them as unrecognised. Neither unstated inner ear face at x = ±192.5 is identified by a location/definition finding. |
+| #328 | Passes on main, unlike the issue's four y-location findings. Both slots' y locations are credited with the retained generated notch dimensions present. The authored variant additionally requires the actual 205 and 200 dimensions to be placed. |
+| #331 | Two independent target checks. The unmodified reproducer really overflows: the generated 650 is 3.1 mm above the drawable area with the 510 placed, 0.1 mm without that placement. This is an overflow expected failure, not evidence of a false warning. A fitting variant moves **only** that 650 below the plan view (`place: {side: below, lane: 0}`), retaining all dimensions and A3 1:5. Both paired renders fit and retain the 650/510; the false warning occurs only with the 510 placement. That is the separate false-warning expected failure. |
+
+The #301 negative control removes the authored start while keeping the generated
+pocket location omitted; x must still be reported missing. #310 also checks an
+unannotated CTC rectangular grid with no concentric round outline: both centre
+locations must still produce `hole_pattern_requirement_missing`. These hard
+controls prevent blanket suppression of the completeness codes.
+
+#299/#308 accept either an actually drawn detail, a named detail layout finding,
+or a refusal that identifies the missing source or insufficient space. The
+existing undifferentiated "source view and room" refusal remains an expected
+failure. #299 additionally exercises a real specific source refusal and an
+accepted A2 crop as positive controls. #304 checks the existing public schema
+validator's `input/views/sections` path alongside decoding the proposed request;
+a generic serde type error anywhere in the Spec is insufficient.
