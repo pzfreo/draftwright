@@ -70,6 +70,92 @@ fn named(d: &PlannedDimension) -> String {
     crate::wording::item(&d.id, &d.kind, &d.label)
 }
 
+/// A candidate's new line/section-arrow contact can be cleared by extending
+/// the cutting-plane overrun. Its cut height, view placements and dimension ink
+/// stay fixed; accept only a strict contact improvement with no contact regression.
+pub(crate) fn clear_new_section_contacts(plan: &mut Plan, reference: &Plan) {
+    use std::collections::{BTreeMap, BTreeSet};
+    let keys = |p: &Problem| {
+        let mut subjects = p.subjects.clone();
+        subjects.sort();
+        (p.code.clone(), subjects)
+    };
+    let old: BTreeSet<_> = reference.problems.iter().map(keys).collect();
+    let new = |p: &Problem| p.code == "label_section_furniture_overlap" && !old.contains(&keys(p));
+    if !plan.problems.iter().any(new) {
+        return;
+    }
+    let counts = |plan: &Plan| {
+        let mut out = BTreeMap::<String, usize>::new();
+        for p in contacts(plan) {
+            *out.entry(p.code).or_default() += 1;
+        }
+        out
+    };
+    for vi in 0..plan.views.len() {
+        for wi in 0..plan.views[vi].line_work.len() {
+            if plan.views[vi].line_work[wi].kind != "cutting_plane" {
+                continue;
+            }
+            for end in 0..2 {
+                let before = counts(plan);
+                if before
+                    .get("label_section_furniture_overlap")
+                    .copied()
+                    .unwrap_or(0)
+                    == 0
+                {
+                    return;
+                }
+                let original = plan.views[vi].line_work[wi].clone();
+                let page = std::iter::once(&plan.sheet)
+                    .chain(&plan.sheets)
+                    .find(|s| s.number == plan.views[vi].sheet)
+                    .expect("view sheet")
+                    .page;
+                for extra in [2., 4., 6., 8., 10., 12.] {
+                    let mut next = original.clone();
+                    let Some(Curve::Line(a, b)) = next.curves.first_mut() else {
+                        break;
+                    };
+                    if end == 0 {
+                        a[0] -= extra;
+                    } else {
+                        b[0] += extra;
+                    }
+                    let marks =
+                        crate::centrelines::section_marks(&plan.views, &plan.views[vi], &next);
+                    if marks.iter().any(|(_, _, b)| {
+                        b[0] < crate::layout::margin()
+                            || b[1] < crate::layout::margin()
+                            || b[2] > page[0] - crate::layout::margin()
+                            || b[3] > page[1] - crate::layout::margin()
+                    }) {
+                        continue;
+                    }
+                    plan.views[vi].line_work[wi] = next;
+                    let after = counts(plan);
+                    if after
+                        .get("label_section_furniture_overlap")
+                        .copied()
+                        .unwrap_or(0)
+                        < before
+                            .get("label_section_furniture_overlap")
+                            .copied()
+                            .unwrap_or(0)
+                        && after
+                            .iter()
+                            .all(|(code, n)| *n <= before.get(code).copied().unwrap_or(0))
+                    {
+                        break;
+                    }
+                    plan.views[vi].line_work[wi] = original.clone();
+                }
+            }
+        }
+    }
+}
+
 /// Replace this pass's findings on *plan* with those of its current ink.
 pub(crate) fn report(analysis: &Analysis, plan: &mut Plan) {
     plan.problems.retain(|p| !CODES.contains(&p.code.as_str()));

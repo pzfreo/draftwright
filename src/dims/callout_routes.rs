@@ -46,7 +46,9 @@ fn improves_with_contacts(before: &[Problem], after: &[Problem], contacts: bool)
                     || (contacts
                         && matches!(
                             code.as_str(),
-                            "leader_along_centreline" | "annotation_outside_area"
+                            "leader_along_centreline"
+                                | "annotation_outside_area"
+                                | "leader_through_feature"
                         ))
             })
             .map(|(_, n)| n)
@@ -546,6 +548,47 @@ pub(crate) fn finish_frames(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
     finish_with(analysis, spec, plan, true, None);
 }
 
+// Transport a proven native callout corridor between identical projection owners.
+// Attachment and elbow follow model scale; text, shoulder and arrow length stay in paper mm.
+fn reference_route(
+    d: &PlannedDimension,
+    view: &crate::model::PlannedView,
+    reference: &Plan,
+) -> Option<Placed> {
+    let old = reference
+        .dimensions
+        .iter()
+        .find(|q| q.id == d.id && q.view == d.view && q.terms == d.terms)?;
+    let old_view = reference.views.iter().find(|v| {
+        v.id == d.view
+            && v.direction == view.direction
+            && v.up == view.up
+            && v.cut == view.cut
+            && v.detail == view.detail
+    })?;
+    let p = old.placed.as_ref()?;
+    let shaft = *p.lines.first()?;
+    let map = |q: [f64; 2]| {
+        [0, 1].map(|k| view.at[k] + (q[k] - old_view.at[k]) * view.scale / old_view.scale)
+    };
+    let tip = map(shaft[0]);
+    let elbow = map(shaft[1]);
+    let delta = [0, 1].map(|k| elbow[k] - shaft[1][k]);
+    let mut next = p.clone();
+    for q in next.lines.iter_mut().skip(1).flatten() {
+        crate::placement_intent::move_point(q, delta);
+    }
+    next.lines[0] = [tip, elbow];
+    next.arrows = p
+        .arrows
+        .iter()
+        .map(|[a, b]| [map(*a), [0, 1].map(|k| tip[k] + b[k] - a[k])])
+        .collect();
+    crate::placement_intent::move_point(&mut next.label_at, delta);
+    crate::placement_intent::move_box(&mut next.label_box, delta);
+    Some(next)
+}
+
 /// Repair only contacts newly introduced by a paper/scale candidate. Existing
 /// contacts in the displaced drawing keep the established routing policy.
 pub(crate) fn finish_new_contacts(
@@ -553,8 +596,9 @@ pub(crate) fn finish_new_contacts(
     spec: &Spec,
     plan: &mut Plan,
     ids: &BTreeSet<String>,
+    reference: &Plan,
 ) {
-    finish_with(analysis, spec, plan, false, Some(ids));
+    finish_with(analysis, spec, plan, false, Some((ids, reference)));
 }
 
 fn finish_with(
@@ -562,7 +606,7 @@ fn finish_with(
     spec: &Spec,
     plan: &mut Plan,
     only_frames: bool,
-    new_contacts: Option<&BTreeSet<String>>,
+    new_contacts: Option<(&BTreeSet<String>, &Plan)>,
 ) {
     let pmi_retry = placement::pmi_witness_retry(analysis);
     let openings = plan.dimensions.iter().any(|d| {
@@ -574,11 +618,16 @@ fn finish_with(
         route_issue(code)
             || (openings && code == "label_crowded")
             || (new_contacts.is_some()
-                && matches!(code, "leader_along_centreline" | "annotation_outside_area"))
+                && matches!(
+                    code,
+                    "leader_along_centreline"
+                        | "annotation_outside_area"
+                        | "leader_through_feature"
+                ))
     };
     // Added lanes must not leave an otherwise unreported leader alongside
     // an extension. Use the placer's existing one-mm contact predicate.
-    let extension_sets = if openings || pmi_retry {
+    let extension_sets = if openings || pmi_retry || new_contacts.is_some() {
         extension_sets(plan)
     } else {
         BTreeMap::new()
@@ -645,7 +694,7 @@ fn finish_with(
         .flat_map(|p| p.subjects.iter().cloned())
         .collect();
     affected_ids.extend(extension_bad.iter().cloned());
-    if let Some(ids) = new_contacts {
+    if let Some((ids, _)) = new_contacts {
         affected_ids.retain(|id| ids.contains(id));
     }
     if only_frames
@@ -740,7 +789,8 @@ fn finish_with(
                 if (openings || new_contacts.is_some()) && i < dimension_count {
                     before.extend(crowding(analysis, plan, &all, dimension_count, &d.id));
                 }
-                let extension_retry = only_frames || extension_bad.contains(&d.id);
+                let extension_retry =
+                    only_frames || new_contacts.is_some() || extension_bad.contains(&d.id);
                 let extension_budget = |p: &Placed| {
                     if !extension_retry {
                         return (0, 0);
@@ -786,6 +836,20 @@ fn finish_with(
                             .cloned(),
                     )
                     .collect();
+                // A reduced drawing can have settled on the wrong hemisphere of
+                // a hole. Seed the bounded sweep from the displaced drawing's proven
+                // attachment as well, rather than examining only its bad nearby tips.
+                let inherited_route = new_contacts.and_then(|(_, reference)| {
+                    before
+                        .iter()
+                        .any(|p| p.code == "leader_through_feature")
+                        .then(|| reference_route(d, view, reference))
+                        .flatten()
+                });
+                let mut seeded = d.clone();
+                if let Some(route) = &inherited_route {
+                    seeded.placed = Some(route.clone());
+                }
                 let mut candidates = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
                     gdt::normal_routes(glyph.as_ref().expect("datum"), bends)
                 } else {
@@ -793,7 +857,7 @@ fn finish_with(
                         analysis,
                         sheet,
                         &plan.views,
-                        d,
+                        &seeded,
                         want,
                         &peers,
                         proofs.get(&view.id).map(|p| p.as_ref()),
@@ -801,6 +865,9 @@ fn finish_with(
                 };
                 if before_extension.0 > 0 {
                     candidates.sort_by_cached_key(&extension_budget);
+                }
+                if let Some(route) = inherited_route {
+                    candidates.insert(0, route);
                 }
                 let id = d.id.clone();
                 let old = d.placed.clone();
@@ -876,7 +943,9 @@ fn finish_with(
                     // A free source callout can need a little more of its view's
                     // annotation band after witness lanes move. Reuse the hole
                     // attachment proof: grow only into vacant drawable paper.
-                    let area = if pmi_retry && extension_retry && i < dimension_count {
+                    let area = if ((pmi_retry && extension_retry) || new_contacts.is_some())
+                        && i < dimension_count
+                    {
                         super::ink_box(&all[i]).and_then(|ink| {
                             super::hole_marks::grown(view, ink, sheet, &plan.views, &peers)
                         })

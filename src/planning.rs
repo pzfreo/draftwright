@@ -150,7 +150,13 @@ pub(crate) fn with_retained<T>(analysis: &Analysis, run: impl FnOnce() -> T) -> 
             .map(|(_, values)| values)
             .unwrap_or_else(|| Rc::new(RefCell::new(BTreeMap::new())));
         if values.borrow().len() > 256 {
-            values.borrow_mut().clear();
+            // Exact canonical paper choices are expensive and shared by annotation
+            // edits. Keep at most four while dropping the larger per-trial preparation.
+            let mut values = values.borrow_mut();
+            values.retain(|(name, _), _| *name == "selected-paper");
+            while values.len() > 4 {
+                values.pop_last();
+            }
         }
         // These are policies activated by this invocation, not immutable preparation.
         // Keeping them from a previous automatic plan changes explicit-scale edits.
