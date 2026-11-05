@@ -633,9 +633,9 @@ fn assert_small_single_sheet(name: &str, expected: (&str, &str)) {
 /// A crowded but readable A4 is usable: a small part is not enlarged onto A3.
 #[test]
 fn small_10224_fits_one_a4_sheet() {
-    // One sheet still; A3 at 2:1 since the 3 mm frame gutter (2026-10-25) leaves A4 at 1:1
-    // with hard layout findings (formerly A4 1:1).
-    assert_small_single_sheet("10224", ("A3", "2:1"));
+    // A4's larger preferred scales have hard findings; 1:2 fits cleanly.
+    // Exhaust the readable scales before spending a larger sheet.
+    assert_small_single_sheet("10224", ("A4", "1:2"));
 }
 
 #[test]
@@ -677,9 +677,8 @@ fn overflow_honours_named_paper_and_sheet_count() {
         .1;
     for (intent, size, count) in [
         (json!({"sheet":{"size":"A2"}}), "A2", 1),
-        // A hard one-sheet limit keeps the preference order: the first usable paper is A3
-        // since the 3 mm frame gutter (2026-10-25); A4 was.
-        (json!({"sheets":{"max":1}}), "A3", 1),
+        // A hard one-sheet limit still uses A4's clean smaller scale first.
+        (json!({"sheets":{"max":1}}), "A4", 1),
     ] {
         let spec: Spec = serde_json::from_value(intent).unwrap();
         let p = model::plan_recovered(&a, &spec).unwrap();
