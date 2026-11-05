@@ -3745,6 +3745,9 @@ fn recover_candidates(
         && extra_existing_crossings(&first) == 0;
     let required = carried(&first);
     let mut tried = Vec::new();
+    // Basis traces name hard codes. Retained recovery diagnoses keep their
+    // established wording, rather than changing merely because a search ran.
+    let mut diagnostic_assessments = Vec::new();
     let mut candidates = Vec::new();
     let mut fitting_incomplete: Option<(usize, usize, usize, Plan)> = None;
     let mut smallest = None;
@@ -4037,11 +4040,20 @@ fn recover_candidates(
                 if unreadable_steps > 0 {
                     hard_codes.insert("unreadable_step_span", unreadable_steps);
                 }
+                let plain_verdict = if quality_veto {
+                    format!(
+                        "detail quality veto; {}",
+                        said(f, drops(&p), BTreeMap::new())
+                    )
+                } else {
+                    said(f, drops(&p), BTreeMap::new())
+                };
                 let verdict = if quality_veto {
                     format!("detail quality veto; {}", said(f, drops(&p), hard_codes))
                 } else {
                     said(f, drops(&p), hard_codes)
                 };
+                diagnostic_assessments.push((verdict.clone(), plain_verdict));
                 let selection_fill =
                     crate::sheet_fit::selection_fill(analysis, &p, compare_diagram_fill);
                 tried.push(format!(
@@ -4251,21 +4263,36 @@ fn recover_candidates(
             String::new()
         };
         let f = findings(&first);
-        let assessment = if f.clean() {
+        let clean_retained = f.clean() && !illegible;
+        let assessment = if clean_retained {
             "has no hard layout findings or space drops".into()
         } else {
-            format!("has {}", said(f, drops(&first), hard_layout_codes(&first)))
+            format!("has {}", said(f, drops(&first), BTreeMap::new()))
+        };
+        let diagnostic_trials = if clean_retained {
+            tried.join("; ")
+        } else {
+            diagnostic_assessments
+                .iter()
+                .fold(tried.join("; "), |trace, (coded, plain)| {
+                    trace.replace(coded, plain)
+                })
+        };
+        let conclusion = if clean_retained {
+            "no alternative standard sheet and legible scale passed every layout, coverage and annotation-quality check"
+        } else {
+            "no standard sheet and legible scale yields a valid complete drawing"
         };
         first.problems.push(Problem {
             id: "p:layout_recovery_exhausted:sheet".into(),
             code: "layout_recovery_exhausted".into(),
             severity: if illegible { "warning" } else { "info" }.into(),
             message: format!(
-                "{} at {} {}{below}; no alternative standard sheet and legible scale passed every layout, coverage and annotation-quality check, so this drawing and its findings are kept. Tried {}.",
+                "{} at {} {}{below}; {conclusion}, so this drawing and its findings are kept. Tried {}.",
                 first.sheet.size,
                 first.sheet.scale,
                 assessment,
-                tried.join("; ")
+                diagnostic_trials
             ),
             subjects: vec!["sheet".into()],
             ..Default::default()

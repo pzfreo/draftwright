@@ -70,6 +70,37 @@ fn named(d: &PlannedDimension) -> String {
     crate::wording::item(&d.id, &d.kind, &d.label)
 }
 
+/// The structural lint's finite-chain warning, measured without a render or
+/// changing the plan's published problem inventory.
+pub(crate) fn fixed_stroke_contacts(plan: &Plan) -> Vec<Problem> {
+    let mut out = Vec::new();
+    for d in plan.dimensions.iter().filter(|d| d.kind == "callout") {
+        let Some(p) = &d.placed else {
+            continue;
+        };
+        let Some(owner) = plan.views.iter().find(|v| v.id == d.view) else {
+            continue;
+        };
+        for v in plan.views.iter().filter(|v| v.sheet == owner.sheet) {
+            for w in v.line_work.iter().filter(|w| w.kind != "cutting_plane") {
+                if crate::lint::structural::leader_follows_stroke(
+                    &p.lines,
+                    &crate::centrelines::segments(w),
+                ) {
+                    out.push(Problem {
+                        id: format!("p:leader_centerline_overlap:{}|{}", d.id, w.id),
+                        code: "leader_centerline_overlap".into(),
+                        severity: "warning".into(),
+                        subjects: vec![d.id.clone(), w.id.clone()],
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
 /// A candidate's new line/section-arrow contact can be cleared by extending
 /// the cutting-plane overrun. Its cut height, view placements and dimension ink
 /// stay fixed; accept only a strict contact improvement with no contact regression.

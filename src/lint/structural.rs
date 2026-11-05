@@ -638,6 +638,23 @@ fn centreline_overlap(d: &Drawn, cl: &Drawn) -> Option<(f64, f64)> {
         })
 }
 
+/// The finite collinear stroke check shared by candidate repair and drawn lint.
+pub(crate) fn leader_follows_stroke(lines: &[[P; 2]], strokes: &[[P; 2]]) -> bool {
+    lines.iter().any(|[a, b]| {
+        let u = [b[0] - a[0], b[1] - a[1]];
+        let length = u[0].hypot(u[1]);
+        length > MIN_CROSSING
+            && strokes.iter().any(|[p, q]| {
+                let distance = |p: P| ((p[0] - a[0]) * u[1] - (p[1] - a[1]) * u[0]).abs() / length;
+                if distance(*p) > 1e-6 || distance(*q) > 1e-6 {
+                    return false;
+                }
+                let t = |p: P| ((p[0] - a[0]) * u[0] + (p[1] - a[1]) * u[1]) / length;
+                t(*p).max(t(*q)).min(length) - t(*p).min(t(*q)).max(0.) > MIN_CROSSING
+            })
+    })
+}
+
 /// Independently judge fixed furniture from the rendered inventory. A collinear leader
 /// cannot borrow a cutting stroke; section letters and arrows are ink even at a shallow touch.
 fn fixed_ink_contacts(drawing: &Drawing) -> Vec<LintIssue> {
@@ -650,20 +667,7 @@ fn fixed_ink_contacts(drawing: &Drawing) -> Vec<LintIssue> {
     {
         for fixed in &drawing.sheet.items {
             let code = if fixed.kind == Kind::Centreline && d.elbow.is_some() {
-                let along = d.lines.iter().any(|[a, b]| {
-                    let u = [b[0] - a[0], b[1] - a[1]];
-                    let length = u[0].hypot(u[1]);
-                    length > MIN_CROSSING
-                        && fixed.lines.iter().any(|[p, q]| {
-                            let distance =
-                                |p: P| ((p[0] - a[0]) * u[1] - (p[1] - a[1]) * u[0]).abs() / length;
-                            if distance(*p) > 1e-6 || distance(*q) > 1e-6 {
-                                return false;
-                            }
-                            let t = |p: P| ((p[0] - a[0]) * u[0] + (p[1] - a[1]) * u[1]) / length;
-                            t(*p).max(t(*q)).min(length) - t(*p).min(t(*q)).max(0.) > MIN_CROSSING
-                        })
-                });
+                let along = leader_follows_stroke(&d.lines, &fixed.lines);
                 if !along {
                     continue;
                 }

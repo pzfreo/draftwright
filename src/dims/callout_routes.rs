@@ -49,6 +49,7 @@ fn improves_with_contacts(before: &[Problem], after: &[Problem], contacts: bool)
                             "leader_along_centreline"
                                 | "annotation_outside_area"
                                 | "leader_through_feature"
+                                | "leader_centerline_overlap"
                         ))
             })
             .map(|(_, n)| n)
@@ -519,10 +520,16 @@ fn crowding(
     all: &[PlannedDimension],
     dimension_count: usize,
     id: &str,
+    fixed_strokes: bool,
 ) -> Vec<Problem> {
     let mut candidate = plan.clone();
     candidate.dimensions = all[..dimension_count].to_vec();
     super::contacts::report(analysis, &mut candidate);
+    if fixed_strokes {
+        candidate
+            .problems
+            .extend(super::contacts::fixed_stroke_contacts(&candidate));
+    }
     candidate
         .problems
         .into_iter()
@@ -533,6 +540,7 @@ fn crowding(
                     | "leader_across_view"
                     | "leader_to_hidden_edge"
                     | "leader_along_centreline"
+                    | "leader_centerline_overlap"
             ) && p.subjects.iter().any(|s| s == id)
         })
         .collect()
@@ -623,6 +631,7 @@ fn finish_with(
                     "leader_along_centreline"
                         | "annotation_outside_area"
                         | "leader_through_feature"
+                        | "leader_centerline_overlap"
                 ))
     };
     // Added lanes must not leave an otherwise unreported leader alongside
@@ -670,7 +679,11 @@ fn finish_with(
         })
         .collect();
     let initial_contacts = if openings || new_contacts.is_some() {
-        super::contacts::contacts(plan)
+        let mut found = super::contacts::contacts(plan);
+        if new_contacts.is_some() {
+            found.extend(super::contacts::fixed_stroke_contacts(plan));
+        }
+        found
     } else {
         Vec::new()
     };
@@ -787,7 +800,14 @@ fn finish_with(
                 let mut before =
                     placement::collisions_for(analysis, &all, sheet, &plan.views, &cache, &d.id);
                 if (openings || new_contacts.is_some()) && i < dimension_count {
-                    before.extend(crowding(analysis, plan, &all, dimension_count, &d.id));
+                    before.extend(crowding(
+                        analysis,
+                        plan,
+                        &all,
+                        dimension_count,
+                        &d.id,
+                        new_contacts.is_some(),
+                    ));
                 }
                 let extension_retry =
                     only_frames || new_contacts.is_some() || extension_bad.contains(&d.id);
@@ -966,7 +986,14 @@ fn finish_with(
                         &id,
                     );
                     if (openings || new_contacts.is_some()) && i < dimension_count {
-                        after.extend(crowding(analysis, plan, &all, dimension_count, &id));
+                        after.extend(crowding(
+                            analysis,
+                            plan,
+                            &all,
+                            dimension_count,
+                            &id,
+                            new_contacts.is_some(),
+                        ));
                     }
                     let next_extension = extension_budget(&next);
                     if next_extension.0 <= before_extension.0

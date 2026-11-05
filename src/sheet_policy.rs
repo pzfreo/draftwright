@@ -534,16 +534,22 @@ fn finished_preview(
         let mut preview = model::finish_presentation(analysis, spec, preview)?;
         crate::dims::contacts::report(analysis, &mut preview);
         if let Some(reference) = reference {
+            let fixed_contacts = crate::dims::contacts::fixed_stroke_contacts(&preview);
+            let reference_fixed = crate::dims::contacts::fixed_stroke_contacts(reference);
             let ids = preview
                 .problems
                 .iter()
+                .chain(&fixed_contacts)
                 .filter(|p| {
                     matches!(
                         p.code.as_str(),
-                        "leader_along_centreline" | "leader_through_feature"
+                        "leader_along_centreline"
+                            | "leader_through_feature"
+                            | "leader_centerline_overlap"
                     ) && !reference
                         .problems
                         .iter()
+                        .chain(&reference_fixed)
                         .any(|r| problem_key(r) == problem_key(p))
                 })
                 .flat_map(|p| {
@@ -804,6 +810,18 @@ fn usable_prepared(
                     && (code == "leader_ink_run" || code == "leader_hidden_crossing"))
         })
         .collect();
+    if strict_routes || replacement {
+        measured.extend(
+            crate::dims::contacts::fixed_stroke_contacts(plan)
+                .iter()
+                .map(problem_key),
+        );
+        inherited.extend(
+            crate::dims::contacts::fixed_stroke_contacts(reference)
+                .iter()
+                .map(problem_key),
+        );
+    }
     measured.extend(frame_conflicts(plan));
     inherited.extend(frame_conflicts(reference));
     let new: BTreeSet<_> = reported
@@ -1062,11 +1080,45 @@ fn select_scales(
         return Ok(baseline);
     }
     let intent = baseline.spec.clone();
-    let reference = if maximise {
+    let mut reference = if maximise {
         finished_preview(analysis, spec, &intent, &baseline, None)?
     } else {
         baseline.clone()
     };
+    // The inner recovery can itself enlarge a valid first estimate before the
+    // preferred-scale pass starts. Do not inherit a new finite-chain contact
+    // merely by calling that enlargement the base; repair its actual leader ink.
+    if maximise && model::findings(&baseline).clean() {
+        let ids = crate::dims::contacts::fixed_stroke_contacts(&reference)
+            .into_iter()
+            .flat_map(|p| {
+                p.subjects
+                    .into_iter()
+                    .filter(|id| reference.dimensions.iter().any(|d| &d.id == id))
+            })
+            .collect::<BTreeSet<_>>();
+        if !ids.is_empty() {
+            let first = model::plan_escalated(analysis, spec)?;
+            if first.sheet.size == baseline.sheet.size
+                && first.sheet.scale_factor < baseline.sheet.scale_factor
+                && model::findings(&first).clean()
+                && model::undrawn_gdt(&first) == 0
+            {
+                let mut original = finished_preview(analysis, spec, &intent, &first, None)?;
+                model::finish_selected(analysis, &mut original);
+                crate::planning::isolated(analysis, || {
+                    crate::dims::callout_routes::finish_new_contacts(
+                        analysis,
+                        spec,
+                        &mut reference,
+                        &ids,
+                        &original,
+                    )
+                });
+                crate::dims::contacts::report(analysis, &mut reference);
+            }
+        }
+    }
     let effective = crate::spec_gdt::effective(analysis, &intent)?;
     let fit = effective.as_ref();
     let radius_reference = model::radius_edit_reference(analysis, &intent, true);
@@ -1246,6 +1298,7 @@ fn select_scales(
                                     c,
                                     "leader_on_extension"
                                         | "leader_along_centreline"
+                                        | "leader_centerline_overlap"
                                         | "leader_through_feature"
                                         | "label_section_furniture_overlap"
                                         | "views_overlap"
@@ -1505,7 +1558,13 @@ fn select_scales(
             {
                 // Maximisation may improve the existing drawing, never disqualify
                 // it and then search A0 repeatedly for a stricter replacement.
-                search_trace.extend(trials.borrow().iter().cloned());
+                search_trace.extend(trials.borrow().iter().map(|t| {
+                    if max > 1 {
+                        format!("{t} [sheet limit {max}]")
+                    } else {
+                        t.clone()
+                    }
+                }));
                 return retained_base(
                     analysis,
                     baseline,
@@ -1690,7 +1749,13 @@ fn select_scales(
                 break;
             }
         }
-        search_trace.extend(trials.borrow().iter().cloned());
+        search_trace.extend(trials.borrow().iter().map(|t| {
+            if max > 1 {
+                format!("{t} [sheet limit {max}]")
+            } else {
+                t.clone()
+            }
+        }));
         if let Some(mut plan) = chosen {
             illegible_shortfall(fit, spec, &baseline, &mut plan);
             let reason = format!(
@@ -1806,7 +1871,7 @@ fn select_scales(
 }
 
 /// Retain the ordinary paper-policy result once maximisation reaches it.
-/// Existing findings, including recovery summaries, are neither added nor rewritten.
+/// No new recovery finding is introduced by an unsuccessful maximisation.
 fn retained_base(
     analysis: &Analysis,
     baseline: Plan,
@@ -1879,6 +1944,16 @@ fn compact_may_help(analysis: &Analysis, plan: &Plan) -> bool {
         page[0] - layout::margin(),
         page[1] - layout::margin(),
     ];
+    // Dense PMI's settled normal bands are better evidence than the seed's
+    // empty reservations. If even their compact bound fails, do not lower it again.
+    if !plan.gdt.is_empty()
+        && Estimate::new(analysis, plan)
+            .compact_bound(analysis, plan)
+            .shortfall(&plan.sheet.size, 1, plan.sheet.scale_factor)
+            .is_some()
+    {
+        return false;
+    }
     if !sheet_fit::inside_frames(analysis, plan) {
         let outlines = sheet_fit::footprints(analysis, plan);
         let bands = crate::view_gutters::bands(analysis, plan);
@@ -4030,6 +4105,25 @@ mod tests {
                 .unwrap_err()
                 .message
                 .contains("preferred_max_size")
+        );
+    }
+
+    #[test]
+    fn enlarged_nested_pack_has_no_drawn_leader_centreline_warning() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/assembly/pack-nested.step.gz");
+        let (part, analysis) = model::analyse_native(&path).unwrap();
+        let plan = model::plan_recovered(&analysis, &Spec::default()).unwrap();
+        assert_eq!(
+            (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+            ("A4", "2:1")
+        );
+        let font = crate::text::Font::new(crate::api::MONO.to_vec()).unwrap();
+        let drawing = model::render(&part, &analysis, &plan, &font).unwrap();
+        assert!(
+            !crate::lint::structural::check(&drawing)
+                .iter()
+                .any(|p| p.code == "leader_centerline_overlap")
         );
     }
 
