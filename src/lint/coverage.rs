@@ -676,8 +676,34 @@ fn centre(analysis: &Analysis) -> [f64; 3] {
 
 /// The `feature_not_located` finding on a drawing whose annotations are *marks*.
 pub fn located(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
+    let edges = super::location::drawn_edges(analysis, marks);
+    let roots = super::location::drawing_roots(analysis, marks);
+    let mut sites = sites(analysis, marks);
+    for site in &mut sites {
+        for (k, root) in roots.iter().enumerate() {
+            // Unsupported relations retain main's verdict. Only a positive printed
+            // chain may change it; absence of a graph path is not a new finding.
+            if let Some(node) = super::location::node_feature(analysis, &site.subject, k) {
+                let proved = super::location::drawn_proof(
+                    analysis,
+                    &edges,
+                    root,
+                    k,
+                    site.at[k],
+                    Some(&node),
+                )
+                .is_some();
+                site.claimed[k] = if super::location::fully_modelled(analysis, marks, &site.subject)
+                {
+                    proved
+                } else {
+                    site.claimed[k] || proved
+                };
+            }
+        }
+    }
     location(
-        &sites(analysis, marks),
+        &sites,
         centre(analysis),
         &Page::default(),
         Severity::Warning,

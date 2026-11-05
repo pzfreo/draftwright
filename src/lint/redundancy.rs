@@ -450,20 +450,15 @@ fn toleranced(text: &str) -> bool {
 
 pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     // Native location ink is local audit evidence, outside the semantic claim ledger.
-    let semantic;
-    let marks = if super::location::active(a, marks) {
-        semantic = marks
-            .iter()
-            .map(|m| {
-                let mut m = m.clone();
-                m.claims.retain(|c| !c.feature.starts_with("station_"));
-                m
-            })
-            .collect::<Vec<_>>();
-        &semantic
-    } else {
-        marks
-    };
+    let semantic: Vec<_> = marks
+        .iter()
+        .map(|m| {
+            let mut m = m.clone();
+            m.claims.retain(|c| !c.feature.starts_with("station_"));
+            m
+        })
+        .collect();
+    let marks = &semantic;
     if !walkable(a) {
         return Vec::new();
     }

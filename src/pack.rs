@@ -6,6 +6,7 @@ use std::path::Path;
 use std::time::Instant;
 
 mod buy;
+use crate::bom::Metadata;
 mod ga;
 pub use ga::{BalloonSpec, GaSpec, GeneralAssembly, HatchSpec, ItemReference};
 mod keys;
@@ -32,6 +33,7 @@ pub const FORMATS: [&str; 3] = ["pdf", "csv", "json"];
 pub enum Supply {
     Make,
     Buy,
+    Unknown,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -40,6 +42,13 @@ pub struct PartSpec {
     pub supply: Option<Supply>,
     pub item: Option<u32>,
     pub quantity: Option<usize>,
+    pub material: Option<String>,
+    pub part_number: Option<String>,
+    pub description: Option<String>,
+    pub revision: Option<String>,
+    pub name: Option<String>,
+    pub optional: Option<bool>,
+    pub stock: Option<String>,
     /// Keep this product out of automatic geometry merges.
     pub separate: bool,
     pub drawing: Option<Spec>,
@@ -76,7 +85,14 @@ pub struct Row {
     /// Stable leaf or common-stem key; `products` retains every member key.
     pub key: String,
     pub item: u32,
+    #[serde(skip_serializing)]
     pub name: String,
+    #[serde(flatten)]
+    pub bom: Metadata,
+    /// Provenance of each populated BOM value; absent fields have no source.
+    pub sources: BTreeMap<String, ValueSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantity_range: Option<String>,
     pub reference: String,
     pub products: Vec<String>,
     pub part_indices: Vec<usize>,
@@ -88,6 +104,15 @@ pub struct Row {
     pub problems: Vec<Problem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<Error>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ValueSource {
+    Spec,
+    File,
+    Suggested,
+    Guess,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -389,6 +414,9 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
     let file = haecceity::step::StepFile::read(&bytes).map_err(|e| Error::failed(e.to_string()))?;
     timings.read_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
+    let doc =
+        haecceity::p21::Document::parse(bytes.clone()).map_err(|e| Error::failed(e.to_string()))?;
+    let metadata = crate::bom::read(&doc, &file.parts);
     let keys = keys::keys(
         file.parts
             .iter()
@@ -410,7 +438,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             None
         } else {
             groups.iter_mut().position(|g| {
-                if g.separate {
+                if g.separate || !metadata[i].compatible(&g.row.bom) {
                     return false;
                 }
                 let (Ok(a), Ok(b)) = (&part, &g.part) else {
@@ -474,6 +502,11 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             );
             let row = &mut groups[j].row;
             row.products.push(key.clone());
+            row.bom
+                .product_ids
+                .extend(metadata[i].product_ids.iter().cloned());
+            row.bom.product_ids.sort();
+            row.bom.product_ids.dedup();
             row.part_indices.push(i);
             row.qty = row
                 .qty
@@ -498,7 +531,10 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             row: Row {
                 key: key.clone(),
                 item: 0,
-                name: d.name.clone(),
+                name: metadata[i].name.clone().unwrap_or_else(|| d.name.clone()),
+                bom: metadata[i].clone(),
+                sources: BTreeMap::new(),
+                quantity_range: None,
                 reference: key.clone(),
                 products: vec![key.clone()],
                 part_indices: vec![i],
@@ -522,7 +558,15 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
                 .iter()
                 .map(|&i| file.parts[i].name.as_str()),
         ) {
-            row.name = stem.clone();
+            // A common exporter-label stem is only a fallback display name.
+            // An occurrence UDA's explicit name remains a file fact.
+            if row
+                .part_indices
+                .iter()
+                .all(|&i| metadata[i].name.as_deref() == Some(file.parts[i].name.as_str()))
+            {
+                row.name = stem.clone();
+            }
             // A stem must not steal another leaf's key, or another group's alias.
             if !keys
                 .iter()
@@ -532,6 +576,9 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
                 row.key = stem;
             }
         }
+    }
+    for g in &mut groups {
+        g.row.bom.name = Some(g.row.name.clone());
     }
     timings.grouping_seconds = started.elapsed().as_secs_f64();
     let valid: BTreeSet<_> = keys
@@ -592,15 +639,121 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
                 values.first().map(|v| (*v).clone())
             }};
         }
-        let supply = resolve!(supply);
+        let stated_supply = row.bom.make_buy.as_deref().and_then(|v| match v {
+            "bought" => Some(Supply::Buy),
+            "made" => Some(Supply::Make),
+            _ => None,
+        });
+        let suggested_supply = row.bom.suggested_fields.contains("make_buy");
+        let supply_override = resolve!(supply);
+        let supply = supply_override.or(stated_supply);
+        row.sources.insert(
+            "supply".into(),
+            if supply_override.is_some() {
+                ValueSource::Spec
+            } else if stated_supply.is_some() {
+                if suggested_supply {
+                    ValueSource::Suggested
+                } else {
+                    ValueSource::File
+                }
+            } else {
+                ValueSource::Guess
+            },
+        );
+        macro_rules! text_override {
+            ($field:ident) => {
+                if let Some(value) = resolve!($field).filter(|s| !s.trim().is_empty()) {
+                    row.bom.$field = Some(value.trim().into());
+                    row.bom.suggested_fields.remove(stringify!($field));
+                    row.sources
+                        .insert(stringify!($field).into(), ValueSource::Spec);
+                }
+            };
+        }
+        text_override!(material);
+        text_override!(part_number);
+        text_override!(description);
+        text_override!(revision);
+        text_override!(name);
+        if let Some(value) = resolve!(optional) {
+            row.bom.optional = Some(value);
+            row.bom.suggested_fields.remove("optional");
+            row.sources.insert("optional".into(), ValueSource::Spec);
+        }
+        if let Some(value) = resolve!(stock) {
+            let value = crate::bom::stock(&value)
+                .ok_or_else(|| Error::invalid("pack stock must be from stock or to be made"))?;
+            row.bom.stock = Some(value);
+            row.bom.suggested_fields.remove("stock");
+            row.sources.insert("stock".into(), ValueSource::Spec);
+        }
+        if let Some(value) = &row.bom.name {
+            row.name = value.clone();
+        }
+        if let Some(supply) = supply_override {
+            row.bom.make_buy = Some(
+                match supply {
+                    Supply::Make => "made",
+                    Supply::Buy => "bought",
+                    Supply::Unknown => "not known",
+                }
+                .into(),
+            );
+            row.bom.suggested_fields.remove("make_buy");
+            row.sources.insert("make_buy".into(), ValueSource::Spec);
+        }
+        for (field, present) in [
+            ("name", row.bom.name.is_some()),
+            ("part_number", row.bom.part_number.is_some()),
+            (
+                "part_number_suggestion",
+                row.bom.part_number_suggestion.is_some(),
+            ),
+            ("file_make_buy", row.bom.file_make_buy.is_some()),
+            ("item_number", row.bom.item_number.is_some()),
+            ("product_ids", !row.bom.product_ids.is_empty()),
+            ("description", row.bom.description.is_some()),
+            ("revision", row.bom.revision.is_some()),
+            ("make_buy", row.bom.make_buy.is_some()),
+            ("material", row.bom.material.is_some()),
+            ("optional", row.bom.optional.is_some()),
+            ("stock", row.bom.stock.is_some()),
+            ("categories", !row.bom.categories.is_empty()),
+            ("classifications", !row.bom.classifications.is_empty()),
+            (
+                "occurrence_references",
+                !row.bom.occurrence_references.is_empty(),
+            ),
+        ] {
+            if present {
+                row.sources.entry(field.into()).or_insert(
+                    if row.bom.suggested_fields.contains(field) {
+                        ValueSource::Suggested
+                    } else {
+                        ValueSource::File
+                    },
+                );
+            }
+        }
+        row.sources.insert("qty".into(), ValueSource::File);
         if let Some(qty) = resolve!(quantity) {
             row.qty = qty;
+            row.sources.insert("qty".into(), ValueSource::Spec);
         }
-        if let Some(item) = resolve!(item) {
-            if !reserved.insert(item) {
-                return Err(Error::invalid(format!("duplicate pack item {item}")));
-            }
+        let item_override = resolve!(item);
+        if let Some(item) = item_override.or(row.bom.item_number) {
             row.item = item;
+            row.sources.insert(
+                "item".into(),
+                if item_override.is_some() {
+                    ValueSource::Spec
+                } else if row.bom.suggested_fields.contains("item_number") {
+                    ValueSource::Suggested
+                } else {
+                    ValueSource::File
+                },
+            );
         }
         let values: Vec<_> = intents.iter().filter_map(|p| p.drawing.as_ref()).collect();
         if values
@@ -612,13 +765,95 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
                 row.key
             )));
         }
-        let drawing_spec = values.first().map(|v| (*v).clone()).unwrap_or_default();
+        let mut drawing_spec = values.first().map(|v| (*v).clone()).unwrap_or_default();
+        for (field, target) in [
+            ("material", &mut row.bom.material),
+            ("number", &mut row.bom.part_number),
+            ("revision", &mut row.bom.revision),
+        ] {
+            if let Some(value) = drawing_spec
+                .sheet
+                .title
+                .get(field)
+                .filter(|s| !s.trim().is_empty())
+            {
+                *target = Some(value.trim().into());
+                row.sources.insert(
+                    if field == "number" {
+                        "part_number"
+                    } else {
+                        field
+                    }
+                    .into(),
+                    ValueSource::Spec,
+                );
+            }
+        }
+        if row.sources.get("material") == Some(&ValueSource::Spec)
+            && let Some(material) = &row.bom.material
+        {
+            drawing_spec
+                .sheet
+                .title
+                .entry("material".into())
+                .or_insert_with(|| material.clone());
+        }
+        if row.sources.get("part_number") == Some(&ValueSource::Spec)
+            && let Some(number) = &row.bom.part_number
+        {
+            drawing_spec
+                .sheet
+                .title
+                .entry("number".into())
+                .or_insert_with(|| number.clone());
+        }
+        if row.sources.get("revision") == Some(&ValueSource::Spec)
+            && let Some(revision) = &row.bom.revision
+        {
+            drawing_spec
+                .sheet
+                .title
+                .entry("revision".into())
+                .or_insert_with(|| revision.clone());
+        }
+        row.quantity_range = row
+            .bom
+            .optional
+            .filter(|optional| *optional)
+            .map(|_| format!("0–{}", row.qty));
+        if row.quantity_range.is_some() {
+            row.sources.insert(
+                "quantity_range".into(),
+                if row.sources.get("optional") == Some(&ValueSource::Spec)
+                    || row.sources.get("qty") == Some(&ValueSource::Spec)
+                {
+                    ValueSource::Spec
+                } else if row.sources.get("optional") == Some(&ValueSource::Suggested) {
+                    ValueSource::Suggested
+                } else {
+                    ValueSource::File
+                },
+            );
+        }
+        for field in &row.bom.suggested_fields {
+            if field != "make_buy" && row.sources.get(field) == Some(&ValueSource::Suggested) {
+                findings.push(finding(
+                    "pack_bom_suggestion",
+                    format!(
+                        "{}: {field} is a stored Specify suggestion, not an explicit answer",
+                        row.name
+                    ),
+                    row.products.clone(),
+                ));
+            }
+        }
         row.reference = drawing_spec
             .sheet
             .title
             .get("number")
             .filter(|s| !s.trim().is_empty())
             .cloned()
+            .or_else(|| row.bom.stated_part_number().cloned())
             .unwrap_or_else(|| row.key.clone());
         if file.parts.len() == 1 && file.parts[0].placements.len() > 1 {
             findings.push(finding("pack_single_product", "one product with multiple placements; quantity counts placements, geometry is drawn once in its own frame".into(), row.products.clone()));
@@ -632,8 +867,8 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
         // Known bought names need no geometry analysis unless the Spec requests a drawing.
         // Unknown shapes share their ONE native recognition with subsequent drawing.
         let read_error = g.part.as_ref().err().cloned();
-        let mut analysed = if row.buy_reasons.is_empty()
-            || supply == Some(Supply::Make)
+        let mut analysed = if supply.is_some_and(|s| s != Supply::Buy)
+            || (supply.is_none() && row.buy_reasons.is_empty())
             || file.parts.len() == 1
         {
             Some((|| -> Result<(Part, model::Analysis), Error> {
@@ -673,7 +908,28 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             Supply::Make
         };
         row.supply = supply.unwrap_or(guessed);
-        if !row.buy_reasons.is_empty() {
+        if stated_supply.is_some() && !suggested_supply {
+            row.buy_reasons.clear();
+        } else if suggested_supply && supply_override.is_none() {
+            let code = if row.supply == Supply::Buy {
+                "pack_buy_guess"
+            } else {
+                "pack_make_guess"
+            };
+            findings.push(finding(
+                code,
+                format!(
+                    "{}: stored Specify name-token suggestion for {} (supply override wins)",
+                    row.name,
+                    if row.supply == Supply::Buy {
+                        "buy"
+                    } else {
+                        "make"
+                    }
+                ),
+                row.products.clone(),
+            ));
+        } else if !row.buy_reasons.is_empty() {
             findings.push(finding(
                 "pack_buy_guess",
                 format!(
@@ -687,7 +943,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
             findings.push(finding("pack_make_guess", format!("{}: guessed make; custom drawing identifier or no bounded purchased-part name/shape evidence (supply override wins)", row.name), row.products.clone()));
         }
         let started = Instant::now();
-        let planned = if row.supply == Supply::Make {
+        let planned = if row.supply != Supply::Buy {
             match analysed
                 .take()
                 .expect("made groups analysed")
@@ -738,6 +994,40 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
         ));
     }
     rows.sort_by_key(|(row, ..)| row.supply == Supply::Buy);
+    // Conflicting file claims are facts to report, not reasons to refuse a pack.
+    let mut claims: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    for (index, (row, ..)) in rows.iter().enumerate() {
+        if row.item > 0 {
+            claims.entry(row.item).or_default().push(index);
+        }
+    }
+    for (item, owners) in claims {
+        let explicit: Vec<_> = owners
+            .iter()
+            .copied()
+            .filter(|i| rows[*i].0.sources.get("item") == Some(&ValueSource::Spec))
+            .collect();
+        if explicit.len() > 1 {
+            return Err(Error::invalid(format!("duplicate pack item {item}")));
+        }
+        if owners.len() > 1 {
+            let names = owners
+                .iter()
+                .map(|i| rows[*i].0.key.clone())
+                .collect::<Vec<_>>();
+            findings.push(finding("pack_duplicate_item", format!("item {item} is claimed by rows {}; retaining the file claims and allocating conflicting rows automatically", names.join(", ")), names));
+            for index in owners {
+                if !explicit.contains(&index) {
+                    rows[index].0.item = 0;
+                }
+            }
+        }
+        if let Some(&index) = explicit.first() {
+            reserved.insert(rows[index].0.item);
+        } else if rows.iter().any(|(r, ..)| r.item == item) {
+            reserved.insert(item);
+        }
+    }
     let mut next = 1u32;
     for (row, ..) in &mut rows {
         if row.item == 0 {
@@ -747,6 +1037,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
                     .ok_or_else(|| Error::invalid("pack item numbers exhausted"))?;
             }
             row.item = next;
+            row.sources.insert("item".into(), ValueSource::Guess);
             reserved.insert(next);
         }
     }
@@ -762,7 +1053,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
     let mut ga = if spec.ga.include.unwrap_or(rows.len() > 1) {
         match ga::prepare(
             step,
-            &bytes,
+            &doc,
             &file,
             &spec.ga,
             rows.iter().map(|(r, ..)| r),
@@ -851,6 +1142,7 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
         }
     };
     for (mut row, p, timing, _) in rows {
+        row.bom.name = (!row.name.trim().is_empty()).then(|| row.name.clone());
         if let Some(p) = p {
             row.problems.extend(p.plan.problems);
             for sheet in std::iter::once(&p.plan.sheet).chain(p.plan.sheets.iter()) {
@@ -890,17 +1182,29 @@ impl Report {
             format!("\"{}\"", s.replace('"', "\"\""))
         }
         let mut out =
-            "item,name,products,qty,supply,buy_reasons,sheets,reference,material\r\n".to_string();
+            "item,name,products,qty,supply,buy_reasons,sheets,reference,material,description,part_number,revision,quantity_range,optional,stock,make_buy,categories,classifications,occurrence_references,supply_source,item_source,material_source,name_source,description_source,part_number_source,revision_source,quantity_range_source,optional_source,stock_source,make_buy_source,qty_source,categories_source,classifications_source,occurrence_references_source,product_ids,product_ids_source,stated_item_number,stated_item_number_source,file_make_buy,file_make_buy_source,part_number_suggestion,part_number_suggestion_source\r\n".to_string();
         for row in &self.rows {
+            let source = |field: &str| {
+                row.sources
+                    .get(field)
+                    .map(|v| match v {
+                        ValueSource::Spec => "spec",
+                        ValueSource::File => "file",
+                        ValueSource::Guess => "guess",
+                        ValueSource::Suggested => "suggested",
+                    })
+                    .unwrap_or("")
+                    .to_string()
+            };
             let fields = [
                 row.item.to_string(),
                 row.name.clone(),
                 row.products.join("; "),
                 row.qty.to_string(),
-                if row.supply == Supply::Make {
-                    "make"
-                } else {
-                    "buy"
+                match row.supply {
+                    Supply::Make => "make",
+                    Supply::Buy => "buy",
+                    Supply::Unknown => "unknown",
                 }
                 .into(),
                 row.buy_reasons.join("; "),
@@ -910,7 +1214,43 @@ impl Report {
                     .collect::<Vec<_>>()
                     .join("; "),
                 row.reference.clone(),
-                String::new(),
+                row.bom.material.clone().unwrap_or_default(),
+                row.bom.description.clone().unwrap_or_default(),
+                row.bom.part_number.clone().unwrap_or_default(),
+                row.bom.revision.clone().unwrap_or_default(),
+                row.quantity_range.clone().unwrap_or_default(),
+                row.bom.optional.map(|v| v.to_string()).unwrap_or_default(),
+                row.bom.stock.clone().unwrap_or_default(),
+                row.bom.make_buy.clone().unwrap_or_default(),
+                row.bom.categories.join("; "),
+                row.bom.classifications.join("; "),
+                row.bom.occurrence_references.join("; "),
+                source("supply"),
+                source("item"),
+                source("material"),
+                source("name"),
+                source("description"),
+                source("part_number"),
+                source("revision"),
+                source("quantity_range"),
+                source("optional"),
+                source("stock"),
+                source("make_buy"),
+                source("qty"),
+                source("categories"),
+                source("classifications"),
+                source("occurrence_references"),
+                row.bom.product_ids.join("; "),
+                source("product_ids"),
+                row.bom
+                    .item_number
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                source("item_number"),
+                row.bom.file_make_buy.clone().unwrap_or_default(),
+                source("file_make_buy"),
+                row.bom.part_number_suggestion.clone().unwrap_or_default(),
+                source("part_number_suggestion"),
             ];
             out.push_str(
                 &fields

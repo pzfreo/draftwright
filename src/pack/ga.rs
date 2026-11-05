@@ -182,8 +182,11 @@ impl Prepared {
 
 /// Assembly lacks PRODUCT.id in the kernel's summary; follow the public Part 21
 /// graph's definition -> formation -> product chain, with decoded string attributes.
-fn assembly_number(bytes: &[u8], definition: u64) -> Result<String, Error> {
-    let doc = Document::parse(bytes.to_vec()).map_err(|e| Error::failed(e.to_string()))?;
+fn assembly_metadata(
+    doc: &Document,
+    definition: u64,
+    name: &str,
+) -> Result<(String, crate::bom::Metadata), Error> {
     let attr = |id, index| match doc.get(id)? {
         RawEntity::Simple { attributes, .. } => attributes.get(index),
         _ => None,
@@ -192,13 +195,14 @@ fn assembly_number(bytes: &[u8], definition: u64) -> Result<String, Error> {
         Attribute::EntityRef(id) => Some(*id),
         _ => None,
     };
-    Ok(reference(definition, 2)
+    let number = reference(definition, 2)
         .and_then(|formation| reference(formation, 2))
         .and_then(|product| match attr(product, 0)? {
             Attribute::String(s) => Some(s.clone()),
             _ => None,
         })
-        .unwrap_or_default())
+        .unwrap_or_default();
+    Ok((number, crate::bom::read_assembly(doc, definition, name)))
 }
 
 fn generic(name: &str) -> bool {
@@ -729,13 +733,14 @@ fn layout(
 
 pub(super) fn prepare<'a>(
     step: &Path,
-    bytes: &[u8],
+    document: &Document,
     file: &StepFile,
     settings: &GaSpec,
     rows: impl Iterator<Item = &'a Row>,
     reused: &BTreeMap<usize, (&haecceity::Part, &Analysis)>,
     aliases: &BTreeMap<usize, super::Alias>,
 ) -> Result<Prepared, Error> {
+    let bytes = document.bytes();
     let started = std::time::Instant::now();
     let rows: Vec<_> = rows.collect();
     let radius = settings.balloon_radius.unwrap_or_else(|| {
@@ -793,12 +798,16 @@ pub(super) fn prepare<'a>(
         || rows.first().map_or("Assembly", |r| r.name.as_str()),
         |a| a.name.as_str(),
     );
-    let number = if let Some(root) = file.assemblies.first() {
-        assembly_number(bytes, root.product_definition)?
+    let (number, metadata) = if let Some(root) = file.assemblies.first() {
+        assembly_metadata(document, root.product_definition, &root.name)?
     } else {
-        rows.first().map_or_else(String::new, |r| {
-            file.parts[r.part_indices[0]].product_id.clone()
-        })
+        let definition = rows.first().map(|r| &file.parts[r.part_indices[0]]);
+        (
+            definition.map_or_else(String::new, |d| d.product_id.clone()),
+            definition
+                .map(|d| crate::bom::read_assembly(document, d.product_definition, &d.name))
+                .unwrap_or_default(),
+        )
     };
     let horizontal = settings
         .horizontal_axis
@@ -875,9 +884,10 @@ pub(super) fn prepare<'a>(
             match row.supply {
                 Supply::Make => "make",
                 Supply::Buy => "buy",
+                Supply::Unknown => "unknown",
             }
             .into(),
-            String::new(),
+            row.bom.material.clone().unwrap_or_default(),
         ]);
     }
     if settings.parts_list != Some(false) {
@@ -1157,6 +1167,7 @@ pub(super) fn prepare<'a>(
             .map_err(|e| Error::failed(e.to_string()))?;
     }
     profile("detail geometry", started);
+    crate::bom::fill_titles(&metadata, &settings.drawing, &mut plan);
     Ok(Prepared {
         part,
         analysis,

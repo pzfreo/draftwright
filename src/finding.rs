@@ -185,8 +185,10 @@ catalogue! {
     "oriented_slot_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "oriented_slot_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
     "over_dimensioned_pattern" => Advisory, Code, "Repeated pattern dimensions are redundant information.";
+    "pack_bom_suggestion" => Advisory, Code, "Stored BOM suggestions retain their provenance and remain reviewable guesses.";
     "pack_buy_guess" => Advisory, Code, "A purchased-part candidate is listed with its detection reason and can be overridden.";
     "pack_compound" => Advisory, Code, "One product contains multiple solids; the pack reports the upstream part-definition limit.";
+    "pack_duplicate_item" => Advisory, Code, "Conflicting file find numbers are reported and replaced by automatic allocation.";
     "pack_ga_balloon_unplaced" => Incomplete, Code, "A visible assembly item has no clear item-reference route.";
     "pack_ga_failed" => Incomplete, Code, "The requested general assembly front sheet could not be drawn.";
     "pack_ga_not_visible" => Advisory, Code, "No face of this listed assembly item has proven visibility; no leader is fabricated.";

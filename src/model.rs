@@ -109,6 +109,9 @@ pub struct Analysis {
     /// omit it and use the binding's file stem for the default drawing title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_name: Option<String>,
+    /// File-stated bill-of-materials data, independent of geometric PMI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bom: Option<crate::bom::Metadata>,
     /// Source file stem when an assembly selection makes `binding.part` the product name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_stem: Option<String>,
@@ -1719,6 +1722,7 @@ pub(crate) fn analyse_pack_assembly(
             part_index: None,
         },
         product_name: None,
+        bom: None,
         source_stem: Some(name.into()),
         envelope: [b.min, b.max],
         solid_count: Some(part.solids.len()),
@@ -1773,7 +1777,7 @@ fn analyse_read_part(
     // the file carries PMI: that is placed, and its frames and sites measured, in the file's
     // axes, so a part with PMI is drawn in them. A motion the kernel refuses leaves the part
     // in the file's axes, as before.
-    let pmi = crate::pmi::attach_with(
+    let (pmi, bom) = crate::pmi::attach_with(
         bytes,
         &part,
         defs.as_deref().map_err(String::as_str),
@@ -1808,6 +1812,7 @@ fn analyse_read_part(
                 .and_then(|i| defs.get(i))
                 .map(|d| d.name.clone())
         }),
+        bom,
         source_stem: chosen.map(|_| stem),
         envelope: [b.min, b.max],
         solid_count: Some(part.solids.len()),
@@ -4360,18 +4365,21 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    layout::with_gutter(
-        spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
-        || {
-            let plan = plan_recovered_once(analysis, spec)?;
-            let plan = balloon_fallback(analysis, spec, plan)?;
-            let mut plan =
-                manufacturing_fallback(analysis, spec, plan, |s| plan_recovered_once(analysis, s))?;
-            crate::graphical_pmi::apply(analysis, &mut plan);
-            crate::hole_exits::report(analysis, &mut plan);
-            Ok(plan)
-        },
-    )
+    crate::bom::with_titles(analysis, spec, || {
+        layout::with_gutter(
+            spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
+            || {
+                let plan = plan_recovered_once(analysis, spec)?;
+                let plan = balloon_fallback(analysis, spec, plan)?;
+                let mut plan = manufacturing_fallback(analysis, spec, plan, |s| {
+                    plan_recovered_once(analysis, s)
+                })?;
+                crate::graphical_pmi::apply(analysis, &mut plan);
+                crate::hole_exits::report(analysis, &mut plan);
+                Ok(plan)
+            },
+        )
+    })
 }
 
 /// Inspection balloons are placed on the finished sheet, after the paper policy has chosen its
@@ -5072,10 +5080,12 @@ fn schedule_recovered(
 /// the dimensions, which on most parts keeps a larger scale, but where the dimensions run on
 /// past it an item can find no place (nist_stc_09 e4 at 1:1: 13 frames across the plan).
 pub fn plan_escalated(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    let mut plan = plan_escalated_layout(analysis, spec)?;
-    crate::characteristics::apply(analysis, &mut plan);
-    crate::hole_exits::report(analysis, &mut plan);
-    Ok(plan)
+    crate::bom::with_titles(analysis, spec, || {
+        let mut plan = plan_escalated_layout(analysis, spec)?;
+        crate::characteristics::apply(analysis, &mut plan);
+        crate::hole_exits::report(analysis, &mut plan);
+        Ok(plan)
+    })
 }
 
 pub(crate) fn plan_escalated_layout(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
@@ -5350,17 +5360,19 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// drawing's findings. That recovery is [`recover`], applied by [`plan_recovered`], never here:
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    layout::with_gutter(
-        spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
-        || {
-            let plan = plan_once(analysis, spec)?;
-            let mut plan =
-                manufacturing_fallback(analysis, spec, plan, |s| plan_once(analysis, s))?;
-            crate::graphical_pmi::apply(analysis, &mut plan);
-            crate::hole_exits::report(analysis, &mut plan);
-            Ok(plan)
-        },
-    )
+    crate::bom::with_titles(analysis, spec, || {
+        layout::with_gutter(
+            spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
+            || {
+                let plan = plan_once(analysis, spec)?;
+                let mut plan =
+                    manufacturing_fallback(analysis, spec, plan, |s| plan_once(analysis, s))?;
+                crate::graphical_pmi::apply(analysis, &mut plan);
+                crate::hole_exits::report(analysis, &mut plan);
+                Ok(plan)
+            },
+        )
+    })
 }
 
 fn plan_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
