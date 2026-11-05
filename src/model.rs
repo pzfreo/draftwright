@@ -3940,7 +3940,14 @@ fn recover_candidates(
                 crate::iso_caption::refresh(analysis, &mut p);
                 // An estimate's iso budget can refuse a sheet whose finished drawing fits.
                 // Only discharge that estimate when all actual item bounds and view extents fit.
-                let actual_fit = finished_items_fit(analysis, &p);
+                // Historical route comparisons are unrendered, pre-polish
+                // templates. Keep their conservative reservations; only live
+                // finished candidates can discharge an estimate from drawn bounds.
+                let actual_fit = if crate::nominal::comparison() {
+                    drawn_items_fit(analysis, &p)
+                } else {
+                    finished_items_fit(analysis, &p)
+                };
                 if actual_fit {
                     p.problems.retain(|q| q.code != "page_fit_uncertain");
                 }
