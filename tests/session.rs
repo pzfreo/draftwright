@@ -629,7 +629,7 @@ fn aligned_linear_offset_preserves_the_measured_span() {
         .dimension_references()
         .iter()
         .filter_map(|(id, refs)| match refs.as_slice() {
-            [Reference::Vertex { point }] => Some((id, point)),
+            [Reference::Vertex { point, .. }] => Some((id, point)),
             _ => None,
         })
         .collect();

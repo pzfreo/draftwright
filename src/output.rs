@@ -1141,7 +1141,7 @@ impl Drawing {
             let n = face.number_of_glyphs();
             let (mut of, mut extra, mut taken) = (BTreeMap::new(), Vec::new(), BTreeSet::new());
             for &ch in set {
-                let g = face.glyph_index(ch).map_or(0, |g| g.0);
+                let g = crate::text::Font::glyph(&face, ch).map_or(0, |g| g.0);
                 let cid = if g != 0 && taken.insert(g) {
                     g
                 } else {

@@ -63,6 +63,21 @@ const PROTOCOL: u32 = 1;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.len() == 1 {
+        match args[0].as_str() {
+            "--help" | "-h" => {
+                println!(
+                    "draftwright — engineering drawings from STEP\n\nCommands:\n  analyse <step>\n  plan <step> [--spec spec.json]\n  render <step> [--spec spec.json] -o <stem> [--formats svg,pdf,png]\n  review <step> [--spec spec.json]\n  edit <spec.json> <ops.json>\n  spec <drawing>\n  parts <step>\n  pack <step> -o <directory>\n  diff <old.step> <new.step> -o <directory>\n  spec_schema\n  item_options <part_ref> <id> [--spec spec.json]\n  serve\n  mcp-stdio | mcp-http\n\nDiscovery: schemas/spec.json, docs/model.md and docs/mcp.md ship in the release.\nJSON-lines serve: {{\"op\":\"hello\"}} lists operations; spec_schema and item_options use the MCP argument shapes.\nUse --version for the release version."
+                );
+                return ExitCode::SUCCESS;
+            }
+            "--version" | "-V" => {
+                println!("draftwright {}", env!("CARGO_PKG_VERSION"));
+                return ExitCode::SUCCESS;
+            }
+            _ => {}
+        }
+    }
     if args
         .first()
         .is_some_and(|s| ["mcp-stdio", "mcp-http"].contains(&s.as_str()))
@@ -110,7 +125,7 @@ fn read_json(path: &str) -> Result<Value, Error> {
 
 /// Runs the command, its arguments put as [`api::call`] takes them.
 fn run(args: &[String]) -> Result<Value, Error> {
-    let usage = "usage: draftwright (analyse|plan|render|review|pack|diff|edit|spec|parts|serve) …";
+    let usage = "usage: draftwright (analyse|plan|render|review|pack|diff|edit|spec|parts|spec_schema|item_options|serve) …";
     let command = args.first().ok_or_else(|| Error::invalid(usage))?;
     let arg = |i: usize| {
         args.get(i)
@@ -296,6 +311,14 @@ fn run(args: &[String]) -> Result<Value, Error> {
             "formats": formats(),
             "dpi": dpi()?,
         }),
+        "spec_schema" => json!({}),
+        "item_options" => {
+            let mut request = json!({ "part_ref": arg(1)?, "id": arg(2)? });
+            if !spec.is_null() {
+                request["spec"] = spec;
+            }
+            request
+        }
         "edit" => json!({ "spec": read_json(arg(1)?)?, "ops": read_json(arg(2)?)? }),
         "spec" => json!({ "drawing": arg(1)? }),
         "parts" => json!({ "step": arg(1)? }),

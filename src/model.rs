@@ -907,6 +907,26 @@ pub struct Plan {
 }
 
 impl Plan {
+    pub(crate) fn record_callout_offsets(&mut self) {
+        let offsets: Vec<_> = self
+            .dimensions
+            .iter()
+            .map(|d| {
+                if d.kind != "callout" {
+                    return None;
+                }
+                let (view, tip) = self.automatic_callout_tip(&d.id)?;
+                if view != d.view {
+                    return None;
+                }
+                let bend = d.placed.as_ref()?.lines.first()?[1];
+                Some([bend[0] - tip[0], bend[1] - tip[1]])
+            })
+            .collect();
+        for (d, offset) in self.dimensions.iter_mut().zip(offsets) {
+            d.callout_offset = offset;
+        }
+    }
     /// A linear dimension's canonical label position in paper mm. Planning metadata only.
     pub fn automatic_dimension_label(&self, id: &str) -> Option<(&str, [f64; 2])> {
         let (view, label) = self.dimension_labels.get(id)?;
@@ -1914,6 +1934,7 @@ fn analyse_read_part(
         analysis.iso_bounds = bounds;
     }
     analysis.edge_ink = Some(projected_ink::evidence(&part));
+    dimension_geometry::memberships(&mut analysis);
     Ok((part, analysis))
 }
 
@@ -1952,6 +1973,7 @@ pub fn recognise(part: &Part, analysis: &mut Analysis, json: &str) -> Result<(),
     analysis.radius_arcs = crate::radius::evidence(part, &features);
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
+    dimension_geometry::memberships(analysis);
     analysis.unrecognised.clear();
     Ok(())
 }
@@ -2071,6 +2093,7 @@ pub fn recognise_document(
     analysis.radius_arcs = crate::radius::evidence(part, &features);
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
+    dimension_geometry::memberships(analysis);
     analysis.modelled_thread_ink = crate::modelled_threads::evidence(part, analysis);
     // Physical threads use conventional carriers. Their raw helix HLR would be
     // thrown away by the planner and renderer; keep raw conservative evidence
@@ -4275,6 +4298,7 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
                 })?;
                 crate::graphical_pmi::apply(analysis, &mut plan);
                 crate::hole_exits::report(analysis, &mut plan);
+                plan.record_callout_offsets();
                 Ok(plan)
             },
         )
@@ -5268,6 +5292,7 @@ pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                     manufacturing_fallback(analysis, spec, plan, |s| plan_once(analysis, s))?;
                 crate::graphical_pmi::apply(analysis, &mut plan);
                 crate::hole_exits::report(analysis, &mut plan);
+                plan.record_callout_offsets();
                 Ok(plan)
             },
         )
@@ -8703,6 +8728,7 @@ fn settle_finished_nominals(
 fn radius_furniture(plan: &Plan) -> Vec<crate::dims::PlannedDimension> {
     let proxy =
         |id: String, view: String, label_box: [f64; 4], lines| crate::dims::PlannedDimension {
+            callout_offset: None,
             id,
             view,
             kind: "furniture".into(),

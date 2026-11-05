@@ -825,6 +825,7 @@ pub fn manufacturing(
 pub fn proxy(t: &PlannedTable) -> Option<PlannedDimension> {
     let p = t.placed.as_ref()?;
     Some(PlannedDimension {
+        callout_offset: None,
         reference: false,
         determined_by: Vec::new(),
         region: None,

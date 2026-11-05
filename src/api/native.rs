@@ -510,6 +510,18 @@ pub fn call(op: &str, args: &Value) -> Result<Value, Error> {
 }
 
 fn dispatch(op: &str, args: &Value) -> Result<Value, Error> {
+    if matches!(op, "spec_schema" | "item_options") {
+        // These discovery operations share MCP's published argument and result shapes.
+        // Service envelopes are transport metadata, never tool arguments.
+        let mut args = args.get("arguments").unwrap_or(args).clone();
+        if let Some(fields) = args.as_object_mut() {
+            fields.remove("op");
+            if op == "spec_schema" {
+                fields.remove("id");
+            }
+        }
+        return crate::mcp::call(&crate::stateless::Cache::environment(), op, &args);
+    }
     let text = |key: &str| {
         args.get(key)
             .and_then(Value::as_str)
@@ -658,6 +670,13 @@ impl Service {
             .unwrap_or_else(|_| Err(Error::failed(format!("{op} stopped"))))
     }
     fn dispatch(&mut self, op: &str, args: &Value) -> Result<Value, Error> {
+        if matches!(op, "item_options" | "mcp_item_options")
+            && !args.get("arguments").is_some_and(Value::is_object)
+        {
+            return Err(Error::invalid(
+                r#"serve item_options requires a nested arguments object: put the item id in arguments.id and keep the request id at the top level (for example {"id":1,"op":"item_options","arguments":{"part_ref":"…","id":"sheet"}})."#,
+            ));
+        }
         if let Some(tool) = op.strip_prefix("mcp_") {
             let nested = args.get("arguments");
             let mut args = nested.unwrap_or(args).clone();

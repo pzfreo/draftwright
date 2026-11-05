@@ -339,14 +339,46 @@ fn steer_297_reference_roles() {
     let refs = refs["references"].as_object().unwrap();
     assert!(!refs.is_empty());
     let mut c = Checks::default();
+    let a = &fixture(BRACKET).analysis;
+    // Independently locate the issue's foot and far stock face by fixture geometry;
+    // discovering them by their role is precisely the agent-facing behavior under test.
+    let bottom = a
+        .dimension_reference(&plane(BRACKET, 2, a.envelope[0][2]))
+        .unwrap();
+    let far_side = a
+        .dimension_reference(&plane(BRACKET, 0, a.envelope[0][0]))
+        .unwrap();
+    let foot_edges: Vec<_> = bottom
+        .membership()
+        .edges
+        .as_ref()
+        .unwrap()
+        .iter()
+        .filter_map(|edge| edge.reference.as_ref())
+        .map(|key| a.dimension_reference(key).unwrap())
+        .collect();
+    let plate = "f:plate:1";
     c.want(
         "reference_membership",
-        refs.values().all(|v| {
-            v.as_array()
-                .unwrap()
+        bottom.membership().features.iter().any(|id| id == plate)
+            && bottom
+                .membership()
+                .stock_sides
                 .iter()
-                .all(|r| r.get("features").is_some() || r.get("stock_faces").is_some())
-        }),
+                .any(|side| side == "bottom")
+            && far_side
+                .membership()
+                .stock_sides
+                .iter()
+                .any(|side| side == "left")
+            && !foot_edges.is_empty()
+            && foot_edges.iter().all(|r| {
+                r.membership().features.iter().any(|id| id == plate)
+                    && r.membership()
+                        .stock_sides
+                        .iter()
+                        .any(|side| side == "bottom")
+            }),
     );
     c.want(
         "face_boundaries",
@@ -358,6 +390,73 @@ fn steer_297_reference_roles() {
                     .iter()
                     .all(|r| r.get("edges").is_some() && r.get("vertices").is_some())
             }),
+    );
+    let f = fixture(BRACKET);
+    for (key, records) in f.analysis.dimension_references() {
+        for r in records {
+            let m = r.membership();
+            assert!(!m.faces.is_empty(), "{key} needs incident topology");
+            let expected: BTreeSet<_> = f
+                .analysis
+                .features
+                .iter()
+                .filter(|feature| feature.faces.iter().any(|i| m.faces.contains(i)))
+                .map(|feature| feature.id.clone())
+                .collect();
+            assert_eq!(
+                m.features.iter().cloned().collect::<BTreeSet<_>>(),
+                expected
+            );
+            assert_eq!(
+                m.stock_faces,
+                m.faces
+                    .iter()
+                    .filter(|i| f.analysis.stock_faces.contains(i))
+                    .copied()
+                    .collect::<Vec<_>>()
+            );
+            for side in &m.stock_sides {
+                assert!(
+                    ["bottom", "top", "left", "right", "front", "back"].contains(&side.as_str())
+                );
+                assert!(!m.stock_faces.is_empty());
+            }
+            if key.starts_with("face:") {
+                let face = m.faces[0];
+                let expected: BTreeSet<_> = f.part.faces[face]
+                    .loops
+                    .iter()
+                    .flat_map(|l| &l.edges)
+                    .map(|(e, _)| *e)
+                    .collect();
+                let edges = m.edges.as_ref().unwrap();
+                assert_eq!(
+                    edges.iter().map(|e| e.index).collect::<BTreeSet<_>>(),
+                    expected
+                );
+                for e in edges {
+                    if let Some(key) = &e.reference {
+                        assert!(f.analysis.dimension_references().contains_key(key));
+                    }
+                    for key in &e.vertices {
+                        assert!(f.analysis.dimension_references().contains_key(key));
+                    }
+                }
+                assert!(
+                    m.vertices
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .all(|key| f.analysis.dimension_references().contains_key(key))
+                );
+            }
+        }
+    }
+    let restored: Analysis =
+        serde_json::from_value(serde_json::to_value(&f.analysis).unwrap()).unwrap();
+    assert_eq!(
+        restored.dimension_references(),
+        f.analysis.dimension_references()
     );
     c.finish(297);
 }
@@ -463,8 +562,50 @@ fn steer_298_agent_discovery() {
         "callout_offset",
         record.get("callout_offset").is_some() || record.get("offset").is_some(),
     );
+    if let Some(offset) = d.callout_offset {
+        let (view, tip) = p.plan.automatic_callout_tip(&d.id).unwrap();
+        assert_eq!(view, d.view);
+        let bend = d.placed.as_ref().unwrap().lines[0][1];
+        assert_eq!(offset, [bend[0] - tip[0], bend[1] - tip[1]]);
+        let mut pinned = input("inline-293");
+        pinned["dimensions"][&d.id]["place"] = json!({"offset":offset,"pinned":true});
+        let replay = planned(BRACKET, &pinned);
+        let replay = dim(&replay.plan, &d.id).unwrap();
+        assert_eq!(replay.placed.as_ref().unwrap().lines[0][1], bend);
+        assert_eq!(replay.callout_offset, Some(offset));
+    }
+    let schema = api::call("spec_schema", &json!({})).unwrap();
+    assert_eq!(
+        schema["spec"]["$schema"],
+        "https://json-schema.org/draft/2020-12/schema"
+    );
+    let mut service = api::Service::default();
+    assert_eq!(
+        service
+            .call(
+                "spec_schema",
+                &json!({"id":1,"op":"spec_schema","arguments":{}})
+            )
+            .unwrap(),
+        schema
+    );
+    let cli = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+        .arg("spec_schema")
+        .output()
+        .unwrap();
+    assert!(cli.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&cli.stdout).unwrap(),
+        schema
+    );
     let members = release_members();
-    for path in ["draftwright-mcp", "schemas/spec.json", "docs/model.md"] {
+    for path in [
+        "draftwright-mcp",
+        "schemas/spec.json",
+        "docs/model.md",
+        "docs/mcp.md",
+        "docs/rules/README.md",
+    ] {
         let path = if path == "draftwright-mcp" {
             format!("{path}{}", std::env::consts::EXE_SUFFIX)
         } else {
@@ -477,6 +618,26 @@ fn steer_298_agent_discovery() {
                 .any(|name| name.ends_with(&format!("/{path}"))),
         );
     }
+    // Check the actual archive payload, not just the positive staging recipe.
+    let docs: BTreeSet<_> = members
+        .iter()
+        .filter_map(|name| name.split_once("/docs/"))
+        .map(|(_, path)| path)
+        .filter(|path| !path.is_empty() && !path.ends_with('/'))
+        .collect();
+    assert!(
+        !docs.contains("next-session.md"),
+        "internal working notes must not ship"
+    );
+    assert!(
+        docs.iter()
+            .all(|path| matches!(*path, "model.md" | "mcp.md") || path.starts_with("rules/")),
+        "release documentation must be allowlisted: {docs:?}"
+    );
+    assert!(
+        include_str!("../docs/model.md").contains("](rules/README.md)"),
+        "the rules catalogue ships because the agent guide links to it"
+    );
     c.finish(298);
 }
 
@@ -1151,10 +1312,10 @@ fn steer_313_authored_diameter_sign() {
                             .join(&t.font),
                     )
                     .unwrap();
-                    let face = ttf_parser::Face::parse(&data, 0).unwrap();
+                    let font = Font::new(data).unwrap();
                     t.text
                         .chars()
-                        .all(|ch| ch.is_whitespace() || face.glyph_index(ch).is_some())
+                        .all(|ch| ch.is_whitespace() || font.supports(ch))
                 }),
             );
         }

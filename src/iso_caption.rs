@@ -26,6 +26,7 @@ pub struct PlannedCaption {
 
 pub(crate) fn proxy(c: &PlannedCaption) -> PlannedDimension {
     PlannedDimension {
+        callout_offset: None,
         id: c.id.clone(),
         kind: "caption".into(),
         view: c.view.clone(),

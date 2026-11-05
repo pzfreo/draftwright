@@ -3134,6 +3134,7 @@ pub(crate) fn origin_reservations(
         .map(|(table, view, origin, at)| {
             let label_box = origin_box(at);
             PlannedDimension {
+                callout_offset: None,
                 reference: false,
                 determined_by: Vec::new(),
                 region: None,
