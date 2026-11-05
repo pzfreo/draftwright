@@ -1,0 +1,53 @@
+{
+  "schema": "draftwright.spec/2",
+  "sheet": {
+    "size": "A4",
+    "scale": "1:1",
+    "title": {
+      "tolerance": "ISO 2768-m",
+      "material": "Chromium-molybdenum alloy steel",
+      "title": "Stepped shaft with keyway",
+      "number": "T2C-STEPPED-SHAFT-KEYWAY"
+    }
+  },
+  "views": {
+    "plan": {}
+  },
+  "features": {
+    "f:section_recess:1": {
+      "note": "CENTRED ON AXIS",
+      "note_satisfies": [
+        "location_pocket.location.y"
+      ]
+    }
+  },
+  "dimensions": {
+    "d:f:turned_step:2/step_position.length": {
+      "omit": true
+    },
+    "d:f:turned_step:2/step.length": {},
+    "d:f:section_recess:1/location_pocket.location.x": {
+      "omit": true
+    },
+    "d:f:section_recess:1/location_pocket.location.y": {
+      "omit": true
+    },
+    "d:authored:keyway_start": {
+      "between": [
+        "face:v1:b9b1fcf85b6073d2c8e8e7279dc5edd39ece8e1d6d88530c78bb51c9ff26b1d2",
+        "face:v1:f1491f04dcf07961f8a6289ceba115ca7aa621cbc6335c3b541a22bc7ca1bcd8"
+      ],
+      "along": "x",
+      "view": "plan"
+    },
+    "d:authored:keyway_floor": {
+      "between": [
+        "axis:f:turned_step:2",
+        "face:v1:d302c5c1d8cb44238af5ac0fa9c6ed713e1dec2c30583031f323c1321360e92b"
+      ],
+      "along": "z",
+      "view": "side",
+      "style": "reference"
+    }
+  }
+}

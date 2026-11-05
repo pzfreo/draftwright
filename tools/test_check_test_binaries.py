@@ -82,7 +82,7 @@ macro_rules! quality_files {
         expected, _ = guard.inventory()
         self.assertEqual(set(expected), {
             'core', 'dimensions', 'rendering', 'audits', 'session', 'multi_sheet_latency',
-            'issue_drafting', 'issue_trust'})
+            'issue_drafting', 'issue_trust', 'steerability'})
         workflow = (guard.ROOT / '.github/workflows/ci.yml').read_text()
         lint, rest = workflow.split('  lint:', 1)[1].split('  build:', 1)
         harness = rest.split('  test:', 1)[1].split('  acceptance:', 1)[0]

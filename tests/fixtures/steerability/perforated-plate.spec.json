@@ -1,0 +1,27 @@
+{
+ "schema": "draftwright.spec/2",
+ "sheet": {
+  "size": "A3",
+  "scale": "1:1",
+  "title": {
+   "tolerance": "ISO 2768-m",
+   "material": "Aluminium 6061-T6"
+  }
+ },
+ "hole_table": "always",
+ "views": {
+  "side": {
+   "omit": true
+  }
+ },
+ "dimensions": {
+  "d:authored:slot_y": {
+   "between": [
+    "face:v1:7bb7477d21bb1f217539a3fbc5ee4a00a5b07b9077382546006d92bda42ad924",
+    "axis:face:v1:a4cf8ece6346775b6d4d120b97377d19fb14ed4078508aeae4309eed81944f0a"
+   ],
+   "along": "y",
+   "view": "plan"
+  }
+ }
+}

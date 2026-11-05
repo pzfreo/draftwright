@@ -1,0 +1,82 @@
+{
+ "schema": "draftwright.spec/2",
+ "sheet": {
+  "title": {
+   "tolerance": "UNSPECIFIED"
+  },
+  "size": "A3",
+  "scale": "1:5"
+ },
+ "dimensions": {
+  "d:authored:ear_left": {
+   "between": [
+    "face:v1:7bb604e3e710f2b83402b9cf4102da42f3b06dafe4ff47ff7b160c04a6173549",
+    "face:v1:532988b1c3cb36af368f3bcc54bfd184ede05a592f087727da57dc583d56c0da"
+   ],
+   "along": "x",
+   "view": "plan"
+  },
+  "d:authored:ear_right": {
+   "between": [
+    "face:v1:79ab807140c09b05f5d6de89af1152a57dd77bedcbaaa05be6275c4bc28bcabe",
+    "face:v1:a90642810319f127036c61be85fc6f8371f4207bb0b2515c148f2f3b1e3e597c"
+   ],
+   "along": "x",
+   "view": "plan"
+  },
+  "d:authored:notch_left": {
+   "between": [
+    "face:v1:7bb604e3e710f2b83402b9cf4102da42f3b06dafe4ff47ff7b160c04a6173549",
+    "face:v1:b028a3bc1d308000e49d43b84ce9686393392cfeb1dded809c2ee6665c82c8fd"
+   ],
+   "along": "x",
+   "view": "plan"
+  },
+  "d:authored:notch_left_w": {
+   "between": [
+    "face:v1:b028a3bc1d308000e49d43b84ce9686393392cfeb1dded809c2ee6665c82c8fd",
+    "face:v1:9ce870b175b41790938c7d44a6d1152ed919d8bc61ce04145458a29557770183"
+   ],
+   "along": "x",
+   "view": "plan"
+  },
+  "d:authored:notch_right": {
+   "between": [
+    "face:v1:79ab807140c09b05f5d6de89af1152a57dd77bedcbaaa05be6275c4bc28bcabe",
+    "face:v1:68eaaa81855b613523ac4edbee1a7b0a81134f64120e50a15c7bfc30211fe562"
+   ],
+   "along": "x",
+   "view": "plan"
+  },
+  "d:authored:notch_right_w": {
+   "between": [
+    "face:v1:a353771fa6e3efdf3b1f51c0f586201da8240293f5b8e32eedbbf20c4d5c7fbf",
+    "face:v1:68eaaa81855b613523ac4edbee1a7b0a81134f64120e50a15c7bfc30211fe562"
+   ],
+   "along": "x",
+   "view": "plan"
+  },
+  "d:authored:bar_back": {
+   "between": [
+    "face:v1:c16e9b51e2bae23c6dc76a80dfeea4b7b66fab7754654b0847323b3ba9ef55b7",
+    "face:v1:1d0266213589aff36389fd33b320025d720dad8662a9bc3091bee8844881373f"
+   ],
+   "along": "y",
+   "view": "plan"
+  },
+  "d:authored:notch_depth": {
+   "between": [
+    "face:v1:1d0266213589aff36389fd33b320025d720dad8662a9bc3091bee8844881373f",
+    "face:v1:02f59e031e34ceec244d20b95a62827f7f13d56c26484499a1b29f60c1265b20"
+   ],
+   "along": "y",
+   "view": "plan"
+  },
+  "d:envelope/notch_location_x.length.f97_e104_e108": {
+   "place": {
+    "view": "front",
+    "side": "below"
+   }
+  }
+ }
+}

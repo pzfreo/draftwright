@@ -1,0 +1,102 @@
+{
+  "schema": "draftwright.spec/2",
+  "sheet": {
+    "size": "A4",
+    "scale": "1:1",
+    "title": {
+      "tolerance": "ISO 2768-m",
+      "material": "G1018 mild steel, cold drawn",
+      "title": "Angle bracket",
+      "number": "T2C-ANGLE-BRACKET"
+    }
+  },
+  "precision": {
+    "d:envelope/height.length": 1
+  },
+  "dimensions": {
+    "d:envelope/width.length": {
+      "style": "reference"
+    },
+    "d:envelope/height.length": {
+      "style": "reference",
+      "place": {
+        "view": "side",
+        "side": "right",
+        "lane": 0
+      }
+    },
+    "d:step_level/step_height.length.h8": {
+      "place": {
+        "side": "left",
+        "lane": 0
+      }
+    },
+    "d:f:hole:1/bore.diameter": {
+      "place": {
+        "pinned": true,
+        "offset": [
+          14,
+          12
+        ]
+      }
+    },
+    "d:step_level/step_position.length.x75_381": {
+      "omit": true
+    },
+    "d:step_level/step_position.length.x93_072": {
+      "omit": true
+    },
+    "d:authored:base_length": {
+      "between": [
+        "vertex:v1:049dd438c368093c721cb00f6e0da6f9f4050667018b09e58937a97807fd6db6",
+        "vertex:v1:945c5e8378855c5e64a61f86124370400d2f826721eaea333bd2aba83c29cd7d"
+      ],
+      "along": "x",
+      "view": "front"
+    },
+    "d:authored:flange_length": {
+      "between": [
+        "vertex:v1:945c5e8378855c5e64a61f86124370400d2f826721eaea333bd2aba83c29cd7d",
+        "vertex:v1:4e5899720e785b00e484630f5760c3c5a39ed75c96cd46ec24db8d57aaa6a7b2"
+      ],
+      "along": "true",
+      "view": "front",
+      "place": {
+        "side": "right",
+        "lane": 1
+      }
+    },
+    "d:authored:flange_thickness": {
+      "between": [
+        "vertex:v1:4e5899720e785b00e484630f5760c3c5a39ed75c96cd46ec24db8d57aaa6a7b2",
+        "vertex:v1:ce7229b36b005268af05a8bc6645a9a77b86fa4bfc525de9b315d59fdaeb3588"
+      ],
+      "along": "true",
+      "view": "front"
+    },
+    "d:authored:hole2_along_flange": {
+      "between": [
+        "axis:f:hole:2",
+        "edge:v1:d8f3565f8d7d9652901a4471ea935e2238a60c080fb95877e8b1378455edcec5"
+      ],
+      "along": "true",
+      "view": "front",
+      "place": {
+        "side": "right",
+        "lane": 0
+      }
+    },
+    "d:authored:hole2_y": {
+      "between": [
+        "axis:f:hole:2",
+        "face:v1:8c6179ca9c5faa7487b11e02aef7f2f765f7e2c34ffc667b925b07b9c2b6a70d"
+      ],
+      "along": "y",
+      "view": "side",
+      "place": {
+        "side": "above",
+        "lane": 0
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+ "schema": "draftwright.spec/2",
+ "sheet": {
+  "title": {
+   "tolerance": "ISO 2768-m",
+   "material": "G1018 mild steel, cold drawn"
+  }
+ },
+ "dimensions": {
+  "d:f:hole:3/bore.diameter": {
+   "place": {
+    "view": "plan",
+    "offset": [
+     -38,
+     44
+    ],
+    "pinned": true
+   }
+  }
+ }
+}
