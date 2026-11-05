@@ -27,6 +27,25 @@ on Linux without an unbounded wait. Bare-LF blank lines terminate reading prompt
 and are refused by header parsing with 400. This read deadline excludes tool
 computation. Cold computation runs synchronously here; production jobs are below.
 
+## Drawing packs in the compatibility adapter
+
+The `draftwright-mcp` executable exposes `pack` with `step` (a path or registered
+part ref) or `part_ref`, and optional PackSpec `spec`. Its default result contains
+one compact JSON **Report** text block and a short row/page/failure summary.
+It exports no files by default and does not repeat the report in structured content.
+This MCP delivery policy leaves the native `serve` pack envelope and defaults unchanged.
+
+Request files explicitly with `formats`, for example `["pdf","csv"]`. Empty or
+omitted formats means report only; duplicates are refused (`uniqueItems: true`).
+Files are returned as `resource_link` content with `uri`, `name`, `mimeType` and
+`size`, never base64 inside tool text. Read a returned URI with MCP
+`resources/read {"uri":"draftwright:<artifact_ref>"}` using the same persistent
+`DRAFTWRIGHT_CACHE`. PDF and CSV resources use `{uri,mimeType,blob}` with base64
+bytes; JSON uses `{uri,mimeType,text}`. When `json` is requested, its resource
+replaces the inline report, so the report is delivered once. Export bytes match
+the CLI. This tool belongs to the document-passing executable, not the stateless
+subcommands' tool list below.
+
 ## Tools and documents
 
 Drawing queries carry `part_ref` and either `spec` or `spec_version`. An absent Spec means

@@ -592,7 +592,7 @@ impl Cache {
         };
         if hash.len() != 64
             || !hash.bytes().all(|b| b.is_ascii_hexdigit())
-            || !["json", "png", "pdf"].contains(&ext)
+            || !["json", "png", "pdf", "csv"].contains(&ext)
         {
             return Err(Error::invalid("use an artifact_ref returned by a tool"));
         }

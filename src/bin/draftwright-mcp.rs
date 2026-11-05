@@ -224,14 +224,14 @@ fn tools() -> Value {
         },
         {
             "name": "pack",
-            "description": "Build an assembly drawing pack: GA, made-part sheets and BOM. Returns the pack report and base64 files.",
+            "description": "Build an assembly drawing pack: GA, made-part sheets and BOM. Returns one compact pack report and a short summary by default. Files are exported only when formats is supplied, as resource links: read their URIs with resources/read for JSON text or base64 blobs. Requesting json replaces the inline report; formats must be unique.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "step": path("STEP path or registered part ref."),
                     "part_ref": path("Registered source assembly, alternative to step."),
                     "spec": { "type": "object", "description": "PackSpec (draftwright.pack-spec/1)." },
-                    "formats": { "type": "array", "items": { "enum": ["pdf", "csv", "json"] } },
+                    "formats": { "type": "array", "items": { "type": "string", "enum": ["pdf", "csv", "json"] }, "uniqueItems": true, "maxItems": 3, "default": [], "description": "Explicit exports only; omitted or empty returns just the report and summary. JSON replaces the inline report. Read file resource links with resources/read." },
                 },
                 "required": [],
                 "anyOf": [{"required": ["step"]}, {"required": ["part_ref"]}],
@@ -313,13 +313,16 @@ fn answer(message: &Value) -> Option<Value> {
                 .unwrap_or(&VERSIONS[0]);
             json!({
                 "protocolVersion": version,
-                "capabilities": { "tools": {} },
+                "capabilities": { "tools": {}, "resources": {} },
                 "serverInfo": { "name": "draftwright", "version": env!("CARGO_PKG_VERSION") },
                 "instructions": INSTRUCTIONS,
             })
         }
         "ping" => json!({}),
         "tools/list" => json!({ "tools": tools() }),
+        "resources/read" => {
+            return draftwright::mcp::reply(&draftwright::stateless::Cache::environment(), message);
+        }
         "tools/call" => {
             let name = params["name"].as_str().unwrap_or("");
             if !api::OPERATIONS.contains(&name) {
@@ -327,7 +330,13 @@ fn answer(message: &Value) -> Option<Value> {
             }
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
             let text = |x: &Value| json!({ "type": "text", "text": serde_json::to_string_pretty(x).expect("JSON") });
-            match api::call(name, &args) {
+            let called = if name == "pack" {
+                draftwright::mcp::pack_tool(&draftwright::stateless::Cache::environment(), &args)
+            } else {
+                api::call(name, &args)
+            };
+            match called {
+                Ok(result) if name == "pack" => result,
                 Ok(result) if name == "review" => json!({
                     "content": [
                         text(&json!({

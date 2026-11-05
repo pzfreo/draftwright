@@ -6,6 +6,11 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Keep MCP `pack` responses to one compact report and summary by default.
+  Export only explicitly requested formats through resource links; JSON replaces
+  the inline report and duplicate formats are refused. Native pack defaults and
+  WASM signatures are unchanged.
+
 - Expose drawing packs through byte-based core build/render APIs and the native
   JSON-lines `pack` operation, with base64 files and the shared pack report.
 

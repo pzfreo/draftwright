@@ -32,3 +32,12 @@ with no progress callback in v1. `setSpec` rebuilds using the retained STEP byte
 and keeps the instance; a refusal leaves its previous pack intact. Call `free()`
 when finished to release its retained source and drawings. Errors are thrown as
 JSON strings through the same `error_json` function as Engine.
+
+`pageSvg(page)` uses wasm-bindgen's unsigned 32-bit number coercion: fractions
+truncate toward zero and negatives wrap modulo 2³² before the 1-based range
+check. Thus `1.9` selects page 1 and `-1` is out of range; callers should pass
+positive integer page numbers. No JavaScript-side integer validation is added.
+
+During `setSpec`, the previous pack stays alive until the replacement succeeds;
+peak pack memory can briefly be approximately **2×** during a rebuild (plus the
+retained source and temporary analysis allocations).
