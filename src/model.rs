@@ -3954,6 +3954,10 @@ fn recover_candidates(
                 p.status = crate::completeness::status(&p.problems);
                 let mut f = findings(&p);
                 f.hard += usize::from(!actual_fit);
+                // Releasing empty reservations must not admit an oblique
+                // authored witness that crosses another annotation's strokes.
+                let authored_clear = crate::dims::authored_placement_clear(spec, &p.dimensions);
+                f.hard += usize::from(!authored_clear);
                 let unreadable_steps = crate::sheet_fit::illegible_steps(analysis, &p);
                 f.hard += unreadable_steps;
                 f.dropped += required.difference(&carried(&p)).count();
@@ -3979,6 +3983,9 @@ fn recover_candidates(
                 let mut hard_codes = hard_layout_codes(&p);
                 if !actual_fit {
                     hard_codes.insert("finished_items_do_not_fit", 1);
+                }
+                if !authored_clear {
+                    hard_codes.insert("authored_annotation_conflict", 1);
                 }
                 if unreadable_steps > 0 {
                     hard_codes.insert("unreadable_step_span", unreadable_steps);
