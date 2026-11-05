@@ -925,9 +925,11 @@ fn select_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 // earns compact spacing or the smaller scale; a routing refusal would only
                 // repeat itself.
                 let frame_conflict = !frame_conflicts(&plan).is_empty();
-                let cramped = frame_conflict
-                    || model::findings(&plan).hard > 0
-                    || model::findings(&plan).dropped > 0
+                let default_frame_conflict = size == "A4" && max == 1 && frame_conflict;
+                let findings = model::findings(&plan);
+                let cramped = default_frame_conflict
+                    || findings.hard > 0
+                    || findings.dropped > 0
                     || plan
                         .problems
                         .iter()
@@ -935,15 +937,18 @@ fn select_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                     || !sheet_fit::inside_frames(fit, &plan);
                 cramped_first = cramped_first.or(Some(cramped));
                 if compact && cramped && !spaced {
-                    lanes_may_help = frame_conflict || compact_may_help(fit, &plan);
+                    lanes_may_help = default_frame_conflict || compact_may_help(fit, &plan);
                 }
-                let replay_explicit = max == 1 && frame_conflict;
+                let replay_explicit = default_frame_conflict
+                    && findings.clean()
+                    && model::undrawn_gdt(&plan) == 0
+                    && sheet_fit::inside_frames(fit, &plan);
                 chosen = judge(plan, &mut scales, &mut outcome);
                 if chosen.is_some() {
                     break 'scales;
                 }
-                // The same paper and scale must not be refused merely because
-                // automatic composition differs from a clean explicit request.
+                // Default A4 earns its clean explicit presentation before
+                // spending more paper on an empty reservation-frame conflict.
                 // The bounded replay is judged by the same physical fit, loss,
                 // readability and crossing gates.
                 if replay_explicit
