@@ -76,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .dimension_references()
         .iter()
         .filter_map(|(id, rs)| match rs.as_slice() {
-            [Reference::Vertex { point }] => Some((id, point)),
+            [Reference::Vertex { point, .. }] => Some((id, point)),
             _ => None,
         })
         .collect();

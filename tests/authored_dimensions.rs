@@ -507,7 +507,7 @@ fn vertex_true_distance_edge_angle_and_face_angle_are_authored() {
         .dimension_references()
         .iter()
         .filter_map(|(id, rs)| match rs.as_slice() {
-            [Reference::Vertex { point }] => Some((id, point)),
+            [Reference::Vertex { point, .. }] => Some((id, point)),
             _ => None,
         })
         .collect();
@@ -550,7 +550,7 @@ fn vertex_true_distance_edge_angle_and_face_angle_are_authored() {
         .dimension_references()
         .iter()
         .filter_map(|(id, rs)| match rs.as_slice() {
-            [Reference::Edge { ends }] => Some((id, ends)),
+            [Reference::Edge { ends, .. }] => Some((id, ends)),
             _ => None,
         })
         .collect();
@@ -826,6 +826,7 @@ fn obtuse_face_and_edge_angles_keep_the_physical_included_sector() {
     records.references.insert(
         "face:test-horizontal".into(),
         vec![Reference::Plane {
+            membership: Default::default(),
             origin: [0.0; 3],
             normal: [0.0, 0.0, 1.0],
             bounds: [[0.0, -1.0, 0.0], [10.0, 1.0, 0.0]],
@@ -834,6 +835,7 @@ fn obtuse_face_and_edge_angles_keep_the_physical_included_sector() {
     records.references.insert(
         "face:test-inclined".into(),
         vec![Reference::Plane {
+            membership: Default::default(),
             origin: [0.0; 3],
             normal: [3.0f64.sqrt() / 2.0, 0.0, 0.5],
             bounds: [[-5.0, -1.0, 0.0], [0.0, 1.0, height]],
@@ -842,12 +844,14 @@ fn obtuse_face_and_edge_angles_keep_the_physical_included_sector() {
     records.references.insert(
         "edge:test-horizontal".into(),
         vec![Reference::Edge {
+            membership: Default::default(),
             ends: [[0.0; 3], [10.0, 0.0, 0.0]],
         }],
     );
     records.references.insert(
         "edge:test-inclined".into(),
         vec![Reference::Edge {
+            membership: Default::default(),
             ends: [[-5.0, 0.0, height], [0.0; 3]],
         }],
     );
@@ -1005,7 +1009,7 @@ fn authored_aligned_span_clears_dimension_lines_extensions_and_arrowheads() {
         .dimension_references()
         .iter()
         .filter_map(|(id, rs)| match rs.as_slice() {
-            [Reference::Vertex { point }] => Some((id, point)),
+            [Reference::Vertex { point, .. }] => Some((id, point)),
             _ => None,
         })
         .collect();

@@ -17,30 +17,6 @@
       "no_page_fit_uncertain"
     ]
   },
-  "297": {
-    "case": "steer_297_reference_roles",
-    "group": "E",
-    "reason": "Reference records expose neither feature membership nor face boundary links.",
-    "checks": [
-      "face_boundaries",
-      "reference_membership"
-    ]
-  },
-  "298": {
-    "case": "steer_298_agent_discovery",
-    "group": "E",
-    "reason": "The release omits MCP/schema/docs; CLI discovery and plan offsets are absent.",
-    "checks": [
-      "--help",
-      "--version",
-      "archive_docs/model.md",
-      "archive_draftwright-mcp",
-      "archive_schemas/spec.json",
-      "callout_offset",
-      "item_options_operation",
-      "schema_operation"
-    ]
-  },
   "299": {
     "case": "steer_299_agent_rough_edges",
     "group": "E",
@@ -57,16 +33,6 @@
     "reason": "Oblique defining dimensions do not discharge the two projected shoulders.",
     "checks": [
       "shoulders_defined"
-    ]
-  },
-  "301": {
-    "case": "steer_301_authored_pocket",
-    "group": "A",
-    "reason": "Authored pocket end/size dimensions do not satisfy the pocket requirements.",
-    "checks": [
-      "end_plus_length_locates_centre",
-      "pocket_length.length",
-      "pocket_width.length"
     ]
   },
   "302": {
@@ -178,14 +144,6 @@
       "note_in_plan"
     ]
   },
-  "313": {
-    "case": "steer_313_authored_diameter_sign",
-    "group": "E",
-    "reason": "Authored diameter-sign text reaches the drawing with an unsupported font glyph.",
-    "checks": [
-      "note_has_supported_glyphs"
-    ]
-  },
   "314": {
     "case": "steer_314_plain_hole_section",
     "group": "B",
@@ -248,15 +206,6 @@
     "reason": "Table tags do not follow row/column order from the origin.",
     "checks": [
       "tags_follow_rows_then_columns"
-    ]
-  },
-  "323": {
-    "case": "steer_323_axis_reference_guidance",
-    "group": "E",
-    "reason": "Axis-reference diagnostics give no directly copyable axis key syntax.",
-    "checks": [
-      "copyable_axis_example",
-      "unambiguous_axis_instruction"
     ]
   },
   "324": {

@@ -836,6 +836,7 @@ pub(crate) fn plan_radii(
 /// A notes block is an obstacle to blocks placed after it, just as a table is.
 pub(crate) fn proxy(block: &NotesBlock) -> PlannedDimension {
     PlannedDimension {
+        callout_offset: None,
         reference: false,
         determined_by: Vec::new(),
         region: None,

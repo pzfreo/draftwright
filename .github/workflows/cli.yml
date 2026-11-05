@@ -38,12 +38,14 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: cli-${{ matrix.target }}
-      - run: cargo build --locked --release --bin draftwright --target ${{ matrix.target }}
+      - run: cargo build --locked --release --bin draftwright --bin draftwright-mcp --target ${{ matrix.target }}
       - name: Try it on a revision
         # The hole_removed pair: one entry renumbers with its hole, one is set aside with the
         # removed hole.
         run: |
           bin="target/${{ matrix.target }}/release/draftwright${{ matrix.exe }}"
+          "$bin" --help
+          "$bin" --version
           fixtures=tests/fixtures/revisions
           echo '{"schema": "draftwright.spec/2", "sheet": {}, "dimensions": {"d:f:hole:3/bore.diameter": {"tolerance": "+0.1 -0"}, "d:f:hole:2/bore.diameter": {"tolerance": "±0.2"}}}' > given.json
           printed=$("$bin" diff $fixtures/hole_removed.old.step.gz $fixtures/hole_removed.new.step.gz --spec given.json -o smoke)
@@ -57,6 +59,11 @@ jobs:
           name="draftwright-${RELEASE_TAG:-pr}-${{ matrix.target }}"
           mkdir -p dist "$name"
           cp "target/${{ matrix.target }}/release/draftwright${{ matrix.exe }}" LICENSE README.md "$name/"
+          cp "target/${{ matrix.target }}/release/draftwright-mcp${{ matrix.exe }}" "$name/"
+          cp -R schemas "$name/"
+          mkdir -p "$name/docs"
+          cp docs/model.md docs/mcp.md "$name/docs/"
+          cp -R docs/rules "$name/docs/"
           if [ "${{ runner.os }}" = Windows ]; then
             asset="$name.zip"; 7z a -bd "dist/$asset" "$name" > /dev/null
           else

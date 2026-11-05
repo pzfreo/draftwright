@@ -395,6 +395,10 @@ pub enum CandidateRegion {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlannedDimension {
+    /// Bend minus canonical automatic leader tip, in paper mm (y up), for place.offset.
+    /// Absent for non-callouts, unplaced items, and non-canonical carrier views.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub callout_offset: Option<[f64; 2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<CandidateRegion>,
     /// `d:<feature>/<parameter>`; the feature is `envelope` for the overall extents, and
@@ -4290,6 +4294,7 @@ fn plan_inventory_ordered(
                 })
                 .map(|_| CandidateRegion::Interior);
             Some(PlannedDimension {
+                callout_offset: None,
                 reference: false,
                 determined_by: Vec::new(),
                 region,
@@ -4476,6 +4481,7 @@ fn plan_inventory_ordered(
             }
         }
         out.push(PlannedDimension {
+            callout_offset: None,
             reference,
             determined_by,
             region,

@@ -114,6 +114,7 @@ pub(super) fn balloon_obstacle(b: &crate::hole_table::Balloon) -> PlannedDimensi
         arrows.push(placement::arrow(tip, end));
     }
     PlannedDimension {
+        callout_offset: None,
         id: b.id.clone(),
         kind: "ink".into(),
         view: b.view.clone(),

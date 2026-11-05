@@ -12,15 +12,53 @@ use sha2::{Digest, Sha256};
 use super::Analysis;
 
 type P = [f64; 3];
+/// Discovery metadata only; excluded from the v1 geometry fingerprint.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Membership {
+    /// Current Analysis feature IDs owning any incident face; empty when unrecognised.
+    #[serde(default)]
+    pub features: Vec<String>,
+    /// Incident stock-face indices, as listed in Analysis.stock_faces.
+    #[serde(default)]
+    pub stock_faces: Vec<usize>,
+    /// Named stock sides from the same resolver as Spec faces: bottom/top/left/right/front/back.
+    #[serde(default)]
+    pub stock_sides: Vec<String>,
+    /// Incident B-rep face indices (one for a face record).
+    #[serde(default)]
+    pub faces: Vec<usize>,
+    /// Every boundary edge, including curved edges without a dimension reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edges: Option<Vec<BoundaryEdge>>,
+    /// Boundary vertex reference keys, sorted and deduplicated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vertices: Option<Vec<String>>,
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
+pub struct BoundaryEdge {
+    /// Index in Analysis.edge_ink.edges; a discovery address, never a Spec reference.
+    pub index: usize,
+    /// Present for straight edges; copy this full key into a dimension's between.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
+    /// Full reference keys for the edge's endpoints, including a closed edge's seam vertex.
+    pub vertices: [String; 2],
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", from = "ReferenceRead")]
 pub enum Reference {
     Plane {
+        #[serde(flatten)]
+        membership: Membership,
         origin: P,
         normal: P,
         bounds: [P; 2],
     },
     Cylinder {
+        #[serde(flatten)]
+        membership: Membership,
         origin: P,
         axis: P,
         radius: f64,
@@ -28,25 +66,324 @@ pub enum Reference {
         sites: Vec<P>,
     },
     Sphere {
+        #[serde(flatten)]
+        membership: Membership,
         centre: P,
         radius: f64,
         bounds: [P; 2],
         sites: Vec<P>,
     },
     Edge {
+        #[serde(flatten)]
+        membership: Membership,
         ends: [P; 2],
     },
     Vertex {
+        #[serde(flatten)]
+        membership: Membership,
         point: P,
     },
+}
+
+// Serde does not support flatten with deny_unknown_fields. Keep membership flat on
+// this read shape so unknown fields (including geometry from another variant) are
+// rejected, while the public Reference API and serialized document remain unchanged.
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum ReferenceRead {
+    Plane {
+        #[serde(default)]
+        features: Vec<String>,
+        #[serde(default)]
+        stock_faces: Vec<usize>,
+        #[serde(default)]
+        stock_sides: Vec<String>,
+        #[serde(default)]
+        faces: Vec<usize>,
+        #[serde(default)]
+        edges: Option<Vec<BoundaryEdge>>,
+        #[serde(default)]
+        vertices: Option<Vec<String>>,
+        origin: P,
+        normal: P,
+        bounds: [P; 2],
+    },
+    Cylinder {
+        #[serde(default)]
+        features: Vec<String>,
+        #[serde(default)]
+        stock_faces: Vec<usize>,
+        #[serde(default)]
+        stock_sides: Vec<String>,
+        #[serde(default)]
+        faces: Vec<usize>,
+        #[serde(default)]
+        edges: Option<Vec<BoundaryEdge>>,
+        #[serde(default)]
+        vertices: Option<Vec<String>>,
+        origin: P,
+        axis: P,
+        radius: f64,
+        bounds: [P; 2],
+        sites: Vec<P>,
+    },
+    Sphere {
+        #[serde(default)]
+        features: Vec<String>,
+        #[serde(default)]
+        stock_faces: Vec<usize>,
+        #[serde(default)]
+        stock_sides: Vec<String>,
+        #[serde(default)]
+        faces: Vec<usize>,
+        #[serde(default)]
+        edges: Option<Vec<BoundaryEdge>>,
+        #[serde(default)]
+        vertices: Option<Vec<String>>,
+        centre: P,
+        radius: f64,
+        bounds: [P; 2],
+        sites: Vec<P>,
+    },
+    Edge {
+        #[serde(default)]
+        features: Vec<String>,
+        #[serde(default)]
+        stock_faces: Vec<usize>,
+        #[serde(default)]
+        stock_sides: Vec<String>,
+        #[serde(default)]
+        faces: Vec<usize>,
+        #[serde(default)]
+        edges: Option<Vec<BoundaryEdge>>,
+        #[serde(default)]
+        vertices: Option<Vec<String>>,
+        ends: [P; 2],
+    },
+    Vertex {
+        #[serde(default)]
+        features: Vec<String>,
+        #[serde(default)]
+        stock_faces: Vec<usize>,
+        #[serde(default)]
+        stock_sides: Vec<String>,
+        #[serde(default)]
+        faces: Vec<usize>,
+        #[serde(default)]
+        edges: Option<Vec<BoundaryEdge>>,
+        #[serde(default)]
+        vertices: Option<Vec<String>>,
+        point: P,
+    },
+}
+
+impl From<ReferenceRead> for Reference {
+    fn from(value: ReferenceRead) -> Self {
+        match value {
+            ReferenceRead::Plane {
+                features,
+                stock_faces,
+                stock_sides,
+                faces,
+                edges,
+                vertices,
+                origin,
+                normal,
+                bounds,
+            } => Self::Plane {
+                membership: Membership {
+                    features,
+                    stock_faces,
+                    stock_sides,
+                    faces,
+                    edges,
+                    vertices,
+                },
+                origin,
+                normal,
+                bounds,
+            },
+            ReferenceRead::Cylinder {
+                features,
+                stock_faces,
+                stock_sides,
+                faces,
+                edges,
+                vertices,
+                origin,
+                axis,
+                radius,
+                bounds,
+                sites,
+            } => Self::Cylinder {
+                membership: Membership {
+                    features,
+                    stock_faces,
+                    stock_sides,
+                    faces,
+                    edges,
+                    vertices,
+                },
+                origin,
+                axis,
+                radius,
+                bounds,
+                sites,
+            },
+            ReferenceRead::Sphere {
+                features,
+                stock_faces,
+                stock_sides,
+                faces,
+                edges,
+                vertices,
+                centre,
+                radius,
+                bounds,
+                sites,
+            } => Self::Sphere {
+                membership: Membership {
+                    features,
+                    stock_faces,
+                    stock_sides,
+                    faces,
+                    edges,
+                    vertices,
+                },
+                centre,
+                radius,
+                bounds,
+                sites,
+            },
+            ReferenceRead::Edge {
+                features,
+                stock_faces,
+                stock_sides,
+                faces,
+                edges,
+                vertices,
+                ends,
+            } => Self::Edge {
+                membership: Membership {
+                    features,
+                    stock_faces,
+                    stock_sides,
+                    faces,
+                    edges,
+                    vertices,
+                },
+                ends,
+            },
+            ReferenceRead::Vertex {
+                features,
+                stock_faces,
+                stock_sides,
+                faces,
+                edges,
+                vertices,
+                point,
+            } => Self::Vertex {
+                membership: Membership {
+                    features,
+                    stock_faces,
+                    stock_sides,
+                    faces,
+                    edges,
+                    vertices,
+                },
+                point,
+            },
+        }
+    }
+}
+
+impl Reference {
+    pub fn membership(&self) -> &Membership {
+        match self {
+            Self::Plane { membership, .. }
+            | Self::Cylinder { membership, .. }
+            | Self::Sphere { membership, .. }
+            | Self::Edge { membership, .. }
+            | Self::Vertex { membership, .. } => membership,
+        }
+    }
+    fn membership_mut(&mut self) -> &mut Membership {
+        match self {
+            Self::Plane { membership, .. }
+            | Self::Cylinder { membership, .. }
+            | Self::Sphere { membership, .. }
+            | Self::Edge { membership, .. }
+            | Self::Vertex { membership, .. } => membership,
+        }
+    }
+}
+
+fn geometry_value(r: &Reference) -> serde_json::Value {
+    let mut value = serde_json::to_value(r).expect("finite geometry");
+    let fields = value.as_object_mut().expect("reference object");
+    for key in [
+        "features",
+        "stock_faces",
+        "stock_sides",
+        "faces",
+        "edges",
+        "vertices",
+    ] {
+        fields.remove(key);
+    }
+    value
+}
+
+/// Refresh discovery after native/bridge recognition or authored recognition corrections.
+/// Geometry and fingerprints never depend on recognised ownership.
+pub(crate) fn memberships(analysis: &mut Analysis) {
+    let sides: Vec<_> = crate::spec_gdt::SIDES
+        .iter()
+        .filter_map(|(name, ..)| {
+            crate::spec_gdt::named_faces(analysis, name)
+                .ok()
+                .map(|faces| (*name, faces))
+        })
+        .collect();
+    let Some(ink) = &mut analysis.edge_ink else {
+        return;
+    };
+    for r in ink.references.values_mut().flatten() {
+        let m = r.membership_mut();
+        m.features = analysis
+            .features
+            .iter()
+            .filter(|f| f.faces.iter().any(|i| m.faces.contains(i)))
+            .map(|f| f.id.clone())
+            .collect();
+        m.features.sort();
+        m.features.dedup();
+        m.stock_faces = m
+            .faces
+            .iter()
+            .filter(|i| analysis.stock_faces.contains(i))
+            .copied()
+            .collect();
+        m.stock_sides = sides
+            .iter()
+            .filter(|(_, faces)| faces.iter().any(|i| m.stock_faces.contains(i)))
+            .map(|(name, _)| name.to_string())
+            .collect();
+    }
 }
 
 pub(super) fn evidence(part: &Part) -> BTreeMap<String, Vec<Reference>> {
     // Multiple coincident entities deliberately remain ambiguous instead of picking an index.
     let mut out: BTreeMap<String, Vec<Reference>> = BTreeMap::new();
-    let mut insert = |prefix: &str, r: Reference, boundary: Vec<String>| {
+    fn insert(
+        out: &mut BTreeMap<String, Vec<Reference>>,
+        prefix: &str,
+        r: Reference,
+        boundary: Vec<String>,
+    ) -> String {
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
-        let mut value = serde_json::to_value((&r, boundary)).expect("finite geometry");
+        let mut value =
+            serde_json::to_value((geometry_value(&r), boundary)).expect("finite geometry");
         fn quantize(v: &mut serde_json::Value) {
             match v {
                 serde_json::Value::Number(n) => {
@@ -64,22 +401,68 @@ pub(super) fn evidence(part: &Part) -> BTreeMap<String, Vec<Reference>> {
         let hash = Sha256::digest(serde_json::to_vec(&value).expect("geometry serializes"));
         let hash: String = hash.iter().map(|b| format!("{b:02x}")).collect();
         let key = format!("{prefix}:v1:{hash}");
-        out.entry(key).or_default().push(r);
-    };
+        out.entry(key.clone()).or_default().push(r);
+        key
+    }
     let vertices: BTreeMap<_, _> = part
         .edges
         .iter()
         .flat_map(|e| [(e.vertices.0, e.start), (e.vertices.1, e.end)])
         .collect();
-    for p in vertices.values() {
-        insert("vertex", Reference::Vertex { point: *p }, vec![]);
+    let mut incident = vec![Vec::new(); part.edges.len()];
+    for (i, f) in part.faces.iter().enumerate() {
+        for (edge, _) in f.loops.iter().flat_map(|l| &l.edges) {
+            incident[*edge].push(i);
+        }
     }
-    for e in &part.edges {
+    for faces in &mut incident {
+        faces.sort_unstable();
+        faces.dedup();
+    }
+    let mut vertex_faces: BTreeMap<_, Vec<usize>> = BTreeMap::new();
+    for (i, e) in part.edges.iter().enumerate() {
+        for v in [e.vertices.0, e.vertices.1] {
+            vertex_faces.entry(v).or_default().extend(&incident[i]);
+        }
+    }
+    let mut vertex_keys = BTreeMap::new();
+    for (v, p) in &vertices {
+        let mut faces = vertex_faces.remove(v).unwrap_or_default();
+        faces.sort_unstable();
+        faces.dedup();
+        let key = insert(
+            &mut out,
+            "vertex",
+            Reference::Vertex {
+                point: *p,
+                membership: Membership {
+                    faces,
+                    ..Default::default()
+                },
+            },
+            vec![],
+        );
+        vertex_keys.insert(*v, key);
+    }
+    let mut edge_keys = BTreeMap::new();
+    for (i, e) in part.edges.iter().enumerate() {
         if matches!(e.curve, Curve::Line { .. }) {
             let mut ends = [e.start, e.end];
             // Invariant: Kernel-loaded edge endpoints are finite; no caller Analysis is used for geometry extraction.
             ends.sort_by(|a, b| a.partial_cmp(b).expect("finite endpoints"));
-            insert("edge", Reference::Edge { ends }, vec![]);
+            let key = insert(
+                &mut out,
+                "edge",
+                Reference::Edge {
+                    ends,
+                    membership: Membership {
+                        faces: incident[i].clone(),
+                        ..Default::default()
+                    },
+                },
+                vec![],
+            );
+            edge_keys.insert(i, key);
         }
     }
     for (i, f) in part.faces.iter().enumerate() {
@@ -139,6 +522,7 @@ pub(super) fn evidence(part: &Part) -> BTreeMap<String, Vec<Reference>> {
                 let normal = canonical(normal);
                 let origin = mul(normal, dot(frame.origin, normal));
                 Reference::Plane {
+                    membership: Membership::default(),
                     origin,
                     normal,
                     bounds,
@@ -149,6 +533,7 @@ pub(super) fn evidence(part: &Part) -> BTreeMap<String, Vec<Reference>> {
                 let axis = canonical(unit(frame.z).expect("cylinder axis"));
                 let origin = sub(frame.origin, mul(axis, dot(frame.origin, axis)));
                 Reference::Cylinder {
+                    membership: Membership::default(),
                     origin,
                     axis,
                     radius: *radius,
@@ -167,6 +552,7 @@ pub(super) fn evidence(part: &Part) -> BTreeMap<String, Vec<Reference>> {
                     }));
                 }
                 Reference::Sphere {
+                    membership: Membership::default(),
                     centre: frame.origin,
                     radius: *radius,
                     bounds,
@@ -175,7 +561,42 @@ pub(super) fn evidence(part: &Part) -> BTreeMap<String, Vec<Reference>> {
             }
             _ => continue,
         };
-        insert("face", r, boundary);
+        let mut r = r;
+        let mut indices: Vec<_> = f
+            .loops
+            .iter()
+            .flat_map(|l| &l.edges)
+            .map(|(e, _)| *e)
+            .collect();
+        indices.sort_unstable();
+        indices.dedup();
+        let edges: Vec<_> = indices
+            .iter()
+            .map(|i| {
+                let e = &part.edges[*i];
+                BoundaryEdge {
+                    index: *i,
+                    reference: edge_keys.get(i).cloned(),
+                    vertices: [
+                        vertex_keys[&e.vertices.0].clone(),
+                        vertex_keys[&e.vertices.1].clone(),
+                    ],
+                }
+            })
+            .collect();
+        let mut vertices: Vec<_> = edges
+            .iter()
+            .flat_map(|e| e.vertices.iter().cloned())
+            .collect();
+        vertices.sort();
+        vertices.dedup();
+        *r.membership_mut() = Membership {
+            faces: vec![i],
+            edges: Some(edges),
+            vertices: Some(vertices),
+            ..Default::default()
+        };
+        insert(&mut out, "face", r, boundary);
     }
     out
 }
@@ -220,7 +641,7 @@ impl Analysis {
     pub(crate) fn axis_station(&self, id: &str, k: usize) -> Option<f64> {
         match self.dimension_reference(&format!("axis:{id}")).ok()? {
             Reference::Cylinder { origin, axis, .. } if axis[k].abs() < 1e-6 => Some(origin[k]),
-            Reference::Edge { ends } if (ends[0][k] - ends[1][k]).abs() < 1e-6 => {
+            Reference::Edge { ends, .. } if (ends[0][k] - ends[1][k]).abs() < 1e-6 => {
                 Some(0.5 * (ends[0][k] + ends[1][k]))
             }
             _ => None,
@@ -305,13 +726,14 @@ impl Analysis {
                 origin,
                 normal,
                 bounds,
+                ..
             } if normal[k].abs() > 1. - 1e-8 => {
                 let mut p = [0, 1, 2].map(|j| (bounds[0][j] + bounds[1][j]) / 2.);
                 p[k] = origin[k];
                 Ok(p)
             }
-            Reference::Vertex { point } => Ok(point),
-            Reference::Edge { ends } if (ends[0][k] - ends[1][k]).abs() < 1e-8 => {
+            Reference::Vertex { point, .. } => Ok(point),
+            Reference::Edge { ends, .. } if (ends[0][k] - ends[1][k]).abs() < 1e-8 => {
                 Ok([0, 1, 2].map(|j| (ends[0][j] + ends[1][j]) / 2.))
             }
             Reference::Cylinder {
@@ -372,9 +794,11 @@ impl Analysis {
         }
         if let Some(id) = key.strip_prefix("axis:") {
             let candidates: Vec<_> = if id.starts_with("face:") {
-                vec![self.dimension_reference(id)?]
+                vec![self.dimension_reference(id).map_err(|e| format!(
+                    "{e} For a cylinder axis use axis:<key from Analysis.edge_ink.references>: prefix the complete face:v1:… key with axis: only once."
+                ))?]
             } else {
-                let f=self.features.iter().find(|f| f.id==id).ok_or_else(|| format!("Unknown axis feature {id}; choose axis:face:<fingerprint> from Analysis.edge_ink.references."))?;
+                let f=self.features.iter().find(|f| f.id==id).ok_or_else(|| format!("Unknown axis feature {id}; choose axis:<key from Analysis.edge_ink.references> (prefix the complete cylindrical face:v1:… key with axis:)."))?;
                 f.faces
                     .iter()
                     .filter_map(|&i| {
@@ -406,15 +830,16 @@ impl Analysis {
                     let c = midpoint(bounds);
                     let p = add(origin, mul(axis, dot(sub(c, origin), axis)));
                     lines.push(Reference::Edge {
+                        membership: Membership::default(),
                         ends: [sub(p, axis), add(p, axis)],
                     });
                 }
             }
             let first = lines
                 .first()
-                .ok_or("An axis needs a cylindrical face; choose axis:face:<fingerprint>.")?;
+                .ok_or("An axis needs a cylindrical face; choose axis:<key from Analysis.edge_ink.references> (for example axis:face:v1:…).")?;
             if lines.iter().any(|r| !coaxial(first, r)) {
-                return Err("The feature has several cylinder axes; choose axis:face:<fingerprint> for one cylinder.".into());
+                return Err("The feature has several cylinder axes; choose axis:<key from Analysis.edge_ink.references> (for example axis:face:v1:…) for one cylinder.".into());
             }
             return Ok(first.clone());
         }
@@ -477,7 +902,7 @@ impl Analysis {
                     }
                     let witness = |r: &Reference| {
                         // Invariant: candidates contains only Edge references, filtered in the match above.
-                        let Reference::Edge { ends } = r else { unreachable!() };
+                        let Reference::Edge { ends, .. } = r else { unreachable!() };
                         *ends.iter().max_by(|a, b| {
                             dot(sub(**a, vertex), sub(**a, vertex)).total_cmp(&dot(sub(**b, vertex), sub(**b, vertex)))
                         // Invariant: The candidate endpoints array has exactly two entries.
@@ -519,11 +944,12 @@ fn direction(r: &Reference) -> Result<(P, P), String> {
             origin,
             normal,
             bounds,
+            ..
         } => {
             let c = midpoint(*bounds);
             Ok((sub(c, mul(*normal, dot(sub(c, *origin), *normal))), *normal))
         }
-        Reference::Edge { ends } => Ok((
+        Reference::Edge { ends, .. } => Ok((
             ends[0],
             unit(sub(ends[1], ends[0])).ok_or("Degenerate edge")?,
         )),
@@ -545,12 +971,15 @@ fn coaxial(a: &Reference, b: &Reference) -> bool {
 }
 fn station(r: &Reference, k: usize) -> Result<P, String> {
     match r {
-        Reference::Vertex { point } => Ok(*point),
-        Reference::Edge { ends } if (ends[0][k] - ends[1][k]).abs() < 1e-7 => Ok(midpoint(*ends)),
+        Reference::Vertex { point, .. } => Ok(*point),
+        Reference::Edge { ends, .. } if (ends[0][k] - ends[1][k]).abs() < 1e-7 => {
+            Ok(midpoint(*ends))
+        }
         Reference::Plane {
             origin,
             normal,
             bounds,
+            ..
         } if normal[k].abs() > 1.0 - 1e-8 => {
             let mut p = midpoint(*bounds);
             p[k] = origin[k];
@@ -565,8 +994,8 @@ fn station(r: &Reference, k: usize) -> Result<P, String> {
 fn closest(a: &Reference, b: &Reference) -> Result<[P; 2], String> {
     if let Reference::Plane { origin, normal, .. } = a {
         let p = match b {
-            Reference::Vertex { point } => *point,
-            Reference::Edge { ends } if dot(sub(ends[1], ends[0]), *normal).abs() < 1e-8 => midpoint(*ends),
+            Reference::Vertex { point, .. } => *point,
+            Reference::Edge { ends, .. } if dot(sub(ends[1], ends[0]), *normal).abs() < 1e-8 => midpoint(*ends),
             Reference::Plane { normal: n, bounds, .. } if dot(*n, *normal).abs() > 1.0-1e-8 => midpoint(*bounds),
             _ => return Err("Intersecting or unsupported supports have no nonzero true distance; use parallel planes, points, straight edges or axes.".into()),
         };
@@ -578,10 +1007,10 @@ fn closest(a: &Reference, b: &Reference) -> Result<[P; 2], String> {
     }
     let line = |r: &Reference| -> Result<(P, Option<P>), String> {
         match r {
-            Reference::Vertex { point } => Ok((*point, None)),
-            Reference::Edge { ends } => Ok((midpoint(*ends), unit(sub(ends[1], ends[0])))),
+            Reference::Vertex { point, .. } => Ok((*point, None)),
+            Reference::Edge { ends, .. } => Ok((midpoint(*ends), unit(sub(ends[1], ends[0])))),
             _ => Err(
-                "Use axis:face:<fingerprint> for a cylinder, or a plane, straight edge or vertex."
+                "Use axis:<key from Analysis.edge_ink.references> (for example axis:face:v1:…) for a cylinder, or a plane, straight edge or vertex."
                     .into(),
             ),
         }
@@ -642,6 +1071,20 @@ mod tests {
         }
         // Part is immutable after its first query; rebuilding also discards all topology caches.
         let reordered = haecceity::Part::new(p.faces, p.edges, p.solids);
-        assert_eq!(before, super::evidence(&reordered));
+        let after = super::evidence(&reordered);
+        let geometry = |refs: std::collections::BTreeMap<String, Vec<super::Reference>>| {
+            refs.into_iter()
+                .map(|(key, records)| {
+                    (
+                        key,
+                        records
+                            .iter()
+                            .map(super::geometry_value)
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        assert_eq!(geometry(before), geometry(after));
     }
 }

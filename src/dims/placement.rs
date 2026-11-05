@@ -6553,6 +6553,7 @@ mod tests {
         }))
         .unwrap();
         let item = |id: &str, kind: &str, placed: Placed| PlannedDimension {
+            callout_offset: None,
             reference: false,
             determined_by: Vec::new(),
             region: None,
@@ -6672,6 +6673,7 @@ mod tests {
         }))
         .unwrap();
         let item = |id: &str, kind: &str, placed: Placed| PlannedDimension {
+            callout_offset: None,
             reference: false,
             determined_by: Vec::new(),
             region: None,
@@ -6729,6 +6731,7 @@ mod tests {
         }))
         .unwrap();
         let item = |id: &str, label_box: [f64; 4], lines: Vec<[P2; 2]>| PlannedDimension {
+            callout_offset: None,
             id: id.into(),
             kind: "linear".into(),
             view: "v:plan".into(),

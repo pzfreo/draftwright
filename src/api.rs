@@ -36,8 +36,16 @@ pub use crate::png::DPI;
 pub type Files = Vec<(String, Vec<u8>)>;
 
 /// The operations [`call`] answers, in the order they are usually used.
-pub const OPERATIONS: [&str; 7] = [
-    "analyse", "plan", "edit", "render", "review", "spec", "parts",
+pub const OPERATIONS: [&str; 9] = [
+    "analyse",
+    "plan",
+    "edit",
+    "render",
+    "review",
+    "spec",
+    "parts",
+    "spec_schema",
+    "item_options",
 ];
 
 /// Why an operation did not complete.

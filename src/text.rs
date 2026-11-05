@@ -117,6 +117,18 @@ impl Font {
         Face::parse(&self.data, 0).expect("parsed in new")
     }
 
+    /// Resolve the diameter sign through the bundled font's slashed-o outline, as the
+    /// generated callout path already does. Both characters use the same advance in prose.
+    pub(crate) fn glyph(face: &Face<'_>, c: char) -> Option<GlyphId> {
+        face.glyph_index(c)
+            .or_else(|| (c == '⌀').then(|| face.glyph_index('ø')).flatten())
+    }
+
+    /// Whether this text path can draw a character, including its explicit diameter fallback.
+    pub fn supports(&self, c: char) -> bool {
+        Self::glyph(&self.face(), c).is_some()
+    }
+
     /// *text* at *size* (the em, in drawing units), centred on its bounding box. A character
     /// the font lacks is drawn as its missing-glyph box, as FreeType substitutes it.
     pub fn text(&self, text: &str, size: f64) -> Laid {
@@ -154,7 +166,7 @@ impl Font {
         let scale = size / face.units_per_em() as f64;
         text.chars()
             .map(|c| {
-                let glyph = face.glyph_index(c).unwrap_or(GlyphId(0));
+                let glyph = Self::glyph(&face, c).unwrap_or(GlyphId(0));
                 face.glyph_hor_advance(glyph).unwrap_or(0) as f64 * scale
             })
             .sum()
@@ -177,7 +189,7 @@ impl Font {
         for (row, chars) in text.split('\n').enumerate() {
             let mut pen = 0.0;
             for c in chars.chars() {
-                let glyph = face.glyph_index(c).unwrap_or(GlyphId(0));
+                let glyph = Self::glyph(&face, c).unwrap_or(GlyphId(0));
                 let mut outline = Outline {
                     scale,
                     origin: [pen, -(row as f64) * line],

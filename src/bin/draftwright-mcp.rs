@@ -55,7 +55,7 @@ fn tools() -> Value {
             unchanged, so the part is not analysed again. Give it instead of features (it already \
             carries the features it was made with). Refused if it was made from another file.",
     });
-    json!([
+    let mut listed = json!([
         {
             "name": "analyse",
             "description": "Read a STEP file and return its Analysis: the binding (the file's \
@@ -222,7 +222,34 @@ fn tools() -> Value {
                 "required": ["step"],
             },
         },
-    ])
+    ]);
+    for (name, description) in [
+        (
+            "spec_schema",
+            "Read the complete author Spec schema without opening a part; the same schema ships as schemas/spec.json.",
+        ),
+        (
+            "item_options",
+            "Discover settable Spec paths, choices and placements for an item using part_ref and id; obtain part_ref through draftwright mcp-stdio inspect_part.",
+        ),
+    ] {
+        let mut input = draftwright::mcp::schema(name, false).expect("published discovery schema");
+        if name == "item_options" {
+            // The standalone adapter presents required inputs explicitly, even when the
+            // compact schema shares their string shape through additionalProperties.
+            input["properties"]["part_ref"] = path("Content key returned by inspect_part.");
+            input["properties"]["id"] = path("The stable item ID, for example sheet or v:plan.");
+        }
+        input
+            .as_object_mut()
+            .expect("object schema")
+            .entry("required")
+            .or_insert_with(|| json!([]));
+        listed.as_array_mut().expect("tool list").push(json!({
+            "name":name, "description":description, "inputSchema":input,
+        }));
+    }
+    listed
 }
 
 fn main() {

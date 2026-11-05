@@ -3,7 +3,7 @@
 These fixtures exercise draftwright-rust issues #293–#331, excluding #306 (a PR).
 The issue snapshots in `repro/issues/` are the authority; the test-case column of
 `repro/steerability-backlog.md` supplies the grouping and intended outcomes.
-The suite changes no production policy or existing expectations.
+The suite tracks each independently resolved case through the expected-failure contract below.
 
 ## Provenance
 

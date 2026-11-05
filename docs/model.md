@@ -2209,11 +2209,24 @@ fingerprints with complete keys from the Analysis):
 - **Discover references in `Analysis.edge_ink.references`.** This optional Analysis/7 field
   maps full `face:v1:<sha256>`, `edge:v1:<sha256>` and `vertex:v1:<sha256>` keys to lists of
   exact model-space records. A usable key has exactly one record. Plane, cylinder and sphere
-  faces, straight B-rep edges and topological vertices are available. `axis:<face key>`
+  faces, straight B-rep edges and topological vertices are available. `axis:<key from Analysis.edge_ink.references>` (prefix the complete cylindrical face key
+  with `axis:`, giving `axis:face:v1:<sha256>`, never `axis:face:face:v1:…`)
   selects a cylinder's axis; `axis:f:hole:3` selects the common cylinder axis of a recognized
   feature, refusing a feature with several axes. Prefer the face spelling when saving across
   revisions. Index-based `face:12`, `edge:12`, and page-coordinate references are not accepted.
   Older Analyses lacking evidence still plan their defaults; authoring requires analysing again.
+  Each record adds `features` (owning Analysis feature IDs), `stock_faces` (incident indices
+  in `Analysis.stock_faces`), `stock_sides` (their `bottom`/`top`/`left`/`right`/`front`/`back`
+  names, using the same resolver as Spec face names), and `faces` (all incident B-rep face indices). Empty ownership
+  lists mean that recognition assigned no such role; no role is guessed from coordinates.
+  A face also lists `edges` and `vertices`. Each boundary edge gives its `index` in
+  `Analysis.edge_ink.edges`, endpoint `vertices` as complete reference keys, and, for a
+  straight edge, its copyable `reference` key. Curved boundary edges are included but have
+  no straight-edge dimension reference. Face `vertices` is a sorted unique list of their
+  endpoint keys. Closed edges include their seam vertex. Coincident records retain their
+  separate memberships. These indices are discovery addresses for this Analysis only;
+  authored dimensions always store full fingerprint keys. Metadata refreshes after native,
+  bridge or authored recognition changes and is excluded from the fingerprint.
 - **Fingerprint contract.** The `v1` spelling and its content are fixed: SHA-256 of canonical
   sorted-key JSON containing the exact analytic record and sorted face-boundary endpoint
   signatures, with numbers rounded to 1e-6 mm. Plane normals and cylinder axes have their
@@ -2413,7 +2426,7 @@ Every plan item records which of these it is, so nothing changes without a trace
 
 ## How the port is checked
 
-- **The rules catalogue** (`docs/rules/`) lists every rule the Python version learnt, from its
+- **The [rules catalogue](rules/README.md)** lists every rule the Python version learnt, from its
   ADRs, its lint rules and its issue regressions. Each rule is classified and tracked as pending,
   ported, translated or retired.
 - **A differential comparison** checks Rust's plan against Python's sheets, fact by fact
@@ -2524,7 +2537,9 @@ view, sheet or this callout's text. It describes explicit exterior `side/lane/al
 placement. Automatic labels can lie inside the view or use the automatic solver's
 other exterior candidates; read their actual geometry through `item`/`plan`.
 A bare pin retains that automatic geometry. To pin a label dragged anywhere, including into
-the view's open space, use `place.offset`: `Session::callout_offset(address)` returns
+the view's open space, use `place.offset`: a placed callout dimension record exposes `callout_offset: [dx,dy]`
+(in paper mm, y up; omitted without a canonical placement). It equals bend minus the automatic
+tip, so it can be copied into `place.offset`. `Session::callout_offset(address)` returns
 `CalloutOffset { view, tip, bend, offset, members }` (paper mm), where `tip` is the automatic leader tip
 the offset is measured from, `bend` the bend as drawn now and `offset = bend - tip`. Pinning a
 drop at `b` is `{"offset": b - tip, "pinned": true}`; pinning the returned `offset` keeps the
@@ -3211,3 +3226,11 @@ read/parse, grouping (own-frame part reads and geometry comparison), and each
 group’s analysis/recognition and drawing (planning plus rendering). Encoding and
 file writes are outside those stages. Known bought names skip analysis unless
 overridden to make.
+
+
+Authored text accepts `⌀` (U+2300). The bundled IBM Plex fonts lack that code point;
+the text renderer explicitly uses their supported `ø` outline and advance, matching the
+slashed-o used by generated diameter symbols. Authored `⌀80` and `ø80` therefore have
+identical ink and spacing in both bundled fonts. Searchable text keeps the authored Unicode.
+Generated callout symbols retain their established one-em symbol cells and token spacing;
+prose keeps the spaces the author typed.

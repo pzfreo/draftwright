@@ -345,3 +345,8 @@ intent, or `--formats pdf,csv,json` to select outputs. See
 Licensed AGPL-3.0. haecceity and quiddity-rust are Apache-2.0 since quiddity-rust 0.1.0 (#55),
 which AGPL-3.0 code may use. The fonts in `fonts/` are IBM Plex, vendored from draftwright under the
 SIL Open Font License 1.1 (the `LICENSE-*-OFL.txt` files beside them).
+
+
+CLI release archives include both `draftwright` and `draftwright-mcp`, `schemas/spec.json`
+and the agent documentation under `docs/`. Start with `draftwright --help`,
+`draftwright --version`, or `draftwright spec_schema`; see [MCP and item discovery](docs/mcp.md#cli-release-discovery).
