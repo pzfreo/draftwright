@@ -494,6 +494,16 @@ const UNREADABLE: &[&str] = &[
 /// baseline shares never make a crowded-but-readable drawing lose to an enlargement.
 /// `Err` names the check that refused the candidate, for the sheet-choice basis.
 fn usable(analysis: &Analysis, plan: &Plan, reference: &Plan, floor: f64) -> Result<(), String> {
+    usable_with_base_contacts(analysis, plan, reference, floor, None)
+}
+
+fn usable_with_base_contacts(
+    analysis: &Analysis,
+    plan: &Plan,
+    reference: &Plan,
+    floor: f64,
+    base_contacts: Option<&Plan>,
+) -> Result<(), String> {
     let drops = |p: &Plan| {
         p.problems
             .iter()
@@ -532,6 +542,19 @@ fn usable(analysis: &Analysis, plan: &Plan, reference: &Plan, floor: f64) -> Res
     }
     let mut inherited = failures(analysis, reference, floor);
     inherited.extend(reference.problems.iter().map(problem_key));
+    if let Some(base) = base_contacts {
+        inherited.extend(
+            failures(analysis, base, floor)
+                .into_iter()
+                .filter(|(code, _)| code == "leader_on_extension"),
+        );
+        inherited.extend(
+            base.problems
+                .iter()
+                .filter(|p| p.code == "leader_on_extension")
+                .map(problem_key),
+        );
+    }
     let unreadable = |code: &str, severity: &str| {
         (severity == "error" && FAILING_CODES.contains(&code))
             || (severity != "info" && UNREADABLE.contains(&code))
@@ -778,6 +801,7 @@ fn select_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     // A2 and larger are for parts that need them at 1:1 (maintainer, 2026-10-15), as in the
     // automatic search: a part whose views fit A3 full size is not offered a large sheet.
     let small = std::cell::OnceCell::new();
+    let base_choice = std::cell::OnceCell::new();
     for (size, max) in requests(spec) {
         let large = layout::PAGES
             .iter()
@@ -825,6 +849,38 @@ fn select_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 Ok(()) => return Some(plan),
                 Err(reason) => reason,
             };
+            // A newly admitted fill enlargement may have cleaner routes than
+            // the base drawing. That must not turn cosmetic contacts into a
+            // reason to shrink or enlarge a valid, complete, readable base pair.
+            // Other defects, resized trials and splits keep the ordinary gates.
+            if plan.sheets.is_empty()
+                && model::findings(&plan).clean()
+                && model::undrawn_gdt(&plan) == 0
+                && !plan
+                    .problems
+                    .iter()
+                    .any(|p| p.code != "leader_on_extension" && layout_problem(p))
+                && model::finished_items_fit(fit, &plan)
+                && base_choice
+                    .get_or_init(|| model::plan_escalated(analysis, spec).ok())
+                    .as_ref()
+                    .is_some_and(|base| {
+                        base.sheet.size == plan.sheet.size
+                            && base.sheet.scale == plan.sheet.scale
+                            && model::findings(base).clean()
+                            && model::undrawn_gdt(base) == 0
+                            && model::finished_items_fit(fit, base)
+                            && !base
+                                .problems
+                                .iter()
+                                .any(|p| p.code != "leader_on_extension" && layout_problem(p))
+                            && usable_with_base_contacts(fit, &plan, &baseline, floor, Some(base))
+                                .is_ok()
+                    })
+            {
+                plan.sheet.basis += "; the base sheet and scale are kept; cosmetic leader/extension contacts do not choose paper";
+                return Some(plan);
+            }
             *outcome = format!(
                 "refused at {}: {reason} ({} hard, {} drops; {})",
                 plan.sheet.scale,
@@ -1676,11 +1732,17 @@ mod tests {
             .join("tests/fixtures/revisions/plate_thickened.new.step.gz");
         let a = model::analyse_native(&path).unwrap().1;
         let plan = select(&a, &Spec::default()).unwrap();
-        assert!(plan.sheet.scale_factor >= 1.0, "{}", plan.sheet.basis);
+        assert_eq!(
+            (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+            ("A4", "1:1"),
+            "{}",
+            plan.sheet.basis
+        );
         let a4 = &plan.sheet_candidates[0];
         assert_eq!(a4.size, "A4");
         assert_eq!(a4.scales, ["1:1"], "{}", plan.sheet.basis);
-        assert!(a4.outcome.contains("leader_on_extension"), "{}", a4.outcome);
+        assert!(a4.outcome.contains("usable"), "{}", a4.outcome);
+        assert_eq!(crate::dims::leader_on_extension(&plan.dimensions).len(), 4);
     }
 
     #[test]

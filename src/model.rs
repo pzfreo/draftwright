@@ -2495,7 +2495,7 @@ fn drawn_items_fit(analysis: &Analysis, p: &Plan) -> bool {
 
 /// Final paper candidates are judged by drawn views, not their estimated bands.
 /// Intermediate packing/repair still needs the reservations to remain disjoint.
-fn finished_items_fit(analysis: &Analysis, p: &Plan) -> bool {
+pub(crate) fn finished_items_fit(analysis: &Analysis, p: &Plan) -> bool {
     items_fit(analysis, p, false)
 }
 

@@ -87,6 +87,39 @@ mod corpus;
 mod sheet_rule;
 
 #[test]
+fn cosmetic_contacts_keep_the_thickened_plate_on_a4_at_full_scale() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/revisions/plate_thickened.new.step.gz");
+    let a = model::analyse_native(&path).unwrap().1;
+    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    assert_eq!(
+        (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+        ("A4", "1:1"),
+        "{}",
+        plan.sheet.basis
+    );
+    assert!(plan.sheets.is_empty());
+    assert!(!plan.problems.iter().any(|p| matches!(
+        p.code.as_str(),
+        "annotation_off_sheet"
+            | "annotation_overlap"
+            | "annotation_ink_overlap"
+            | "page_fit_uncertain"
+            | "views_do_not_fit"
+    )));
+    let explicit = model::plan_recovered(&a, &named("A4", "1:1")).unwrap();
+    let statements = |p: &model::Plan| {
+        p.dimensions
+            .iter()
+            .filter(|d| d.placed.is_some())
+            .flat_map(|d| &d.measurements)
+            .map(|m| (m.feature.clone(), m.parameter.clone()))
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    assert_eq!(statements(&plan), statements(&explicit));
+}
+
+#[test]
 fn grm03_keeps_a4_once_its_extension_contact_is_finished_away() {
     let Some(dir) = corpus::dir() else {
         return;
