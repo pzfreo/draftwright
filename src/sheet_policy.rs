@@ -783,17 +783,12 @@ fn usable_prepared(
         (severity == "error" && FAILING_CODES.contains(&code))
             || (severity != "info" && UNREADABLE.contains(&code))
     };
-    // The legacy base's normal presentations remain its established policy.
-    // A newly offered compact presentation must clear every added warning too.
-    let replacement = plan.sheet.dimension_spacing == model::DimensionSpacing::Compact
-        && reference.sheet.dimension_spacing != model::DimensionSpacing::Compact;
+    // The inner pass retains the established recovery policy. The preferred-scale
+    // pass must clear every added warning against that actual published base.
     let reported = plan
         .problems
         .iter()
-        .filter(|p| {
-            unreadable(&p.code, &p.severity)
-                || ((strict_routes || replacement) && p.severity == "warning")
-        })
+        .filter(|p| unreadable(&p.code, &p.severity) || (strict_routes && p.severity == "warning"))
         .map(problem_key);
     // Measured from final ink rather than reported: a leader on an extension line reads as
     // that line. Leader runs beside model ink, hidden-edge crossings and route lengths are
@@ -810,7 +805,7 @@ fn usable_prepared(
                     && (code == "leader_ink_run" || code == "leader_hidden_crossing"))
         })
         .collect();
-    if strict_routes || replacement {
+    if strict_routes {
         measured.extend(
             crate::dims::contacts::fixed_stroke_contacts(plan)
                 .iter()
@@ -2035,7 +2030,7 @@ fn compact_savings(plan: &Plan, view: &str, o: [f64; 4]) -> [f64; 2] {
 pub(crate) fn finishes_selection(spec: &Spec) -> bool {
     automatic(spec)
         && !crate::placement_intent::has_pins(spec)
-        && !spec.dimensions.values().any(|d| d.tolerance.is_some())
+        && !annotation_only_tolerance(spec)
         && !crate::nominal::comparison()
 }
 
@@ -2052,8 +2047,15 @@ fn selected_trial_basis(plan: &mut Plan) {
 
 // A tolerance edits annotation ink, not the canonical paper/scale inputs.
 // Derive the same reference statelessly too, so saved Specs and Session replays agree.
+fn annotation_only_tolerance(spec: &Spec) -> bool {
+    spec.dimensions.values().any(|d| d.tolerance.is_some())
+        // An authored measurement changes the geometric inventory, even when
+        // the same transaction also gives it a tolerance.
+        && !spec.dimensions.values().any(|d| d.kind.is_some() || d.between.is_some())
+}
+
 fn tolerance_reference(spec: &Spec) -> Option<Spec> {
-    if !spec.dimensions.values().any(|d| d.tolerance.is_some()) {
+    if !annotation_only_tolerance(spec) {
         return None;
     }
     let mut base = spec.clone();
@@ -2295,6 +2297,13 @@ fn replay_pins(
                 same
             }
         };
+        if annotation_only_tolerance(spec) && !crate::placement_intent::has_pins(spec) {
+            // Tolerances change annotation ink, not view geometry. Transport the
+            // edited ink back into the published frames before the final audit.
+            if let Some(replayed) = crate::sheets::replay_views(analysis, &plan, &canonical) {
+                plan = replayed;
+            }
+        }
         plan.spec = intent;
         drop_internal_replan(&mut plan);
         for problem in canonical
@@ -2321,6 +2330,19 @@ fn replay_pins(
                 "annotation edits"
             }
         );
+        let reason = if annotation_only_tolerance(spec) && !crate::placement_intent::has_pins(spec)
+        {
+            plan.sheet.basis.push_str(&format!(
+                "; retained annotation reference: {}",
+                canonical.sheet.basis
+            ));
+            canonical
+                .sheet_candidates
+                .last()
+                .map_or(reason, |c| c.outcome.clone())
+        } else {
+            reason
+        };
         explain(&mut plan, canonical.sheet_candidates, &reason);
         Ok(plan)
     })
