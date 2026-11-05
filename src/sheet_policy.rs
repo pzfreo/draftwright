@@ -1521,22 +1521,29 @@ fn replay_pins(
     // route repair (plan_recovered's callout_routes::finish). Reported callout offsets
     // are measured on it, so an offset at its automatic bend is a bare pin.
     let mut held = canonical.clone();
-    model::finish_nominal_plan(analysis, base, &mut held);
-    let effective = crate::spec_gdt::effective(analysis, &held.spec)?;
-    crate::dims::callout_routes::prefer_interior(effective.as_ref(), base, &mut held, None);
-    crate::dims::finish_openings(effective.as_ref(), base, &mut held);
-    crate::dims::callout_routes::finish(effective.as_ref(), base, &mut held);
-    let areas: Vec<_> = held.views.iter().map(|v| v.area).collect();
-    crate::dims::hole_marks::attach(effective.as_ref(), base, &mut held);
-    crate::dims::size_datums::attach(effective.as_ref(), base, &mut held);
-    if crate::dims::openings_need_settling(&held) {
-        crate::dims::finish_attached_openings(effective.as_ref(), base, &mut held);
+    let areas = if finishes_selection(base) {
+        // Automatic selection already publishes its finished ink. Repeating the
+        // nominal and attachment passes changes the anchor a bare pin holds.
+        held.views.iter().map(|v| v.area).collect::<Vec<_>>()
+    } else {
+        model::finish_nominal_plan(analysis, base, &mut held);
+        let effective = crate::spec_gdt::effective(analysis, &held.spec)?;
+        crate::dims::callout_routes::prefer_interior(effective.as_ref(), base, &mut held, None);
+        crate::dims::finish_openings(effective.as_ref(), base, &mut held);
+        crate::dims::callout_routes::finish(effective.as_ref(), base, &mut held);
+        let areas: Vec<_> = held.views.iter().map(|v| v.area).collect();
         crate::dims::hole_marks::attach(effective.as_ref(), base, &mut held);
         crate::dims::size_datums::attach(effective.as_ref(), base, &mut held);
-        crate::dims::finish_attached_openings(effective.as_ref(), base, &mut held);
-        crate::dims::callout_routes::finish_frames(effective.as_ref(), base, &mut held);
-    }
-    crate::dims::gdt::cited_undrawn(&mut held);
+        if crate::dims::openings_need_settling(&held) {
+            crate::dims::finish_attached_openings(effective.as_ref(), base, &mut held);
+            crate::dims::hole_marks::attach(effective.as_ref(), base, &mut held);
+            crate::dims::size_datums::attach(effective.as_ref(), base, &mut held);
+            crate::dims::finish_attached_openings(effective.as_ref(), base, &mut held);
+            crate::dims::callout_routes::finish_frames(effective.as_ref(), base, &mut held);
+        }
+        crate::dims::gdt::cited_undrawn(&mut held);
+        areas
+    };
     // A replay lowers and attaches its glyphs again. Reserve their original
     // areas, rather than feeding attachment-grown strips back into lowering.
     let mut reference = held.clone();
@@ -1557,6 +1564,18 @@ fn replay_pins(
                     d.default = false;
                     if !d.from_spec.iter().any(|s| s == "place") {
                         d.from_spec.push("place".into());
+                    }
+                }
+            }
+            for g in &mut held.gdt {
+                if intent
+                    .annotations
+                    .get(&g.id)
+                    .is_some_and(|a| a.place.is_some())
+                {
+                    g.default = false;
+                    if !g.from_spec.iter().any(|s| s == "place") {
+                        g.from_spec.push("place".into());
                     }
                 }
             }
@@ -1732,11 +1751,23 @@ fn only_bare_pins(spec: &Spec, base: &Spec, canonical: &Plan) -> bool {
             place.offset = None;
         }
     }
-    if !crate::placement_intent::automatic_pins_only(&unpinned) {
-        return false;
-    }
-    for (id, dimension) in &mut unpinned.dimensions {
-        if let Some(view) = dimension.place.as_ref().and_then(|p| p.view.as_deref()) {
+    let mut pins = 0;
+    for (id, place) in unpinned
+        .dimensions
+        .iter_mut()
+        .map(|(id, d)| (id, &mut d.place))
+        .chain(
+            unpinned
+                .annotations
+                .iter_mut()
+                .map(|(id, a)| (id, &mut a.place)),
+        )
+    {
+        let Some(p) = place.as_ref() else { continue };
+        if !crate::placement_intent::automatic_pin(p) {
+            return false;
+        }
+        if let Some(view) = p.view.as_deref() {
             // A matching carrier is an anchor hint. A different or invalid
             // carrier must go through normal placement and validation.
             let carrier = crate::placement_intent::carrier(canonical, id);
@@ -1744,9 +1775,14 @@ fn only_bare_pins(spec: &Spec, base: &Spec, canonical: &Plan) -> bool {
                 return false;
             }
         }
-        dimension.place = None;
+        pins += 1;
+        *place = None;
+    }
+    if pins == 0 {
+        return false;
     }
     unpinned.dimensions.retain(|_, d| *d != Default::default());
+    unpinned.annotations.retain(|_, a| *a != Default::default());
     // Binding and schema migration are metadata, not additional author decisions.
     unpinned.binding.clone_from(&base.binding);
     unpinned.schema.clone_from(&base.schema);
