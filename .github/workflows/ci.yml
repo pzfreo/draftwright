@@ -397,6 +397,6 @@ jobs:
         env:
           API_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
         run: python3 tools/check_wasm_api.py --base-ref "$API_BASE_REF"
-      - run: cargo build --locked --release --example wasm_reference
+      - run: cargo build --locked --release --example wasm_reference --bin draftwright
       - run: node --test tools/wasm-parity.test.mjs
       - run: python3 tools/wasm_size.py crates/draftwright-wasm/pkg/draftwright_wasm_bg.wasm
