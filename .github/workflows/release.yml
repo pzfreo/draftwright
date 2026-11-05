@@ -3,24 +3,29 @@ name: Release browser WASM
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and attach the WASM package to (e.g. v0.2.11)
+        required: true
 
 permissions:
   contents: read
 
 jobs:
   wasm:
-    if: startsWith(github.event.release.tag_name, 'v')
+    if: startsWith(github.event.release.tag_name || inputs.tag, 'v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       CARGO_TERM_COLOR: always
       CARGO_BUILD_JOBS: "8"
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
       - name: Check the tag and package versions agree
         run: |
           python3 - <<'PYTHON'
@@ -43,7 +48,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
-      - run: cargo build --locked --release --example wasm_reference
+      - run: cargo build --locked --release --example wasm_reference --bin draftwright
       - run: node --test tools/wasm-parity.test.mjs
       - run: python3 tools/wasm_size.py crates/draftwright-wasm/pkg/draftwright_wasm_bg.wasm
       - name: Package and checksum
