@@ -488,6 +488,36 @@ pub(crate) fn leader_on_extension(dimensions: &[PlannedDimension]) -> BTreeSet<V
     pairs
 }
 
+pub(crate) fn crowded_labels(plan: &crate::model::Plan) -> usize {
+    contacts::contacts(plan)
+        .iter()
+        .filter(|p| p.code == "label_crowded")
+        .count()
+}
+
+/// Two distinct annotations terminating on an opening smaller than 8 paper mm
+/// need space to be read independently. Count owners, not the two heads of one size.
+pub(crate) fn converging_terminations(analysis: &Analysis, plan: &crate::model::Plan) -> bool {
+    let cache = footprints::Cache::default();
+    plan.views.iter().any(|view| {
+        let tips: Vec<_> = plan
+            .dimensions
+            .iter()
+            .filter(|d| d.view == view.id && d.kind == "callout")
+            .filter_map(|d| d.placed.as_ref().map(|p| (d, p)))
+            .flat_map(|(d, p)| p.arrows.iter().map(move |a| (d.id.as_str(), a[0])))
+            .chain(
+                plan.gdt
+                    .iter()
+                    .filter(|g| g.view == view.id)
+                    .filter_map(|g| g.placed.as_ref().map(|p| (g, p)))
+                    .flat_map(|(g, p)| p.arrows.iter().map(move |a| (g.id.as_str(), a[0]))),
+            )
+            .collect();
+        cache.get(analysis, view).converging_terminations(&tips)
+    })
+}
+
 /// A dimension's ink, mm on the page.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

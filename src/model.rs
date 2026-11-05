@@ -2216,7 +2216,7 @@ fn drops(plan: &Plan) -> usize {
 }
 
 /// Name the reported hard findings counted by the recovery, including the Spec's scale floor.
-fn hard_layout_codes(plan: &Plan) -> BTreeMap<&str, usize> {
+pub(crate) fn hard_layout_codes(plan: &Plan) -> BTreeMap<&str, usize> {
     let mut codes = BTreeMap::new();
     for p in plan.problems.iter().filter(|p| {
         HARD_LAYOUT.contains(&p.code.as_str())
@@ -2470,6 +2470,17 @@ pub(crate) fn carries_required(required: &Plan, candidate: &Plan) -> bool {
 /// Check actual bounds independently on each sheet; coincident coordinates on different
 /// pages are expected. Keep the single-sheet gate identical.
 pub(crate) fn drawn_sheets_fit(analysis: &Analysis, plan: &Plan) -> bool {
+    sheets_fit(analysis, plan, true)
+}
+
+pub(crate) fn finished_sheets_fit(analysis: &Analysis, plan: &Plan) -> bool {
+    sheets_fit(analysis, plan, false)
+}
+
+fn sheets_fit(analysis: &Analysis, plan: &Plan, reservations: bool) -> bool {
+    if plan.sheets.is_empty() {
+        return items_fit(analysis, plan, reservations);
+    }
     std::iter::once(&plan.sheet)
         .chain(&plan.sheets)
         .all(|sheet| {
@@ -2490,7 +2501,7 @@ pub(crate) fn drawn_sheets_fit(analysis: &Analysis, plan: &Plan) -> bool {
                 local.radius_table = None;
                 local.requirements.clear();
             }
-            drawn_items_fit(analysis, &local)
+            items_fit(analysis, &local, reservations)
         })
 }
 

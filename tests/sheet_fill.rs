@@ -120,6 +120,49 @@ fn cosmetic_contacts_keep_the_thickened_plate_on_a4_at_full_scale() {
 }
 
 #[test]
+fn grm04_uses_the_largest_clean_scale_on_a4_before_spending_more_paper() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/rule_pins/grm04_drive_plate.step.gz");
+    let a = model::analyse_native(&path).unwrap().1;
+    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    assert_eq!(
+        (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+        ("A4", "5:1")
+    );
+    assert!(plan.sheets.is_empty());
+    assert_eq!(
+        plan.sheet.dimension_spacing,
+        model::DimensionSpacing::Compact
+    );
+    assert!(!plan.problems.iter().any(|p| matches!(
+        p.code.as_str(),
+        "page_fit_uncertain"
+            | "annotation_off_sheet"
+            | "views_do_not_fit"
+            | "callout_dropped"
+            | "location_ref_dropped"
+    )));
+    for outcome in [
+        "A4 at 10:1",
+        "A4 at 5:1 (Normal)",
+        "A4 at 5:1 (Compact)",
+        "base choice before scale maximisation A4 at 2:1",
+    ] {
+        assert!(
+            plan.sheet.basis.contains(outcome),
+            "{outcome}: {}",
+            plan.sheet.basis
+        );
+    }
+    assert!(
+        plan.views
+            .iter()
+            .filter(|v| v.id != "v:iso")
+            .all(|v| v.scale == 5.0)
+    );
+}
+
+#[test]
 fn grm03_keeps_a4_once_its_extension_contact_is_finished_away() {
     let Some(dir) = corpus::dir() else {
         return;

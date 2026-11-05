@@ -405,6 +405,22 @@ fn wire(w: &Wire, frame: &Frame) -> Shape {
 }
 
 impl Footprints {
+    pub(super) fn converging_terminations(&self, tips: &[(&str, P2)]) -> bool {
+        self.features.iter().any(|f| {
+            let b = f.shape.bounds();
+            let extent = (b[2] - b[0]).max(b[3] - b[1]);
+            // The existing 1 mm corridor includes a head just beside the rim.
+            extent < 8.0
+                && tips
+                    .iter()
+                    .filter(|(_, p)| (0..2).all(|k| p[k] >= b[k] - 1.0 && p[k] <= b[k + 2] + 1.0))
+                    .map(|(owner, _)| *owner)
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    >= 2
+        })
+    }
+
     pub(super) fn new(analysis: &Analysis, frame: &Frame, view: &str) -> Self {
         let qframe = holes::frame(analysis);
         let mut features = Vec::new();
