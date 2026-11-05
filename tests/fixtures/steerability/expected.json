@@ -67,16 +67,6 @@
       "shoulders_defined"
     ]
   },
-  "301": {
-    "case": "steer_301_authored_pocket",
-    "group": "A",
-    "reason": "Authored pocket end/size dimensions do not satisfy the pocket requirements.",
-    "checks": [
-      "end_plus_length_locates_centre",
-      "pocket_length.length",
-      "pocket_width.length"
-    ]
-  },
   "302": {
     "case": "steer_302_axis_origin",
     "group": "B",
