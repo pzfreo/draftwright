@@ -8,14 +8,6 @@
       "lint_role_accepted"
     ]
   },
-  "295": {
-    "case": "steer_295_automatic_sheet",
-    "group": "D",
-    "reason": "Automatic selection chooses a smaller scale than explicit A4 at 1:1.",
-    "checks": [
-      "a4_one_to_one"
-    ]
-  },
   "296": {
     "case": "steer_296_reserve_explicit_lane",
     "group": "C",

@@ -2210,12 +2210,38 @@ fn drops(plan: &Plan) -> usize {
         .count()
 }
 
+/// Name the reported hard findings counted by the recovery, including the Spec's scale floor.
+fn hard_layout_codes(plan: &Plan) -> BTreeMap<&str, usize> {
+    let mut codes = BTreeMap::new();
+    for p in plan.problems.iter().filter(|p| {
+        HARD_LAYOUT.contains(&p.code.as_str())
+            && p.severity != "info"
+            && !p.message.ends_with(RADIUS_DEFAULT_WITHDRAWN)
+    }) {
+        *codes.entry(p.code.as_str()).or_default() += 1;
+    }
+    if crate::sheets::floor(&plan.spec).is_some_and(|floor| plan.sheet.scale_factor < floor) {
+        codes.insert("sheet_below_smallest_scale", 1);
+    }
+    codes
+}
+
 /// What a plan's recovery findings are, in words; *dropped* of them are hole items dropped.
-fn said(f: layout::Findings, dropped: usize) -> String {
-    let hard = match f.hard {
+fn said(f: layout::Findings, dropped: usize, codes: BTreeMap<&str, usize>) -> String {
+    let mut hard = match f.hard {
         1 => "1 hard layout finding".to_string(),
         n => format!("{n} hard layout findings"),
     };
+    if !codes.is_empty() {
+        hard += &format!(
+            " [{}]",
+            codes
+                .into_iter()
+                .map(|(code, count)| format!("{code}: {count}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     let crowded = match f.dropped - dropped {
         0 => None,
         1 => Some("1 hole location too close to read".to_string()),
@@ -2480,26 +2506,25 @@ fn drawn_items_fit(analysis: &Analysis, p: &Plan) -> bool {
     };
     let mut title = p.sheet.title_block;
     title[3] = title_block::top(title);
-    crate::sheet_fit::footprints(analysis, p)
+    let footprints = crate::sheet_fit::footprints(analysis, p);
+    // View reservations include empty annotation lanes. The finished dimensions
+    // are checked separately; overlapping reservations do not mean that
+    // the rendered views overlap (#295).
+    let views = &footprints[..p.views.len()];
+    footprints.iter().copied().all(|b| {
+        if framed.contains(&b) {
+            on_frame(b)
+        } else {
+            inside(b)
+        }
+    }) && crate::sheet_fit::furniture_footprints(analysis, p)
         .into_iter()
-        .all(|b| {
-            if framed.contains(&b) {
-                on_frame(b)
-            } else {
-                inside(b)
-            }
-        })
-        && crate::sheet_fit::furniture_footprints(analysis, p)
-            .into_iter()
-            .all(|b| !rect_overlap(b, title))
-        && p.views
+        .all(|b| !rect_overlap(b, title))
+        && views.iter().all(|b| !rect_overlap(*b, p.sheet.title_block))
+        && views
             .iter()
-            .all(|v| inside(v.area) && !rect_overlap(v.area, p.sheet.title_block))
-        && p.views.iter().enumerate().all(|(i, a)| {
-            p.views[i + 1..]
-                .iter()
-                .all(|b| !rect_overlap(a.area, b.area))
-        })
+            .enumerate()
+            .all(|(i, a)| views[i + 1..].iter().all(|b| !rect_overlap(*a, *b)))
 }
 
 pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
@@ -3906,10 +3931,17 @@ fn recover_candidates(
                         || feature_crossings(&p) > feature_crossings(&first)
                         || (p.views.iter().any(|v| v.detail.is_some())
                             && longer_callouts(&p, &first)));
+                let mut hard_codes = hard_layout_codes(&p);
+                if !actual_fit {
+                    hard_codes.insert("finished_items_do_not_fit", 1);
+                }
+                if unreadable_steps > 0 {
+                    hard_codes.insert("unreadable_step_span", unreadable_steps);
+                }
                 let verdict = if quality_veto {
-                    format!("detail quality veto; {}", said(f, drops(&p)))
+                    format!("detail quality veto; {}", said(f, drops(&p), hard_codes))
                 } else {
-                    said(f, drops(&p))
+                    said(f, drops(&p), hard_codes)
                 };
                 let selection_fill =
                     crate::sheet_fit::selection_fill(analysis, &p, compare_diagram_fill);
@@ -4127,7 +4159,7 @@ fn recover_candidates(
                 "{} at {} has {}{below}; no standard sheet and legible scale yields a valid complete drawing, so this drawing and its findings are kept. Tried {}.",
                 first.sheet.size,
                 first.sheet.scale,
-                said(findings(&first), drops(&first)),
+                said(findings(&first), drops(&first), hard_layout_codes(&first)),
                 tried.join("; ")
             ),
             subjects: vec!["sheet".into()],

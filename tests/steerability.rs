@@ -310,6 +310,33 @@ fn steer_295_automatic_sheet() {
         "a4_one_to_one",
         auto.plan.sheet.size == "A4" && auto.plan.sheet.scale == "1:1",
     );
+    for p in [&explicit, &auto] {
+        assert!(annotations_in_bounds(rendered(BRACKET, p)));
+        assert!(!has(&p.plan, "page_fit_uncertain"));
+        assert!(
+            !rendered(BRACKET, p)
+                .structural
+                .iter()
+                .any(|f| f.code == "annotation_overlap")
+        );
+    }
+    let rejected: Vec<_> = auto
+        .plan
+        .sheet
+        .basis
+        .split(';')
+        .filter(|entry| entry.contains("hard layout finding"))
+        .collect();
+    assert!(
+        !rejected.is_empty(),
+        "oversized candidates must be rejected"
+    );
+    for entry in rejected {
+        assert!(
+            entry.contains(" [") && entry.contains(": ") && entry.contains(']'),
+            "hard candidate findings must be named: {entry}"
+        );
+    }
     c.finish(295);
 }
 
