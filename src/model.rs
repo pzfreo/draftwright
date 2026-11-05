@@ -904,7 +904,7 @@ pub struct Plan {
 }
 
 impl Plan {
-    fn record_callout_offsets(&mut self) {
+    pub(crate) fn record_callout_offsets(&mut self) {
         let offsets: Vec<_> = self
             .dimensions
             .iter()

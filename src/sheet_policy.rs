@@ -2721,6 +2721,7 @@ mod tests {
         crate::dims::callout_routes::finish(&a, &s, &mut b);
         crate::dims::contacts::report(&a, &mut b);
         model::note_final_conflicts(&mut b);
+        b.record_callout_offsets();
         let p = model::plan_recovered(&a, &s).unwrap();
         assert!(p.sheet_candidates.is_empty());
         assert_eq!(
