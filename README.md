@@ -79,10 +79,10 @@ arguments.
 `zsh`, `fish`, `powershell` or `elvish`:
 
 ```sh
-draftwright completions bash > ~/.local/share/bash-completion/completions/draftwright
+mkdir -p ~/.local/share/bash-completion/completions && draftwright completions bash > ~/.local/share/bash-completion/completions/draftwright
 mkdir -p ~/.zfunc && draftwright completions zsh > ~/.zfunc/_draftwright
 # zsh: add `fpath=(~/.zfunc $fpath)` before `compinit` in ~/.zshrc, then restart zsh
-draftwright completions fish > ~/.config/fish/completions/draftwright.fish
+mkdir -p ~/.config/fish/completions && draftwright completions fish > ~/.config/fish/completions/draftwright.fish
 ```
 
 File exports stage each format in a unique sibling file and atomically replace its destination.

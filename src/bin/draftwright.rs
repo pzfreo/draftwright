@@ -132,7 +132,12 @@ enum Command {
         #[command(flatten)]
         drawing: Drawing,
         /// the output stem (out.svg, out.pdf, …)
-        #[arg(short = 'o', value_name = "STEM", required = true)]
+        #[arg(
+            short = 'o',
+            value_name = "STEM",
+            required = true,
+            allow_hyphen_values = true
+        )]
         output: Option<String>,
         /// the formats written, of svg, pdf and png
         #[arg(long, value_name = "LIST", default_value = "svg,pdf")]
@@ -161,7 +166,12 @@ enum Command {
     Pack {
         step: String,
         /// the output directory
-        #[arg(short = 'o', value_name = "DIRECTORY", required = true)]
+        #[arg(
+            short = 'o',
+            value_name = "DIRECTORY",
+            required = true,
+            allow_hyphen_values = true
+        )]
         output: Option<String>,
         /// the pack Spec
         #[arg(long, value_name = "JSON")]
@@ -175,7 +185,12 @@ enum Command {
         old: String,
         new: String,
         /// the output directory
-        #[arg(short = 'o', value_name = "DIRECTORY", required = true)]
+        #[arg(
+            short = 'o',
+            value_name = "DIRECTORY",
+            required = true,
+            allow_hyphen_values = true
+        )]
         output: Option<String>,
         /// the Spec of the old revision
         #[arg(long, value_name = "JSON")]
