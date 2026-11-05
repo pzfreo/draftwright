@@ -10,7 +10,16 @@ fn text_matches_build123d() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/text.json.gz");
     let mut problems = Vec::new();
     for case in common::load(&path)["cases"].as_array().unwrap() {
-        let s = common::compare(case);
+        // The old capture used U+2300 to exercise FreeType's missing-glyph box.
+        // Diameter now has an explicit supported fallback (tested below); retain the
+        // independent .notdef outline comparison using an actually unsupported character.
+        let mut case = case.clone();
+        case["text"] = case["text"]
+            .as_str()
+            .unwrap()
+            .replace('⌀', "\u{10ffff}")
+            .into();
+        let s = common::compare(&case);
         if s.outline.0 < 0.999
             || s.outline.1 < 0.999
             || s.box_error > 5e-5
