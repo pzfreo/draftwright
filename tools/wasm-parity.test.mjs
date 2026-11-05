@@ -402,6 +402,10 @@ test('Pack: gzip assembly, native equality, pages, transactional rebuild and dis
     }
     invalid(() => pack.pageSvg(0));
     invalid(() => pack.pageSvg(pack.pageCount() + 1));
+    assert.equal(pack.pageSvg(1.9), pack.pageSvg(1)); // wasm-bindgen truncates to u32
+    invalid(() => pack.pageSvg(-1));
+    assert.equal(pack.pageSvg(-4294967295), pack.pageSvg(1)); // modulo 2^32
+
     const reference = native('pack');
     assert.deepEqual(report, reference.report);
     for (const file of reference.files) {

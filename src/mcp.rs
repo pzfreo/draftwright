@@ -831,7 +831,8 @@ pub fn pack_tool(cache: &Cache, args: &Value) -> Result<Value, Error> {
     let mut content = Vec::new();
     // JSON delivery replaces the inline report, so it never appears twice.
     if !formats.contains(&"json") {
-        content.push(json!({"type":"text","text":serde_json::to_string(&pack.report).expect("report serialises")}));
+        let report = serde_json::to_value(&pack.report).expect("report serialises");
+        content.push(json!({"type":"text","text":serde_json::to_string(&report).expect("report serialises")}));
     }
     let failures = pack
         .report

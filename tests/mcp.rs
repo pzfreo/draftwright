@@ -23,7 +23,15 @@ fn scratch(name: &str) -> PathBuf {
 
 /// The replies to *messages*, sent to one server after the initialisation handshake, by id.
 fn session(messages: &[Value]) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_draftwright-mcp"))
+    session_with_cache(messages, None)
+}
+
+fn session_with_cache(messages: &[Value], cache: Option<&Path>) -> Vec<Value> {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_draftwright-mcp"));
+    if let Some(cache) = cache {
+        command.env("DRAFTWRIGHT_CACHE", cache);
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -228,4 +236,167 @@ fn unresolved_geometry_is_a_failed_tool_error() {
         error["message"].as_str().unwrap().contains("faces [3]"),
         "{error}"
     );
+}
+
+#[test]
+fn pack_defaults_are_one_compact_report_without_exports_on_large_assemblies() {
+    use draftwright::pack::{self, PackSpec};
+    for fixture in ["gramil", "bom-small"] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("tests/fixtures/assembly/{fixture}.step.gz"));
+        let cache = scratch(&format!("pack-default-{fixture}-{}", std::process::id()));
+        let report =
+            serde_json::to_value(pack::build(&path, &PackSpec::default()).unwrap().report).unwrap();
+        let replies = session_with_cache(
+            &[
+                call(1, "pack", json!({"step":path})),
+                call(2, "pack", json!({"step":path,"formats":[]})),
+            ],
+            Some(&cache),
+        );
+        for reply in replies {
+            let result = &reply["result"];
+            assert_eq!(result["isError"], false, "{reply}");
+            assert!(
+                result.get("structuredContent").is_none(),
+                "report must not be duplicated"
+            );
+            let blocks = result["content"].as_array().unwrap();
+            assert_eq!(blocks.len(), 2);
+            assert!(blocks.iter().all(|block| block["type"] == "text"
+                && block.get("blob").is_none()
+                && block.get("resource").is_none()));
+            let text = blocks[0]["text"].as_str().unwrap();
+            assert_eq!(serde_json::from_str::<Value>(text).unwrap(), report);
+            assert_eq!(
+                text,
+                serde_json::to_string(&report).unwrap(),
+                "compact JSON"
+            );
+            let summary = blocks[1]["text"].as_str().unwrap();
+            assert!(summary.starts_with("Drawing pack:"));
+            assert!(summary.len() < 200);
+            assert!(serde_json::from_str::<Value>(summary).is_err());
+            let wire = serde_json::to_vec(&reply).unwrap();
+            assert!(wire.len() < 96 * 1024, "{fixture}: {} bytes", wire.len());
+            assert_eq!(
+                String::from_utf8(wire.clone())
+                    .unwrap()
+                    .matches(pack::REPORT_SCHEMA)
+                    .count(),
+                1
+            );
+            eprintln!("MCP_PACK_DEFAULT {fixture}: {} bytes", wire.len() + 1);
+        }
+        assert!(
+            !cache.exists(),
+            "default pack must not create file artifacts"
+        );
+    }
+}
+
+#[test]
+fn pack_explicit_exports_are_readable_resources_and_json_replaces_inline_report() {
+    use draftwright::pack::{self, PackSpec};
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assembly/pack-small.step.gz");
+    let cache = scratch(&format!("pack-exports-{}", std::process::id()));
+    let key = draftwright::stateless::Cache::new(&cache)
+        .register(&path, None)
+        .unwrap();
+    let replies = session_with_cache(
+        &[
+            call(
+                1,
+                "pack",
+                json!({"part_ref":key,"formats":["pdf","csv","json"]}),
+            ),
+            call(2, "pack", json!({"step":path,"formats":["pdf"]})),
+            call(3, "pack", json!({"step":path,"formats":["json"]})),
+            call(4, "pack", json!({"step":path,"formats":["csv","csv"]})),
+            call(5, "pack", json!({"step":path,"formats":["json","json"]})),
+            call(6, "pack", json!({"step":path,"formats":["svg"]})),
+            call(7, "pack", json!({"step":path,"formats":"pdf"})),
+            json!({"jsonrpc":"2.0","id":8,"method":"tools/list"}),
+        ],
+        Some(&cache),
+    );
+    let content = replies[0]["result"]["content"].as_array().unwrap();
+    assert_eq!(replies[0]["result"]["isError"], false);
+    assert_eq!(content.len(), 4);
+    assert!(
+        content[0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("Drawing pack:")
+    );
+    assert!(serde_json::to_vec(&replies[0]).unwrap().len() < 2048);
+    for block in &content[1..] {
+        assert_eq!(block["type"], "resource_link");
+        assert!(block.get("text").is_none() && block.get("blob").is_none());
+    }
+    assert_eq!(replies[1]["result"]["content"].as_array().unwrap().len(), 3);
+    let (_, expected) = pack::render(&path, &PackSpec::default(), &pack::FORMATS).unwrap();
+    assert_eq!(
+        first(&replies[1]),
+        serde_json::from_slice::<Value>(&expected[2].1).unwrap()
+    );
+    assert_eq!(replies[2]["result"]["content"].as_array().unwrap().len(), 2);
+    for reply in &replies[3..7] {
+        assert_eq!(reply["result"]["isError"], true, "{reply}");
+        assert_eq!(first(reply)["error"]["code"], "invalid");
+    }
+    let tools = replies[7]["result"]["tools"].as_array().unwrap();
+    let schema = &tools.iter().find(|t| t["name"] == "pack").unwrap()["inputSchema"]["properties"]
+        ["formats"];
+    assert_eq!(schema["uniqueItems"], true);
+    assert_eq!(schema["default"], json!([]));
+    let reads: Vec<_> = content[1..].iter().enumerate().map(|(i, link)| json!({"jsonrpc":"2.0","id":i+1,"method":"resources/read","params":{"uri":link["uri"]}})).collect();
+    let resources = session_with_cache(&reads, Some(&cache));
+    for ((reply, link), (format, bytes)) in resources.iter().zip(&content[1..]).zip(expected) {
+        let resource = &reply["result"]["contents"][0];
+        assert_eq!(resource["uri"], link["uri"]);
+        assert_eq!(resource["mimeType"], link["mimeType"]);
+        assert_eq!(link["name"], format!("pack.{format}"));
+        assert_eq!(link["size"], bytes.len());
+        let actual = if format == "json" {
+            assert!(resource.get("blob").is_none());
+            resource["text"].as_str().unwrap().as_bytes().to_vec()
+        } else {
+            assert!(resource.get("text").is_none());
+            decode_pack_base64(resource["blob"].as_str().unwrap())
+        };
+        assert_eq!(actual, bytes, "{format}");
+    }
+    let bad = session_with_cache(
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"draftwright:../../outside.pdf"}}),
+        ],
+        Some(&cache),
+    );
+    assert_eq!(bad[0]["error"]["code"], -32602);
+    std::fs::remove_dir_all(cache).unwrap();
+}
+
+fn decode_pack_base64(encoded: &str) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut bits = 0u32;
+    let mut count = 0;
+    for byte in encoded.bytes().take_while(|b| *b != b'=') {
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => panic!("invalid base64"),
+        };
+        bits = (bits << 6) | u32::from(value);
+        count += 6;
+        if count >= 8 {
+            count -= 8;
+            output.push((bits >> count) as u8);
+        }
+    }
+    output
 }
