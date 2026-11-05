@@ -4544,18 +4544,25 @@ fn plan_recovered_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid
     }
     let prepared = crate::modelled_threads::planning(analysis, spec);
     let mut plan = crate::dims::pmi_policy::planning(|| plan_recovered_inner(&prepared, spec))?;
-    crate::half_section::apply(&prepared, &mut plan);
+    if spec.sheet.keep_layout == Some(true) || !crate::sheet_policy::finishes_selection(spec) {
+        finish_selected(&prepared, &mut plan);
+    }
     crate::modelled_threads::source_hash(
         analysis,
         matches!(&prepared, std::borrow::Cow::Owned(_)),
         &mut plan,
     );
-    crate::sheets::furnish(&mut plan);
-    crate::fixes::retain_local_layout(&mut plan);
-    crate::dims::contacts::report(&prepared, &mut plan);
     note_final_conflicts(&mut plan);
-    crate::characteristics::apply(analysis, &mut plan);
     Ok(plan)
+}
+
+/// The final dependent ink and findings, shared by candidate acceptance and publication.
+pub(crate) fn finish_selected(analysis: &Analysis, plan: &mut Plan) {
+    crate::half_section::apply(analysis, plan);
+    crate::sheets::furnish(plan);
+    crate::fixes::retain_local_layout(plan);
+    crate::dims::contacts::report(analysis, plan);
+    crate::characteristics::apply(analysis, plan);
 }
 
 fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {

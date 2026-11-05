@@ -1407,6 +1407,158 @@ pub(crate) fn separate_views(
     separate_views_inner(analysis, source, size, max, None, None)
 }
 
+/// A section initially composed to the right of the principal row may be off
+/// paper even when its whole annotated block fits an empty corner. Repack owned
+/// ink before mistaking that composition failure for a shortage of paper.
+pub(crate) fn reflow_outside_auxiliaries(analysis: &Analysis, source: &Plan) -> Option<Plan> {
+    if !source.sheets.is_empty() || crate::placement_intent::has_pins(&source.spec) {
+        return None;
+    }
+    let bounds = crate::sheet_fit::footprints(analysis, source);
+    if !source.views.iter().zip(&bounds).any(|(v, b)| {
+        v.cut.is_some()
+            && (b[0] < layout::margin()
+                || b[1] < layout::margin()
+                || b[2] > source.sheet.page[0] - layout::margin()
+                || b[3] > source.sheet.page[1] - layout::margin())
+    }) {
+        return None;
+    }
+    let mut source = source.clone();
+    // Recover complete line-work before transport; an off-sheet trial's line-work
+    // has already been clipped to its old frame.
+    crate::centrelines::plan(analysis, &mut source.views);
+    crate::centrelines::unused_origins(&mut source.views, &source.dimensions);
+    source.views.sort_by_key(|v| v.id == "v:iso");
+    // Try moving only auxiliaries first. Their estimated right-hand row is
+    // not a required projection relation; principal alignments remain exact.
+    let mut relocated = source.clone();
+    let movable: Vec<_> = relocated
+        .views
+        .iter()
+        .filter(|v| v.cut.is_some() || v.id == "v:iso")
+        .map(|v| v.id.clone())
+        .collect();
+    let owned = |plan: &Plan, keep: &dyn Fn(&str) -> bool| {
+        let mut p = plan.clone();
+        p.views.retain(|v| keep(&v.id));
+        p.dimensions.retain(|d| keep(&d.view));
+        p.gdt.retain(|g| keep(&g.view));
+        p.captions.retain(|c| keep(&c.view));
+        p.balloons.retain(|b| keep(&b.view));
+        p.hole_tables
+            .retain(|t| keep(t.view.as_deref().unwrap_or("v:plan")));
+        p.tables.clear();
+        p.radius_table = None;
+        p.requirements.clear();
+        p
+    };
+    let mut fixed = source.clone();
+    fixed.views.clear();
+    fixed.dimensions.clear();
+    fixed.gdt.clear();
+    fixed.captions.clear();
+    fixed.balloons.clear();
+    fixed.hole_tables.clear();
+    let mut fixed_ink = crate::sheet_fit::view_ink(analysis, &fixed);
+    fixed_ink.extend(crate::sheet_fit::furniture_footprints(analysis, &fixed));
+    let region = [
+        layout::margin(),
+        layout::margin(),
+        source.sheet.page[0] - layout::margin(),
+        source.sheet.page[1] - layout::margin(),
+    ];
+    let mut placed = Vec::new();
+    let mut complete = true;
+    for id in &movable {
+        // Per-view schedules need the allocator's coupled transport below.
+        if source
+            .hole_tables
+            .iter()
+            .any(|t| t.view.as_deref() == Some(id))
+        {
+            complete = false;
+            break;
+        }
+        let retained = owned(&relocated, &|v| {
+            !movable.iter().any(|m| m == v) || placed.iter().any(|m| m == v)
+        });
+        let mut obstacles = crate::sheet_fit::view_ink(analysis, &retained);
+        obstacles.extend(fixed_ink.iter().copied());
+        let own = owned(&relocated, &|v| v == id);
+        let Some(bounds) = crate::sheet_fit::view_ink(analysis, &own)
+            .into_iter()
+            .reduce(|a, b| {
+                [
+                    a[0].min(b[0]),
+                    a[1].min(b[1]),
+                    a[2].max(b[2]),
+                    a[3].max(b[3]),
+                ]
+            })
+        else {
+            complete = false;
+            break;
+        };
+        let Some(at) = layout::fit_box(
+            [bounds[2] - bounds[0], bounds[3] - bounds[1]],
+            region,
+            &obstacles,
+            layout::Corner::TopRight,
+            2.,
+        ) else {
+            complete = false;
+            break;
+        };
+        let mut areas: Vec<_> = relocated.views.iter().map(|v| v.area).collect();
+        let mut deltas = vec![[0., 0.]; areas.len()];
+        let i = relocated.views.iter().position(|v| &v.id == id)?;
+        relocated.views[i].area = bounds;
+        areas[i] = bounds;
+        deltas[i] = [at[0] - bounds[0], at[1] - bounds[1]];
+        crate::view_gutters::transport(analysis, &mut relocated, areas, deltas);
+        placed.push(id.clone());
+    }
+    if complete
+        && model::finished_items_fit(analysis, &relocated)
+        && model::carries_required(&source, &relocated)
+    {
+        relocated.problems.retain(|p| {
+            !matches!(
+                p.code.as_str(),
+                "page_fit_uncertain" | "annotation_off_sheet" | "annotation_outside_area"
+            )
+        });
+        relocated
+            .problems
+            .extend(crate::dims::recheck(analysis, &relocated));
+        relocated.sheet.basis += "; complete auxiliary ink relocated into vacant same-sheet space";
+        relocated.status = crate::completeness::status(&relocated.problems);
+        return Some(relocated);
+    }
+    for tier in 0..=8 {
+        if let Some(mut plan) = separate_views_inner(
+            analysis,
+            &source,
+            &source.sheet.size,
+            1,
+            None,
+            Some(TableReflow {
+                row_lift: 6. * tier as f64,
+                late_tables: false,
+            }),
+        ) && model::finished_items_fit(analysis, &plan)
+            && model::carries_required(&source, &plan)
+        {
+            plan.problems.retain(|p| p.code != "page_fit_uncertain");
+            plan.sheet.basis += "; off-sheet auxiliary row repacked as complete annotated blocks on the same paper and scale";
+            plan.status = crate::completeness::status(&plan.problems);
+            return Some(plan);
+        }
+    }
+    None
+}
+
 /// Pin replay transports the same owned ink into the already selected view
 /// frames. Expanded pin ink is audited there, never used to relocate peers.
 pub(crate) fn replay_views(analysis: &Analysis, source: &Plan, frame: &Plan) -> Option<Plan> {

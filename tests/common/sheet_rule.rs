@@ -153,6 +153,11 @@ pub fn assert_follows(name: &str, plan: &Plan, seed: (&str, &str)) -> (String, S
             );
             assert_eq!(winner.size, plan.sheet.size);
             assert!(winner.scales.contains(&plan.sheet.scale));
+            assert_eq!(
+                winner.scales.last(),
+                Some(&plan.sheet.scale),
+                "{name}: largest clean scale must be the last trial"
+            );
             assert!(plan.sheets.len() < winner.max);
             assert!(
                 plan.sheet

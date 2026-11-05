@@ -141,7 +141,23 @@ fn grm04_uses_the_largest_clean_scale_on_a4_before_spending_more_paper() {
             | "views_do_not_fit"
             | "callout_dropped"
             | "location_ref_dropped"
+            | "leader_along_centreline"
     )));
+    let conflicts = plan
+        .problems
+        .iter()
+        .filter(|p| {
+            matches!(
+                p.code.as_str(),
+                "annotation_ink_overlap"
+                    | "annotation_over_view"
+                    | "annotation_line_over_view"
+                    | "annotation_leader_crossing"
+                    | "annotation_outside_area"
+            )
+        })
+        .count();
+    assert!(plan.sheet.basis.contains(&format!("A4 at 5:1 (Compact): valid and complete; usable; {conflicts} final annotation conflicts")),"{}",plan.sheet.basis);
     for outcome in [
         "A4 at 10:1",
         "A4 at 5:1 (Normal)",
@@ -630,12 +646,13 @@ fn assert_small_single_sheet(name: &str, expected: (&str, &str)) {
     );
 }
 
-/// A crowded but readable A4 is usable: a small part is not enlarged onto A3.
+/// Readability is required even when a smaller scale physically fits A4.
 #[test]
-fn small_10224_fits_one_a4_sheet() {
-    // A4's larger preferred scales have hard findings; 1:2 fits cleanly.
-    // Exhaust the readable scales before spending a larger sheet.
-    assert_small_single_sheet("10224", ("A4", "1:2"));
+fn small_10224_keeps_readable_features_at_two_to_one() {
+    // Repacking the section lets A4 1:1 fit, but its 1.296 mm diameter
+    // is below the 1.5 paper-mm reduction floor. A4 2:1 does not fit
+    // the complete layout, so retain main's readable A3 2:1.
+    assert_small_single_sheet("10224", ("A3", "2:1"));
 }
 
 #[test]
@@ -677,14 +694,17 @@ fn overflow_honours_named_paper_and_sheet_count() {
         .1;
     for (intent, size, count) in [
         (json!({"sheet":{"size":"A2"}}), "A2", 1),
-        // A hard one-sheet limit still uses A4's clean smaller scale first.
-        (json!({"sheets":{"max":1}}), "A4", 1),
+        // A one-sheet limit must not trade the 1.5 mm feature minimum for A4.
+        (json!({"sheets":{"max":1}}), "A3", 1),
     ] {
         let spec: Spec = serde_json::from_value(intent).unwrap();
         let p = model::plan_recovered(&a, &spec).unwrap();
         assert_eq!(p.sheet.size, size);
         assert_eq!(1 + p.sheets.len(), count);
         assert_eq!(p.spec.sheets, spec.sheets);
+        if spec.sheet.size.is_none() {
+            assert_eq!(p.sheet.scale, "2:1");
+        }
     }
     let spec: Spec = serde_json::from_value(json!({"sheets":{"max":2}})).unwrap();
     let p = model::plan_recovered(&a, &spec).unwrap();
