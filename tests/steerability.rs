@@ -1187,10 +1187,10 @@ fn steer_313_authored_diameter_sign() {
                             .join(&t.font),
                     )
                     .unwrap();
-                    let face = ttf_parser::Face::parse(&data, 0).unwrap();
+                    let font = Font::new(data).unwrap();
                     t.text
                         .chars()
-                        .all(|ch| ch.is_whitespace() || face.glyph_index(ch).is_some())
+                        .all(|ch| ch.is_whitespace() || font.supports(ch))
                 }),
             );
         }

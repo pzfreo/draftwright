@@ -30,3 +30,28 @@ fn text_matches_build123d() {
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+#[test]
+fn diameter_fallback_uses_the_supported_outline_and_advance_in_both_fonts() {
+    for bytes in [
+        draftwright::api::MONO,
+        include_bytes!("../fonts/IBMPlexSansCondensed-Regular.ttf").as_slice(),
+    ] {
+        let raw = ttf_parser::Face::parse(bytes, 0).unwrap();
+        assert!(
+            raw.glyph_index('⌀').is_none(),
+            "the bundled font needs the explicit fallback"
+        );
+        assert!(raw.glyph_index('ø').is_some());
+        let font = draftwright::text::Font::new(bytes.to_vec()).unwrap();
+        assert!(font.supports('⌀'));
+        for text in ["⌀80", "CONCENTRIC WITH ⌀80", "⌀30 THRU", "ø80 / ⌀30"] {
+            let expected = text.replace('⌀', "ø");
+            let a = font.baseline(text, 3.0);
+            let b = font.baseline(&expected, 3.0);
+            assert_eq!(a.contours, b.contours);
+            assert_eq!((a.min, a.max), (b.min, b.max));
+            assert_eq!(font.advance(text, 3.0), font.advance(&expected, 3.0));
+        }
+    }
+}

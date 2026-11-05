@@ -3214,3 +3214,11 @@ read/parse, grouping (own-frame part reads and geometry comparison), and each
 group’s analysis/recognition and drawing (planning plus rendering). Encoding and
 file writes are outside those stages. Known bought names skip analysis unless
 overridden to make.
+
+
+Authored text accepts `⌀` (U+2300). The bundled IBM Plex fonts lack that code point;
+the text renderer explicitly uses their supported `ø` outline and advance, matching the
+slashed-o used by generated diameter symbols. Authored `⌀80` and `ø80` therefore have
+identical ink and spacing in both bundled fonts. Searchable text keeps the authored Unicode.
+Generated callout symbols retain their established one-em symbol cells and token spacing;
+prose keeps the spaces the author typed.

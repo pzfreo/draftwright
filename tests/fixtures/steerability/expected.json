@@ -171,14 +171,6 @@
       "note_in_plan"
     ]
   },
-  "313": {
-    "case": "steer_313_authored_diameter_sign",
-    "group": "E",
-    "reason": "Authored diameter-sign text reaches the drawing with an unsupported font glyph.",
-    "checks": [
-      "note_has_supported_glyphs"
-    ]
-  },
   "314": {
     "case": "steer_314_plain_hole_section",
     "group": "B",
