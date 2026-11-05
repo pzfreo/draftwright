@@ -3681,6 +3681,8 @@ fn recover_candidates(
         && crate::sheet_fit::illegible_steps(analysis, &first) == 0
         && undrawn_gdt(&first) == 0
         && drawn_items_fit(analysis, &first);
+    let authored_reference = (!crate::nominal::comparison())
+        .then(|| crate::dims::authored_placement_conflicts(spec, &first.dimensions));
     // A2 and larger only for a part whose views do not fit A3 at 1:1; asked at most once, and
     // only when a large sheet is in play (a named sheet is the user's choice).
     let mut small_part: Option<bool> = None;
@@ -3954,10 +3956,15 @@ fn recover_candidates(
                 p.status = crate::completeness::status(&p.problems);
                 let mut f = findings(&p);
                 f.hard += usize::from(!actual_fit);
-                // Releasing empty reservations must not admit an oblique
-                // authored witness that crosses another annotation's strokes.
-                let authored_clear = crate::dims::authored_placement_clear(spec, &p.dimensions);
-                f.hard += usize::from(!authored_clear);
+                // Releasing empty reservations must not add oblique authored
+                // stroke conflicts. Inherited contacts retain their existing
+                // finishing path, just as the other crossing budgets do.
+                let authored_conflicts = authored_reference.as_ref().map_or(0, |reference| {
+                    crate::dims::authored_placement_conflicts(spec, &p.dimensions)
+                        .difference(reference)
+                        .count()
+                });
+                f.hard += authored_conflicts;
                 let unreadable_steps = crate::sheet_fit::illegible_steps(analysis, &p);
                 f.hard += unreadable_steps;
                 f.dropped += required.difference(&carried(&p)).count();
@@ -3984,8 +3991,8 @@ fn recover_candidates(
                 if !actual_fit {
                     hard_codes.insert("finished_items_do_not_fit", 1);
                 }
-                if !authored_clear {
-                    hard_codes.insert("authored_annotation_conflict", 1);
+                if authored_conflicts > 0 {
+                    hard_codes.insert("authored_annotation_conflict", authored_conflicts);
                 }
                 if unreadable_steps > 0 {
                     hard_codes.insert("unreadable_step_span", unreadable_steps);

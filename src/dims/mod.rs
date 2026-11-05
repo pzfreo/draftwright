@@ -2313,25 +2313,60 @@ pub(crate) fn reserve_linear_intent(
 
 /// Judge the final drawn ink, including arrow flares, after all ordinary lane passes.
 pub(crate) fn authored_placement_clear(spec: &Spec, dims: &[PlannedDimension]) -> bool {
-    dims.iter()
-        .filter(|d| {
-            spec.dimensions.get(&d.id).is_some_and(|entry| {
-                entry.between.is_some()
-                    && (d.kind == "angular"
-                        || (d.kind == "linear"
-                            && entry.along.as_deref().is_none_or(|a| a == "true")))
-            })
+    dims.iter().filter(|d| oblique_authored(spec, d)).all(|d| {
+        d.placed.as_ref().is_some_and(|p| {
+            dims.iter()
+                .filter(|q| q.id != d.id)
+                .filter_map(|q| q.placed.as_ref())
+                .all(|q| {
+                    placement::annotations_clear(p, q) && placement::dimension_lines_clear(p, q)
+                })
         })
-        .all(|d| {
-            d.placed.as_ref().is_some_and(|p| {
-                dims.iter()
-                    .filter(|q| q.id != d.id)
-                    .filter_map(|q| q.placed.as_ref())
-                    .all(|q| {
-                        placement::annotations_clear(p, q) && placement::dimension_lines_clear(p, q)
-                    })
-            })
-        })
+    })
+}
+
+fn oblique_authored(spec: &Spec, d: &PlannedDimension) -> bool {
+    spec.dimensions.get(&d.id).is_some_and(|entry| {
+        entry.between.is_some()
+            && (d.kind == "angular"
+                || (d.kind == "linear" && entry.along.as_deref().is_none_or(|a| a == "true")))
+    })
+}
+
+/// Conflicting owners, so paper trials can distinguish new contacts from the
+/// seed's inherited contacts, which its later finishing passes may repair.
+pub(crate) fn authored_placement_conflicts(
+    spec: &Spec,
+    dims: &[PlannedDimension],
+) -> BTreeSet<(String, String)> {
+    let mut conflicts = BTreeSet::new();
+    if !spec
+        .dimensions
+        .values()
+        .any(|entry| entry.between.is_some())
+    {
+        return conflicts;
+    }
+    for d in dims.iter().filter(|d| oblique_authored(spec, d)) {
+        let Some(p) = &d.placed else {
+            conflicts.insert((d.id.clone(), d.id.clone()));
+            continue;
+        };
+        for q in dims.iter().filter(|q| q.id != d.id) {
+            if let Some(other) = &q.placed
+                && (!placement::annotations_clear(p, other)
+                    || !placement::dimension_lines_clear(p, other))
+            {
+                let (a, b) = if d.id < q.id {
+                    (&d.id, &q.id)
+                } else {
+                    (&q.id, &d.id)
+                };
+                conflicts.insert((a.clone(), b.clone()));
+            }
+        }
+    }
+    conflicts
 }
 
 /// A slot chain must have room for its arrows and its own text between its ends.
