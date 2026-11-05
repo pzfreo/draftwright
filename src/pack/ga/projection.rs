@@ -475,7 +475,7 @@ pub(super) fn prepare(
         .any(|v| v.line_style.hidden.unwrap_or(v.id != "v:iso"));
     let mut cameras = std::collections::BTreeSet::new();
     for v in &plan.views {
-        let started = std::time::Instant::now();
+        let started = crate::pack::Instant::now();
         let mut native_seconds = 0.;
         let cut = v
             .cut
@@ -629,7 +629,7 @@ pub(super) fn prepare(
                         .map(|x| ((x * 1e12).round() / 1e12 + 0.).to_bits()),
                 );
                 if !memo.contains_key(&key) {
-                    let native_started = std::time::Instant::now();
+                    let native_started = crate::pack::Instant::now();
                     let pieces = match &local_cut {
                         Some(plane) => hlr::project_section(local, &local_camera, plane),
                         None => {

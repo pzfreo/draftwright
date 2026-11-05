@@ -3,7 +3,22 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+
+// Profiling is native-only. std::time::Instant traps on wasm32-unknown-unknown;
+// timing is never part of the report or exposed by the browser pack API.
+#[cfg(target_arch = "wasm32")]
+struct Instant;
+#[cfg(target_arch = "wasm32")]
+impl Instant {
+    fn now() -> Self {
+        Self
+    }
+    fn elapsed(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
+}
 
 mod buy;
 use crate::bom::Metadata;
@@ -402,7 +417,16 @@ struct Prepared {
 
 /// Build a pack, reading the assembly definitions once and recognising/drawing each group
 /// once. Invalid pack intent refuses the request; individual failures retain their rows.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
+    let bytes = model::read_step_file(step).map_err(Error::invalid)?;
+    build_bytes(&step.display().to_string(), &bytes, spec)
+}
+
+/// Build from STEP or gzip bytes without filesystem access. `name` supplies the
+/// same display name and filename stem as the path-based API.
+pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Error> {
+    let step = Path::new(name);
     if spec.schema != SPEC_SCHEMA {
         return Err(Error::invalid(format!(
             "pack Spec schema must be {SPEC_SCHEMA}"
@@ -410,7 +434,9 @@ pub fn build(step: &Path, spec: &PackSpec) -> Result<Pack, Error> {
     }
     let mut timings = Timings::default();
     let started = Instant::now();
-    let bytes = model::read_step_file(step).map_err(Error::invalid)?;
+    let bytes = model::step_bytes(bytes)
+        .map_err(Error::invalid)?
+        .into_owned();
     let file = haecceity::step::StepFile::read(&bytes).map_err(|e| Error::failed(e.to_string()))?;
     timings.read_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
@@ -1267,12 +1293,14 @@ impl Report {
 
 /// Build once and encode the requested outputs. Files are named `pack.pdf`, `pack.csv`,
 /// `pack.json` when written using `api::write(&directory.join("pack"), &files)`.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn render(step: &Path, spec: &PackSpec, formats: &[&str]) -> Result<(Report, Files), Error> {
     let (report, files, _) = render_profiled(step, spec, formats)?;
     Ok((report, files))
 }
 
 /// Render with stage and per-group wall-clock seconds, separate from the stable report.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn render_profiled(
     step: &Path,
     spec: &PackSpec,
@@ -1281,19 +1309,63 @@ pub fn render_profiled(
     if formats.is_empty() || formats.iter().any(|f| !FORMATS.contains(f)) {
         return Err(Error::invalid("pack formats must be pdf,csv,json"));
     }
-    let pack = build(step, spec)?;
+    let bytes = model::read_step_file(step).map_err(Error::invalid)?;
+    render_bytes_profiled(&step.display().to_string(), &bytes, spec, formats)
+}
+
+/// Build and encode from STEP or gzip bytes without filesystem access.
+pub fn render_bytes(
+    name: &str,
+    bytes: &[u8],
+    spec: &PackSpec,
+    formats: &[&str],
+) -> Result<(Report, Files), Error> {
+    let (report, files, _) = render_bytes_profiled(name, bytes, spec, formats)?;
+    Ok((report, files))
+}
+
+fn render_bytes_profiled(
+    name: &str,
+    bytes: &[u8],
+    spec: &PackSpec,
+    formats: &[&str],
+) -> Result<(Report, Files, Timings), Error> {
+    if formats.is_empty() || formats.iter().any(|f| !FORMATS.contains(f)) {
+        return Err(Error::invalid("pack formats must be pdf,csv,json"));
+    }
+    let pack = build_bytes(name, bytes, spec)?;
     let mut files = Vec::new();
     for &format in formats {
         let bytes = match format {
-            "pdf" => Drawing::pdf_pages(&pack.drawings, &|name| match name {
-                "IBMPlexMono-Regular.ttf" => Some(crate::api::MONO.to_vec()),
-                crate::title_block::FONT => Some(crate::title_block::FONT_DATA.to_vec()),
-                _ => None,
-            }),
+            "pdf" => pack.pdf(),
             "csv" => pack.report.csv().into_bytes(),
             _ => serde_json::to_vec_pretty(&pack.report).expect("report serialises"),
         };
         files.push((format.into(), bytes));
     }
     Ok((pack.report, files, pack.timings))
+}
+
+impl Pack {
+    /// A page's SVG, numbered from one in PDF order (GA first when present).
+    pub fn page_svg(&self, page: usize) -> Result<String, Error> {
+        page.checked_sub(1)
+            .and_then(|index| self.drawings.get(index))
+            .map(Drawing::svg)
+            .ok_or_else(|| {
+                Error::invalid(format!(
+                    "pack page {page} is out of range (1..={})",
+                    self.drawings.len()
+                ))
+            })
+    }
+
+    /// The same PDF writer and bundled fonts used by the CLI.
+    pub fn pdf(&self) -> Vec<u8> {
+        Drawing::pdf_pages(&self.drawings, &|name| match name {
+            "IBMPlexMono-Regular.ttf" => Some(crate::api::MONO.to_vec()),
+            crate::title_block::FONT => Some(crate::title_block::FONT_DATA.to_vec()),
+            _ => None,
+        })
+    }
 }

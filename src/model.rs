@@ -10,7 +10,6 @@
 //! title block. Features, dimensions and annotations join the same documents as they are ported.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
 use haecceity::Part;
@@ -1310,7 +1309,6 @@ pub fn analyse(path: &Path) -> Result<(Part, Analysis), Unanalysed> {
 
 /// The distinct parts of the STEP file *bytes* (named *path*, for messages), in haecceity's
 /// order: what [`analyse_step_part`]'s *part* indexes.
-#[cfg(not(target_arch = "wasm32"))]
 pub fn parts(path: &Path, bytes: &[u8]) -> Result<Vec<FilePart>, Unanalysed> {
     let bytes = step_bytes(bytes)
         .map_err(|e| unanalysed(false, format!("cannot read {}: {e}", path.display())))?;
@@ -1503,7 +1501,6 @@ pub fn analyse_with_part(
 /// Reads *bytes*, the STEP file named *path* (which is not read: the name is for the part and
 /// for messages), as [`analyse_with`] reads a file, without features: for callers that have the
 /// file's bytes and no file system, such as a browser.
-#[cfg(not(target_arch = "wasm32"))]
 pub fn analyse_step(path: &Path, bytes: &[u8]) -> Result<(Part, Analysis), Unanalysed> {
     analyse_step_part(path, bytes, None)
 }
@@ -1516,7 +1513,6 @@ pub fn analyse_step(path: &Path, bytes: &[u8]) -> Result<(Part, Analysis), Unana
 /// ([`principal_part`]; the plan warns that the others are not drawn), or the one part every
 /// body coincides with; otherwise the file is read whole. Refused, naming the parts, when there
 /// is no part *k*.
-#[cfg(not(target_arch = "wasm32"))]
 pub fn analyse_step_part(
     path: &Path,
     bytes: &[u8],
@@ -1661,7 +1657,6 @@ fn analyse_step_input(
 }
 
 /// Analyse a part already read from a pack's shared StepFile, using the single-part pipeline.
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn analyse_pack_part(
     name: &str,
     bytes: &[u8],
@@ -1687,7 +1682,6 @@ pub(crate) fn analyse_pack_part(
     )
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn pack_projection(
     a: &Analysis,
     direction: [f64; 3],
@@ -1700,7 +1694,6 @@ pub(crate) fn pack_projection(
 }
 
 /// Whole assembled geometry, without the merged-draw principal-part heuristic.
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn analyse_pack_assembly(
     name: &str,
     bytes: &[u8],

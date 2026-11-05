@@ -222,6 +222,21 @@ fn tools() -> Value {
                 "required": ["step"],
             },
         },
+        {
+            "name": "pack",
+            "description": "Build an assembly drawing pack: GA, made-part sheets and BOM. Returns the pack report and base64 files.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "step": path("STEP path or registered part ref."),
+                    "part_ref": path("Registered source assembly, alternative to step."),
+                    "spec": { "type": "object", "description": "PackSpec (draftwright.pack-spec/1)." },
+                    "formats": { "type": "array", "items": { "enum": ["pdf", "csv", "json"] } },
+                },
+                "required": [],
+                "anyOf": [{"required": ["step"]}, {"required": ["part_ref"]}],
+            },
+        },
     ]);
     for (name, description) in [
         (
