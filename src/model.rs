@@ -9226,7 +9226,6 @@ fn bits(numbers: &[&[f64]]) -> Vec<u64> {
 }
 
 impl Projections {
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn assembly_view(
         &mut self,
         a: &Analysis,
@@ -9251,7 +9250,6 @@ impl Projections {
     /// inside its control hull. Uncertain/degenerate input is retained so the
     /// renderer still reports it; the complete camera remains available to its
     /// parent and any other crops.
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn assembly_crop(
         &mut self,
         part: &Part,
@@ -9360,7 +9358,6 @@ impl Projections {
     }
 
     /// Pack-only ownership-aware hatching, resolved with the ordinary cut primitives.
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn assembly_hatch(
         &mut self,
         a: &Analysis,
