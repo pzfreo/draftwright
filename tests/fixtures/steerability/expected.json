@@ -266,15 +266,6 @@
       "tags_follow_rows_then_columns"
     ]
   },
-  "323": {
-    "case": "steer_323_axis_reference_guidance",
-    "group": "E",
-    "reason": "Axis-reference diagnostics give no directly copyable axis key syntax.",
-    "checks": [
-      "copyable_axis_example",
-      "unambiguous_axis_instruction"
-    ]
-  },
   "324": {
     "case": "steer_324_spec_selects_part",
     "group": "B",

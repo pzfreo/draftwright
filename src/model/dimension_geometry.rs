@@ -345,9 +345,11 @@ impl Analysis {
         }
         if let Some(id) = key.strip_prefix("axis:") {
             let candidates: Vec<_> = if id.starts_with("face:") {
-                vec![self.dimension_reference(id)?]
+                vec![self.dimension_reference(id).map_err(|e| format!(
+                    "{e} For a cylinder axis use axis:<key from Analysis.edge_ink.references>: prefix the complete face:v1:… key with axis: only once."
+                ))?]
             } else {
-                let f=self.features.iter().find(|f| f.id==id).ok_or_else(|| format!("Unknown axis feature {id}; choose axis:face:<fingerprint> from Analysis.edge_ink.references."))?;
+                let f=self.features.iter().find(|f| f.id==id).ok_or_else(|| format!("Unknown axis feature {id}; choose axis:<key from Analysis.edge_ink.references> (prefix the complete cylindrical face:v1:… key with axis:)."))?;
                 f.faces
                     .iter()
                     .filter_map(|&i| {
@@ -385,9 +387,9 @@ impl Analysis {
             }
             let first = lines
                 .first()
-                .ok_or("An axis needs a cylindrical face; choose axis:face:<fingerprint>.")?;
+                .ok_or("An axis needs a cylindrical face; choose axis:<key from Analysis.edge_ink.references> (for example axis:face:v1:…).")?;
             if lines.iter().any(|r| !coaxial(first, r)) {
-                return Err("The feature has several cylinder axes; choose axis:face:<fingerprint> for one cylinder.".into());
+                return Err("The feature has several cylinder axes; choose axis:<key from Analysis.edge_ink.references> (for example axis:face:v1:…) for one cylinder.".into());
             }
             return Ok(first.clone());
         }
@@ -554,7 +556,7 @@ fn closest(a: &Reference, b: &Reference) -> Result<[P; 2], String> {
             Reference::Vertex { point } => Ok((*point, None)),
             Reference::Edge { ends } => Ok((midpoint(*ends), unit(sub(ends[1], ends[0])))),
             _ => Err(
-                "Use axis:face:<fingerprint> for a cylinder, or a plane, straight edge or vertex."
+                "Use axis:<key from Analysis.edge_ink.references> (for example axis:face:v1:…) for a cylinder, or a plane, straight edge or vertex."
                     .into(),
             ),
         }

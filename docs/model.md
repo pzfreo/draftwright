@@ -2209,7 +2209,8 @@ fingerprints with complete keys from the Analysis):
 - **Discover references in `Analysis.edge_ink.references`.** This optional Analysis/7 field
   maps full `face:v1:<sha256>`, `edge:v1:<sha256>` and `vertex:v1:<sha256>` keys to lists of
   exact model-space records. A usable key has exactly one record. Plane, cylinder and sphere
-  faces, straight B-rep edges and topological vertices are available. `axis:<face key>`
+  faces, straight B-rep edges and topological vertices are available. `axis:<key from Analysis.edge_ink.references>` (prefix the complete cylindrical face key
+  with `axis:`, giving `axis:face:v1:<sha256>`, never `axis:face:face:v1:…`)
   selects a cylinder's axis; `axis:f:hole:3` selects the common cylinder axis of a recognized
   feature, refusing a feature with several axes. Prefer the face spelling when saving across
   revisions. Index-based `face:12`, `edge:12`, and page-coordinate references are not accepted.
