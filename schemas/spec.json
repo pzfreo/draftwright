@@ -668,6 +668,20 @@
     "dimension": {
       "type": "object",
       "properties": {
+        "presentation": {
+          "anyOf": [
+            {
+              "enum": [
+                "tangent_depth",
+                "far_extreme"
+              ],
+              "description": "Cylindrical-mouth pocket depth: tangent_depth measures from the near tangent; far_extreme states the floor distance from the opposite cylinder tangent. Both are measured from the cylinder axis, radius and pocket floor. Measured values are retained; unsupported requests warn."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "text": {
           "anyOf": [
             {

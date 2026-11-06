@@ -78,7 +78,7 @@ def document():
         'scheme': obj({'scheme': enum('chain', 'baseline', 'ordinate'), 'axis': enum('x', 'y', 'z'),
                        'targets': arr(S), 'view': nullable(enum('front', 'plan', 'side')), 'from': nullable(S)},
                       ('scheme', 'axis')),
-        'dimension': obj({**optional({'text': ref('text'), 'style': enum('reference', 'basic'),
+        'dimension': obj({**optional({'presentation': {**enum('tangent_depth', 'far_extreme'), 'description': 'Cylindrical-mouth pocket depth: tangent_depth measures from the near tangent; far_extreme states the floor distance from the opposite cylinder tangent. Both are measured from the cylinder axis, radius and pocket floor. Measured values are retained; unsupported requests warn.'}, 'text': ref('text'), 'style': enum('reference', 'basic'),
                         'kind': enum('linear', 'diameter', 'radius', 'angle'),
                         'between': arr(S, minItems=1, maxItems=2), 'along': enum('x', 'y', 'z', 'true'),
                         'tolerance': S, 'fit': S, 'view': S, 'place': ref('place')}), 'omit': B}),

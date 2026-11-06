@@ -2590,7 +2590,7 @@
     corpus_parts: []
   status: ported
   rust_test: "audits::issue_regressions::a_cylindrical_mouth_states_its_greatest_depth; core::native_recesses::native_patterns_have_one_grouped_callout_pitches_and_absolute_location"
-  rust_note: "Native repeated curved pockets retain every occurrence, one grouped count/size/MAX DEEP callout, pitch and absolute location. Existing planar-substitution and inconsistent-mouth refusal tests remain in force. The prior bridge record precision limitation remains documented in tests/issue_regressions.rs."
+  rust_note: "Native repeated curved pockets retain every occurrence, one grouped count/size/DEEP callout, pitch and absolute location. Existing planar-substitution and inconsistent-mouth refusal tests remain in force. The prior bridge record precision limitation remains documented in tests/issue_regressions.rs."
   port_note: "triage 2026-10-16: PORT, value low, size M, stream recess-reader"
 
 - id: ISSUE-1485-b

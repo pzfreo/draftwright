@@ -64,6 +64,7 @@ pub(crate) fn check(analysis: &Analysis, spec: &Spec) -> Result<(), Invalid> {
 
 pub(crate) fn selected(analysis: &Analysis, choice: &PartChoice) -> Result<usize, Invalid> {
     match choice {
+        PartChoice::Key(key) if analysis.part_keys.contains_key(key) => Ok(analysis.part_keys[key]),
         PartChoice::Key(key)
             if analysis.parts.is_empty() && analysis.product_name.as_ref() == Some(key) =>
         {

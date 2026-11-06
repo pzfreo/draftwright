@@ -209,6 +209,9 @@ pub struct Analysis {
     /// as one, and the plan warns (`assembly_drawn_whole`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<FilePart>,
+    /// Persistent identities for every source part, including single-part files.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub part_keys: BTreeMap<String, usize>,
     /// The file's bodies that coincide with an earlier one (#212), when no part was chosen:
     /// when every body of an assembly coincides with the first, that part is read alone
     /// (`binding.part_index`) and these are not drawn; otherwise the file is drawn whole, these
@@ -442,6 +445,7 @@ pub struct Spec {
     pub gears: Vec<crate::gears::GearSpec>,
 }
 
+pub use crate::dims::recesses::DepthPresentation;
 pub use crate::part_choice::PartChoice;
 
 /// How the part's semantic PMI participates in a drawing.
@@ -479,6 +483,9 @@ impl DimensionSource {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct DimensionSpec {
+    /// Alternative measured depth term; values always come from the model geometry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presentation: Option<DepthPresentation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<crate::label_text::Text>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1767,6 +1774,7 @@ pub(crate) fn analyse_pack_assembly(
         pmi: None,
         face_attachments: Vec::new(),
         parts: Vec::new(),
+        part_keys: BTreeMap::new(),
         coincident: Vec::new(),
         principal: false,
         squared: None,
@@ -1890,6 +1898,17 @@ fn analyse_read_part(
         unexplained_shapes: Vec::new(),
         pmi,
         face_attachments: crate::pmi::face_attachments(&part),
+        part_keys: defs
+            .as_ref()
+            .ok()
+            .map(|defs| {
+                let parts = file_parts(defs);
+                crate::pack::part_keys(&parts)
+                    .into_iter()
+                    .zip(parts.iter().map(|p| p.part))
+                    .collect()
+            })
+            .unwrap_or_default(),
         parts: match &defs {
             Ok(defs) if defs.len() > 1 => file_parts(defs),
             _ => Vec::new(),
@@ -2620,6 +2639,10 @@ pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
 /// Find the smallest fit and its largest scale; only its immediate larger sheet, with an
 /// enlargement, may compete. Pins keep their canonical sheet; explicit choices override.
 pub fn recover(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
+    crate::decision_overrides::boundary(|| recover_inner(analysis, spec, first))
+}
+
+fn recover_inner(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
     let source_analysis = analysis;
     let bound = crate::recognition_corrections::canonical(analysis, spec)?;
     let spec = bound.as_ref();
@@ -4425,21 +4448,23 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::bom::with_titles(analysis, spec, || {
-        layout::with_gutter(
-            spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
-            || {
-                let plan = plan_recovered_once(analysis, spec)?;
-                let plan = balloon_fallback(analysis, spec, plan)?;
-                let mut plan = manufacturing_fallback(analysis, spec, plan, |s| {
-                    plan_recovered_once(analysis, s)
-                })?;
-                crate::graphical_pmi::apply(analysis, &mut plan);
-                crate::hole_exits::report(analysis, &mut plan);
-                plan.record_callout_offsets();
-                Ok(plan)
-            },
-        )
+    crate::decision_overrides::boundary(|| {
+        crate::bom::with_titles(analysis, spec, || {
+            layout::with_gutter(
+                spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
+                || {
+                    let plan = plan_recovered_once(analysis, spec)?;
+                    let plan = balloon_fallback(analysis, spec, plan)?;
+                    let mut plan = manufacturing_fallback(analysis, spec, plan, |s| {
+                        plan_recovered_once(analysis, s)
+                    })?;
+                    crate::graphical_pmi::apply(analysis, &mut plan);
+                    crate::hole_exits::report(analysis, &mut plan);
+                    plan.record_callout_offsets();
+                    Ok(plan)
+                },
+            )
+        })
     })
 }
 
@@ -5441,19 +5466,21 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// drawing's findings. That recovery is [`recover`], applied by [`plan_recovered`], never here:
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::bom::with_titles(analysis, spec, || {
-        layout::with_gutter(
-            spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
-            || {
-                let plan = plan_once(analysis, spec)?;
-                let mut plan =
-                    manufacturing_fallback(analysis, spec, plan, |s| plan_once(analysis, s))?;
-                crate::graphical_pmi::apply(analysis, &mut plan);
-                crate::hole_exits::report(analysis, &mut plan);
-                plan.record_callout_offsets();
-                Ok(plan)
-            },
-        )
+    crate::decision_overrides::boundary(|| {
+        crate::bom::with_titles(analysis, spec, || {
+            layout::with_gutter(
+                spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
+                || {
+                    let plan = plan_once(analysis, spec)?;
+                    let mut plan =
+                        manufacturing_fallback(analysis, spec, plan, |s| plan_once(analysis, s))?;
+                    crate::graphical_pmi::apply(analysis, &mut plan);
+                    crate::hole_exits::report(analysis, &mut plan);
+                    plan.record_callout_offsets();
+                    Ok(plan)
+                },
+            )
+        })
     })
 }
 

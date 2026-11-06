@@ -106,7 +106,7 @@ fn native_patterns_have_one_grouped_callout_pitches_and_absolute_location() {
         assert_eq!(callouts.len(), 1, "{name}");
         assert!(callouts[0].label.starts_with(&format!("{count}× ")));
         if name.starts_with("curved") {
-            assert!(callouts[0].label.contains("MAX DEEP"));
+            assert!(callouts[0].label.contains("DEEP") && !callouts[0].label.contains("MAX"));
         }
         assert_eq!(
             dims.iter()

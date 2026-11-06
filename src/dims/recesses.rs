@@ -15,7 +15,7 @@
 //! - **A pocket** (rectangular, edge-open polygonal, obround or rounded rectangle): one callout
 //!   `W × L × D DEEP` in the view that looks into it (along its depth), its width and length the
 //!   shorter and longer sides of its section, as `_pocket_label` prints it; a pocket whose mouth
-//!   is a cylinder states its greatest depth, `MAX DEEP`. The leader goes to a side wall. It is
+//!   is a cylinder states its depth from the cylinder tangent, `DEEP`. The leader goes to a side wall. It is
 //!   located from the part's box (draftwright's `datum_xy`) to its centre, or along its length to
 //!   its near end when that end is on the box (`pocket_location_reference`), in both directions
 //!   across it, in the same view. draftwright draws a z pocket's y location in the side view; the
@@ -56,6 +56,50 @@ use crate::bridge::Feature;
 use crate::bridge::holes::{dir_to_part, principal, to_part};
 use crate::lint::section_recesses::{Grammar, grammar, recesses};
 use crate::lint::{channels, pockets};
+
+/// Which measured distance defines a cylindrical-mouth pocket's floor.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DepthPresentation {
+    TangentDepth,
+    FarExtreme,
+}
+
+/// Derive the alternative from the recognised cylinder, never the part's bounding box.
+fn depth_term(cx: &Context, f: &Feature, p: &pockets::Placed) -> (&'static str, f64, &'static str) {
+    let entry = cx
+        .spec
+        .dimensions
+        .get(&want_id(&f.id, "pocket_width.length"));
+    if let Some(presentation) = entry.and_then(|d| d.presentation)
+        && let Ok(Grammar::Pocket(local)) = grammar(f)
+        && let Some((_, radius, on)) = local.mouth
+    {
+        let floor = local.origin[local.axis] - local.open_sign * local.depth / 2.0;
+        let floor_from_axis = local.open_sign * (floor - on[local.axis]);
+        return match presentation {
+            DepthPresentation::TangentDepth => (
+                "pocket_depth_from_tangent.length",
+                radius - floor_from_axis,
+                "DEEP FROM TANGENT",
+            ),
+            DepthPresentation::FarExtreme => (
+                "pocket_floor_from_far_extreme.length",
+                radius + floor_from_axis,
+                "FLOOR FROM FAR TANGENT",
+            ),
+        };
+    }
+    (
+        if p.mouth {
+            "pocket_max_depth.length"
+        } else {
+            "pocket_depth.length"
+        },
+        p.depth,
+        "DEEP",
+    )
+}
 
 pub(super) const PLANNER: Planner = Planner {
     kinds: &["pocket_pattern"],
@@ -162,18 +206,14 @@ fn pocket_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) 
             }
         };
         let view = end_on(p.depth_axis);
-        let (depth, deep) = if p.mouth {
-            ("pocket_max_depth.length", "MAX DEEP")
-        } else {
-            ("pocket_depth.length", "DEEP")
-        };
+        let (depth, depth_value, deep) = depth_term(cx, f, &p);
         let m = |parameter: &str, value: f64| Measurement {
             feature: f.id.clone(),
             parameter: parameter.into(),
             value,
         };
         let mut terms = vec![fmt(p.width), "×".into(), fmt(p.length), "×".into()];
-        terms.push(fmt(p.depth));
+        terms.push(fmt(depth_value));
         terms.extend(words(deep));
         let wall = |k: usize, s: f64| {
             let mut c = p.centre;
@@ -229,11 +269,13 @@ fn pocket_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) 
             views: vec![view],
             value: p.width,
             terms,
-            measurements: vec![m("pocket_width.length",p.width),m("pocket_length.length",p.length),m(depth,p.depth)],
+            measurements: vec![m("pocket_width.length",p.width),m("pocket_length.length",p.length),m(depth,depth_value)],
             turning: None,
             basis: format!(
                 "a blind pocket's width, length and {}depth in one callout, in the view that looks into it",
-                if p.mouth {
+                if depth == "pocket_floor_from_far_extreme.length" {
+                    "floor distance from the far cylinder tangent instead of "
+                } else if p.mouth {
                     "greatest (its mouth is a cylinder) "
                 } else {
                     ""
@@ -639,20 +681,16 @@ fn pattern_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>)
         let p = &group.pocket;
         let view = end_on(p.depth_axis);
         let count = group.members.len();
-        let depth = if p.mouth {
-            "pocket_max_depth.length"
-        } else {
-            "pocket_depth.length"
-        };
+        let (depth, depth_value, deep) = depth_term(cx, f, p);
         let mut terms = vec![
             format!("{count}×"),
             fmt(p.width),
             "×".into(),
             fmt(p.length),
             "×".into(),
-            fmt(p.depth),
+            fmt(depth_value),
         ];
-        terms.extend(words(if p.mouth { "MAX DEEP" } else { "DEEP" }));
+        terms.extend(words(deep));
         let mut measurements = Vec::new();
         let mut sites = Vec::new();
         let placed = pockets::placed(cx.analysis);
@@ -660,7 +698,7 @@ fn pattern_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>)
             for (parameter, value) in [
                 ("pocket_width.length", p.width),
                 ("pocket_length.length", p.length),
-                (depth, p.depth),
+                (depth, depth_value),
             ] {
                 measurements.push(Measurement {
                     feature: owner.id.clone(),
@@ -1117,7 +1155,7 @@ mod tests {
     }
 
     /// A rectangular pocket 10 × 6 along z whose mouth is a cylinder along x (radius 10, its
-    /// crest 10 above the floor): its depth is its greatest, `MAX DEEP`.
+    /// crest 10 above the floor): its depth is from the tangent, `DEEP`.
     #[test]
     fn a_pocket_with_a_cylindrical_mouth_states_its_greatest_depth() {
         let rect = [
@@ -1142,7 +1180,7 @@ mod tests {
         let a = part("section_recess", r);
         let (w, problems) = planned(&a);
         assert!(problems.is_empty(), "{problems:?}");
-        assert_eq!(w[0].terms.join(" "), "6 × 10 × 10 MAX DEEP");
+        assert_eq!(w[0].terms.join(" "), "6 × 10 × 10 DEEP");
         assert_eq!(w[0].measurements[2].parameter, "pocket_max_depth.length");
         let located: Vec<_> = w[1..].iter().map(|w| (w.id.clone(), w.value)).collect();
         assert_eq!(

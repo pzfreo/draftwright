@@ -249,7 +249,7 @@ fn a_pocket_leader_starts_on_its_rim_on_the_matching_axis() {
 /// and a record whose mouth and floor disagree is refused. On draftwright's pocket cut into an
 /// x cylinder of radius 20 (centred, offset off the crest, turned over, and moved and turned to
 /// stand along z), the one callout claims `pocket_max_depth.length` and never
-/// `pocket_depth.length`, prints `MAX DEEP`, and states draftwright's depth: 12, or √364 − 8 on
+/// `pocket_depth.length`, prints `DEEP`, and states draftwright's depth: 12, or √364 − 8 on
 /// the offset pocket, whose floor is lower than the mouth's crest. Five of draftwright's broken
 /// records (a floor through the mouth, a mouth off its published centroid intersection, an end
 /// of no known surface, two cylindrical ends, a mouth opening towards its floor) are refused by
@@ -302,10 +302,7 @@ fn a_cylindrical_mouth_states_its_greatest_depth() {
         let printed = draftwright::dims::fmt(claims[2].1);
         assert_eq!(
             callout.label,
-            format!(
-                "6 × {} × {printed} MAX DEEP",
-                draftwright::dims::fmt(length)
-            ),
+            format!("6 × {} × {printed} DEEP", draftwright::dims::fmt(length)),
             "{part}"
         );
     }
@@ -316,7 +313,7 @@ fn a_cylindrical_mouth_states_its_greatest_depth() {
             .find(|d| d.id.contains("section_recess") && d.kind == "callout")
             .unwrap()
             .label,
-        "6 × 6 × 11.079 MAX DEEP"
+        "6 × 6 × 11.079 DEEP"
     );
 
     let base = recognition("curved_centered");
@@ -1039,9 +1036,8 @@ fn prose_and_descriptive_tables_cannot_silence_coverage() {
 }
 
 /// ISSUE-1485-a's planar-substitution clause, on draftwright's pocket cut into a cylinder: a
-/// drawing that states the pocket as a planar one (a uniform `pocket_depth.length`, `DEEP` in place
-/// of `MAX DEEP`) cannot certify it. On the port's own drawing lint finds nothing for the pocket;
-/// with the callout's maximum-depth claim and words changed to the planar reading, lint reports the
+/// drawing that claims a uniform planar `pocket_depth.length` cannot certify it. On the port's own drawing lint finds nothing for the pocket;
+/// with the callout's greatest-depth claim changed to the planar reading, lint reports the
 /// pocket's `pocket_max_depth.length` (lint::pockets requires it of a pocket whose mouth is a
 /// cylinder) and credits nothing for the uniform depth. draftwright's test substitutes a planar
 /// declared feature for the recognised one and finds the pocket's five requirements unverifiable;
@@ -1077,8 +1073,9 @@ fn a_planar_reading_cannot_certify_a_curved_pocket() {
         .unwrap();
     max.parameter = "pocket_depth.length".into();
     let run = a.runs[0];
-    assert!(planar.text[run].text.ends_with(" MAX DEEP"));
-    planar.text[run].text = planar.text[run].text.replace(" MAX DEEP", " DEEP");
+    // #305 removes limit wording; the geometric claim, not MAX, distinguishes the readings.
+    assert!(planar.text[run].text.ends_with(" DEEP"));
+    assert!(!planar.text[run].text.contains("MAX"));
     let found = pocket(&findings(&analysis, &planar));
     assert!(
         found
@@ -1200,4 +1197,22 @@ fn retained_leader_crossings_have_no_clear_route(path: &Path) {
         "{}: callouts keep a crossing though clear routes exist: {free:?}",
         path.display()
     );
+}
+
+#[test]
+fn offset_pocket_tangent_presentations_measure_the_actual_cylinder() {
+    let id = "d:f:section_recess:1/pocket_width.length";
+    for (choice, value) in [("tangent_depth", 12.), ("far_extreme", 28.)] {
+        let spec: Spec = serde_json::from_value(
+            serde_json::json!({"dimensions": {id: {"presentation": choice}}}),
+        )
+        .unwrap();
+        let p = planned("curved_offset", &spec);
+        let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
+        assert!(
+            (d.measurements[2].value - value).abs() < DOCUMENT,
+            "{:?}",
+            d.measurements
+        );
+    }
 }

@@ -8,6 +8,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Changed
 
+- Plan bases name existing Spec controls from one nine-family override catalogue
+  and explain unavailable overrides and the PMI/checker boundary (#309).
+- Pocket depth wording says `DEEP`, with truthful tangent-depth or opposite-tangent
+  floor-distance presentation in the Spec (#305).
 - Select a part in the Spec by persistent key or numeric index (#324); refuse
   conflicting command/request selectors.
 

@@ -127,7 +127,7 @@ pub mod precision;
 mod profile_angles;
 pub use profile_angles::{CornerMode, PARAMETER as PROFILE_ANGLE};
 mod profiled_bores;
-mod recesses;
+pub(crate) mod recesses;
 mod redundancy;
 mod schemes;
 mod slots;

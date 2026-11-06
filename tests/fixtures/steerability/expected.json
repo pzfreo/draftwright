@@ -41,14 +41,6 @@
       "named_section"
     ]
   },
-  "305": {
-    "case": "steer_305_keyway_depth_wording",
-    "group": "B",
-    "reason": "The generated pocket depth wording still says MAX DEEP.",
-    "checks": [
-      "depth_is_not_a_limit"
-    ]
-  },
   "307": {
     "case": "steer_307_completeness_mutations",
     "group": "A",
@@ -73,15 +65,6 @@
       "remove_d:f:turned_step:2/step.length",
       "remove_d:f:turned_step:3/step.length",
       "remove_d:step_level/step_height.length.h8"
-    ]
-  },
-  "309": {
-    "case": "steer_309_decision_overrides",
-    "group": "B",
-    "reason": "Automatic decision bases do not name their Spec override or a reason none exists.",
-    "checks": [
-      "angle-bracket_basis_names_override",
-      "stepped-shaft-keyway_basis_names_override"
     ]
   },
   "311": {

@@ -2194,3 +2194,50 @@ fn spec_part_identity_and_conflicts() {
             .contains("part key")
     );
 }
+
+#[test]
+fn spec_depth_presentation_keeps_measured_terms() {
+    let id = "d:f:section_recess:1/pocket_width.length";
+    for (choice, value, role, words) in [
+        (
+            "tangent_depth",
+            3.,
+            "pocket_depth_from_tangent.length",
+            "DEEP FROM TANGENT",
+        ),
+        (
+            "far_extreme",
+            27.,
+            "pocket_floor_from_far_extreme.length",
+            "FLOOR FROM FAR TANGENT",
+        ),
+    ] {
+        let mut s = input("inline-301");
+        s["dimensions"][id]["presentation"] = json!(choice);
+        let p = planned(SHAFT, &s);
+        let d = dim(&p.plan, id).unwrap();
+        let label = d.label.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(label.contains(words), "{}", d.label);
+        assert!(!d.label.contains("MAX"));
+        assert!(
+            d.measurements
+                .iter()
+                .any(|m| m.parameter == role && (m.value - value).abs() < 1e-6)
+        );
+        assert!(d.from_spec.iter().any(|f| f == "presentation"));
+        if choice == "far_extreme" {
+            assert!(
+                !d.measurements
+                    .iter()
+                    .any(|m| m.parameter == "pocket_max_depth.length")
+            );
+        }
+    }
+    for id in [id, "d:envelope/width.length"] {
+        let mut s = input("inline-301");
+        s["dimensions"][id] = json!({"presentation":"far_extreme", "omit":true});
+        let p = planned(SHAFT, &s);
+        assert!(has(&p.plan, "dimension_edit_unapplied"));
+        assert!(p.plan.spec.dimensions[id].presentation.is_some());
+    }
+}
