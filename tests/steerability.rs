@@ -2101,3 +2101,49 @@ fn concentric_pattern_requires_live_round_outline_pitch_circle_and_centre() {
         "nearby axes do not share a centre"
     );
 }
+
+#[test]
+fn authored_slot_across_from_far_face_is_credited_without_borrowing_table_cells() {
+    let p = planned(PLATE, &input(PLATE));
+    assert!(dim(&p.plan, "d:authored:slot_y").is_some());
+    let r = rendered(PLATE, &p);
+    let across_missing = |issues: &[LintIssue]| {
+        issues.iter().any(|i| {
+            i.code == "slot_requirement_missing"
+                && i.requirements.iter().any(|q| {
+                    q.feature == "f:slot:1" && q.parameter == "location_slot_across.length"
+                })
+        })
+    };
+    let a = &fixture(PLATE).analysis;
+    let marks: Vec<_> = r.drawings.iter().flat_map(lint::marks).collect();
+    let refs: Vec<String> = input(PLATE)["dimensions"]["d:authored:slot_y"]["between"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r.as_str().unwrap().into())
+        .collect();
+    let face = a.dimension_reference_axis_face(&refs[1]).unwrap();
+    assert!(
+        a.features
+            .iter()
+            .find(|f| f.id == "f:slot:1")
+            .unwrap()
+            .faces
+            .contains(&face)
+    );
+    assert!(
+        !across_missing(&r.lint),
+        "the far-edge ordinate locates the slot; chain {:?}",
+        lint::location::printed_chain(a, &marks, "f:slot:1", "location_slot_across.length"),
+    );
+    assert!(!across_missing(&lint::check(a, &marks)));
+    let reduced: Vec<_> = marks
+        .into_iter()
+        .filter(|m| m.name != "d:authored:slot_y")
+        .collect();
+    assert!(
+        across_missing(&lint::check(a, &reduced)),
+        "other holes' table cells locate no slot"
+    );
+}

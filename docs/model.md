@@ -2947,6 +2947,9 @@ number for another hole cannot locate a slot; shared location credit needs a dra
 dimension witness conveying that slot's position.
 Lone-slot completeness checks both the lengthwise location and the transverse
 centre-line location, including when other features are scheduled in a hole table.
+An authored ordinate to a slot's explicitly named end-cylinder axis locates its
+transverse centre from either physical edge. That end cylinder supplies no claim
+to the slot's longitudinal centre or low end.
 
 ### Specify PMI authorship
 

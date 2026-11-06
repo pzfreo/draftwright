@@ -441,6 +441,13 @@
       "count": 1,
       "verdict": "rust-correct",
       "reason": "Issues #145/#146: the drawn radius shaft violates the middle-arc/radial requirement, which accepts either side."
+    },
+    {
+      "part": "cgb245",
+      "code": "slot_requirement_missing",
+      "count": 2,
+      "verdict": "rust-correct",
+      "reason": "#319: both lone slots need their transverse centre line located 50.356 mm from the y edge. Consolidation omits that ordinate as covered by hole 7, whose coordinate is then printed only in its own hole-table row. The slot callout and longitudinal ordinates still print, but no statement about either slot supplies its transverse location. These two new findings expose genuine gaps; no drawing output is removed or changed."
     }
   ],
   "ledgers": [

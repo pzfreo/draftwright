@@ -9,7 +9,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
 - Credit a bolt circle's shared centre with the whole round outline only when
   the finished drawing shows the outline, pitch circle and common centre mark (#310).
 - Restrict hole-table coordinate credit to the feature named by its row, so a
-  slot's unstated across location is reported (#319).
+  slot's unstated across location is reported. Credit authored ordinates to a
+  slot's identified end-cylinder axis from either physical edge (#319).
 - Exclude reference hole ordinates from location credit while retaining reference
   diagnostics; printed controlling authored dimensions still locate features (#316).
 
