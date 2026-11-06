@@ -299,6 +299,36 @@
       "rust": "chamfer_requirement_missing",
       "verdict": "rust-correct",
       "reason": "The source document proves this 5 x 5 mm, 45-degree hex-boss top bevel. Python defers oriented chamfers and its sheet counts only the two principal C5 bevels. Rust lint independently requires the four additional bevels; the unchanged Python sheet has no claim or counted callout covering this record. The Rust consumer states all six in one 6× C5 callout."
+    },
+    {
+      "part": "cgb245",
+      "subject": "f:slot:1",
+      "group": "slot [end_radius=3, length=14.97, width=6] at (103.445, -33.822, -16.387)",
+      "parameter": "location_slot_across.length",
+      "python": null,
+      "rust": "slot_requirement_missing",
+      "verdict": "rust-correct",
+      "reason": "#319 adds an independent transverse-location requirement for this standalone obround. The captured marks identify its size and longitudinal location, but no transverse statement about this slot. Python's older slot ledger does not check the across axis. A neighbouring hole's numerical coordinate is not a statement about this slot; retain the missing-evidence finding rather than borrowing it."
+    },
+    {
+      "part": "cgb245",
+      "subject": "f:slot:2",
+      "group": "slot [end_radius=3, length=14.97, width=6] at (-103.445, -33.822, -16.387)",
+      "parameter": "location_slot_across.length",
+      "python": null,
+      "rust": "slot_requirement_missing",
+      "verdict": "rust-correct",
+      "reason": "#319 adds an independent transverse-location requirement for this standalone obround. The captured marks identify its size and longitudinal location, but no transverse statement about this slot. Python's older slot ledger does not check the across axis. A neighbouring hole's numerical coordinate is not a statement about this slot; retain the missing-evidence finding rather than borrowing it."
+    },
+    {
+      "part": "ctc01",
+      "subject": "f:slot:1",
+      "group": "slot [end_radius=20, length=120, width=40] at (-285.000, 0.000, -25.000)",
+      "parameter": "location_slot_across.length",
+      "python": null,
+      "rust": "slot_requirement_missing",
+      "verdict": "undetermined",
+      "reason": "#319 requires transverse evidence for the standalone obround. The historical mark-only capture claims the 225 on the hole pattern, without a slot-owned transverse statement or the witness geometry needed to prove that it also identifies the slot. Numeric coincidence alone grants no credit under the approved implied-relations rule. Keep this capture difference explicit pending drawn witness evidence; the native rendered CTC-01 location regression (#328) remains covered by its actual drawing evidence."
     }
   ],
   "own_drawings": [
