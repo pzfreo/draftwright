@@ -127,9 +127,6 @@ fn bad_references_axes_overlaps_and_conflicting_edits_are_refused() {
             json!({"dimension_schemes":{"bad":{"scheme":"chain","axis":"x","targets":["f:hole:missing"]}}}),
         ),
         spec(json!({"dimension_schemes":{"bad":{"scheme":"chain","axis":"x","view":"unknown"}}})),
-        spec(
-            json!({"dimension_schemes":{"a":{"scheme":"chain","axis":"x","view":"plan"},"b":{"scheme":"baseline","axis":"x","view":"plan"}}}),
-        ),
     ] {
         let e = model::plan_recovered(&a, &s).unwrap_err();
         assert!(!e.message.is_empty());
@@ -153,12 +150,15 @@ fn bad_references_axes_overlaps_and_conflicting_edits_are_refused() {
         id,
         serde_json::from_value(json!({"tolerance":"±0.1"})).unwrap(),
     );
+    let p = model::plan_recovered(&a, &s).unwrap();
     assert!(
-        model::plan_recovered(&a, &s)
-            .unwrap_err()
-            .message
-            .contains("explicit dimension intent")
+        p.dimensions
+            .iter()
+            .any(|d| d.placed.is_some() && d.label.contains("±0.1"))
     );
+    let p = model::plan_recovered(&a, &spec(json!({"dimension_schemes":{"a":{"scheme":"chain","axis":"x","view":"plan"},"b":{"scheme":"baseline","axis":"x","view":"plan"}}}))).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
+    assert!(p.dimensions.iter().any(|d| d.placed.is_some()));
 }
 #[test]
 fn session_preview_undo_redo_and_refusal_keep_transaction_semantics() {
@@ -416,11 +416,17 @@ fn generated_feature_edits_cannot_rebind_silently_or_duplicate_a_target_across_v
         "first":{"scheme":"baseline","axis":"x","view":"front","targets":[id]},
         "second":{"scheme":"baseline","axis":"x","view":"plan","targets":[id]}
     }}));
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
     assert!(
-        model::plan_recovered(&a, &s)
-            .unwrap_err()
-            .message
-            .contains("already dimensioned")
+        p.dimensions
+            .iter()
+            .any(|d| d.placed.is_some() && d.view == "v:front")
+    );
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.placed.is_some() && d.view == "v:plan")
     );
 }
 
@@ -488,8 +494,15 @@ fn partial_counted_pitch_is_refused_instead_of_losing_its_far_interval() {
     let s = spec(
         json!({"dimension_schemes":{"partial":{"scheme":"baseline","axis":"x","view":"plan","from":members[0].id,"targets":[members[1].id]}}}),
     );
-    let e = model::plan_recovered(&a, &s).unwrap_err();
-    assert!(e.message.contains("whole pattern"), "{}", e.message);
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.placed.is_some() && d.id.starts_with("d:scheme:"))
+    );
+    assert!(p.dimensions.iter().any(
+        |d| d.placed.is_some() && d.measurements.iter().any(|m| m.parameter.contains("pitch"))
+    ));
 }
 
 #[test]

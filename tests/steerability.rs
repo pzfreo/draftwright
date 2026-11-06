@@ -289,10 +289,9 @@ fn steer_294_distinct_feature_owner() {
         "location.length.y"
     ));
     s["dimensions"]["d:authored:hole2_y_duplicate"] = s["dimensions"]["d:authored:hole2_y"].clone();
-    let e = plan_result(BRACKET, &s)
-        .err()
-        .expect("same-feature duplicate still refused");
-    assert!(e.contains("K6"), "{e}");
+    let p = planned(BRACKET, &s);
+    assert!(has(&p.plan, "duplicate_measurement"));
+    assert!(dim(&p.plan, "d:authored:hole2_y_duplicate").is_some());
     Checks::default().finish(294);
 }
 

@@ -1,7 +1,7 @@
 use super::{Omitted, Want};
 use crate::{
     label_text::Style,
-    model::{Invalid, Spec},
+    model::{Invalid, Problem, Spec},
 };
 
 type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
@@ -61,31 +61,21 @@ pub(super) fn apply(
     Ok(())
 }
 
-pub(super) fn check_covered(
-    spec: &Spec,
-    kept: &[Kept],
-    omitted: &[Omitted],
-) -> Result<(), Invalid> {
+pub(super) fn check_covered(spec: &Spec, kept: &[Kept], omitted: &[Omitted]) -> Vec<Problem> {
+    let mut problems = Vec::new();
     for (id, entry) in &spec.dimensions {
         if !entry.omit
             && (entry.text.is_some() || entry.style.is_some())
             && !kept.iter().any(|(w, ..)| &w.id == id)
             && let Some(o) = omitted.iter().find(|o| &o.id == id)
         {
-            let choices = match &o.state {
-                crate::items::State::Covered { by } => vec![by.clone()],
-                _ => Vec::new(),
-            };
-            return Err(Invalid {
-                path: None,
-                also: Vec::new(),
-                message: format!(
-                    "Label override for {id} has no separate printed label: {}. Apply the text/style to its owning dimension instead, or remove the override.",
-                    o.basis
-                ),
-                choices,
+            problems.push(Problem {
+                id: format!("p:dimension_edit_unapplied:{id}"), code: "dimension_edit_unapplied".into(),
+                severity: "warning".into(), subjects: vec![id.clone()],
+                message: format!("Label override for {id} has no separate printed label: {}. The text/style edit is retained but could not be applied.", o.basis),
+                ..Default::default()
             });
         }
     }
-    Ok(())
+    problems
 }

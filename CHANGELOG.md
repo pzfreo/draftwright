@@ -13,6 +13,11 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Changed
 
+- Spec validation preserves truthful drawing requests (#308): warn for duplicate
+  measurements, unavailable layout and stale edits; accept axis origins and
+  Cartesian note roles. ISO 286 fit classes print even outside the optional
+  deviation table, without inventing limits.
+
 - The `draftwright` command line is parsed by clap instead of by hand. Commands, flags,
   defaults, exit codes and the JSON errors for bad values (`--part`, `--dpi`, `--no-features`
   with `--features` or `--analysis`) are unchanged. Help and usage errors are clap's: a missing

@@ -1,7 +1,7 @@
 //! Spec-authored quantities use the ordinary Want -> lanes -> placement -> ink pipeline.
 use super::{Measurement, Shape, Want, fmt};
 use crate::model::dimension_geometry::{Reference, dot, sub, unit};
-use crate::model::{Analysis, Invalid, Spec};
+use crate::model::{Analysis, Invalid, Problem, Spec};
 
 fn invalid(message: impl Into<String>) -> Invalid {
     Invalid {
@@ -69,15 +69,20 @@ pub(crate) fn check(s: &Spec) -> Result<(), Invalid> {
     Ok(())
 }
 
-pub(super) fn append(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<(), Invalid> {
+pub(super) fn append(
+    a: &Analysis,
+    s: &Spec,
+    wants: &mut Vec<Want>,
+) -> Result<Vec<Problem>, Invalid> {
     if !s.dimensions.keys().any(|id| id.starts_with("d:authored:"))
         && !s
             .dimensions
             .values()
             .any(|d| d.between.is_some() || d.kind.is_some() || d.along.is_some())
     {
-        return Ok(());
+        return Ok(Vec::new());
     }
+    let mut problems = Vec::new();
     check(s)?;
     for (id, d) in s.dimensions.iter().filter(|(_, d)| d.between.is_some()) {
         // Invariant: This loop selects authored dimensions with between references.
@@ -235,20 +240,31 @@ pub(super) fn append(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<()
             if duplicate(a, &w, existing, refs, kind)
                 && (kind != "linear" || same_features(a, refs, existing))
             {
-                return Err(Invalid {
-                    path: None,
-                    also: Vec::new(),
-                    message: format!(
-                        "{id} duplicates the quantity owned by {}; remove {id} and set tolerance/view/place on the existing owner (K6: one quantity, one owner).",
+                let requirement = |id: &str| s.dimensions.get(id).map(|d| (&d.tolerance, &d.fit));
+                if requirement(id)
+                    .zip(requirement(&existing.id))
+                    .is_some_and(|(p, q)| {
+                        p.0.is_some() && q.0.is_some() && p.0 != q.0
+                            || p.1.is_some() && q.1.is_some() && p.1 != q.1
+                    })
+                {
+                    return Err(invalid(format!(
+                        "{id} contradicts the requirement on {}; repeated measurements must have the compatible tolerances and fits.",
                         existing.id
-                    ),
-                    choices: vec![existing.id.clone()],
+                    )));
+                }
+                problems.push(Problem {
+                    id: format!("p:duplicate_measurement:{id}:{}", existing.id),
+                    code: "duplicate_measurement".into(), severity: "warning".into(),
+                    message: format!("{id} repeats the same measured quantity as {}; both truthful statements are retained.", existing.id),
+                    subjects: vec![id.clone(), existing.id.clone()], ..Default::default()
                 });
             }
         }
         wants.push(w);
     }
-    super::schemes::check_authored(s, wants)
+    problems.extend(super::schemes::check_authored(s, wants));
+    Ok(problems)
 }
 
 fn linear_span(s: &Shape) -> Option<(usize, f64, f64)> {

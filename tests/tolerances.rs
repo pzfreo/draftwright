@@ -326,11 +326,17 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     assert_eq!(e.choices, ["±0.05", "+0.1 -0.02"]);
     // A fit from outside draftwright's table, of the wrong case, or on a feature that takes none.
     let hole = "f:hole:1";
-    let e = refused(json!({ "features": { hole: { "fit": "K7" } } }));
+    let p = model::plan(
+        &a,
+        &spec(json!({"sheet":{"fit_deviations":true}, "features":{hole:{"fit":"K7"}}})),
+    )
+    .unwrap();
     assert!(
-        e.message.contains(hole) && e.message.contains("table"),
-        "{e}"
+        p.problems
+            .iter()
+            .any(|p| p.code == "fit_deviations_unavailable")
     );
+    assert!(label(&p, "d:f:hole_pattern:1/bore.diameter").contains("K7"));
     let e = refused(json!({ "features": { hole: { "fit": "h7" } } }));
     assert!(e.message.starts_with("\"h7\" reads as \"H7\""), "{e}");
     assert_eq!(e.choices, ["H7"]);
@@ -347,14 +353,20 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     let mut big = a.clone();
     let f = big.features.iter_mut().find(|f| f.id == hole).unwrap();
     f.parameters.insert("diameter".into(), json!(300.0));
-    let e = model::plan(
+    let p = model::plan(
         &big,
-        &spec(json!({ "features": { hole: { "fit": "H7" } } })),
+        &spec(json!({"sheet":{"fit_deviations":true}, "features":{hole:{"fit":"H7"}}})),
     )
-    .unwrap_err();
+    .unwrap();
     assert!(
-        e.message.contains("⌀300") && e.message.contains("250"),
-        "{e}"
+        p.problems
+            .iter()
+            .any(|p| p.code == "fit_deviations_unavailable")
+    );
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.placed.is_some() && d.label.contains("H7"))
     );
     // A boss takes a shaft class, and a slot or fillet no fit at all.
     let (_, b) = analysed("boss_circle");

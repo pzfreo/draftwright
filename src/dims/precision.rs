@@ -57,6 +57,10 @@ pub(super) fn apply(spec: &Spec, wants: &mut [Want]) -> Result<(), Invalid> {
     if spec.precision.values().any(|p| *p > 15) {
         return Err(bad("precision must be an integer from 0 to 15".into()));
     }
+    labels(spec, wants)
+}
+
+pub(super) fn unapplied(spec: &Spec, wants: &[Want]) -> Vec<crate::model::Problem> {
     let known: BTreeSet<_> = wants
         .iter()
         .flat_map(|w| {
@@ -67,15 +71,20 @@ pub(super) fn apply(spec: &Spec, wants: &mut [Want]) -> Result<(), Invalid> {
             )
         })
         .collect();
-    let missing = spec
-        .precision
+    spec.precision
         .keys()
         .filter(|id| !known.contains(*id))
-        .map(|id| bad(format!("There is no measurement {id:?} on this part.")).at("precision", id));
-    if let Some(e) = Invalid::first_of(missing) {
-        return Err(e);
-    }
-    labels(spec, wants)
+        .map(|id| crate::model::Problem {
+            id: format!("p:dimension_edit_unapplied:precision/{id}"),
+            code: "dimension_edit_unapplied".into(),
+            severity: "warning".into(),
+            subjects: vec![id.clone()],
+            message: format!(
+                "Precision edit for {id} is retained but no current measurement can apply it."
+            ),
+            ..Default::default()
+        })
+        .collect()
 }
 
 pub(super) fn labels<'a>(

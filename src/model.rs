@@ -6159,8 +6159,17 @@ fn plan_with_presentation(
                 }
                 .at("annotations", id)
             });
-        if let Some(e) = Invalid::first_of(missing) {
-            return Err(e);
+        for e in missing {
+            problems.push(Problem {
+                id: format!(
+                    "p:annotation_edit_unapplied:{}",
+                    e.path.as_deref().unwrap_or("unknown")
+                ),
+                code: "annotation_edit_unapplied".into(),
+                severity: "warning".into(),
+                message: format!("{} The edit is retained but cannot be applied.", e.message),
+                ..Default::default()
+            });
         }
     }
     let given = spec;
@@ -6332,15 +6341,7 @@ fn plan_with_presentation(
             ));
         }
         if smallest * scale < 0.1 {
-            return Err(invalid(
-                format!(
-                    "scale {} projects the smallest part dimension to {:.3} mm; drawing geometry degenerates below 0.1 mm. Use scale ≥ {} or omit the scale for automatic selection.",
-                    scale_name(scale),
-                    smallest * scale,
-                    0.1 / smallest
-                ),
-                &[],
-            ));
+            problems.push(Problem { id: "p:geometry_below_resolution:sheet".into(), code: "geometry_below_resolution".into(), severity: "warning".into(), message: format!("scale {} projects the smallest part dimension to {:.3} mm, below 0.1 mm drawing resolution; the requested scale is retained.", scale_name(scale), smallest * scale), subjects: vec!["sheet".into()], ..Default::default() });
         }
     }
     // ISO 5456-2's two methods: third angle (draftwright's) unless the spec says first.
@@ -6732,7 +6733,17 @@ fn plan_with_presentation(
                 || b[2] > g.iso[2] + 1e-6
                 || b[3] > g.iso[3] + 1e-6)
         {
-            return Err(invalid(INFEASIBLE_ISO_SCALE, &[]));
+            if automatic_pair {
+                return Err(invalid(INFEASIBLE_ISO_SCALE, &[]));
+            }
+            problems.push(Problem {
+                id: "p:iso_layout_overflow:v:iso".into(),
+                code: "iso_layout_overflow".into(),
+                severity: "warning".into(),
+                message: INFEASIBLE_ISO_SCALE.into(),
+                subjects: vec!["v:iso".into()],
+                ..Default::default()
+            });
         }
     }
     if shown("iso") && analysis.drawing_iso_bounds() == [0.0; 4] {
@@ -6895,15 +6906,8 @@ fn plan_with_presentation(
                 from_spec: Vec::new(),
                 detail: Some(detail),
             });
-        } else if detail.authored {
-            return Err(invalid(
-                format!(
-                    "Authored detail {name} needs its source view and room for its crop at the requested scale."
-                ),
-                &[],
-            ));
         } else {
-            problems.push(Problem {id:format!("p:detail_unplaceable:v:{name}"),code:"detail_unplaceable".into(),severity:"warning".into(),message:format!("{} detail has no reserved room or source view; its dimensions remain on the parent.",detail.kind),refs:vec![format!("v:{name}")],..Default::default()});
+            problems.push(Problem {id:format!("p:detail_unplaceable:v:{name}"),code:"detail_unplaceable".into(),severity:"warning".into(),message:format!("Detail {name} has insufficient layout space for its crop at scale {}; its dimensions remain on the parent.", detail.scale),refs:vec![format!("v:{name}")],..Default::default()});
         }
     }
     if require_automatic

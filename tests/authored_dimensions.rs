@@ -216,20 +216,23 @@ fn coincident_locations_on_different_features_are_drawn_and_fill_their_own_roles
 }
 
 #[test]
-fn coincident_location_on_the_same_feature_keeps_the_k6_refusal() {
+fn coincident_location_on_the_same_feature_warns() {
     let (_, a, datum, holes) = coincident_locations();
     let owner = format!("d:{}/location.length.y", holes[0]);
     let s = parse(json!({"dimensions":{
         "d:authored:hole_y":{"between":[format!("axis:{}",holes[0]),datum],"along":"y"}
     }}));
-    let e = model::plan_recovered(&a, &s).unwrap_err();
-    assert_eq!(
-        e.message,
-        format!(
-            "d:authored:hole_y duplicates the quantity owned by {owner}; remove d:authored:hole_y and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
-        )
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(
+        p.problems
+            .iter()
+            .any(|f| f.code == "duplicate_measurement" && f.subjects.contains(&owner))
     );
-    assert_eq!(e.choices, [owner]);
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.id == "d:authored:hole_y" && d.placed.is_some())
+    );
 }
 
 #[test]
@@ -253,16 +256,17 @@ fn an_automatic_owners_additional_feature_claim_is_also_a_k6_duplicate() {
             spec["dimensions"][&owner] = json!({"view":"plan"});
         }
         let s = parse(spec);
-        let e = model::plan_recovered(&a, &s).unwrap_err();
-        // This owner already states hole 2's location: a second 12 is a real
-        // same-feature duplicate, not merely a coincident foreign feature.
-        assert_eq!(
-            e.message,
-            format!(
-                "d:authored:other_y duplicates the quantity owned by {owner}; remove d:authored:other_y and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
-            )
+        let p = model::plan_recovered(&a, &s).unwrap();
+        assert!(
+            p.problems
+                .iter()
+                .any(|f| f.code == "duplicate_measurement" && f.subjects.contains(&owner))
         );
-        assert_eq!(e.choices.as_slice(), std::slice::from_ref(&owner));
+        assert!(
+            p.dimensions
+                .iter()
+                .any(|d| d.id == "d:authored:other_y" && d.placed.is_some())
+        );
     }
 }
 
@@ -388,12 +392,15 @@ fn a_face_axis_alias_and_reversed_references_still_name_the_same_feature() {
         "d:authored:first":{"between":[format!("axis:{}",holes[0]),datum],"along":"y","view":"plan"},
         "d:authored:second":{"between":[datum,format!("axis:{cylinder}")],"along":"true","view":"side"}
     }}));
-    let e = model::plan_recovered(&a, &s).unwrap_err();
-    assert_eq!(
-        e.message,
-        "d:authored:second duplicates the quantity owned by d:authored:first; remove d:authored:second and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
-    );
-    assert_eq!(e.choices, ["d:authored:first"]);
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|f| f.code == "duplicate_measurement"));
+    for id in ["d:authored:first", "d:authored:second"] {
+        assert!(
+            p.dimensions
+                .iter()
+                .any(|d| d.id == id && d.placed.is_some())
+        );
+    }
 }
 
 fn cylinder_face(a: &Analysis, feature: &str) -> String {
@@ -446,14 +453,17 @@ fn a_face_axis_alias_does_not_inherit_an_unmeasurable_compound_axis() {
         "d:authored:alias":{"between":[format!("axis:{}",cylinder_face(&a,&holes[0])),datum],"along":"y","view":"plan"}
     }}));
     let owner = format!("d:{}/location.length.y", holes[0]);
-    let e = model::plan_recovered(&a, &s).unwrap_err();
-    assert_eq!(
-        e.message,
-        format!(
-            "d:authored:alias duplicates the quantity owned by {owner}; remove d:authored:alias and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
-        )
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(
+        p.problems
+            .iter()
+            .any(|f| f.code == "duplicate_measurement" && f.subjects.contains(&owner))
     );
-    assert_eq!(e.choices, [owner]);
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.id == "d:authored:alias" && d.placed.is_some())
+    );
 
     // Sharing a face does not give the compound a measurable feature axis or
     // turn the hole's location into a statement about that compound.

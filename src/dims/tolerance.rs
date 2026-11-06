@@ -33,14 +33,55 @@ use crate::model::{Analysis, Invalid, Problem, Spec};
 // The fit table's classes and grades, in order, which [`choices`] lists and [`apply`] sorts into
 // hole and shaft classes, and the largest nominal size it covers, mm (ISO 286's band up to and
 // including 250), are haecceity's, as the table is (#258).
-use haecceity::presentation::tolerance::{GRADES, HOLE_CLASSES, MAX_NOMINAL_MM, SHAFT_CLASSES};
+use haecceity::presentation::tolerance::{GRADES, HOLE_CLASSES, SHAFT_CLASSES};
 
 /// The requirement notation of fits and bands: ISO 286 classes and their limit deviations, and
 /// a band or a class's stacked deviations as text. haecceity's shared presentation module owns
 /// it, so the sheet and Specify's STEP callouts state a requirement the same way (#258).
-pub(super) use haecceity::presentation::tolerance::{
-    band, deviations, fit, limits_term, with_limits,
-};
+pub(super) use haecceity::presentation::tolerance::{band, deviations, limits_term, with_limits};
+
+/// Reading a class is independent of our optional numerical-deviation table.
+fn fit(code: &str) -> Result<(&str, u32), String> {
+    let n = code
+        .find(|c: char| c.is_ascii_digit())
+        .unwrap_or(code.len());
+    let (letters, grade) = code.split_at(n);
+    let classes = [
+        "A", "B", "C", "CD", "D", "E", "EF", "F", "FG", "G", "H", "JS", "J", "K", "M", "N", "P",
+        "R", "S", "T", "U", "V", "X", "Y", "Z", "ZA", "ZB", "ZC",
+    ];
+    let valid_case = letters == letters.to_uppercase() || letters == letters.to_lowercase();
+    if valid_case
+        && classes.contains(&letters.to_uppercase().as_str())
+        && (grade == "01"
+            || grade
+                .parse::<u32>()
+                .is_ok_and(|g| g <= 18 && grade == g.to_string()))
+    {
+        return Ok((letters, grade.parse().unwrap()));
+    }
+    Err(format!(
+        "{code:?} is not an ISO 286 fit class; use a class such as H7, N9 or js9."
+    ))
+}
+
+fn fit_text(
+    code: &str,
+    nominal: f64,
+    id: &str,
+    spec: &Spec,
+    problems: &mut Vec<Problem>,
+) -> String {
+    if !limits_shown(spec) {
+        return code.into();
+    }
+    if let Some(limits) = deviations(code, nominal) {
+        return with_limits(code, limits);
+    }
+    problems.push(problem("fit_deviations_unavailable", id,
+        format!("The fit {code} is printed, but requested numerical deviations at {nominal} mm are outside the supported ISO 286 table; no deviations were invented."), vec![id.into()]));
+    code.into()
+}
 
 /// A kept item, as [`super::plan`] holds it: the want, whether it is a default, its view and the
 /// views that look along it.
@@ -154,7 +195,11 @@ pub(crate) fn check(spec: &Spec) -> Result<(), Invalid> {
                     entry.kind.as_deref().unwrap_or("linear"),
                     "linear" | "diameter"
                 );
-            if (!crate::dims::is_envelope_extent(id) && !authored_size) || entry.tolerance.is_some()
+            if (!crate::dims::is_envelope_extent(id)
+                && !authored_size
+                && !id.ends_with("/pocket_width.length")
+                && !id.ends_with("/channel_width.length"))
+                || entry.tolerance.is_some()
             {
                 return Err(Invalid {
                     path: None,
@@ -255,8 +300,8 @@ fn problem(code: &str, subject: &str, message: String, subjects: Vec<String>) ->
 /// Puts the spec's tolerances and fits on the kept items' labels, before they are placed, and
 /// reports what cannot be stated. Returns, for each kept item, what of it the spec gave
 /// (`tolerance`, `fit`). Refused: a fit on a feature that does not exist or cannot take one, or
-/// that draftwright's table does not cover at its size, and a size given both a tolerance and a
-/// fit.
+/// a size given contradictory tolerance and fit requirements. Numerical table coverage
+/// affects only requested deviations.
 pub(super) fn apply(
     analysis: &Analysis,
     spec: &Spec,
@@ -312,7 +357,7 @@ pub(super) fn apply(
         // Invariant: check validated this same immutable fit code before apply.
         let (letters, grade) = fit(code).expect("checked");
         let hole = f.kind == "hole";
-        if hole != HOLE_CLASSES.contains(&letters) {
+        if hole != (letters == letters.to_uppercase()) {
             let other = if hole {
                 letters.to_uppercase()
             } else {
@@ -333,19 +378,13 @@ pub(super) fn apply(
             });
         }
         let d = f.parameters.get("diameter").and_then(|v| v.as_f64());
-        match d {
-            Some(d) if d > 0.0 && d <= MAX_NOMINAL_MM => {}
-            _ => {
-                return Err(Invalid {
-                    path: None,
-                    also: Vec::new(),
-                    message: format!(
-                        "The fit {code:?} of {id:?} cannot be resolved: its nominal ⌀{} is outside draftwright's ISO 286 table (up to {MAX_NOMINAL_MM} mm); give its dimension a tolerance instead.",
-                        d.map_or("?".into(), fmt)
-                    ),
-                    choices: vec![],
-                });
-            }
+        if !d.is_some_and(|d| d.is_finite() && d > 0.0) {
+            return Err(Invalid {
+                message: format!("The fit {code} of {id} needs a unique positive nominal size."),
+                choices: vec![],
+                path: None,
+                also: vec![],
+            });
         }
         fits.insert(id, code);
         // Invariant: The preceding validation found this same nominal in the fit table.
@@ -405,21 +444,8 @@ pub(super) fn apply(
             });
         }
         let band = if let Some(code) = extent_fit {
-            let limits = deviations(code, w.value).ok_or_else(|| Invalid {
-                path: None,
-                also: Vec::new(),
-                message: format!(
-                    "The fit {code} of {} is outside the ISO 286 table at {} mm.",
-                    w.id, w.value
-                ),
-                choices: vec![],
-            })?;
             given.push("fit".into());
-            Some(if limits_shown(spec) {
-                with_limits(code, limits)
-            } else {
-                code.into()
-            })
+            Some(fit_text(code, w.value, &w.id, spec, problems))
         } else if let Some(t) = authored {
             // Invariant: check validated this same immutable tolerance text before apply.
             let (text, nothing) = tolerance(&t).expect("checked");
@@ -449,11 +475,13 @@ pub(super) fn apply(
             if member_fits.iter().all(|f| *f == Some(first)) {
                 given.push("fit".to_string());
                 w.basis += &format!("; its fit is the spec's ({})", members.join(", "));
-                let limits = nominals
-                    .get(members[0].as_str())
-                    .and_then(|&d| deviations(first, d))
-                    .filter(|_| limits_shown(spec));
-                Some(limits.map_or(first.to_string(), |l| with_limits(first, l)))
+                Some(fit_text(
+                    first,
+                    nominals[members[0].as_str()],
+                    &w.id,
+                    spec,
+                    problems,
+                ))
             } else {
                 None
             }

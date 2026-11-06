@@ -561,7 +561,13 @@ pub(crate) fn check_claims(analysis: &Analysis, spec: &Spec) -> Result<(), Inval
     let ids = crate::dims::measurement_ids(analysis);
     for (id, f) in &spec.features {
         for role in &f.note_satisfies {
-            if !ids.contains(&format!("d:{id}/{role}")) {
+            if !ids.contains(&format!("d:{id}/{role}"))
+                && !(analysis.features.iter().any(|feature| feature.id == *id)
+                    && matches!(
+                        role.as_str(),
+                        "location.length.x" | "location.length.y" | "location.length.z"
+                    ))
+            {
                 return Err(invalid(
                     format!("{role:?} is not a measurement role of {id}."),
                     vec![],
