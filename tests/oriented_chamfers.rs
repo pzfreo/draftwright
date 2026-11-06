@@ -358,9 +358,11 @@ fn authored_notch_angle_transfers_ownership_and_auto_mode_names_the_existing_own
         })
         .expect("the two notch support planes");
     let s = parse(json!({"dimensions":{"d:authored:notch":{"kind":"angle","between":refs}}}));
-    let error = model::plan(a, &s).unwrap_err();
-    assert!(error.message.contains("duplicates"));
-    assert!(error.choices.iter().any(|id| id.contains("/notch.angle.")));
+    let q = model::plan(a, &s).unwrap();
+    assert!(q.problems.iter().any(|p| p.code == "duplicate_measurement"
+        && p.subjects.iter().any(|id| id.contains("/notch.angle."))));
+    assert!(q.dimensions.iter().any(|d| d.id == "d:authored:notch"));
+    assert!(q.dimensions.iter().any(|d| d.placed.is_some()));
     let mut s = s;
     s.dimension_source = model::DimensionSource::Authored;
     let q = plan(&s);
