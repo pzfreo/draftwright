@@ -2044,3 +2044,106 @@ fn steer_331_finished_sheet_fits() {
     );
     c.finish(331);
 }
+
+#[test]
+fn concentric_pattern_requires_live_round_outline_pitch_circle_and_centre() {
+    let a = &fixture(FLANGE).analysis;
+    let p = planned(FLANGE, &input(FLANGE));
+    let original = &rendered(FLANGE, &p).drawings[0];
+    let reported = |drawing: &Drawing| {
+        lint::lint(a, drawing).iter().any(|i| {
+            i.code == "hole_pattern_requirement_missing"
+                && i.requirements.iter().any(|r| {
+                    r.feature == "f:hole_pattern:1" && r.parameter.starts_with("location.length.")
+                })
+        })
+    };
+    assert!(!reported(original));
+    let mut drawing = original.clone();
+    drawing.sheet.centre_marks.clear();
+    assert!(
+        reported(&drawing),
+        "model concentricity alone does not locate"
+    );
+    let mut drawing = original.clone();
+    drawing
+        .sheet
+        .items
+        .retain(|i| !i.name.ends_with(":f:hole_pattern:1"));
+    assert!(
+        reported(&drawing),
+        "a centre mark must identify this pattern"
+    );
+    let mut drawing = original.clone();
+    for view in &mut drawing.sheet.views {
+        view.edges.clear();
+    }
+    assert!(reported(&drawing), "the round outline must be visible");
+    let mut offset = a.clone();
+    let pattern = offset
+        .recognition
+        .as_mut()
+        .unwrap()
+        .patterns
+        .iter_mut()
+        .find(|p| p.id == "f:hole_pattern:1")
+        .unwrap();
+    pattern
+        .parameters
+        .insert("center".into(), json!([1., 0., 0.]));
+    assert!(
+        lint::lint(&offset, original).iter().any(|i| {
+            i.code == "hole_pattern_requirement_missing"
+                && i.requirements
+                    .iter()
+                    .any(|r| r.parameter.starts_with("location.length."))
+        }),
+        "nearby axes do not share a centre"
+    );
+}
+
+#[test]
+fn authored_slot_across_from_far_face_is_credited_without_borrowing_table_cells() {
+    let p = planned(PLATE, &input(PLATE));
+    assert!(dim(&p.plan, "d:authored:slot_y").is_some());
+    let r = rendered(PLATE, &p);
+    let across_missing = |issues: &[LintIssue]| {
+        issues.iter().any(|i| {
+            i.code == "slot_requirement_missing"
+                && i.requirements.iter().any(|q| {
+                    q.feature == "f:slot:1" && q.parameter == "location_slot_across.length"
+                })
+        })
+    };
+    let a = &fixture(PLATE).analysis;
+    let marks: Vec<_> = r.drawings.iter().flat_map(lint::marks).collect();
+    let refs: Vec<String> = input(PLATE)["dimensions"]["d:authored:slot_y"]["between"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r.as_str().unwrap().into())
+        .collect();
+    let face = a.dimension_reference_axis_face(&refs[1]).unwrap();
+    assert!(
+        a.features
+            .iter()
+            .find(|f| f.id == "f:slot:1")
+            .unwrap()
+            .faces
+            .contains(&face)
+    );
+    assert!(
+        !across_missing(&r.lint),
+        "the far-edge ordinate locates the slot; chain {:?}",
+        lint::location::printed_chain(a, &marks, "f:slot:1", "location_slot_across.length"),
+    );
+    assert!(!across_missing(&lint::check(a, &marks)));
+    let reduced: Vec<_> = marks
+        .into_iter()
+        .filter(|m| m.name != "d:authored:slot_y")
+        .collect();
+    assert!(
+        across_missing(&lint::check(a, &reduced)),
+        "other holes' table cells locate no slot"
+    );
+}

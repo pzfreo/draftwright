@@ -547,7 +547,21 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
 /// An authored plane reference names an actual trimmed face, not its infinite plane.
 fn reference_node(a: &Analysis, key: &str, axis: usize) -> Option<String> {
     if let Some(id) = key.strip_prefix("axis:") {
-        return node_feature(a, id, axis);
+        if let Some(node) = node_feature(a, id, axis) {
+            return Some(node);
+        }
+        // An explicitly identified end cylinder belongs to the slot across its
+        // width. It does not identify the slot's longitudinal centre or low end.
+        let face = a.dimension_reference_axis_face(key)?;
+        let at = a.scheme_station(key, axis).ok()?[axis];
+        let mut slots = a.features.iter().filter(|f| {
+            f.kind == "slot"
+                && f.faces.contains(&face)
+                && super::slots::outline(a, f)
+                    .is_ok_and(|o| o.wide == axis && (o.centre - at).abs() < EPS)
+        });
+        let f = slots.next()?;
+        return slots.next().is_none().then(|| f.id.clone());
     }
     if let Some(i) = a.dimension_reference_face(key, axis) {
         return Some(format!("face:{i}"));

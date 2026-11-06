@@ -519,6 +519,16 @@ pub fn lint(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
         })
         .chain(relief_issues)
         .collect();
+    let concentric = hole_patterns::concentric_on_drawing(analysis, drawing);
+    issues.retain(|i| {
+        i.code != "hole_pattern_requirement_missing"
+            || i.requirements.is_empty()
+            || !i.requirements.iter().all(|r| {
+                concentric
+                    .get(&r.feature)
+                    .is_some_and(|parameters| parameters.contains(r.parameter.as_str()))
+            })
+    });
     // A corner its drawn linear dimensions fix needs no angle (ISO 129-1).
     if issues
         .iter()

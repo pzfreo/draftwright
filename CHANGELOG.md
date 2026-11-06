@@ -6,6 +6,11 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+### Added
+
+- Per-part manufacturing process from Spec, STEP UDA or material class, with
+  recorded provenance, process tolerance/finish defaults and conditional GA Process column.
+
 ### Fixed
 
 - Manufacturing defaults preserve authored PMI finishes. GA process cells omit
@@ -13,10 +18,13 @@ All notable changes to draftwright-rust are recorded here, in the style of
   caps severity without promoting Info, and tolerance defaults use explicit
   greater-of wording and CHECK marks for ungraded suggested standards.
 
-### Added
+## 0.2.12 (2026-11-06)
 
-- Per-part manufacturing process from Spec, STEP UDA or material class, with
-  recorded provenance, process tolerance/finish defaults and conditional GA Process column.
+On quiddity-rust 0.4.8 (was 0.4.7). Its PMI reader no longer reports a face-less shape aspect
+for a default saved view, so files with a default saved view (such as the Notes view quiddity
+0.4.8 writes, and NIST STC-06 and STC-10) lose that `pmi_not_extracted` info finding.
+
+### Added
 
 - `draftwright completions SHELL` prints a shell completion script (bash, zsh, fish,
   powershell or elvish) to stdout; the README gives the install one-liners.
@@ -35,6 +43,17 @@ All notable changes to draftwright-rust are recorded here, in the style of
   last value wins (it was the first). The WASM crate builds without the command line (the
   root crate's default `cli` feature, off for `draftwright-wasm`), so clap stays out of the
   browser build.
+
+### Fixed
+
+- Credit a bolt circle's shared centre with the whole round outline only when
+  the finished drawing shows the outline, pitch circle and common centre mark (#310).
+  Respect the model's 0.001 mm resolution and credit only that view's two in-plane axes.
+- Restrict hole-table coordinate credit to the feature named by its row, so a
+  standalone obround's unstated across location is reported. Credit authored
+  ordinates to a slot's identified end-cylinder axis from either physical edge (#319).
+- Exclude reference hole ordinates from location credit while retaining reference
+  diagnostics; printed controlling authored dimensions still locate features (#316).
 
 ## 0.2.11 (2026-11-05)
 
