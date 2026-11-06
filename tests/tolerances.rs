@@ -626,4 +626,6 @@ fn a_generated_diameter_accepts_a_class_without_optional_deviations() {
             .message
             .contains("conflicting")
     );
+    let unreadable = spec(json!({"features":{"f:hole:1":{"fit":"ſ9"}}}));
+    assert!(model::plan(&a, &unreadable).is_err());
 }

@@ -50,9 +50,12 @@ pub(super) fn fit(code: &str) -> Result<(&str, u32), String> {
         "A", "B", "C", "CD", "D", "E", "EF", "F", "FG", "G", "H", "JS", "J", "K", "M", "N", "P",
         "R", "S", "T", "U", "V", "X", "Y", "Z", "ZA", "ZB", "ZC",
     ];
-    let valid_case = letters == letters.to_uppercase() || letters == letters.to_lowercase();
+    let valid_case = letters.bytes().all(|c| c.is_ascii_uppercase())
+        || letters.bytes().all(|c| c.is_ascii_lowercase());
     if valid_case
-        && classes.contains(&letters.to_uppercase().as_str())
+        && classes
+            .iter()
+            .any(|class| class.eq_ignore_ascii_case(letters))
         && (grade == "01"
             || grade
                 .parse::<u32>()
@@ -167,22 +170,20 @@ fn tolerance(text: &str) -> Result<(String, bool), String> {
 
 /// Equal decimal bands can have different authored precision or symmetric notation.
 pub(super) fn same_band(a: &str, b: &str) -> bool {
-    fn normalized(t: &str) -> Option<(String, String)> {
-        let number = |s: &str| {
-            let s = magnitude(s)?;
-            let (whole, fraction) = s.split_once('.').unwrap_or((s, ""));
-            let whole = whole.trim_start_matches('0');
-            let whole = if whole.is_empty() { "0" } else { whole };
-            let fraction = fraction.trim_end_matches('0');
-            Some(if fraction.is_empty() {
-                whole.into()
-            } else {
-                format!("{whole}.{fraction}")
-            })
-        };
+    type Decimal<'a> = (&'a str, &'a str);
+    type Band<'a> = (Decimal<'a>, Decimal<'a>);
+    fn number(s: &str) -> Option<Decimal<'_>> {
+        let s = magnitude(s)?;
+        let (whole, fraction) = s.split_once('.').unwrap_or((s, ""));
+        Some((
+            whole.trim_start_matches('0'),
+            fraction.trim_end_matches('0'),
+        ))
+    }
+    fn normalized(t: &str) -> Option<Band<'_>> {
         let t = t.trim();
         if let Some(n) = t.strip_prefix('±').and_then(number) {
-            return Some((n.clone(), n));
+            return Some((n, n));
         }
         let mut words = t.split_whitespace();
         let upper = number(words.next()?.strip_prefix('+')?)?;
@@ -375,11 +376,11 @@ pub(super) fn apply(
         // Invariant: check validated this same immutable fit code before apply.
         let (letters, grade) = fit(code).expect("checked");
         let hole = f.kind == "hole";
-        if hole != (letters == letters.to_uppercase()) {
+        if hole != letters.bytes().all(|c| c.is_ascii_uppercase()) {
             let other = if hole {
-                letters.to_uppercase()
+                letters.to_ascii_uppercase()
             } else {
-                letters.to_lowercase()
+                letters.to_ascii_lowercase()
             };
             let (what, class) = if hole {
                 ("hole", "an upper-case hole class")
