@@ -79,9 +79,7 @@ pub(super) fn unapplied(spec: &Spec, wants: &[Want]) -> Vec<crate::model::Proble
             code: "dimension_edit_unapplied".into(),
             severity: "warning".into(),
             subjects: vec![id.clone()],
-            message: format!(
-                "Precision edit for {id} is retained but no current measurement can apply it."
-            ),
+            message: "A saved precision edit has no current measurement; it is retained but cannot be applied.".into(),
             ..Default::default()
         })
         .collect()

@@ -256,7 +256,7 @@ pub(super) fn append(
                 problems.push(Problem {
                     id: format!("p:duplicate_measurement:{id}:{}", existing.id),
                     code: "duplicate_measurement".into(), severity: "warning".into(),
-                    message: format!("{id} repeats the same measured quantity as {}; both truthful statements are retained.", existing.id),
+                    message: format!("{} repeats a measurement already stated by {}; both truthful statements are retained.", super::wording_of(&w), super::wording_of(existing)),
                     subjects: vec![id.clone(), existing.id.clone()], ..Default::default()
                 });
             }

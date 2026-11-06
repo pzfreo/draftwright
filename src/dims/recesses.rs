@@ -267,7 +267,8 @@ fn pocket_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) 
                     severity: "info".into(),
                     message: format!(
                         "{} is centred on the turning axis in {}; no tangent location is needed.",
-                        f.id, AXES[k]
+                        crate::wording::capital(&crate::wording::feature(f)),
+                        AXES[k]
                     ),
                     subjects: vec![f.id.clone()],
                     ..Default::default()

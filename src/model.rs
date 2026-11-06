@@ -6167,7 +6167,8 @@ fn plan_with_presentation(
                 ),
                 code: "annotation_edit_unapplied".into(),
                 severity: "warning".into(),
-                message: format!("{} The edit is retained but cannot be applied.", e.message),
+                message: "An annotation named by the saved Spec no longer exists; its edit is retained but cannot be applied.".into(),
+                subjects: e.path.into_iter().collect(),
                 ..Default::default()
             });
         }

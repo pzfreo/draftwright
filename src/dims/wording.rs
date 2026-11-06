@@ -72,7 +72,7 @@ pub(super) fn check_covered(spec: &Spec, kept: &[Kept], omitted: &[Omitted]) -> 
             problems.push(Problem {
                 id: format!("p:dimension_edit_unapplied:{id}"), code: "dimension_edit_unapplied".into(),
                 severity: "warning".into(), subjects: vec![id.clone()],
-                message: format!("Label override for {id} has no separate printed label: {}. The text/style edit is retained but could not be applied.", o.basis),
+                message: format!("The label edit for {} has no separate printed dimension. Its text/style is retained but could not be applied.", o.label),
                 ..Default::default()
             });
         }

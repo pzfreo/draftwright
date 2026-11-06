@@ -3080,7 +3080,7 @@ fn plan_inventory_ordered(
                 subjects: vec![path.clone()],
                 code: "dimension_edit_unapplied".into(),
                 severity: "warning".into(),
-                message: format!("{} The edit is retained but cannot be applied.", e.message),
+                message: "A dimension named by the saved Spec has no current measurement; its edit is retained but cannot be applied.".into(),
                 ..Default::default()
             });
         }
@@ -3370,7 +3370,7 @@ fn plan_inventory_ordered(
                 severity: "warning".into(),
                 message: format!(
                     "The placement offset of {} applies only to callouts and linear dimensions.",
-                    w.id
+                    wording_of(w)
                 ),
                 subjects: vec![w.id.clone()],
                 ..Default::default()
@@ -3394,7 +3394,7 @@ fn plan_inventory_ordered(
                 severity: "warning".into(),
                 message: format!(
                     "{} has no automatic linear placement in the requested view",
-                    w.id
+                    wording_of(w)
                 ),
                 subjects: vec![w.id.clone()],
                 ..Default::default()
@@ -3415,7 +3415,7 @@ fn plan_inventory_ordered(
                 severity: "warning".into(),
                 message: format!(
                     "The side of {} must be parallel to its dimension line in {v}.",
-                    w.id
+                    wording_of(w)
                 ),
                 subjects: vec![w.id.clone()],
                 ..Default::default()

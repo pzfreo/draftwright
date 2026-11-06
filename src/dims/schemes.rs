@@ -386,7 +386,7 @@ pub(super) fn check_authored(s: &Spec, wants: &[Want]) -> Vec<crate::model::Prob
             problems.push(crate::model::Problem {
                 id: format!("p:duplicate_measurement:{}", w.id), code: "duplicate_measurement".into(),
                 severity: "warning".into(), subjects: vec![w.id.clone()],
-                message: format!("{} repeats an interval stated by dimension_schemes; the measured statement is retained.", w.id),
+                message: format!("{} repeats an interval stated by the authored dimension scheme; the measured statement is retained.", super::wording_of(w)),
                 ..Default::default()
             });
         }
@@ -505,7 +505,7 @@ fn complete_ownership(
                 .find(|&j| j >= old.len());
             if let Some(owner) = authored {
                 if routes.iter().any(Option::is_none) {
-                    problems.push(crate::model::Problem { id: format!("p:duplicate_measurement:{}", w.id), code: "duplicate_measurement".into(), severity: "warning".into(), subjects: vec![w.id.clone(), wants[owner].id.clone()], message: format!("{} retains its full counted statement alongside a scheme repeating some of its intervals.", w.id), ..Default::default() });
+                    problems.push(crate::model::Problem { id: format!("p:duplicate_measurement:{}", w.id), code: "duplicate_measurement".into(), severity: "warning".into(), subjects: vec![w.id.clone(), wants[owner].id.clone()], message: format!("{} retains its full counted statement alongside a scheme repeating some of its intervals.", super::wording_of(w)), ..Default::default() });
                     continue;
                 }
                 if w.id.starts_with("d:pmi:")
