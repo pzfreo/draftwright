@@ -19,6 +19,7 @@ retain their Spec intent and warn; authored omissions are allowed. Fits print th
 valid ISO 286 class independently of the numerical table: only requested deviations
 that cannot be calculated warn, and none are invented. Unique transverse axis
 origins and the checker's Cartesian location-role vocabulary are accepted.
+`axis:f:slot:<id>` names the unique centre of a recognised slot in the part frame.
 Sheet-layout retention is an explicit transaction contract; its strict edit check
 is separate from whether a drawing can be generated. Unknown document versions,
 malformed notes/tables and unsupported representation syntax remain unreadable
