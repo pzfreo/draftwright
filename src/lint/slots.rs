@@ -10,6 +10,9 @@
 //! `bbox` for a slot): the offset of the slot's low end along its long axis from the part's box
 //! ([`location`]); a slot whose long axis lies along no axis of the part has a location that
 //! cannot be checked.
+//! Its transverse centre also needs locating (`location_slot_across.length`),
+//! unless it lies on the datum itself. A table cell for another feature cannot
+//! state this requirement, even when its numerical coordinate matches.
 //!
 //! Lone obround slots that are congruent (the same width, length and full-round ends, seen through
 //! the same axis: [`grouped`]) are dimensioned together by one `N× SLOT W × L` callout
@@ -419,6 +422,21 @@ pub fn wanted(analysis: &Analysis) -> Vec<Wanted<'_>> {
                 format!("its {at} {} from the part's {axis} edge", fmt(*v))
             }),
             values: at.map(|(_, v)| vec![v]),
+        });
+        let across =
+            outline(analysis, f).map(|o| (AXES[o.wide], o.centre - analysis.envelope[0][o.wide]));
+        if across.as_ref().is_ok_and(|(_, d)| d.abs() < 1e-6) {
+            continue;
+        }
+        out.push(Wanted {
+            feature: f,
+            parameter: "location_slot_across.length".into(),
+            callout: across
+                .as_ref()
+                .map_or("its transverse location".into(), |(axis, d)| {
+                    format!("its centre line {} from the part's {axis} edge", fmt(*d))
+                }),
+            values: across.map(|(_, d)| vec![d]),
         });
     }
     out
@@ -901,9 +919,11 @@ mod tests {
                 "f:slot:1 slot_length.length",
                 "f:slot:1 slot_end_radius.radius",
                 "f:slot:1 location_slot.length",
+                "f:slot:1 location_slot_across.length",
                 "f:slot:2 slot_width.length",
                 "f:slot:2 slot_length.length",
-                "f:slot:2 location_slot.length"
+                "f:slot:2 location_slot.length",
+                "f:slot:2 location_slot_across.length"
             ]
         );
         assert_eq!(
@@ -926,6 +946,9 @@ mod tests {
             mark("79.1", "f:slot:1", "location_slot.length"),
             mark("6", "f:slot:2", "slot_width.length"),
             mark("15.1", "f:slot:2", "slot_length.length"),
+            // The transverse locations are independent requirements too (#319).
+            mark("50.181", "f:slot:1", "location_slot_across.length"),
+            mark("50.181", "f:slot:2", "location_slot_across.length"),
         ];
         let found: Vec<String> = coverage(&a, &marks)
             .into_iter()
@@ -1102,6 +1125,9 @@ mod tests {
         let located = [
             mark("a", "13.75", &[("f:slot:1", "location_slot.length")]),
             mark("b", "20", &[("f:slot:2", "location_slot.length")]),
+            // Keep the complete fixture located across as well as along (#319).
+            mark("c", "10", &[("f:slot:1", "location_slot_across.length")]),
+            mark("d", "5", &[("f:slot:2", "location_slot_across.length")]),
         ];
         let mut marks = located.to_vec();
         marks.push(group("2× SLOT 4.5 × 7.5"));
@@ -1198,11 +1224,24 @@ mod tests {
             }];
             conveyed_locations(&a, &mut marks);
             assert_eq!(marks[0].claims.len(), 1, "{name} has no slot witness");
+            let across_missing = |marks: &[Mark]| {
+                coverage(&a, marks).iter().any(|i| {
+                    i.code == "slot_requirement_missing"
+                        && i.requirements.iter().any(|r| {
+                            r.feature == "f:slot:1" && r.parameter == "location_slot_across.length"
+                        })
+                })
+            };
+            assert!(across_missing(&marks));
             marks[0].claims.push(Claim {
                 feature: "f:slot:1".into(),
                 parameter: "location_slot_across.length".into(),
             });
             conveyed_locations(&a, &mut marks);
+            assert!(
+                !across_missing(&marks),
+                "a cell about the slot itself locates it"
+            );
             assert_eq!(
                 marks[0].claims.len(),
                 2,
@@ -1389,15 +1428,23 @@ mod tests {
         ]);
         let found: Vec<String> = coverage(&a, &[])
             .into_iter()
-            .map(|i| format!("{} {}", i.code, i.subjects[0]))
+            .map(|i| {
+                format!(
+                    "{} {} {}",
+                    i.code, i.subjects[0], i.requirements[0].parameter
+                )
+            })
             .collect();
+        // The remaining lone slot needs both location axes (#319); pattern
+        // members still contribute no separate lone-slot requirements.
         assert_eq!(
             found,
             [
-                "slot_requirement_missing f:slot:3",
-                "slot_requirement_missing f:slot:3",
-                "slot_requirement_missing f:slot:3",
-                "slot_requirement_unverifiable f:slot_pattern:4"
+                "slot_requirement_missing f:slot:3 slot_width.length",
+                "slot_requirement_missing f:slot:3 slot_length.length",
+                "slot_requirement_missing f:slot:3 location_slot.length",
+                "slot_requirement_missing f:slot:3 location_slot_across.length",
+                "slot_requirement_unverifiable f:slot_pattern:4 ?"
             ]
         );
     }

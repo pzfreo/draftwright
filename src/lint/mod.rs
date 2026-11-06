@@ -611,14 +611,7 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         .filter(|m| blends::verified_row(analysis, m))
         .cloned()
         .collect();
-    // Parenthesised dimensions are information only. Keep them for reference
-    // diagnostics, but never use them to discharge a physical requirement.
-    let controlling: Vec<_> = verified
-        .iter()
-        .filter(|m| !(m.text.trim().starts_with('(') && m.text.trim().ends_with(')')))
-        .cloned()
-        .collect();
-    let printed = &controlling;
+    let printed = &verified;
     let (mut extra, scheme_issues) = schemes::evidence(analysis, printed);
     extra.extend(location::evidence(analysis, printed));
     let expanded;
@@ -678,7 +671,7 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     issues.extend(pmi_coverage::coverage(analysis, marks));
     redundancy::determined(analysis, printed, &mut issues);
     issues.extend(redundancy::coverage(analysis, printed));
-    issues.extend(redundancy::references(analysis, &verified));
+    issues.extend(redundancy::references(analysis, printed));
     if location::active(analysis, printed) {
         issues.extend(location::coverage(analysis, printed));
     } else {

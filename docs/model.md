@@ -2844,8 +2844,8 @@ to restore the automatic choice. An imported basic PMI dimension cannot be made 
 without correcting its source PMI. A newly authored reference has no fabricated
 `determined_by` chain. Basic/reference styling changes no nominal or measurement claim,
 and lint continues checking the resulting output, including redundant controlling sizes.
-Reference dimensions remain information only: their parenthesised text supplies no
-completeness credit for size, location or other physical requirements. Reference-specific
+Reference dimensions remain information only. Parenthesised hole ordinates supply no
+location credit, matching the controlling dimension-chain check. Reference-specific
 diagnostics, such as a tolerance attached to a reference, still apply.
 
 Wording is applied after automatic ownership/consolidation and precision/tolerance
@@ -2945,6 +2945,8 @@ origins are named in the basis and are labelled as origins rather than box minim
 Each coordinate cell locates only the feature identified by its row. A coincident
 number for another hole cannot locate a slot; shared location credit needs a drawn
 dimension witness conveying that slot's position.
+Lone-slot completeness checks both the lengthwise location and the transverse
+centre-line location, including when other features are scheduled in a hole table.
 
 ### Specify PMI authorship
 
