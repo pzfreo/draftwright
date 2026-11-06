@@ -9,8 +9,8 @@
 //!   magnitude is never rounded into another requirement. A zero deviation is written `0`,
 //!   unsigned (ISO 129-1): `+0 -0.1` prints `0 -0.1`.
 //! - **A fit** is set on a hole or a cylindrical boss (`features/<id>/fit`): an ISO 286 class
-//!   from draftwright's table (`fits.py`: holes H, G, F; shafts h, g, f, js, k, n, p; grades 5 to
-//!   11; nominal sizes up to 250 mm). It is printed after the diameter of the callout that states
+//!   independent of the optional deviation table (holes H, G, F; shafts h, g, f, js, k, n, p;
+//!   grades 5 to 11; nominal sizes up to 250 mm). It is printed after the diameter that states
 //!   the feature's size, as the class alone (`⌀8.1 H7 THRU`) by default; `sheet/fit_deviations: true` adds stacked deviations.
 //!
 //! A band is withheld, and the plan says so, when the sheet cannot state it truthfully:
@@ -776,10 +776,31 @@ mod tests {
     }
 
     #[test]
-    fn fits_are_draftwrights_table() {
+    fn valid_fit_classes_print_independently_of_the_deviation_table() {
         assert_eq!(fit("H7"), Ok(("H", 7)));
         assert_eq!(fit("js6"), Ok(("js", 6)));
-        for bad in ["H4", "H12", "K7", "N7", "x6", "7", "H", "H 7", "Hh7"] {
+        for (code, letters, grade) in [
+            ("H4", "H", 4),
+            ("H12", "H", 12),
+            ("K7", "K", 7),
+            ("N7", "N", 7),
+            ("x6", "x", 6),
+        ] {
+            assert_eq!(fit(code), Ok((letters, grade)));
+            assert_eq!(deviations(code, 20.0), None);
+            let mut problems = Vec::new();
+            let mut spec = Spec::default();
+            assert_eq!(fit_text(code, 20.0, "d:size", &spec, &mut problems), code);
+            assert!(problems.is_empty());
+            spec.sheet.fit_deviations = Some(true);
+            assert_eq!(fit_text(code, 20.0, "d:size", &spec, &mut problems), code);
+            assert!(
+                problems
+                    .iter()
+                    .any(|p| p.code == "fit_deviations_unavailable")
+            );
+        }
+        for bad in ["7", "H", "H 7", "Hh7", "I7", "H19"] {
             assert!(fit(bad).is_err(), "{bad}");
         }
     }

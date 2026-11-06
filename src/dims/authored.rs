@@ -528,11 +528,24 @@ mod tests {
                         .unwrap();
                 s.dimensions.insert("d:authored:test".into(), d);
                 super::append(&a, &s, &mut wants.clone())
-                    .err()
-                    .and_then(|e| e.choices.first().cloned())
+                    .unwrap()
+                    .into_iter()
+                    .find(|p| p.code == "duplicate_measurement")
+                    .and_then(|p| p.subjects.get(1).cloned())
                     .map(|id| (key.clone(), *radius, id))
             })
             .unwrap();
+        let plan = crate::model::plan_recovered(&a, &s).unwrap();
+        assert!(
+            plan.problems
+                .iter()
+                .any(|p| p.code == "duplicate_measurement")
+        );
+        assert!(
+            plan.dimensions
+                .iter()
+                .any(|d| d.id == "d:authored:test" && d.placed.is_some())
+        );
         s.dimension_source = crate::model::DimensionSource::Authored;
         super::append(&a, &s, &mut wants).unwrap();
         let authored = wants.iter().find(|w| w.id == "d:authored:test").unwrap();
