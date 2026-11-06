@@ -139,14 +139,10 @@ fn profiles(a: &Analysis) -> Vec<Profile> {
 }
 
 pub fn check(a: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
-    let spec = drawing
-        .spec
-        .as_deref()
-        .and_then(|s| serde_json::from_str::<crate::model::Spec>(s).ok())
-        .unwrap_or_default();
-    let printed = crate::process::resolve(a.bom.as_ref(), &spec)
-        .process
-        .printed();
+    let printed = a
+        .bom
+        .as_ref()
+        .is_some_and(|m| m.manufacturing_process().printed());
     let severity = if printed {
         Severity::Warning
     } else if a.solid_count.is_some_and(|n| n > 1) {

@@ -66,17 +66,7 @@ pub fn resolve(metadata: Option<&Metadata>, spec: &Spec) -> Resolved {
             },
         )
     } else {
-        let p = metadata
-            .into_iter()
-            .flat_map(|m| m.classifications.iter().chain(&m.categories))
-            .find_map(|s| match s.to_ascii_lowercase().as_str() {
-                "3d printing: filament" => Some(Process::Fdm),
-                "3d printing: resin" => Some(Process::Resin),
-                "3d printing: powder" => Some(Process::Powder),
-                "3d printing: metal" => Some(Process::Metal),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let p = metadata.map_or(Process::Machined, |m| m.manufacturing_process());
         (p, ValueSource::Guess)
     };
     Resolved { process, source, basis: "Spec process > PRODUCT_DEFINITION specify process > material class guess (check); override: process; tolerance default: sheet/title/tolerance; finish default (printed: omitted): sheet/default_finish".into() }
@@ -125,4 +115,17 @@ pub(crate) fn defaults(a: &Analysis, spec: &Spec, requirements: &mut Vec<SheetRe
             });
         }
     }
+}
+
+/// Authored process answers become independent Analysis facts before lint, like PMI.
+pub(crate) fn effective<'a>(
+    mut analysis: std::borrow::Cow<'a, Analysis>,
+    intent: &Spec,
+) -> std::borrow::Cow<'a, Analysis> {
+    if let Some(process) = intent.process {
+        let metadata = analysis.to_mut().bom.get_or_insert_default();
+        metadata.process = Some(process);
+        metadata.suggested_fields.remove("process");
+    }
+    analysis
 }

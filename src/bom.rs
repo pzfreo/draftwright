@@ -614,3 +614,23 @@ pub(crate) fn fill_titles(
     plan.problems.extend(problems);
     plan.status = crate::completeness::status(&plan.problems);
 }
+
+impl Metadata {
+    /// Independent product fact or material-class guess; reads no authoring or layout state.
+    pub fn manufacturing_process(&self) -> crate::process::Process {
+        use crate::process::Process;
+        self.process.unwrap_or_else(|| {
+            self.classifications
+                .iter()
+                .chain(&self.categories)
+                .find_map(|s| match s.to_ascii_lowercase().as_str() {
+                    "3d printing: filament" => Some(Process::Fdm),
+                    "3d printing: resin" => Some(Process::Resin),
+                    "3d printing: powder" => Some(Process::Powder),
+                    "3d printing: metal" => Some(Process::Metal),
+                    _ => None,
+                })
+                .unwrap_or_default()
+        })
+    }
+}

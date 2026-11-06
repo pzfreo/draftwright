@@ -497,7 +497,10 @@ fn printed_profile_semantics_are_warning_only() {
         .evidence
         .retain(|r| r.family != "authored_gears");
     profile(&mut a, "z", 13);
-    d.spec = Some(serde_json::json!({"process":"3D printed: FDM"}).to_string());
+    a.solid_count = Some(2); // Printed semantics stay warnings even on a multi-solid product.
+    let intent: Spec = serde_json::from_value(json!({"process":"3D printed: FDM"})).unwrap();
+    let a = draftwright::spec_gdt::effective(&a, &intent).unwrap();
+    d.spec = Some(serde_json::to_string(&intent).unwrap());
     let issues = lint::gears::check(&a, &d);
     assert!(
         issues
