@@ -70,10 +70,13 @@ fn add(basis: &mut String, family: Family, id: &str) {
     let (name, fields, exception) = OVERRIDES[family as usize];
     let marker = format!("; overrides ({name}): ");
     if !basis.contains(&marker) {
-        *basis += &marker;
-        *basis += &fields.replace("<id>", &crate::items::key(id));
-        *basis += "; ";
-        *basis += exception;
+        let guidance = format!(
+            "{marker}{}; {exception}",
+            fields.replace("<id>", &crate::items::key(id))
+        );
+        // Existing consumers read the dependency list through the end of the basis.
+        let at = basis.find("; dependencies: ").unwrap_or(basis.len());
+        basis.insert_str(at, &guidance);
     }
 }
 
