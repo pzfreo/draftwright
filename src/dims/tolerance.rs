@@ -850,6 +850,13 @@ mod tests {
         ));
         original.id = "d:f:boss:1/boss.diameter".into();
         original.measurements[0].parameter = "boss.diameter".into();
+        original.value = 8.;
+        original.terms = vec!["⌀8".into()];
+        original.measurements[0].value = 8.;
+        copy.value = 8.;
+        copy.terms = vec!["⌀8".into()];
+        copy.measurements[0].parameter = "diameter".into();
+        copy.measurements[0].value = 8.;
         // The diameter itself must not acquire an explicit band alongside its fit.
         assert!(!same_requirement(
             &a,
@@ -875,7 +882,6 @@ mod tests {
             .get_mut("d:authored:copy")
             .unwrap()
             .tolerance = None;
-        copy.measurements[0].parameter = "boss_height.length".into();
         assert!(same_requirement(
             &a,
             &spec,
