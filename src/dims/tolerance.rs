@@ -246,7 +246,13 @@ fn feature_size(a: &Analysis, spec: &Spec, w: &Want) -> bool {
 }
 
 /// Compare effective requirements, including an unedited owner's general tolerance.
-pub(super) fn same_requirement(a: &Analysis, spec: &Spec, p: &Want, q: &Want) -> bool {
+pub(super) fn same_requirement(
+    a: &Analysis,
+    spec: &Spec,
+    p: &Want,
+    q: &Want,
+    subjects: &[String],
+) -> bool {
     let inherited = spec.sheet.title.get("tolerance").cloned().or_else(|| {
         crate::pmi_lowering::sheet_requirements(a)
             .0
@@ -265,7 +271,11 @@ pub(super) fn same_requirement(a: &Analysis, spec: &Spec, p: &Want, q: &Want) ->
         if let Some(f) = w
             .measurements
             .iter()
-            .filter(|m| size_parameter(&m.parameter))
+            .filter(|m| {
+                m.parameter == parameter(&w.id)
+                    && FITTED.iter().any(|(_, p)| *p == m.parameter)
+                    && (subjects.is_empty() || subjects.contains(&m.feature))
+            })
             .find_map(|m| spec.features.get(&m.feature).and_then(|f| f.fit.as_deref()))
         {
             return (true, Some(f));
@@ -798,6 +808,82 @@ pub(super) fn limits(w: &mut super::Want, lower: f64, upper: f64) -> bool {
 mod tests {
     use super::*;
     use haecceity::presentation::tolerance::deviation;
+
+    #[test]
+    fn feature_fits_qualify_only_their_size_and_measured_member() {
+        let a = crate::lint::paired_ramp_steps::tests::part(
+            "boss",
+            serde_json::json!({"diameter":8.,"height":3.}),
+        );
+        let mut spec: Spec = serde_json::from_value(serde_json::json!({
+            "sheet":{"title":{"tolerance":"±0.1"}},
+            "features":{"f:boss:1":{"fit":"h6"}},
+            "dimensions":{"d:authored:copy":{"tolerance":"±0.1"}}
+        }))
+        .unwrap();
+        let mut original = Want {
+            id: "d:f:boss:1/boss_height.length".into(),
+            views: vec!["front"],
+            value: 3.,
+            terms: vec!["3".into()],
+            measurements: vec![super::super::Measurement {
+                feature: "f:boss:1".into(),
+                parameter: "boss_height.length".into(),
+                value: 3.,
+            }],
+            basis: String::new(),
+            shape: super::super::Shape::Callout {
+                arcs: vec![],
+                sites: vec![],
+            },
+            turning: None,
+        };
+        let mut copy = original.clone();
+        copy.id = "d:authored:copy".into();
+        // The boss's diameter fit does not change its height's general band.
+        assert!(same_requirement(
+            &a,
+            &spec,
+            &copy,
+            &original,
+            &["f:boss:1".into()]
+        ));
+        original.id = "d:f:boss:1/boss.diameter".into();
+        original.measurements[0].parameter = "boss.diameter".into();
+        // The diameter itself must not acquire an explicit band alongside its fit.
+        assert!(!same_requirement(
+            &a,
+            &spec,
+            &copy,
+            &original,
+            &["f:boss:1".into()]
+        ));
+        original.measurements.push(super::super::Measurement {
+            feature: "f:boss:2".into(),
+            parameter: "boss.diameter".into(),
+            value: 8.,
+        });
+        // A shared label's other member must not lend its fit to this member.
+        assert!(same_requirement(
+            &a,
+            &spec,
+            &copy,
+            &original,
+            &["f:boss:2".into()]
+        ));
+        spec.dimensions
+            .get_mut("d:authored:copy")
+            .unwrap()
+            .tolerance = None;
+        copy.measurements[0].parameter = "boss_height.length".into();
+        assert!(same_requirement(
+            &a,
+            &spec,
+            &copy,
+            &original,
+            &["f:boss:2".into()]
+        ));
+    }
 
     #[test]
     fn tolerances_read_as_draftwright_prints_them() {
