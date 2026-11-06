@@ -572,6 +572,18 @@ pub(crate) fn check_claims(analysis: &Analysis, spec: &Spec) -> Result<(), Inval
                 })
             }),
     );
+    // Inclined holes also have entry-point locations in the legacy hole-coverage
+    // vocabulary, even where an infinite axis has no unique Cartesian station.
+    ids.extend(
+        crate::lint::coverage::sites(analysis, &[])
+            .into_iter()
+            .flat_map(|s| {
+                let (subject, axis) = (s.subject, s.axis);
+                (0..3)
+                    .filter(move |&k| k != axis)
+                    .map(move |k| format!("d:{subject}/location.length.{}", ["x", "y", "z"][k]))
+            }),
+    );
     ids.extend(
         crate::lint::location::targets(analysis)
             .into_iter()
