@@ -433,6 +433,19 @@ pub(super) fn apply(
             }
         }
         let extent_fit = spec.dimensions.get(&w.id).and_then(|e| e.fit.as_deref());
+        if let Some(code) = extent_fit
+            && member_fits.iter().flatten().any(|fit| *fit != code)
+        {
+            return Err(Invalid {
+                message: format!(
+                    "{} has conflicting dimension and feature fit requirements; retain one compatible class.",
+                    w.id
+                ),
+                path: None,
+                also: vec![],
+                choices: vec![],
+            });
+        }
         let authored = spec
             .dimensions
             .get(&w.id)

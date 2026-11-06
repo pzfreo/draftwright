@@ -617,4 +617,13 @@ fn a_generated_diameter_accepts_a_class_without_optional_deviations() {
             .iter()
             .any(|p| p.code == "fit_deviations_unavailable")
     );
+    let contradictory = spec(
+        json!({"dimensions":{"d:f:hole_pattern:1/bore.diameter":{"fit":"N9"}}, "features":{"f:hole:1":{"fit":"H7"}}}),
+    );
+    assert!(
+        model::plan(&a, &contradictory)
+            .unwrap_err()
+            .message
+            .contains("conflicting")
+    );
 }
