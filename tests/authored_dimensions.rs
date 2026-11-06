@@ -120,9 +120,13 @@ fn duplicates_are_refused_with_the_existing_owner_and_bad_references_are_actiona
     let (_, a) = plate();
     let mut s = authored(&a);
     s.dimension_source = model::DimensionSource::Auto;
-    let e = model::plan_recovered(&a, &s).unwrap_err();
-    assert!(e.message.contains("duplicates"), "{e:?}");
-    assert!(!e.choices.is_empty());
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.id == "d:authored:width" && d.placed.is_some())
+    );
     let mut s = authored(&a);
     s.dimensions
         .get_mut("d:authored:width")
@@ -726,11 +730,12 @@ fn cylinders_spheres_and_axis_offsets_are_measured_and_linted() {
         );
         let mut duplicate = s.clone();
         duplicate.dimension_source = model::DimensionSource::Auto;
+        let p = model::plan_recovered(&a, &duplicate).unwrap();
+        assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
         assert!(
-            model::plan_recovered(&a, &duplicate)
-                .unwrap_err()
-                .message
-                .contains("duplicates")
+            p.dimensions
+                .iter()
+                .any(|d| d.id == "d:authored:size" && d.placed.is_some())
         );
     }
     let x = planes(&a, 0);
@@ -796,12 +801,15 @@ fn authored_precision_pins_and_duplicate_authored_quantities() {
         "d:authored:second".into(),
         s.dimensions["d:authored:width"].clone(),
     );
-    assert!(
-        model::plan_recovered(&a, &s)
-            .unwrap_err()
-            .message
-            .contains("duplicates")
-    );
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
+    for id in ["d:authored:width", "d:authored:second"] {
+        assert!(
+            p.dimensions
+                .iter()
+                .any(|d| d.id == id && d.placed.is_some())
+        );
+    }
 }
 
 #[test]
