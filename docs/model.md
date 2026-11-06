@@ -2945,8 +2945,9 @@ origins are named in the basis and are labelled as origins rather than box minim
 Each coordinate cell locates only the feature identified by its row. A coincident
 number for another hole cannot locate a slot; shared location credit needs a drawn
 dimension witness conveying that slot's position.
-Lone-slot completeness checks both the lengthwise location and the transverse
-centre-line location, including when other features are scheduled in a hole table.
+The transverse backstop checks standalone obround slots with proven full-round
+ends, including when other features are scheduled in a hole table. Compound and
+unproven-end profiles retain their existing ledgers pending constraint analysis.
 An authored ordinate to a slot's explicitly named end-cylinder axis locates its
 transverse centre from either physical edge. That end cylinder supplies no claim
 to the slot's longitudinal centre or low end.

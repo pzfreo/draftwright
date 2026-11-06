@@ -10,9 +10,10 @@
 //! `bbox` for a slot): the offset of the slot's low end along its long axis from the part's box
 //! ([`location`]); a slot whose long axis lies along no axis of the part has a location that
 //! cannot be checked.
-//! Its transverse centre also needs locating (`location_slot_across.length`),
-//! unless it lies on the datum itself. A table cell for another feature cannot
-//! state this requirement, even when its numerical coordinate matches.
+//! A standalone full-round obround's transverse centre also needs locating
+//! (`location_slot_across.length`), unless it lies on the datum itself. Compound
+//! and unproven end profiles retain their existing ledgers pending constraint
+//! analysis. A table cell for another feature cannot state the slot's location.
 //!
 //! Lone obround slots that are congruent (the same width, length and full-round ends, seen through
 //! the same axis: [`grouped`]) are dimensioned together by one `N× SLOT W × L` callout
@@ -423,6 +424,12 @@ pub fn wanted(analysis: &Analysis) -> Vec<Wanted<'_>> {
             }),
             values: at.map(|(_, v)| vec![v]),
         });
+        // Unproven ends also occur in compound profile recognitions (NIST
+        // openings and split retaining rings). Their independent freedoms need
+        // the profile constraint analysis, rather than an extra centre ordinate.
+        if !full_round(f) || keyed(analysis, f) {
+            continue;
+        }
         let across =
             outline(analysis, f).map(|o| (AXES[o.wide], o.centre - analysis.envelope[0][o.wide]));
         if across.as_ref().is_ok_and(|(_, d)| d.abs() < 1e-6) {
@@ -922,8 +929,7 @@ mod tests {
                 "f:slot:1 location_slot_across.length",
                 "f:slot:2 slot_width.length",
                 "f:slot:2 slot_length.length",
-                "f:slot:2 location_slot.length",
-                "f:slot:2 location_slot_across.length"
+                "f:slot:2 location_slot.length"
             ]
         );
         assert_eq!(
@@ -1435,15 +1441,14 @@ mod tests {
                 )
             })
             .collect();
-        // The remaining lone slot needs both location axes (#319); pattern
-        // members still contribute no separate lone-slot requirements.
+        // This lone slot's ends are unproven, so it keeps the legacy ledger.
+        // Pattern members contribute no separate lone-slot requirements.
         assert_eq!(
             found,
             [
                 "slot_requirement_missing f:slot:3 slot_width.length",
                 "slot_requirement_missing f:slot:3 slot_length.length",
                 "slot_requirement_missing f:slot:3 location_slot.length",
-                "slot_requirement_missing f:slot:3 location_slot_across.length",
                 "slot_requirement_unverifiable f:slot_pattern:4 ?"
             ]
         );

@@ -1146,7 +1146,7 @@
 
 - id: LINT-slot_coverage-lone_slot
   statement: "A lone through slot states its width, its length, its end radius when the ends are proven arcs (obround), and its location."
-  detail: "Roles slot_width, slot_length, optional slot_end_radius and the feature's lengthwise location stem (<stem>.length). Rust additionally requires location_slot_across.length for the transverse centre line, unless it lies on the datum itself (#319, maintainer's 2026-10-08 transverse-location decision). A table coordinate for another feature grants no slot credit."
+  detail: "Roles slot_width, slot_length, optional slot_end_radius and the feature's lengthwise location stem (<stem>.length). Rust additionally requires location_slot_across.length for a standalone obround with proven full-round ends, unless its transverse centre lies on the datum (#319, maintainer's 2026-10-08 decision). Compound and unproven-end profiles keep their existing ledgers pending constraint analysis. A table coordinate for another feature grants no slot credit."
   class: drafting
   source:
     lint_code: "slot_requirement_missing"
