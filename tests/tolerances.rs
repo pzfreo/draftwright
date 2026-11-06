@@ -335,10 +335,12 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     );
     assert!(
         class_only
-            .dimensions
+            .problems
             .iter()
-            .any(|d| d.placed.is_some() && d.label.contains("K7"))
+            .any(|p| p.code == "tolerance_withheld" && p.subjects.contains(&hole.into()))
     );
+    assert!(class_only.dimensions.iter().any(|d| d.placed.is_some()));
+    assert!(!label(&class_only, "d:f:hole_pattern:1/bore.diameter").contains("K7"));
     let p = model::plan(
         &a,
         &spec(json!({"sheet":{"fit_deviations":true}, "features":{hole:{"fit":"K7"}}})),
@@ -347,9 +349,29 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     assert!(
         p.problems
             .iter()
+            .any(|p| p.code == "tolerance_withheld" && p.subjects.contains(&hole.into()))
+    );
+    assert!(!label(&p, "d:f:hole_pattern:1/bore.diameter").contains("K7"));
+    // A single boss has a unique callout, so a valid class outside the table prints.
+    let (_, boss) = analysed("boss_circle");
+    let p = model::plan(&boss, &spec(json!({"features":{"f:boss:1":{"fit":"m9"}}}))).unwrap();
+    assert!(label(&p, "d:f:boss:1/boss.diameter").contains("m9"));
+    assert!(
+        !p.problems
+            .iter()
             .any(|p| p.code == "fit_deviations_unavailable")
     );
-    assert!(label(&p, "d:f:hole_pattern:1/bore.diameter").contains("K7"));
+    let p = model::plan(
+        &boss,
+        &spec(json!({"sheet":{"fit_deviations":true}, "features":{"f:boss:1":{"fit":"m9"}}})),
+    )
+    .unwrap();
+    assert!(label(&p, "d:f:boss:1/boss.diameter").contains("m9"));
+    assert!(
+        p.problems
+            .iter()
+            .any(|p| p.code == "fit_deviations_unavailable")
+    );
     let e = refused(json!({ "features": { hole: { "fit": "h7" } } }));
     assert!(e.message.starts_with("\"h7\" reads as \"H7\""), "{e}");
     assert_eq!(e.choices, ["H7"]);
