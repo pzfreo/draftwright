@@ -326,6 +326,19 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     assert_eq!(e.choices, ["±0.05", "+0.1 -0.02"]);
     // A fit from outside draftwright's table, of the wrong case, or on a feature that takes none.
     let hole = "f:hole:1";
+    let class_only = model::plan(&a, &spec(json!({"features":{hole:{"fit":"K7"}}}))).unwrap();
+    assert!(
+        !class_only
+            .problems
+            .iter()
+            .any(|p| p.code == "fit_deviations_unavailable")
+    );
+    assert!(
+        class_only
+            .dimensions
+            .iter()
+            .any(|d| d.placed.is_some() && d.label.contains("K7"))
+    );
     let p = model::plan(
         &a,
         &spec(json!({"sheet":{"fit_deviations":true}, "features":{hole:{"fit":"K7"}}})),

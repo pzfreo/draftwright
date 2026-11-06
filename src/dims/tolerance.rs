@@ -26,7 +26,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Omitted, Want, fmt, levenshtein};
+use super::{Omitted, Want, levenshtein};
 use crate::items::{Op, State, key};
 use crate::model::{Analysis, Invalid, Problem, Spec};
 
@@ -41,7 +41,7 @@ use haecceity::presentation::tolerance::{GRADES, HOLE_CLASSES, SHAFT_CLASSES};
 pub(super) use haecceity::presentation::tolerance::{band, deviations, limits_term, with_limits};
 
 /// Reading a class is independent of our optional numerical-deviation table.
-fn fit(code: &str) -> Result<(&str, u32), String> {
+pub(super) fn fit(code: &str) -> Result<(&str, u32), String> {
     let n = code
         .find(|c: char| c.is_ascii_digit())
         .unwrap_or(code.len());

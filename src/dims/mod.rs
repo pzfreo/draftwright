@@ -3197,7 +3197,7 @@ fn plan_inventory_ordered(
             continue;
         }
         match spec.dimension_source {
-            DimensionSource::Auto if entry.is_some_and(|e| e.omit) => omitted.push(Omitted {
+            _ if entry.is_some_and(|e| e.omit) => omitted.push(Omitted {
                 label: crate::callouts::label(&w.terms),
                 id: w.id,
                 basis: "authored: the spec omits it".into(),

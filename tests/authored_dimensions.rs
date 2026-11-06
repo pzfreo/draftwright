@@ -388,7 +388,7 @@ fn a_hole_to_hole_pitch_does_not_absolutely_locate_either_hole() {
 fn a_face_axis_alias_and_reversed_references_still_name_the_same_feature() {
     let (_, a, datum, holes) = coincident_locations();
     let cylinder = cylinder_face(&a, &holes[0]);
-    let s = parse(json!({"dimension_source":"authored","dimensions":{
+    let mut s = parse(json!({"dimension_source":"authored","dimensions":{
         "d:authored:first":{"between":[format!("axis:{}",holes[0]),datum],"along":"y","view":"plan"},
         "d:authored:second":{"between":[datum,format!("axis:{cylinder}")],"along":"true","view":"side"}
     }}));
@@ -401,6 +401,14 @@ fn a_face_axis_alias_and_reversed_references_still_name_the_same_feature() {
                 .any(|d| d.id == id && d.placed.is_some())
         );
     }
+    s.dimensions.get_mut("d:authored:first").unwrap().tolerance = Some("±0.1".into());
+    s.dimensions.get_mut("d:authored:second").unwrap().tolerance = Some("±0.2".into());
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("contradicts")
+    );
 }
 
 fn cylinder_face(a: &Analysis, feature: &str) -> String {

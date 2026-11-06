@@ -2,10 +2,9 @@
   "293": {
     "case": "steer_293_inclined_hole",
     "group": "A",
-    "reason": "Inclined-hole location is still missing and its requested note role is refused.",
+    "reason": "The requested note role is accepted; inclined-hole location remains missing.",
     "checks": [
-      "feature_not_located",
-      "lint_role_accepted"
+      "feature_not_located"
     ]
   },
   "296": {
@@ -20,9 +19,8 @@
   "299": {
     "case": "steer_299_agent_rough_edges",
     "group": "E",
-    "reason": "The tolerance fix freezes layout, reference rounding is reported, and detail refusal is vague.",
+    "reason": "Detail layout now warns specifically; the tolerance fix still freezes layout and reference rounding is reported.",
     "checks": [
-      "detail_reason",
       "reference_precision",
       "tolerance_fix_local"
     ]
@@ -136,14 +134,6 @@
       "d:f:hole:3/location.length.y"
     ]
   },
-  "312": {
-    "case": "steer_312_pattern_note_in_plan",
-    "group": "B",
-    "reason": "A pattern note is refused in the plan view that shows the circle.",
-    "checks": [
-      "note_in_plan"
-    ]
-  },
   "314": {
     "case": "steer_314_plain_hole_section",
     "group": "B",
@@ -168,28 +158,12 @@
       "reference_does_not_locate"
     ]
   },
-  "317": {
-    "case": "steer_317_reference_covers_nothing",
-    "group": "B",
-    "reason": "The reference overall length still covers the required 30 mm spigot length.",
-    "checks": [
-      "length_30"
-    ]
-  },
   "319": {
     "case": "steer_319_table_does_not_locate_slot",
     "group": "A",
     "reason": "The slot across location is only covered by another hole's table cells; duplicate_measurement credits that defective coverage, and no location-missing finding reports it.",
     "checks": [
       "slot_across_stated_or_reported"
-    ]
-  },
-  "320": {
-    "case": "steer_320_slot_centre_reference",
-    "group": "B",
-    "reason": "The slot centre reference is refused as several cylinder axes.",
-    "checks": [
-      "slot_centre_accepted"
     ]
   },
   "321": {

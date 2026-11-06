@@ -37,14 +37,6 @@ fn refusals_name_the_entry_the_part_does_not_have() {
     assert!(s.analysis().features.iter().any(|f| f.id == "f:hole:1"));
     let cases = [
         (
-            json!({"dimensions":{"d:f:hole:1/bore.diameter":{"omit":true}}}),
-            "dimensions/d:f:hole:1~1bore.diameter",
-        ),
-        (
-            json!({"dimensions":{"d:f:hole:99/bore.diameter":{"omit":true}}}),
-            "dimensions/d:f:hole:99~1bore.diameter",
-        ),
-        (
             json!({"features":{"f:hole:99":{"suppress":true}}}),
             "features/f:hole:99",
         ),
@@ -52,15 +44,7 @@ fn refusals_name_the_entry_the_part_does_not_have() {
             json!({"features":{"f:hole:99":{"fit":"H7"}}}),
             "features/f:hole:99",
         ),
-        (
-            json!({"annotations":{"pmi:gone":{"omit":true}}}),
-            "annotations/pmi:gone",
-        ),
         (json!({"views":{"gone":{"omit":true}}}), "views/gone"),
-        (
-            json!({"precision":{"d:f:hole:99/bore.diameter":2}}),
-            "precision/d:f:hole:99~1bore.diameter",
-        ),
     ];
     for (value, path) in cases {
         let e = s.set_spec(&spec(value.clone())).unwrap_err();
@@ -68,16 +52,22 @@ fn refusals_name_the_entry_the_part_does_not_have() {
         assert_eq!(e.path.as_deref(), Some(path), "{value}");
         assert_eq!(serde_json::to_value(&e).unwrap()["path"], path);
     }
-    let e = s
-        .set_spec(&spec(
-            json!({"dimensions":{"d:f:hole:1/bore.diameter":{"omit":true}}}),
-        ))
-        .unwrap_err();
-    assert_eq!(
-        e.message,
-        "There is no dimension \"d:f:hole:1/bore.diameter\" on this part."
-    );
-    assert_eq!(e.choices.len(), 5);
+    for value in [
+        json!({"dimensions":{"d:f:hole:1/bore.diameter":{"omit":true}}}),
+        json!({"dimensions":{"d:f:hole:99/bore.diameter":{"omit":true}}}),
+        json!({"annotations":{"pmi:gone":{"omit":true}}}),
+        json!({"precision":{"d:f:hole:99/bore.diameter":2}}),
+    ] {
+        let requested = spec(value);
+        s.set_spec(&requested).unwrap();
+        assert!(
+            s.plan()
+                .problems
+                .iter()
+                .any(|p| p.code.ends_with("edit_unapplied"))
+        );
+        assert!(s.plan().dimensions.iter().any(|d| d.placed.is_some()));
+    }
     let e = s
         .set_spec(&spec(
             json!({"dimensions":{"d:f:hole:4/bore.diameter":{"place":{"view":"iso"}}}}),
@@ -112,16 +102,6 @@ fn open_spec_sets_aside_what_the_part_no_longer_has() {
         got,
         [
             set_aside(
-                "annotations/pmi:gone",
-                json!({"omit": true}),
-                "no_annotation"
-            ),
-            set_aside(
-                "dimensions/d:f:hole:1~1bore.diameter",
-                json!({"omit": true}),
-                "no_dimension"
-            ),
-            set_aside(
                 "dimensions/d:f:hole:99~1bore.diameter",
                 json!({"place": {"side": "above"}}),
                 "no_feature"
@@ -145,9 +125,13 @@ fn open_spec_sets_aside_what_the_part_no_longer_has() {
     assert!(opened.spec["sheet"].get("preferred_printer").is_none());
     assert_eq!(
         opened.spec["dimensions"],
-        json!({"d:f:hole:4/bore.diameter": {"omit": true}})
+        json!({"d:f:hole:4/bore.diameter": {"omit": true}, "d:f:hole:1/bore.diameter":{"omit":true}})
     );
     assert_eq!(opened.spec["views"], json!({"iso": {"omit": true}}));
+    assert_eq!(opened.spec["annotations"]["pmi:gone"], json!({"omit":true}));
+    for code in ["dimension_edit_unapplied", "annotation_edit_unapplied"] {
+        assert!(s.plan().problems.iter().any(|p| p.code == code));
+    }
     assert!(opened.spec.get("features").is_none_or(|f| f == &json!({})));
     // Applied: the bore is omitted and the iso view is not drawn.
     assert!(

@@ -1,6 +1,5 @@
 # The draftwright model: three documents and five operations
 
-
 Spec validation refuses an instruction only when it would state something false,
 names a quantity that cannot be measured unambiguously, or cannot be drawn
 truthfully. Otherwise generation produces the drawing and explains the shortcoming

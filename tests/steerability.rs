@@ -1625,8 +1625,21 @@ fn steer_323_axis_reference_guidance() {
         e.contains(&format!("axis:{key}"))
             || e.contains("axis:<key from Analysis.edge_ink.references>"),
     );
-    s["dimensions"]["d:authored:slot_y"]["between"][1] = json!("axis:f:slot:1");
-    let e = plan_result(PLATE, &s).err().unwrap();
+    // #320 gives a slot a unique centre. An actual compound of two holes still
+    // has several axes and must retain the same copyable guidance.
+    let mut analysis = fixture(PLATE).analysis.clone();
+    let mut holes = analysis.features.iter().filter(|f| f.kind == "hole");
+    let mut compound = holes.next().unwrap().clone();
+    compound
+        .faces
+        .extend_from_slice(&holes.next().unwrap().faces);
+    compound.id = "f:compound:guidance".into();
+    analysis.features.push(compound);
+    s["dimensions"]["d:authored:slot_y"]["between"][1] = json!("axis:f:compound:guidance");
+    let e = api::plan_analysed(&analysis, &serde_json::from_value(s).unwrap())
+        .err()
+        .unwrap()
+        .to_string();
     assert!(e.contains("several cylinder axes"), "{e}");
     c.want(
         "unambiguous_axis_instruction",

@@ -256,9 +256,16 @@ fn placement_vocabulary_is_validated_without_page_coordinates() {
         "v:plan"
     );
     let bad = spec(&d.id, json!({"side":"left"}));
-    assert_eq!(
-        model::plan(&a, &bad).unwrap_err().choices,
-        vec!["above", "below"]
+    let plan = model::plan(&a, &bad).unwrap();
+    assert!(
+        plan.problems
+            .iter()
+            .any(|p| p.code == "placement_unapplied")
+    );
+    assert!(
+        plan.dimensions
+            .iter()
+            .any(|shown| shown.id == d.id && shown.placed.is_some())
     );
 }
 
