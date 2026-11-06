@@ -370,6 +370,9 @@ pub struct Riser {
 #[serde(deny_unknown_fields, default)]
 pub struct Spec {
     pub schema: String,
+    /// Part identity from `draftwright parts`: a persistent key or its numeric index.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part: Option<PartChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binding: Option<Binding>,
     #[serde(deserialize_with = "sheet_document")]
@@ -438,6 +441,8 @@ pub struct Spec {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub gears: Vec<crate::gears::GearSpec>,
 }
+
+pub use crate::part_choice::PartChoice;
 
 /// How the part's semantic PMI participates in a drawing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -576,6 +581,7 @@ impl Default for Spec {
     fn default() -> Self {
         Spec {
             schema: SPEC_SCHEMA.into(),
+            part: None,
             binding: None,
             sheet: SheetSpec::default(),
             balloons: Default::default(),
@@ -5569,6 +5575,7 @@ fn plan_with_presentation(
     policy: ViewPolicy,
     presentation: Option<&crate::hole_table::Selection>,
 ) -> Result<Plan, Invalid> {
+    crate::part_choice::check(analysis, spec)?;
     let ViewPolicy {
         complete: complete_views,
         require_detail: require_automatic,
@@ -5955,6 +5962,7 @@ fn plan_with_presentation(
     }
     // An assembly's principal part drawn alone (#219): the other parts are not drawn.
     if analysis.principal
+        && spec.part.is_none()
         && let Some(k) = analysis.binding.part_index
     {
         let file = analysis

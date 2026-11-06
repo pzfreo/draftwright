@@ -8,6 +8,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Changed
 
+- Select a part in the Spec by persistent key or numeric index (#324); refuse
+  conflicting command/request selectors.
+
 - Spec validation preserves truthful drawing requests (#308): warn for duplicate
   measurements, unavailable layout and stale edits; accept axis origins and
   Cartesian note roles. ISO 286 fit classes print even outside the optional

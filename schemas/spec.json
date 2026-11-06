@@ -10,6 +10,26 @@
         "draftwright.spec/2"
       ]
     },
+    "part": {
+      "description": "Part identity from draftwright parts: persistent key (preferred) or numeric index. Acts like --part; conflicting command/request selectors are refused. A saved Analysis must already contain this part.",
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "binding": {
       "anyOf": [
         {
@@ -1661,6 +1681,26 @@
           "enum": [
             "draftwright.spec/1",
             "draftwright.spec/2"
+          ]
+        },
+        "part": {
+          "description": "Part identity from draftwright parts: persistent key (preferred) or numeric index. Acts like --part; conflicting command/request selectors are refused. A saved Analysis must already contain this part.",
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "binding": {

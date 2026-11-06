@@ -69,6 +69,7 @@ pub mod local_layout;
 mod nominal;
 mod notches;
 mod oriented_chamfers;
+mod part_choice;
 mod planning;
 mod quiddity_evidence;
 pub mod sheet_policy;

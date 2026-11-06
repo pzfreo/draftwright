@@ -3309,3 +3309,13 @@ and returns `{parts:[...]}`.
 Page references are 1-based in exact PDF order: GA first when present, then
 made-part sheets. Failed and bought rows have no sheets. The WASM Pack API is
 documented in [wasm.md](wasm.md#assembly-drawing-packs).
+
+
+### Part selection in the Spec
+
+`part` selects one part before recognition and drawing, like `--part K`. Use the
+persistent `key` printed by `draftwright parts`, or its numeric `part` index.
+A command/request selector must agree with the Spec; conflicts are refused.
+An Analysis supplied without its STEP must already describe the selected part:
+it cannot supply another part's geometry. Explicit selection of the already
+analysed principal part removes `assembly_principal_drawn`.

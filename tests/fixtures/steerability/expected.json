@@ -125,14 +125,6 @@
       "tags_follow_rows_then_columns"
     ]
   },
-  "324": {
-    "case": "steer_324_spec_selects_part",
-    "group": "B",
-    "reason": "The top-level part field is unknown.",
-    "checks": [
-      "part_field_accepted"
-    ]
-  },
   "325": {
     "case": "steer_325_pin_respects_other_placement",
     "group": "C",

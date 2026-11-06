@@ -91,7 +91,7 @@ pub fn plan_part(
     features: Features,
     spec: &Spec,
 ) -> Result<Plan, Error> {
-    let (_, analysis) = analysed(step, part, features)?;
+    let (_, analysis) = analysed(step, selected_part(step, part, spec)?, features)?;
     Ok(planned(&analysis, spec)?)
 }
 
@@ -108,6 +108,23 @@ fn planned(analysis: &Analysis, spec: &Spec) -> Result<Plan, model::Invalid> {
     crate::plan_cache::plan_recovered_in(crate::plan_cache::dir().as_deref(), analysis, spec)
 }
 
+/// Resolve a persistent Spec identity before recognition, and refuse conflicting selectors.
+fn selected_part(step: &Path, request: Option<usize>, spec: &Spec) -> Result<Option<usize>, Error> {
+    let selected = spec
+        .part
+        .as_ref()
+        .map(|choice| {
+            let parts = if matches!(choice, crate::part_choice::PartChoice::Key(_)) {
+                parts(step)?
+            } else {
+                Vec::new()
+            };
+            choice.resolve(&parts).map_err(Error::from)
+        })
+        .transpose()?;
+    Ok(crate::part_choice::reconcile(request, selected)?)
+}
+
 /// Where an operation that draws takes the part's Analysis from.
 #[derive(Clone, Copy)]
 enum Given<'a> {
@@ -119,9 +136,11 @@ enum Given<'a> {
 }
 
 /// The part at *step* and its analysis, as *given*.
-fn read(step: &Path, given: Given) -> Result<(Part, Analysis), Error> {
+fn read(step: &Path, given: Given, spec: &Spec) -> Result<(Part, Analysis), Error> {
     match given {
-        Given::Features(features, part) => analysed(step, part, features),
+        Given::Features(features, part) => {
+            analysed(step, selected_part(step, part, spec)?, features)
+        }
         Given::Analysis(analysis) => Ok((bound(step, analysis)?, analysis.clone())),
     }
 }
@@ -173,7 +192,7 @@ pub fn edit(spec: &Spec, ops: &Value) -> Result<Spec, Error> {
 /// The analysis, the plan and the drawing of the STEP file at *step* under *spec*. The plan's
 /// problems include the drawing's: what could not be drawn as planned.
 fn drawn(step: &Path, given: Given, spec: &Spec) -> Result<(Analysis, Plan, Vec<Drawing>), Error> {
-    let (part, analysis) = read(step, given)?;
+    let (part, analysis) = read(step, given, spec)?;
     let mut plan = planned(&analysis, spec)?;
     let font = Font::new(MONO.to_vec()).expect("the bundled font parses");
     let drawings = model::render_sheets(&part, &analysis, &plan, &font).map_err(|e| {
@@ -562,6 +581,16 @@ fn dispatch(op: &str, args: &Value) -> Result<Value, Error> {
                     .map_err(|e| Error::invalid(format!("the analysis is not valid: {e}")))?,
             ),
         };
+        if let Some(a) = &analysis {
+            let spec = given()?;
+            crate::part_choice::check(a, &spec)?;
+            let selected = spec
+                .part
+                .as_ref()
+                .map(|c| crate::part_choice::selected(a, c))
+                .transpose()?;
+            crate::part_choice::reconcile(part, selected)?;
+        }
         if let Some(a) = &analysis
             && !made_of_part(a, part)
         {

@@ -13,6 +13,13 @@
             "draftwright.spec/2"
           ]
         },
+        "part": {
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
         "binding": {
           "type": [
             "object",

@@ -2159,3 +2159,38 @@ fn authored_slot_across_from_far_face_is_credited_without_borrowing_table_cells(
         "other holes' table cells locate no slot"
     );
 }
+
+#[test]
+fn spec_part_identity_and_conflicts() {
+    let f = fixture(PIVOT);
+    let keys = draftwright::pack::part_keys(&f.analysis.parts);
+    let key = &keys[0];
+    let spec: Spec = serde_json::from_value(json!({"part": key})).unwrap();
+    let step = root().join(format!("{PIVOT}.step.gz"));
+    let p = api::plan_part(&step, Some(0), api::Features::Native, &spec).unwrap();
+    assert_eq!(p.binding.part_index, Some(0));
+    assert!(!has(&p, "assembly_principal_drawn"));
+    let error = api::plan_part(&step, Some(1), api::Features::Native, &spec).unwrap_err();
+    assert!(error.message.contains("conflicts"), "{error}");
+    let error = api::call(
+        "plan",
+        &json!({"analysis": f.analysis, "part": 1, "spec": {"part": key}}),
+    )
+    .unwrap_err();
+    assert!(error.message.contains("conflicts"), "{error}");
+    let wrong: Spec = serde_json::from_value(json!({"part":1})).unwrap();
+    assert!(
+        api::plan_analysed(&f.analysis, &wrong)
+            .unwrap_err()
+            .message
+            .contains("analyse that part")
+    );
+    let unknown: Spec =
+        serde_json::from_value(json!({"part":"missing persistent identity"})).unwrap();
+    assert!(
+        api::plan_part(&step, None, api::Features::Native, &unknown)
+            .unwrap_err()
+            .message
+            .contains("part key")
+    );
+}
