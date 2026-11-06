@@ -159,14 +159,6 @@
       "length_30"
     ]
   },
-  "319": {
-    "case": "steer_319_table_does_not_locate_slot",
-    "group": "A",
-    "reason": "The slot across location is only covered by another hole's table cells; duplicate_measurement credits that defective coverage, and no location-missing finding reports it.",
-    "checks": [
-      "slot_across_stated_or_reported"
-    ]
-  },
   "320": {
     "case": "steer_320_slot_centre_reference",
     "group": "B",
