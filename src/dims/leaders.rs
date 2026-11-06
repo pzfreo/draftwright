@@ -715,16 +715,23 @@ fn own_reach(measurements: &[super::Measurement], scale: f64) -> f64 {
 /// Compound requirements need paper around their extra signs and smaller stacked figures.
 /// Ordinary labels retain their established corridors; all labels still test actual strokes.
 fn stroke_clearance(terms: &[String]) -> f64 {
+    let mut after_size = false;
     let qualified = terms
         .iter()
         .flat_map(|t| t.split(|c: char| c.is_whitespace() || matches!(c, '(' | ')')))
         .any(|word| {
+            // R5 is a radius nominal; only a class following a size qualifies it.
+            let fit = after_size && super::tolerance::fit(word).is_ok();
+            after_size = word
+                .trim_start_matches(['⌀', 'ø', 'Ø'])
+                .parse::<f64>()
+                .is_ok();
             word == "-"
                 || word
                     .strip_prefix('±')
                     .is_some_and(|n| n.parse::<f64>().is_ok())
                 || (word.starts_with(['+', '-']) && word.parse::<f64>().is_ok())
-                || super::tolerance::fit(word).is_ok()
+                || fit
         });
     if qualified { STROKE_PAD } else { 0.0 }
 }
@@ -7811,6 +7818,17 @@ pub(super) fn settled_routes(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn radius_nominals_do_not_take_fit_clearance() {
+        let clearance = |words: &[&str]| {
+            super::stroke_clearance(&words.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        };
+        assert_eq!(clearance(&["R5"]), 0.0);
+        assert_eq!(clearance(&["4×", "R5"]), 0.0);
+        assert_eq!(clearance(&["⌀10", "R9"]), super::STROKE_PAD);
+        assert_eq!(clearance(&["10", "N9"]), super::STROKE_PAD);
+    }
+
     /// A counterbore or spotface is the callout's own outermost circle: a centre mark sized to
     /// it (CTC-02's ⌀40 THRU ⌴SF ⌀120) is the hole's own, not a coaxial circle's (#104).
     #[test]
