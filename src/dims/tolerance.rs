@@ -251,7 +251,7 @@ pub(super) fn same_requirement(
     spec: &Spec,
     p: &Want,
     q: &Want,
-    subjects: &[String],
+    subjects: &BTreeSet<String>,
 ) -> bool {
     let inherited = spec.sheet.title.get("tolerance").cloned().or_else(|| {
         crate::pmi_lowering::sheet_requirements(a)
@@ -846,7 +846,7 @@ mod tests {
             &spec,
             &copy,
             &original,
-            &["f:boss:1".into()]
+            &BTreeSet::from(["f:boss:1".into()])
         ));
         original.id = "d:f:boss:1/boss.diameter".into();
         original.measurements[0].parameter = "boss.diameter".into();
@@ -863,7 +863,7 @@ mod tests {
             &spec,
             &copy,
             &original,
-            &["f:boss:1".into()]
+            &BTreeSet::from(["f:boss:1".into()])
         ));
         original.measurements.push(super::super::Measurement {
             feature: "f:boss:2".into(),
@@ -876,7 +876,7 @@ mod tests {
             &spec,
             &copy,
             &original,
-            &["f:boss:2".into()]
+            &BTreeSet::from(["f:boss:2".into()])
         ));
         spec.dimensions
             .get_mut("d:authored:copy")
@@ -887,7 +887,7 @@ mod tests {
             &spec,
             &copy,
             &original,
-            &["f:boss:2".into()]
+            &BTreeSet::from(["f:boss:2".into()])
         ));
     }
 
