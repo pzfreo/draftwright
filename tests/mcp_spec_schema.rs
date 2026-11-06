@@ -30,9 +30,10 @@ fn discovery() -> Value {
 #[test]
 fn schema_discovery_needs_no_part_or_cache_and_refuses_arguments() {
     let result = discovery();
+    // The generated read shape shares the complete process contract, including its choices.
     assert_eq!(
-        result["spec"]["$defs"]["spec_read"]["properties"]["process"]["$ref"],
-        "#/properties/process"
+        result["spec"]["$defs"]["spec_read"]["properties"]["process"],
+        result["spec"]["properties"]["process"]
     );
     assert_eq!(
         result["spec"]["properties"]["process"]["enum"],

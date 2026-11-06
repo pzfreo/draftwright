@@ -71,6 +71,9 @@
             "ignore"
           ]
         },
+        "process": {
+          "$ref": "#/B"
+        },
         "origin": {
           "$ref": "#/A"
         },
@@ -82,10 +85,7 @@
           ]
         },
         "envelope_tolerance": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "$ref": "#/B"
         },
         "notes": {
           "type": "array"
@@ -209,10 +209,7 @@
       "additionalProperties": false,
       "patternProperties": {
         "^(view|kind|feature|near)$(?!\n)": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "$ref": "#/B"
         }
       }
     }
@@ -223,5 +220,11 @@
   "additionalProperties": false,
   "A": {
     "type": "object"
+  },
+  "B": {
+    "type": [
+      "string",
+      "null"
+    ]
   }
 }

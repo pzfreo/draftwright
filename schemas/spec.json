@@ -1824,7 +1824,18 @@
           }
         },
         "process": {
-          "$ref": "#/properties/process"
+          "description": "Per-part process. Overrides file specify process UDA and material-class guess. Printed defaults are marked CHECK; override tolerance at sheet/title/tolerance and finish at sheet/default_finish.",
+          "enum": [
+            "machined",
+            "3D printed: FDM",
+            "3D printed: resin",
+            "3D printed: powder",
+            "3D printed: metal",
+            "sheet metal",
+            "moulded",
+            "cast",
+            null
+          ]
         }
       },
       "additionalProperties": false
