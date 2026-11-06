@@ -675,6 +675,36 @@ fn dimension_fits_refuse_locations_and_pitches_but_keep_feature_sizes() {
             .message
             .contains("feature of size")
     );
+    // A chain edge may own coverage for the overall width without measuring that size.
+    let (_, native) = model::analyse_native(&fixture("parts/plate.step")).unwrap();
+    let mut targets: Vec<_> = native
+        .features
+        .iter()
+        .filter(|f| f.kind == "hole")
+        .map(|f| f.id.clone())
+        .collect();
+    targets.push("max".into());
+    let mut chain = spec(
+        json!({"dimension_schemes":{"x":{"scheme":"chain","axis":"x","view":"plan","from":"min","targets":targets}}}),
+    );
+    let plan = model::plan_recovered(&native, &chain).unwrap();
+    let link = plan
+        .dimensions
+        .iter()
+        .find(|d| {
+            d.id.starts_with("d:scheme:")
+                && d.measurements
+                    .iter()
+                    .any(|m| m.feature == "scheme_owns:envelope" && m.parameter == "width.length")
+        })
+        .unwrap();
+    assert!(link.value < native.envelope[1][0] - native.envelope[0][0]);
+    chain.dimensions.insert(
+        link.id.clone(),
+        serde_json::from_value(json!({"fit":"H7"})).unwrap(),
+    );
+    let error = model::plan_recovered(&native, &chain).unwrap_err();
+    assert!(error.message.contains("feature of size") && error.message.contains(&link.id));
     let p = model::plan_recovered(
         &a,
         &spec(json!({"dimensions":{"d:envelope/width.length":{"fit":"H7"}}})),

@@ -220,7 +220,11 @@ fn size_parameter(p: &str) -> bool {
 }
 
 fn feature_size(a: &Analysis, spec: &Spec, w: &Want) -> bool {
-    if w.measurements.iter().any(|m| size_parameter(&m.parameter)) {
+    // Coverage riders do not change the quantity the leading nominal states.
+    if w.measurements
+        .first()
+        .is_some_and(|m| size_parameter(&m.parameter))
+    {
         return true;
     }
     // Authored linear quantities carry geometry parameters until ownership is attached.

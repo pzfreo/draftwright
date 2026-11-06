@@ -16,7 +16,7 @@ All notable changes to draftwright-rust are recorded here, in the style of
   in the circle's plan view (#312), retain authored dimension views (#303), accept
   slot-centre references (#320), and omit centred keyway tangent locations (#302).
 
-- Refuse contradictory repeated dimension requirements and fits on locations or pitches;
+- Refuse contradictory repeated dimension requirements and fits on locations, pitches or station networks;
   validate note location roles against feature evidence. Preserve presentation-only scheme
   repeats with a warning, share centred-keyway evidence, and name detail scales as ratios.
 
