@@ -6235,7 +6235,18 @@ fn plan_with_presentation(
                 || crate::dims::reduction_preserves_requirements(analysis, spec, kept, &excluded))
     });
     // A part that is not turned leaves out a plan or side view that adds nothing (#222).
-    let reduction = reduction.or_else(|| crate::dims::idle_view(analysis, spec, &demand));
+    let reduction = reduction
+        .or_else(|| crate::dims::idle_view(analysis, spec, &demand))
+        .filter(|(_, dropped, _)| {
+            !spec.dimensions.values().any(|d| {
+                !d.omit
+                    && d.place
+                        .as_ref()
+                        .and_then(|p| p.view.as_deref())
+                        .or(d.view.as_deref())
+                        == Some(*dropped)
+            })
+        });
     let shown = |name: &str| match spec.views.get(name) {
         Some(v) => !v.omit,
         None => !reduction.as_ref().is_some_and(|r| r.1 == name),
