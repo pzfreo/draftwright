@@ -52,7 +52,7 @@
   "307": {
     "case": "steer_307_completeness_mutations",
     "group": "A",
-    "reason": "Completeness does not credit geometric constraints, attribute every removal, or report profile redundancy.",
+    "reason": "The shaft baseline is defined after centred-keyway handling; bracket constraints, mutation attribution and profile redundancy remain incomplete.",
     "checks": [
       "angle-bracket_defined",
       "controlling_overall_is_redundant",
@@ -72,19 +72,7 @@
       "remove_d:f:section_recess:1/pocket_width.length",
       "remove_d:f:turned_step:2/step.length",
       "remove_d:f:turned_step:3/step.length",
-      "remove_d:step_level/step_height.length.h8",
-      "stepped-shaft-keyway_defined"
-    ]
-  },
-  "308": {
-    "case": "steer_308_refusal_boundary",
-    "group": "B",
-    "reason": "Conventional fit, axis datum, requested note role and small detail requests are refused.",
-    "checks": [
-      "axis_datum_draws",
-      "conventional_fit_draws",
-      "requested_role_draws",
-      "small_detail_reports_layout"
+      "remove_d:step_level/step_height.length.h8"
     ]
   },
   "309": {
