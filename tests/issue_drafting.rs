@@ -1469,7 +1469,7 @@ fn every_authored_tolerance_reaches_the_label_that_claims_it() {
 /// ISSUE-1215-d, in part: a pattern whose gaps are not equal claims no tolerance on a pitch it
 /// does not have. two_grids' first linear pattern with its middle hole moved 0.3 mm (gaps 10.3
 /// and 9.7): the port does not collapse it to `2× 10`, so it plans no pitch, and a tolerance set
-/// on that pitch is refused naming it; its holes are dimensioned singly, and their callout's
+/// on that absent pitch warns without inventing it; its holes are dimensioned singly, and their callout's
 /// basis says why. The control: the even pattern prints `2× 10 ±0.05`. draftwright collapses
 /// the jittered pattern (its recogniser admits 2 % jitter), prints the bare `2× 10` and records
 /// the withheld tolerance; the port states no equal pitch over unequal gaps at all
@@ -1511,8 +1511,14 @@ fn a_jittered_pattern_claims_no_pitch_tolerance() {
         "{}",
         single.basis
     );
-    let e = model::plan(&jittered, &tolerances(&[(pitch, "±0.05")])).unwrap_err();
-    assert!(e.message.contains(pitch), "{e}");
+    let p = model::plan(&jittered, &tolerances(&[(pitch, "±0.05")])).unwrap();
+    assert!(p.problems.iter().any(|p| {
+        p.code == "dimension_edit_unapplied"
+            && p.subjects
+                .contains(&format!("dimensions/{}", draftwright::items::key(pitch)))
+    }));
+    assert!(p.dimensions.iter().all(|d| d.id != pitch));
+    assert!(p.dimensions.iter().any(|d| d.placed.is_some()));
 }
 
 /// ISSUE-1215-e: an overall extent never leaves the sheet silently. On every part each
