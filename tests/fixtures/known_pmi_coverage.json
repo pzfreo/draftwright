@@ -8908,15 +8908,6 @@
   "file": "nist_stc_06_asme1_ap242-e3.stp",
   "python": null,
   "rust": "info",
-  "source": "finding:#11930",
-  "verdict": "rust-correct",
-  "evidence": "Not a draftwright requirement (a property, attribute set, standard or reader finding haecceity did not read); draftwright's census does not hold it, the port reports it as info, as the plan does. port: \"haecceity nonconformance: shape aspect identifies no face or edge; not read\""
- },
- {
-  "code": "pmi_not_extracted",
-  "file": "nist_stc_06_asme1_ap242-e3.stp",
-  "python": null,
-  "rust": "info",
   "source": "finding:#4088",
   "verdict": "rust-correct",
   "evidence": "Not a draftwright requirement (a property, attribute set, standard or reader finding haecceity did not read); draftwright's census does not hold it, the port reports it as info, as the plan does. port: \"haecceity unresolved-reference: items that are not faces, edges or geometry the reader holds: manifold_solid_brep; feature not read\""
@@ -10903,15 +10894,6 @@
   "source": "dimension:0:1:4:144",
   "verdict": "rust-correct",
   "evidence": "XCAF lists a common label (a note) among the part's dimensions and draftwright, finding no such label in Part 21, reports it not extracted; it is no dimension: the port reads Part 21's dimensions and common labels, and haecceity's reading of the note is a source of its own. draftwright: \"Part21 has no common label named 'Note (195)'\""
- },
- {
-  "code": "pmi_not_extracted",
-  "file": "nist_stc_10_asme1_ap242-e2.stp",
-  "python": null,
-  "rust": "info",
-  "source": "finding:#15",
-  "verdict": "rust-correct",
-  "evidence": "Not a draftwright requirement (a property, attribute set, standard or reader finding haecceity did not read); draftwright's census does not hold it, the port reports it as info, as the plan does. port: \"haecceity nonconformance: shape aspect identifies no face or edge; not read\""
  },
  {
   "code": "pmi_not_extracted",

@@ -6,6 +6,12 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+## 0.2.12 (2026-11-06)
+
+On quiddity-rust 0.4.8 (was 0.4.7). Its PMI reader no longer reports a face-less shape aspect
+for a default saved view, so files with a default saved view (such as the Notes view quiddity
+0.4.8 writes, and NIST STC-06 and STC-10) lose that `pmi_not_extracted` info finding.
+
 ### Added
 
 - `draftwright completions SHELL` prints a shell completion script (bash, zsh, fish,

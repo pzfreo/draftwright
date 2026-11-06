@@ -1,6 +1,6 @@
 [package]
 name = "draftwright"
-version = "0.2.11"
+version = "0.2.12"
 edition = "2024"
 autotests = false
 license = "AGPL-3.0-only"
@@ -23,10 +23,10 @@ clap = { version = "4.6.1", features = ["derive"], optional = true }
 clap_complete = { version = "4.6", optional = true }
 dxf = { version = "0.6.2", features = ["serialize"] }
 flate2 = "1.1.10"
-haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.7" }
+haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.8" }
 pdf-writer = "0.15"
 png = "0.18.1"
-quiddity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.7" }
+quiddity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.8" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 sha2 = "0.11.0"
