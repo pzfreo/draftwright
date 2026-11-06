@@ -77,6 +77,47 @@ pub(super) fn consolidate(
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
 ) -> References {
+    // Information-only statements never supply controlling edges or own a requirement.
+    let order: std::collections::BTreeMap<_, _> = kept
+        .iter()
+        .enumerate()
+        .map(|(i, (w, ..))| (w.id.clone(), i))
+        .collect();
+    let mut information = Vec::new();
+    let old = std::mem::take(kept);
+    for (item, fields) in old.into_iter().zip(std::mem::take(given)) {
+        if spec
+            .dimensions
+            .get(&item.0.id)
+            .is_some_and(|d| d.style == Some(crate::label_text::Style::Reference))
+        {
+            information.push((item, fields));
+        } else {
+            kept.push(item);
+            given.push(fields);
+        }
+    }
+    let references = controlling(a, spec, kept, given, omitted);
+    let mut combined: Vec<_> = std::mem::take(kept)
+        .into_iter()
+        .zip(std::mem::take(given))
+        .chain(information)
+        .collect();
+    combined.sort_by_key(|((w, ..), _)| order[&w.id]);
+    for (item, fields) in combined {
+        kept.push(item);
+        given.push(fields);
+    }
+    references
+}
+
+fn controlling(
+    a: &Analysis,
+    spec: &Spec,
+    kept: &mut Vec<Kept>,
+    given: &mut Vec<Vec<String>>,
+    omitted: &mut Vec<Omitted>,
+) -> References {
     super::gussets::share(kept, given, omitted);
     let mut references = References::new();
     if !walkable(a) {
