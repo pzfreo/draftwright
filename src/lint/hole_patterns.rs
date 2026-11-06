@@ -53,7 +53,9 @@ pub(crate) fn concentric_on_drawing(
                 });
             let Some(radius) = radius else { continue };
             let centre = f.at;
-            let near = |p: [f64; 2], q: [f64; 2]| (p[0] - q[0]).hypot(p[1] - q[1]) < 1e-6;
+            // The printed pitch circle also uses the rounded recognition centre.
+            let paper_tol = (CENTRE_TOL * f.scale.abs()).max(1e-6);
+            let near = |p: [f64; 2], q: [f64; 2]| (p[0] - q[0]).hypot(p[1] - q[1]) <= paper_tol;
             let outline = drawing
                 .sheet
                 .views
@@ -63,7 +65,7 @@ pub(crate) fn concentric_on_drawing(
                 .any(|edge| {
                     matches!(edge,
                     Curve::Conic { centre: c, radii, t0, t1, .. }
-                        if near(*c, centre) && radii.iter().all(|r| (*r - radius).abs() < 1e-6)
+                        if near(*c, centre) && radii.iter().all(|r| (*r - radius).abs() <= paper_tol)
                             && ((t1 - t0).abs() - std::f64::consts::TAU).abs() < 1e-6)
                 });
             let marked = drawing
@@ -79,16 +81,14 @@ pub(crate) fn concentric_on_drawing(
                 {
                     return false;
                 }
-                let on_circle = item
-                    .lines
-                    .iter()
-                    .flatten()
-                    .all(|q| ((q[0] - centre[0]).hypot(q[1] - centre[1]) - pitch).abs() < 1e-6);
+                let on_circle = item.lines.iter().flatten().all(|q| {
+                    ((q[0] - centre[0]).hypot(q[1] - centre[1]) - pitch).abs() <= paper_tol
+                });
                 let closed = item
                     .lines
                     .iter()
                     .zip(item.lines.iter().cycle().skip(1))
-                    .all(|(a, b)| near(a[1], b[0]));
+                    .all(|(a, b)| (a[1][0] - b[0][0]).hypot(a[1][1] - b[0][1]) < 1e-6);
                 let sweep: f64 = item
                     .lines
                     .iter()

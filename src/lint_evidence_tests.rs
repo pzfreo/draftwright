@@ -72,7 +72,7 @@ fn rounded_concentric_centres_locate_only_the_drawn_radial_axes() {
             elbow: None,
             interior: false,
         });
-        let drawing = Drawing {
+        let mut drawing = Drawing {
             page: [100., 100.],
             layers: vec![],
             link: None,
@@ -101,6 +101,25 @@ fn rounded_concentric_centres_locate_only_the_drawn_radial_axes() {
                 "view axis {deep}, {parameter}"
             );
         }
+        // The renderer positions both pitch-circle ink and its mark using the
+        // rounded recognition centre, not the exact cylinder axis.
+        for point in drawing.sheet.items[0].lines.iter_mut().flatten() {
+            point[0] += 0.0005;
+            point[1] += 0.0005;
+        }
+        drawing
+            .sheet
+            .centre_marks
+            .insert("end".into(), vec![[0.0005, 0.0005]]);
+        assert_eq!(concentric_on_drawing(&a, &drawing), located);
+        let mut misplaced = drawing.clone();
+        for point in misplaced.sheet.items[0].lines.iter_mut().flatten() {
+            point[0] += 0.002;
+        }
+        assert!(
+            concentric_on_drawing(&a, &misplaced).is_empty(),
+            "wrong drawn centres cannot borrow the model axis"
+        );
         a.recognition.as_mut().unwrap().patterns[0]
             .parameters
             .insert("center".into(), json!([0.002, 0.002, 0.002]));
