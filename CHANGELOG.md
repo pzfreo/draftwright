@@ -6,6 +6,28 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+### Added
+
+- `draftwright completions SHELL` prints a shell completion script (bash, zsh, fish,
+  powershell or elvish) to stdout; the README gives the install one-liners.
+
+### Changed
+
+- The `draftwright` command line is parsed by clap instead of by hand. Commands, flags,
+  defaults, exit codes and the JSON errors for bad values (`--part`, `--dpi`, `--no-features`
+  with `--features` or `--analysis`) are unchanged. Help and usage errors are clap's: a missing
+  argument, a missing `-o`, an unknown command or flag is reported on stderr (exit 2, as
+  before) instead of as a JSON `invalid` error on stdout; `--help` works on each command. What
+  was silently ignored is now refused as a usage error: a flag a command does not take (such
+  as `-o` on `plan`), an extra positional (`analyse p.step extra`), and a trailing flag with
+  no value (`analyse p.step --part`); `plan --analysis A STEP` now checks the analysis against
+  that STEP instead of ignoring it. A positional may follow the flags, and a repeated flag's
+  last value wins (it was the first). The WASM crate builds without the command line (the
+  root crate's default `cli` feature, off for `draftwright-wasm`), so clap stays out of the
+  browser build.
+
+### Fixed
+
 - Credit a bolt circle's shared centre with the whole round outline only when
   the finished drawing shows the outline, pitch circle and common centre mark (#310).
 - Restrict hole-table coordinate credit to the feature named by its row, so a

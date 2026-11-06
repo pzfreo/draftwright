@@ -72,6 +72,19 @@ draftwright serve                                      # the same operations as 
 draftwright-mcp                                        # the same operations as an MCP server (stdio)
 ```
 
+`draftwright --help` lists the commands and `draftwright <command> --help` a command's
+arguments.
+
+**Shell completion.** `draftwright completions SHELL` prints a completion script for `bash`,
+`zsh`, `fish`, `powershell` or `elvish`:
+
+```sh
+mkdir -p ~/.local/share/bash-completion/completions && draftwright completions bash > ~/.local/share/bash-completion/completions/draftwright
+mkdir -p ~/.zfunc && draftwright completions zsh > ~/.zfunc/_draftwright
+# zsh: add `fpath=(~/.zfunc $fpath)` before `compinit` in ~/.zshrc, then restart zsh
+mkdir -p ~/.config/fish/completions && draftwright completions fish > ~/.config/fish/completions/draftwright.fish
+```
+
 File exports stage each format in a unique sibling file and atomically replace its destination.
 Concurrent exports to the same prefix use last-writer-wins per file: the last successful rename
 wins. A multi-format export is not transactional; formats can come from different callers,

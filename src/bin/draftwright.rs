@@ -28,6 +28,11 @@
 //!   stdout: `{"id": 1, "ok": true, "result": …}` or `{"id": 1, "ok": false, "error": {"code",
 //!   "message", "choices"?}}`. `{"op": "hello"}` gives the protocol version and the operations;
 //!   the others, and their arguments, are those of [`draftwright::api::call`].
+//! - `draftwright completions <SHELL>`: a completion script for bash, zsh, fish, powershell or
+//!   elvish, on stdout
+//!
+//! The command line is parsed by clap: `--help` (on any command), `--version`, and clap's usage
+//! errors on stderr. Values are checked here, so a bad `--part` or `--dpi` is refused as JSON.
 //!
 //! The features come from Rust quiddity's recognition, run on the part
 //! ([`draftwright::api::Features::Native`]), unless one of these says otherwise. A part whose
@@ -48,12 +53,14 @@
 //! when every body coincides with one part's (`coincident_bodies`), or lies within the largest
 //! body's box (`assembly_principal_drawn`), that part is drawn alone.
 //!
-//! Exit codes: 0 done; 2 the request is invalid (the JSON error says what would be accepted);
-//! 1 something failed and nothing was written in its place.
+//! Exit codes: 0 done; 2 the request is invalid (the JSON error says what would be accepted), or
+//! the command line is (clap's usage error); 1 something failed and nothing was written in its
+//! place.
 
 use std::io::{BufRead, Write};
 use std::process::ExitCode;
 
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use draftwright::api::{self, Error, Features};
 use draftwright::model::Spec;
 use serde_json::{Value, json};
@@ -61,39 +68,313 @@ use serde_json::{Value, json};
 /// The service's protocol version, given by `hello`.
 const PROTOCOL: u32 = 1;
 
-fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.len() == 1 {
-        match args[0].as_str() {
-            "--help" | "-h" => {
-                println!(
-                    "draftwright — engineering drawings from STEP\n\nCommands:\n  analyse <step>\n  plan <step> [--spec spec.json]\n  render <step> [--spec spec.json] -o <stem> [--formats svg,pdf,png]\n  review <step> [--spec spec.json]\n  edit <spec.json> <ops.json>\n  spec <drawing>\n  parts <step>\n  pack <step> -o <directory>\n  diff <old.step> <new.step> -o <directory>\n  spec_schema\n  item_options <part_ref> <id> [--spec spec.json]\n  serve\n  mcp-stdio | mcp-http\n\nDiscovery: schemas/spec.json, docs/model.md and docs/mcp.md ship in the release.\nJSON-lines serve: {{\"op\":\"hello\"}} lists operations; spec_schema and item_options use the MCP argument shapes.\nUse --version for the release version."
-                );
-                return ExitCode::SUCCESS;
-            }
-            "--version" | "-V" => {
-                println!("draftwright {}", env!("CARGO_PKG_VERSION"));
-                return ExitCode::SUCCESS;
-            }
-            _ => {}
+const AFTER_HELP: &str = "Discovery: schemas/spec.json, docs/model.md and docs/mcp.md ship in the release.
+JSON-lines serve: {\"op\":\"hello\"} lists operations; spec_schema and item_options use the MCP argument shapes.";
+
+/// The command line. Values are kept as text and checked by [`run`], so a bad `--part` or
+/// `--dpi` is refused with the JSON error it has always had; only the shape of the command line
+/// is clap's.
+#[derive(Parser)]
+#[command(
+    name = "draftwright",
+    version,
+    about = "draftwright — engineering drawings from STEP",
+    after_help = AFTER_HELP,
+    subcommand_required = true,
+    disable_help_subcommand = true,
+    args_override_self = true
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+/// Where the part's features come from, and the Spec and part drawn.
+#[derive(Args)]
+struct Drawing {
+    /// Python quiddity's recognition JSON for the same STEP file, used instead of Rust
+    /// quiddity's recognition
+    #[arg(long, value_name = "JSON")]
+    features: Option<String>,
+    /// analyse the part with no features (no feature dimensions, sections or lint)
+    #[arg(long)]
+    no_features: bool,
+    /// an Analysis `draftwright analyse` printed for the same STEP file, used instead of
+    /// analysing it again
+    #[arg(long, value_name = "JSON")]
+    analysis: Option<String>,
+    /// the Spec (without it, the defaults)
+    #[arg(long, value_name = "JSON")]
+    spec: Option<String>,
+    /// part K of an assembly, as `draftwright parts` lists them, drawn alone
+    #[arg(long, value_name = "K", allow_negative_numbers = true)]
+    part: Option<String>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// print the part's Analysis
+    Analyse {
+        step: String,
+        #[command(flatten)]
+        drawing: Drawing,
+    },
+    /// print the Plan; from --analysis the STEP file may be left out
+    Plan {
+        #[arg(required_unless_present = "analysis")]
+        step: Option<String>,
+        #[command(flatten)]
+        drawing: Drawing,
+    },
+    /// write the drawing's files and print what was written, with the problems
+    Render {
+        step: String,
+        #[command(flatten)]
+        drawing: Drawing,
+        /// the output stem (out.svg, out.pdf, …)
+        #[arg(
+            short = 'o',
+            value_name = "STEM",
+            required = true,
+            allow_hyphen_values = true
+        )]
+        output: Option<String>,
+        /// the formats written, of svg, pdf and png
+        #[arg(long, value_name = "LIST", default_value = "svg,pdf")]
+        formats: String,
+        /// a PNG's pixels per inch (default 150)
+        #[arg(long, value_name = "DPI", allow_negative_numbers = true)]
+        dpi: Option<String>,
+    },
+    /// print the drawing as SVG text, with the problems and lint's findings
+    Review {
+        step: String,
+        #[command(flatten)]
+        drawing: Drawing,
+    },
+    /// print a Spec with edit operations applied
+    Edit {
+        #[arg(value_name = "SPEC")]
+        spec: String,
+        ops: String,
+    },
+    /// print the Spec embedded in a rendered drawing (SVG, DXF, PDF or PNG)
+    Spec { drawing: String },
+    /// print the file's distinct parts
+    Parts { step: String },
+    /// write an assembly's drawing pack into a directory
+    Pack {
+        step: String,
+        /// the output directory
+        #[arg(
+            short = 'o',
+            value_name = "DIRECTORY",
+            required = true,
+            allow_hyphen_values = true
+        )]
+        output: Option<String>,
+        /// the pack Spec
+        #[arg(long, value_name = "JSON")]
+        spec: Option<String>,
+        /// the formats written
+        #[arg(long, value_name = "LIST", default_value = "pdf,csv,json")]
+        formats: String,
+    },
+    /// carry the Spec to a new revision of the part, draw it, and write what changed
+    Diff {
+        old: String,
+        new: String,
+        /// the output directory
+        #[arg(
+            short = 'o',
+            value_name = "DIRECTORY",
+            required = true,
+            allow_hyphen_values = true
+        )]
+        output: Option<String>,
+        /// the Spec of the old revision
+        #[arg(long, value_name = "JSON")]
+        spec: Option<String>,
+        /// part K of an assembly, as `draftwright parts` lists them
+        #[arg(long, value_name = "K", allow_negative_numbers = true)]
+        part: Option<String>,
+        /// the report's title (default: the new file's name)
+        #[arg(long, value_name = "TITLE", allow_hyphen_values = true)]
+        title: Option<String>,
+        /// changes.png's pixels per inch (default 150)
+        #[arg(long, value_name = "DPI", allow_negative_numbers = true)]
+        dpi: Option<String>,
+    },
+    /// print the Spec's JSON Schema
+    #[command(name = "spec_schema")]
+    SpecSchema,
+    /// print the settable paths of one item of a part opened by the MCP server
+    #[command(name = "item_options")]
+    ItemOptions {
+        part_ref: String,
+        id: String,
+        #[arg(long, value_name = "JSON")]
+        spec: Option<String>,
+    },
+    /// answer JSON-lines requests on stdin
+    Serve,
+    /// the MCP server over stdio
+    McpStdio,
+    /// the MCP server over HTTP on a loopback address
+    McpHttp {
+        /// default 127.0.0.1:8765
+        address: Option<String>,
+    },
+    /// print a shell completion script to stdout
+    Completions {
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+}
+
+/// What the command was given, for [`run`].
+#[derive(Default)]
+struct Given {
+    positionals: Vec<String>,
+    spec: Option<String>,
+    features: Option<String>,
+    analysis: Option<String>,
+    no_features: bool,
+    part: Option<String>,
+    output: Option<String>,
+    formats: Option<String>,
+    dpi: Option<String>,
+    title: Option<String>,
+}
+
+impl Given {
+    fn drawing(positionals: Vec<String>, d: Drawing) -> Self {
+        Given {
+            positionals,
+            spec: d.spec,
+            features: d.features,
+            analysis: d.analysis,
+            no_features: d.no_features,
+            part: d.part,
+            ..Given::default()
         }
     }
-    if args
-        .first()
-        .is_some_and(|s| ["mcp-stdio", "mcp-http"].contains(&s.as_str()))
-    {
-        return match draftwright::mcp::run(&args) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{e}");
-                ExitCode::FAILURE
-            }
-        };
-    }
-    if args.first().map(String::as_str) == Some("serve") {
-        return serve();
-    }
-    match run(&args) {
+}
+
+fn main() -> ExitCode {
+    let (name, given) = match Cli::parse().command {
+        Command::Completions { shell } => {
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "draftwright",
+                &mut std::io::stdout(),
+            );
+            return ExitCode::SUCCESS;
+        }
+        command @ (Command::McpStdio | Command::McpHttp { .. }) => {
+            let args: Vec<String> = match command {
+                Command::McpHttp { address } => {
+                    std::iter::once("mcp-http".into()).chain(address).collect()
+                }
+                _ => vec!["mcp-stdio".into()],
+            };
+            return match draftwright::mcp::run(&args) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        Command::Serve => return serve(),
+        Command::Analyse { step, drawing } => ("analyse", Given::drawing(vec![step], drawing)),
+        Command::Plan { step, drawing } => {
+            ("plan", Given::drawing(step.into_iter().collect(), drawing))
+        }
+        Command::Review { step, drawing } => ("review", Given::drawing(vec![step], drawing)),
+        Command::Render {
+            step,
+            drawing,
+            output,
+            formats,
+            dpi,
+        } => (
+            "render",
+            Given {
+                output,
+                formats: Some(formats),
+                dpi,
+                ..Given::drawing(vec![step], drawing)
+            },
+        ),
+        Command::Edit { spec, ops } => (
+            "edit",
+            Given {
+                positionals: vec![spec, ops],
+                ..Given::default()
+            },
+        ),
+        Command::Spec { drawing } => (
+            "spec",
+            Given {
+                positionals: vec![drawing],
+                ..Given::default()
+            },
+        ),
+        Command::Parts { step } => (
+            "parts",
+            Given {
+                positionals: vec![step],
+                ..Given::default()
+            },
+        ),
+        Command::Pack {
+            step,
+            output,
+            spec,
+            formats,
+        } => (
+            "pack",
+            Given {
+                positionals: vec![step],
+                output,
+                spec,
+                formats: Some(formats),
+                ..Given::default()
+            },
+        ),
+        Command::Diff {
+            old,
+            new,
+            output,
+            spec,
+            part,
+            title,
+            dpi,
+        } => (
+            "diff",
+            Given {
+                positionals: vec![old, new],
+                output,
+                spec,
+                part,
+                title,
+                dpi,
+                ..Given::default()
+            },
+        ),
+        Command::SpecSchema => ("spec_schema", Given::default()),
+        Command::ItemOptions { part_ref, id, spec } => (
+            "item_options",
+            Given {
+                positionals: vec![part_ref, id],
+                spec,
+                ..Given::default()
+            },
+        ),
+    };
+    match run(name, &given) {
         Ok(out) => {
             println!("{}", serde_json::to_string_pretty(&out).expect("JSON"));
             ExitCode::SUCCESS
@@ -109,14 +390,6 @@ fn main() -> ExitCode {
     }
 }
 
-/// The value after flag *name*, if given.
-fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
-    args.iter()
-        .position(|a| a == name)
-        .and_then(|i| args.get(i + 1))
-        .map(String::as_str)
-}
-
 fn read_json(path: &str) -> Result<Value, Error> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| Error::invalid(format!("cannot read {path}: {e}")))?;
@@ -124,25 +397,28 @@ fn read_json(path: &str) -> Result<Value, Error> {
 }
 
 /// Runs the command, its arguments put as [`api::call`] takes them.
-fn run(args: &[String]) -> Result<Value, Error> {
-    let usage = "usage: draftwright (analyse|plan|render|review|pack|diff|edit|spec|parts|spec_schema|item_options|serve) …";
-    let command = args.first().ok_or_else(|| Error::invalid(usage))?;
+fn run(command: &str, given: &Given) -> Result<Value, Error> {
+    // clap has required each command's positionals; `plan` from an Analysis may have none.
     let arg = |i: usize| {
-        args.get(i)
+        given
+            .positionals
+            .get(i - 1)
             .map(String::as_str)
-            .ok_or_else(|| Error::invalid(usage))
+            .ok_or_else(|| Error::invalid(format!("{command} needs a STEP file")))
     };
-    let spec = match flag(args, "--spec") {
+    let spec = match &given.spec {
         Some(path) => read_json(path)?,
         None => Value::Null,
     };
-    let features = flag(args, "--features");
-    let analysis = match flag(args, "--analysis") {
+    let features = given.features.as_deref();
+    let analysis = match &given.analysis {
         Some(path) => read_json(path)?,
         None => Value::Null,
     };
-    let no_features = args.iter().any(|a| a == "--no-features");
-    let part = flag(args, "--part")
+    let no_features = given.no_features;
+    let part = given
+        .part
+        .as_deref()
         .map(|k| {
             k.parse::<usize>().map_err(|_| {
                 Error::invalid(format!(
@@ -156,15 +432,24 @@ fn run(args: &[String]) -> Result<Value, Error> {
             "--no-features is not taken with --features or --analysis: it means no features at all.",
         ));
     }
-    let output = || flag(args, "-o").ok_or_else(|| Error::invalid("render needs -o <output stem>"));
+    let output = || {
+        given
+            .output
+            .as_deref()
+            .ok_or_else(|| Error::invalid("render needs -o <output stem>"))
+    };
     let formats = || {
-        flag(args, "--formats")
+        given
+            .formats
+            .as_deref()
             .unwrap_or("svg,pdf")
             .split(',')
             .collect::<Vec<_>>()
     };
     let dpi = || {
-        flag(args, "--dpi")
+        given
+            .dpi
+            .as_deref()
             .map(|d| {
                 d.parse::<f64>()
                     .map_err(|_| Error::invalid(format!("--dpi {d:?} is not a number")))
@@ -190,7 +475,10 @@ fn run(args: &[String]) -> Result<Value, Error> {
     if command == "pack" {
         let step = std::path::Path::new(arg(1)?);
         let dir = std::path::Path::new(
-            flag(args, "-o").ok_or_else(|| Error::invalid("pack needs -o <directory>"))?,
+            given
+                .output
+                .as_deref()
+                .ok_or_else(|| Error::invalid("pack needs -o <directory>"))?,
         );
         let spec = if spec.is_null() {
             draftwright::pack::PackSpec::default()
@@ -198,7 +486,9 @@ fn run(args: &[String]) -> Result<Value, Error> {
             serde_json::from_value(spec)
                 .map_err(|e| Error::invalid(format!("invalid pack Spec: {e}")))?
         };
-        let formats: Vec<_> = flag(args, "--formats")
+        let formats: Vec<_> = given
+            .formats
+            .as_deref()
             .unwrap_or("pdf,csv,json")
             .split(',')
             .collect();
@@ -214,7 +504,10 @@ fn run(args: &[String]) -> Result<Value, Error> {
     if command == "diff" {
         let (old, new) = (std::path::Path::new(arg(1)?), std::path::Path::new(arg(2)?));
         let dir = std::path::PathBuf::from(
-            flag(args, "-o").ok_or_else(|| Error::invalid("diff needs -o <output directory>"))?,
+            given
+                .output
+                .as_deref()
+                .ok_or_else(|| Error::invalid("diff needs -o <output directory>"))?,
         );
         let spec = if spec.is_null() {
             json!({ "schema": draftwright::model::SPEC_SCHEMA, "sheet": {} })
@@ -222,7 +515,7 @@ fn run(args: &[String]) -> Result<Value, Error> {
             spec
         };
         let dpi = dpi()?.unwrap_or(api::DPI);
-        let title = flag(args, "--title").map(String::from).unwrap_or_else(|| {
+        let title = given.title.clone().unwrap_or_else(|| {
             new.file_name()
                 .map_or("part".into(), |n| n.to_string_lossy().into_owned())
         });
@@ -257,7 +550,7 @@ fn run(args: &[String]) -> Result<Value, Error> {
             }))
         });
     }
-    if matches!(command.as_str(), "analyse" | "plan" | "render" | "review")
+    if matches!(command, "analyse" | "plan" | "render" | "review")
         && features.is_none()
         && analysis.is_null()
         && !no_features
@@ -271,7 +564,7 @@ fn run(args: &[String]) -> Result<Value, Error> {
         };
         let native = Features::Native;
         return guarded(command, || {
-            Ok(match command.as_str() {
+            Ok(match command {
                 "analyse" => json_of(&api::analyse_part(step, part, native)?),
                 "plan" => json_of(&api::plan_part(step, part, native, &spec)?),
                 "review" => json_of(&api::review_part(step, part, native, &spec)?),
@@ -285,10 +578,10 @@ fn run(args: &[String]) -> Result<Value, Error> {
             })
         });
     }
-    let request = match command.as_str() {
-        // From an Analysis, plan needs no STEP file: the first argument may be a flag.
+    let request = match command {
+        // From an Analysis, plan needs no STEP file.
         "plan" if !analysis.is_null() => json!({
-            "step": args.get(1).filter(|a| !a.starts_with("--")),
+            "step": given.positionals.first(),
             "features": features,
             "analysis": analysis,
             "spec": spec,
@@ -322,11 +615,7 @@ fn run(args: &[String]) -> Result<Value, Error> {
         "edit" => json!({ "spec": read_json(arg(1)?)?, "ops": read_json(arg(2)?)? }),
         "spec" => json!({ "drawing": arg(1)? }),
         "parts" => json!({ "step": arg(1)? }),
-        other => {
-            return Err(Error::invalid(format!(
-                "{other:?} is not a command. {usage}"
-            )));
-        }
+        other => unreachable!("{other} is not a command"),
     };
     api::call(command, &request)
 }
