@@ -965,7 +965,11 @@ pub fn plan_sheet(
             }
             "default_surface_finish" => {
                 planned.carrier = "sheet".into();
-                planned.text = format!("Ra {}", r.value);
+                planned.text = if r.source == "process" {
+                    r.value.clone()
+                } else {
+                    format!("Ra {}", r.value)
+                };
                 planned.placed = Some(crate::title_block::default_finish(
                     block,
                     &planned.text,
