@@ -318,7 +318,7 @@
     tests: [tests/test_issue_1370_hole_pattern_completeness_evidence.py]
   status: ported
   rust_test: member_ordinates_prove_pattern_location_and_spacing
-  rust_note: "Stage G1 (src/lint/hole_patterns.rs): a missing pattern location is reported per in-plane axis (hole_pattern_missing_location_is_reported_per_axis); a location ordinate claimed on a member hole counts towards the pattern. As in Python, a bolt circle concentric with turned stock gets no centreline credit (spool132, undetermined in known_lint.json)."
+  rust_note: "A missing pattern location is reported per in-plane axis; a location ordinate claimed on a member hole counts towards the pattern. A bolt circle on the whole round outline's axis is located when exact geometry confirms concentricity and the true-shape drawing shows the outline, its pitch circle and their common centre mark (#310). Model coincidence alone is insufficient."
   port_note: "Keep."
 
 - id: LINT-hole_coverage-pattern_spacing
@@ -1146,7 +1146,7 @@
 
 - id: LINT-slot_coverage-lone_slot
   statement: "A lone through slot states its width, its length, its end radius when the ends are proven arcs (obround), and its location."
-  detail: "Roles slot_width, slot_length, optional slot_end_radius and the feature's location stem (<stem>.length). Recognition count: 3, or 4 with end radius."
+  detail: "Roles slot_width, slot_length, optional slot_end_radius and the feature's lengthwise location stem (<stem>.length). Rust additionally requires location_slot_across.length for a standalone obround with proven full-round ends, unless its transverse centre lies on the datum (#319, maintainer's 2026-10-08 decision). Compound and unproven-end profiles keep their existing ledgers pending constraint analysis. A table coordinate for another feature grants no slot credit."
   class: drafting
   source:
     lint_code: "slot_requirement_missing"

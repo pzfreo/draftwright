@@ -118,15 +118,6 @@
       "stepped-shaft-keyway_basis_names_override"
     ]
   },
-  "310": {
-    "case": "steer_310_concentric_pattern",
-    "group": "A",
-    "reason": "The concentric bolt-circle centre is still reported missing in x and y.",
-    "checks": [
-      "location.length.x",
-      "location.length.y"
-    ]
-  },
   "311": {
     "case": "steer_311_note_is_local",
     "group": "C",
@@ -160,28 +151,12 @@
       "broken_view_accepted"
     ]
   },
-  "316": {
-    "case": "steer_316_authored_not_reference",
-    "group": "A",
-    "reason": "A reference-only hole location is still credited as a requirement.",
-    "checks": [
-      "reference_does_not_locate"
-    ]
-  },
   "317": {
     "case": "steer_317_reference_covers_nothing",
     "group": "B",
     "reason": "The reference overall length still covers the required 30 mm spigot length.",
     "checks": [
       "length_30"
-    ]
-  },
-  "319": {
-    "case": "steer_319_table_does_not_locate_slot",
-    "group": "A",
-    "reason": "The slot across location is only covered by another hole's table cells; duplicate_measurement credits that defective coverage, and no location-missing finding reports it.",
-    "checks": [
-      "slot_across_stated_or_reported"
     ]
   },
   "320": {

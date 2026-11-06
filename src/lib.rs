@@ -81,3 +81,6 @@ pub mod detail;
 pub mod recognition_corrections;
 
 pub mod pack;
+
+#[cfg(test)]
+mod lint_evidence_tests;

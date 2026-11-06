@@ -32,6 +32,17 @@ for a default saved view, so files with a default saved view (such as the Notes 
   root crate's default `cli` feature, off for `draftwright-wasm`), so clap stays out of the
   browser build.
 
+### Fixed
+
+- Credit a bolt circle's shared centre with the whole round outline only when
+  the finished drawing shows the outline, pitch circle and common centre mark (#310).
+  Respect the model's 0.001 mm resolution and credit only that view's two in-plane axes.
+- Restrict hole-table coordinate credit to the feature named by its row, so a
+  standalone obround's unstated across location is reported. Credit authored
+  ordinates to a slot's identified end-cylinder axis from either physical edge (#319).
+- Exclude reference hole ordinates from location credit while retaining reference
+  diagnostics; printed controlling authored dimensions still locate features (#316).
+
 ## 0.2.11 (2026-11-05)
 
 - Choose the largest clean and legible preferred scale on the smallest sheet that

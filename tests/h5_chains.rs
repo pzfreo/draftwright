@@ -169,14 +169,39 @@ fn slot_chain_keeps_overall_and_functional_length_without_closure() {
 }
 #[test]
 fn concentric_bolt_circles_have_axis_location_credit() {
-    let a = native("cadgenbench/flanged_spool_132.step");
+    let (part, a) = model::analyse_native(
+        &corpus::dir()
+            .unwrap()
+            .join("cadgenbench/flanged_spool_132.step"),
+    )
+    .unwrap();
     let p = model::plan(&a, &Spec::default()).unwrap();
-    let issues = lint::check(&a, &marks(&p));
+    // Numeric claims alone do not convey the shared centre. Require the actual
+    // outline, pitch circle and centre mark, including on recognised turned stock.
+    assert!(
+        lint::check(&a, &marks(&p))
+            .iter()
+            .any(|i| { i.code == "hole_pattern_requirement_missing" })
+    );
+    let mut drawing = model::render(
+        &part,
+        &a,
+        &p,
+        &draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap(),
+    )
+    .unwrap();
+    let issues = lint::lint(&a, &drawing);
     assert!(
         !issues
             .iter()
             .any(|i| i.code == "hole_pattern_requirement_missing"),
         "{issues:?}"
+    );
+    drawing.sheet.centre_marks.clear();
+    assert!(
+        lint::lint(&a, &drawing)
+            .iter()
+            .any(|i| { i.code == "hole_pattern_requirement_missing" })
     );
 }
 #[test]
