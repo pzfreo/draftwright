@@ -890,14 +890,13 @@ fn location_notes_accept_only_the_features_actual_lint_roles() {
     )
     .unwrap();
     assert!(!p.views.is_empty());
-    let axis = a
+    let hole = a
         .features
         .iter()
-        .find(|f| &f.id == owner)
-        .unwrap()
-        .fingerprint
-        .axis
-        .unwrap();
+        .find(|f| f.kind == "hole" && f.fingerprint.axis.is_some())
+        .expect("the plate has an axial hole");
+    let owner = &hole.id;
+    let axis = hole.fingerprint.axis.unwrap();
     let invalid = format!(
         "location.length.{}",
         ["x", "y", "z"][(0..3)
