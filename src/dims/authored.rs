@@ -80,7 +80,7 @@ pub(super) fn append(
             .values()
             .any(|d| d.between.is_some() || d.kind.is_some() || d.along.is_some())
     {
-        return Ok(Vec::new());
+        return Ok(super::schemes::check_authored(s, wants));
     }
     let mut problems = Vec::new();
     check(s)?;
