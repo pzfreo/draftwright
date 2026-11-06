@@ -5746,6 +5746,7 @@ fn plan_with_presentation(
         // Tolerance, fit and wording edits change annotation ink, not the part projections.
         // Keep authored geometry in the complete unedited frame too.
         let mut base = spec.clone();
+        base.envelope_tolerance = None;
         // Text is laid out before optional final gutters. Reusing a spaced frame
         // here can exhaust a label's border clearance before its ink is settled.
         base.sheet.view_gutter = Some(0.0);
@@ -6288,6 +6289,8 @@ fn plan_with_presentation(
         .any(|d| d.tolerance.is_some() || d.text.is_some() || d.style.is_some())
     {
         let mut nominal = spec.clone();
+        // This internal frame measures nominal ink, with all explicit bands removed.
+        nominal.envelope_tolerance = None;
         for d in nominal.dimensions.values_mut() {
             d.tolerance = None;
             d.text = None;
