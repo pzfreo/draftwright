@@ -558,17 +558,28 @@ pub(crate) fn check_claims(analysis: &Analysis, spec: &Spec) -> Result<(), Inval
     if spec.features.values().all(|f| f.note_satisfies.is_empty()) {
         return Ok(());
     }
-    let ids = crate::dims::measurement_ids(analysis);
-    let lint_roles: std::collections::BTreeSet<_> = crate::lint::check(analysis, &[])
-        .into_iter()
-        .flat_map(|i| i.requirements)
-        .map(|r| format!("d:{}/{}", r.feature, r.parameter))
-        .collect();
+    let mut ids = crate::dims::measurement_ids(analysis);
+    // The vocabulary includes locations already conveyed by datums or symmetry;
+    // absence from the missing-requirement findings does not erase a measurable role.
+    ids.extend(
+        crate::lint::pockets::placed(analysis)
+            .into_iter()
+            .flat_map(|(f, p)| {
+                p.ok().into_iter().flat_map(move |p| {
+                    crate::lint::pockets::locations(&p, analysis.envelope[0])
+                        .into_iter()
+                        .map(move |(role, _)| format!("d:{}/{role}", f.id))
+                })
+            }),
+    );
+    ids.extend(
+        crate::lint::location::targets(analysis)
+            .into_iter()
+            .map(|(f, k, _)| format!("d:{f}/location.length.{}", ["x", "y", "z"][k])),
+    );
     for (id, f) in &spec.features {
         for role in &f.note_satisfies {
-            if !lint_roles.contains(&format!("d:{id}/{role}"))
-                && (role.starts_with("location") || !ids.contains(&format!("d:{id}/{role}")))
-            {
+            if !ids.contains(&format!("d:{id}/{role}")) {
                 return Err(invalid(
                     format!("{role:?} is not a measurement role of {id}."),
                     vec![],
