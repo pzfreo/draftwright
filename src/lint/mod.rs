@@ -519,6 +519,14 @@ pub fn lint(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
         })
         .chain(relief_issues)
         .collect();
+    let concentric = hole_patterns::concentric_on_drawing(analysis, drawing);
+    issues.retain(|i| {
+        i.code != "hole_pattern_requirement_missing"
+            || i.requirements.is_empty()
+            || !i.requirements.iter().all(|r| {
+                r.parameter.starts_with("location.length.") && concentric.contains(&r.feature)
+            })
+    });
     // A corner its drawn linear dimensions fix needs no angle (ISO 129-1).
     if issues
         .iter()
@@ -603,7 +611,14 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         .filter(|m| blends::verified_row(analysis, m))
         .cloned()
         .collect();
-    let printed = &verified;
+    // Parenthesised dimensions are information only. Keep them for reference
+    // diagnostics, but never use them to discharge a physical requirement.
+    let controlling: Vec<_> = verified
+        .iter()
+        .filter(|m| !(m.text.trim().starts_with('(') && m.text.trim().ends_with(')')))
+        .cloned()
+        .collect();
+    let printed = &controlling;
     let (mut extra, scheme_issues) = schemes::evidence(analysis, printed);
     extra.extend(location::evidence(analysis, printed));
     let expanded;
@@ -663,7 +678,7 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     issues.extend(pmi_coverage::coverage(analysis, marks));
     redundancy::determined(analysis, printed, &mut issues);
     issues.extend(redundancy::coverage(analysis, printed));
-    issues.extend(redundancy::references(analysis, printed));
+    issues.extend(redundancy::references(analysis, &verified));
     if location::active(analysis, printed) {
         issues.extend(location::coverage(analysis, printed));
     } else {

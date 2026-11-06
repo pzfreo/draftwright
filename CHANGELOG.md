@@ -6,6 +6,13 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Credit a bolt circle's shared centre with the whole round outline only when
+  the finished drawing shows the outline, pitch circle and common centre mark (#310).
+- Restrict hole-table coordinate credit to the feature named by its row, so a
+  slot's unstated across location is reported (#319).
+- Exclude reference dimensions from completeness credit while retaining reference
+  diagnostics; printed controlling authored dimensions still locate features (#316).
+
 ## 0.2.11 (2026-11-05)
 
 - Choose the largest clean and legible preferred scale on the smallest sheet that

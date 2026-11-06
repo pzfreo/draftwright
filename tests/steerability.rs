@@ -2044,3 +2044,60 @@ fn steer_331_finished_sheet_fits() {
     );
     c.finish(331);
 }
+
+#[test]
+fn concentric_pattern_requires_live_round_outline_pitch_circle_and_centre() {
+    let a = &fixture(FLANGE).analysis;
+    let p = planned(FLANGE, &input(FLANGE));
+    let original = &rendered(FLANGE, &p).drawings[0];
+    let reported = |drawing: &Drawing| {
+        lint::lint(a, drawing).iter().any(|i| {
+            i.code == "hole_pattern_requirement_missing"
+                && i.requirements.iter().any(|r| {
+                    r.feature == "f:hole_pattern:1" && r.parameter.starts_with("location.length.")
+                })
+        })
+    };
+    assert!(!reported(original));
+    let mut drawing = original.clone();
+    drawing.sheet.centre_marks.clear();
+    assert!(
+        reported(&drawing),
+        "model concentricity alone does not locate"
+    );
+    let mut drawing = original.clone();
+    drawing
+        .sheet
+        .items
+        .retain(|i| !i.name.ends_with(":f:hole_pattern:1"));
+    assert!(
+        reported(&drawing),
+        "a centre mark must identify this pattern"
+    );
+    let mut drawing = original.clone();
+    for view in &mut drawing.sheet.views {
+        view.edges.clear();
+    }
+    assert!(reported(&drawing), "the round outline must be visible");
+    let mut offset = a.clone();
+    let pattern = offset
+        .recognition
+        .as_mut()
+        .unwrap()
+        .patterns
+        .iter_mut()
+        .find(|p| p.id == "f:hole_pattern:1")
+        .unwrap();
+    pattern
+        .parameters
+        .insert("center".into(), json!([1., 0., 0.]));
+    assert!(
+        lint::lint(&offset, original).iter().any(|i| {
+            i.code == "hole_pattern_requirement_missing"
+                && i.requirements
+                    .iter()
+                    .any(|r| r.parameter.starts_with("location.length."))
+        }),
+        "nearby axes do not share a centre"
+    );
+}

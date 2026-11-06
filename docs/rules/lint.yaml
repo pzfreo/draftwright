@@ -318,7 +318,7 @@
     tests: [tests/test_issue_1370_hole_pattern_completeness_evidence.py]
   status: ported
   rust_test: member_ordinates_prove_pattern_location_and_spacing
-  rust_note: "Stage G1 (src/lint/hole_patterns.rs): a missing pattern location is reported per in-plane axis (hole_pattern_missing_location_is_reported_per_axis); a location ordinate claimed on a member hole counts towards the pattern. As in Python, a bolt circle concentric with turned stock gets no centreline credit (spool132, undetermined in known_lint.json)."
+  rust_note: "A missing pattern location is reported per in-plane axis; a location ordinate claimed on a member hole counts towards the pattern. A bolt circle on the whole round outline's axis is located when exact geometry confirms concentricity and the true-shape drawing shows the outline, its pitch circle and their common centre mark (#310). Model coincidence alone is insufficient."
   port_note: "Keep."
 
 - id: LINT-hole_coverage-pattern_spacing

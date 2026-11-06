@@ -623,6 +623,11 @@ pub(crate) fn conveyed_locations(analysis: &Analysis, marks: &mut [Mark]) {
         (stem.starts_with("location") || stem.starts_with("seat_location")).then_some(*axis)
     };
     for m in marks {
+        // A coordinate cell identifies its row's hole, without a witness or
+        // alignment line reaching a slot at the same numerical station.
+        if m.name.starts_with("hole_schedule_") || m.name.starts_with("hole_table_plan/") {
+            continue;
+        }
         let conveyed: Vec<(&str, &str)> = at
             .iter()
             .filter(|(id, (axis, d), deep, parameter)| {
@@ -1168,6 +1173,42 @@ mod tests {
         assert_eq!(missing("v:plan", "32.75", "location.length.y"), both);
         assert_eq!(missing("v:front", "32.75", "location.length.x"), both);
         assert_eq!(missing("v:plan", "20.25", "location.length.x"), both);
+    }
+
+    #[test]
+    fn table_ordinates_locate_only_their_named_feature() {
+        let a = part(&[(
+            "slot",
+            &[0],
+            json!({
+                "width": 8., "length": 30., "end_radius": 4.,
+                "long_axis": "x", "width_axis": "y", "lo": 20., "hi": 50.,
+                "w_center": 40., "d_lo": 0., "d_hi": 10.
+            }),
+        )]);
+        for name in ["hole_schedule_1/y", "hole_table_plan/1/y"] {
+            let mut marks = [Mark {
+                name: name.into(),
+                view: Some("v:plan".into()),
+                text: "40".into(),
+                claims: vec![Claim {
+                    feature: "f:hole:2".into(),
+                    parameter: "location.length.y".into(),
+                }],
+            }];
+            conveyed_locations(&a, &mut marks);
+            assert_eq!(marks[0].claims.len(), 1, "{name} has no slot witness");
+            marks[0].claims.push(Claim {
+                feature: "f:slot:1".into(),
+                parameter: "location_slot_across.length".into(),
+            });
+            conveyed_locations(&a, &mut marks);
+            assert_eq!(
+                marks[0].claims.len(),
+                2,
+                "a statement about the slot survives"
+            );
+        }
     }
 
     #[test]

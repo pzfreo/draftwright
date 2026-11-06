@@ -2844,6 +2844,9 @@ to restore the automatic choice. An imported basic PMI dimension cannot be made 
 without correcting its source PMI. A newly authored reference has no fabricated
 `determined_by` chain. Basic/reference styling changes no nominal or measurement claim,
 and lint continues checking the resulting output, including redundant controlling sizes.
+Reference dimensions remain information only: their parenthesised text supplies no
+completeness credit for size, location or other physical requirements. Reference-specific
+diagnostics, such as a tolerance attached to a reference, still apply.
 
 Wording is applied after automatic ownership/consolidation and precision/tolerance
 formatting, before placement and reservation. Full terms drive ink measurement, leader
@@ -2928,12 +2931,20 @@ are retained even when redundant. The check runs for parts carrying PMI or a Spe
 plain parts keep their existing location checks. A cylindrical datum establishes coaxial
 features, while principal planar datums supply ± dimension origins.
 
+A bolt circle on the axis of the part's whole round outline needs no tangent
+ordinates when a true-shape view shows that outline, the pattern's pitch circle,
+and their common centre mark. Exact model concentricity confirms this drawn
+relation; coincidence in the model alone grants no location credit.
+
 Hole schedules state every size and coordinate, including coordinates already supplied
 by retained PMI. Those cells restate the same origin frame and do not add an independent
 locating constraint. Whether an automatic schedule is drawn on a PMI part is still decided by
 the native callouts it frees: one whose rows would replace only PMI callouts stays inline;
 `hole_table: "always"` can request that presentation explicitly. Selected table
 origins are named in the basis and are labelled as origins rather than box minima.
+Each coordinate cell locates only the feature identified by its row. A coincident
+number for another hole cannot locate a slot; shared location credit needs a drawn
+dimension witness conveying that slot's position.
 
 ### Specify PMI authorship
 
