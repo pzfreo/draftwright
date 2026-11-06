@@ -3288,5 +3288,7 @@ Printed parts omit the default finish; moulded/cast use a no-removal symbol
 with “as moulded” / “as cast”. `sheet/default_finish` overrides the finish.
 `process: machined` restores machining policy. Printed gear semantics are warning-only;
 other dimensioning lint is unchanged. GA lists append Process beside Material
-only when a component has a non-machined process. Insert and printed-thread
+only when a component has a non-machined process. In a pack, override a part at
+`parts/<part-key>/drawing/process`, using its existing per-part drawing Spec.
+Insert and printed-thread
 hole callouts await Specify's hole functions and are outside this change.
