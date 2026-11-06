@@ -2933,8 +2933,9 @@ features, while principal planar datums supply ± dimension origins.
 
 A bolt circle on the axis of the part's whole round outline needs no tangent
 ordinates when a true-shape view shows that outline, the pattern's pitch circle,
-and their common centre mark. Exact model concentricity confirms this drawn
-relation; coincidence in the model alone grants no location credit.
+and their common centre mark. Model concentricity within the 0.001 mm coordinate
+resolution confirms this drawn relation. Credit applies only to the view's two
+in-plane axes; coincidence in the model alone grants no location credit.
 
 Hole schedules state every size and coordinate, including coordinates already supplied
 by retained PMI. Those cells restate the same origin frame and do not add an independent

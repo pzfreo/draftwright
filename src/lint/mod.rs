@@ -524,7 +524,9 @@ pub fn lint(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
         i.code != "hole_pattern_requirement_missing"
             || i.requirements.is_empty()
             || !i.requirements.iter().all(|r| {
-                r.parameter.starts_with("location.length.") && concentric.contains(&r.feature)
+                concentric
+                    .get(&r.feature)
+                    .is_some_and(|parameters| parameters.contains(r.parameter.as_str()))
             })
     });
     // A corner its drawn linear dimensions fix needs no angle (ISO 129-1).

@@ -30,6 +30,7 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 - Credit a bolt circle's shared centre with the whole round outline only when
   the finished drawing shows the outline, pitch circle and common centre mark (#310).
+  Respect the model's 0.001 mm resolution and credit only that view's two in-plane axes.
 - Restrict hole-table coordinate credit to the feature named by its row, so a
   standalone obround's unstated across location is reported. Credit authored
   ordinates to a slot's identified end-cylinder axis from either physical edge (#319).

@@ -124,7 +124,7 @@
     {
       "part": "flanged_spool_132",
       "verdict": "rust-correct",
-      "evidence": "H5 resolves the former six numerical pattern-centre findings: three bolt circles share the unique turned axis line, proven from Analysis geometry, so each centre is located on both radial axes. Independent spacing/bolt-circle diameter requirements remain. Python linting/hole_coverage.py::_member_coaxial_with_turned_profile is the single-hole precedent; tests/h5_chains.rs::concentric_bolt_circles_have_axis_location_credit guards the extension."
+      "evidence": "H5 resolves the former six numerical pattern-centre findings: three bolt circles share the axis shown by the visible round outline, each pattern's printed pitch circle and the common centre mark in a true-shape view, confirmed by model geometry within its 0.001 mm resolution. That drawing evidence locates only the two in-plane radial axes; Analysis geometry alone gives no credit. Independent spacing/bolt-circle diameter requirements remain. Python linting/hole_coverage.py::_member_coaxial_with_turned_profile is the single-hole precedent; tests/h5_chains.rs::concentric_bolt_circles_have_axis_location_credit guards the extension."
     }
   ]
 }

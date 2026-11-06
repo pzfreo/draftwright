@@ -12,9 +12,9 @@ const TOL: f64 = 0.01;
 pub(super) fn concentric_on_drawing(
     a: &Analysis,
     drawing: &crate::output::Drawing,
-) -> std::collections::BTreeSet<String> {
+) -> std::collections::BTreeMap<String, std::collections::BTreeSet<&'static str>> {
     use crate::output::{Curve, Kind};
-    let mut located = std::collections::BTreeSet::new();
+    let mut located = std::collections::BTreeMap::<_, std::collections::BTreeSet<_>>::new();
     let Some(ink) = &a.edge_ink else {
         return located;
     };
@@ -33,7 +33,8 @@ pub(super) fn concentric_on_drawing(
                 continue;
             };
             let across: Vec<_> = (0..3).filter(|&k| k != axis).collect();
-            // Both extrema must be tangents of this exact cylinder. A round boss
+            // Recognition rounds model coordinates to GRID (0.001 mm).
+            // Both extrema must be tangents of this cylinder within that tolerance. A round boss
             // elsewhere, or mere coincidence with the bounding-box centre, proves nothing.
             let radius = ink
                 .curved
@@ -42,9 +43,11 @@ pub(super) fn concentric_on_drawing(
                 .find_map(|s| {
                     (s.axis[axis].abs() > 1. - 1e-8
                         && across.iter().all(|&k| {
-                            (s.origin[k] - c[k]).abs() < 1e-6
-                                && (s.origin[k] - s.radius - a.envelope[0][k]).abs() < 1e-6
-                                && (s.origin[k] + s.radius - a.envelope[1][k]).abs() < 1e-6
+                            (s.origin[k] - c[k]).abs() <= crate::model::projected_ink::GRID
+                                && (s.origin[k] - s.radius - a.envelope[0][k]).abs()
+                                    <= crate::model::projected_ink::GRID
+                                && (s.origin[k] + s.radius - a.envelope[1][k]).abs()
+                                    <= crate::model::projected_ink::GRID
                         }))
                     .then_some(s.radius * f.scale)
                 });
@@ -100,7 +103,15 @@ pub(super) fn concentric_on_drawing(
                 on_circle && closed && (sweep - std::f64::consts::TAU).abs() < 1e-6
             });
             if outline && marked && ring {
-                located.insert(p.id.clone());
+                for k in &across {
+                    located.entry(p.id.clone()).or_default().insert(
+                        [
+                            "location.length.x",
+                            "location.length.y",
+                            "location.length.z",
+                        ][*k],
+                    );
+                }
             }
         }
     }
@@ -404,4 +415,117 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::output::{Curve, Drawing, Drawn, DrawnFrame, DrawnView, Kind, Sheet};
+    use serde_json::json;
+
+    #[test]
+    fn rounded_concentric_centres_locate_only_the_drawn_radial_axes() {
+        for deep in 0..3 {
+            let mut bounds = [[-10.; 3], [10.; 3]];
+            bounds[0][deep] = -1.;
+            bounds[1][deep] = 1.;
+            let mut direction = [0.; 3];
+            direction[deep] = 1.;
+            let mut up = [0.; 3];
+            up[(deep + 1) % 3] = 1.;
+            let mut a: Analysis = serde_json::from_value(json!({
+                "schema": crate::model::ANALYSIS_SCHEMA,
+                "binding": {"source_sha256":"", "part":"round", "face_count":1, "loader":"test"},
+                "envelope": bounds, "iso_bounds":[-10.,-10.,10.,10.],
+                "solid_count":1, "features":[],
+                "recognition": {
+                    "recogniser":"test", "frame":[[0.,0.,0.],[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]],
+                    "patterns":[{"id":"f:hole_pattern:1", "arrangement":"bolt_circle",
+                        "members":[], "faces":[], "parameters":{"center":[0.0005,0.0005,0.0005], "diameter":12.}}]
+                },
+                "edge_ink":{"edges":[], "planes":[], "curved":[{
+                    "bounds":bounds, "cylinder":{"origin":[0.,0.,0.], "axis":direction, "radius":10.}
+                }]}
+            })).unwrap();
+            let mut sheet = Sheet::default();
+            sheet.frames.insert(
+                "end".into(),
+                DrawnFrame {
+                    direction,
+                    up,
+                    at: [0., 0.],
+                    scale: 1.,
+                    half_axis: None,
+                },
+            );
+            sheet.centre_marks.insert("end".into(), vec![[0., 0.]]);
+            sheet.views.push(DrawnView {
+                name: "v:end".into(),
+                bbox: [-10., -10., 10., 10.],
+                edges: vec![Curve::Conic {
+                    centre: [0., 0.],
+                    radii: [10., 10.],
+                    x_axis: [1., 0.],
+                    y_axis: [0., 1.],
+                    t0: 0.,
+                    t1: std::f64::consts::TAU,
+                }],
+            });
+            let points: Vec<_> = (0..64)
+                .map(|i| {
+                    let angle = std::f64::consts::TAU * i as f64 / 64.;
+                    [6. * angle.cos(), 6. * angle.sin()]
+                })
+                .collect();
+            sheet.items.push(Drawn {
+                name: "ink:v:end:f:hole_pattern:1".into(),
+                kind: Kind::Centreline,
+                ink: [-6., -6., 6., 6.],
+                label: None,
+                lines: (0..points.len())
+                    .map(|i| [points[i], points[(i + 1) % points.len()]])
+                    .collect(),
+                heads: vec![],
+                datum_triangle: None,
+                elbow: None,
+                interior: false,
+            });
+            let drawing = Drawing {
+                page: [100., 100.],
+                layers: vec![],
+                link: None,
+                text: vec![],
+                annotations: vec![],
+                sheet,
+                problems: vec![],
+                spec: None,
+            };
+            let located = concentric_on_drawing(&a, &drawing);
+            let axes = located
+                .get("f:hole_pattern:1")
+                .expect("rounded centre still concentric");
+            assert_eq!(axes.len(), 2);
+            for (k, parameter) in [
+                "location.length.x",
+                "location.length.y",
+                "location.length.z",
+            ]
+            .iter()
+            .enumerate()
+            {
+                assert_eq!(
+                    axes.contains(parameter),
+                    k != deep,
+                    "view axis {deep}, {parameter}"
+                );
+            }
+            a.recognition.as_mut().unwrap().patterns[0]
+                .parameters
+                .insert("center".into(), json!([0.002, 0.002, 0.002]));
+            assert!(
+                concentric_on_drawing(&a, &drawing).is_empty(),
+                "an offset beyond model tolerance cannot share the axis"
+            );
+        }
+    }
 }
