@@ -1291,7 +1291,7 @@
   status: ported
   rust_note: "Complete drawing planning preserves Python's two explicit-scale floors (the raw single-pass estimate remains diagnostic): refuse a smallest part extent below 0.1 paper mm (or a degenerate extent), and warn legibility_floor_breached below 10 paper mm only when automatic geometric composition offers a legible fit. The requested scale is honoured. This advisory is independent of Rust's automatic opening-based scale floor."
   port_note: "triage 2026-10-16: PORT, value low, size S, stream views-and-layout"
-  rust_test: "rendering::views_layout_rules::explicit_scales_warn_below_legibility_and_refuse_degenerate_geometry"
+  rust_test: "rendering::views_layout_rules::explicit_scales_preserve_requested_scale_with_legibility_warnings"
 
 - id: ARCH0004-4
   statement: "Automatic page selection reserves authored table footprints before the flexible isometric and is not a 'smallest page on which lint happens to be clean' optimiser; a caller-forced page that places every requirement is honoured."
