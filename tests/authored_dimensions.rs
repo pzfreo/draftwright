@@ -1599,3 +1599,39 @@ fn another_pockets_half_length_is_not_a_dimension_between_this_pockets_faces() {
         "the second pocket's 20 is not the first pocket's half interval"
     );
 }
+
+#[test]
+fn a_slot_end_cylinder_does_not_alias_the_slots_centre() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/steerability");
+    let (_, a) = model::analyse_native_bytes(
+        "perforated-plate.step.gz",
+        &std::fs::read(dir.join("perforated-plate.step.gz")).unwrap(),
+    )
+    .unwrap();
+    let original: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("perforated-plate.spec.json")).unwrap())
+            .unwrap();
+    let end = original["dimensions"]["d:authored:slot_y"]["between"][1]
+        .as_str()
+        .unwrap();
+    let left = planes(&a, 0)[0].0.clone();
+    let s = parse(
+        json!({"dimension_source":"authored", "dimensions":{"d:authored:end":{"between":[left,end],"along":"x","view":"plan"}}}),
+    );
+    let p = model::plan_recovered(&a, &s).unwrap();
+    let d = p
+        .dimensions
+        .iter()
+        .find(|d| d.id == "d:authored:end")
+        .unwrap();
+    assert!(d.placed.is_some());
+    let Reference::Vertex { point, .. } = a.dimension_reference("axis:f:slot:1").unwrap() else {
+        panic!("slot centre point");
+    };
+    assert!((d.value - (point[0] - a.envelope[0][0]).abs()).abs() > 1e-5);
+    assert!(
+        !d.measurements
+            .iter()
+            .any(|m| m.feature == "f:slot:1" && m.parameter == "location.length.x")
+    );
+}

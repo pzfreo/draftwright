@@ -396,7 +396,9 @@ fn reference_features(a: &Analysis, reference: &str) -> std::collections::BTreeS
                             })
                         })
                     })
-                }) && a.dimension_reference(&format!("axis:{}", f.id)).is_ok()
+                }) && a
+                    .dimension_reference(&format!("axis:{}", f.id))
+                    .is_ok_and(|r| matches!(r, Reference::Edge { .. }))
                 {
                     out.insert(f.id.clone());
                 }
