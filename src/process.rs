@@ -84,7 +84,12 @@ pub(crate) fn defaults(a: &Analysis, spec: &Spec, requirements: &mut Vec<SheetRe
             kind: "general_tolerance",
             source: "process".into(),
             value: if p.printed() {
-                format!("{} CHECK", value.replace(", the greater", " max"))
+                format!(
+                    "{} CHECK",
+                    value.replace(", the greater", "\nwhichever is greater")
+                )
+            } else if matches!(resolved.source, ValueSource::Guess | ValueSource::Suggested) {
+                format!("{value} CHECK")
             } else {
                 value.into()
             },
@@ -95,25 +100,26 @@ pub(crate) fn defaults(a: &Analysis, spec: &Spec, requirements: &mut Vec<SheetRe
             removal: String::new(),
         });
     }
-    if (p.printed() || matches!(p, Process::Moulded | Process::Cast))
+    // Authored PMI (or an explicit Spec finish) wins; process defaults only fill gaps.
+    if matches!(p, Process::Moulded | Process::Cast)
         && spec.sheet.default_finish.is_none()
+        && !requirements
+            .iter()
+            .any(|r| r.kind == "default_surface_finish")
     {
-        requirements.retain(|r| r.kind != "default_surface_finish");
-        if !p.printed() {
-            requirements.push(SheetRequirement {
-                id: "process:default_surface_finish".into(),
-                kind: "default_surface_finish",
-                source: "process".into(),
-                value: if p == Process::Moulded {
-                    "as moulded"
-                } else {
-                    "as cast"
-                }
-                .into(),
-                basis: "process default; override: sheet/default_finish".into(),
-                removal: "no material removal".into(),
-            });
-        }
+        requirements.push(SheetRequirement {
+            id: "process:default_surface_finish".into(),
+            kind: "default_surface_finish",
+            source: "process".into(),
+            value: if p == Process::Moulded {
+                "as moulded"
+            } else {
+                "as cast"
+            }
+            .into(),
+            basis: "process default; override: sheet/default_finish".into(),
+            removal: "no material removal".into(),
+        });
     }
 }
 

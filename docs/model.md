@@ -3281,14 +3281,20 @@ printing; absent evidence means machined. Guesses need checking.
 
 Printed general tolerances default to ±0.3 mm/0.3 % (FDM and powder),
 ±0.15 mm/0.15 % (resin), or ±0.1 mm/0.2 % (metal), whichever is greater.
-The cell abbreviates “the greater” to `max` and marks the value `CHECK`; the
-requirement basis spells out the full default. Moulded/cast use ISO 20457 /
-ISO 8062-3. `sheet/title/tolerance` overrides these, including an explicit blank.
-Printed parts omit the default finish; moulded/cast use a no-removal symbol
+The cell states “whichever is greater” on a second line and marks the value `CHECK`;
+the requirement basis spells out the full default. Moulded/cast use ISO 20457 /
+ISO 8062-3 without inventing a grade; a suggested or guessed process marks that
+ungraded standard `CHECK`. `sheet/title/tolerance` overrides these, including an
+explicit blank. Authored PMI finishes remain. Where no finish is authored,
+printed parts omit the default finish; moulded/cast use a no-removal symbol
 with “as moulded” / “as cast”. `sheet/default_finish` overrides the finish.
-`process: machined` restores machining policy. Printed gear semantics are warning-only;
-other dimensioning lint is unchanged. GA lists append Process beside Material
-only when a component has a non-machined process. In a pack, override a part at
+`process: machined` restores machining policy. Printed gear semantics are capped
+at Warning; multi-solid Info findings stay Info. Other dimensioning lint is unchanged.
+GA lists append Process beside Material only when a non-bought row has a Spec,
+file or suggested value to print. Bought and guessed cells stay blank, including
+guesses of printing. CSV `process` and `process_source` mirror JSON `process` and
+`sources.process`; absent values stay blank. Made-part guesses remain labelled
+in JSON/CSV, but bought parts get no invented process. In a pack, override a part at
 `parts/<part-key>/drawing/process`, using its existing per-part drawing Spec.
 Insert and printed-thread
 hole callouts await Specify's hole functions and are outside this change.

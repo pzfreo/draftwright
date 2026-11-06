@@ -872,11 +872,7 @@ pub(super) fn prepare<'a>(
         "SUPPLY".into(),
         "MATERIAL".into(),
     ]];
-    let show_process = rows.iter().any(|r| {
-        r.bom
-            .process
-            .is_some_and(|p| p != crate::process::Process::Machined)
-    });
+    let show_process = rows.iter().any(|r| r.stated_process().is_some());
     if show_process {
         list[0].push("PROCESS".into());
     }
@@ -900,7 +896,7 @@ pub(super) fn prepare<'a>(
         if show_process {
             list.last_mut()
                 .unwrap()
-                .push(row.bom.process.unwrap_or_default().label());
+                .push(row.stated_process().map(|p| p.label()).unwrap_or_default());
         }
     }
     if settings.parts_list != Some(false) {

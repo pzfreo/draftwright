@@ -497,22 +497,24 @@ fn printed_profile_semantics_are_warning_only() {
         .evidence
         .retain(|r| r.family != "authored_gears");
     profile(&mut a, "z", 13);
-    a.solid_count = Some(2); // Printed semantics stay warnings even on a multi-solid product.
     let intent: Spec = serde_json::from_value(json!({"process":"3D printed: FDM"})).unwrap();
-    let a = draftwright::spec_gdt::effective(&a, &intent).unwrap();
     d.spec = Some(serde_json::to_string(&intent).unwrap());
-    let issues = lint::gears::check(&a, &d);
-    assert!(
-        issues
-            .iter()
-            .any(|i| i.code == "gear_semantics_missing" && i.severity == Severity::Warning)
-    );
-    // A new answer overrides the effective process; lint still reads only Analysis.
     let machining: Spec = serde_json::from_value(json!({"process":"machined"})).unwrap();
-    let a = draftwright::spec_gdt::effective(&a, &machining).unwrap();
-    assert!(
-        lint::gears::check(&a, &d)
-            .iter()
-            .any(|i| i.code == "gear_semantics_missing" && i.severity == Severity::Info)
-    );
+    for (count, expected) in [(1, Severity::Warning), (2, Severity::Info)] {
+        a.solid_count = Some(count);
+        let printed = draftwright::spec_gdt::effective(&a, &intent).unwrap();
+        assert!(
+            lint::gears::check(&printed, &d)
+                .iter()
+                .any(|i| { i.code == "gear_semantics_missing" && i.severity == expected })
+        );
+        // A cap must preserve main's Info for multiple solids, not promote it to Warning.
+        // A new answer overrides the effective process; lint still reads only Analysis.
+        let machined = draftwright::spec_gdt::effective(&printed, &machining).unwrap();
+        assert!(
+            lint::gears::check(&machined, &d)
+                .iter()
+                .any(|i| { i.code == "gear_semantics_missing" && i.severity == expected })
+        );
+    }
 }
