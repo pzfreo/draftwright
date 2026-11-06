@@ -383,6 +383,21 @@ fn congruence(
     if let Some(faces) = equal_at(a, af, b, bf, &Motion::IDENTITY) {
         return Some((Motion::IDENTITY, faces));
     }
+    // The mean face centroid is translation-equivariant and independent of face order.
+    // Try it before align(), which can choose a symmetric rotation that disagrees
+    // with the exported face/seam layout. This is only a candidate, still proven below.
+    let centroid = |f: &Fingerprints| {
+        [0, 1, 2].map(|i| {
+            f.faces.iter().map(|face| face.centroid[i]).sum::<f64>() / f.faces.len() as f64
+        })
+    };
+    let translation = Motion {
+        t: geom::sub(centroid(bf), centroid(af)),
+        ..Motion::IDENTITY
+    };
+    if let Some(faces) = equal_at(a, af, b, bf, &translation) {
+        return Some((translation, faces));
+    }
     let (motion, alignment) = align(af, bf, &Default::default());
     alignment
         .found
