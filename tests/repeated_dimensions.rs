@@ -273,10 +273,21 @@ fn slots_sharing_a_width_across_one_span_state_it_once_counted() {
     // Lint judges each slot's low end where the planner puts it (the exact centre of its faces
     // less half its length), not quiddity's separately rounded `lo`: on quiddity-rust 0.1.1 the
     // two fall either side of a 0.005 mm tie (285.965 drawn, 95.96 recorded).
-    assert!(
-        issues
-            .iter()
-            .all(|i| !i.code.starts_with("slot_requirement_")),
+    // #319: the shared width locates neither slot across the part. Slot 1 and
+    // slot 2 each lack their 50.356 transverse ordinate; the hole table's cells
+    // name other features. Require those two genuine gaps, while continuing to
+    // reject every missing size, end radius or longitudinal location above.
+    let slot_findings: Vec<_> = issues
+        .iter()
+        .filter(|i| i.code.starts_with("slot_requirement_"))
+        .map(|i| i.id.as_str())
+        .collect();
+    assert_eq!(
+        slot_findings,
+        [
+            "l:slot_requirement_missing:f:slot:1/location_slot_across.length",
+            "l:slot_requirement_missing:f:slot:2/location_slot_across.length",
+        ],
         "{issues:?}"
     );
     assert_each_quantity_once("cgb245", &plan);

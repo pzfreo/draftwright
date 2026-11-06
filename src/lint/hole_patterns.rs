@@ -6,6 +6,117 @@ use crate::bridge::holes::{self as geometry, frame, point, to_part};
 use crate::model::Analysis;
 
 const TOL: f64 = 0.01;
+// Model/recognition coordinates are rounded to 0.001 mm.
+const CENTRE_TOL: f64 = 1e-3;
+
+/// A shared centre is evidence only in a true-shape view that actually draws the
+/// round outline, the pattern's pitch circle and their common centre mark.
+pub(crate) fn concentric_on_drawing(
+    a: &Analysis,
+    drawing: &crate::output::Drawing,
+) -> std::collections::BTreeMap<String, std::collections::BTreeSet<&'static str>> {
+    use crate::output::{Curve, Kind};
+    let mut located = std::collections::BTreeMap::<_, std::collections::BTreeSet<_>>::new();
+    let Some(ink) = &a.edge_ink else {
+        return located;
+    };
+    for p in a.recognition.iter().flat_map(|r| &r.patterns) {
+        if p.arrangement != "bolt_circle" {
+            continue;
+        }
+        let Some(c) = point(p.parameters.get("center")).map(|c| to_part(&frame(a), c)) else {
+            continue;
+        };
+        let Some(diameter) = p.parameters.get("diameter").and_then(|v| v.as_f64()) else {
+            continue;
+        };
+        for (name, f) in &drawing.sheet.frames {
+            let Some(axis) = (0..3).find(|&k| f.direction[k].abs() > 1. - 1e-8) else {
+                continue;
+            };
+            let across: Vec<_> = (0..3).filter(|&k| k != axis).collect();
+            // Recognition rounds model coordinates to 0.001 mm.
+            // Both extrema must be tangents of this cylinder within that tolerance. A round boss
+            // elsewhere, or mere coincidence with the bounding-box centre, proves nothing.
+            let radius = ink
+                .curved
+                .iter()
+                .filter_map(|s| s.cylinder.as_ref())
+                .find_map(|s| {
+                    (s.axis[axis].abs() > 1. - 1e-8
+                        && across.iter().all(|&k| {
+                            (s.origin[k] - c[k]).abs() <= CENTRE_TOL
+                                && (s.origin[k] - s.radius - a.envelope[0][k]).abs() <= CENTRE_TOL
+                                && (s.origin[k] + s.radius - a.envelope[1][k]).abs() <= CENTRE_TOL
+                        }))
+                    .then_some(s.radius * f.scale)
+                });
+            let Some(radius) = radius else { continue };
+            let centre = f.at;
+            // The printed pitch circle also uses the rounded recognition centre.
+            let paper_tol = (CENTRE_TOL * f.scale.abs()).max(1e-6);
+            let near = |p: [f64; 2], q: [f64; 2]| (p[0] - q[0]).hypot(p[1] - q[1]) <= paper_tol;
+            let outline = drawing
+                .sheet
+                .views
+                .iter()
+                .filter(|v| v.name == format!("v:{name}"))
+                .flat_map(|v| &v.edges)
+                .any(|edge| {
+                    matches!(edge,
+                    Curve::Conic { centre: c, radii, t0, t1, .. }
+                        if near(*c, centre) && radii.iter().all(|r| (*r - radius).abs() <= paper_tol)
+                            && ((t1 - t0).abs() - std::f64::consts::TAU).abs() < 1e-6)
+                });
+            let marked = drawing
+                .sheet
+                .centre_marks
+                .get(name)
+                .is_some_and(|marks| marks.iter().any(|c| near(*c, centre)));
+            let pitch = diameter * f.scale / 2.;
+            let ring = drawing.sheet.items.iter().any(|item| {
+                if item.kind != Kind::Centreline
+                    || item.name != format!("ink:v:{name}:{}", p.id)
+                    || item.lines.len() < 3
+                {
+                    return false;
+                }
+                let on_circle = item.lines.iter().flatten().all(|q| {
+                    ((q[0] - centre[0]).hypot(q[1] - centre[1]) - pitch).abs() <= paper_tol
+                });
+                let closed = item
+                    .lines
+                    .iter()
+                    .zip(item.lines.iter().cycle().skip(1))
+                    .all(|(a, b)| (a[1][0] - b[0][0]).hypot(a[1][1] - b[0][1]) < 1e-6);
+                let sweep: f64 = item
+                    .lines
+                    .iter()
+                    .map(|[a, b]| {
+                        let a = [a[0] - centre[0], a[1] - centre[1]];
+                        let b = [b[0] - centre[0], b[1] - centre[1]];
+                        (a[0] * b[1] - a[1] * b[0])
+                            .atan2(a[0] * b[0] + a[1] * b[1])
+                            .abs()
+                    })
+                    .sum();
+                on_circle && closed && (sweep - std::f64::consts::TAU).abs() < 1e-6
+            });
+            if outline && marked && ring {
+                for k in &across {
+                    located.entry(p.id.clone()).or_default().insert(
+                        [
+                            "location.length.x",
+                            "location.length.y",
+                            "location.length.z",
+                        ][*k],
+                    );
+                }
+            }
+        }
+    }
+    located
+}
 
 fn stations(centres: &[[f64; 3]], axis: usize) -> Vec<f64> {
     let mut values: Vec<f64> = centres.iter().map(|c| c[axis]).collect();
@@ -155,21 +266,6 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     })
                 })
             });
-        let axes_on: Vec<_> = analysis
-            .features
-            .iter()
-            .filter(|f| f.kind == "turned_step")
-            .filter_map(|f| super::turned::band(&frame(analysis), f).ok())
-            .filter(|b| b.axis == axis)
-            .collect();
-        let coaxial_circle = p.arrangement == "bolt_circle"
-            && anchors.len() == 1
-            && !axes_on.is_empty()
-            && axes_on.iter().all(|b| {
-                [u, v]
-                    .iter()
-                    .all(|&k| (b.on[k] - anchors[0][k]).abs() <= 1e-3)
-            });
         let member_spacing = p.arrangement == "linear" || p.arrangement == "grid";
         // Stream K6 (ADR4-U1): a pitch along an axis on which every member is also located
         // states a separation the locations already fix: over-dimensioning that is neither
@@ -218,9 +314,6 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             }
         }
         for (position, k) in [u, v].into_iter().enumerate() {
-            if coaxial_circle {
-                continue;
-            }
             if member_spacing
                 && (member_locations.iter().all(|axes| axes[position]) || member_anchor_with_pitch)
             {

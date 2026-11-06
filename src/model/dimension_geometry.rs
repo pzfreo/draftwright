@@ -789,6 +789,30 @@ impl Analysis {
         faces.next().is_none().then_some(i)
     }
 
+    /// Resolve an explicit cylindrical face axis to its unique trimmed physical face.
+    /// Bounds and surface identity, rather than discovery membership, establish ownership.
+    pub fn dimension_reference_axis_face(&self, key: &str) -> Option<usize> {
+        let face_key = key.strip_prefix("axis:")?;
+        let Reference::Cylinder { bounds, .. } = self.dimension_reference(face_key).ok()? else {
+            return None;
+        };
+        let mut faces = self
+            .face_attachments
+            .iter()
+            .enumerate()
+            .filter(|(_, face)| {
+                face.surface.as_deref() == Some("cylinder")
+                    && face.bounds.is_some_and(|b| {
+                        (0..3).all(|k| {
+                            (b[k] - bounds[0][k]).abs() < 1e-6
+                                && (b[k + 3] - bounds[1][k]).abs() < 1e-6
+                        })
+                    })
+            });
+        let (i, _) = faces.next()?;
+        faces.next().is_none().then_some(i)
+    }
+
     pub fn dimension_reference(&self, key: &str) -> Result<Reference, String> {
         if self.dimension_references().is_empty() {
             return Err("This Analysis records no dimension references; analyse the STEP again, then copy stable keys from Analysis.edge_ink.references.".into());

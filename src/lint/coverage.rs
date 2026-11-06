@@ -622,9 +622,12 @@ pub fn sites(analysis: &Analysis, marks: &[Mark]) -> Vec<Site> {
         [0, 1, 2].map(|k| {
             let parameter = format!("location.length.{}", AXES[k]);
             marks.iter().any(|m| {
-                m.claims
-                    .iter()
-                    .any(|c| c.feature == id && c.parameter == parameter)
+                // Reference ordinates are information only. The controlling
+                // chain graph already excludes them; the backstop must agree.
+                !m.text.trim_start().starts_with('(')
+                    && m.claims
+                        .iter()
+                        .any(|c| c.feature == id && c.parameter == parameter)
                     && (!m.name.starts_with("hole_schedule_")
                         || super::holes::states(&m.text, at[k] - analysis.envelope[0][k]))
             })
@@ -983,7 +986,12 @@ mod tests {
                 parameter: "location.length.y".into(),
             }],
         };
-        assert!(located(&a, &[mark]).is_empty());
+        assert!(located(&a, std::slice::from_ref(&mark)).is_empty());
+        let reference = Mark {
+            text: " (30)".into(),
+            ..mark
+        };
+        assert_eq!(codes(&located(&a, &[reference])), ["feature_not_located"]);
     }
 
     #[test]
