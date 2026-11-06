@@ -6241,6 +6241,7 @@ fn plan_with_presentation(
         .filter(|(_, dropped, _)| {
             !spec.dimensions.values().any(|d| {
                 !d.omit
+                    && (d.between.is_some() || spec.dimension_source == DimensionSource::Authored)
                     && d.place
                         .as_ref()
                         .and_then(|p| p.view.as_deref())

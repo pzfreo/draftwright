@@ -1713,6 +1713,7 @@
           ]
         },
         "origin": {
+          "description": "Datum stations: min, max, a unique normal plane or axis:<reference> transverse to the named coordinate.",
           "type": "object",
           "properties": {
             "x": {

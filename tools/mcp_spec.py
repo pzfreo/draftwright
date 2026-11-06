@@ -109,6 +109,9 @@ def document():
                     ('on', 'frame', 'tooth_count', 'module', 'pressure_angle', 'profile_shift',
                      'face_width', 'tooth_thickness', 'tooth_thickness_tolerance', 'flank_tolerance_class')),
     }
+    for name in ('dimension', 'feature'):
+        field = definitions[name]['properties']['fit']
+        definitions[name]['properties']['fit'] = {'description': 'ISO 286 fit class. Prints independently of the supported numerical-deviation table; unavailable requested deviations warn without invented values.', **field}
     definitions['balloon_override'] = obj({'suppress': B, 'position': nullable(arr(N,minItems=2,maxItems=2))})
     definitions['balloon_settings'] = obj({'occurrences': B, 'items': mapping(ref('balloon_override'))})
     props = {'schema': enum('draftwright.spec/1', 'draftwright.spec/2'),
@@ -117,7 +120,7 @@ def document():
              'iso_scale_factor': nullable(N), 'sheets': nullable(ref('sheets')),
              'dimension_source': enum('auto', 'authored'),
         'pmi': enum('strict', 'first', 'ignore'),
-        'origin': obj({k: S for k in ('x', 'y', 'z')}), 'hole_table': enum('auto', 'always', 'never'),
+        'origin': {'description': 'Datum stations: min, max, a unique normal plane or axis:<reference> transverse to the named coordinate.', **obj({k: S for k in ('x', 'y', 'z')})}, 'hole_table': enum('auto', 'always', 'never'),
              'envelope_tolerance': nullable(S),
              'precision': mapping({'type': 'integer', 'minimum': 0, 'maximum': 15})}
     for key, name in [('views', 'view'), ('dimensions', 'dimension'), ('annotations', 'annotation'),

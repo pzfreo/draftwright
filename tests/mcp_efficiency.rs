@@ -168,7 +168,6 @@ fn refusals_give_valid_choices_and_an_executable_corrected_op() {
     let (cache, summary) = open("refusals", "m10127");
     for bad in [
         json!({"op":"set","path":"dimensions/d:f:hole:1~1bore.diameter/tolerance","value":"H7"}),
-        json!({"op":"set","path":"dimensions/d:f:hole:1~1bore.diameter/fit","value":"H7"}),
         json!({"op":"set","path":"dimensions/d:envelope~1width.length/tolerance","value":{"symmetric":0.02}}),
         json!({"op":"set","path":"views/v:iso/omit","value":true}),
         json!({"op":"set","path":"sheet/title/drawing_number","value":"DW-0001"}),
@@ -187,6 +186,25 @@ fn refusals_give_valid_choices_and_an_executable_corrected_op() {
             json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"ops":[corrected]}),
         );
     }
+    let preview = call(
+        &cache,
+        "preview_ops",
+        json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"ops":[
+            {"op":"set","path":"dimensions/d:f:hole:1~1bore.diameter/fit","value":"H7"}
+        ]}),
+    );
+    assert!(
+        preview["events"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| {
+                let item = &e["item"];
+                item["id"] == "d:f:hole:1/bore.diameter"
+                    && item["state"]["kind"] == "shown"
+                    && item["label"].as_str().is_some_and(|s| s.contains("H7"))
+            })
+    );
     assert_eq!(
         cache
             .head(summary["part_ref"].as_str().unwrap(), "default")
