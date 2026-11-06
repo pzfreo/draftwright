@@ -87,6 +87,15 @@ pub(super) fn stem(name: &str) -> Option<&str> {
     (!stem.is_empty()).then_some(stem)
 }
 
+pub(super) fn common_stem<'a>(names: impl Iterator<Item = &'a str>) -> Option<String> {
+    let names: Vec<_> = names.collect();
+    let first = stem(names.first()?)?;
+    (names.len() > 1
+        && names.iter().all(|name| stem(name) == Some(first))
+        && names.iter().any(|name| *name != names[0]))
+    .then(|| first.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::stem;
@@ -112,13 +121,4 @@ mod tests {
             assert_eq!(stem(name), None, "{name:?}");
         }
     }
-}
-
-pub(super) fn common_stem<'a>(names: impl Iterator<Item = &'a str>) -> Option<String> {
-    let names: Vec<_> = names.collect();
-    let first = stem(names.first()?)?;
-    (names.len() > 1
-        && names.iter().all(|name| stem(name) == Some(first))
-        && names.iter().any(|name| *name != names[0]))
-    .then(|| first.to_string())
 }
