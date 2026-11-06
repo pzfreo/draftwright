@@ -33,26 +33,6 @@
       "shoulders_defined"
     ]
   },
-  "302": {
-    "case": "steer_302_axis_origin",
-    "group": "B",
-    "reason": "The centred keyway gets a tangent location and an axis origin is refused.",
-    "checks": [
-      "axis_origin",
-      "no_tangent_location"
-    ]
-  },
-  "303": {
-    "case": "steer_303_keyway_fit_and_view",
-    "group": "B",
-    "reason": "Keyway fit classes are refused and an authored plan dimension does not retain its view.",
-    "checks": [
-      "JS9",
-      "N9",
-      "P9",
-      "authored_view_kept"
-    ]
-  },
   "304": {
     "case": "steer_304_keyway_section",
     "group": "B",

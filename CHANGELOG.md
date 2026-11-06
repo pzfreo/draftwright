@@ -17,6 +17,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
   measurements, unavailable layout and stale edits; accept axis origins and
   Cartesian note roles. ISO 286 fit classes print even outside the optional
   deviation table, without inventing limits.
+- Keep required lengths alongside reference dimensions (#317), attach pattern notes
+  in the circle's plan view (#312), retain authored dimension views (#303), accept
+  slot-centre references (#320), and omit centred keyway tangent locations (#302).
 
 - The `draftwright` command line is parsed by clap instead of by hand. Commands, flags,
   defaults, exit codes and the JSON errors for bad values (`--part`, `--dpi`, `--no-features`

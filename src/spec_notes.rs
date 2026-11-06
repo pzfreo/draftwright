@@ -572,9 +572,7 @@ pub(crate) fn check_claims(analysis: &Analysis, spec: &Spec) -> Result<(), Inval
     for (id, f) in &spec.features {
         for role in &f.note_satisfies {
             if !ids.contains(&format!("d:{id}/{role}"))
-                && !pocket_roles
-                    .iter()
-                    .any(|w| w.feature.id == *id && w.parameter == *role)
+                && !pocket_roles.contains(&format!("d:{id}/{role}"))
                 && !(analysis.features.iter().any(|feature| feature.id == *id)
                     && matches!(
                         role.as_str(),

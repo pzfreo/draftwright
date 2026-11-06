@@ -727,6 +727,7 @@
           ]
         },
         "fit": {
+          "description": "ISO 286 fit class. Prints independently of the supported numerical-deviation table; unavailable requested deviations warn without invented values.",
           "anyOf": [
             {
               "type": "string"
@@ -846,6 +847,7 @@
           ]
         },
         "fit": {
+          "description": "ISO 286 fit class. Prints independently of the supported numerical-deviation table; unavailable requested deviations warn without invented values.",
           "anyOf": [
             {
               "type": "string"

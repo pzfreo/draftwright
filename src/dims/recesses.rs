@@ -259,11 +259,7 @@ fn pocket_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) 
                 .turned
                 .as_ref()
                 .is_some_and(|t| k != t.axis && (at[k] - t.on[k]).abs() <= 1e-6)
-                && cx
-                    .spec
-                    .origin
-                    .get(AXES[k])
-                    .is_none_or(|r| r.starts_with("axis:"))
+                && !cx.spec.origin.contains_key(AXES[k])
             {
                 problems.push(Problem {
                     id: format!("p:location_on_axis:{}/{}", f.id, AXES[k]),
