@@ -306,9 +306,11 @@ class Acceptance(unittest.TestCase):
         plan_time = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(plan_time)
         # Capture the actual counted child, without requiring a process-list service.
-        # The work is long enough to pause.
+        # Function locals avoid per-process randomized global-dictionary lookup costs.
+        # Keep enough work to pause three times, with the same whole-run bound below.
         marker = f'paused-{os.getpid()}'
-        command = [sys.executable, '-I', '-c', f's = 0\nfor i in range(40_000_000): s += i  # {marker}']
+        command = [sys.executable, '-I', '-c',
+                   f'def work():\n s = 0\n for i in range(100_000_000): s += i  # {marker}\nwork()']
         whole, _ = plan_time.counted(command)
         found = {}
         counting = threading.Thread(target=lambda: found.update(paused=plan_time.counted(command)[0]))
