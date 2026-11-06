@@ -6,6 +6,16 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+### Changed
+
+- Spec validation preserves truthful drawing requests (#308): warn for duplicate
+  measurements, unavailable layout and stale edits; accept axis origins and
+  Cartesian note roles. ISO 286 fit classes print even outside the optional
+  deviation table, without inventing limits.
+- Keep required lengths alongside reference dimensions (#317), attach pattern notes
+  in the circle's plan view (#312), retain authored dimension views (#303), accept
+  slot-centre references (#320), and omit centred keyway tangent locations (#302).
+
 - Refuse contradictory repeated dimension requirements and fits on locations or pitches;
   validate note location roles against feature evidence. Preserve presentation-only scheme
   repeats with a warning, share centred-keyway evidence, and name detail scales as ratios.
@@ -22,14 +32,6 @@ for a default saved view, so files with a default saved view (such as the Notes 
   powershell or elvish) to stdout; the README gives the install one-liners.
 
 ### Changed
-
-- Spec validation preserves truthful drawing requests (#308): warn for duplicate
-  measurements, unavailable layout and stale edits; accept axis origins and
-  Cartesian note roles. ISO 286 fit classes print even outside the optional
-  deviation table, without inventing limits.
-- Keep required lengths alongside reference dimensions (#317), attach pattern notes
-  in the circle's plan view (#312), retain authored dimension views (#303), accept
-  slot-centre references (#320), and omit centred keyway tangent locations (#302).
 
 - The `draftwright` command line is parsed by clap instead of by hand. Commands, flags,
   defaults, exit codes and the JSON errors for bad values (`--part`, `--dpi`, `--no-features`
