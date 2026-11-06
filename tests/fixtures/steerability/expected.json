@@ -118,15 +118,6 @@
       "stepped-shaft-keyway_basis_names_override"
     ]
   },
-  "310": {
-    "case": "steer_310_concentric_pattern",
-    "group": "A",
-    "reason": "The concentric bolt-circle centre is still reported missing in x and y.",
-    "checks": [
-      "location.length.x",
-      "location.length.y"
-    ]
-  },
   "311": {
     "case": "steer_311_note_is_local",
     "group": "C",
