@@ -1822,6 +1822,9 @@
           "items": {
             "$ref": "#/$defs/gear"
           }
+        },
+        "process": {
+          "$ref": "#/properties/process"
         }
       },
       "additionalProperties": false

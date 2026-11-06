@@ -31,6 +31,24 @@ fn discovery() -> Value {
 fn schema_discovery_needs_no_part_or_cache_and_refuses_arguments() {
     let result = discovery();
     assert_eq!(
+        result["spec"]["$defs"]["spec_read"]["properties"]["process"]["$ref"],
+        "#/properties/process"
+    );
+    assert_eq!(
+        result["spec"]["properties"]["process"]["enum"],
+        json!([
+            "machined",
+            "3D printed: FDM",
+            "3D printed: resin",
+            "3D printed: powder",
+            "3D printed: metal",
+            "sheet metal",
+            "moulded",
+            "cast",
+            null
+        ])
+    );
+    assert_eq!(
         result["spec"]["$defs"]["sheet"]["properties"]["uncited_datums"]["anyOf"][0]["type"],
         "boolean"
     );
