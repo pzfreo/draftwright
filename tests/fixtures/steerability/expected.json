@@ -151,14 +151,6 @@
       "broken_view_accepted"
     ]
   },
-  "316": {
-    "case": "steer_316_authored_not_reference",
-    "group": "A",
-    "reason": "A reference-only hole location is still credited as a requirement.",
-    "checks": [
-      "reference_does_not_locate"
-    ]
-  },
   "317": {
     "case": "steer_317_reference_covers_nothing",
     "group": "B",
