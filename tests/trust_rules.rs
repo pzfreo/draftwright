@@ -547,7 +547,7 @@ fn dimension_ids_are_derived_and_a_bare_role_warns_without_applying() {
     assert!(plan.problems.iter().any(|p| {
         p.code == "dimension_edit_unapplied"
             && p.subjects
-                .contains(&"dimensions/d:f:hole_pattern:1/bore".into())
+                .contains(&"dimensions/d:f:hole_pattern:1~1bore".into())
     }));
     assert_eq!(plan.spec.dimensions, spec.dimensions);
     assert!(
