@@ -507,4 +507,12 @@ fn printed_profile_semantics_are_warning_only() {
             .iter()
             .any(|i| i.code == "gear_semantics_missing" && i.severity == Severity::Warning)
     );
+    // A new answer overrides the effective process; lint still reads only Analysis.
+    let machining: Spec = serde_json::from_value(json!({"process":"machined"})).unwrap();
+    let a = draftwright::spec_gdt::effective(&a, &machining).unwrap();
+    assert!(
+        lint::gears::check(&a, &d)
+            .iter()
+            .any(|i| i.code == "gear_semantics_missing" && i.severity == Severity::Info)
+    );
 }
