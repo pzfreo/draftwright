@@ -271,7 +271,7 @@ pub(super) fn same_requirement(a: &Analysis, spec: &Spec, p: &Want, q: &Want) ->
             (crate::dims::is_envelope_extent(&w.id)
                 .then_some(spec.envelope_tolerance.as_deref())
                 .flatten())
-            .or_else(|| inherited.as_deref()),
+            .or(inherited.as_deref()),
         )
     };
     let (fit_p, p) = requirement(p);
