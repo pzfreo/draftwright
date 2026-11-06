@@ -240,7 +240,7 @@ pub(super) fn append(
             if duplicate(a, &w, existing, refs, kind)
                 && (kind != "linear" || same_features(a, refs, existing))
             {
-                if !super::tolerance::same_requirement(s, &w, existing) {
+                if !super::tolerance::same_requirement(a, s, &w, existing) {
                     return Err(invalid(format!(
                         "{id} contradicts the requirement on {}; repeated measurements must have the compatible tolerances and fits.",
                         existing.id

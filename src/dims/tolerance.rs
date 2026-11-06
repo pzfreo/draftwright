@@ -242,7 +242,14 @@ fn feature_size(a: &Analysis, spec: &Spec, w: &Want) -> bool {
 }
 
 /// Compare effective requirements, including an unedited owner's general tolerance.
-pub(super) fn same_requirement(spec: &Spec, p: &Want, q: &Want) -> bool {
+pub(super) fn same_requirement(a: &Analysis, spec: &Spec, p: &Want, q: &Want) -> bool {
+    let inherited = spec.sheet.title.get("tolerance").cloned().or_else(|| {
+        crate::pmi_lowering::sheet_requirements(a)
+            .0
+            .into_iter()
+            .find(|r| r.kind == "general_tolerance")
+            .map(|r| r.value)
+    });
     let requirement = |w: &Want| {
         let edit = spec.dimensions.get(&w.id);
         if let Some(t) = edit.and_then(|e| e.tolerance.as_deref()) {
@@ -264,7 +271,7 @@ pub(super) fn same_requirement(spec: &Spec, p: &Want, q: &Want) -> bool {
             (crate::dims::is_envelope_extent(&w.id)
                 .then_some(spec.envelope_tolerance.as_deref())
                 .flatten())
-            .or_else(|| spec.sheet.title.get("tolerance").map(String::as_str)),
+            .or_else(|| inherited.as_deref()),
         )
     };
     let (fit_p, p) = requirement(p);
