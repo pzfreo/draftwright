@@ -872,3 +872,36 @@ fn a_spec_threads_depth_on_its_holes_is_required_by_lint() {
         );
     }
 }
+
+#[test]
+fn location_notes_accept_only_the_features_actual_lint_roles() {
+    let (_, a) = plate();
+    let roles: std::collections::BTreeSet<_> = draftwright::lint::check(&a, &[])
+        .into_iter()
+        .flat_map(|i| i.requirements)
+        .filter(|r| r.parameter.starts_with("location.length."))
+        .map(|r| (r.feature, r.parameter))
+        .collect();
+    assert!(!roles.is_empty());
+    let (owner, role) = roles.iter().next().unwrap();
+    let p = model::plan_recovered(
+        &a,
+        &spec(json!({"features":{owner:{"note":"LOCATION PER PROCESS", "note_satisfies":[role]}}})),
+    )
+    .unwrap();
+    assert!(!p.views.is_empty());
+    let invalid = ["x", "y", "z"]
+        .into_iter()
+        .map(|axis| format!("location.length.{axis}"))
+        .find(|role| !roles.contains(&(owner.clone(), role.clone())))
+        .unwrap();
+    assert!(!roles.contains(&(owner.clone(), invalid.clone())));
+    let e = model::plan_recovered(
+        &a,
+        &spec(
+            json!({"features":{owner:{"note":"LOCATION PER PROCESS", "note_satisfies":[invalid]}}}),
+        ),
+    )
+    .unwrap_err();
+    assert!(e.message.contains("not a measurement role"));
+}

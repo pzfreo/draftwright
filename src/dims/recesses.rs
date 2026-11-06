@@ -255,10 +255,8 @@ fn pocket_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) 
             axes = [0, 1];
         }
         for k in axes {
-            if cx
-                .turned
-                .as_ref()
-                .is_some_and(|t| k != t.axis && (at[k] - t.on[k]).abs() <= 1e-6)
+            if k == p.width_axis
+                && pockets::centred_mouth(cx.analysis, &p)
                 && !cx.spec.origin.contains_key(AXES[k])
             {
                 problems.push(Problem {
@@ -1071,6 +1069,51 @@ mod tests {
             frame,
         };
         wants(&cx)
+    }
+
+    #[test]
+    fn centred_pockets_skip_tangent_locations_only_with_cylindrical_mouth_evidence() {
+        let rect = [
+            ([-5., -3.], 0.),
+            ([5., -3.], 0.),
+            ([5., 3.], 0.),
+            ([-5., 3.], 0.),
+        ];
+        for mouth in [false, true] {
+            let mut r = recess(
+                "pocket",
+                "rectangular",
+                [[50., 50., 0.], Z[1], Z[2], Z[3]],
+                [0., 10.],
+                [false, true],
+                true,
+                &rect,
+            );
+            if mouth {
+                r["geometry"]["ends"]["high"]["surface"] = serde_json::json!({"type":"cylinder", "axis_point":[0.,0.,0.], "axis_direction":[1.,0.], "radius":10., "branch":"positive"});
+            }
+            let mut a = part("section_recess", r);
+            let (_, placed) = pockets::placed(&a).into_iter().next().unwrap();
+            let p = placed.unwrap();
+            // Use the same carrying turned-band evidence as production lint.
+            let mut on = p.centre;
+            on[p.depth_axis] = 0.;
+            let mut band = a.features[0].clone();
+            band.id = "f:turned_step:1".into();
+            band.kind = "turned_step".into();
+            band.parameters = serde_json::json!({"axis":"x","lo":45.,"hi":55.,"diameter":20.,"profile":{"axis_origin":on}}).as_object().unwrap().clone();
+            a.features.push(band);
+            let (w, _) = planned(&a);
+            let required = pockets::wanted(&a)
+                .iter()
+                .any(|r| r.parameter.ends_with("location.y"));
+            assert_eq!(required, !mouth);
+            assert_eq!(
+                w.iter()
+                    .any(|w| w.id.ends_with("location_pocket.location.y")),
+                required
+            );
+        }
     }
 
     /// A rectangular pocket 10 × 6 along z whose mouth is a cylinder along x (radius 10, its

@@ -77,6 +77,7 @@ pub(super) fn apply(
     s: &Spec,
     wants: &mut Vec<Want>,
 ) -> Result<(Covered, Vec<crate::model::Problem>), Invalid> {
+    let mut problems = Vec::new();
     let mut covered = Covered::new();
     if s.dimension_schemes.is_empty() {
         return Ok((covered, Vec::new()));
@@ -280,7 +281,8 @@ pub(super) fn apply(
                         .any(|f| f.id == m.feature && f.kind == "slot_pattern"))
             });
             if parent {
-                if has_edits(s, w) {
+                if let Some(p) = edited_duplicate(s, w)? {
+                    problems.push(p);
                     continue;
                 }
                 // Invariant: The generated dimension was pushed immediately before recording its id.
@@ -289,7 +291,7 @@ pub(super) fn apply(
         }
         wants.extend(generated);
     }
-    let problems = complete_ownership(a, s, &old, wants, &mut covered)?;
+    problems.extend(complete_ownership(a, s, &old, wants, &mut covered)?);
     Ok((covered, problems))
 }
 
@@ -383,12 +385,7 @@ pub(super) fn check_authored(s: &Spec, wants: &[Want]) -> Vec<crate::model::Prob
         if crate::lint::redundancy::path(&edges, crate::lint::redundancy::Span::new(k, lo, hi))
             .is_some()
         {
-            problems.push(crate::model::Problem {
-                id: format!("p:duplicate_measurement:{}", w.id), code: "duplicate_measurement".into(),
-                severity: "warning".into(), subjects: vec![w.id.clone()],
-                message: format!("{} repeats an interval stated by the authored dimension scheme; the measured statement is retained.", super::wording_of(w)),
-                ..Default::default()
-            });
+            problems.push(super::warning("duplicate_measurement", &w.id, format!("{} repeats an interval stated by the authored dimension scheme; the measured statement is retained.", super::wording_of(w)), vec![w.id.clone()]));
         }
     }
     problems
@@ -405,6 +402,30 @@ fn has_edits(s: &Spec, w: &Want) -> bool {
                 || d.view.is_some()
                 || d.omit
         })
+}
+
+/// A scheme cannot silently weaken an edited owner's manufacturing requirement.
+fn edited_duplicate(s: &Spec, w: &Want) -> Result<Option<crate::model::Problem>, Invalid> {
+    if s.dimensions
+        .get(&w.id)
+        .is_some_and(|d| d.tolerance.is_some() || d.fit.is_some())
+    {
+        return Err(invalid(format!(
+            "{} contradicts the scheme's general-tolerance intervals; remove its tolerance or fit, or choose disjoint targets.",
+            w.id
+        )));
+    }
+    Ok(has_edits(s, w).then(|| {
+        super::warning(
+            "duplicate_measurement",
+            &w.id,
+            format!(
+                "{} retains its presentation edit alongside the scheme repeating its location.",
+                super::wording_of(w)
+            ),
+            vec![w.id.clone()],
+        )
+    }))
 }
 
 /// Give authored links priority, then retain automatic controllers only while they
@@ -504,8 +525,12 @@ fn complete_ownership(
                 .copied()
                 .find(|&j| j >= old.len());
             if let Some(owner) = authored {
+                if let Some(p) = edited_duplicate(s, w)? {
+                    problems.push(p);
+                    continue;
+                }
                 if routes.iter().any(Option::is_none) {
-                    problems.push(crate::model::Problem { id: format!("p:duplicate_measurement:{}", w.id), code: "duplicate_measurement".into(), severity: "warning".into(), subjects: vec![w.id.clone(), wants[owner].id.clone()], message: format!("{} retains its full counted statement alongside a scheme repeating some of its intervals.", super::wording_of(w)), ..Default::default() });
+                    problems.push(super::warning("duplicate_measurement", &w.id, format!("{} retains its full counted statement alongside a scheme repeating some of its intervals.", super::wording_of(w)), vec![w.id.clone(), wants[owner].id.clone()]));
                     continue;
                 }
                 if w.id.starts_with("d:pmi:")
@@ -515,9 +540,6 @@ fn complete_ownership(
                         "{} already states semantic PMI across the scheme network; choose disjoint targets or remove the conflicting scheme.",
                         w.id
                     )));
-                }
-                if has_edits(s, w) {
-                    continue;
                 }
                 covered.insert(w.id.clone(), wants[owner].id.clone());
                 for m in &w.measurements {

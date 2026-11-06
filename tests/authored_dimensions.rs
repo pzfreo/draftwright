@@ -120,6 +120,13 @@ fn duplicates_are_refused_with_the_existing_owner_and_bad_references_are_actiona
     let (_, a) = plate();
     let mut s = authored(&a);
     s.dimension_source = model::DimensionSource::Auto;
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("contradicts")
+    );
+    s.envelope_tolerance = Some("±0.1".into());
     let p = model::plan_recovered(&a, &s).unwrap();
     assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
     assert!(
@@ -730,6 +737,17 @@ fn cylinders_spheres_and_axis_offsets_are_measured_and_linted() {
         );
         let mut duplicate = s.clone();
         duplicate.dimension_source = model::DimensionSource::Auto;
+        assert!(
+            model::plan_recovered(&a, &duplicate)
+                .unwrap_err()
+                .message
+                .contains("contradicts")
+        );
+        duplicate
+            .dimensions
+            .get_mut("d:authored:size")
+            .unwrap()
+            .tolerance = None;
         let p = model::plan_recovered(&a, &duplicate).unwrap();
         assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
         assert!(
@@ -1633,5 +1651,52 @@ fn a_slot_end_cylinder_does_not_alias_the_slots_centre() {
         !d.measurements
             .iter()
             .any(|m| m.feature == "f:slot:1" && m.parameter == "location.length.x")
+    );
+}
+
+#[test]
+fn repeated_sizes_require_matching_effective_tolerances_and_fits() {
+    let (_, a) = plate();
+    let mut s = authored(&a);
+    s.dimension_source = model::DimensionSource::Auto;
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("contradicts")
+    );
+    s.sheet.title.insert("tolerance".into(), "±0.2".into());
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("contradicts")
+    );
+    s.sheet.title.insert("tolerance".into(), "±0.10".into());
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.id == "d:authored:width" && d.placed.is_some())
+    );
+    s.dimensions.insert(
+        "d:envelope/width.length".into(),
+        serde_json::from_value(json!({"fit":"H7"})).unwrap(),
+    );
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("contradicts")
+    );
+    s.dimensions.get_mut("d:authored:width").unwrap().tolerance = None;
+    s.dimensions.get_mut("d:authored:width").unwrap().fit = Some("H7".into());
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.id == "d:authored:width" && d.label.contains("H7") && d.placed.is_some())
     );
 }

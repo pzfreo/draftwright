@@ -559,25 +559,15 @@ pub(crate) fn check_claims(analysis: &Analysis, spec: &Spec) -> Result<(), Inval
         return Ok(());
     }
     let ids = crate::dims::measurement_ids(analysis);
-    let pocket_roles: std::collections::BTreeSet<_> = crate::lint::pockets::placed(analysis)
+    let lint_roles: std::collections::BTreeSet<_> = crate::lint::check(analysis, &[])
         .into_iter()
-        .flat_map(|(f, p)| {
-            p.ok().into_iter().flat_map(move |p| {
-                crate::lint::pockets::locations(&p, analysis.envelope[0])
-                    .into_iter()
-                    .map(move |(role, _)| format!("d:{}/{role}", f.id))
-            })
-        })
+        .flat_map(|i| i.requirements)
+        .map(|r| format!("d:{}/{}", r.feature, r.parameter))
         .collect();
     for (id, f) in &spec.features {
         for role in &f.note_satisfies {
-            if !ids.contains(&format!("d:{id}/{role}"))
-                && !pocket_roles.contains(&format!("d:{id}/{role}"))
-                && !(analysis.features.iter().any(|feature| feature.id == *id)
-                    && matches!(
-                        role.as_str(),
-                        "location.length.x" | "location.length.y" | "location.length.z"
-                    ))
+            if !lint_roles.contains(&format!("d:{id}/{role}"))
+                && (role.starts_with("location") || !ids.contains(&format!("d:{id}/{role}")))
             {
                 return Err(invalid(
                     format!("{role:?} is not a measurement role of {id}."),

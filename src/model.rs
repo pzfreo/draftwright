@@ -6920,7 +6920,7 @@ fn plan_with_presentation(
                 detail: Some(detail),
             });
         } else {
-            problems.push(Problem {id:format!("p:detail_unplaceable:v:{name}"),code:"detail_unplaceable".into(),severity:"warning".into(),message:format!("Detail {name} has insufficient layout space for its crop at scale {}; its dimensions remain on the parent.", detail.scale),refs:vec![format!("v:{name}")],..Default::default()});
+            problems.push(Problem {id:format!("p:detail_unplaceable:v:{name}"),code:"detail_unplaceable".into(),severity:"warning".into(),message:format!("Detail {name} has insufficient layout space for its crop at scale {}; its dimensions remain on the parent.", scale_name(detail.scale)),refs:vec![format!("v:{name}")],..Default::default()});
         }
     }
     if require_automatic

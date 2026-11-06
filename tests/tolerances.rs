@@ -651,3 +651,38 @@ fn a_generated_diameter_accepts_a_class_without_optional_deviations() {
     let unreadable = spec(json!({"features":{"f:hole:1":{"fit":"ſ9"}}}));
     assert!(model::plan(&a, &unreadable).is_err());
 }
+
+#[test]
+fn dimension_fits_refuse_locations_and_pitches_but_keep_feature_sizes() {
+    let (_, a) = model::analyse_native(&fixture("parts/scattered_holes.step")).unwrap();
+    let id = "d:f:hole:2/location.length.y";
+    let e = model::plan_recovered(&a, &spec(json!({"dimensions":{id:{"fit":"H7"}}}))).unwrap_err();
+    assert!(
+        e.message.contains("feature of size") && e.message.contains(id),
+        "{e:?}"
+    );
+    let (_, a) = analysed("plate");
+    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let id = &p
+        .dimensions
+        .iter()
+        .find(|d| d.id.contains("pitch.length"))
+        .unwrap()
+        .id;
+    assert!(
+        model::plan_recovered(&a, &spec(json!({"dimensions":{id:{"fit":"H7"}}})))
+            .unwrap_err()
+            .message
+            .contains("feature of size")
+    );
+    let p = model::plan_recovered(
+        &a,
+        &spec(json!({"dimensions":{"d:envelope/width.length":{"fit":"H7"}}})),
+    )
+    .unwrap();
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.label.contains("H7") && d.placed.is_some())
+    );
+}

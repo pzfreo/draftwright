@@ -55,6 +55,18 @@
 //! [`levels`] (the height ladder) each say what their family wants dimensioned, and
 //! [`placement`] places it. A new family is a new planner module and an entry in the list.
 
+/// A drawing shortcoming that preserves the requested, measurable statement.
+fn warning(code: &str, subject: &str, message: String, subjects: Vec<String>) -> Problem {
+    Problem {
+        id: format!("p:{code}:{subject}"),
+        code: code.into(),
+        severity: "warning".into(),
+        message,
+        subjects,
+        ..Default::default()
+    }
+}
+
 pub mod angular;
 pub(crate) mod authored;
 pub(crate) mod blends;
@@ -3364,17 +3376,15 @@ fn plan_inventory_ordered(
                 Shape::Callout { .. } | Shape::Linear { .. } | Shape::Aligned { .. }
             )
         {
-            problems.push(Problem {
-                id: format!("p:placement_unapplied:{}", w.id),
-                code: "placement_unapplied".into(),
-                severity: "warning".into(),
-                message: format!(
+            problems.push(warning(
+                "placement_unapplied",
+                &w.id,
+                format!(
                     "The placement offset of {} applies only to callouts and linear dimensions.",
                     wording_of(w)
                 ),
-                subjects: vec![w.id.clone()],
-                ..Default::default()
-            });
+                vec![w.id.clone()],
+            ));
         }
         if spec
             .dimensions
@@ -3388,17 +3398,15 @@ fn plan_inventory_ordered(
                     && chosen[i].is_some_and(|v| d.view == format!("v:{v}"))
             })
         {
-            problems.push(Problem {
-                id: format!("p:placement_unapplied:{}", w.id),
-                code: "placement_unapplied".into(),
-                severity: "warning".into(),
-                message: format!(
+            problems.push(warning(
+                "placement_unapplied",
+                &w.id,
+                format!(
                     "{} has no automatic linear placement in the requested view",
                     wording_of(w)
                 ),
-                subjects: vec![w.id.clone()],
-                ..Default::default()
-            });
+                vec![w.id.clone()],
+            ));
         }
         if let Some(p) = spec.dimensions.get(&w.id).and_then(|e| e.place.as_ref())
             && let (Shape::Linear { axis, .. }, Some(side), Some(v)) = (&w.shape, p.side, chosen[i])
@@ -3409,17 +3417,15 @@ fn plan_inventory_ordered(
                 )
             })
         {
-            problems.push(Problem {
-                id: format!("p:placement_unapplied:{}", w.id),
-                code: "placement_unapplied".into(),
-                severity: "warning".into(),
-                message: format!(
+            problems.push(warning(
+                "placement_unapplied",
+                &w.id,
+                format!(
                     "The side of {} must be parallel to its dimension line in {v}.",
                     wording_of(w)
                 ),
-                subjects: vec![w.id.clone()],
-                ..Default::default()
-            });
+                vec![w.id.clone()],
+            ));
         }
     }
     let mut intended: Vec<Option<Placed>> = all

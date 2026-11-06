@@ -147,15 +147,44 @@ fn bad_references_axes_overlaps_and_conflicting_edits_are_refused() {
         .clone();
     let mut s = whole("chain", "x", "plan", "min");
     s.dimensions.insert(
-        id,
+        id.clone(),
         serde_json::from_value(json!({"tolerance":"±0.1"})).unwrap(),
     );
-    let p = model::plan_recovered(&a, &s).unwrap();
-    assert!(
-        p.dimensions
-            .iter()
-            .any(|d| d.placed.is_some() && d.label.contains("±0.1"))
+    let error = model::plan_recovered(&a, &s).unwrap_err();
+    assert!(error.message.contains("contradicts") && error.message.contains(&id));
+    s.dimensions.insert(
+        id.clone(),
+        serde_json::from_value(json!({"fit":"H7"})).unwrap(),
     );
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("contradicts")
+    );
+    for edit in [
+        json!({"view":"plan"}),
+        json!({"place":{"side":"below","lane":1}}),
+    ] {
+        s.dimensions
+            .insert(id.clone(), serde_json::from_value(edit).unwrap());
+        let p = model::plan_recovered(&a, &s).unwrap();
+        assert!(
+            p.dimensions
+                .iter()
+                .any(|d| d.id == id && d.placed.is_some())
+        );
+        assert!(
+            p.dimensions
+                .iter()
+                .any(|d| d.id.starts_with("d:scheme:") && d.placed.is_some())
+        );
+        assert!(
+            p.problems
+                .iter()
+                .any(|p| p.code == "duplicate_measurement" && p.subjects.contains(&id))
+        );
+    }
     let p = model::plan_recovered(&a, &spec(json!({"dimension_schemes":{"a":{"scheme":"chain","axis":"x","view":"plan"},"b":{"scheme":"baseline","axis":"x","view":"plan"}}}))).unwrap();
     assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
     assert!(p.dimensions.iter().any(|d| d.placed.is_some()));

@@ -84,37 +84,37 @@ pub(super) fn consolidate(
     {
         return controlling(a, spec, kept, given, omitted);
     }
-    // Information-only statements never supply controlling edges or own a requirement.
-    let order: std::collections::BTreeMap<_, _> = kept
-        .iter()
-        .enumerate()
-        .map(|(i, (w, ..))| (w.id.clone(), i))
-        .collect();
-    let mut information = Vec::new();
-    let old = std::mem::take(kept);
-    for (item, fields) in old.into_iter().zip(std::mem::take(given)) {
-        if spec
-            .dimensions
-            .get(&item.0.id)
+    // Filter information-only statements out of every controlling pass. Apply the
+    // surviving controllers back in input order, without a sorting/merging pass.
+    let information = |w: &Want| {
+        spec.dimensions
+            .get(&w.id)
             .is_some_and(|d| d.style == Some(crate::label_text::Style::Reference))
-        {
-            information.push((item, fields));
-        } else {
-            kept.push(item);
-            given.push(fields);
-        }
-    }
-    let references = controlling(a, spec, kept, given, omitted);
-    let mut combined: Vec<_> = std::mem::take(kept)
+    };
+    let (mut controls, mut fields): (Vec<_>, Vec<_>) = kept
+        .iter()
+        .zip(given.iter())
+        .filter(|((w, ..), _)| !information(w))
+        .map(|(w, g)| (w.clone(), g.clone()))
+        .unzip();
+    let references = controlling(a, spec, &mut controls, &mut fields, omitted);
+    let mut surviving = controls.into_iter().zip(fields).peekable();
+    (*kept, *given) = std::mem::take(kept)
         .into_iter()
         .zip(std::mem::take(given))
-        .chain(information)
-        .collect();
-    combined.sort_by_key(|((w, ..), _)| order[&w.id]);
-    for (item, fields) in combined {
-        kept.push(item);
-        given.push(fields);
-    }
+        .filter_map(|(w, g)| {
+            if information(&w.0) {
+                Some((w, g))
+            } else if surviving
+                .peek()
+                .is_some_and(|((next, ..), _)| next.id == w.0.id)
+            {
+                surviving.next()
+            } else {
+                None
+            }
+        })
+        .unzip();
     references
 }
 

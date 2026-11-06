@@ -6,6 +6,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Refuse contradictory repeated dimension requirements and fits on locations or pitches;
+  validate note location roles against feature evidence. Preserve presentation-only scheme
+  repeats with a warning, share centred-keyway evidence, and name detail scales as ratios.
+
 ## 0.2.12 (2026-11-06)
 
 On quiddity-rust 0.4.8 (was 0.4.7). Its PMI reader no longer reports a face-less shape aspect

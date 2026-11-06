@@ -195,6 +195,88 @@ pub(super) fn same_band(a: &str, b: &str) -> bool {
         .is_some_and(|(a, b)| a == b)
 }
 
+/// ISO fits qualify a physical size between opposed surfaces, never a station or pitch.
+fn size_parameter(p: &str) -> bool {
+    let (quantity, unit) = p.split_once('.').unwrap_or((p, ""));
+    p == "diameter"
+        || (unit == "diameter" && quantity != "bolt_circle")
+        || (unit == "length"
+            && (matches!(
+                quantity,
+                "width"
+                    | "depth"
+                    | "height"
+                    | "thickness"
+                    | "step"
+                    | "groove"
+                    | "polygon_across_flats"
+                    | "profile_across_flats"
+                    | "general_size"
+            ) || quantity.ends_with("_width")
+                || quantity.ends_with("_length")
+                || quantity.ends_with("_depth")
+                || quantity.ends_with("_height")
+                || quantity.ends_with("_thickness")))
+}
+
+fn feature_size(a: &Analysis, spec: &Spec, w: &Want) -> bool {
+    if w.measurements.iter().any(|m| size_parameter(&m.parameter)) {
+        return true;
+    }
+    // Authored linear quantities carry geometry parameters until ownership is attached.
+    // Only a pair of parallel physical planes proves a linear feature of size;
+    // an axis/point-to-datum or axis-to-axis location does not.
+    let Some(refs) = spec.dimensions.get(&w.id).and_then(|d| d.between.as_ref()) else {
+        return false;
+    };
+    let [p, q] = refs.as_slice() else {
+        return false;
+    };
+    use crate::model::dimension_geometry::Reference;
+    match (a.dimension_reference(p), a.dimension_reference(q)) {
+        (Ok(Reference::Plane { normal: p, .. }), Ok(Reference::Plane { normal: q, .. })) => {
+            ((0..3).map(|k| p[k] * q[k]).sum::<f64>().abs() - 1.).abs() < 1e-6
+        }
+        _ => false,
+    }
+}
+
+/// Compare effective requirements, including an unedited owner's general tolerance.
+pub(super) fn same_requirement(spec: &Spec, p: &Want, q: &Want) -> bool {
+    let requirement = |w: &Want| {
+        let edit = spec.dimensions.get(&w.id);
+        if let Some(t) = edit.and_then(|e| e.tolerance.as_deref()) {
+            return (false, Some(t));
+        }
+        if let Some(f) = edit.and_then(|e| e.fit.as_deref()) {
+            return (true, Some(f));
+        }
+        if let Some(f) = w
+            .measurements
+            .iter()
+            .filter(|m| size_parameter(&m.parameter))
+            .find_map(|m| spec.features.get(&m.feature).and_then(|f| f.fit.as_deref()))
+        {
+            return (true, Some(f));
+        }
+        (
+            false,
+            (crate::dims::is_envelope_extent(&w.id)
+                .then_some(spec.envelope_tolerance.as_deref())
+                .flatten())
+            .or_else(|| spec.sheet.title.get("tolerance").map(String::as_str)),
+        )
+    };
+    let (fit_p, p) = requirement(p);
+    let (fit_q, q) = requirement(q);
+    fit_p == fit_q
+        && match (p, q) {
+            (Some(p), Some(q)) => p == q || (!fit_p && same_band(p, q)),
+            (None, None) => true,
+            _ => false,
+        }
+}
+
 /// Whether the sheet requests stacked fit deviations (off by default).
 pub(super) fn limits_shown(spec: &Spec) -> bool {
     spec.sheet.fit_deviations.or(spec.sheet.fit_limits) == Some(true)
@@ -305,16 +387,7 @@ fn path(id: &str) -> String {
     format!("dimensions/{}/tolerance", key(id))
 }
 
-fn problem(code: &str, subject: &str, message: String, subjects: Vec<String>) -> Problem {
-    Problem {
-        id: format!("p:{code}:{subject}"),
-        code: code.into(),
-        severity: "warning".into(),
-        message,
-        subjects,
-        ..Default::default()
-    }
-}
+use super::warning as problem;
 
 /// Puts the spec's tolerances and fits on the kept items' labels, before they are placed, and
 /// reports what cannot be stated. Returns, for each kept item, what of it the spec gave
@@ -479,13 +552,11 @@ pub(super) fn apply(
             if !w.value.is_finite()
                 || w.value <= 0.0
                 || matches!(w.shape, super::Shape::Angular { .. })
-                || w.measurements.first().is_some_and(|m| {
-                    m.parameter.ends_with("radius") || m.parameter.ends_with("angle")
-                })
+                || !feature_size(analysis, spec, w)
             {
                 return Err(Invalid {
                     message: format!(
-                        "The fit of {} needs a positive linear size or diameter, not a radius or angle.",
+                        "The fit of {} needs a positive feature of size, not a location, pitch, radius or angle.",
                         w.id
                     ),
                     path: None,
