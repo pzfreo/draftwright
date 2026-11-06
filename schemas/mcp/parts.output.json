@@ -42,6 +42,9 @@
           },
           "message": {
             "type": "string"
+          },
+          "path": {
+            "type": "string"
           }
         },
         "required": [

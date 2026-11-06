@@ -12,6 +12,7 @@ All notable changes to draftwright-rust are recorded here, in the style of
   and explain unavailable overrides and the PMI/checker boundary (#309).
 - Pocket depth wording says `DEEP`, with truthful tangent-depth or opposite-tangent
   floor-distance presentation in the Spec (#305).
+- MCP error schemas include the existing Spec `path`, including part-selection refusals.
 - Select a part in the Spec by persistent key or numeric index (#324); refuse
   conflicting command/request selectors.
 
