@@ -2388,6 +2388,14 @@ fn placement_choices(
                 _ => return None,
             };
             match &item.glyph {
+                Glyph::Label { .. }
+                    if record
+                        .geometry
+                        .as_ref()
+                        .is_some_and(|g| !g.sites.is_empty()) =>
+                {
+                    Some((name, vec!["above", "below", "left", "right"]))
+                }
                 Glyph::ControlFrame { .. } | Glyph::Label { .. } | Glyph::FlagNote { .. } => {
                     (name == item.view).then(|| (name, vec!["above", "below", "left", "right"]))
                 }

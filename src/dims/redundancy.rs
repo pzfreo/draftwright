@@ -77,6 +77,13 @@ pub(super) fn consolidate(
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
 ) -> References {
+    if !spec
+        .dimensions
+        .values()
+        .any(|d| d.style == Some(crate::label_text::Style::Reference))
+    {
+        return controlling(a, spec, kept, given, omitted);
+    }
     // Information-only statements never supply controlling edges or own a requirement.
     let order: std::collections::BTreeMap<_, _> = kept
         .iter()
