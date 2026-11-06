@@ -143,9 +143,7 @@ pub fn check(a: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
         .bom
         .as_ref()
         .is_some_and(|m| m.manufacturing_process().printed());
-    let severity = if printed {
-        Severity::Warning
-    } else if a.solid_count.is_some_and(|n| n > 1) {
+    let severity = if a.solid_count.is_some_and(|n| n > 1) {
         Severity::Info
     } else {
         Severity::Warning
@@ -159,6 +157,7 @@ pub fn check(a: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
     let profiles = profiles(a);
     let mut issues = Vec::new();
     if !profiles.is_empty() && gears.is_empty() {
+        let severity = if printed { Severity::Warning } else { severity };
         issues.push(issue("gear_semantics_missing", "part", severity, "a repeating radial profile is present but no gear type, geometry, tooth thickness, or flank-tolerance requirements were declared"));
     }
     for g in gears {
