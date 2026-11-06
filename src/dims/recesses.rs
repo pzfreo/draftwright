@@ -255,6 +255,29 @@ fn pocket_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) 
             axes = [0, 1];
         }
         for k in axes {
+            if cx
+                .turned
+                .as_ref()
+                .is_some_and(|t| k != t.axis && (at[k] - t.on[k]).abs() <= 1e-6)
+                && cx
+                    .spec
+                    .origin
+                    .get(AXES[k])
+                    .is_none_or(|r| r.starts_with("axis:"))
+            {
+                problems.push(Problem {
+                    id: format!("p:location_on_axis:{}/{}", f.id, AXES[k]),
+                    code: "location_on_axis".into(),
+                    severity: "info".into(),
+                    message: format!(
+                        "{} is centred on the turning axis in {}; no tangent location is needed.",
+                        f.id, AXES[k]
+                    ),
+                    subjects: vec![f.id.clone()],
+                    ..Default::default()
+                });
+                continue;
+            }
             if (at[k] - lo[k]).abs() <= 1e-6 {
                 problems.push(on_datum(cx.analysis, &f.id, k));
                 continue;
