@@ -456,7 +456,7 @@ fn a_rungs_id_names_its_height_not_its_rank() {
         assert!(plan.omitted.iter().any(|o| o.id == id), "{id}");
     }
 
-    // Without the lower level the upper rung keeps its ID; omitting the lost one is refused.
+    // Without the lower level the upper rung keeps its ID; the stale omission warns.
     let base = a.envelope[0][2];
     a.levels.retain(|z| (z - base - 16.0).abs() > 1e-6);
     let plan = model::plan(&a, &Spec::default()).unwrap();
@@ -464,12 +464,21 @@ fn a_rungs_id_names_its_height_not_its_rank() {
         items(&plan, &LADDER),
         strs(&[("step_height.length.h32", "front", "32")])
     );
-    let e = model::plan(&a, &spec).unwrap_err();
+    let plan = model::plan(&a, &spec).unwrap();
     assert!(
-        e.choices
+        plan.problems
             .iter()
-            .any(|c| c == "d:step_level/step_height.length.h32"),
-        "{e}"
+            .any(|p| p.code == "dimension_edit_unapplied")
+    );
+    assert_eq!(plan.spec.dimensions, spec.dimensions);
+    assert_eq!(
+        items(&plan, &LADDER),
+        strs(&[("step_height.length.h32", "front", "32")])
+    );
+    assert!(
+        plan.dimensions
+            .iter()
+            .any(|d| d.id == "d:step_level/step_height.length.h32" && d.placed.is_some())
     );
 }
 

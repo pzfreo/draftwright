@@ -44,6 +44,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `angular_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `angular_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |
 | `angular_support_mismatch` | incomplete | The drawn evidence does not correctly state the required source information. |
+| `annotation_edit_unapplied` | decision | A saved annotation edit has no current item; its intent is retained. |
 | `annotation_ink_overlap` | readability | Annotation ink impairs the legibility of another annotation; leader-through-text is included. |
 | `annotation_leader_crossing` | readability | Leader, dimension-line or arrow crossings impair reading; extension-only crossings are advisory. |
 | `annotation_leader_long` | readability | The leader is longer than the preferred reading distance. |
@@ -100,6 +101,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `detail_unplaceable` | readability | A detail has no room; its dimensions remain on the parent view. |
 | `diameter_leader_target_mismatch` | readability | The diameter leader points at the wrong geometry. |
 | `diameter_leader_target_unverifiable` | readability | The diameter leader target cannot be verified. |
+| `dimension_edit_unapplied` | decision | A saved dimension or precision edit has no current printed item; its intent is retained. |
 | `dimension_line_crossing` | readability | Dimension lines cross each other. |
 | `dimension_line_shared` | readability | Dimension strokes share a line and are harder to distinguish. |
 | `dimension_not_authored` | incomplete | Authored-only dimensioning leaves this required dimension absent. |
@@ -120,6 +122,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `features_not_recognised` | incomplete | Unsupported recognition leaves required feature information unstated. |
 | `fillet_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `fillet_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |
+| `fit_deviations_unavailable` | advisory | The valid fit class states the requirement; optional numerical deviations are unavailable. |
 | `flat_leader_target_mismatch` | readability | The flat leader points at the wrong geometry. |
 | `flat_leader_target_unverifiable` | readability | The flat leader target cannot be verified. |
 | `flat_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
@@ -133,6 +136,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `gear_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `gear_semantics_missing` | decision | Gear manufacturing semantics must be supplied by the user. |
 | `general_tolerance_missing` | decision | Only the user can choose the general tolerance. |
+| `geometry_below_resolution` | readability | The requested scale projects geometry below normal drawing resolution. |
 | `groove_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `groove_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |
 | `gusset_rib_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
@@ -149,6 +153,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `hole_table_escalated` | advisory | A hole table replaced crowded individual callouts. |
 | `hole_table_unavailable` | advisory | Individual dimensions remain when the requested table cannot be used. |
 | `interior_void` | advisory | A factual inventory of an internal cavity; its faces do not establish a hole opening. |
+| `iso_layout_overflow` | readability | The requested isometric scale exceeds its reserved layout area. |
 | `iso_projection_empty` | incomplete | The requested isometric view has no projected geometry. |
 | `label_centerline_overlap` | readability | A centreline crosses label ink. |
 | `label_crowded` | readability | Text lies within 0.5 mm of another label or of foreign line-work; it stays legible but reads as touching. |
@@ -164,6 +169,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `leader_through_feature` | readability | A leader crosses feature material on its way to its target. |
 | `leader_to_hidden_edge` | readability | A leader ends on an edge its view shows hidden. |
 | `legibility_floor_breached` | readability | The selected geometry scale is below the requested legibility floor. |
+| `location_on_axis` | advisory | The turning axis already fixes this centred location; no tangent dimension is needed. |
 | `location_on_datum` | advisory | The datum already states this zero location. |
 | `location_ref_dropped` | incomplete | A required drawing item was dropped before it could be stated. |
 | `manufacturing_reference_unresolved` | incomplete | A manufacturing requirement reference has no resolved drawn requirement. |
@@ -205,6 +211,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `pinned_view_overlap` | readability | The pinned view overlaps another view. |
 | `placement_anchor_not_shown` | decision | The requested anchor is absent from the drawing. |
 | `placement_side_not_applicable` | decision | The authored side does not apply to this dimension. |
+| `placement_unapplied` | decision | The requested placement cannot be applied; an available drawing placement is retained. |
 | `plate_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `plate_requirement_suppressed` | advisory | Other geometry already supplies the suppressed plate requirement. |
 | `plate_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |

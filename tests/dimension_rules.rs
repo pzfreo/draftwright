@@ -326,20 +326,32 @@ fn both_dimension_sources_and_their_validation() {
             .contains("\"dimension_source\":\"authored\"")
     );
 
-    // An omission inside an authored set is refused: leaving it out is how.
+    // An explicit omission inside an authored set is honoured.
     spec.dimensions.get_mut(width).unwrap().omit = true;
     let (_, a) = analysed_with("plate", &json);
-    let e = model::plan(&a, &spec).unwrap_err();
-    assert!(e.message.contains("authored set"), "{}", e.message);
+    let plan = model::plan(&a, &spec).unwrap();
+    assert!(plan.dimensions.iter().all(|d| d.id != width));
+    assert!(plan.omitted.iter().any(|d| d.id == width));
+    assert!(!plan.views.is_empty());
 
-    // An unknown ID (a version 1 ID, naming a view): the nearest are offered.
+    // A saved version-1 ID is retained without guessing which item it edits.
     let mut spec = Spec::default();
     spec.dimensions.insert(
         "d:envelope/width.length@plan".into(),
         DimensionSpec::default(),
     );
-    let e = model::plan(&a, &spec).unwrap_err();
-    assert!(e.choices.iter().any(|c| c == width), "{:?}", e.choices);
+    let plan = model::plan(&a, &spec).unwrap();
+    assert!(
+        plan.problems
+            .iter()
+            .any(|p| p.code == "dimension_edit_unapplied")
+    );
+    assert_eq!(plan.spec.dimensions, spec.dimensions);
+    assert!(
+        plan.dimensions
+            .iter()
+            .any(|d| d.id == width && d.placed.is_some())
+    );
 
     // A source that does not exist is refused by the schema, naming the two.
     let e = serde_json::from_value::<Spec>(json!({"dimension_source": "both"})).unwrap_err();
