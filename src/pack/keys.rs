@@ -73,11 +73,45 @@ fn meaningful(id: &str) -> bool {
 /// Only strip a trailing numeric index with a separator, never a drawing number.
 pub(super) fn stem(name: &str) -> Option<&str> {
     let stem = name.trim_end_matches(|c: char| c.is_ascii_digit());
-    if stem.len() == name.len() || !stem.ends_with(['_', '-', ' ']) {
+    if stem.len() == name.len() {
         return None;
     }
+    let stem = if let Some(stem) = stem.strip_suffix(" #") {
+        stem
+    } else if stem.ends_with(['_', '-', ' ']) {
+        stem
+    } else {
+        return None;
+    };
     let stem = stem.trim_end_matches(['_', '-', ' ']);
     (!stem.is_empty()).then_some(stem)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stem;
+
+    #[test]
+    fn instance_suffixes_are_display_stems() {
+        for name in [
+            "M3×8 hex bolt #2",
+            "M3×8 hex bolt_2",
+            "M3×8 hex bolt-2",
+            "M3×8 hex bolt 2",
+        ] {
+            assert_eq!(stem(name), Some("M3×8 hex bolt"));
+        }
+        assert_eq!(stem("M3×8 hex bolt #123"), Some("M3×8 hex bolt"));
+    }
+
+    #[test]
+    fn other_suffixes_and_empty_stems_are_preserved() {
+        for name in [
+            "ABC123", "bolt#2", "bolt #", "bolt #2a", " #2", "_2", "-2", " 2", "123", "",
+        ] {
+            assert_eq!(stem(name), None, "{name:?}");
+        }
+    }
 }
 
 pub(super) fn common_stem<'a>(names: impl Iterator<Item = &'a str>) -> Option<String> {
