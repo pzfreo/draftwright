@@ -8,6 +8,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Added
 
+- Per-part manufacturing process from Spec, STEP UDA or material class, with
+  recorded provenance, process tolerance/finish defaults and conditional GA Process column.
+
 - `draftwright completions SHELL` prints a shell completion script (bash, zsh, fish,
   powershell or elvish) to stdout; the README gives the install one-liners.
 

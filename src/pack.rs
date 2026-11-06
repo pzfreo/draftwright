@@ -121,7 +121,7 @@ pub struct Row {
     pub error: Option<Error>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ValueSource {
     Spec,
@@ -815,6 +815,9 @@ pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Er
                 );
             }
         }
+        let process = crate::process::resolve(Some(&row.bom), &drawing_spec);
+        row.bom.process = Some(process.process);
+        row.sources.insert("process".into(), process.source);
         if row.sources.get("material") == Some(&ValueSource::Spec)
             && let Some(material) = &row.bom.material
         {

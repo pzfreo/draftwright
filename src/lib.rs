@@ -40,6 +40,7 @@ pub mod placement_intent;
 pub mod pmi;
 pub mod pmi_lowering;
 pub mod png;
+pub mod process;
 pub mod radius;
 pub mod remedy_scope;
 pub mod section;

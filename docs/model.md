@@ -3267,3 +3267,26 @@ and returns `{parts:[...]}`.
 Page references are 1-based in exact PDF order: GA first when present, then
 made-part sheets. Failed and bought rows have no sheets. The WASM Pack API is
 documented in [wasm.md](wasm.md#assembly-drawing-packs).
+
+### Manufacturing process
+
+Per-part `process` accepts `machined`, `3D printed: FDM`, `3D printed: resin`,
+`3D printed: powder`, `3D printed: metal`, `sheet metal`, `moulded`, or `cast`.
+Precedence is Spec > PRODUCT_DEFINITION's `specify process` UDA item
+`manufacturing_process` > material-class guess. `default.manufacturing_process`
+marks a suggestion, below a file answer. Plan `process` records the value, source
+(spec/file/suggested/guess), and basis; pack rows carry process and its source.
+Only the four `3D printing: filament/resin/powder/metal` material classes imply
+printing; absent evidence means machined. Guesses need checking.
+
+Printed general tolerances default to ±0.3 mm/0.3 % (FDM and powder),
+±0.15 mm/0.15 % (resin), or ±0.1 mm/0.2 % (metal), whichever is greater.
+The cell abbreviates “the greater” to `max` and marks the value `CHECK`; the
+requirement basis spells out the full default. Moulded/cast use ISO 20457 /
+ISO 8062-3. `sheet/title/tolerance` overrides these, including an explicit blank.
+Printed parts omit the default finish; moulded/cast use a no-removal symbol
+with “as moulded” / “as cast”. `sheet/default_finish` overrides the finish.
+`process: machined` restores machining policy. Printed gear semantics are warning-only;
+other dimensioning lint is unchanged. GA lists append Process beside Material
+only when a component has a non-machined process. Insert and printed-thread
+hole callouts await Specify's hole functions and are outside this change.

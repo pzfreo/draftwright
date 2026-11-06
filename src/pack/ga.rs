@@ -872,6 +872,14 @@ pub(super) fn prepare<'a>(
         "SUPPLY".into(),
         "MATERIAL".into(),
     ]];
+    let show_process = rows.iter().any(|r| {
+        r.bom
+            .process
+            .is_some_and(|p| p != crate::process::Process::Machined)
+    });
+    if show_process {
+        list[0].push("PROCESS".into());
+    }
     let mut ordered = rows.clone();
     ordered.sort_by_key(|r| std::cmp::Reverse(r.item));
     for row in ordered {
@@ -889,6 +897,11 @@ pub(super) fn prepare<'a>(
             .into(),
             row.bom.material.clone().unwrap_or_default(),
         ]);
+        if show_process {
+            list.last_mut()
+                .unwrap()
+                .push(row.bom.process.unwrap_or_default().label());
+        }
     }
     if settings.parts_list != Some(false) {
         // Use a reserved declared-table slot so the existing paper/scale policy

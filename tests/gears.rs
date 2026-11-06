@@ -487,3 +487,21 @@ fn real_wheel_full_wire_evidence_reconciles_authored_gear() {
             .any(|i| i.code == "gear_repeat_count_mismatch")
     );
 }
+
+#[test]
+fn printed_profile_semantics_are_warning_only() {
+    let (mut a, mut d) = drawing();
+    a.recognition
+        .as_mut()
+        .unwrap()
+        .evidence
+        .retain(|r| r.family != "authored_gears");
+    profile(&mut a, "z", 13);
+    d.spec = Some(serde_json::json!({"process":"3D printed: FDM"}).to_string());
+    let issues = lint::gears::check(&a, &d);
+    assert!(
+        issues
+            .iter()
+            .any(|i| i.code == "gear_semantics_missing" && i.severity == Severity::Warning)
+    );
+}
