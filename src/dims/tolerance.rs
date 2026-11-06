@@ -165,6 +165,35 @@ fn tolerance(text: &str) -> Result<(String, bool), String> {
     ))
 }
 
+/// Equal decimal bands can have different authored precision or symmetric notation.
+pub(super) fn same_band(a: &str, b: &str) -> bool {
+    fn normalized(t: &str) -> Option<(String, String)> {
+        let number = |s: &str| {
+            let s = magnitude(s)?;
+            let (whole, fraction) = s.split_once('.').unwrap_or((s, ""));
+            let whole = whole.trim_start_matches('0');
+            let whole = if whole.is_empty() { "0" } else { whole };
+            let fraction = fraction.trim_end_matches('0');
+            Some(if fraction.is_empty() {
+                whole.into()
+            } else {
+                format!("{whole}.{fraction}")
+            })
+        };
+        let t = t.trim();
+        if let Some(n) = t.strip_prefix('±').and_then(number) {
+            return Some((n.clone(), n));
+        }
+        let mut words = t.split_whitespace();
+        let upper = number(words.next()?.strip_prefix('+')?)?;
+        let lower = number(words.next()?.strip_prefix('-')?)?;
+        words.next().is_none().then_some((upper, lower))
+    }
+    normalized(a)
+        .zip(normalized(b))
+        .is_some_and(|(a, b)| a == b)
+}
+
 /// Whether the sheet requests stacked fit deviations (off by default).
 pub(super) fn limits_shown(spec: &Spec) -> bool {
     spec.sheet.fit_deviations.or(spec.sheet.fit_limits) == Some(true)
@@ -189,23 +218,12 @@ pub(crate) fn check(spec: &Spec) -> Result<(), Invalid> {
                 message: why,
                 choices: vec![],
             })?;
-            let authored_size = id.starts_with("d:authored:")
-                && entry.between.is_some()
-                && matches!(
-                    entry.kind.as_deref().unwrap_or("linear"),
-                    "linear" | "diameter"
-                );
-            if (!crate::dims::is_envelope_extent(id)
-                && !authored_size
-                && !id.ends_with("/pocket_width.length")
-                && !id.ends_with("/channel_width.length"))
-                || entry.tolerance.is_some()
-            {
+            if entry.tolerance.is_some() {
                 return Err(Invalid {
                     path: None,
                     also: Vec::new(),
                     message: format!(
-                        "The fit of {id} belongs to an overall extent or an authored linear size/diameter with no explicit tolerance."
+                        "The fit of {id} conflicts with its explicit tolerance; a size takes one or the other."
                     ),
                     choices: vec![],
                 });
@@ -444,6 +462,23 @@ pub(super) fn apply(
             });
         }
         let band = if let Some(code) = extent_fit {
+            if !w.value.is_finite()
+                || w.value <= 0.0
+                || matches!(w.shape, super::Shape::Angular { .. })
+                || w.measurements.first().is_some_and(|m| {
+                    m.parameter.ends_with("radius") || m.parameter.ends_with("angle")
+                })
+            {
+                return Err(Invalid {
+                    message: format!(
+                        "The fit of {} needs a positive linear size or diameter, not a radius or angle.",
+                        w.id
+                    ),
+                    path: None,
+                    also: vec![],
+                    choices: vec![],
+                });
+            }
             given.push("fit".into());
             Some(fit_text(code, w.value, &w.id, spec, problems))
         } else if let Some(t) = authored {

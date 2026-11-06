@@ -244,7 +244,9 @@ pub(super) fn append(
                 if requirement(id)
                     .zip(requirement(&existing.id))
                     .is_some_and(|(p, q)| {
-                        p.0.is_some() && q.0.is_some() && p.0 != q.0
+                        p.0.as_ref()
+                            .zip(q.0.as_ref())
+                            .is_some_and(|(p, q)| !super::tolerance::same_band(p, q))
                             || p.1.is_some() && q.1.is_some() && p.1 != q.1
                     })
                 {

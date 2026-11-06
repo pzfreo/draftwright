@@ -493,7 +493,7 @@ pub struct DimensionSpec {
     /// rules; ARCH0011-1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tolerance: Option<String>,
-    /// ISO 286 class on this extent; `sheet/fit_deviations` adds stacked deviations.
+    /// ISO 286 class on a linear size or diameter; `sheet/fit_deviations` requests deviations.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fit: Option<String>,
     /// The view that carries it (`front`, `plan` or `side`), where the default would put it

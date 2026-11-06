@@ -409,6 +409,9 @@ fn a_face_axis_alias_and_reversed_references_still_name_the_same_feature() {
             .message
             .contains("contradicts")
     );
+    s.dimensions.get_mut("d:authored:second").unwrap().tolerance = Some("+0.10 -0.100".into());
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
 }
 
 fn cylinder_face(a: &Analysis, feature: &str) -> String {

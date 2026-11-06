@@ -602,3 +602,19 @@ fn a_toleranced_height_keeps_its_own_dimension() {
     assert!(heights(&plan).is_empty());
     assert_eq!(label(&plan, "d:envelope/depth.length"), "32.268 ±0.1");
 }
+
+#[test]
+fn a_generated_diameter_accepts_a_class_without_optional_deviations() {
+    let (_, a) = analysed("plate");
+    let p = model::plan(
+        &a,
+        &spec(json!({"dimensions":{"d:f:hole_pattern:1/bore.diameter":{"fit":"N9"}}})),
+    )
+    .unwrap();
+    assert!(label(&p, "d:f:hole_pattern:1/bore.diameter").contains("N9"));
+    assert!(
+        !p.problems
+            .iter()
+            .any(|p| p.code == "fit_deviations_unavailable")
+    );
+}
