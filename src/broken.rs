@@ -267,6 +267,7 @@ pub(crate) fn resolve(
                 (*peer).into(),
                 Break {
                     geometry: crate::output::BreakMap {
+                        centre: crate::model::extent(a, &camera).1,
                         axis: k,
                         remove: interval,
                         gap,

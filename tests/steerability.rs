@@ -2643,7 +2643,7 @@ fn broken_view_keeps_true_witnesses_and_reduces_ink_extent() {
         assert!(
             !matches!(
                 finding.code.as_str(),
-                "dimension_witness_detached" | "annotation_off_sheet"
+                "dimension_witness_detached" | "annotation_off_sheet" | "label_vs_measured"
             ),
             "{finding:?}"
         );
@@ -2684,6 +2684,25 @@ fn broken_view_keeps_true_witnesses_and_reduces_ink_extent() {
     )
     .unwrap();
     assert!(((end - start).abs() - 600.).abs() < 1e-5);
+    let mut wrong = drawing.clone();
+    let runs = &wrong
+        .annotations
+        .iter()
+        .find(|a| a.name == across.id)
+        .unwrap()
+        .runs;
+    let run = *runs
+        .iter()
+        .find(|&&i| wrong.text[i].text == "600")
+        .expect("printed true length");
+    wrong.text[run].text = "92".into();
+    assert!(
+        lint::structural::check(&wrong)
+            .iter()
+            .any(|f| f.code == "label_vs_measured"
+                && f.annotation.as_deref() == Some(across.id.as_str())),
+        "the shortened paper span must not be accepted as the true value"
+    );
     assert!(
         (across.placed.as_ref().unwrap().arrows[0][0][0]
             - across.placed.as_ref().unwrap().arrows[1][0][0])
@@ -2811,4 +2830,10 @@ fn broken_view_uses_local_profile_and_keeps_section_markers_attached() {
         ((hi - lo) - (120. - 14.) * parent.scale - 2. * draftwright::section::OVERRUN).abs() < 1e-5
     );
     assert_section_fits(SHAFT, &p);
+    assert!(
+        !rendered(SHAFT, &p)
+            .structural
+            .iter()
+            .any(|f| f.code == "label_vs_measured")
+    );
 }

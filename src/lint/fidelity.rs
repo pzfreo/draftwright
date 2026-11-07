@@ -6,7 +6,8 @@
 //! Python sheet) is not judged.
 //!
 //! - `label_vs_measured` (draftwright's `_lint_dim`): a linear dimension's stated value against
-//!   the span between its two extension lines on the page divided by its view's scale. A label
+//!   the span between its two extension lines, undoing a recorded break before dividing by
+//!   its view's scale. A label
 //!   correctly rounded at the precision it prints is fine; otherwise a warning past 0.5% and an
 //!   error from 5% ("possible axis swap or wrong endpoint"). The port prints one decimal place
 //!   at least (`dims::fmt`), the sheet precision draftwright's `_displayed_decimals` takes as the
@@ -110,13 +111,13 @@ fn texts(drawing: &Drawing) -> BTreeMap<&str, (String, Option<&str>)> {
 /// Every finding of this module on *drawing*.
 pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
     let texts = texts(drawing);
-    let scale = |view: Option<&str>| {
+    let frame = |view: Option<&str>| {
         let view = view?;
         let frame = drawing
             .sheet
             .frames
             .get(view.strip_prefix("v:").unwrap_or(view))?;
-        (frame.scale.is_finite() && frame.scale > 0.0).then_some(frame.scale)
+        (frame.scale.is_finite() && frame.scale > 0.0).then_some(frame)
     };
     let mut issues = Vec::new();
     let mut rounded: Vec<(f64, String, f64)> = Vec::new();
@@ -126,9 +127,11 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                 let Some((text, view)) = texts.get(d.name.as_str()) else {
                     continue;
                 };
-                let Some(scale) = scale(*view) else {
+                let Some(frame) = frame(*view) else {
                     continue;
                 };
+                let scale = frame.scale;
+                let unfolded_span = |a, b| len(sub(frame.unfold(b), frame.unfold(a)));
                 let body = drawing
                     .sheet
                     .label_text
@@ -146,12 +149,23 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                     None => text.as_str(),
                 };
                 if let Some(l) = linear_ink(&d.lines) {
-                    let measured = l.span[1] - l.span[0];
+                    let unfolded = frame.broken.as_ref().is_some_and(|b| b.axis == l.k);
+                    let measured = if unfolded {
+                        let points = l.span.map(|along| {
+                            let mut p = [l.offset; 2];
+                            p[l.k] = along;
+                            p
+                        });
+                        unfolded_span(points[0], points[1])
+                    } else {
+                        l.span[1] - l.span[0]
+                    };
                     issues.extend(label_vs_measured(
                         d,
                         text,
                         measured,
                         scale,
+                        unfolded,
                         drawing.sheet.precision.get(&d.name).copied(),
                         &mut rounded,
                     ));
@@ -167,15 +181,26 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                         text,
                         span,
                         scale,
+                        false,
                         drawing.sheet.precision.get(&d.name).copied(),
                         &mut rounded,
                     ));
                 } else if let Some(span) = aligned_span(&d.lines) {
+                    let unfolded = frame.broken.is_some();
+                    let span = if unfolded {
+                        unfolded_span(
+                            meet(d.lines[0], d.lines[2]).unwrap_or(d.lines[0][0]),
+                            meet(d.lines[1], d.lines[2]).unwrap_or(d.lines[1][0]),
+                        )
+                    } else {
+                        span
+                    };
                     issues.extend(label_vs_measured(
                         d,
                         text,
                         span,
                         scale,
+                        unfolded,
                         drawing.sheet.precision.get(&d.name).copied(),
                         &mut rounded,
                     ));
@@ -275,6 +300,7 @@ fn label_vs_measured(
     label: &str,
     page: f64,
     scale: f64,
+    unfolded: bool,
     precision: Option<u8>,
     rounded: &mut Vec<(f64, String, f64)>,
 ) -> Option<LintIssue> {
@@ -325,8 +351,13 @@ fn label_vs_measured(
             Severity::Warning
         },
         format!(
-            "Dim '{label}': label value {value:.3} differs from measured path length {page:.3}{} \
+            "Dim '{label}': label value {value:.3} differs from {} {page:.3}{} \
              by {:.1}% — possible axis swap or wrong endpoint",
+            if unfolded {
+                "unfolded span"
+            } else {
+                "measured path length"
+            },
             if scale != 1.0 {
                 format!(" (÷{scale} = {measured:.3})")
             } else {

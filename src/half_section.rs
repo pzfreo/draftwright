@@ -615,6 +615,7 @@ mod tests {
             v.half_section = None;
             v.broken = Some(crate::broken::Break {
                 geometry: crate::output::BreakMap {
+                    centre: [0., 12.],
                     axis: 1,
                     remove: [5., 15.],
                     gap: 2.,

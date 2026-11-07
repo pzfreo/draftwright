@@ -585,6 +585,8 @@ pub struct Sheet {
 /// The discontinuous projection actually drawn, independent of author intent.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BreakMap {
+    /// Original projected envelope centre, in model mm.
+    pub centre: P,
     pub axis: usize,
     pub remove: [f64; 2],
     pub gap: f64,
@@ -599,6 +601,8 @@ impl BreakMap {
             self.remove[0].to_bits(),
             self.remove[1].to_bits(),
             self.gap.to_bits(),
+            self.centre[0].to_bits(),
+            self.centre[1].to_bits(),
         ]
     }
     pub(crate) fn map(&self, mut p: [f64; 2]) -> [f64; 2] {
@@ -638,6 +642,16 @@ pub struct DrawnFrame {
     /// A half section's axis on the page ([`crate::half_section`]): the page coordinate (0 for
     /// x, 1 for y) that crosses it, and its value there. A half dimension is measured from it.
     pub half_axis: Option<(usize, f64)>,
+}
+
+impl DrawnFrame {
+    /// Undo the depicted shortening, retaining paper scale for independent ink measurements.
+    pub(crate) fn unfold(&self, p: P) -> P {
+        self.broken.as_ref().map_or(p, |b| {
+            let q = b.inverse([0, 1].map(|k| b.centre[k] + (p[k] - self.at[k]) / self.scale));
+            [0, 1].map(|k| self.at[k] + self.scale * (q[k] - b.centre[k]))
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
