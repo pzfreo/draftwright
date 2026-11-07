@@ -153,7 +153,6 @@ impl Drop for Boundary {
     }
 }
 /// Nested canonical and recovery plans keep their original bases during the solve.
-#[cfg_attr(target_arch = "wasm32", inline(never))]
 pub(crate) fn boundary(
     analysis: &crate::model::Analysis,
     spec: &crate::model::Spec,
@@ -218,6 +217,7 @@ fn prepare_placement_reference(
     crate::model::plan_recovered(analysis, &base).ok()
 }
 
+#[cfg_attr(target_arch = "wasm32", inline(never))]
 fn report_gdt_moves(plan: &mut Plan) {
     plan.problems.retain(|p| p.code != "gdt_position_changed");
     for g in &mut plan.gdt {
@@ -296,6 +296,7 @@ fn report_gdt_moves(plan: &mut Plan) {
     }
 }
 
+#[cfg_attr(target_arch = "wasm32", inline(never))]
 fn report_placements(analysis: &crate::model::Analysis, plan: &mut Plan) {
     let displaced = crate::dims::with_compact(
         plan.sheet.dimension_spacing == crate::model::DimensionSpacing::Compact,
@@ -308,16 +309,15 @@ fn report_placements(analysis: &crate::model::Analysis, plan: &mut Plan) {
         if !d.basis.contains("place intent:") {
             continue;
         }
-        d.basis = d
-            .basis
-            .split("; ")
-            .filter(|part| {
-                !part.starts_with("displaced place intent:")
-                    && !part.starts_with("applied linear place intent:")
-                    && *part != "final layout uses the recorded ink position"
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
+        const APPLIED: &str =
+            "; applied linear place intent: requested side, lane and along fields retained";
+        const END: &str = "; final layout uses the recorded ink position";
+        d.basis = d.basis.replace(APPLIED, "");
+        if let Some(start) = d.basis.find("; displaced place intent:")
+            && let Some(end) = d.basis[start..].find(END)
+        {
+            d.basis.replace_range(start..start + end + END.len(), "");
+        }
     }
     for d in &mut plan.dimensions {
         if d.kind == "linear"
@@ -374,7 +374,6 @@ fn report_placements(analysis: &crate::model::Analysis, plan: &mut Plan) {
     plan.status = crate::completeness::status(&plan.problems);
 }
 
-#[cfg_attr(target_arch = "wasm32", inline(never))]
 fn report(analysis: &crate::model::Analysis, plan: &mut Plan) {
     report_gdt_moves(plan);
     report_placements(analysis, plan);

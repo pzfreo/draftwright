@@ -591,12 +591,11 @@ pub(crate) fn check_claims(analysis: &Analysis, spec: &Spec) -> Result<(), Inval
     );
     // A concentric pattern's location is still a measurable role when its
     // numeric tangent dimensions are correctly suppressed (#311, #312).
-    ids.extend(
-        crate::lint::hole_patterns::coverage(analysis, &[])
-            .into_iter()
-            .flat_map(|issue| issue.requirements)
-            .map(|r| format!("d:{}/{}", r.feature, r.parameter)),
-    );
+    for issue in crate::lint::hole_patterns::coverage(analysis, &[]) {
+        for r in issue.requirements {
+            ids.insert(format!("d:{}/{}", r.feature, r.parameter));
+        }
+    }
     for (id, f) in &spec.features {
         for role in &f.note_satisfies {
             if !ids.contains(&format!("d:{id}/{role}")) {

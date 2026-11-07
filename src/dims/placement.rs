@@ -2728,25 +2728,31 @@ pub(super) fn avoid_fixed(
         if let Some(request) = places[i].filter(|_| matches!(items[i].shape, Shape::Linear { .. }))
         {
             let first = request.lane.unwrap_or(lanes[i]);
-            let preserved = (first..first + 64).find_map(|lane| {
+            let mut preserved = None;
+            for lane in first..first + 64 {
                 let mut trial = request.clone();
                 trial.lane = Some(lane);
-                intent(&frames[view], &items[i], &trial, side, lanes[i], 0.0)
-                    .filter(|p| page.fits(p, view) && !blocked(p))
-                    .filter(|p| {
-                        !placed.iter().enumerate().any(|(j, q)| {
-                            j != i
-                                && drawn[i]
-                                && drawn[j]
-                                && chosen[j] == Some(view)
-                                && q.as_ref().is_some_and(|q| {
-                                    dimension_lines_overlap(p, q)
-                                        && !dimension_lines_overlap(placed[i].as_ref().unwrap(), q)
-                                })
+                let Some(p) = intent(&frames[view], &items[i], &trial, side, lanes[i], 0.0) else {
+                    continue;
+                };
+                if !page.fits(&p, view) || blocked(&p) {
+                    continue;
+                }
+                if placed.iter().enumerate().any(|(j, q)| {
+                    j != i
+                        && drawn[i]
+                        && drawn[j]
+                        && chosen[j] == Some(view)
+                        && q.as_ref().is_some_and(|q| {
+                            dimension_lines_overlap(&p, q)
+                                && !dimension_lines_overlap(placed[i].as_ref().unwrap(), q)
                         })
-                    })
-                    .map(|p| (p, lane))
-            });
+                }) {
+                    continue;
+                }
+                preserved = Some((p, lane));
+                break;
+            }
             if let Some((p, lane)) = preserved {
                 sides[i] = Some(match request.side {
                     Some(crate::placement_intent::Side::Above) => Side::Above,
