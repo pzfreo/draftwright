@@ -266,7 +266,16 @@ pub(crate) fn resolve(
             Some((axis, remove, gap))
         })();
         let Some((axis, remove, gap)) = resolved else {
-            problems.push(Problem {id:format!("p:break_not_applied:v:{name}"),code:"break_not_applied".into(),severity:"warning".into(),subjects:vec![format!("v:{name}")], message:format!("Rejected {source}: no proven uniform axial span contains the requested removal and positive retained gap in this uncut principal view; the view is kept unbroken. Choose axis x/y/z in the view plane and an interval strictly inside a constant section, or remove the request."),..Default::default()});
+            let why = if entry.omit {
+                "views/<id>/omit displaces the break: the carrying view is omitted"
+            } else if entry.half_section == Some(true) {
+                "views/<id>/half_section displaces the break: combined half sections are unsupported"
+            } else if entry.detail.is_some() || !VIEWS[..3].iter().any(|(n, ..)| *n == name) {
+                "breaks need an uncut principal view, rather than a detail, section or isometric"
+            } else {
+                "no proven uniform axial span contains the requested removal and positive retained gap"
+            };
+            problems.push(Problem {id:format!("p:break_not_applied:v:{name}"),code:"break_not_applied".into(),severity:"warning".into(),subjects:vec![format!("v:{name}")], message:format!("Rejected {source}: {why}; the request is retained and any shown view stays unbroken. Choose axis x/y/z in the view plane and an interval strictly inside a constant section, or remove the request."),..Default::default()});
             continue;
         };
         for (peer, direction, up) in VIEWS.iter().filter(|(n, ..)| *n != "iso") {
