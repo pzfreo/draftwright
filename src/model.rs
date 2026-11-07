@@ -395,8 +395,8 @@ pub struct Spec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sheets: Option<crate::sheets::SheetsSpec>,
     /// Per standard view (`front`, `plan`, `side`, `iso`).
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub views: BTreeMap<String, ViewSpec>,
+    #[serde(skip_serializing_if = "crate::sections::Views::is_empty")]
+    pub views: crate::sections::Views,
     /// Where the dimensions come from: `auto` (the defaults, less what `dimensions` omits) or
     /// `authored` (exactly the dimensions listed, a complete set: ADR4-5).
     #[serde(skip_serializing_if = "DimensionSource::is_auto")]
@@ -602,7 +602,7 @@ impl Default for Spec {
             balloons: Default::default(),
             iso_scale_factor: None,
             sheets: None,
-            views: BTreeMap::new(),
+            views: Default::default(),
             dimension_source: DimensionSource::Auto,
             pmi: PmiMode::First,
             origin: BTreeMap::new(),
@@ -1233,7 +1233,7 @@ impl std::fmt::Display for Invalid {
 
 const INFEASIBLE_ISO_SCALE: &str = "The authored iso scale is infeasible in its composed view zone; the requested scale was not reduced.";
 
-fn invalid(message: impl Into<String>, choices: &[&str]) -> Invalid {
+pub(crate) fn invalid(message: impl Into<String>, choices: &[&str]) -> Invalid {
     Invalid {
         path: None,
         also: Vec::new(),
@@ -4458,6 +4458,7 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
             base.views.insert((*name).into(), ViewSpec::default());
         }
     }
+    base.views.keep_sections_from(&spec.views);
     if spec.dimensions.values().any(|d| d.between.is_some()) {
         base.dimension_source = spec.dimension_source;
         base.dimensions = spec.dimensions.clone();
@@ -5762,6 +5763,7 @@ fn plan_with_presentation(
         {
             let mut unnamed = base.clone();
             unnamed.views.clear();
+            unnamed.views.keep_sections_from(&spec.views);
             if let Ok(default) = plan_automatic(analysis, &unnamed)
                 && base
                     .views
@@ -5769,6 +5771,7 @@ fn plan_with_presentation(
                     .all(|name| default.views.iter().any(|v| v.id == format!("v:{name}")))
             {
                 base.views.clear();
+                base.views.keep_sections_from(&spec.views);
             }
         }
         // A multi-sheet request is planned by R5 allocation steps whose sheet-1 spec omits
@@ -6292,6 +6295,7 @@ fn plan_with_presentation(
         .keys()
         .filter(|name| {
             *name != SECTION
+                && !spec.views.sections.iter().any(|r| r.view_name() == Some(name.as_str()))
                 && !crate::detail::NAMES.contains(&name.as_str())
                 && !VIEWS.iter().any(|(v, ..)| v == *name)
         })
@@ -6316,6 +6320,23 @@ fn plan_with_presentation(
     }
     crate::dims::check_known(analysis, spec)?;
     let mut demand = crate::demand::read(analysis);
+    let named_section = if spec.views.sections.is_empty() {
+        None
+    } else {
+        crate::sections::resolve(analysis, spec, &mut problems)?
+    };
+    let named_request = named_section
+        .as_ref()
+        .and_then(|_| spec.views.sections.first());
+    if let Some(named) = named_section {
+        demand.section = Some(named);
+    }
+    if spec.views.get(SECTION).is_some_and(|v| !v.omit) && demand.section.is_none() {
+        demand.section = crate::demand::explicit_section(
+            &demand.holes,
+            0.5 * (analysis.envelope[0][1] + analysis.envelope[1][1]),
+        );
+    }
     // The analysis's demand assumes the default Spec; edited wording or datum visibility
     // (`sheet/uncited_datums`, a datum's omit) changes which symbols need room.
     if spec
@@ -6487,27 +6508,30 @@ fn plan_with_presentation(
     // A schedule removes annotation demand; it must not shrink or enlarge the proven feature ink.
     let scale = presentation.map(|p| p.scale).or(scale);
     let [lo, hi] = analysis.envelope;
-    // Section A-A is marked on the plan and sits in the front's row.
-    let section = demand
-        .section
-        .clone()
-        .filter(|_| shown(SECTION) && principals.plan && (principals.front || principals.side));
+    // Sections are marked on the plan; explicit cuts reserve a separate labelled frame.
+    let section_label = named_request
+        .map(|r| r.id.clone())
+        .unwrap_or_else(|| crate::detail::automatic_section_label(spec));
+    let section_name = crate::sections::view_name(&section_label).unwrap_or(SECTION);
+    let section = demand.section.clone().filter(|_| {
+        shown(section_name) && principals.plan && (principals.front || principals.side)
+    });
     // A section left out is said, with why and what would bring it back (draftwright records
     // every section decision: ISSUE-1190-b); one the author omits needs no saying.
     let section_not_shown = |why: String, fix: Vec<crate::items::Op>| Problem {
         crossing_kinds: Vec::new(),
         ink_is_leader: None,
-        id: format!("p:section_not_shown:v:{SECTION}"),
+        id: format!("p:section_not_shown:v:{section_name}"),
         code: "section_not_shown".into(),
         severity: "warning".into(),
-        message: format!("Section A\u{2013}A is not drawn: {why}."),
+        message: format!("Section {section_label}\u{2013}{section_label} is not drawn: {why}."),
         subjects: Vec::new(),
-        refs: vec![format!("v:{SECTION}")],
+        refs: vec![format!("v:{section_name}")],
         fixes: Vec::new(),
         fix,
     };
     match &demand.section {
-        Some(_) if section.is_none() && shown(SECTION) => problems.push(if !principals.plan {
+        Some(_) if section.is_none() && shown(section_name) => problems.push(if !principals.plan {
             let (how, fix) = if omitted("plan") {
                 (
                     "the spec omits it; remove views/plan/omit to show it",
@@ -6532,8 +6556,12 @@ fn plan_with_presentation(
             )
         }),
         None if spec.views.get(SECTION).is_some_and(|v| !v.omit) => problems.push(section_not_shown(
-            "the spec asks for it, but the part has no z-axis hole with a counterbore, spotface or bottom whose profile it would show, so there is no plane to cut; remove views/section_aa".into(),
+            "rejected views/section_aa: no front-facing cutting plane can be named from the recognised geometry (a z-axis hole or internal detail is needed); the request and the remaining drawing are retained".into(),
             vec![crate::items::Op::remove(format!("views/{SECTION}"))],
+        )),
+        Some(_) if section.is_none() && named_request.is_some() => problems.push(section_not_shown(
+            format!("rejected views/sections/0: views/{section_name}/omit displaces the requested section; the request and remaining drawing are retained"),
+            vec![crate::items::Op::remove(format!("views/{section_name}/omit"))],
         )),
         _ => {}
     }
@@ -6547,6 +6575,8 @@ fn plan_with_presentation(
     request.candidate_arrangement = candidate_arrangement;
     request.first_angle = first_angle;
     request.sections = usize::from(section.is_some());
+    request.separate_section =
+        named_request.is_some() || spec.views.get(SECTION).is_some_and(|v| !v.omit);
     // GD&T corridors depend on the aligned projection row. Keep their established
     // packing; a section-only lift must not change its readable scale or frame routes.
     // Items left of the front and plan column face no section, so they leave it free.
@@ -6959,26 +6989,26 @@ fn plan_with_presentation(
         })
         .collect();
     if let (Some(cut), Some(area)) = (&section, g.section_boxes.first()) {
-        let label = crate::detail::section_label(spec);
+        let label = section_label.clone();
         views.push(PlannedView {
             detail: None,
             sheet: 1, scale_note: None, xref: None,
-            id: format!("v:section_{}{}",label.to_lowercase(),label.to_lowercase()),
+            id: format!("v:{section_name}"),
             direction: [0.0, -1.0, 0.0],
             up: [0.0, 0.0, 1.0],
             at: g.section,
             scale: pick.scale,
             area: *area,
-            default: !spec.views.contains_key(SECTION),
-            basis: format!(
+            default: !spec.views.contains_key(SECTION) && named_request.is_none(),
+            basis: if let Some(r) = named_request { format!("applied views/sections/0 through {}: longitudinal plane y = {}, seen from the front; displaced automatic section selection", r.through, fmt_ratio(cut.cut_y)) } else { format!(
                 "draftwright's section rule: {}; the plane y = {} cuts the densest row ({} physical details on it), seen from the front and placed right of the side view",
-                if cut.internal_detail { "at least three unlike internal details need a readable section" } else { "a z-axis hole with a counterbore, spotface or bottom shows its profile in no standard view" },
+                if spec.views.get(SECTION).is_some_and(|v| !v.omit) { "applied views/section_aa: explicit section through recognised geometry; displaced the automatic decision whether to show a section" } else if cut.internal_detail { "at least three unlike internal details need a readable section" } else { "a z-axis hole with a counterbore, spotface or bottom shows its profile in no standard view" },
                 fmt_ratio(cut.cut_y),
                 cut.holes
-            ),
+            ) },
             state: ItemState::Shown,
             line_work: Vec::new(),
-            line_style: Default::default(), from_spec: Vec::new(),
+            line_style: Default::default(), from_spec: if named_request.is_some() { vec!["views/sections/0".into()] } else if spec.views.contains_key(SECTION) { vec![format!("views/{SECTION}")] } else { Vec::new() },
             half_section: None,
             cut: Some(Cut {
                 xref: None,
@@ -11806,6 +11836,11 @@ fn render_annotations_with_cuts(
         sheet,
         problems: crate::output::undrawn(&undrawn)
             .into_iter()
+            .chain(if plan.spec.views.sections.is_empty() {
+                Vec::new()
+            } else {
+                crate::sections::attachment_problems(analysis, plan)
+            })
             .chain(rejected_sections.into_iter().map(|(id, reason)| Problem {
                 id: format!("p:section_dropped:{id}"),
                 code: "section_dropped".into(),

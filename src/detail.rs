@@ -112,7 +112,8 @@ pub(crate) fn check(analysis: &Analysis, spec: &Spec) -> Result<(), Invalid> {
             if let Some(source) = &d.from {
                 if !matches!(source.as_str(), "front" | "plan" | "side")
                     && !(source.starts_with("section_")
-                        && source == &format!("section_{0}{0}", section_label(spec).to_lowercase()))
+                        && Some(source.as_str())
+                            == crate::sections::view_name(&section_label(spec)))
                 {
                     return Err(Invalid {
                         path: None,
@@ -373,9 +374,10 @@ fn requests_uncached(a: &Analysis, spec: &Spec, sheet: f64) -> Vec<(String, Deta
             crops[0].source.into()
         } else {
             // Deterministic ties: front, plan, side, then the section.
-            let section = format!("section_{0}{0}", section_label(spec).to_lowercase());
+            let section =
+                crate::sections::view_name(&section_label(spec)).unwrap_or(crate::model::SECTION);
             let mut best = ("front", 0);
-            for candidate in ["front", "plan", "side", &section] {
+            for candidate in ["front", "plan", "side", section] {
                 if !source_available(a, spec, candidate) {
                     continue;
                 }
@@ -742,6 +744,12 @@ pub(crate) fn scaled(a: &Analysis, spec: &Spec, sheet: f64) -> Scaled {
     }
 }
 pub(crate) fn section_label(spec: &Spec) -> String {
+    if let Some(r) = spec.views.sections.first() {
+        return r.id.clone();
+    }
+    automatic_section_label(spec)
+}
+pub(crate) fn automatic_section_label(spec: &Spec) -> String {
     if spec.views.contains_key(crate::model::SECTION) {
         return "A".into();
     }

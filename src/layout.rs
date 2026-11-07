@@ -693,6 +693,8 @@ pub struct Request {
     pub sections: usize,
     /// Keep the section aligned when view-dependent annotation corridors are reserved.
     pub section_row_fixed: bool,
+    /// Explicit cuts are labelled independent views, with a clear paper gap.
+    pub separate_section: bool,
     /// Optional tables (one of them must fit, top right) and required ones.
     pub table_sizes: Vec<[f64; 2]>,
     pub required_tables: Vec<([f64; 2], Corner)>,
@@ -722,6 +724,7 @@ impl Request {
             aligned: Vec::new(),
             sections: 0,
             section_row_fixed: false,
+            separate_section: false,
             table_sizes: Vec::new(),
             required_tables: Vec::new(),
             // Views keep the frame gutter; the title block's margins stay on the frame.
@@ -1097,13 +1100,18 @@ fn geometry_with(
             pv_y += lift;
         }
     }
-    let mut section_x = sv_x + sv.hw + sv.right + SECTION_GAP + section_hw;
+    let section_gap = if req.separate_section {
+        2.0 * SECTION_GAP
+    } else {
+        SECTION_GAP
+    };
+    let mut section_x = sv_x + sv.hw + sv.right + section_gap + section_hw;
     let mut section_y = fv_y;
     let section_block = Block {
         top: dim_pad(),
         right: dim_pad(),
         bottom: dim_pad() + FONT_SIZE + 4.0,
-        left: SECTION_GAP,
+        left: section_gap,
         ..Block::bare(section_hw, section_hh)
     };
     // Neighbouring blocks abut exactly: rounding never makes their bands overlap.

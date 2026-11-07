@@ -398,7 +398,8 @@ fn a_section_not_drawn_says_why() {
     let spec: Spec = serde_json::from_value(json!({ "views": { "section_aa": {} } })).unwrap();
     let plan = model::plan(&plate, &spec).unwrap();
     let why = not_shown(&plan).expect("reported");
-    assert!(why.contains("no plane to cut"), "{why}");
+    assert!(why.contains("no front-facing cutting plane"), "{why}");
+    assert!(why.contains("remaining drawing are retained"), "{why}");
 }
 
 /// M6: `remove` of a path that is not there is refused, and makes nothing on its way.

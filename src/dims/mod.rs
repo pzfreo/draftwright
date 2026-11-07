@@ -130,6 +130,7 @@ mod profiled_bores;
 pub(crate) mod recesses;
 mod redundancy;
 mod schemes;
+mod sections;
 mod slots;
 pub(crate) use slots::located_end_centres;
 mod springs;
@@ -166,6 +167,7 @@ pub(crate) fn check_views(spec: &Spec) -> Result<(), Invalid> {
             .or(entry.view.as_ref())
             && !NAMES.contains(&v.as_str())
             && !crate::detail::NAMES.contains(&v.as_str())
+            && !crate::sections::NAMES.contains(&v.as_str())
         {
             return Err(Invalid {
                 path: None,
@@ -183,7 +185,9 @@ pub(crate) fn check_views(spec: &Spec) -> Result<(), Invalid> {
 /// Whether view *v* can carry *w*: it is one of *w*'s views and does not look along it (a
 /// turned part's diameter turns to a radial axis the view shows), as [`route`] decides.
 fn carries(w: &Want, v: &str) -> bool {
-    if crate::detail::NAMES.contains(&v) {
+    if crate::detail::NAMES.contains(&v)
+        || (v.starts_with("section_") && crate::sections::NAMES.contains(&v))
+    {
         return w.views.contains(&v);
     }
     let Some((_, toward)) = TOWARD.iter().find(|(n, _)| *n == v) else {
@@ -3006,6 +3010,13 @@ fn plan_inventory_ordered(
     profile_first: bool,
 ) -> Result<(Planned, Vec<PlannedDimension>), Invalid> {
     let (mut wants, mut problems, notes) = pmi_policy::wants(analysis, spec);
+    if !spec.views.sections.is_empty()
+        && views
+            .iter()
+            .any(|v| v.cut.is_some() && v.from_spec.iter().any(|f| f == "views/sections/0"))
+    {
+        sections::apply(analysis, spec, &mut wants);
+    }
     callouts::apply(analysis, spec, &mut wants);
     let (scheme_covered, scheme_problems) = schemes::apply(analysis, spec, &mut wants)?;
     problems.extend(scheme_problems);
@@ -3027,8 +3038,10 @@ fn plan_inventory_ordered(
         .iter()
         .filter_map(|v| {
             let name = v.id.strip_prefix("v:")?;
-            (NAMES.contains(&name) || crate::detail::NAMES.contains(&name))
-                .then(|| (name, Frame::new(analysis, v)))
+            (NAMES.contains(&name)
+                || crate::detail::NAMES.contains(&name)
+                || (!spec.views.sections.is_empty() && v.cut.is_some()))
+            .then(|| (name, Frame::new(analysis, v)))
         })
         .collect();
     detail_routes(analysis, &mut wants, views);
@@ -4345,6 +4358,9 @@ fn plan_inventory_ordered(
     let mut missing: BTreeMap<Undrawn, Vec<String>> = BTreeMap::new();
     let mut out = Vec::new();
     for ((mut w, default, chosen, along), mut from_spec) in kept.into_iter().zip(given) {
+        if !spec.views.sections.is_empty() && w.basis.contains("applied views/sections/0") {
+            from_spec.push("views/sections/0".into());
+        }
         if !spec.dimension_schemes.is_empty()
             && let Some(path) = schemes::from_spec(&w)
         {
@@ -5162,7 +5178,10 @@ pub(crate) fn leader_reentry(
     let (Some(v), Some(shaft)) = (
         views.iter().find(|v| {
             let name = v.id.strip_prefix("v:").unwrap_or(&v.id);
-            v.id == d.view && (NAMES.contains(&name) || crate::detail::NAMES.contains(&name))
+            v.id == d.view
+                && (NAMES.contains(&name)
+                    || crate::detail::NAMES.contains(&name)
+                    || v.cut.is_some())
         }),
         d.placed.as_ref().and_then(|p| p.lines.first()),
     ) else {
@@ -5250,8 +5269,10 @@ pub(crate) fn placement_options_with_spec(
         .iter()
         .filter_map(|v| {
             let name = v.id.strip_prefix("v:")?;
-            (NAMES.contains(&name) || crate::detail::NAMES.contains(&name))
-                .then(|| (name, Frame::new(analysis, v)))
+            (NAMES.contains(&name)
+                || crate::detail::NAMES.contains(&name)
+                || (!spec.views.sections.is_empty() && v.cut.is_some()))
+            .then(|| (name, Frame::new(analysis, v)))
         })
         .collect();
     route(&mut wants, &frames, analysis);

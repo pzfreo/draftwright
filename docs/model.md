@@ -312,7 +312,28 @@ mention takes its default.
 }
 ```
 
-The design also includes `views/sections` (for example `"sections": [{"id": "A", "through": "f:hole:3"}]`). Feature `anchor` is read for recognition corrections, below; a feature's `note` is read since K1b (below).
+`views/sections` requests a longitudinal section through named geometry, for example
+`"sections": [{"id": "A", "through": "f:section_recess:1"}]`. IDs are distinct
+letters A–H. When drawable, the first request replaces the automatic section, using a
+front-facing plane through a z-axis hole or a z-depth pocket running along x. The plan records
+the cut and the applied Spec path. A pocket section carries its measured width and
+length as a callout (width lies perpendicular to this plane), and a floor-attached depth
+from floor to mouth. On a cylindrical mouth this is the maximum depth from its
+tangent at the centre cut. Missing feature references are refused. Geometry for
+which this implementation cannot name a plane, additional sections beyond the one
+available layout slot, or an omitted carrier view retain the drawing and warn
+specifically. An unavailable named request keeps the automatic section and remains
+in the Spec. Explicit sections reserve a separate labelled frame before paper and
+scale selection, including when dimensions or views are pinned. If adding the cut
+makes retained pinned ink unfit, automatic paper/scale trials include that ink.
+Feature `anchor` is read for recognition corrections, below;
+a feature's `note` is read since K1b (below).
+
+`views/section_aa: {}` also requests a section through plain z-axis through holes.
+The densest row determines the plane, with ties going to the row nearest the
+part centre and then the lower station. This extends explicit requests only;
+automatic sections keep the hidden-profile rule. If no supported plane can be
+named, `section_not_shown` explains the missing geometry and the drawing is kept.
 
 - **Fields read:** `sheet` (`size`, `scale`, `preferred_max_size`, `preferred_max_sheets`, `dimension_spacing`, `frame_gutter`, `table_columns`, `title`, `references`, `fit_deviations`, `fit_limits`, `projection`, `default_finish`, `hidden`, `centre_marks`, `centre_lines`, `thread_depiction`, `knurl_depiction`), `sheets` (below), `views/<name>` (`omit`, `place`, `sheet`, `hidden`, `centre_marks`, `centre_lines`, `thread_depiction`, `knurl_depiction`, `half_section`),
   `iso_scale_factor`, `dimension_source`, `dimension_schemes/<name>` (`scheme`, `axis`, `targets`, `view`, `from`), `hole_table` (`auto`, `always`, `never`), `dimensions/<id>` (`omit`, `tolerance`, `fit`, `text`, `style`, `place`, `kind`, `between`, `along`, and the earlier `view`
