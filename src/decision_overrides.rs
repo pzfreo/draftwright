@@ -73,8 +73,13 @@ fn add(basis: &mut String, family: Family, id: &str) {
         fields.replace("<id>", &crate::items::key(id))
     );
     if !basis.contains(&guidance) {
-        // Existing consumers read the dependency list through the end of the basis.
-        let at = basis.find("; dependencies: ").unwrap_or(basis.len());
+        // Preserve semantic suffixes: consumers read dependencies through the end,
+        // and routing may add/remove the interior proof after a public plan is made.
+        let at = ["; dependencies: ", crate::dims::interior::BASIS]
+            .iter()
+            .filter_map(|suffix| basis.find(suffix))
+            .min()
+            .unwrap_or(basis.len());
         basis.insert_str(at, &guidance);
     }
 }
