@@ -26,8 +26,8 @@ const OVERRIDES: [(&str, &str, &str); 9] = [
     ),
     (
         "view selection",
-        "views/<id> keys [omit, half_section, detail]",
-        "cannot override section-through geometry, camera direction/up, half-section side or view breaks yet (#304, #314, #315, #309)",
+        "views/sections; views/<id> keys [omit, half_section, detail]",
+        "Named sections use front-facing planes; cannot override camera direction/up, half-section side or view breaks yet (#314, #315, #309)",
     ),
     (
         "paper and arrangement",

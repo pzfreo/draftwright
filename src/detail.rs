@@ -742,6 +742,9 @@ pub(crate) fn scaled(a: &Analysis, spec: &Spec, sheet: f64) -> Scaled {
     }
 }
 pub(crate) fn section_label(spec: &Spec) -> String {
+    if let Some(r) = spec.views.sections.first() {
+        return r.id.clone();
+    }
     if spec.views.contains_key(crate::model::SECTION) {
         return "A".into();
     }

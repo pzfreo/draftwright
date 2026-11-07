@@ -2342,7 +2342,7 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                 max: Some(max),
                 ..Default::default()
             });
-            base.views = crate::sheets::reference_views(&plan.spec);
+            base.views = crate::sheets::reference_views(&plan.spec).into();
         }
         crate::model::plan_automatic(analysis, &base).ok()
     } else if plan.spec.hole_table == Setting::Auto

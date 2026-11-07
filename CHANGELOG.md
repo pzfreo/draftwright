@@ -8,6 +8,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Changed
 
+- Draw named-feature longitudinal sections via `views/sections`, with pocket width,
+  length and depth, and report unavailable or displaced section intent (#304).
 - Plan bases name existing Spec controls from one nine-family override catalogue
   and explain unavailable overrides and the PMI/checker boundary (#309).
 - Pocket depth wording says `DEEP`, with truthful tangent-depth or opposite-tangent

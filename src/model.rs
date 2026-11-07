@@ -388,8 +388,8 @@ pub struct Spec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sheets: Option<crate::sheets::SheetsSpec>,
     /// Per standard view (`front`, `plan`, `side`, `iso`).
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub views: BTreeMap<String, ViewSpec>,
+    #[serde(skip_serializing_if = "crate::sections::Views::is_empty")]
+    pub views: crate::sections::Views,
     /// Where the dimensions come from: `auto` (the defaults, less what `dimensions` omits) or
     /// `authored` (exactly the dimensions listed, a complete set: ADR4-5).
     #[serde(skip_serializing_if = "DimensionSource::is_auto")]
@@ -594,7 +594,7 @@ impl Default for Spec {
             balloons: Default::default(),
             iso_scale_factor: None,
             sheets: None,
-            views: BTreeMap::new(),
+            views: Default::default(),
             dimension_source: DimensionSource::Auto,
             pmi: PmiMode::First,
             origin: BTreeMap::new(),
@@ -1223,7 +1223,7 @@ impl std::fmt::Display for Invalid {
 
 const INFEASIBLE_ISO_SCALE: &str = "The authored iso scale is infeasible in its composed view zone; the requested scale was not reduced.";
 
-fn invalid(message: impl Into<String>, choices: &[&str]) -> Invalid {
+pub(crate) fn invalid(message: impl Into<String>, choices: &[&str]) -> Invalid {
     Invalid {
         path: None,
         also: Vec::new(),
@@ -5719,7 +5719,7 @@ fn plan_with_presentation(
             // Pins do not belong to this reference, nor do allocation destinations: a
             // multi-sheet reference is the whole allocated drawing, with every sheet-1
             // frame where it finally sits, not one allocation step's sheet 1.
-            base.views = crate::sheets::reference_views(spec);
+            base.views = crate::sheets::reference_views(spec).into();
             // A paper trial's sheet-count permission shapes its R5 allocation, so pin
             // offsets in a multi-sheet canonical are measured on that same allocation.
             if let Some(max) = spec.sheets.as_ref().and_then(|s| s.max).filter(|&n| n > 1) {
@@ -6217,7 +6217,7 @@ fn plan_with_presentation(
         .views
         .keys()
         .filter(|name| {
-            *name != SECTION
+            !crate::sections::NAMES.contains(&name.as_str())
                 && !crate::detail::NAMES.contains(&name.as_str())
                 && !VIEWS.iter().any(|(v, ..)| v == *name)
         })
@@ -6242,6 +6242,10 @@ fn plan_with_presentation(
     }
     crate::dims::check_known(analysis, spec)?;
     let mut demand = crate::demand::read(analysis);
+    let named_section = crate::sections::resolve(analysis, spec, &mut problems)?;
+    if !spec.views.sections.is_empty() {
+        demand.section = named_section;
+    }
     // The analysis's demand assumes the default Spec; edited wording or datum visibility
     // (`sheet/uncited_datums`, a datum's omit) changes which symbols need room.
     if spec
@@ -6414,10 +6418,15 @@ fn plan_with_presentation(
     let scale = presentation.map(|p| p.scale).or(scale);
     let [lo, hi] = analysis.envelope;
     // Section A-A is marked on the plan and sits in the front's row.
-    let section = demand
-        .section
-        .clone()
-        .filter(|_| shown(SECTION) && principals.plan && (principals.front || principals.side));
+    let section_name = spec
+        .views
+        .sections
+        .first()
+        .map(|r| crate::sections::NAMES[(r.id.as_bytes()[0] - b'A') as usize])
+        .unwrap_or(SECTION);
+    let section = demand.section.clone().filter(|_| {
+        shown(section_name) && principals.plan && (principals.front || principals.side)
+    });
     // A section left out is said, with why and what would bring it back (draftwright records
     // every section decision: ISSUE-1190-b); one the author omits needs no saying.
     let section_not_shown = |why: String, fix: Vec<crate::items::Op>| Problem {
@@ -6433,7 +6442,7 @@ fn plan_with_presentation(
         fix,
     };
     match &demand.section {
-        Some(_) if section.is_none() && shown(SECTION) => problems.push(if !principals.plan {
+        Some(_) if section.is_none() && shown(section_name) => problems.push(if !principals.plan {
             let (how, fix) = if omitted("plan") {
                 (
                     "the spec omits it; remove views/plan/omit to show it",
@@ -6894,16 +6903,16 @@ fn plan_with_presentation(
             at: g.section,
             scale: pick.scale,
             area: *area,
-            default: !spec.views.contains_key(SECTION),
+            default: !spec.views.contains_key(SECTION) && spec.views.sections.is_empty(),
             basis: format!(
                 "draftwright's section rule: {}; the plane y = {} cuts the densest row ({} physical details on it), seen from the front and placed right of the side view",
-                if cut.internal_detail { "at least three unlike internal details need a readable section" } else { "a z-axis hole with a counterbore, spotface or bottom shows its profile in no standard view" },
+                if !spec.views.sections.is_empty() { "applied views/sections/0 through named geometry; displaced automatic section selection" } else if cut.internal_detail { "at least three unlike internal details need a readable section" } else { "a z-axis hole with a counterbore, spotface or bottom shows its profile in no standard view" },
                 fmt_ratio(cut.cut_y),
                 cut.holes
             ),
             state: ItemState::Shown,
             line_work: Vec::new(),
-            line_style: Default::default(), from_spec: Vec::new(),
+            line_style: Default::default(), from_spec: if spec.views.sections.is_empty() { Vec::new() } else { vec!["views/sections/0".into()] },
             half_section: None,
             cut: Some(Cut {
                 xref: None,

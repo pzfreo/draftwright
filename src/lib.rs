@@ -43,6 +43,7 @@ pub mod png;
 pub mod radius;
 pub mod remedy_scope;
 pub mod section;
+pub mod sections;
 pub mod session;
 pub mod sheet_fit;
 pub mod sheets;

@@ -2241,3 +2241,53 @@ fn spec_depth_presentation_keeps_measured_terms() {
         assert!(p.plan.spec.dimensions[id].presentation.is_some());
     }
 }
+
+#[test]
+fn named_section_public_schema_and_geometry() {
+    let mut s = input("inline-301");
+    s["views"]["sections"] = json!([{"id":"B", "through":"f:section_recess:1"}]);
+    let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
+    draftwright::mcp::validate(&schema, &s).unwrap();
+    let p = planned(SHAFT, &s);
+    let v = p
+        .plan
+        .views
+        .iter()
+        .find(|v| v.id == "v:section_bb")
+        .unwrap();
+    let cut = v.cut.as_ref().unwrap();
+    assert_eq!(cut.normal, [0., 1., 0.]);
+    assert!(cut.origin[1].abs() < 1e-8);
+    assert_eq!(cut.label, "B");
+    assert!(v.from_spec.iter().any(|f| f == "views/sections/0"));
+    for (role, value) in [("pocket_width.length", 6.), ("pocket_depth.length", 3.)] {
+        let d = p
+            .plan
+            .dimensions
+            .iter()
+            .find(|d| {
+                d.view == v.id
+                    && d.placed.is_some()
+                    && d.measurements
+                        .iter()
+                        .any(|m| m.parameter == role && (m.value - value).abs() < 1e-8)
+            })
+            .unwrap();
+        assert!(d.from_spec.iter().any(|f| f == "views/sections/0"));
+    }
+    let rendered = rendered(SHAFT, &p);
+    assert!(
+        !rendered
+            .drawings
+            .iter()
+            .flat_map(|d| &d.problems)
+            .any(|p| p.code == "section_refused")
+    );
+    s["views"]["sections"] = json!([{"id":"A", "through":"f:turned_step:2"}]);
+    let p = planned(SHAFT, &s);
+    assert!(
+        p.plan.problems.iter().any(|p| p.code == "section_not_shown"
+            && p.message.contains("no front-facing cutting plane"))
+    );
+    assert!(p.plan.views.iter().any(|v| v.id == "v:front"));
+}

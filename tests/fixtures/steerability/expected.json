@@ -33,14 +33,6 @@
       "shoulders_defined"
     ]
   },
-  "304": {
-    "case": "steer_304_keyway_section",
-    "group": "B",
-    "reason": "The proposed named-feature section request is rejected specifically at input/views/sections by the public schema validator; serde alone gives a generic type error.",
-    "checks": [
-      "named_section"
-    ]
-  },
   "307": {
     "case": "steer_307_completeness_mutations",
     "group": "A",
