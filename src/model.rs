@@ -5186,11 +5186,13 @@ fn schedule_recovered(
 /// the dimensions, which on most parts keeps a larger scale, but where the dimensions run on
 /// past it an item can find no place (nist_stc_09 e4 at 1:1: 13 frames across the plan).
 pub fn plan_escalated(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::bom::with_titles(analysis, spec, || {
-        let mut plan = plan_escalated_layout(analysis, spec)?;
-        crate::characteristics::apply(analysis, &mut plan);
-        crate::hole_exits::report(analysis, &mut plan);
-        Ok(plan)
+    crate::decision_overrides::boundary(|| {
+        crate::bom::with_titles(analysis, spec, || {
+            let mut plan = plan_escalated_layout(analysis, spec)?;
+            crate::characteristics::apply(analysis, &mut plan);
+            crate::hole_exits::report(analysis, &mut plan);
+            Ok(plan)
+        })
     })
 }
 

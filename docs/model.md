@@ -3350,3 +3350,6 @@ Part and depth presentation explicitly report application; an unsupported or
 undrawn depth presentation warns. Requirements belong to PMI, and checker
 conclusions have no presentation override. Basis reporting runs after the outer
 planning operation, so it cannot influence the layout solve.
+
+Basis guidance names each Spec object once and lists its keys, keeping item replies
+compact while retaining the complete control inventory.

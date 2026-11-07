@@ -26,38 +26,38 @@ const OVERRIDES: [(&str, &str, &str); 9] = [
     ),
     (
         "view selection",
-        "views/<id>/omit, views/<id>/half_section, views/<id>/detail",
+        "views/<id> keys [omit, half_section, detail]",
         "cannot override section-through geometry, camera direction/up, half-section side or view breaks yet (#304, #314, #315, #309)",
     ),
     (
         "paper and arrangement",
-        "sheet/size, sheet/scale, sheets, views/<id>/sheet, views/<id>/place, sheet/preferred_max_size, sheet/preferred_max_sheets, sheet/view_gutter, sheet/dimension_spacing, sheet/projection, iso_scale_factor",
-        "scale captions must state actual scales; caption placement is not yet Spec-addressable (#309)",
+        "sheet keys [size, scale, preferred_max_size, preferred_max_sheets, view_gutter, dimension_spacing, projection]; sheets; views/<id> keys [sheet, place]; iso_scale_factor",
+        "Captions state actual scales; caption placement unsupported (#309)",
     ),
     (
         "dimension selection and origins",
-        "dimension_source, dimensions/<id>/omit, dimensions/<id>/between, dimensions/<id>/along, dimensions/<id>/view, origin, dimension_schemes, faces/<face>/profile_corners",
-        "independent PMI requirements remain required; redundant generated dimensions are not all force-showable yet (#309)",
+        "dimension_source; dimensions/<id> keys [omit, between, along, view]; origin; dimension_schemes; faces/<face>/profile_corners",
+        "PMI remains required; some redundant dimensions lack force-show (#309)",
     ),
     (
         "recognition, grouping and attachment",
-        "feature_declarations, features/<feature>/reclassify, features/<feature>/suppress, features/<feature>/split, features/<feature>/pattern, dimensions/<id>/place, annotations/<id>/place",
-        "cannot override a leader's geometric support by name yet; attachment must lie on proven geometry (#309)",
+        "feature_declarations; features/<feature> keys [reclassify, suppress, split, pattern]; dimensions/<id>/place; annotations/<id>/place",
+        "Named support overrides are not implemented (#309)",
     ),
     (
         "wording and precision",
-        "precision, dimensions/<id>/text, dimensions/<id>/style, dimensions/<id>/presentation, features/<feature>/callouts/style, sheet/callouts/style",
-        "measured values must remain truthful; arbitrary wrap width is not yet Spec-addressable (#309)",
+        "precision; dimensions/<id> keys [text, style, presentation]; features/<feature>/callouts/style; sheet/callouts/style",
+        "Keep measured values; wrap width not implemented (#309)",
     ),
     (
         "tables, tags, notes and furniture",
-        "hole_table, sheet/table_columns, notes, tables, sheet/title",
+        "hole_table; sheet keys [table_columns, title]; notes; tables",
         "cannot override automatic tag order or automatic block placement yet (#309)",
     ),
     (
         "linework, symbols and inspection rings",
-        "sheet/hidden, sheet/centre_marks, sheet/centre_lines, views/<id>/hidden, views/<id>/centre_marks, views/<id>/centre_lines, views/<id>/thread_depiction, views/<id>/knurl_depiction, features/<feature>/modelled_thread, features/<feature>/spring, sheet/uncited_datums, annotations/<id>/omit, sheet/balloons, balloons",
-        "cannot override pens, fonts or hatching yet; sections suppress hidden ink (#309)",
+        "sheet keys [hidden, centre_marks, centre_lines, uncited_datums, balloons]; views/<id> keys [hidden, centre_marks, centre_lines, thread_depiction, knurl_depiction]; features/<feature> keys [modelled_thread, spring]; annotations/<id>/omit; balloons",
+        "Pens/fonts/hatching unsupported; sections omit hidden ink (#309)",
     ),
     (
         "requirements and checker conclusions",
@@ -67,13 +67,12 @@ const OVERRIDES: [(&str, &str, &str); 9] = [
 ];
 
 fn add(basis: &mut String, family: Family, id: &str) {
-    let (name, fields, exception) = OVERRIDES[family as usize];
-    let marker = format!("; overrides ({name}): ");
-    if !basis.contains(&marker) {
-        let guidance = format!(
-            "{marker}{}; {exception}",
-            fields.replace("<id>", &crate::items::key(id))
-        );
+    let (_, fields, exception) = OVERRIDES[family as usize];
+    let guidance = format!(
+        "; Spec: {}; {exception}",
+        fields.replace("<id>", &crate::items::key(id))
+    );
+    if !basis.contains(&guidance) {
         // Existing consumers read the dependency list through the end of the basis.
         let at = basis.find("; dependencies: ").unwrap_or(basis.len());
         basis.insert_str(at, &guidance);

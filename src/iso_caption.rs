@@ -265,7 +265,7 @@ pub(crate) fn refresh(analysis: &Analysis, p: &mut Plan) {
             .extend(b.leader);
         ink.push(d);
     }
-    p.captions = std::iter::once(&p.sheet)
+    let mut captions: Vec<PlannedCaption> = std::iter::once(&p.sheet)
         .chain(&p.sheets)
         .flat_map(|sheet| {
             let mut local = ink.clone();
@@ -304,6 +304,13 @@ pub(crate) fn refresh(analysis: &Analysis, p: &mut Plan) {
             plan(analysis, sheet, &p.views, &local)
         })
         .collect();
+    // Refresh the ink without discarding already published provenance for this same caption.
+    for caption in &mut captions {
+        if let Some(previous) = p.captions.iter().find(|old| old.id == caption.id) {
+            caption.basis.clone_from(&previous.basis);
+        }
+    }
+    p.captions = captions;
 }
 
 #[cfg(test)]
