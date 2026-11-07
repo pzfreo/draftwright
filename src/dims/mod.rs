@@ -3513,11 +3513,20 @@ fn plan_inventory_ordered(
         &page,
         &mut intended,
     );
-    for (i, placed) in intended.iter_mut().enumerate() {
-        if places[i].is_some_and(|p| !p.pinned)
-            && let (Some(p), Some(view)) = (placed, chosen[i])
-        {
-            placement::nearest_pattern_witnesses(analysis, &frames[view], &all[i].measurements, p);
+    // In a pin conflict, shorten a peer's witnesses to the nearest valid row
+    // before deciding that its requested side/text station must be displaced.
+    if crate::placement_intent::has_pins(spec) {
+        for (i, placed) in intended.iter_mut().enumerate() {
+            if places[i].is_some_and(|p| !p.pinned)
+                && let (Some(p), Some(view)) = (placed, chosen[i])
+            {
+                placement::nearest_pattern_witnesses(
+                    analysis,
+                    &frames[view],
+                    &all[i].measurements,
+                    p,
+                );
+            }
         }
     }
     let prescribed = intended.clone();
