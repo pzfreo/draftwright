@@ -268,6 +268,7 @@ catalogue! {
     "scale_fallback_applied" => Advisory, Code, "The documented feasible scale fallback was applied.";
     "scale_not_stated" => Incomplete, Code, "The drawing does not state its scale.";
     "section_dropped" => Incomplete, Code, "A required drawing item was dropped before it could be stated.";
+    "break_not_applied" => Decision, Code, "The requested break has no proven uniform span or carrying view.";
     "section_not_shown" => Incomplete, Code, "The requested section is not shown.";
     "section_recess_recognition_refused" => Incomplete, Code, "Refused recess recognition leaves the recess requirements unstated.";
     "section_recess_requirement_unsupported" => Incomplete, Requirement, "No supported drawing grammar states this feature requirement.";

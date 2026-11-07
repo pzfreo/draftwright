@@ -24,6 +24,7 @@ type Strips<'a> = BTreeMap<(&'a str, Side), Vec<(bool, u8, i64, usize)>>;
 /// A view as the dimensions see it: world to page, and the part's box on the page.
 pub(super) struct Frame {
     view: View,
+    broken: Option<crate::broken::Break>,
     at: P2,
     s: f64,
     centre: P2,
@@ -34,7 +35,8 @@ pub(super) struct Frame {
 
 impl Frame {
     pub(super) fn memo_geometry(&self) -> Vec<u64> {
-        self.view
+        let mut key: Vec<_> = self
+            .view
             .x
             .iter()
             .chain(&self.view.y)
@@ -44,12 +46,17 @@ impl Frame {
             .chain(&self.centre)
             .chain(&self.outline)
             .map(|n| n.to_bits())
-            .collect()
+            .collect();
+        if let Some(b) = &self.broken {
+            key.extend(b.key());
+        }
+        key
     }
 
     pub(super) fn new(analysis: &Analysis, v: &PlannedView) -> Frame {
         let mut f = Frame::looking(analysis, v.direction, v.up, v.at, v.scale);
-        if v.detail.is_some() {
+        f.broken = v.broken.clone();
+        if v.detail.is_some() || v.broken.is_some() {
             let (size, centre) = crate::detail::crop_extent(analysis, v);
             f.centre = centre;
             f.outline = [
@@ -69,6 +76,7 @@ impl Frame {
         let (size, centre) = crate::model::extent(analysis, &view);
         Frame {
             view,
+            broken: None,
             at,
             s,
             centre,
@@ -94,6 +102,7 @@ impl Frame {
 
     pub(super) fn page(&self, p: P3) -> P2 {
         let q = self.view.map(p);
+        let q = self.broken.as_ref().map_or(q, |b| b.map(q));
         [
             self.at[0] + self.s * (q[0] - self.centre[0]),
             self.at[1] + self.s * (q[1] - self.centre[1]),

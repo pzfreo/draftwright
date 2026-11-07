@@ -280,6 +280,7 @@ fn drawing_marks(drawing: &Drawing, witnesses: bool) -> Vec<Mark> {
                     frame.at,
                     frame.scale,
                     &item.lines,
+                    &frame.broken,
                 ))
                 .unwrap();
                 claims.push(crate::output::Claim {

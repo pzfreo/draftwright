@@ -2624,3 +2624,116 @@ fn override_basis_paths_exist_in_the_published_spec_schema() {
         &["annotations".into(), "front".into(), "centre_marks".into()]
     ));
 }
+
+#[test]
+fn broken_view_keeps_true_witnesses_and_reduces_ink_extent() {
+    let mut s = input(BAR);
+    s["views"]["front"] = json!({"break":{}});
+    let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
+    draftwright::mcp::validate(&schema, &s).unwrap();
+    let p = planned(BAR, &s);
+    let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
+    let b = v.broken.as_ref().expect("proven cylindrical uniform span");
+    assert!(b.reduction() > 400.);
+    assert!(v.from_spec.iter().any(|p| p == "views/front/break"));
+    assert!(v.basis.contains("applied views/front/break"));
+    let r = rendered(BAR, &p);
+    let drawing = &r.drawings[0];
+    let ink = drawing
+        .sheet
+        .views
+        .iter()
+        .find(|v| v.name == "v:front")
+        .unwrap();
+    assert!((ink.bbox[2] - ink.bbox[0]) / v.scale < 200.);
+    let across = p
+        .plan
+        .dimensions
+        .iter()
+        .find(|d| d.value == 600. && d.view == "v:front" && d.placed.is_some())
+        .unwrap();
+    let frame = &drawing.sheet.frames["front"];
+    let (_, start, end) = lint::location::ink_span(
+        &fixture(BAR).analysis,
+        frame,
+        &across.placed.as_ref().unwrap().lines,
+    )
+    .unwrap();
+    assert!(((end - start).abs() - 600.).abs() < 1e-5);
+    assert!(
+        (across.placed.as_ref().unwrap().arrows[0][0][0]
+            - across.placed.as_ref().unwrap().arrows[1][0][0])
+            .abs()
+            / v.scale
+            < 200.
+    );
+    let f = fixture(BAR);
+    let geometry = model::render_geometry(
+        &f.part,
+        &f.analysis,
+        &p.plan,
+        &mut f.projections.lock().unwrap(),
+    )
+    .unwrap();
+    assert!(
+        geometry
+            .views
+            .iter()
+            .find(|(id, _)| id == "v:front")
+            .unwrap()
+            .1
+            .breaks
+            .len()
+            >= 8
+    );
+    assert_section_fits(BAR, &p);
+}
+
+#[test]
+fn broken_view_explicit_interval_survives_pinned_dimension() {
+    let mut s = input(BAR);
+    s["sheet"].as_object_mut().unwrap().remove("size");
+    s["sheet"].as_object_mut().unwrap().remove("scale");
+    s["views"]["front"] = json!({"break":{"axis":"x","remove":[100,500],"gap":8,"aligned":true}});
+    s["dimensions"]["d:f:turned_step:1/step.length"] =
+        json!({"place":{"view":"front","pinned":true}});
+    let p = planned(BAR, &s);
+    let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
+    let b = v.broken.as_ref().expect("pin_base must carry break");
+    assert_eq!(b.remove, [100., 500.]);
+    assert_eq!(b.gap, 8.);
+    assert!(!has(&p.plan, "break_not_applied"));
+    assert!(
+        p.plan
+            .views
+            .iter()
+            .any(|v| v.id == "v:plan" && v.broken.is_some())
+    );
+    assert!(
+        p.plan
+            .dimensions
+            .iter()
+            .any(|d| d.value == 600. && d.placed.is_some())
+    );
+    assert_section_fits(BAR, &p);
+}
+
+#[test]
+fn broken_view_without_uniform_span_warns_and_retains_geometry() {
+    let mut s = minimal();
+    s["views"]["front"] = json!({"break":{"axis":"x","remove":[-1000,1000]}});
+    let p = planned(FLANGE, &s);
+    let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
+    assert!(v.broken.is_none());
+    let warning = p
+        .plan
+        .problems
+        .iter()
+        .find(|p| p.code == "break_not_applied")
+        .unwrap();
+    assert!(
+        warning.message.contains("views/front/break")
+            && warning.message.contains("uniform axial span")
+    );
+    assert!(!rendered(FLANGE, &p).drawings[0].sheet.views.is_empty());
+}

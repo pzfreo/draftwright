@@ -1480,7 +1480,7 @@ fn reserve_bounds(
                     v.at[1] + v.scale * analysis.drawing_iso_bounds()[3],
                 ]
             } else {
-                let size = if v.detail.is_some() {
+                let size = if v.detail.is_some() || v.broken.is_some() {
                     // A crop owns only its enlarged local outline. Reserving the
                     // whole part at the detail scale strands neighbouring bands.
                     crate::detail::crop_extent(analysis, v).0

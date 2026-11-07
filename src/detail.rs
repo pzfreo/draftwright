@@ -820,11 +820,15 @@ pub(crate) fn caption_obstacles(views: &[PlannedView]) -> Vec<crate::dims::Plann
         .collect()
 }
 pub(crate) fn crop_extent(a: &Analysis, v: &PlannedView) -> ([f64; 2], [f64; 2]) {
-    crate::model::envelope_extent(
+    let (mut size, centre) = crate::model::envelope_extent(
         v.detail.as_ref().map_or(a.envelope, |d| d.bounds),
         // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.
         &haecceity::hlr::View::new(v.direction, v.up).expect("planned view"),
-    )
+    );
+    if let Some(b) = &v.broken {
+        size[b.axis] -= b.reduction();
+    }
+    (size, centre)
 }
 
 /// Clip exact curves recursively by their conservative bounding boxes. Fully contained

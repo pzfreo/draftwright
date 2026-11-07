@@ -918,6 +918,7 @@ fn dimension_marks(
             at,
             scale: view.scale,
             half_axis: None,
+            broken: None,
         };
         mark.claims
             .retain(|c| !c.feature.starts_with("station_span:") && c.feature != "station_ink");

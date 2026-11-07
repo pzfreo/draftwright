@@ -584,6 +584,7 @@ pub struct Sheet {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DrawnFrame {
+    pub broken: Option<crate::broken::Break>,
     pub direction: [f64; 3],
     pub up: [f64; 3],
     pub at: P,

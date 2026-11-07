@@ -107,6 +107,7 @@ fn request(c: &Value) -> Request {
         automatic_pair: false,
         candidate_arrangement: None,
         aligned: Vec::new(),
+        breaks: Vec::new(),
         size: [f(&c["size"][0]), f(&c["size"][1]), f(&c["size"][2])],
         strips: Strips {
             right: f(&s["right"]),

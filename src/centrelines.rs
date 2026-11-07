@@ -595,6 +595,36 @@ pub(crate) fn plan(a: &Analysis, views: &mut [PlannedView]) {
             });
         }
         merge(&mut v.line_work);
+        if let Some(b) = &v.broken {
+            let centre = crate::detail::crop_extent(a, v).1;
+            let mut work = std::mem::take(&mut v.line_work);
+            for w in &mut work {
+                w.curves = b
+                    .items(
+                        std::mem::take(&mut w.curves)
+                            .into_iter()
+                            .map(crate::output::Item::Edge)
+                            .collect(),
+                        centre,
+                        v,
+                    )
+                    .into_iter()
+                    .filter_map(|i| {
+                        if let crate::output::Item::Edge(c) = i {
+                            Some(c)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if let Some(p) = &mut w.centre {
+                    let q = b.map([0, 1].map(|k| centre[k] + (p[k] - v.at[k]) / v.scale));
+                    *p = [0, 1].map(|k| v.at[k] + v.scale * (q[k] - centre[k]));
+                }
+            }
+            work.retain(|w| !w.curves.is_empty());
+            v.line_work = work;
+        }
         if v.detail.is_some() {
             let (size, _) = crate::detail::crop_extent(a, v);
             let rect = [

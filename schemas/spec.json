@@ -1446,6 +1446,34 @@
         "around"
       ]
     },
+    "break": {
+      "type": "object",
+      "properties": {
+        "axis": {
+          "enum": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "remove": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "gap": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "aligned": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
     "view": {
       "type": "object",
       "properties": {
@@ -1493,6 +1521,16 @@
           "anyOf": [
             {
               "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "break": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/break"
             },
             {
               "type": "null"

@@ -811,6 +811,7 @@ pub fn drawn_centre_marks(analysis: &Analysis, drawing: &crate::output::Drawing)
             }
             let c = view.map(centre(analysis));
             let p = view.map(s.at);
+            let p = f.broken.as_ref().map_or(p, |b| b.map(p));
             s.projections.push((
                 name.clone(),
                 [0, 1].map(|k| f.at[k] + f.scale * (p[k] - c[k])),

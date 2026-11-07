@@ -278,6 +278,7 @@ fn drop_item(plan: &mut Plan, i: usize, kind: Dropped) {
 
 /// A view's world-to-page map and its outline on the page.
 struct Frame {
+    broken: Option<crate::broken::Break>,
     view: View,
     at: [f64; 2],
     s: f64,
@@ -292,6 +293,7 @@ impl Frame {
         let (size, centre) = crate::detail::crop_extent(analysis, v);
         let (at, s) = (v.at, v.scale);
         Frame {
+            broken: v.broken.clone(),
             view,
             at,
             s,
@@ -307,6 +309,7 @@ impl Frame {
 
     fn page(&self, p: [f64; 3]) -> [f64; 2] {
         let q = self.view.map(p);
+        let q = self.broken.as_ref().map_or(q, |b| b.map(q));
         [
             self.at[0] + self.s * (q[0] - self.centre[0]),
             self.at[1] + self.s * (q[1] - self.centre[1]),

@@ -26,8 +26,8 @@ const OVERRIDES: [(&str, &str, &str); 9] = [
     ),
     (
         "view selection",
-        "views/sections; views/<view> keys [omit, half_section, detail]",
-        "Named and explicit sections use front-facing planes; cameras, half-section side and breaks unavailable (#315, #309)",
+        "views/sections; views/<view> keys [omit, half_section, detail, break]",
+        "Named and explicit sections use front-facing planes; cameras and half-section side unavailable (#309)",
     ),
     (
         "paper and arrangement",
@@ -176,6 +176,12 @@ fn report(plan: &mut Plan) {
         let id = v.id.trim_start_matches("v:");
         add(&mut v.basis, Family::Views, Target::View(id));
         add(&mut v.basis, Family::Linework, Target::View(id));
+        if let Some(b) = &v.broken {
+            v.basis += &format!(
+                "; applied {}: uniform projected interval {:?}, retained gap {} model mm; displaced full-length depiction; axis/remove/gap/aligned override automatic break choices",
+                b.source, b.remove, b.gap
+            );
+        }
     }
     for d in &mut plan.dimensions {
         add(&mut d.basis, Family::Dimensions, Target::Dimension(&d.id));
@@ -228,6 +234,19 @@ fn report(plan: &mut Plan) {
     }
     for c in &mut plan.captions {
         add(&mut c.basis, Family::Sheet, Target::View("iso"));
+    }
+    for (name, entry) in &plan.spec.views {
+        if entry.broken.is_some()
+            && !plan
+                .views
+                .iter()
+                .any(|v| v.id == format!("v:{name}") && v.broken.is_some())
+        {
+            let id = format!("p:break_not_applied:v:{name}");
+            if !plan.problems.iter().any(|p| p.id == id) {
+                plan.problems.push(Problem { id, code: "break_not_applied".into(), severity: "warning".into(), subjects: vec![format!("v:{name}")], message: format!("Rejected views/{name}/break: the carrying view is omitted or displaced; the request is retained."), ..Default::default() });
+            }
+        }
     }
     for (id, entry) in &plan.spec.dimensions {
         if entry.presentation.is_some()

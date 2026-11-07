@@ -8,6 +8,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Added
 
+- Geometry-referenced broken principal views with ISO 128 zig-zag lines, true
+  dimensions, shortened sheet extents and reported Spec overrides (#315).
+
 - Per-part manufacturing process from Spec, STEP UDA or material class, with
   recorded provenance, process tolerance/finish defaults and conditional GA Process column.
 

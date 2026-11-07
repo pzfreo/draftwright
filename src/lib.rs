@@ -67,6 +67,7 @@ pub mod revision;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stateless;
 
+pub mod broken;
 mod decision_overrides;
 pub mod local_layout;
 mod nominal;
