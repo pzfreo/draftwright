@@ -2724,6 +2724,11 @@ against Analysis geometry; a wrong or missing entry cell reports
 recognized bore axis can use a `pcd` statement, a located circle centre and an
 explicit `ANGLE` column (counterclockwise from local +X). Missing positions do
 not imply equal spacing; the member X/Y remain supplementary locating evidence.
+Linear stacks on one side of a view put shorter overlapping spans nearer the
+view, across generated and authored categories. Later corridor repairs retain
+that order before leaders settle; witness anchors and along-line label stations
+are preserved. Explicit `place/lane` and pinned dimensions take precedence.
+
 An explicit `hole_table: always` retries up to four block forms, reserving each
 before composing views; `sheet/table_columns` still wins. If installation fails,
 `hole_table_unavailable` retains the individual dimensions, names the blocking

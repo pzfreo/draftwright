@@ -832,8 +832,8 @@ fn through_notch_strip(
 }
 
 /// Each item's strip and lane in its carrying view (none when it has no view, or its view looks
-/// along it): per view and strip, sizes nearest, then locations by distance, overall outermost
-/// (ARCH0009-5), then callouts by their tips, right to left. An item merged away ([`owners`])
+/// along it): per view and strip, linear spans shortest-nearest across categories,
+/// then callouts by their tips, right to left. An item merged away ([`owners`])
 /// takes its survivor's lane number and, when parallel, its strip.
 pub(super) fn lanes<'a>(
     analysis: &Analysis,
@@ -1035,7 +1035,8 @@ pub(super) fn lanes<'a>(
         // Equal independent PMI spans follow their stations, not STEP entity
         // order. In particular, the upper short span takes the outer lane: its
         // outside label then leaves the above-view control-frame strip clear.
-        // Preserve category, length and the established automatic-item order.
+        // Linear stacks read shortest-nearest, for authored and generated spans.
+        // Category is only a tie-breaker; explicit intent is applied afterwards.
         list.sort_by_key(|&(outer, order, length, i)| {
             let w = items[i].0;
             let source = w.id.starts_with("d:pmi:");
@@ -1048,7 +1049,15 @@ pub(super) fn lanes<'a>(
             } else {
                 0
             };
-            (outer, !constrained[i], order, length, source, station, i)
+            (
+                outer && !matches!(w.shape, Shape::Linear { .. }),
+                length,
+                !constrained[i],
+                order,
+                source,
+                station,
+                i,
+            )
         });
         let links: Vec<_> = list.iter().map(|(_, _, _, i)| items[*i].0).collect();
         for ((_, _, _, i), n) in list.iter().zip(chain_lanes(&frames[view], &links)) {
@@ -1057,6 +1066,101 @@ pub(super) fn lanes<'a>(
     }
     share_lanes(owner, &mut sides, &mut lane);
     (sides, lane)
+}
+
+/// Later witness repairs and replayed carriers must retain the same nesting as
+/// the initial allocator. Permute settled normal offsets, preserving witnesses,
+/// along-line label stations and every explicit lane or pin.
+pub(super) fn nest_linear(
+    spec: &crate::model::Spec,
+    frames: &BTreeMap<&str, Frame>,
+    items: &[Want],
+    chosen: &[Option<&str>],
+    owner: &[Option<usize>],
+    placed: &mut [Option<Placed>],
+) {
+    type StackEntry = (usize, [f64; 2], f64);
+    let mut groups: BTreeMap<(&str, usize, bool), Vec<StackEntry>> = BTreeMap::new();
+    for (i, w) in items.iter().enumerate() {
+        if owner[i].is_some() || !matches!(w.shape, Shape::Linear { .. } | Shape::Aligned { .. }) {
+            continue;
+        }
+        let (Some(view), Some(p)) = (chosen[i], placed[i].as_ref()) else {
+            continue;
+        };
+        if p.lines.len() != 3 || p.arrows.len() != 2 {
+            continue;
+        }
+        let Some(line) = crate::output::linear_ink(&p.lines) else {
+            continue;
+        };
+        let normal = 1 - line.k;
+        let centre = (frames[view].outline()[normal] + frames[view].outline()[normal + 2]) / 2.0;
+        let offset = line.offset - centre;
+        if offset.abs() < 1e-6 {
+            continue;
+        }
+        groups
+            .entry((view, normal, offset > 0.0))
+            .or_default()
+            .push((i, line.span, offset.abs()));
+    }
+    for ((view, normal, positive), mut group) in groups {
+        let overlaps = |a: [f64; 2], b: [f64; 2]| a[1].min(b[1]) - a[0].max(b[0]) > 1e-6;
+        if !group.iter().any(|a| {
+            group.iter().any(|b| {
+                overlaps(a.1, b.1) && a.1[1] - a.1[0] < b.1[1] - b.1[0] - 1e-6 && a.2 > b.2 + 1e-6
+            })
+        }) {
+            continue;
+        }
+        let fixed = |i: usize| {
+            spec.dimensions
+                .get(&items[i].id)
+                .and_then(|d| d.place.as_ref())
+                .is_some_and(|p| p.pinned || p.lane.is_some())
+        };
+        let mut slots: Vec<_> = group.iter().filter(|a| !fixed(a.0)).map(|a| a.2).collect();
+        slots.sort_by(f64::total_cmp);
+        group.sort_by(|a, b| {
+            (a.1[1] - a.1[0])
+                .total_cmp(&(b.1[1] - b.1[0]))
+                .then(a.2.total_cmp(&b.2))
+                .then(a.0.cmp(&b.0))
+        });
+        let centre = (frames[view].outline()[normal] + frames[view].outline()[normal + 2]) / 2.0;
+        let sign = if positive { 1.0 } else { -1.0 };
+        let mut assigned: Vec<([f64; 2], f64)> = Vec::new();
+        for (i, span, old) in group {
+            if fixed(i) {
+                assigned.push((span, old));
+                continue;
+            }
+            let minimum = assigned
+                .iter()
+                .filter(|(other, _)| overlaps(span, *other))
+                .map(|(_, at)| at + lane_pitch())
+                .fold(0.0, f64::max);
+            let slot = slots.iter().position(|at| *at + 1e-6 >= minimum);
+            let target = slot.map_or_else(|| minimum.max(old), |k| slots.remove(k));
+            assigned.push((span, target));
+            // Invariant: group entries were admitted only with settled ink, never removed here.
+            let p = placed[i].as_mut().expect("group has settled ink");
+            let delta = centre + sign * target - p.lines[2][0][normal];
+            if delta.abs() <= 1e-6 {
+                continue;
+            }
+            // The two witness starts stay on their measured geometry.
+            p.lines[0][1][normal] += delta;
+            p.lines[1][1][normal] += delta;
+            for point in p.lines[2].iter_mut().chain(p.arrows.iter_mut().flatten()) {
+                point[normal] += delta;
+            }
+            p.label_at[normal] += delta;
+            p.label_box[normal] += delta;
+            p.label_box[normal + 2] += delta;
+        }
+    }
 }
 
 /// Connected, nonoverlapping linear links share a dimension line when their labels fit
@@ -6477,10 +6581,9 @@ mod tests {
             }
         }
     }
-    /// ARCH0009-5: deliberately scramble input order and make the size longer than a
-    /// location: category precedes distance; datum locations alone nest by distance.
+    /// Scrambled authored/generated categories must nest by span length (#326).
     #[test]
-    fn shared_corridor_orders_sizes_then_locations_then_overall() {
+    fn shared_corridor_orders_shorter_spans_inside_across_categories() {
         let a: Analysis = serde_json::from_value(serde_json::json!({
             "schema": crate::model::ANALYSIS_SCHEMA,
             "binding": {"source_sha256":"", "part":"plate", "face_count":0, "loader":"test"},
@@ -6522,7 +6625,37 @@ mod tests {
             &[None; 5],
         );
         assert!(sides.iter().all(|s| *s == Some(Side::Below)));
-        assert_eq!(lane, [4, 3, 0, 1, 2]);
+        assert_eq!(lane, [4, 3, 1, 0, 2]);
+        let spec: crate::model::Spec = serde_json::from_value(serde_json::json!({
+            "dimensions":{"near":{"place":{"side":"below","lane":7}}}
+        }))
+        .unwrap();
+        let mut ink: Vec<_> = items
+            .iter()
+            .enumerate()
+            .map(|(i, w)| place(&frames["front"], w, Side::Below, lane[i]))
+            .collect();
+        ink[3] = intent(
+            &frames["front"],
+            &items[3],
+            spec.dimensions["near"].place.as_ref().unwrap(),
+            Side::Below,
+            lane[3],
+            0.0,
+        );
+        let explicit = ink[3].clone();
+        nest_linear(
+            &spec,
+            &frames,
+            &items,
+            &[Some("front"); 5],
+            &[None; 5],
+            &mut ink,
+        );
+        assert_eq!(
+            ink[3], explicit,
+            "explicit outer lane wins over automatic nesting"
+        );
     }
 
     #[test]
