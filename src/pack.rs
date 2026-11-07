@@ -28,10 +28,9 @@ mod keys;
 pub use keys::part_keys;
 
 use haecceity::Part;
-use haecceity::cloud::FaceProbe;
-use haecceity::geom;
-use quiddity::correspondence::align::{Motion, align};
-use quiddity::correspondence::fingerprint::{FaceFingerprint, Fingerprints, fingerprint};
+use quiddity::correspondence::align::Motion;
+use quiddity::correspondence::congruent_with;
+use quiddity::correspondence::fingerprint::{Fingerprints, fingerprint};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{Error, Files};
@@ -186,237 +185,13 @@ struct Group {
 }
 
 /// Absolute position/distance tolerance in mm. Intrinsic scalars use 1e-7 relative,
-/// with a 1e-7 absolute floor. No reflected motion is ever considered.
+/// with a 1e-7 absolute floor. These are quiddity congruence tolerances; its trimmed
+/// face samples use 0.1 mm deflection. No reflected motion is ever considered.
 const DISTANCE: f64 = 1e-5;
 
+// Catalogue-shape guesses also compare intrinsic dimensions with this tolerance.
 fn close(a: f64, b: f64) -> bool {
     a.is_finite() && b.is_finite() && (a - b).abs() <= 1e-7 * a.abs().max(b.abs()).max(1.0)
-}
-
-fn face_equal(a: &FaceFingerprint, b: &FaceFingerprint, motion: &Motion) -> bool {
-    a.surface == b.surface
-        && a.adjacency == b.adjacency
-        && a.parameters.len() == b.parameters.len()
-        && a.parameters
-            .iter()
-            .all(|(k, x)| b.parameters.get(k).is_some_and(|y| close(*x, *y)))
-        && match (a.area, b.area) {
-            (Some(x), Some(y)) => close(x, y),
-            _ => false,
-        }
-        && geom::dist(motion.point(a.centroid), b.centroid) <= DISTANCE
-        && match (a.normal, b.normal) {
-            (Some(x), Some(y)) => geom::dist(motion.dir(x), y) <= 1e-6,
-            (None, None) => true,
-            _ => false,
-        }
-}
-
-fn equal_at(
-    a: &Part,
-    af: &Fingerprints,
-    b: &Part,
-    bf: &Fingerprints,
-    m: &Motion,
-) -> Option<Vec<(usize, usize)>> {
-    let mut correspondence = Vec::new();
-    let mut unused: BTreeSet<_> = (0..bf.faces.len()).collect();
-    for face in &af.faces {
-        let j = unused
-            .iter()
-            .copied()
-            .find(|&j| face_equal(face, &bf.faces[j], m))?;
-        // Face moments alone cannot distinguish equal boxes with different trims or freeform
-        // surfaces. Test samples against exact trimmed faces in both directions as well.
-        let probe = FaceProbe::new(b, j);
-        if !a
-            .face_cloud(face.index, 0.1)
-            .iter()
-            .all(|&p| probe.distance(m.point(p)) <= DISTANCE)
-        {
-            return None;
-        }
-        let probe = FaceProbe::new(a, face.index);
-        if !b.face_cloud(j, 0.1).iter().all(|&p| {
-            let q = geom::sub(p, m.t);
-            let inverse = [0, 1, 2].map(|i| (0..3).map(|k| m.r[k][i] * q[k]).sum());
-            probe.distance(inverse) <= DISTANCE
-        }) {
-            return None;
-        }
-        unused.remove(&j);
-        correspondence.push((face.index, j));
-    }
-    Some(correspondence)
-}
-
-// An exact B-rep path also covers surfaces for which the kernel cannot integrate an
-// area or invert a seam sample. Compare all defining geometry and trim topology, never
-// entity IDs or cached samples. It is intentionally stricter than geometric equivalence.
-fn same_surface(a: &geom::Surface, b: &geom::Surface) -> bool {
-    use geom::Surface::*;
-    match (a, b) {
-        (Plane { frame: a }, Plane { frame: b }) => a == b,
-        (
-            Cylinder {
-                frame: a,
-                radius: ar,
-            },
-            Cylinder {
-                frame: b,
-                radius: br,
-            },
-        )
-        | (
-            Sphere {
-                frame: a,
-                radius: ar,
-            },
-            Sphere {
-                frame: b,
-                radius: br,
-            },
-        ) => a == b && ar == br,
-        (
-            Cone {
-                frame: a,
-                radius: ar,
-                semi_angle: aa,
-            },
-            Cone {
-                frame: b,
-                radius: br,
-                semi_angle: ba,
-            },
-        ) => a == b && ar == br && aa == ba,
-        (
-            Torus {
-                frame: a,
-                major: am,
-                minor: an,
-            },
-            Torus {
-                frame: b,
-                major: bm,
-                minor: bn,
-            },
-        ) => a == b && am == bm && an == bn,
-        (
-            Freeform {
-                kind: ak,
-                surface: a,
-            },
-            Freeform {
-                kind: bk,
-                surface: b,
-            },
-        ) => {
-            ak == bk
-                && a.degree_u == b.degree_u
-                && a.degree_v == b.degree_v
-                && a.control_points == b.control_points
-                && a.weights == b.weights
-                && a.knots_u == b.knots_u
-                && a.knots_v == b.knots_v
-        }
-        _ => false,
-    }
-}
-
-fn same_pcurve(a: &haecceity::brep::Pcurve, b: &haecceity::brep::Pcurve) -> bool {
-    use haecceity::brep::Pcurve::*;
-    match (a, b) {
-        (Poles(a), Poles(b)) => a == b,
-        (Line { point: a, dir: ad }, Line { point: b, dir: bd }) => a == b && ad == bd,
-        _ => false,
-    }
-}
-
-fn exact_brep(a: &Part, b: &Part) -> bool {
-    a.faces.len() == b.faces.len()
-        && a.edges.len() == b.edges.len()
-        && a.solids.len() == b.solids.len()
-        && !a.faces.is_empty()
-        && a.unresolved_faces().is_empty()
-        && b.unresolved_faces().is_empty()
-        && a.unresolved_edges().is_empty()
-        && b.unresolved_edges().is_empty()
-        && a.solids
-            .iter()
-            .zip(&b.solids)
-            .all(|(a, b)| a.faces == b.faces)
-        && a.edges.iter().zip(&b.edges).all(|(a, b)| {
-            a.curve == b.curve
-                && a.start == b.start
-                && a.end == b.end
-                && a.vertices == b.vertices
-                && a.same_sense == b.same_sense
-        })
-        && a.faces.iter().zip(&b.faces).all(|(a, b)| {
-            a.reversed == b.reversed
-                && a.solid == b.solid
-                && same_surface(&a.surface, &b.surface)
-                && a.loops.len() == b.loops.len()
-                && a.loops
-                    .iter()
-                    .zip(&b.loops)
-                    .all(|(a, b)| a.edges == b.edges && a.vertex == b.vertex)
-                && a.pcurves.len() == b.pcurves.len()
-                && a.pcurves
-                    .iter()
-                    .zip(&b.pcurves)
-                    .all(|((ai, a), (bi, b))| ai == bi && same_pcurve(a, b))
-        })
-}
-
-fn congruence(
-    a: &Part,
-    af: &Fingerprints,
-    b: &Part,
-    bf: &Fingerprints,
-) -> Option<(Motion, Vec<(usize, usize)>)> {
-    if exact_brep(a, b) {
-        return Some((
-            Motion::IDENTITY,
-            (0..a.faces.len()).map(|i| (i, i)).collect(),
-        ));
-    }
-    if a.faces.len() != b.faces.len()
-        || a.edges.len() != b.edges.len()
-        || a.solids.len() != b.solids.len()
-        || !close(af.scale, bf.scale)
-        || af.faces.is_empty()
-        || !a.unresolved_faces().is_empty()
-        || !b.unresolved_faces().is_empty()
-        || !a.unresolved_edges().is_empty()
-        || !b.unresolved_edges().is_empty()
-    {
-        return None;
-    }
-    if let Some(faces) = equal_at(a, af, b, bf, &Motion::IDENTITY) {
-        return Some((Motion::IDENTITY, faces));
-    }
-    // The mean face centroid is translation-equivariant and independent of face order.
-    // Try it before align(), which can choose a symmetric rotation that disagrees
-    // with the exported face/seam layout. This is only a candidate, still proven below.
-    let centroid = |f: &Fingerprints| {
-        [0, 1, 2].map(|i| {
-            f.faces.iter().map(|face| face.centroid[i]).sum::<f64>() / f.faces.len() as f64
-        })
-    };
-    let translation = Motion {
-        t: geom::sub(centroid(bf), centroid(af)),
-        ..Motion::IDENTITY
-    };
-    if let Some(faces) = equal_at(a, af, b, bf, &translation) {
-        return Some((translation, faces));
-    }
-    let (motion, alignment) = align(af, bf, &Default::default());
-    alignment
-        .found
-        .then(|| equal_at(a, af, b, bf, &motion))
-        .flatten()
-        .map(|faces| (motion, faces))
 }
 
 /// Proven correspondence from a representative to a re-exported product.
@@ -504,7 +279,7 @@ pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Er
                 {
                     return false;
                 }
-                if exact_brep(a, b) {
+                if a.same_brep(b) {
                     corresponding_faces = (0..a.faces.len()).map(|i| (i, i)).collect();
                     return true;
                 }
@@ -514,7 +289,7 @@ pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Er
                 let bf = g
                     .identity
                     .get_or_insert_with(|| fingerprint(b, &Default::default()));
-                if let Some((motion, faces)) = congruence(a, af, b, bf) {
+                if let Some((motion, faces)) = congruent_with(a, af, b, bf) {
                     correspondence = motion;
                     corresponding_faces = faces;
                     true

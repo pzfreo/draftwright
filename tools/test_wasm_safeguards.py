@@ -242,6 +242,15 @@ class KernelPins(unittest.TestCase):
         with self.assertRaises(ValueError):
             pins.kernel_pins(manifest().replace('tag =', 'branch ='))
 
+    def test_crates_io_pins_name_their_release_tag(self):
+        source = ('[dependencies]\nhaecceity = "=0.4.9"\n'
+                  'quiddity = { version = "=0.4.9", default-features = false, features = ["presentation"] }\n')
+        expected = ("https://github.com/pzfreo/quiddity", "tag", "v0.4.9")
+        self.assertEqual(pins.kernel_pins(source), {"haecceity": expected, "quiddity": expected})
+        for loose in ('"0.4.9"', '"^0.4"', '{ version = ">=0.4.9" }'):
+            with self.assertRaises(ValueError):
+                pins.kernel_pins(f'[dependencies]\nhaecceity = {loose}\nquiddity = "=0.4.9"\n')
+
 
 if __name__ == '__main__':
     unittest.main()
