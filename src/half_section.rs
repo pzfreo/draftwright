@@ -614,9 +614,11 @@ mod tests {
         for v in &mut p.views {
             v.half_section = None;
             v.broken = Some(crate::broken::Break {
-                axis: 1,
-                remove: [5., 15.],
-                gap: 2.,
+                geometry: crate::output::BreakMap {
+                    axis: 1,
+                    remove: [5., 15.],
+                    gap: 2.,
+                },
                 source: "views/front/break".into(),
             });
         }

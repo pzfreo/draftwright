@@ -253,7 +253,7 @@ pub(crate) fn drawn_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
                 [f64; 2],
                 f64,
                 Vec<[[f64; 2]; 2]>,
-                crate::broken::Break,
+                crate::output::BreakMap,
             );
             let (direction, up, at, scale, lines, broken) =
                 match serde_json::from_str::<Witness>(word) {

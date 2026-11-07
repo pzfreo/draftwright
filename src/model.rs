@@ -10522,7 +10522,7 @@ fn render_annotations_with_cuts(
                 },
                 scale: v.scale,
                 half_axis: v.half_section.as_ref().map(|h| h.page_axis(analysis, v)),
-                broken: v.broken.clone(),
+                broken: v.broken.as_ref().map(|b| b.geometry.clone()),
             },
         );
         for w in v.line_work.iter().filter(|w| w.kind != "cutting_plane") {

@@ -87,7 +87,7 @@ fn unit(a: V3) -> Option<V3> {
 /// A view as drawn: its projection, and where the part's centre lands, as
 /// [`super::coverage::drawn_centre_marks`] projects.
 struct Projection {
-    broken: Option<crate::broken::Break>,
+    broken: Option<crate::output::BreakMap>,
     view: haecceity::hlr::View,
     at: P,
     centre: [f64; 2],

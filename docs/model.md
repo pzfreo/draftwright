@@ -527,7 +527,9 @@ message names it (`…; A4 at 1:1 fits.`).
 
 `views/<id>/break` requests one ISO 128 zig-zag interruption on a principal view.
 `{}` chooses the longest proven uniform span along the longest in-plane world
-axis. For example, `{"axis":"x", "remove":[100,500], "gap":6, "aligned":true}`
+axis. The default removal retains one cross-section width (at least 5 model mm)
+inside each end of that span and leaves a 6 model mm gap; `remove` and `gap`
+change those defaults. For example, `{"axis":"x", "remove":[100,500], "gap":6, "aligned":true}`
 removes the open interval from x=100 to x=500 model mm, leaving a 6 model mm gap.
 `axis`, `remove`, `gap` and `aligned` override each automatic choice. Coordinates
 refer to model geometry, never the page. `aligned` defaults to true: the same

@@ -26,49 +26,17 @@ pub struct Request {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Break {
-    /// Projected axis and true projected interval, before scale or page placement.
-    pub axis: usize,
-    pub remove: [f64; 2],
-    pub gap: f64,
+    #[serde(flatten)]
+    pub geometry: crate::output::BreakMap,
     pub source: String,
 }
+impl std::ops::Deref for Break {
+    type Target = crate::output::BreakMap;
+    fn deref(&self) -> &Self::Target {
+        &self.geometry
+    }
+}
 impl Break {
-    pub fn reduction(&self) -> f64 {
-        self.remove[1] - self.remove[0] - self.gap
-    }
-    pub(crate) fn key(&self) -> Vec<u64> {
-        vec![
-            self.axis as u64,
-            self.remove[0].to_bits(),
-            self.remove[1].to_bits(),
-            self.gap.to_bits(),
-        ]
-    }
-    pub(crate) fn map(&self, mut p: [f64; 2]) -> [f64; 2] {
-        let x = p[self.axis];
-        p[self.axis] = if x <= self.remove[0] {
-            x + self.reduction() / 2.
-        } else if x >= self.remove[1] {
-            x - self.reduction() / 2.
-        } else {
-            (self.remove[0] + self.remove[1]) / 2.
-                + (x - (self.remove[0] + self.remove[1]) / 2.) * self.gap
-                    / (self.remove[1] - self.remove[0])
-        };
-        p
-    }
-    pub(crate) fn inverse(&self, mut p: [f64; 2]) -> [f64; 2] {
-        let x = p[self.axis];
-        let mid = (self.remove[0] + self.remove[1]) / 2.;
-        p[self.axis] = if x <= mid - self.gap / 2. {
-            x - self.reduction() / 2.
-        } else if x >= mid + self.gap / 2. {
-            x + self.reduction() / 2.
-        } else {
-            mid + (x - mid) * (self.remove[1] - self.remove[0]) / self.gap
-        };
-        p
-    }
     pub(crate) fn items(&self, items: Vec<Item>, centre: [f64; 2], v: &PlannedView) -> Vec<Item> {
         items
             .into_iter()
@@ -307,9 +275,11 @@ pub(crate) fn resolve(
             out.insert(
                 (*peer).into(),
                 Break {
-                    axis: k,
-                    remove: interval,
-                    gap,
+                    geometry: crate::output::BreakMap {
+                        axis: k,
+                        remove: interval,
+                        gap,
+                    },
                     source: source.clone(),
                 },
             );

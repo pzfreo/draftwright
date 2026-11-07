@@ -72,6 +72,7 @@ catalogue! {
     "boss_height_missing" => Incomplete, Code, "The drawing does not state the boss height.";
     "boss_height_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "boss_height_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
+    "break_not_applied" => Decision, Code, "The requested break has no proven uniform span or carrying view.";
     "callout_dropped" => Incomplete, Code, "A required drawing item was dropped before it could be stated.";
     "chamfer_leader_target_mismatch" => Readability, Code, "The chamfer leader points at the wrong geometry.";
     "chamfer_leader_target_unverifiable" => Readability, Code, "The chamfer leader target cannot be verified.";
@@ -268,7 +269,6 @@ catalogue! {
     "scale_fallback_applied" => Advisory, Code, "The documented feasible scale fallback was applied.";
     "scale_not_stated" => Incomplete, Code, "The drawing does not state its scale.";
     "section_dropped" => Incomplete, Code, "A required drawing item was dropped before it could be stated.";
-    "break_not_applied" => Decision, Code, "The requested break has no proven uniform span or carrying view.";
     "section_not_shown" => Incomplete, Code, "The requested section is not shown.";
     "section_recess_recognition_refused" => Incomplete, Code, "Refused recess recognition leaves the recess requirements unstated.";
     "section_recess_requirement_unsupported" => Incomplete, Requirement, "No supported drawing grammar states this feature requirement.";
