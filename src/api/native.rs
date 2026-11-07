@@ -109,7 +109,11 @@ fn planned(analysis: &Analysis, spec: &Spec) -> Result<Plan, model::Invalid> {
 }
 
 /// Resolve a persistent Spec identity before recognition, and refuse conflicting selectors.
-fn selected_part(step: &Path, request: Option<usize>, spec: &Spec) -> Result<Option<usize>, Error> {
+pub(crate) fn selected_part(
+    step: &Path,
+    request: Option<usize>,
+    spec: &Spec,
+) -> Result<Option<usize>, Error> {
     let selected = spec
         .part
         .as_ref()

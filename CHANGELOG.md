@@ -8,6 +8,11 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Changed
 
+- Credit verified tangent/far-tangent pocket depth presentations in lint; require
+  the carrying diameter for far-tangent inference and recheck final centre-mark bounds.
+- Session opens honour Spec part selection; single-part Analyses omit `part_keys`.
+- Plan override guidance uses schema-valid item-kind paths and shorter dimension bases.
+
 - Plan bases name existing Spec controls from one nine-family override catalogue
   and explain unavailable overrides and the PMI/checker boundary (#309).
 - Pocket depth wording says `DEEP`, with truthful tangent-depth or opposite-tangent

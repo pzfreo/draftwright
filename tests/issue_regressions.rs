@@ -1202,17 +1202,28 @@ fn retained_leader_crossings_have_no_clear_route(path: &Path) {
 #[test]
 fn offset_pocket_tangent_presentations_measure_the_actual_cylinder() {
     let id = "d:f:section_recess:1/pocket_width.length";
+    let (part, a) = analysed("curved_offset");
     for (choice, value) in [("tangent_depth", 12.), ("far_extreme", 28.)] {
         let spec: Spec = serde_json::from_value(
             serde_json::json!({"dimensions": {id: {"presentation": choice}}}),
         )
         .unwrap();
-        let p = planned("curved_offset", &spec);
+        let p = model::plan(&a, &spec).unwrap();
         let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
         assert!(
             (d.measurements[2].value - value).abs() < DOCUMENT,
             "{:?}",
             d.measurements
         );
+        assert!(!d.basis.contains("greatest"), "{}", d.basis);
+        let drawing = model::render(&part, &a, &p, &font()).unwrap();
+        if choice == "tangent_depth" {
+            assert!(!lint::lint(&a, &drawing).iter().any(|i| {
+                i.code.starts_with("pocket_requirement_")
+                    && i.requirements
+                        .iter()
+                        .any(|r| r.parameter == "pocket_max_depth.length")
+            }));
+        }
     }
 }

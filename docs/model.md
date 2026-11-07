@@ -3351,5 +3351,13 @@ undrawn depth presentation warns. Requirements belong to PMI, and checker
 conclusions have no presentation override. Basis reporting runs after the outer
 planning operation, so it cannot influence the layout solve.
 
-Basis guidance names each Spec object once and lists its keys, keeping item replies
-compact while retaining the complete control inventory.
+Basis guidance uses item-kind-specific paths: dimension callouts name `dimensions`,
+views name `views`, and only PMI prose labels name `annotations`. Each dimension
+lists its local controls once. Global recognition and callout defaults are reported
+on the sheet, keeping item replies compact.
+
+Lint verifies tangent-depth terms against the recognised cylinder and floor. A
+far-tangent floor distance defines depth only alongside a stated diameter of the
+carrying cylinder. Neither presentation invents a claim of the original depth.
+Single-part Analyses omit `part_keys` on serialization, retaining their existing
+schema shape; multi-part files keep the persistent selection map.

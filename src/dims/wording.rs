@@ -29,7 +29,10 @@ pub(super) fn apply(
             };
             if w.measurements.iter().any(|m| m.parameter == parameter) {
                 from_spec.push("presentation".into());
-                w.basis += "; applied dimensions/<id>/presentation; depth term measured from the named cylinder tangent";
+                w.basis += &format!(
+                    "; applied dimensions/{}/presentation",
+                    crate::items::key(&w.id)
+                );
             }
         }
         if entry.text.is_none() && entry.style.is_none() {

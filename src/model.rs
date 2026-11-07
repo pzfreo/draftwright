@@ -98,6 +98,10 @@ pub enum FaceGroup {
     Unexplained,
 }
 
+fn single_part_keys(keys: &BTreeMap<String, usize>) -> bool {
+    keys.len() <= 1
+}
+
 /// What the part is: regenerable from its STEP file, never edited.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -209,8 +213,9 @@ pub struct Analysis {
     /// as one, and the plan warns (`assembly_drawn_whole`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<FilePart>,
-    /// Persistent identities for every source part, including single-part files.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    /// Persistent identities when the source has multiple parts. Single-part documents keep
+    /// the existing schema shape; their product name identifies their sole part.
+    #[serde(default, skip_serializing_if = "single_part_keys")]
     pub part_keys: BTreeMap<String, usize>,
     /// The file's bodies that coincide with an earlier one (#212), when no part was chosen:
     /// when every body of an assembly coincides with the first, that part is read alone
@@ -9002,10 +9007,21 @@ fn radius_furniture(plan: &Plan) -> Vec<crate::dims::PlannedDimension> {
 }
 
 /// Recompute centre-line page bounds after a view and its ink move together.
+pub(crate) fn refresh_line_work_problems(plan: &mut Plan) {
+    // Packing can move a cross back onto the page after its initial finding was made.
+    // Recheck its actual final ink; do not suppress other annotations' off-sheet findings.
+    plan.problems
+        .retain(|p| !p.id.starts_with("p:annotation_off_sheet:ink:"));
+    for sheet in std::iter::once(&plan.sheet).chain(&plan.sheets) {
+        plan.problems.extend(line_work_problems(sheet, &plan.views));
+    }
+    plan.status = crate::completeness::status(&plan.problems);
+}
+
 pub(crate) fn line_work_problems(sheet: &PlannedSheet, views: &[PlannedView]) -> Vec<Problem> {
     let [width, height] = sheet.page;
     let mut problems = Vec::new();
-    for v in views {
+    for v in views.iter().filter(|v| v.sheet == sheet.number) {
         for w in v.line_work.iter().filter(|w| w.kind != "cutting_plane") {
             if w.curves.iter().any(|c| {
                 let b = c.bbox();

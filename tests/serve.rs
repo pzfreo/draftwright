@@ -430,3 +430,55 @@ fn decode_base64(encoded: &str) -> Vec<u8> {
     }
     output
 }
+
+#[test]
+fn session_open_resolves_spec_part_before_recognition() {
+    let step = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/steerability/pivot-mount-plate.step.gz");
+    let parts = draftwright::api::parts(&step).unwrap();
+    let key = draftwright::pack::part_keys(&parts)[1].clone();
+    let replies = serve(&[
+        json!({"op":"open", "step":step,"spec":{"part":1}}).to_string(),
+        json!({"op":"open", "step":step,"part":1,"spec":{"part":key}}).to_string(),
+        json!({"op":"open", "step":step,"part":0,"spec":{"part":1}}).to_string(),
+    ]);
+    for reply in &replies[..2] {
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert_eq!(reply["result"]["plan"]["binding"]["part_index"], 1);
+        assert!(
+            !reply["result"]["problems"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["code"] == "assembly_principal_drawn")
+        );
+    }
+    assert_eq!(replies[2]["ok"], false);
+    assert!(
+        replies[2]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("conflicts")
+    );
+    let single = draftwright::api::analyse_from(
+        Path::new(&part("prismatic.step")),
+        draftwright::api::Features::Native,
+    )
+    .unwrap();
+    assert!(
+        serde_json::to_value(&single)
+            .unwrap()
+            .get("part_keys")
+            .is_none()
+    );
+    assert!(single.product_name.is_some());
+    assert_eq!(
+        serde_json::from_value::<draftwright::model::Analysis>(
+            serde_json::to_value(single).unwrap()
+        )
+        .unwrap()
+        .parts
+        .len(),
+        0
+    );
+}
