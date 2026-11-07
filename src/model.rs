@@ -377,6 +377,8 @@ pub struct Riser {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Spec {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process: Option<crate::process::Process>,
     pub schema: String,
     /// Part identity from `draftwright parts`: a persistent key or its numeric index.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -592,6 +594,7 @@ pub struct FeatureSpec {
 impl Default for Spec {
     fn default() -> Self {
         Spec {
+            process: None,
             schema: SPEC_SCHEMA.into(),
             part: None,
             binding: None,
@@ -904,6 +907,8 @@ pub struct Plan {
     /// edge conditions), each with what carries it ([`crate::pmi_lowering::plan_sheet`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requirements: Vec<crate::pmi_lowering::PlannedRequirement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process: Option<crate::process::Resolved>,
     /// The plan-view hole table a dropped hole item escalated to ([`crate::hole_table`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hole_table: Option<crate::hole_table::HoleTable>,
@@ -6490,7 +6495,8 @@ fn plan_with_presentation(
     // draftwright's order, unless only a fallback would make room for them: then each is placed
     // where it can be, or reported (crate::tables, crate::notes).
     // Part PMI notes precede the drawing's own notes; reconciliation never changes the Spec.
-    let (requirements, more) = crate::pmi_lowering::sheet_requirements(analysis);
+    let (mut requirements, more) = crate::pmi_lowering::sheet_requirements(analysis);
+    crate::process::defaults(analysis, spec, &mut requirements);
     problems.extend(more);
     let (mut notes_given, omitted_notes, more) =
         crate::notes::reconcile(&requirements, analysis, spec);
@@ -8173,6 +8179,7 @@ fn plan_with_presentation(
         tables,
         gdt,
         requirements,
+        process: Some(crate::process::resolve(analysis.bom.as_ref(), &spec)),
         hole_table: None,
         hole_tables: Vec::new(),
         balloons: Vec::new(),

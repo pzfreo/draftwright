@@ -851,3 +851,358 @@ fn ga_uses_only_its_roots_own_part_number_and_unknown_native_supply_is_unstated(
     let numbered = pack::build(&path, &pack::PackSpec::default()).unwrap();
     assert!(numbered.drawings[0].svg().contains(">ASSEMBLY-42<"));
 }
+
+#[test]
+fn manufacturing_process_precedence_and_product_scope() {
+    use draftwright::process::{Process, resolve};
+    use pack::ValueSource;
+    let s = small();
+    let file = haecceity::step::StepFile::read(s.as_bytes()).unwrap();
+    let pd = file.parts[0].product_definition;
+    for (owner, marker, expected) in [
+        (pd, "", Some(ValueSource::File)),
+        (pd, ",#9011", Some(ValueSource::Suggested)),
+        (384, "", None), // occurrence values must not leak into product process
+    ] {
+        let entities = uda(owner, "specify process", &format!("#9010{marker}"))
+            + "\n#9010=DESCRIPTIVE_REPRESENTATION_ITEM('manufacturing_process','3D printed: FDM');\n#9011=BOOLEAN_REPRESENTATION_ITEM('default.manufacturing_process',.T.);";
+        let row = read(&append(&s, &entities)).remove(0);
+        let resolved = resolve(Some(&row), &model::Spec::default());
+        assert_eq!(resolved.source, expected.unwrap_or(ValueSource::Guess));
+        assert_eq!(
+            resolved.process,
+            if expected.is_some() {
+                Process::Fdm
+            } else {
+                Process::Machined
+            }
+        );
+        let spec = model::Spec {
+            process: Some(Process::Cast),
+            ..Default::default()
+        };
+        assert_eq!(resolve(Some(&row), &spec).process, Process::Cast);
+        assert_eq!(resolve(Some(&row), &spec).source, ValueSource::Spec);
+    }
+    for (class, process) in [
+        ("filament", Process::Fdm),
+        ("resin", Process::Resin),
+        ("powder", Process::Powder),
+        ("metal", Process::Metal),
+    ] {
+        let row = bom::Metadata {
+            classifications: vec![format!("3D printing: {class}")],
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve(Some(&row), &model::Spec::default()).process,
+            process
+        );
+        assert_eq!(
+            resolve(Some(&row), &model::Spec::default()).source,
+            ValueSource::Guess
+        );
+    }
+}
+
+#[test]
+fn process_tolerance_finish_and_overrides() {
+    use draftwright::process::Process;
+    let path = fixture("pack-small.step.gz");
+    let (_, a) = model::analyse_native_part(&path, Some(0)).unwrap();
+    let baseline = model::plan(&a, &model::Spec::default()).unwrap();
+    assert!(
+        baseline
+            .problems
+            .iter()
+            .any(|p| p.code == "general_tolerance_missing")
+    );
+    for process in [
+        Process::Fdm,
+        Process::Resin,
+        Process::Powder,
+        Process::Metal,
+        Process::Moulded,
+        Process::Cast,
+    ] {
+        let mut spec = model::Spec {
+            process: Some(process),
+            ..Default::default()
+        };
+        let plan = model::plan(&a, &spec).unwrap();
+        assert!(
+            !plan
+                .problems
+                .iter()
+                .any(|p| p.code == "general_tolerance_missing")
+        );
+        let cell = plan
+            .sheet
+            .title_cells
+            .iter()
+            .find(|c| c.field == "general_tolerance")
+            .unwrap();
+        let value = cell.value.as_ref().unwrap();
+        assert_eq!(value.contains("CHECK"), process.printed());
+        if process.printed() {
+            assert!(value.contains("whichever is greater"));
+            assert!(!value.contains("max"));
+        }
+        assert!(
+            !plan
+                .problems
+                .iter()
+                .any(|p| p.code == "title_field_overflow")
+        );
+        assert!(plan.requirements.iter().any(|r| r.kind == "general_tolerance" && r.basis.contains("sheet/title/tolerance")));
+        let finish = plan
+            .requirements
+            .iter()
+            .find(|r| r.kind == "default_surface_finish");
+        if process.printed() {
+            assert!(finish.is_none());
+        } else {
+            assert!(!finish.unwrap().placed.as_ref().unwrap().arcs.is_empty());
+        }
+        spec.sheet
+            .title
+            .insert("tolerance".into(), "USER ±0.7".into());
+        spec.sheet.default_finish = Some(draftwright::spec_notes::FinishSpec {
+            ra: 0.8,
+            removal: Some("required".into()),
+        });
+        let effective = draftwright::spec_gdt::effective(&a, &spec).unwrap();
+        let plan = model::plan(&effective, &spec).unwrap();
+        assert_eq!(plan.sheet.title["tolerance"], "USER ±0.7");
+        assert!(
+            plan.requirements
+                .iter()
+                .any(|r| r.kind == "default_surface_finish" && r.text == "Ra 0.8")
+        );
+    }
+    let spec = model::Spec {
+        process: Some(Process::Machined),
+        ..Default::default()
+    };
+    let stated = model::plan(&a, &spec).unwrap();
+    assert_eq!(
+        serde_json::to_value(&baseline.sheet).unwrap(),
+        serde_json::to_value(&stated.sheet).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&baseline.problems).unwrap(),
+        serde_json::to_value(&stated.problems).unwrap()
+    );
+}
+
+#[test]
+fn process_defaults_preserve_authored_part_finish() {
+    use draftwright::process::Process;
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/surface_texture/plate_part_ra1_6.step.gz");
+    let (_, a) = model::analyse_native(&path).unwrap();
+    let baseline = model::plan(&a, &model::Spec::default()).unwrap();
+    let authored = baseline
+        .requirements
+        .iter()
+        .find(|r| r.kind == "default_surface_finish")
+        .unwrap();
+    assert_eq!(authored.text, "Ra 1.6");
+    for process in [Process::Fdm, Process::Moulded, Process::Cast] {
+        let spec = model::Spec {
+            process: Some(process),
+            ..Default::default()
+        };
+        let plan = model::plan(&a, &spec).unwrap();
+        let finishes: Vec<_> = plan
+            .requirements
+            .iter()
+            .filter(|r| r.kind == "default_surface_finish")
+            .collect();
+        assert_eq!(finishes.len(), 1);
+        assert_eq!(finishes[0].text, authored.text);
+        assert_eq!(finishes[0].source, authored.source);
+        assert_eq!(finishes[0].basis, authored.basis);
+        let symbol = finishes[0].placed.as_ref().unwrap();
+        assert_eq!(symbol.strokes.len(), 3);
+        assert!(symbol.arcs.is_empty());
+    }
+}
+
+#[test]
+fn ungraded_suggested_standards_are_marked_check() {
+    use draftwright::process::Process;
+    let (_, mut a) = model::analyse_native_part(&fixture("pack-small.step.gz"), Some(0)).unwrap();
+    for (process, standard) in [
+        (Process::Moulded, "ISO 20457"),
+        (Process::Cast, "ISO 8062-3"),
+    ] {
+        for suggested in [false, true] {
+            let bom = a.bom.get_or_insert_default();
+            bom.process = Some(process);
+            bom.suggested_fields.remove("process");
+            if suggested {
+                bom.suggested_fields.insert("process".into());
+            }
+            let plan = model::plan(&a, &model::Spec::default()).unwrap();
+            let value = plan
+                .sheet
+                .title_cells
+                .iter()
+                .find(|c| c.field == "general_tolerance")
+                .unwrap()
+                .value
+                .as_ref()
+                .unwrap();
+            assert_eq!(
+                value,
+                &format!("{standard}{}", if suggested { " CHECK" } else { "" })
+            );
+            assert_eq!(
+                plan.process.as_ref().unwrap().source,
+                if suggested {
+                    pack::ValueSource::Suggested
+                } else {
+                    pack::ValueSource::File
+                }
+            );
+            assert!(
+                !plan
+                    .problems
+                    .iter()
+                    .any(|p| p.code == "title_field_overflow")
+            );
+        }
+    }
+}
+
+#[test]
+fn ga_process_column_is_conditional_and_uses_drawing_spec() {
+    fn cells(pack: &pack::Pack) -> Option<std::collections::BTreeMap<u32, String>> {
+        let table = pack
+            .report
+            .general_assembly
+            .as_ref()
+            .unwrap()
+            .parts_list
+            .as_ref()
+            .unwrap();
+        let col = table.rows[0].iter().position(|c| c == "PROCESS")?;
+        assert_eq!(table.rows[0][col - 1], "MATERIAL");
+        Some(
+            table.rows[1..]
+                .iter()
+                .map(|r| (r[0].parse().unwrap(), r[col].clone()))
+                .collect(),
+        )
+    }
+    fn csv_matches_json(report: &pack::Report) {
+        let csv = report.csv();
+        assert_eq!(csv.lines().count(), report.rows.len() + 1);
+        let mut lines = csv.lines();
+        let header: Vec<_> = lines.next().unwrap().split(',').collect();
+        let value_col = header.iter().position(|h| *h == "process").unwrap();
+        let source_col = header.iter().position(|h| *h == "process_source").unwrap();
+        for (row, record) in report.rows.iter().zip(lines) {
+            // All fields in this fixture are quoted; delimiters inside a field stay intact.
+            let fields: Vec<_> = record
+                .strip_prefix('"')
+                .unwrap()
+                .strip_suffix('"')
+                .unwrap()
+                .split("\",\"")
+                .map(|f| f.replace("\"\"", "\""))
+                .collect();
+            assert_eq!(fields.len(), header.len());
+            let json = serde_json::to_value(row).unwrap();
+            assert_eq!(
+                fields[value_col],
+                json.get("process").and_then(|v| v.as_str()).unwrap_or("")
+            );
+            assert_eq!(
+                fields[source_col],
+                json["sources"]
+                    .get("process")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+            );
+        }
+    }
+    let path = fixture("pack-small.step.gz");
+    let keys =
+        pack::part_keys(&model::parts(&path, &model::read_step_file(&path).unwrap()).unwrap());
+    let spec: pack::PackSpec = serde_json::from_value(serde_json::json!({"parts":{
+        keys[0].clone():{"drawing":{"process":"3D printed: FDM"}},
+        keys.last().unwrap().clone():{"supply":"buy", "drawing":{"process":"cast"}}
+    }}))
+    .unwrap();
+    let pack = pack::build(&path, &spec).unwrap();
+    assert!(pack.report.rows.iter().any(|r| r.bom.process
+        == Some(draftwright::process::Process::Fdm)
+        && r.sources["process"] == pack::ValueSource::Spec));
+    let printed = cells(&pack).unwrap();
+    assert!(
+        pack.report
+            .rows
+            .iter()
+            .any(|r| r.supply == pack::Supply::Buy)
+    );
+    assert!(pack.report.rows.iter().any(
+        |r| r.supply == pack::Supply::Make && r.sources["process"] == pack::ValueSource::Guess
+    ));
+    for row in &pack.report.rows {
+        assert_eq!(
+            printed[&row.item],
+            if row.supply == pack::Supply::Buy || row.sources["process"] == pack::ValueSource::Guess
+            {
+                ""
+            } else {
+                "3D printed: FDM"
+            }
+        );
+    }
+    csv_matches_json(&pack.report);
+    let ordinary = pack::build(&path, &pack::PackSpec::default()).unwrap();
+    assert!(cells(&ordinary).is_none());
+    let bought = ordinary
+        .report
+        .rows
+        .iter()
+        .find(|r| r.supply == pack::Supply::Buy)
+        .unwrap();
+    assert!(bought.bom.process.is_none());
+    assert!(!bought.sources.contains_key("process"));
+    csv_matches_json(&ordinary.report);
+    let only_bought: pack::PackSpec = serde_json::from_value(serde_json::json!({"parts":{
+        keys.last().unwrap().clone():{"supply":"buy", "drawing":{"process":"3D printed: FDM"}}
+    }}))
+    .unwrap();
+    assert!(cells(&pack::build(&path, &only_bought).unwrap()).is_none());
+    let stated_machined: pack::PackSpec = serde_json::from_value(serde_json::json!({"parts":{
+        keys[0].clone():{"drawing":{"process":"machined"}}
+    }}))
+    .unwrap();
+    let machined = pack::build(&path, &stated_machined).unwrap();
+    let printed = cells(&machined).unwrap();
+    let stated = machined
+        .report
+        .rows
+        .iter()
+        .find(|r| r.sources.get("process") == Some(&pack::ValueSource::Spec))
+        .unwrap();
+    assert_eq!(printed[&stated.item], "machined");
+    let guessed = append(
+        &small(),
+        "#9020=CLASS('3D printing: filament','');\n#9021=CLASSIFICATION_ROLE('classification',$);\n#9022=APPLIED_CLASSIFICATION_ASSIGNMENT(#9020,#9021,(#41));",
+    );
+    let guessed = pack::build_bytes(
+        "guessed.step",
+        guessed.as_bytes(),
+        &pack::PackSpec::default(),
+    )
+    .unwrap();
+    assert!(guessed.report.rows.iter().any(|r| r.bom.process
+        == Some(draftwright::process::Process::Fdm)
+        && r.sources["process"] == pack::ValueSource::Guess));
+    assert!(cells(&guessed).is_none());
+}

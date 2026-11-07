@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct Metadata {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub process: Option<crate::process::Process>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_number: Option<String>,
@@ -213,7 +215,32 @@ fn properties(doc: &Document, owner: u64, row: &mut Metadata) {
                 row.material = Some(name.clone());
             }
         }
+        if term(&set) == "specify process" && attrs(doc, owner, "PRODUCT_DEFINITION").is_some() {
+            apply_process(&values, row);
+        }
         apply_items(&values, term(&set) == "specify bom", row);
+    }
+}
+
+fn apply_process(values: &BTreeMap<String, A>, row: &mut Metadata) {
+    let Some(process) = values
+        .get("manufacturing_process")
+        .and_then(text)
+        .and_then(|v| serde_json::from_value(serde_json::Value::String(v)).ok())
+    else {
+        return;
+    };
+    let suggested = values
+        .get("default.manufacturing_process")
+        .and_then(boolean)
+        == Some(true);
+    if row.process.is_none() || !suggested {
+        row.process = Some(process);
+        if suggested {
+            row.suggested_fields.insert("process".into());
+        } else {
+            row.suggested_fields.remove("process");
+        }
     }
 }
 
@@ -317,6 +344,18 @@ pub(crate) fn accounts_for(doc: &Document, id: u64, definitions: &[PartDefinitio
     });
     if !is_leaf_owner {
         return false;
+    }
+    if term(&set) == "specify process" {
+        let mut facts = Metadata::default();
+        apply_process(&values, &mut facts);
+        return attrs(doc, owner, "PRODUCT_DEFINITION").is_some()
+            && facts.process.is_some()
+            && values.keys().all(|k| {
+                matches!(
+                    k.as_str(),
+                    "manufacturing_process" | "default.manufacturing_process"
+                )
+            });
     }
     // A recognised BOM value does not account for an unrelated attribute in
     // the same set. Keep mixed manufacturing/property sets reportable.
@@ -574,4 +613,24 @@ pub(crate) fn fill_titles(
     });
     plan.problems.extend(problems);
     plan.status = crate::completeness::status(&plan.problems);
+}
+
+impl Metadata {
+    /// Independent product fact or material-class guess; reads no authoring or layout state.
+    pub fn manufacturing_process(&self) -> crate::process::Process {
+        use crate::process::Process;
+        self.process.unwrap_or_else(|| {
+            self.classifications
+                .iter()
+                .chain(&self.categories)
+                .find_map(|s| match s.to_ascii_lowercase().as_str() {
+                    "3d printing: filament" => Some(Process::Fdm),
+                    "3d printing: resin" => Some(Process::Resin),
+                    "3d printing: powder" => Some(Process::Powder),
+                    "3d printing: metal" => Some(Process::Metal),
+                    _ => None,
+                })
+                .unwrap_or_default()
+        })
+    }
 }

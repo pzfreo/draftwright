@@ -33,6 +33,7 @@ def outline():
             'features', 'faces', 'dimension_schemes', 'precision')},
         'dimension_source': enum('auto', 'authored'),
         'pmi': enum('strict', 'first', 'ignore'),
+        'process': {'type': ['string', 'null']},
         'origin': {'type': 'object'},
         'hole_table': enum('auto', 'always', 'never'),
         'envelope_tolerance': {'type': ['string', 'null']},
@@ -130,6 +131,18 @@ def document():
         props[key] = mapping(ref(name))
     for key, name in [('feature_declarations', 'declaration'), ('notes', 'note'), ('tables', 'table'), ('gears', 'gear')]:
         props[key] = arr(ref(name))
+    props['process'] = {'description': 'Per-part process. Overrides file specify process UDA and material-class guess. '
+                    'Printed defaults are marked CHECK; override tolerance at sheet/title/tolerance '
+                    'and finish at sheet/default_finish.',
+     'enum': ['machined',
+              '3D printed: FDM',
+              '3D printed: resin',
+              '3D printed: powder',
+              '3D printed: metal',
+              'sheet metal',
+              'moulded',
+              'cast',
+              None]}
     definitions['spec_read'] = obj(deepcopy(props))
     return {'$schema': 'https://json-schema.org/draft/2020-12/schema',
             'title': 'Draftwright Spec',
