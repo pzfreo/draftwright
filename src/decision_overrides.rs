@@ -146,8 +146,18 @@ fn report(plan: &mut Plan) {
     for t in &mut plan.tables {
         add(&mut t.basis, Family::Furniture, &t.id);
     }
+    if let Some(t) = &mut plan.radius_table {
+        add(&mut t.table.basis, Family::Furniture, &t.table.id);
+    }
     for t in plan.hole_table.iter_mut().chain(&mut plan.hole_tables) {
         add(&mut t.basis, Family::Furniture, &t.id);
+        for block in &mut t.blocks {
+            add(&mut block.basis, Family::Furniture, &block.id);
+        }
+    }
+    for ring in &mut plan.inspection_balloons {
+        add(&mut ring.basis, Family::Linework, "<view>");
+        add(&mut ring.basis, Family::Requirements, &ring.id);
     }
     for c in &mut plan.captions {
         add(&mut c.basis, Family::Sheet, "iso");
