@@ -13,6 +13,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Include explicit sections in pinned paper selection; retain automatic cuts when a named
+  plane is unavailable, preserve requested labels, and attach keyway depth callouts to
+  their floors. Render diagnostics now detect detached section-depth witnesses.
+
 - Manufacturing defaults preserve authored PMI finishes. GA process cells omit
   bought parts and guesses; CSV carries process provenance. Printed gear policy
   caps severity without promoting Info, and tolerance defaults use explicit

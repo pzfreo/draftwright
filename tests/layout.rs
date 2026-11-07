@@ -129,6 +129,7 @@ fn request(c: &Value) -> Request {
         },
         sections: c["section"].as_u64().unwrap() as usize,
         section_row_fixed: false,
+        separate_section: false,
         table_sizes: c["table_sizes"]
             .as_array()
             .unwrap()

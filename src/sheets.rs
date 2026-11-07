@@ -667,9 +667,10 @@ fn allocate_inner(
 /// multi-sheet request a view assigned to a later sheet (an allocation step's moved
 /// view) is left to the reference's own allocation, so the reference is the whole
 /// unpinned drawing with every frame where it finally sits, not one step's sheet 1.
-pub(crate) fn reference_views(spec: &Spec) -> BTreeMap<String, model::ViewSpec> {
+pub(crate) fn reference_views(spec: &Spec) -> crate::sections::Views {
     let multi = maximum(spec) > 1;
-    spec.views
+    let mut views: crate::sections::Views = spec
+        .views
         .iter()
         .filter(|(_, view)| view.omit && !(multi && view.sheet.is_some_and(|n| n > 1)))
         .map(|(name, _)| {
@@ -679,7 +680,10 @@ pub(crate) fn reference_views(spec: &Spec) -> BTreeMap<String, model::ViewSpec> 
             };
             (name.clone(), view)
         })
-        .collect()
+        .collect::<BTreeMap<_, _>>()
+        .into();
+    views.keep_sections_from(&spec.views);
+    views
 }
 
 /// The views (and rescue hole table) the unpinned request's own allocation puts after
@@ -687,7 +691,7 @@ pub(crate) fn reference_views(spec: &Spec) -> BTreeMap<String, model::ViewSpec> 
 fn pinned_allocation(analysis: &Analysis, spec: &Spec) -> Result<BTreeMap<String, u32>, Invalid> {
     let mut base = model::pin_base(spec);
     base.sheets = spec.sheets.clone();
-    base.views = reference_views(spec).into();
+    base.views = reference_views(spec);
     let canonical = model::plan_automatic(analysis, &base)?;
     let mut moved: BTreeMap<String, u32> = canonical
         .views
