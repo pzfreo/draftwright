@@ -71,11 +71,19 @@ def kernel_pins(manifest):
         dep = dependencies.get(name, workspace.get(name))
         if isinstance(dep, dict) and dep.get("workspace"):
             dep = workspace.get(name)
+        # A crates.io pin: quiddity's release workflow publishes version X.Y.Z from tag vX.Y.Z,
+        # so an exact `=X.Y.Z` names the same commit as that tag.
+        version = dep if isinstance(dep, str) else dep.get("version") if isinstance(dep, dict) else None
+        if version and not (isinstance(dep, dict) and dep.get("git")):
+            if not re.fullmatch(r"=\d+\.\d+\.\d+", version):
+                raise ValueError(f"{name} must pin an exact crates.io version (=X.Y.Z)")
+            pins[name] = ("https://github.com/pzfreo/quiddity", "tag", "v" + version[1:])
+            continue
         repo = dep.get("git", "").removesuffix(".git").rstrip("/") if isinstance(dep, dict) else ""
         # pzfreo/quiddity-rust was renamed pzfreo/quiddity (2026-11-03); GitHub redirects the old
         # name, and released sibling manifests may still use it.
         if repo not in ("https://github.com/pzfreo/quiddity", "https://github.com/pzfreo/quiddity-rust"):
-            raise ValueError(f"{name} must use the pzfreo/quiddity git dependency")
+            raise ValueError(f"{name} must use the pzfreo/quiddity git dependency or an exact crates.io version")
         kinds = [kind for kind in ("tag", "rev") if dep.get(kind)]
         if len(kinds) != 1:
             raise ValueError(f"{name} must have exactly one tag or rev")

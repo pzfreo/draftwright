@@ -22,8 +22,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Changed
 
-- Pin quiddity and haecceity to git tag v0.4.9, keeping quiddity’s CLI feature
-  disabled for library and browser builds. PMI reading is unchanged (reader `/19`);
+- Depend on quiddity and haecceity 0.4.9 from crates.io (`=0.4.9`, the same source as
+  tag v0.4.9), keeping quiddity’s CLI feature disabled for library and browser builds.
+  The kernel pin check reads exact crates.io versions as their release tags. PMI reading is unchanged (reader `/19`);
   recognition now retains circular blind steps cut by another feature: corpus
   `mfcadpp_holdout/363.step` gains the R4.550 × 3.359 DEEP callout in place of
   a bare profile radius and a redundant step height.
