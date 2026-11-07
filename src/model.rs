@@ -5893,6 +5893,7 @@ fn plan_with_presentation(
     };
     let mut effective = spec.clone();
     if let Some(base) = &canonical {
+        crate::decision_overrides::remember_pin_reference(base);
         effective.sheet.size = Some(base.sheet.size.clone());
         effective.sheet.scale = Some(base.sheet.scale.clone());
         {

@@ -140,6 +140,7 @@ fn add(basis: &mut String, family: Family, target: Target<'_>) {
 thread_local! {
     static DEPTH: Cell<usize> = const { Cell::new(0) };
     static PLACEMENT_REFERENCE: RefCell<Option<Arc<Plan>>> = const { RefCell::new(None) };
+    static PIN_REFERENCE_REQUIRED: Cell<bool> = const { Cell::new(false) };
 }
 struct Boundary;
 impl Drop for Boundary {
@@ -147,6 +148,7 @@ impl Drop for Boundary {
         DEPTH.set(DEPTH.get() - 1);
         if DEPTH.get() == 0 {
             PLACEMENT_REFERENCE.set(None);
+            PIN_REFERENCE_REQUIRED.set(false);
         }
     }
 }
@@ -160,6 +162,10 @@ pub(crate) fn boundary(
     DEPTH.set(DEPTH.get() + 1);
     let _guard = Boundary;
     if outer {
+        PIN_REFERENCE_REQUIRED.set(
+            crate::placement_intent::has_pins(spec)
+                && spec.dimensions.values().any(|d| d.place.is_some()),
+        );
         let reference = prepare_placement_reference(analysis, spec).map(Arc::new);
         PLACEMENT_REFERENCE.set(reference);
     }
@@ -174,12 +180,19 @@ pub(crate) fn boundary(
 /// The placement-free drawing keeps every other authored requirement. It is
 /// shared by GD&T's incumbent trial and the final public displacement report.
 pub(crate) fn placement_reference(spec: &crate::model::Spec) -> Option<Arc<Plan>> {
-    if crate::placement_intent::has_pins(spec)
-        || !spec.dimensions.values().any(|d| d.place.is_some())
-    {
+    if !spec.dimensions.values().any(|d| d.place.is_some()) {
         return None;
     }
     PLACEMENT_REFERENCE.with_borrow(Clone::clone)
+}
+
+/// Pin planning already has the actual incumbent; share it without replanning.
+pub(crate) fn remember_pin_reference(plan: &Plan) {
+    if PIN_REFERENCE_REQUIRED.get() {
+        PLACEMENT_REFERENCE.with_borrow_mut(|p| {
+            p.get_or_insert_with(|| Arc::new(plan.clone()));
+        });
+    }
 }
 
 fn prepare_placement_reference(
@@ -218,9 +231,7 @@ fn report_gdt_moves(plan: &mut Plan) {
             "",
         );
     }
-    if crate::placement_intent::has_pins(&plan.spec)
-        || !plan.spec.dimensions.values().any(|d| d.place.is_some())
-    {
+    if !plan.spec.dimensions.values().any(|d| d.place.is_some()) {
         return;
     }
     let Some(before) = placement_reference(&plan.spec) else {
