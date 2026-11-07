@@ -4419,7 +4419,7 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::bom::with_titles(analysis, spec, || {
+    let plan = crate::bom::with_titles(analysis, spec, || {
         layout::with_gutter(
             spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
             || {
@@ -4434,7 +4434,43 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
                 Ok(plan)
             },
         )
-    })
+    })?;
+    retain_unapplied_edits(analysis, plan, plan_recovered)
+}
+
+/// Validate the complete request first, then keep unapplied edits in the document without
+/// letting them steer layout. In particular, a stale omit must not reserve peer routes.
+fn retain_unapplied_edits(
+    analysis: &Analysis,
+    plan: Plan,
+    replan: fn(&Analysis, &Spec) -> Result<Plan, Invalid>,
+) -> Result<Plan, Invalid> {
+    let warnings: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "dimension_edit_unapplied")
+        .collect();
+    if warnings.is_empty() {
+        return Ok(plan);
+    }
+    let mut applicable = plan.spec.clone();
+    let mut retained = BTreeMap::new();
+    applicable.dimensions.retain(|id, edit| {
+        let path = format!("dimensions/{}", crate::items::key(id));
+        if warnings.iter().any(|p| p.subjects.contains(&path)) {
+            retained.insert(id.clone(), edit.clone());
+            false
+        } else {
+            true
+        }
+    });
+    if retained.is_empty() {
+        return Ok(plan);
+    }
+    let mut drawn = replan(analysis, &applicable)?;
+    drawn.spec.dimensions.extend(retained);
+    drawn.problems.extend(warnings.into_iter().cloned());
+    Ok(drawn)
 }
 
 /// Inspection balloons are placed on the finished sheet, after the paper policy has chosen its
@@ -5435,7 +5471,7 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// drawing's findings. That recovery is [`recover`], applied by [`plan_recovered`], never here:
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::bom::with_titles(analysis, spec, || {
+    let plan = crate::bom::with_titles(analysis, spec, || {
         layout::with_gutter(
             spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
             || {
@@ -5448,7 +5484,8 @@ pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 Ok(plan)
             },
         )
-    })
+    })?;
+    retain_unapplied_edits(analysis, plan, self::plan)
 }
 
 fn plan_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
@@ -6145,7 +6182,7 @@ fn plan_with_presentation(
             .keys()
             .filter(|id| !annotation_ids.contains(id))
             .map(|id| {
-                Invalid {
+                (id, Invalid {
                     path: None,
                     also: Vec::new(),
                     message: format!(
@@ -6158,9 +6195,17 @@ fn plan_with_presentation(
                         annotation_ids.clone()
                     },
                 }
-                .at("annotations", id)
+                .at("annotations", id))
             });
-        for e in missing {
+        for (id, e) in missing {
+            // Stale PMI and automatic-note identities can return after a revision. An
+            // untyped name cannot identify either kind of annotation safely.
+            if !["pmi:", "n:"].into_iter().any(|prefix| {
+                id.strip_prefix(prefix)
+                    .is_some_and(|identity| !identity.is_empty())
+            }) {
+                return Err(e);
+            }
             problems.push(Problem {
                 id: format!(
                     "p:annotation_edit_unapplied:{}",

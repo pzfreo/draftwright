@@ -19,6 +19,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 - Refuse contradictory repeated dimension requirements and fits on locations, pitches or station networks;
   validate note location roles against feature evidence. Preserve presentation-only scheme
   repeats with a warning, share centred-keyway evidence, and name detail scales as ratios.
+- Cover retained stale dimension edits and their path-specific warnings in browser parity;
+  leave peer routes unchanged for unapplied omissions. Keep refusing unsafe annotation
+  references without a nonempty PMI or note identity.
 
 ## 0.2.12 (2026-11-06)
 

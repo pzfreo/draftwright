@@ -36,6 +36,19 @@ function invalid(action, message) {
   });
 }
 
+function unappliedDimension(engine, path) {
+  const plan = JSON.parse(engine.plan());
+  const warnings = plan.problems.filter(problem =>
+    problem.code === 'dimension_edit_unapplied' && problem.subjects.includes(path));
+  assert.equal(warnings.length, 1, `one warning naming ${path}`);
+  assert.equal(warnings[0].severity, 'warning');
+  assert.deepEqual(warnings[0].subjects, [path]);
+  assert.equal(warnings[0].message,
+    'A dimension named by the saved Spec has no current measurement; its edit is retained but cannot be applied.');
+  assert.match(decoder.decode(engine.renderSvg()), /<svg/);
+  return plan;
+}
+
 function replayPlan(previous, delta) {
   const plan = structuredClone(previous);
   const id = item => item.id ?? `sheet:${item.number}`;
@@ -271,7 +284,6 @@ test('hostile browser inputs refuse transactionally and leave the engine usable'
     ['out-of-range lane', () => engine.apply(set('dimensions/d:envelope~1width.length/place', { lane: 4294967295 }), true)],
     ['out-of-range precision', () => engine.apply(set('precision/d:envelope~1width.length', 255), true)],
     ['out-of-range scale', () => engine.apply(set('iso_scale_factor', -1), true)],
-    ['unknown dimension', () => engine.apply(set('dimensions/d:unknown/omit', true), true)],
     ['unknown annotation', () => engine.applyFragments(set('annotations/unknown/omit', true))],
     ['unknown feature', () => engine.preview(set('features/f:unknown/suppress', true))],
     ['unknown callout offset', () => engine.calloutOffset('d:unknown')],
@@ -290,6 +302,31 @@ test('hostile browser inputs refuse transactionally and leave the engine usable'
       console.log(`hostile input refused; next edit/render succeeded: ${label}`);
     }
   } finally { engine.free(); }
+});
+
+test('an unknown dimension omit is retained with a path-specific warning and leaves the drawing intact', () => {
+  const bytes = readFileSync(new URL('../tests/fixtures/parts/prismatic.step', import.meta.url));
+  for (const method of ['apply', 'setSpec', 'openSpec']) {
+    const engine = new Engine('prismatic.step', bytes);
+    try {
+      const before = JSON.parse(engine.plan());
+      const dimensions = { 'd:unknown': { omit: true } };
+      const saved = JSON.stringify({ dimensions });
+      if (method === 'apply') {
+        engine.apply(JSON.stringify([{ op: 'set', path: 'dimensions/d:unknown/omit', value: true }]), true);
+      } else if (method === 'setSpec') {
+        engine.setSpec(saved);
+      } else {
+        const opened = JSON.parse(engine.openSpec(saved));
+        assert.deepEqual(opened.set_aside, []);
+        assert.deepEqual(opened.spec, JSON.parse(engine.spec()));
+      }
+      assert.deepEqual(JSON.parse(engine.spec()).dimensions, dimensions, method);
+      const plan = unappliedDimension(engine, 'dimensions/d:unknown');
+      assert.deepEqual(plan.dimensions, before.dimensions, `${method}: no invented measurement`);
+      assert.deepEqual(plan.views, before.views, `${method}: drawing retained`);
+    } finally { engine.free(); }
+  }
 });
 
 // On alpha.10 this setting reached Vec capacity_overflow, trapped with
@@ -351,22 +388,43 @@ test('group callout members match native and the dragged arrow follows the neare
   } finally { engine.free(); }
 });
 
-test('openSpec sets aside what the part no longer has, and specOps turns one Spec into another', () => {
-  const engine = new Engine('mounting_plate.step', readFileSync(new URL('../tests/fixtures/parts/mounting_plate.step', import.meta.url)));
+test('openSpec retains stale dimension edits, migrates printer settings and sets aside refused views', () => {
+  const bytes = readFileSync(new URL('../tests/fixtures/parts/mounting_plate.step', import.meta.url));
+  const engine = new Engine('mounting_plate.step', bytes);
+  const direct = new Engine('mounting_plate.step', bytes);
   try {
-    const saved = JSON.stringify({ sheet: { preferred_printer: 'A3' }, dimensions: {
-      'd:f:hole:4/bore.diameter': { omit: true }, 'd:f:hole:1/bore.diameter': { omit: true } } });
-    invalid(() => engine.setSpec(saved));
+    const dimensions = {
+      'd:f:hole:4/bore.diameter': { omit: true }, 'd:f:hole:1/bore.diameter': { omit: true } };
+    const saved = JSON.stringify({ sheet: { preferred_printer: 'A3' }, dimensions });
+    const before = engine.plan();
+    invalid(() => engine.setSpec(saved), /preferred_printer.*preferred_max_size/);
+    assert.equal(engine.plan(), before, 'obsolete printer field refuses transactionally');
     const opened = JSON.parse(engine.openSpec(saved));
-    assert.deepEqual(opened.set_aside, [{ path: 'dimensions/d:f:hole:1~1bore.diameter', entry: { omit: true }, reason_code: 'no_dimension' }]);
+    assert.deepEqual(opened.set_aside, []);
     assert.deepEqual(opened.spec, JSON.parse(engine.spec()));
+    assert.deepEqual(opened.spec.dimensions, dimensions);
     assert.equal(opened.spec.sheet.preferred_max_size, 'A3');
-    const refusal = (() => { try { engine.setSpec(JSON.stringify({ views: { gone: { omit: true } } })); } catch (e) { return JSON.parse(e); } })();
+    const plan = unappliedDimension(engine, 'dimensions/d:f:hole:1~1bore.diameter');
+    assert.ok(!plan.dimensions.some(dimension => dimension.id === 'd:f:hole:1/bore.diameter'));
+    assert.ok(plan.omitted.some(item => item.id === 'd:f:hole:4/bore.diameter'
+      && item.state.kind === 'omitted_by_user'), 'the live dimension omit is applied');
+    // A fresh engine proves setSpec validates the same stale entry; this is not a no-op.
+    direct.setSpec(JSON.stringify({ sheet: { preferred_max_size: 'A3' }, dimensions }));
+    assert.deepEqual(JSON.parse(direct.spec()), opened.spec);
+    assert.deepEqual(unappliedDimension(direct, 'dimensions/d:f:hole:1~1bore.diameter'), plan);
+    const unknownView = JSON.stringify({ ...opened.spec, views: { ...opened.spec.views, gone: { omit: true } } });
+    const refusal = (() => { try { engine.setSpec(unknownView); } catch (e) { return JSON.parse(e); } })();
+    assert.equal(refusal.code, 'invalid');
     assert.equal(refusal.path, 'views/gone');
+    assert.deepEqual(JSON.parse(engine.spec()), opened.spec, 'unknown view refusal is transactional');
+    const recovered = JSON.parse(engine.openSpec(unknownView));
+    assert.deepEqual(recovered.set_aside, [{ path: 'views/gone', entry: { omit: true }, reason_code: 'no_view' }]);
+    assert.deepEqual(recovered.spec, opened.spec);
+    assert.deepEqual(unappliedDimension(engine, 'dimensions/d:f:hole:1~1bore.diameter'), plan);
     assert.deepEqual(JSON.parse(specOps(JSON.stringify({ schema: 'a', x: { 'b/c': 1, d: 1 } }), JSON.stringify({ schema: 'b', x: { 'b/c': [2] } }))),
       [{ op: 'set', path: 'x/b~1c', value: [2] }, { op: 'remove', path: 'x/d' }]);
     invalid(() => specOps('{', '{}'));
-  } finally { engine.free(); }
+  } finally { engine.free(); direct.free(); }
 });
 
 
