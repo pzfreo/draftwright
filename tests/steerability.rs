@@ -1673,6 +1673,13 @@ fn spatial_tag_labels_keep_feature_item_identities() {
         .unwrap();
     assert_eq!(b.tag, "C6");
     assert_eq!(b.id, "hole_schedule_plan/tag/C9");
+    let first = p.plan.balloons.iter().find(|b| b.certifying).unwrap();
+    assert_eq!(first.features, ["f:hole:10"]);
+    assert_eq!(
+        first.tag, "A2",
+        "printed order must not change attachment priority"
+    );
+
     let r = rendered(PLATE, &p);
     let cell = r
         .drawings

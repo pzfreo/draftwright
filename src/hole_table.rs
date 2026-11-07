@@ -3650,6 +3650,19 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
                 size: [width, crate::dims::TEXT],
             });
         }
+        // Display row order must not change greedy placement priority or the
+        // first tag an existing shared attachment selects. Keep the historical
+        // family/feature order while printing the new spatial labels.
+        let families: BTreeMap<_, _> = t
+            .rows
+            .iter()
+            .map(|r| (r.feature.as_str(), r.cells[1].as_str()))
+            .collect();
+        groups.sort_by(|a, b| {
+            families[a.features[0].as_str()]
+                .cmp(families[b.features[0].as_str()])
+                .then(a.features[0].cmp(&b.features[0]))
+        });
         let boxed = |g: &Group, at: [f64; 2]| -> Rect {
             [
                 at[0] - g.size[0] * 0.5,
