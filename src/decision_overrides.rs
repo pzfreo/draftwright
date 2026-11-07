@@ -217,7 +217,6 @@ fn prepare_placement_reference(
     crate::model::plan_recovered(analysis, &base).ok()
 }
 
-#[cfg_attr(target_arch = "wasm32", inline(never))]
 fn report_gdt_moves(plan: &mut Plan) {
     plan.problems.retain(|p| p.code != "gdt_position_changed");
     for g in &mut plan.gdt {
@@ -296,7 +295,6 @@ fn report_gdt_moves(plan: &mut Plan) {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", inline(never))]
 fn report_placements(analysis: &crate::model::Analysis, plan: &mut Plan) {
     let displaced = crate::dims::with_compact(
         plan.sheet.dimension_spacing == crate::model::DimensionSpacing::Compact,

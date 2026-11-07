@@ -5483,13 +5483,24 @@ pub(crate) fn local_placement_fix(
                 let mut requested = place.clone();
                 if d.kind == "linear"
                     && requested.side.is_some()
-                    && plan
-                        .spec
-                        .dimensions
-                        .get(id)
-                        .and_then(|d| d.place.as_ref())
-                        .and_then(|p| p.side)
-                        .is_some_and(|side| Some(side) != requested.side)
+                    && d.view == view.id
+                    && d.placed
+                        .as_ref()
+                        .and_then(|p| crate::output::linear_ink(&p.lines))
+                        .is_some_and(|line| {
+                            use crate::placement_intent::Side;
+                            let b = frame.outline();
+                            let side = match (
+                                line.k,
+                                line.offset > (b[1 - line.k] + b[3 - line.k]) / 2.,
+                            ) {
+                                (0, true) => Side::Above,
+                                (0, false) => Side::Below,
+                                (_, true) => Side::Right,
+                                (_, false) => Side::Left,
+                            };
+                            Some(side) != requested.side
+                        })
                 {
                     requested.lane = None;
                     requested.along = None;

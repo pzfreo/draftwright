@@ -591,9 +591,20 @@ pub(crate) fn check_claims(analysis: &Analysis, spec: &Spec) -> Result<(), Inval
     );
     // A concentric pattern's location is still a measurable role when its
     // numeric tangent dimensions are correctly suppressed (#311, #312).
-    for issue in crate::lint::hole_patterns::coverage(analysis, &[]) {
-        for r in issue.requirements {
-            ids.insert(format!("d:{}/{}", r.feature, r.parameter));
+    let holes: Vec<_> = crate::bridge::holes::read(analysis)
+        .into_iter()
+        .filter_map(|(_, h)| h.ok())
+        .collect();
+    let refs: Vec<_> = holes.iter().collect();
+    let bosses = crate::bridge::holes::bosses(analysis);
+    for p in analysis.recognition.iter().flat_map(|r| &r.patterns) {
+        let Ok(members) = crate::bridge::holes::established_with(p, &refs, &bosses) else {
+            continue;
+        };
+        if let Some((axis, _)) = holes[members[0]].principal {
+            for k in (0..3).filter(|&k| k != axis) {
+                ids.insert(format!("d:{}/location.length.{}", p.id, ["x", "y", "z"][k]));
+            }
         }
     }
     for (id, f) in &spec.features {
