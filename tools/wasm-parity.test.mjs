@@ -248,11 +248,10 @@ test('hostile edit path refuses and the same engine still answers', () => {
 
 // Every refusal is followed by real planning/rendering on the SAME engine. A trap
 // (RuntimeError/RangeError) is not an api::Error JSON string and fails invalid().
-test('hostile browser inputs refuse, stale edits warn, and the engine remains usable', () => {
+test('hostile browser inputs refuse transactionally and leave the engine usable', () => {
   const bytes = readFileSync(new URL('../tests/fixtures/parts/prismatic.step', import.meta.url));
   const engine = new Engine('prismatic.step', bytes);
   const before = engine.plan();
-  const beforeSpec = engine.spec();
   const encode = text => new TextEncoder().encode(text);
   const source = JSON.parse(engine.snapshot()).provenance.source_sha256;
   const ops = value => JSON.stringify(value);
@@ -272,8 +271,8 @@ test('hostile browser inputs refuse, stale edits warn, and the engine remains us
     ['out-of-range lane', () => engine.apply(set('dimensions/d:envelope~1width.length/place', { lane: 4294967295 }), true)],
     ['out-of-range precision', () => engine.apply(set('precision/d:envelope~1width.length', 255), true)],
     ['out-of-range scale', () => engine.apply(set('iso_scale_factor', -1), true)],
-    ['unknown dimension', () => engine.apply(set('dimensions/d:unknown/omit', true), true), 'dimension_edit_unapplied', 'dimensions', 'd:unknown'],
-    ['unknown annotation', () => engine.applyFragments(set('annotations/unknown/omit', true)), 'annotation_edit_unapplied', 'annotations', 'unknown'],
+    ['unknown dimension', () => engine.apply(set('dimensions/d:unknown/omit', true), true)],
+    ['unknown annotation', () => engine.applyFragments(set('annotations/unknown/omit', true))],
     ['unknown feature', () => engine.preview(set('features/f:unknown/suppress', true))],
     ['unknown callout offset', () => engine.calloutOffset('d:unknown')],
     ['unknown label offset', () => engine.labelOffset('d:unknown')],
@@ -281,27 +280,14 @@ test('hostile browser inputs refuse, stale edits warn, and the engine remains us
     ['out-of-range sheet fragments', () => engine.sheetFragments(4294967295)],
   ];
   try {
-    for (const [label, action, warning, family, id] of cases) {
-      if (warning) {
-        // B1 retains stale presentation intent. It must warn without inventing
-        // a measurement, and removing that intent must restore the drawing.
-        action();
-        const plan = JSON.parse(engine.plan());
-        assert.ok(plan.problems.some(p => p.code === warning && p.severity === 'warning'
-          && p.subjects.some(subject => subject.includes(id))), label);
-        assert.deepEqual(JSON.parse(engine.spec())[family][id], { omit: true });
-        assert.ok(!plan.dimensions.some(d => d.id === id));
-        assert.match(decoder.decode(engine.renderSvg()), /<svg/);
-        engine.setSpec(beforeSpec);
-      } else {
-        invalid(action);
-      }
-      assert.equal(engine.plan(), before, `${label}: original drawing restored transactionally`);
+    for (const [label, action] of cases) {
+      invalid(action);
+      assert.equal(engine.plan(), before, `${label}: refusal is transactional`);
       const preview = JSON.parse(engine.preview(set('sheet/title/material', 'Steel')));
       assert.equal(preview.spec.sheet.title.material, 'Steel', `${label}: next valid edit`);
       assert.match(preview.svg, /<svg/);
       assert.ok(JSON.parse(engine.placementOptions()));
-      console.log(`${warning ? 'stale edit retained with warning' : 'hostile input refused'}; next edit/render succeeded: ${label}`);
+      console.log(`hostile input refused; next edit/render succeeded: ${label}`);
     }
   } finally { engine.free(); }
 });
@@ -365,18 +351,14 @@ test('group callout members match native and the dragged arrow follows the neare
   } finally { engine.free(); }
 });
 
-test('openSpec retains stale intent with a warning, and specOps turns one Spec into another', () => {
+test('openSpec sets aside what the part no longer has, and specOps turns one Spec into another', () => {
   const engine = new Engine('mounting_plate.step', readFileSync(new URL('../tests/fixtures/parts/mounting_plate.step', import.meta.url)));
   try {
     const saved = JSON.stringify({ sheet: { preferred_printer: 'A3' }, dimensions: {
       'd:f:hole:4/bore.diameter': { omit: true }, 'd:f:hole:1/bore.diameter': { omit: true } } });
     invalid(() => engine.setSpec(saved));
     const opened = JSON.parse(engine.openSpec(saved));
-    assert.deepEqual(opened.set_aside, []);
-    assert.deepEqual(opened.spec.dimensions['d:f:hole:1/bore.diameter'], { omit: true });
-    assert.ok(JSON.parse(engine.plan()).problems.some(p => p.code === 'dimension_edit_unapplied'
-      && p.subjects.includes('dimensions/d:f:hole:1~1bore.diameter')));
-    assert.match(decoder.decode(engine.renderSvg()), /<svg/);
+    assert.deepEqual(opened.set_aside, [{ path: 'dimensions/d:f:hole:1~1bore.diameter', entry: { omit: true }, reason_code: 'no_dimension' }]);
     assert.deepEqual(opened.spec, JSON.parse(engine.spec()));
     assert.equal(opened.spec.sheet.preferred_max_size, 'A3');
     const refusal = (() => { try { engine.setSpec(JSON.stringify({ views: { gone: { omit: true } } })); } catch (e) { return JSON.parse(e); } })();
