@@ -157,6 +157,7 @@ pub(crate) fn boundary(run: impl FnOnce() -> Result<Plan, Invalid>) -> Result<Pl
 }
 
 fn report(plan: &mut Plan) {
+    crate::broken::check_anchors(plan);
     add(&mut plan.sheet.basis, Family::Part, Target::Document);
     if let Some(part) = &plan.spec.part
         && !plan.sheet.basis.contains("; applied part:")
@@ -180,8 +181,8 @@ fn report(plan: &mut Plan) {
             && !v.basis.contains(&format!("; applied {}:", b.source))
         {
             v.basis += &format!(
-                "; applied {}: uniform projected interval {:?}, retained gap {} model mm; displaced full-length depiction; axis/remove/gap/aligned override automatic break choices",
-                b.source, b.remove, b.gap
+                "; applied {}: uniform projected interval {:?}, retained gap {} paper mm; displaced full-length depiction; axis/remove/gap/aligned override automatic break choices",
+                b.source, b.remove, b.paper_gap
             );
         }
     }
@@ -244,10 +245,12 @@ fn report(plan: &mut Plan) {
                 .iter()
                 .any(|v| v.id == format!("v:{name}") && v.broken.is_some())
         {
-            let id = format!("p:break_not_applied:v:{name}");
-            if !plan.problems.iter().any(|p| p.id == id) {
-                plan.problems.push(Problem { id, code: "break_not_applied".into(), severity: "warning".into(), subjects: vec![format!("v:{name}")], message: format!("Rejected views/{name}/break: the carrying view is omitted or displaced; the request is retained."), ..Default::default() });
-            }
+            crate::broken::not_applied(
+                &mut plan.problems,
+                name,
+                &format!("views/{name}/break"),
+                "the carrying view is omitted or displaced",
+            );
         }
     }
     for (id, entry) in &plan.spec.dimensions {

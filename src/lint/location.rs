@@ -246,35 +246,9 @@ pub(crate) fn drawn_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
         }
         let span = mark.claims.iter().find_map(|c| {
             let word = c.feature.strip_prefix("station_witness:")?;
-            type Witness = ([f64; 3], [f64; 3], [f64; 2], f64, Vec<[[f64; 2]; 2]>);
-            type BrokenWitness = (
-                [f64; 3],
-                [f64; 3],
-                [f64; 2],
-                f64,
-                Vec<[[f64; 2]; 2]>,
-                crate::output::BreakMap,
-            );
-            let (direction, up, at, scale, lines, broken) =
-                match serde_json::from_str::<Witness>(word) {
-                    Ok((d, u, a, s, l)) => (d, u, a, s, l, None),
-                    Err(_) => {
-                        let (d, u, a, s, l, b): BrokenWitness = serde_json::from_str(word).ok()?;
-                        (d, u, a, s, l, Some(b))
-                    }
-                };
-            ink_span(
-                a,
-                &crate::output::DrawnFrame {
-                    direction,
-                    up,
-                    at,
-                    scale,
-                    half_axis: None,
-                    broken,
-                },
-                &lines,
-            )
+            let (frame, lines): (crate::output::DrawnFrame, Vec<[[f64; 2]; 2]>) =
+                serde_json::from_str(word).ok()?;
+            ink_span(a, &frame, &lines)
         });
         if mark
             .claims
@@ -675,15 +649,11 @@ pub fn ink_span(
         let run = e[1][1 - ink.k] - e[0][1 - ink.k];
         let p = e[0][ink.k]
             + (lines[2][0][1 - ink.k] - e[0][1 - ink.k]) * (e[1][ink.k] - e[0][ink.k]) / run;
-        if let Some(b) = &frame.broken {
-            let centre = view.map([0, 1, 2].map(|k| (a.envelope[0][k] + a.envelope[1][k]) / 2.));
-            let mut q = centre;
-            q[ink.k] += (p - frame.at[ink.k]) / frame.scale;
-            sign * b.inverse(q)[ink.k]
-        } else {
-            0.5 * (a.envelope[0][axis] + a.envelope[1][axis])
-                + sign * (p - frame.at[ink.k]) / frame.scale
-        }
+        let mut q = frame.at;
+        q[ink.k] = p;
+        let p = frame.unfold(q)[ink.k];
+        0.5 * (a.envelope[0][axis] + a.envelope[1][axis])
+            + sign * (p - frame.at[ink.k]) / frame.scale
     };
     Some((axis, station(&lines[0]), station(&lines[1])))
 }

@@ -283,7 +283,6 @@ pub(crate) fn apply(analysis: &Analysis, plan: &mut Plan) {
     let turned = turned(analysis);
     let profile = |v: &PlannedView| {
         v.detail.is_none()
-            && v.broken.is_none()
             && v.cut.is_none()
             && v.id != "v:iso"
             && turned
@@ -323,11 +322,21 @@ pub(crate) fn apply(analysis: &Analysis, plan: &mut Plan) {
         .flatten();
     if automatic.is_some() {
         let carried = |v: &PlannedView| plan.dimensions.iter().filter(|d| d.view == v.id).count();
+        if let Some(v) = plan
+            .views
+            .iter()
+            .filter(|v| profile(v) && asked(v) != Some(false))
+            .max_by_key(|v| carried(v))
+            .filter(|v| v.broken.is_some())
+        {
+            let b = v.broken.as_ref().unwrap();
+            problems.push(Problem { id: format!("p:section_not_shown:break:{}", v.id), code: "section_not_shown".into(), severity: "warning".into(), subjects: vec![v.id.clone()], message: format!("Displaced automatic half section of {}: {} needs an uncut profile. Set views/{}/half_section to true to displace the break, or false to suppress this automatic choice.", v.id, b.source, spec_name(v)), ..Default::default() });
+        }
         chosen.extend(
             plan.views
                 .iter()
                 .enumerate()
-                .filter(|(_, v)| profile(v) && asked(v) != Some(false))
+                .filter(|(_, v)| profile(v) && v.broken.is_none() && asked(v) != Some(false))
                 .max_by(|a, b| carried(a.1).cmp(&carried(b.1)).then(b.0.cmp(&a.0)))
                 .map(|(i, _)| i),
         );
@@ -621,10 +630,13 @@ mod tests {
                     gap: 2.,
                 },
                 source: "views/front/break".into(),
+                paper_gap: 2.,
             });
         }
         apply(&a, &mut p);
         assert!(p.views.iter().all(|v| v.half_section.is_none()));
+        assert!(p.problems.iter().any(|p| p.code == "section_not_shown"
+            && p.message.contains("Displaced automatic half section")));
     }
 
     #[test]

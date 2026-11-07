@@ -618,8 +618,7 @@ pub(crate) fn plan(a: &Analysis, views: &mut [PlannedView]) {
                     })
                     .collect();
                 if let Some(p) = &mut w.centre {
-                    let q = b.map([0, 1].map(|k| centre[k] + (p[k] - v.at[k]) / v.scale));
-                    *p = [0, 1].map(|k| v.at[k] + v.scale * (q[k] - centre[k]));
+                    *p = b.page(*p, v.at, v.scale, false);
                 }
             }
             work.retain(|w| !w.curves.is_empty());
@@ -653,11 +652,9 @@ pub(crate) fn plan(a: &Analysis, views: &mut [PlannedView]) {
         if let Some(v) = views.iter_mut().find(|v| v.id == c.marked_in) {
             let at = |p| {
                 let q = page(a, v, p);
-                v.broken.as_ref().map_or(q, |b| {
-                    let centre = crate::detail::crop_extent(a, v).1;
-                    let q = b.map([0, 1].map(|k| centre[k] + (q[k] - v.at[k]) / v.scale));
-                    [0, 1].map(|k| v.at[k] + v.scale * (q[k] - centre[k]))
-                })
+                v.broken
+                    .as_ref()
+                    .map_or(q, |b| b.page(q, v.at, v.scale, false))
             };
             let p = at([lo[0], c.origin[1], lo[2]]);
             let q = at([hi[0], c.origin[1], hi[2]]);

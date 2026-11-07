@@ -618,6 +618,21 @@ impl BreakMap {
         };
         p
     }
+    pub(crate) fn contains_page(&self, p: P, at: P, scale: f64) -> bool {
+        let mid = at[self.axis]
+            + scale * ((self.remove[0] + self.remove[1]) / 2. - self.centre[self.axis]);
+        (p[self.axis] - mid).abs() < self.gap * scale / 2. - 1e-6
+    }
+    /// Apply the discontinuity in paper space using the original projected frame.
+    pub(crate) fn page(&self, p: P, at: P, scale: f64, inverse: bool) -> P {
+        let q = [0, 1].map(|k| self.centre[k] + (p[k] - at[k]) / scale);
+        let q = if inverse {
+            self.inverse(q)
+        } else {
+            self.map(q)
+        };
+        [0, 1].map(|k| at[k] + scale * (q[k] - self.centre[k]))
+    }
     pub(crate) fn inverse(&self, mut p: [f64; 2]) -> [f64; 2] {
         let x = p[self.axis];
         let mid = (self.remove[0] + self.remove[1]) / 2.;
@@ -632,8 +647,9 @@ impl BreakMap {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DrawnFrame {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub broken: Option<BreakMap>,
     pub direction: [f64; 3],
     pub up: [f64; 3],
@@ -647,10 +663,9 @@ pub struct DrawnFrame {
 impl DrawnFrame {
     /// Undo the depicted shortening, retaining paper scale for independent ink measurements.
     pub(crate) fn unfold(&self, p: P) -> P {
-        self.broken.as_ref().map_or(p, |b| {
-            let q = b.inverse([0, 1].map(|k| b.centre[k] + (p[k] - self.at[k]) / self.scale));
-            [0, 1].map(|k| self.at[k] + self.scale * (q[k] - b.centre[k]))
-        })
+        self.broken
+            .as_ref()
+            .map_or(p, |b| b.page(p, self.at, self.scale, true))
     }
 }
 

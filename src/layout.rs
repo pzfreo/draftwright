@@ -687,7 +687,7 @@ pub struct Request {
     /// The part's extents along x, y and z, mm.
     pub size: [f64; 3],
     /// Per-view shortening, in model mm along a projected axis.
-    pub breaks: Vec<(String, usize, f64)>,
+    pub breaks: Vec<(String, usize, f64, f64)>,
     pub strips: Strips,
     /// Exact aligned-dimension ink, measured separately at each candidate scale.
     pub aligned: Vec<crate::dims::AlignedDemand>,
@@ -885,13 +885,13 @@ fn geometry_with(
     } else {
         req.breaks
             .iter()
-            .map(|(name, _, reduction)| {
+            .map(|(name, _, removed, gap)| {
                 let span = match name.as_str() {
                     "side" => y_size.max(z_size),
                     "plan" => x_size.max(y_size),
                     _ => x_size.max(z_size),
                 };
-                span - reduction
+                span - (removed - gap / scale).max(0.)
             })
             .fold(x_size.max(y_size).max(z_size), f64::min)
     };
@@ -936,7 +936,8 @@ fn geometry_with(
         left: strips.sv_left,
         ..Block::bare(sv_hw, fv_hh)
     };
-    for (name, axis, reduction) in &req.breaks {
+    for (name, axis, removed, gap) in &req.breaks {
+        let reduction = (removed * scale - gap).max(0.);
         let block = match name.as_str() {
             "front" => &mut fv,
             "plan" => &mut pv,
@@ -944,9 +945,9 @@ fn geometry_with(
             _ => continue,
         };
         if *axis == 0 {
-            block.hw -= reduction * scale / 2.;
+            block.hw -= reduction / 2.;
         } else {
-            block.hh -= reduction * scale / 2.;
+            block.hh -= reduction / 2.;
         }
     }
     for (view, [x0, y0, x1, y1]) in &scaled.angular {

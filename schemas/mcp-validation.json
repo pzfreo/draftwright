@@ -164,7 +164,8 @@
                     },
                     "gap": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
                       "type": "boolean"
@@ -529,7 +530,8 @@
                     },
                     "gap": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
                       "type": "boolean"
@@ -982,7 +984,8 @@
                     },
                     "gap": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
                       "type": "boolean"
@@ -1336,7 +1339,8 @@
                     },
                     "gap": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
                       "type": "boolean"
@@ -1708,7 +1712,8 @@
                     },
                     "gap": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
                       "type": "boolean"
@@ -2058,7 +2063,8 @@
                     },
                     "gap": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
                       "type": "boolean"
@@ -2455,7 +2461,8 @@
                     },
                     "gap": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
                       "type": "boolean"
@@ -2856,7 +2863,8 @@
                     },
                     "gap": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
                       "type": "boolean"
@@ -3238,7 +3246,8 @@
                     },
                     "gap": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
                       "type": "boolean"
@@ -3592,7 +3601,8 @@
                     },
                     "gap": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
                       "type": "boolean"
@@ -3937,7 +3947,8 @@
                     },
                     "gap": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
                     },
                     "aligned": {
                       "type": "boolean"

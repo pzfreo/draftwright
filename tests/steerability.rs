@@ -2747,7 +2747,7 @@ fn broken_view_explicit_interval_survives_pinned_dimension() {
     let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
     let b = v.broken.as_ref().expect("pin_base must carry break");
     assert_eq!(b.remove, [100., 500.]);
-    assert_eq!(b.gap, 8.);
+    assert!((b.gap * v.scale - 8.).abs() < 1e-9);
     assert!(!has(&p.plan, "break_not_applied"));
     assert!(
         p.plan
@@ -2789,6 +2789,20 @@ fn broken_view_uses_local_profile_and_keeps_section_markers_attached() {
     let mut s = minimal();
     s["views"] = json!({"front":{"break":{"axis":"x","remove":[5,25],"gap":6}}, "plan":{}, "sections":[{"id":"B","through":"f:section_recess:1"}]});
     let p = planned(SHAFT, &s);
+    let mut full = s.clone();
+    full["views"]["front"]
+        .as_object_mut()
+        .unwrap()
+        .remove("break");
+    let full = planned(SHAFT, &full);
+    assert!(
+        p.plan.sheet.scale_factor >= full.plan.sheet.scale_factor,
+        "a break must not reduce scale: {} vs {}",
+        p.plan.sheet.scale,
+        full.plan.sheet.scale
+    );
+    let area = |p: &model::Plan| p.sheet.page[0] * p.sheet.page[1];
+    assert!(area(&p.plan) <= area(&full.plan));
     let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
     assert!(v.broken.is_some());
     let f = fixture(SHAFT);
@@ -2805,11 +2819,23 @@ fn broken_view_uses_local_profile_and_keeps_section_markers_attached() {
         .find(|(id, _)| id == "v:front")
         .unwrap()
         .1;
-    assert!(!g.breaks.is_empty());
+    assert!(g.breaks.len() > 20, "teeth must repeat across both ends");
+    let ymin = g
+        .breaks
+        .iter()
+        .map(|c| c.bbox()[1])
+        .fold(f64::INFINITY, f64::min);
+    let ymax = g
+        .breaks
+        .iter()
+        .map(|c| c.bbox()[3])
+        .fold(f64::NEG_INFINITY, f64::max);
+    assert!((ymin - (v.at[1] - 10. * v.scale - 2.)).abs() < 1e-6);
+    assert!((ymax - (v.at[1] + 10. * v.scale + 2.)).abs() < 1e-6);
     for c in &g.breaks {
         let b = c.bbox();
         assert!(
-            b[1] >= v.at[1] - 10. * v.scale - 1.01 && b[3] <= v.at[1] + 10. * v.scale + 1.01,
+            b[1] >= v.at[1] - 10. * v.scale - 2.01 && b[3] <= v.at[1] + 10. * v.scale + 2.01,
             "break must meet the 20 mm neck, not the 30 mm shoulder: {b:?}"
         );
     }
@@ -2830,7 +2856,8 @@ fn broken_view_uses_local_profile_and_keeps_section_markers_attached() {
         .map(|p| p[0])
         .fold(f64::NEG_INFINITY, f64::max);
     assert!(
-        ((hi - lo) - (120. - 14.) * parent.scale - 2. * draftwright::section::OVERRUN).abs() < 1e-5
+        ((hi - lo) - (120. - 20.) * parent.scale - 6. - 2. * draftwright::section::OVERRUN).abs()
+            < 1e-5
     );
     assert_section_fits(SHAFT, &p);
     assert!(
@@ -2839,4 +2866,26 @@ fn broken_view_uses_local_profile_and_keeps_section_markers_attached() {
             .iter()
             .any(|f| f.code == "label_vs_measured")
     );
+}
+
+#[test]
+fn broken_view_gap_is_constant_on_paper_and_displaced_alignment_warns() {
+    for scale in ["1:5", "1:10"] {
+        let mut s = input(BAR);
+        s["sheet"]["scale"] = json!(scale);
+        s["views"]["front"] = json!({"break":{"gap":8}});
+        let p = planned(BAR, &s);
+        let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
+        let b = v.broken.as_ref().unwrap();
+        assert!((b.gap * v.scale - 8.).abs() < 1e-9);
+        let r = rendered(BAR, &p);
+        assert!(!r.structural.iter().any(|f| f.code == "label_vs_measured"));
+    }
+    let mut s = input(BAR);
+    s["views"]["front"] = json!({"break":{}});
+    s["views"]["plan"] = json!({"half_section":true});
+    let p = planned(BAR, &s);
+    assert!(p.plan.problems.iter().any(|p| p.code == "break_not_applied"
+        && p.subjects.contains(&"v:plan".into())
+        && p.message.contains("displaced aligned intent")));
 }

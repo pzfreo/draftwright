@@ -6587,7 +6587,7 @@ fn plan_with_presentation(
     let breaks = crate::broken::resolve(analysis, spec, &mut problems);
     request.breaks = breaks
         .iter()
-        .map(|(name, b)| (name.clone(), b.axis, b.reduction()))
+        .map(|(name, b)| (name.clone(), b.axis, b.remove[1] - b.remove[0], b.paper_gap))
         .collect();
     request.aligned = aligned;
     request.automatic_pair = automatic_pair;
@@ -7010,8 +7010,18 @@ fn plan_with_presentation(
         .collect();
     for v in &mut views {
         if let Some(b) = breaks.get(v.id.trim_start_matches("v:")) {
-            v.broken = Some(b.clone());
-            v.from_spec.push(b.source.clone());
+            let scaled = b.at_scale(v.scale);
+            if scaled.reduction() > 0. {
+                v.broken = Some(scaled);
+                v.from_spec.push(b.source.clone());
+            } else {
+                crate::broken::not_applied(
+                    &mut problems,
+                    v.id.trim_start_matches("v:"),
+                    &b.source,
+                    "the removed interval is shorter on paper than the requested gap at this scale",
+                );
+            }
         }
     }
     if let (Some(cut), Some(area)) = (&section, g.section_boxes.first()) {

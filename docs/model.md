@@ -528,11 +528,11 @@ message names it (`…; A4 at 1:1 fits.`).
 `views/<id>/break` requests one ISO 128 zig-zag interruption on a principal view.
 `{}` chooses the longest proven uniform span along the longest in-plane world
 axis. The default removal retains one cross-section width (at least 5 model mm)
-inside each end of that span and leaves a 6 model mm gap; `remove` and `gap`
+inside each end of that span and leaves a 6 paper mm gap; `remove` and `gap`
 change those defaults. For example, `{"axis":"x", "remove":[100,500], "gap":6, "aligned":true}`
-removes the open interval from x=100 to x=500 model mm, leaving a 6 model mm gap.
+removes the open interval from x=100 to x=500 model mm, leaving a 6 paper mm gap.
 `axis`, `remove`, `gap` and `aligned` override each automatic choice. Coordinates
-refer to model geometry, never the page. `aligned` defaults to true: the same
+refer to model geometry, never the page; `gap` alone is a paper-mm size, constant at every scale. `aligned` defaults to true: the same
 interval is carried into principal peers seeing that axis; false limits it to
 the named view. Explicit peer requests take precedence. Omit `break` to draw
 full length. Multiple intervals and breaks on cuts, details or isometrics are
@@ -540,12 +540,14 @@ not supported; unavailable or conflicting requests warn `break_not_applied` and
 keep the view unbroken. The extrusion proof excludes all transverse edges and
 non-extruded curved surfaces; older analyses without this evidence also warn.
 
+Incompatible aligned details and half sections warn about displaced alignment; suppressed automatic half sections are reported. A leader, datum or symbol anchored inside the removed span warns `break_anchor_removed`; change `remove` or omit the break to show that attachment.
+
 The removed region contributes no visible or hidden ink. The two retained ends
 move equally towards one another, with thin zig-zag break lines across their
-profiles. Dimensions retain true measured values and their continuous dimension
+profiles, repeated at a 4 paper mm pitch and overshooting the outline by 2 paper mm. Dimensions retain true measured values and their continuous dimension
 lines; witnesses, hole marks and lint's inverse transform use the shortened map.
 The reserved view extents use the shortened length before paper/scale selection;
-the unbroken isometric is independently fitted. Applied fields and rejected or
+the unbroken isometric is independently fitted. Automatic selection never worsens the unbroken paper or scale; if no broken arrangement preserves both, it keeps the unbroken drawing with a specific warning. Explicit `sheet/size` and `sheet/scale` override that fallback. Applied fields and rejected or
 displaced intent are recorded by the central override reporter. Explicit sheet
 size/scale remain authoritative; automatic paper uses the existing smallest-first
 policy and its clean, legible scale trials.
