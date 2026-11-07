@@ -1911,6 +1911,7 @@ fn analyse_read_part(
         part_keys: defs
             .as_ref()
             .ok()
+            .filter(|defs| defs.len() > 1)
             .map(|defs| {
                 let parts = file_parts(defs);
                 crate::pack::part_keys(&parts)

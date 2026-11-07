@@ -465,6 +465,7 @@ fn session_open_resolves_spec_part_before_recognition() {
         draftwright::api::Features::Native,
     )
     .unwrap();
+    assert!(single.part_keys.is_empty());
     assert!(
         serde_json::to_value(&single)
             .unwrap()
@@ -472,13 +473,13 @@ fn session_open_resolves_spec_part_before_recognition() {
             .is_none()
     );
     assert!(single.product_name.is_some());
-    assert_eq!(
-        serde_json::from_value::<draftwright::model::Analysis>(
-            serde_json::to_value(single).unwrap()
-        )
-        .unwrap()
-        .parts
-        .len(),
-        0
-    );
+    let round: draftwright::model::Analysis =
+        serde_json::from_value(serde_json::to_value(&single).unwrap()).unwrap();
+    assert!(round.parts.is_empty());
+    let single_parts = draftwright::api::parts(Path::new(&part("prismatic.step"))).unwrap();
+    let single_key = &draftwright::pack::part_keys(&single_parts)[0];
+    let choice = serde_json::from_value(json!({"part":single_key})).unwrap();
+    for analysis in [&single, &round] {
+        draftwright::api::plan_analysed(analysis, &choice).unwrap();
+    }
 }
