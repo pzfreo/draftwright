@@ -618,8 +618,15 @@ mod tests {
     /// the end view and rim/depth/angle callout describe them cleanly.
     #[test]
     fn automatic_half_section_does_not_overlay_a_broken_profile() {
-        let a = part(&[(15., 0., 24.)], &[bore(5., 24., 12., "blind")]);
+        let mut cbore = bore(5., 24., 24., "through");
+        cbore.1["cbore"] = json!({"diameter":8.,"depth":3.});
+        let a = part(&[(15., 0., 24.)], &[cbore]);
+        assert!(
+            why(&a).is_some(),
+            "this fixture must normally earn a half section"
+        );
         let mut p = crate::model::plan(&a, &crate::model::Spec::default()).unwrap();
+        p.views.retain(|v| v.cut.is_none());
         for v in &mut p.views {
             v.half_section = None;
             v.broken = Some(crate::broken::Break {
