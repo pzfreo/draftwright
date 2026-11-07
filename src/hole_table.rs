@@ -958,6 +958,13 @@ fn table_obstacles(analysis: &Analysis, plan: &Plan, dims: &[PlannedDimension]) 
 /// Explain the failed transaction using the same obstacles as installation.
 /// Reduce a block-space failure to an inclusion-minimal set of named blockers.
 pub(crate) fn unavailable(analysis: &Analysis, plan: &Plan, selection: &Selection) -> Problem {
+    // Automatic candidates often fail before recovery picks a drawing. Preserve
+    // their lightweight advisory; only an explicit request needs blocker proofs.
+    if plan.spec.hole_table != Setting::Always {
+        return Problem { id: "p:hole_table_unavailable:sheet".into(), code: "hole_table_unavailable".into(), severity: "info".into(),
+            message: "The automatic hole table or its tags have no clear place; the original dimensions are kept.".into(),
+            subjects: vec!["sheet".into()], ..Default::default() };
+    }
     let mut named: Vec<(String, Vec<Rect>)> = Vec::new();
     for view in &plan.views {
         let mut boxes = tables::obstacles(analysis, &plan.sheet, std::slice::from_ref(view), &[]);
