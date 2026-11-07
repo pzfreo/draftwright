@@ -1060,6 +1060,19 @@ pub(crate) fn unavailable(analysis: &Analysis, plan: &Plan, selection: &Selectio
             .into()
         })
         .collect();
+    let refs = std::iter::once("hole_table".into())
+        .chain(
+            subjects
+                .iter()
+                .filter(|id| matches!(id.as_str(), "sheet/title" | "notes"))
+                .cloned(),
+        )
+        .collect();
+    for id in &mut subjects {
+        if matches!(id.as_str(), "sheet/title" | "notes") {
+            *id = "sheet".into();
+        }
+    }
     Problem {
         id: "p:hole_table_unavailable:sheet".into(),
         code: "hole_table_unavailable".into(),
@@ -1081,7 +1094,7 @@ pub(crate) fn unavailable(analysis: &Analysis, plan: &Plan, selection: &Selectio
             descriptions.join(", ")
         ),
         subjects,
-        refs: vec!["hole_table".into()],
+        refs,
         ..Default::default()
     }
 }
