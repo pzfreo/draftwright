@@ -879,6 +879,10 @@ pub struct Plan {
     /// A pin replay's canonical gutter translations, spent instead of a new gutter solve.
     #[serde(skip)]
     pub(crate) replay_gutters: Option<BTreeMap<String, [f64; 2]>>,
+    /// The selected pin solve's anchor, consumed by the public movement audit.
+    /// Keeping it with the candidate prevents reuse of a rejected trial's anchor.
+    #[serde(skip)]
+    pub(crate) placement_anchor: Option<std::sync::Arc<Plan>>,
     /// Canonical linear label positions relative to their carrier origins; editor metadata.
     #[serde(skip)]
     pub(crate) dimension_labels: BTreeMap<String, (String, [f64; 2])>,
@@ -5899,7 +5903,6 @@ fn plan_with_presentation(
     };
     let mut effective = spec.clone();
     if let Some(base) = &canonical {
-        crate::decision_overrides::remember_pin_anchor(spec, base);
         effective.sheet.size = Some(base.sheet.size.clone());
         effective.sheet.scale = Some(base.sheet.scale.clone());
         {
@@ -8305,6 +8308,12 @@ fn plan_with_presentation(
             .as_ref()
             .filter(|_| crate::placement_intent::has_pins(&spec))
             .map(|c| c.gutter_deltas.clone()),
+        placement_anchor: canonical.as_ref().filter(|_| {
+            !crate::decision_overrides::reference_only()
+                && crate::placement_intent::has_pins(&spec)
+                && crate::decision_overrides::has_placement_change(&spec)
+                && matches!(&analysis.pmi, Some(crate::pmi::Reading::Read(r)) if r.records.iter().any(|r| matches!(r.category, crate::pmi::Category::Datum | crate::pmi::Category::GeometricTolerance)))
+        }).map(|p| std::sync::Arc::new(p.clone())),
         dimension_labels: canonical
             .as_ref()
             .map(|p| p.dimension_labels.clone())

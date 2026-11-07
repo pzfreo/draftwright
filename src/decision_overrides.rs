@@ -140,7 +140,6 @@ fn add(basis: &mut String, family: Family, target: Target<'_>) {
 thread_local! {
     static DEPTH: Cell<usize> = const { Cell::new(0) };
     static PLACEMENT_REFERENCE: RefCell<Option<Arc<Plan>>> = const { RefCell::new(None) };
-    static PIN_ANCHOR: RefCell<Option<(crate::model::Spec, Arc<Plan>)>> = const { RefCell::new(None) };
     static REFERENCE_ONLY: Cell<bool> = const { Cell::new(false) };
 }
 struct Boundary;
@@ -149,7 +148,6 @@ impl Drop for Boundary {
         DEPTH.set(DEPTH.get() - 1);
         if DEPTH.get() == 0 {
             PLACEMENT_REFERENCE.set(None);
-            PIN_ANCHOR.set(None);
             REFERENCE_ONLY.set(false);
         }
     }
@@ -172,15 +170,8 @@ pub(crate) fn boundary(
     }
     let mut plan = run()?;
     if outer {
+        let anchor = plan.placement_anchor.take();
         if crate::placement_intent::has_pins(&plan.spec) {
-            let bound = crate::model::migrate(&plan.spec, analysis)
-                .ok()
-                .and_then(|s| crate::recognition_corrections::bind(analysis, s).ok());
-            let anchor = PIN_ANCHOR.with_borrow(|r| {
-                r.as_ref()
-                    .filter(|(s, _)| bound.as_ref() == Some(s))
-                    .map(|(_, p)| Arc::clone(p))
-            });
             PLACEMENT_REFERENCE.set(
                 prepare_placement_reference(analysis, &plan.spec, anchor.as_deref()).map(Arc::new),
             );
@@ -191,7 +182,7 @@ pub(crate) fn boundary(
     Ok(plan)
 }
 
-/// The placement-free drawing keeps every other authored requirement. It is
+/// The placement counterfactual keeps every other authored requirement. It is
 /// shared by GD&T's incumbent trial and the final public displacement report.
 pub(crate) fn placement_reference(spec: &crate::model::Spec) -> Option<Arc<Plan>> {
     if !spec.dimensions.values().any(|d| d.place.is_some()) {
@@ -200,19 +191,58 @@ pub(crate) fn placement_reference(spec: &crate::model::Spec) -> Option<Arc<Plan>
     PLACEMENT_REFERENCE.with_borrow(Clone::clone)
 }
 
-/// Reuse the live pin anchor only as an anchor, never as a displacement
-/// baseline: its Spec deliberately omits presentation intent. The independent
-/// comparison below keeps that intent and changes only pin placement fields.
-pub(crate) fn remember_pin_anchor(spec: &crate::model::Spec, anchor: &Plan) {
-    if !reference_only() {
-        PIN_ANCHOR.set(Some((spec.clone(), Arc::new(anchor.clone()))));
-    }
-}
-
 /// Reference drawings need geometry, not another canonical label-anchor replay
 /// or repair offers. These metadata passes cannot change the reference ink.
 pub(crate) fn reference_only() -> bool {
     REFERENCE_ONLY.get()
+}
+
+/// Whether free places or authored pin positions differ from neutral anchors.
+pub(crate) fn has_placement_change(spec: &crate::model::Spec) -> bool {
+    let pinned = spec.dimensions.values().any(|d| {
+        d.place
+            .as_ref()
+            .is_some_and(|p| p.pinned && !crate::placement_intent::automatic_pin(p))
+    });
+    spec.dimensions.values().any(|d| {
+        d.place.as_ref().is_some_and(|p| {
+            if pinned {
+                p.pinned && !crate::placement_intent::automatic_pin(p)
+            } else {
+                !p.pinned && *p != Default::default()
+            }
+        })
+    })
+}
+
+/// Preserve unrelated entries, including explicit empty directives. Only an
+/// entry made empty by withdrawing its actual placement can disappear.
+fn placement_counterfactual(spec: &crate::model::Spec) -> Option<crate::model::Spec> {
+    if !has_placement_change(spec) {
+        return None;
+    }
+    let pinned = spec.dimensions.values().any(|d| {
+        d.place
+            .as_ref()
+            .is_some_and(|p| p.pinned && !crate::placement_intent::automatic_pin(p))
+    });
+    let mut base = spec.clone();
+    base.dimensions.retain(|_, d| {
+        let Some(p) = &d.place else { return true };
+        if pinned && p.pinned {
+            let neutral = crate::placement_intent::Place {
+                view: p.view.clone(),
+                pinned: true,
+                ..Default::default()
+            };
+            d.place = Some(neutral);
+        } else if !pinned && !p.pinned && *p != Default::default() {
+            d.place = None;
+            return *d != Default::default();
+        }
+        true
+    });
+    Some(base)
 }
 
 fn prepare_placement_reference(
@@ -220,40 +250,12 @@ fn prepare_placement_reference(
     spec: &crate::model::Spec,
     anchor: Option<&Plan>,
 ) -> Option<Plan> {
-    if !spec.dimensions.values().any(|d| d.place.is_some()) {
-        return None;
-    }
+    let base = placement_counterfactual(spec)?;
     let effective = crate::spec_gdt::effective(analysis, spec).ok()?;
     if !matches!(&effective.pmi, Some(crate::pmi::Reading::Read(r)) if r.records.iter().any(|r| matches!(r.category, crate::pmi::Category::Datum | crate::pmi::Category::GeometricTolerance)))
     {
         return None;
     }
-    let pinned = spec
-        .dimensions
-        .values()
-        .any(|d| d.place.as_ref().is_some_and(|p| p.pinned));
-    let mut base = spec.clone();
-    for d in base.dimensions.values_mut() {
-        if let Some(p) = d.place.as_mut() {
-            if pinned {
-                if p.pinned {
-                    // Keep the pin and its carrier; compare its authored offset
-                    // to its neutral automatic anchor, retaining every peer place.
-                    *p = crate::placement_intent::Place {
-                        view: p.view.clone(),
-                        pinned: true,
-                        ..Default::default()
-                    };
-                }
-            } else {
-                d.place = None;
-            }
-        }
-    }
-    if base == *spec {
-        return None;
-    }
-    base.dimensions.retain(|_, d| *d != Default::default());
     struct Restore(bool);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -602,6 +604,57 @@ fn report(analysis: &crate::model::Analysis, plan: &mut Plan) {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    #[test]
+    fn empty_placement_needs_no_comparison() {
+        let spec = serde_json::from_value(serde_json::json!({
+            "dimensions":{"empty":{},"no-op":{"place":{}},"bare":{"place":{"view":"plan","pinned":true}}}
+        }))
+        .unwrap();
+        assert!(super::placement_counterfactual(&spec).is_none());
+    }
+
+    #[test]
+    fn comparison_preserves_every_unrelated_directive() {
+        let mut value = serde_json::json!({"sheet":{"size":"A4","scale":"1:1"}, "dimensions":{
+            "pin":{"place":{"view":"plan","pinned":true,"offset":[14,12]}},
+            "peer":{"place":{"view":"plan","side":"above","along":0.25}},
+            "empty":{},"no-op":{"place":{}}
+        }});
+        let spec: crate::model::Spec = serde_json::from_value(value.clone()).unwrap();
+        let mut expected = value.clone();
+        expected["dimensions"]["pin"]["place"]
+            .as_object_mut()
+            .unwrap()
+            .remove("offset");
+        assert_eq!(
+            super::placement_counterfactual(&spec).unwrap(),
+            serde_json::from_value(expected).unwrap()
+        );
+
+        let mut bare = value.clone();
+        bare["dimensions"]["pin"]["place"]
+            .as_object_mut()
+            .unwrap()
+            .remove("offset");
+        let spec = serde_json::from_value(bare.clone()).unwrap();
+        bare["dimensions"].as_object_mut().unwrap().remove("peer");
+        assert_eq!(
+            super::placement_counterfactual(&spec).unwrap(),
+            serde_json::from_value(bare).unwrap()
+        );
+
+        value["dimensions"]["pin"]["place"]["pinned"] = serde_json::json!(false);
+        let spec = serde_json::from_value(value.clone()).unwrap();
+        // Withdraw the two free placements, retaining both unrelated empty
+        // directives and the rest of the document byte-for-byte in its fields.
+        value["dimensions"].as_object_mut().unwrap().remove("pin");
+        value["dimensions"].as_object_mut().unwrap().remove("peer");
+        assert_eq!(
+            super::placement_counterfactual(&spec).unwrap(),
+            serde_json::from_value(value).unwrap()
+        );
+    }
+
     #[test]
     fn final_ink_recheck_keeps_real_overflow_and_unrelated_findings() {
         use crate::{model, output::Curve};
