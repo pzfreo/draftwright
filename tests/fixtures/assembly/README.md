@@ -68,3 +68,14 @@ python tools/make_bom_fixture.py --specify /scratch/specify-target/release/speci
   --source /scratch/sp-src/tests/fixtures/revisions/gramil_assembly.new.step.gz \
   --work /scratch/bom267 --output tests/fixtures/assembly/bom-small.step.gz
 ```
+
+`pack-hex-bolts.step.gz` (#351) is original synthetic build123d/OCP geometry:
+a 5 mm across-flats hex head, 2 mm high, with a ø3 × 8 mm shank retained as
+five cylindrical faces, plus three coplanar head-top faces. Four translated
+copies are named `M3×8 hex bolt #1` through `#4`; `rotated fastener` is a
+37° axial rotation, and `M3×8 hex bolt #6` has a 10 mm shank as a negative.
+The off-origin placements make align choose ±120° head symmetries for the
+translated copies, which disagree with the shank face layout. OCP
+STEPControl_Writer transferred each body independently: six PRODUCTs,
+no NEXT_ASSEMBLY_USAGE_OCCURRENCE. Shared under this repository's licence;
+gzip without a timestamp. The one-off generator is intentionally uncommitted.

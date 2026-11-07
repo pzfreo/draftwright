@@ -121,13 +121,26 @@ pub struct Row {
     pub error: Option<Error>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ValueSource {
     Spec,
     File,
     Suggested,
     Guess,
+}
+
+impl Row {
+    /// Process text fit to state on a manufacturing drawing's parts list.
+    pub(super) fn stated_process(&self) -> Option<crate::process::Process> {
+        (self.supply != Supply::Buy
+            && self
+                .sources
+                .get("process")
+                .is_some_and(|s| *s != ValueSource::Guess))
+        .then_some(self.bom.process)
+        .flatten()
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -382,6 +395,21 @@ fn congruence(
     }
     if let Some(faces) = equal_at(a, af, b, bf, &Motion::IDENTITY) {
         return Some((Motion::IDENTITY, faces));
+    }
+    // The mean face centroid is translation-equivariant and independent of face order.
+    // Try it before align(), which can choose a symmetric rotation that disagrees
+    // with the exported face/seam layout. This is only a candidate, still proven below.
+    let centroid = |f: &Fingerprints| {
+        [0, 1, 2].map(|i| {
+            f.faces.iter().map(|face| face.centroid[i]).sum::<f64>() / f.faces.len() as f64
+        })
+    };
+    let translation = Motion {
+        t: geom::sub(centroid(bf), centroid(af)),
+        ..Motion::IDENTITY
+    };
+    if let Some(faces) = equal_at(a, af, b, bf, &translation) {
+        return Some((translation, faces));
     }
     let (motion, alignment) = align(af, bf, &Default::default());
     alignment
@@ -815,6 +843,9 @@ pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Er
                 );
             }
         }
+        let process = crate::process::resolve(Some(&row.bom), &drawing_spec);
+        row.bom.process = Some(process.process);
+        row.sources.insert("process".into(), process.source);
         if row.sources.get("material") == Some(&ValueSource::Spec)
             && let Some(material) = &row.bom.material
         {
@@ -934,6 +965,11 @@ pub fn build_bytes(name: &str, bytes: &[u8], spec: &PackSpec) -> Result<Pack, Er
             Supply::Make
         };
         row.supply = supply.unwrap_or(guessed);
+        // Keep labelled guesses for made parts, but do not invent a process for bought parts.
+        if row.supply == Supply::Buy && row.sources.get("process") == Some(&ValueSource::Guess) {
+            row.bom.process = None;
+            row.sources.remove("process");
+        }
         if stated_supply.is_some() && !suggested_supply {
             row.buy_reasons.clear();
         } else if suggested_supply && supply_override.is_none() {
@@ -1208,7 +1244,7 @@ impl Report {
             format!("\"{}\"", s.replace('"', "\"\""))
         }
         let mut out =
-            "item,name,products,qty,supply,buy_reasons,sheets,reference,material,description,part_number,revision,quantity_range,optional,stock,make_buy,categories,classifications,occurrence_references,supply_source,item_source,material_source,name_source,description_source,part_number_source,revision_source,quantity_range_source,optional_source,stock_source,make_buy_source,qty_source,categories_source,classifications_source,occurrence_references_source,product_ids,product_ids_source,stated_item_number,stated_item_number_source,file_make_buy,file_make_buy_source,part_number_suggestion,part_number_suggestion_source\r\n".to_string();
+            "item,name,products,qty,supply,buy_reasons,sheets,reference,material,description,part_number,revision,quantity_range,optional,stock,make_buy,categories,classifications,occurrence_references,supply_source,item_source,material_source,name_source,description_source,part_number_source,revision_source,quantity_range_source,optional_source,stock_source,make_buy_source,qty_source,categories_source,classifications_source,occurrence_references_source,product_ids,product_ids_source,stated_item_number,stated_item_number_source,file_make_buy,file_make_buy_source,part_number_suggestion,part_number_suggestion_source,process,process_source\r\n".to_string();
         for row in &self.rows {
             let source = |field: &str| {
                 row.sources
@@ -1277,6 +1313,8 @@ impl Report {
                 source("file_make_buy"),
                 row.bom.part_number_suggestion.clone().unwrap_or_default(),
                 source("part_number_suggestion"),
+                row.bom.process.map(|p| p.label()).unwrap_or_default(),
+                source("process"),
             ];
             out.push_str(
                 &fields

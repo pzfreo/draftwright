@@ -16,6 +16,87 @@ fn small() -> &'static Pack {
 }
 
 #[test]
+fn translated_hex_bolts_merge_with_a_display_stem_and_a_geometry_finding() {
+    let step = fixture("pack-hex-bolts.step.gz");
+    let bytes = draftwright::model::read_step_file(&step).unwrap();
+    assert!(
+        !String::from_utf8(bytes)
+            .unwrap()
+            .contains("NEXT_ASSEMBLY_USAGE_OCCURRENCE")
+    );
+    // Isolate the rotated product to exercise the four translated products' display stem.
+    // The longer bolt deliberately shares that stem, but must remain a separate row.
+    let spec = PackSpec {
+        parts: [(
+            "rotated fastener".into(),
+            PartSpec {
+                separate: true,
+                ..Default::default()
+            },
+        )]
+        .into(),
+        ..Default::default()
+    };
+    let pack = pack::build(&step, &spec).unwrap();
+    assert_eq!(pack.report.rows.len(), 3);
+    let row = pack.report.rows.iter().find(|r| r.qty == 4).unwrap();
+    assert_eq!(row.name, "M3×8 hex bolt");
+    assert_eq!(row.key, "M3×8 hex bolt");
+    assert_eq!(row.supply, Supply::Buy);
+    assert_eq!(
+        row.products,
+        (1..=4)
+            .map(|i| format!("M3×8 hex bolt #{i}"))
+            .collect::<Vec<_>>()
+    );
+    assert!(row.buy_reasons.iter().any(|reason| reason.contains("bolt")));
+    let finding = pack
+        .report
+        .findings
+        .iter()
+        .find(|f| f.code == "pack_geometry_merge" && f.products == row.products)
+        .unwrap();
+    assert_eq!(finding.severity, "info");
+    assert!(finding.message.contains("identical geometry:"));
+    assert!(
+        finding
+            .message
+            .contains("proper rigid motion, distance tolerance 0.00001 mm")
+    );
+    let longer = pack
+        .report
+        .rows
+        .iter()
+        .find(|r| r.name == "M3×8 hex bolt #6")
+        .unwrap();
+    assert_eq!(longer.qty, 1);
+    assert_eq!(longer.products, ["M3×8 hex bolt #6"]);
+    assert!(pack.report.rows.iter().all(|r| r.error.is_none()));
+}
+
+#[test]
+fn rotated_hex_bolt_merges_despite_its_different_name_but_longer_shank_does_not() {
+    let pack = pack::build(&fixture("pack-hex-bolts.step.gz"), &PackSpec::default()).unwrap();
+    assert_eq!(pack.report.rows.len(), 2);
+    let row = pack.report.rows.iter().find(|r| r.qty == 5).unwrap();
+    assert_eq!(row.products.len(), 5);
+    assert!(row.products.iter().any(|p| p == "rotated fastener"));
+    // Different names do not block geometry merges; without a common stem the
+    // representative's original display name remains.
+    assert_eq!(row.name, "M3×8 hex bolt #1");
+    assert_eq!(row.supply, Supply::Buy);
+    assert!(
+        pack.report
+            .findings
+            .iter()
+            .any(|f| f.code == "pack_geometry_merge" && f.products == row.products)
+    );
+    let longer = pack.report.rows.iter().find(|r| r.qty == 1).unwrap();
+    assert_eq!(longer.products, ["M3×8 hex bolt #6"]);
+    assert!(pack.report.rows.iter().all(|r| r.error.is_none()));
+}
+
+#[test]
 fn groups_quantities_items_csv_and_furniture() {
     let pack = small();
     let rows = &pack.report.rows;

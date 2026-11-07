@@ -448,7 +448,10 @@ pub fn effective<'a>(analysis: &'a Analysis, spec: &Spec) -> Result<Cow<'a, Anal
         Cow::Borrowed(a) => pmi_effective(a, spec)?,
         Cow::Owned(a) => Cow::Owned(pmi_effective(&a, spec)?.into_owned()),
     };
-    crate::gears::effective(merged, spec)
+    Ok(crate::process::effective(
+        crate::gears::effective(merged, spec)?,
+        spec,
+    ))
 }
 
 fn pmi_effective<'a>(analysis: &'a Analysis, spec: &Spec) -> Result<Cow<'a, Analysis>, Invalid> {

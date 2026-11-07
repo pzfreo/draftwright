@@ -6,6 +6,18 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+### Added
+
+- Per-part manufacturing process from Spec, STEP UDA or material class, with
+  recorded provenance, process tolerance/finish defaults and conditional GA Process column.
+
+### Fixed
+
+- Manufacturing defaults preserve authored PMI finishes. GA process cells omit
+  bought parts and guesses; CSV carries process provenance. Printed gear policy
+  caps severity without promoting Info, and tolerance defaults use explicit
+  greater-of wording and CHECK marks for ungraded suggested standards.
+
 ### Changed
 
 - Spec validation preserves truthful drawing requests (#308): warn for duplicate

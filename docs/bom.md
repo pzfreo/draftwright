@@ -43,6 +43,10 @@ invalid intent.
 Only optional rows receive a `quantity_range`, e.g. `0–1` or `0–2` after a Spec
 quantity override. Placed quantities are unchanged. MATERIAL and qualified DWG NO
 fill the existing title cells after layout; explicit sheet title overrides win.
-The GA's existing MATERIAL column uses each row's material. Descriptions,
-revisions, optional ranges, stock and classifications remain data-only; no new
-sheet elements are added. Real title/table overflow remains reported.
+The GA's MATERIAL column uses each row's material. An adjacent PROCESS column
+appears only when a non-bought row has a Spec, file or suggested process to print;
+bought and guessed cells are blank. CSV `process` / `process_source` mirror the
+JSON value / `sources.process`, leaving absent values blank. Guesses for made
+parts stay labelled as guesses in the report; bought parts get no process guess.
+Descriptions, revisions, optional ranges, stock and classifications remain
+data-only. Real title/table overflow remains reported.
