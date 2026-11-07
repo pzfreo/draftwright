@@ -9065,9 +9065,14 @@ pub(crate) fn refresh_line_work_problems(plan: &mut Plan) {
     // Recheck its actual final ink; do not suppress other annotations' off-sheet findings.
     plan.problems
         .retain(|p| !p.id.starts_with("p:annotation_off_sheet:ink:"));
-    for sheet in std::iter::once(&plan.sheet).chain(&plan.sheets) {
-        plan.problems.extend(line_work_problems(sheet, &plan.views));
-    }
+    layout::with_gutter(
+        plan.spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
+        || {
+            for sheet in std::iter::once(&plan.sheet).chain(&plan.sheets) {
+                plan.problems.extend(line_work_problems(sheet, &plan.views));
+            }
+        },
+    );
     plan.status = crate::completeness::status(&plan.problems);
 }
 

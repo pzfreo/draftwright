@@ -283,5 +283,11 @@ mod tests {
         model::refresh_line_work_problems(&mut p);
         assert!(!p.problems.iter().any(|q| q.id.ends_with("ink:actual")));
         assert!(p.problems.iter().any(|q| q.id.ends_with("d:other")));
+        p.spec.sheet.frame_gutter = Some(15.);
+        model::refresh_line_work_problems(&mut p);
+        assert!(
+            p.problems.iter().any(|q| q.id.ends_with("ink:actual")),
+            "20 mm is outside the requested 25 mm drawable inset"
+        );
     }
 }
