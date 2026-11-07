@@ -251,13 +251,22 @@ fn obstacles(plan: &Plan, sheet: u32) -> Vec<Obstacle> {
     }
     out
 }
+/// Finished tag relabelling must clear the same annotation ink as inspection routes.
+pub(crate) fn tag_blocker(plan: &Plan, sheet: u32, own: &str, bounds: Box2) -> Option<String> {
+    obstacles(plan, sheet).into_iter().find_map(|o| {
+        (o.id != own
+            && (boxes_overlap(bounds, o.bounds) || o.lines.iter().any(|l| crosses(*l, bounds))))
+        .then_some(o.id)
+    })
+}
+
 fn carrier_box(plan: &Plan, id: &str, obs: &[Obstacle]) -> Option<Box2> {
     if let Some(b) = obs.iter().find(|o| o.id == id) {
         return Some(b.bounds);
     }
     for t in plan.hole_table.iter().chain(&plan.hole_tables) {
         for (i, r) in t.rows.iter().enumerate() {
-            if id == format!("{}/{}", t.id, r.tag) {
+            if id == format!("{}/{}", t.id, r.key()) {
                 let block = t.blocks.iter().find(|b| {
                     b.rows
                         .iter()
@@ -620,7 +629,7 @@ pub(crate) fn place(analysis: &Analysis, plan: &mut Plan, r: &Record, c: &mut Ch
             .map(|m| &m.feature)
             .collect();
         for row in &table.rows {
-            let id = format!("{}/{}", table.id, row.tag);
+            let id = format!("{}/{}", table.id, row.key());
             if id != item
                 && members.contains(&&row.feature)
                 && let Some(bounds) = carrier_box(plan, &id, &obs)

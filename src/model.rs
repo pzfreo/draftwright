@@ -2657,7 +2657,8 @@ pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
 /// Select from finished, complete drawings under the maintainer's sheet policy (2026-10-12).
 /// Find the smallest fit and its largest scale; only its immediate larger sheet, with an
 /// enlargement, may compete. Pins keep their canonical sheet; explicit choices override.
-pub fn recover(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
+pub fn recover(analysis: &Analysis, spec: &Spec, mut first: Plan) -> Result<Plan, Invalid> {
+    crate::hole_table::labels::restore(&mut first);
     crate::decision_overrides::boundary(analysis, spec, || recover_inner(analysis, spec, first))
 }
 
@@ -11515,7 +11516,7 @@ fn render_annotations_with_cuts(
                             .join(" "),
                     ),
                     coordinate_origin: None,
-                    name: format!("{}/{}", t.id, row.tag),
+                    name: format!("{}/{}", t.id, row.key()),
                     view: Some("v:plan".into()),
                     runs: cells.into_iter().flatten().collect(),
                     claims: row
@@ -11537,7 +11538,7 @@ fn render_annotations_with_cuts(
                             approved_claims: Vec::new(),
                             approved_text: Some(row.cells[c].clone()),
                             coordinate_origin: None,
-                            name: format!("{}/{}/entry", t.id, row.tag),
+                            name: format!("{}/{}/entry", t.id, row.key()),
                             view: t.view.clone(),
                             runs,
                             claims: vec![Claim {
@@ -11584,7 +11585,7 @@ fn render_annotations_with_cuts(
                         approved_claims: Vec::new(),
                         approved_text: Some(row.cells[c].clone()),
                         coordinate_origin: if c > 1 { t.origin } else { None },
-                        name: format!("{}/{}/{}", t.id, row.tag, ["tag", "size", "x", "y"][c]),
+                        name: format!("{}/{}/{}", t.id, row.key(), ["tag", "size", "x", "y"][c]),
                         view: t.view.clone(),
                         runs,
                         claims,

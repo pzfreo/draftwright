@@ -50,14 +50,6 @@
       "remove_d:step_level/step_height.length.h8"
     ]
   },
-  "322": {
-    "case": "steer_322_spatial_table_tags",
-    "group": "C",
-    "reason": "Table tags do not follow row/column order from the origin.",
-    "checks": [
-      "tags_follow_rows_then_columns"
-    ]
-  },
   "326": {
     "case": "steer_326_short_dimensions_inside",
     "group": "C",

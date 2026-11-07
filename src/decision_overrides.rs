@@ -178,6 +178,7 @@ pub(crate) fn boundary(
         }
         crate::model::refresh_line_work_problems(&mut plan);
         report(analysis, &mut plan);
+        crate::hole_table::labels::finish(analysis, &mut plan);
     }
     Ok(plan)
 }

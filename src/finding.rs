@@ -159,6 +159,7 @@ catalogue! {
     "hole_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
     "hole_table_entry_invalid" => Incomplete, Code, "The drawn evidence does not correctly state the required source information.";
     "hole_table_escalated" => Advisory, Code, "A hole table replaced crowded individual callouts.";
+    "hole_table_tag_order_retained" => Advisory, Code, "Legacy tags retain the finished geometry when spatial relabelling would collide or detach a row leader.";
     "hole_table_unavailable" => Decision, Code, "An explicit table request was not met; individual dimensions remain.";
     "interior_void" => Advisory, Feature, "A factual inventory of an internal cavity; its faces do not establish a hole opening.";
     "iso_layout_overflow" => Readability, Code, "The requested isometric scale exceeds its reserved layout area.";

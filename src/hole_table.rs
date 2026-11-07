@@ -61,6 +61,8 @@
 //! - The rows come from the plan's callouts: a hole whose callout the spec omits has no row
 //!   (draftwright tabulates every z hole of its model, with blank cells) (undetermined).
 
+pub(crate) mod labels;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use haecceity::hlr::View;
@@ -141,10 +143,20 @@ pub struct PitchCircle {
 #[serde(deny_unknown_fields)]
 pub struct HoleRow {
     pub tag: String,
+    /// Original identity token when the final display label differs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag_id: Option<String>,
     pub feature: String,
     /// `TAG`, `⌀`, `DEPTH`, `X`, `Y`.
     pub cells: Vec<String>,
     pub measurements: Vec<Measurement>,
+}
+
+impl HoleRow {
+    /// Stable row/cell identity, independent of the final printed tag.
+    pub fn key(&self) -> &str {
+        self.tag_id.as_deref().unwrap_or(&self.tag)
+    }
 }
 
 /// A balloon: a ring with its tag, leadered from a hole's rim.
@@ -835,6 +847,7 @@ fn rows(
             }
         }
         out.push(HoleRow {
+            tag_id: None,
             tag: tag.clone(),
             feature: (*f).into(),
             cells,
@@ -2052,6 +2065,7 @@ mod tests {
             blocks: Vec::new(),
             rows: (0..18)
                 .map(|i| HoleRow {
+                    tag_id: None,
                     tag: i.to_string(),
                     feature: format!("f{i}"),
                     measurements: Vec::new(),
@@ -2797,6 +2811,7 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                 }
                 cells.push(entry_cell(analysis, view.direction, h.at, h.direction));
                 rows.push(HoleRow {
+                    tag_id: None,
                     tag: String::new(),
                     feature: f.into(),
                     cells,

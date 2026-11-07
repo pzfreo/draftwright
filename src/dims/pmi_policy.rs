@@ -1054,7 +1054,7 @@ fn audit_inner(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
                     });
                 }
                 marks.push(crate::lint::Mark {
-                    name: format!("{}/{}/{}", table.id, row.tag, AXES[k]),
+                    name: format!("{}/{}/{}", table.id, row.key(), AXES[k]),
                     view: table.view.clone(),
                     text: format!("{value}"),
                     claims,
@@ -1132,7 +1132,7 @@ fn audit_inner(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
         for table in p.hole_table.iter().chain(&p.hole_tables) {
             for row in &table.rows {
                 for axis in AXES {
-                    let cell = format!("{}/{}/{axis}", table.id, row.tag);
+                    let cell = format!("{}/{}/{axis}", table.id, row.key());
                     problem.message = problem
                         .message
                         .replace(&cell, &format!("table coordinate {} {axis}", row.tag));

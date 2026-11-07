@@ -2724,6 +2724,16 @@ An explicit `hole_table: always` retries up to four block forms, reserving each
 before composing views; `sheet/table_columns` still wins. If installation fails,
 `hole_table_unavailable` retains the individual dimensions, names the blocking
 views or ink (or the sheet boundaries), and has decision impact for an explicit request.
+Published hole-table tags are numbered within each existing size family in rising
+local Y rows, then rising local X columns from the table origin. A row includes
+centres within 0.000001 model mm of its lowest Y; ties use Y then feature identity.
+This final permutation changes printed tags and table-row order only: row/cell
+identities retain their original token (`tag_id` when different). Placement and
+routing see legacy numbering throughout. A wider label or reordered cell that
+collides with fixed ink retains the whole table's legacy numbering, with an info
+`hole_table_tag_order_retained` finding. A fixed inspection leader also retains
+its original row carrier. No table, route, view or sheet is moved by relabelling.
+
 Tags and origin labels avoid boundaries, bore silhouettes, other annotation ink
 and section furniture; their resolved `label_box` is also judged by structural
 lint and the SVG quality instrument. Pins keep their callout or location ink. A row replaces a

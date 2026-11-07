@@ -17,6 +17,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Number hole-table tags spatially after layout without changing identities, routes
+  or paper; retain legacy numbering with an info finding when fixed ink blocks it (#322).
+
 - Recompose views around alternate block forms of an explicit hole table before
   withdrawing it; unmet requests report named blockers with decision impact (#321).
 

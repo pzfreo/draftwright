@@ -1085,7 +1085,7 @@ fn approved_diameter_tolerances_reach_every_scheduled_size_cell_verbatim() {
         let cell = drawing
             .annotations
             .iter()
-            .find(|a| a.name.ends_with(&format!("/{}/size", row.tag)))
+            .find(|a| a.name.ends_with(&format!("/{}/size", row.key())))
             .unwrap();
         let ink = cell
             .runs
