@@ -1793,12 +1793,18 @@ pub(crate) fn reserve_linear_corridors(
     let mut shifts = vec![[0.0; 2]; plan.views.len()];
     let index = |id: &str| plan.views.iter().position(|v| v.id == id);
     // Dimension pins are relative to their carrier, not absolute paper coordinates.
-    // An explicit lane may move the projection assembly with its pinned ink.
-    let explicit_lane = plan
-        .spec
-        .dimensions
-        .values()
-        .any(|d| !d.omit && d.place.as_ref().is_some_and(|p| p.lane.is_some()));
+    // Unlock fixed frames only for actual requested-lane overflow; spare reserved
+    // bands must not move an already fitting drawing.
+    let explicit_lane = plan.dimensions.iter().any(|d| {
+        plan.spec.dimensions.get(&d.id).is_some_and(|entry| {
+            !entry.omit && entry.place.as_ref().is_some_and(|p| p.lane.is_some())
+        }) && crate::dims::ink_box(d).is_some_and(|b| {
+            b[0] < margin() - 1e-6
+                || b[1] < margin() - 1e-6
+                || b[2] > plan.sheet.page[0] - margin() + 1e-6
+                || b[3] > plan.sheet.page[1] - margin() + 1e-6
+        })
+    });
     let free = (explicit_lane
         || (!crate::placement_intent::has_pins(&plan.spec)
             && (automatic_pair
@@ -1916,6 +1922,14 @@ pub(crate) fn reserve_linear_corridors(
                 shifts[i][1] += raise;
             }
         }
+    }
+    if explicit_lane && shifts.iter().any(|d| *d != [0.0; 2]) {
+        plan.sheet.basis = plan.sheet.basis.replace(
+            "anchor frames and sheet choice kept fixed for placement pins",
+            "sheet choice retained; view carriers translated for the requested lane",
+        );
+        plan.sheet.basis +=
+            "; applied explicit lane reservation by transporting its carrying views";
     }
     for (i, v) in plan.views.iter_mut().enumerate() {
         let delta = shifts[i];
