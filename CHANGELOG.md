@@ -17,6 +17,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Reserve the printed ink of explicit linear lanes before placing views; transport
+  view-relative dimension pins with their projection assembly to use free paper,
+  and name exceeded sheet boundaries when the requested ink cannot fit (#296).
+
 - Bound GD&T placement comparisons to a primitive sheet pass or a reused pin
   anchor; ignore sub-stroke drift, attribute causes to new intersecting ink or
   the sole changed dimension placement, and retain peer intent in pin comparisons.

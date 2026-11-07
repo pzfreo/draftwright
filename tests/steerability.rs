@@ -362,6 +362,27 @@ fn steer_296_reserve_explicit_lane() {
 }
 
 #[test]
+fn explicit_lane_reports_exhausted_paper() {
+    let mut s = input("inline-293");
+    s["dimensions"]["d:envelope/height.length"]["place"] = json!({"side":"left","lane":40});
+    let p = planned(BRACKET, &s);
+    assert!(p.plan.problems.iter().any(|f| {
+        f.code == "annotation_off_sheet"
+            && f.message.contains("boundary exceeded by")
+            && f.subjects
+                .iter()
+                .any(|id| p.plan.dimensions.iter().any(|d| &d.id == id))
+    }));
+    assert!(
+        dim(&p.plan, "d:envelope/height.length")
+            .unwrap()
+            .from_spec
+            .iter()
+            .any(|f| f == "place")
+    );
+}
+
+#[test]
 fn steer_297_reference_roles() {
     let _p = planned(BRACKET, &input("inline-293"));
     let refs = serde_json::to_value(fixture(BRACKET).analysis.edge_ink.as_ref().unwrap()).unwrap();

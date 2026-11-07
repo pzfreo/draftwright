@@ -1792,13 +1792,21 @@ pub(crate) fn reserve_linear_corridors(
         .collect();
     let mut shifts = vec![[0.0; 2]; plan.views.len()];
     let index = |id: &str| plan.views.iter().position(|v| v.id == id);
-    let free = !crate::placement_intent::has_pins(&plan.spec)
+    // Dimension pins are relative to their carrier, not absolute paper coordinates.
+    // An explicit lane may move the projection assembly with its pinned ink.
+    let explicit_lane = plan
+        .spec
+        .dimensions
+        .values()
+        .any(|d| !d.omit && d.place.as_ref().is_some_and(|p| p.lane.is_some()));
+    let free = (explicit_lane
+        || (!crate::placement_intent::has_pins(&plan.spec)
+            && (automatic_pair
+                || plan.spec.sheet.size.is_none()
+                || plan.spec.sheet.scale.is_none())))
         && !crate::model::dimension_text_edited(&plan.spec)
         && !plan.spec.views.values().any(|v| v.place.is_some())
-        // A named sheet and scale retain their established projection frame,
-        // including section marks. Reserve the full ink without silently moving
-        // that frame; automatic sheet candidates may compose their free blocks.
-        && (automatic_pair || plan.spec.sheet.size.is_none() || plan.spec.sheet.scale.is_none());
+        && plan.spec.sheet.keep_layout != Some(true);
     if free {
         let first = plan.spec.sheet.projection.as_deref() == Some("first");
         let column: Vec<usize> = plan

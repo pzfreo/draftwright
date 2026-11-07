@@ -6435,7 +6435,15 @@ fn plan_with_presentation(
         crate::dims::lanes_excluding(analysis, &shown_views, &excluded, spec)?
     };
     demand.lanes = lanes;
-    crate::dims::reserve_linear_intent(analysis, spec, &shown_views, &excluded, &mut demand.lanes)?;
+    demand
+        .callout_bands
+        .extend(crate::dims::reserve_linear_intent(
+            analysis,
+            spec,
+            &shown_views,
+            &excluded,
+            &mut demand.lanes,
+        )?);
     // Full printed extents reserve ink, but an authored linear tolerance must not recenter
     // every projection and its unrelated dimensions (ARCH0003-2). Keep the established
     // linear anchor bands separately; the placed blocks below still use the full extents.

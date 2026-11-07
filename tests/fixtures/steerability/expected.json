@@ -7,15 +7,6 @@
       "feature_not_located"
     ]
   },
-  "296": {
-    "case": "steer_296_reserve_explicit_lane",
-    "group": "C",
-    "reason": "The explicit lane runs off the sheet and raises page_fit_uncertain.",
-    "checks": [
-      "no_annotation_off_sheet",
-      "no_page_fit_uncertain"
-    ]
-  },
   "299": {
     "case": "steer_299_agent_rough_edges",
     "group": "E",

@@ -5864,8 +5864,28 @@ fn collisions_prepared(
                 "error",
                 vec![d.id.clone()],
                 format!(
-                    "{} runs off the sheet's drawing area.",
-                    crate::wording::capital(&named(d))
+                    "{} runs off the sheet's drawing area: {}. The requested ink is retained; move its carrying view or use more paper.",
+                    crate::wording::capital(&named(d)),
+                    {
+                        let mut bounds = lb;
+                        for point in ends {
+                            for k in 0..2 {
+                                bounds[k] = bounds[k].min(point[k]);
+                                bounds[k + 2] = bounds[k + 2].max(point[k]);
+                            }
+                        }
+                        [
+                            ("left", area[0] - bounds[0]),
+                            ("bottom", area[1] - bounds[1]),
+                            ("right", bounds[2] - area[2]),
+                            ("top", bounds[3] - area[3]),
+                        ]
+                        .into_iter()
+                        .filter(|(_, excess)| *excess > 1e-6)
+                        .map(|(side, excess)| format!("{side} boundary exceeded by {excess:.2} mm"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                    }
                 ),
             );
         }
