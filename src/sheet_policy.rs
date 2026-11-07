@@ -988,7 +988,7 @@ pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> 
         .expect("sheet selection inputs serialize");
     crate::planning::memo(analysis, "selected-paper", key, || {
         let plan = select_uncached(analysis, spec)?;
-        if automatic(spec)
+        if (spec.sheet.size.is_none() || spec.sheet.scale.is_none())
             && let Some(unbroken) = crate::broken::without(spec)
         {
             let mut full = select(analysis, &unbroken)?;

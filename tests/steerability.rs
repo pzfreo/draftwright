@@ -2889,3 +2889,40 @@ fn broken_view_gap_is_constant_on_paper_and_displaced_alignment_warns() {
         && p.subjects.contains(&"v:plan".into())
         && p.message.contains("displaced aligned intent")));
 }
+
+#[test]
+fn broken_view_never_worsens_partial_sheet_choices() {
+    for sheet in [
+        json!({"size":"A4"}),
+        json!({"scale":"1:1"}),
+        json!({"size":"A4","scale":"1:2"}),
+    ] {
+        let mut s = minimal();
+        s["sheet"] = sheet;
+        s["views"] = json!({"front":{"break":{"axis":"x","remove":[5,25],"gap":6}},
+            "plan":{},"sections":[{"id":"B","through":"f:section_recess:1"}]});
+        let broken = planned(SHAFT, &s);
+        s["views"]["front"].as_object_mut().unwrap().remove("break");
+        let full = planned(SHAFT, &s);
+        assert!(
+            broken.plan.sheet.scale_factor >= full.plan.sheet.scale_factor,
+            "{} vs {} for {}",
+            broken.plan.sheet.scale,
+            full.plan.sheet.scale,
+            s
+        );
+        assert!(
+            broken.plan.sheet.page[0] * broken.plan.sheet.page[1]
+                <= full.plan.sheet.page[0] * full.plan.sheet.page[1]
+        );
+        assert!(
+            broken.plan.views.iter().any(|v| v.broken.is_some())
+                || broken
+                    .plan
+                    .problems
+                    .iter()
+                    .any(|p| p.code == "break_not_applied"
+                        && p.message.contains("unbroken paper and scale"))
+        );
+    }
+}
