@@ -176,7 +176,9 @@ fn report(plan: &mut Plan) {
         let id = v.id.trim_start_matches("v:");
         add(&mut v.basis, Family::Views, Target::View(id));
         add(&mut v.basis, Family::Linework, Target::View(id));
-        if let Some(b) = &v.broken {
+        if let Some(b) = &v.broken
+            && !v.basis.contains(&format!("; applied {}:", b.source))
+        {
             v.basis += &format!(
                 "; applied {}: uniform projected interval {:?}, retained gap {} model mm; displaced full-length depiction; axis/remove/gap/aligned override automatic break choices",
                 b.source, b.remove, b.gap

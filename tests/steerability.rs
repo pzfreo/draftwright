@@ -2721,7 +2721,7 @@ fn broken_view_explicit_interval_survives_pinned_dimension() {
 #[test]
 fn broken_view_without_uniform_span_warns_and_retains_geometry() {
     let mut s = minimal();
-    s["views"]["front"] = json!({"break":{"axis":"x","remove":[-1000,1000]}});
+    s["views"]["front"] = json!({"break":{}});
     let p = planned(FLANGE, &s);
     let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
     assert!(v.broken.is_none());

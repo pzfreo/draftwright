@@ -283,6 +283,7 @@ pub(crate) fn apply(analysis: &Analysis, plan: &mut Plan) {
     let turned = turned(analysis);
     let profile = |v: &PlannedView| {
         v.detail.is_none()
+            && v.broken.is_none()
             && v.cut.is_none()
             && v.id != "v:iso"
             && turned
@@ -606,6 +607,23 @@ mod tests {
     /// quiddity-rust#123: a body without a boss or bands still qualifies for an
     /// authored half section. Visible shallow face recesses alone do not trigger one:
     /// the end view and rim/depth/angle callout describe them cleanly.
+    #[test]
+    fn automatic_half_section_does_not_overlay_a_broken_profile() {
+        let a = part(&[(15., 0., 24.)], &[bore(5., 24., 12., "blind")]);
+        let mut p = crate::model::plan(&a, &crate::model::Spec::default()).unwrap();
+        for v in &mut p.views {
+            v.half_section = None;
+            v.broken = Some(crate::broken::Break {
+                axis: 1,
+                remove: [5., 15.],
+                gap: 2.,
+                source: "views/front/break".into(),
+            });
+        }
+        apply(&a, &mut p);
+        assert!(p.views.iter().all(|v| v.half_section.is_none()));
+    }
+
     #[test]
     fn a_single_diameter_body_is_eligible_without_forcing_a_section() {
         let a = part(
