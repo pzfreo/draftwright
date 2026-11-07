@@ -1027,6 +1027,7 @@ pub(super) fn prepare<'a>(
                 let d = [at[0] - site.tip[0], at[1] - site.tip[1]];
                 let len = d[0].hypot(d[1]);
                 (len > radius).then(|| crate::hole_table::Balloon {
+                    label_box_before: None,
                     id: String::new(),
                     tag: rows[i].item.to_string(),
                     view: v.id.clone(),

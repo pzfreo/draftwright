@@ -9,9 +9,13 @@ fn family(tag: &str) -> &str {
         .map_or("", |i| &tag[..i])
 }
 
+fn width(tag: &str) -> f64 {
+    let ink = crate::dims::label_ink(&[tag.into()], crate::dims::font());
+    (ink.max[0] - ink.min[0]).max(tag.len() as f64 * crate::dims::TEXT * 0.6)
+}
+
 fn tag_box(b: &Balloon) -> Rect {
-    let ink = crate::dims::label_ink(std::slice::from_ref(&b.tag), crate::dims::font());
-    let w = (ink.max[0] - ink.min[0]).max(b.tag.len() as f64 * crate::dims::TEXT * 0.6);
+    let w = width(&b.tag);
     [
         b.at[0] - w / 2.,
         b.at[1] - crate::dims::TEXT / 2.,
@@ -30,12 +34,14 @@ fn cells(t: &mut HoleTable) {
                 cell.clone_from(&row.cells);
                 if let Some(p) = &mut b.placed {
                     for (c, text) in cell.iter().enumerate() {
-                        p.cells_at[r][c] = (!text.trim().is_empty()).then(|| {
-                            [
+                        if text.trim().is_empty() {
+                            p.cells_at[r][c] = None;
+                        } else if p.cells_at[r][c].is_none() {
+                            p.cells_at[r][c] = Some([
                                 (p.columns[c] + p.columns[c + 1]) / 2.,
                                 p.cells[3] - (r as f64 + 0.5) * ROW,
-                            ]
-                        });
+                            ]);
+                        }
                     }
                 }
             }
@@ -63,16 +69,22 @@ fn names(t: &HoleTable, balloons: &mut [Balloon]) {
         {
             continue;
         }
-        // Keep the compound tag's legacy member order, too.
-        b.tag = b
+        // Keep the compound tag's legacy member order and transported vertical bounds.
+        let label = b
             .tag
             .split('/')
             .map(|s| map.get(s).copied().unwrap_or(s))
             .collect::<Vec<_>>()
             .join("/");
-        if b.label_box.is_some() {
-            b.label_box = Some(tag_box(b));
+        let delta = (width(&label) - width(&b.tag)) / 2.;
+        if delta != 0.
+            && let Some(bounds) = &mut b.label_box
+        {
+            b.label_box_before = Some(*bounds);
+            bounds[0] -= delta;
+            bounds[2] += delta;
         }
+        b.tag = label;
     }
 }
 
@@ -99,8 +111,8 @@ pub(crate) fn restore(plan: &mut Plan) {
                 .map(|s| reverse.get(s).map_or(s, String::as_str))
                 .collect::<Vec<_>>()
                 .join("/");
-            if b.label_box.is_some() {
-                b.label_box = Some(tag_box(b));
+            if let Some(bounds) = b.label_box_before.take() {
+                b.label_box = Some(bounds);
             }
         }
         for r in &mut t.rows {
@@ -202,7 +214,10 @@ fn blocked(
                 .any(|f| t.rows.iter().any(|r| &r.feature == f))
     }) {
         let old = before.balloons.iter().find(|a| a.id == b.id)?;
-        let (a, z) = (tag_box(old), tag_box(b));
+        let (a, z) = (
+            old.label_box.unwrap_or_else(|| tag_box(old)),
+            b.label_box.unwrap_or_else(|| tag_box(b)),
+        );
         if z[2] - z[0] <= a[2] - a[0] + 1e-9 {
             continue;
         }
@@ -417,8 +432,27 @@ mod tests {
                 assert_eq!(value(&b.placed), value(&old.placed));
             }
         }
+        p = serde_json::from_value(value(&p)).unwrap();
         restore(&mut p);
         assert_eq!(value(&p), value(original));
+    }
+
+    #[test]
+    fn equal_width_relabelling_keeps_transported_bounds_bit_for_bit() {
+        let (a, original) = fixture();
+        let mut p = original.clone();
+        let marker = p.balloons.iter_mut().find(|b| b.tag == "C5").unwrap();
+        let id = marker.id.clone();
+        let bounds = marker.label_box.as_mut().unwrap();
+        // Translation can leave a stored bound one ULP from at +/- half-height (FTC10).
+        bounds[3] = f64::from_bits(bounds[3].to_bits() - 1);
+        let before = *bounds;
+        finish(a, &mut p);
+        let marker = p.balloons.iter().find(|b| b.id == id).unwrap();
+        assert_ne!(marker.tag, "C5");
+        assert_eq!(marker.tag.len(), 2);
+        assert_eq!(marker.label_box, Some(before));
+        assert!(marker.label_box_before.is_none());
     }
 
     #[test]

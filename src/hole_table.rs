@@ -179,6 +179,9 @@ pub struct Balloon {
     pub radius: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_box: Option<Rect>,
+    /// Exact legacy bounds for feeding a published relabelling back into recovery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_box_before: Option<Rect>,
     /// The leader from the hole's rim (its arrowhead's tip) to the ring; none when the ring
     /// could not clear the hole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1909,6 +1912,7 @@ fn place_reference_bands(
         rings.push([at[0] - r, at[1] - r, at[0] + r, at[1] + r]);
         leaders.extend(leader);
         out[i] = Some(Balloon {
+            label_box_before: None,
             id: format!("balloon_plan_{}_0", w.tag),
             tag: w.tag.clone(),
             view: view.into(),
@@ -3755,6 +3759,7 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
             // Invariant: The placement loop returns false on a missing slot before reaching this zip.
             let (at, leader) = slot.expect("every tag placed");
             marks.push(Balloon {
+                label_box_before: None,
                 id: format!("{}/tag/{}", t.id, g.tag),
                 tag: g.text,
                 view: view.id.clone(),
@@ -3789,6 +3794,7 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
             return false;
         };
         marks.push(Balloon {
+            label_box_before: None,
             id: format!("{}/origin", t.id),
             tag: "0".into(),
             view: view.id.clone(),
@@ -3816,6 +3822,7 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
             ),
         ] {
             marks.push(Balloon {
+                label_box_before: None,
                 id: format!("{}/origin/{name}", t.id),
                 tag: name.to_uppercase(),
                 view: view.id.clone(),
