@@ -2727,6 +2727,14 @@ pub(super) fn avoid_fixed(
         // automatic slide or opposite-side fallback (#325).
         if let Some(request) = places[i].filter(|_| matches!(items[i].shape, Shape::Linear { .. }))
         {
+            // Repair only an actual contact: choosing a pin must not shorten
+            // an unrelated, already clear explicit witness (#325).
+            let mut nearer = p.clone();
+            nearest_pattern_witnesses(analysis, &frames[view], &items[i].measurements, &mut nearer);
+            if page.fits(&nearer, view) && !blocked(&nearer) {
+                placed[i] = Some(nearer);
+                continue;
+            }
             let first = request.lane.unwrap_or(lanes[i]);
             let mut preserved = None;
             for lane in first..first + 64 {
