@@ -27,6 +27,12 @@ type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
 pub(crate) fn carries(a: &Analysis) -> bool {
     matches!(&a.pmi, Some(Reading::Read(r)) if !r.records.is_empty())
 }
+/// Notes and manufacturing callouts do not choose measurement origins or
+/// suppress geometry-only repair offers. Only dimensional/datum intent does.
+pub(crate) fn controls_origins(a: &Analysis) -> bool {
+    matches!(&a.pmi, Some(Reading::Read(r)) if r.records.iter().any(|r| matches!(r.category,
+        Category::Datum | Category::Dimension | Category::GeometricTolerance)))
+}
 pub(crate) fn strict(a: &Analysis, s: &Spec) -> bool {
     s.pmi == PmiMode::Strict && carries(a)
 }
@@ -346,6 +352,13 @@ pub(super) fn origins(a: &Analysis, s: &Spec, wants: &mut [Want]) -> Vec<Problem
         }
     }
     problems
+}
+
+/// Drop datum-owned zero locations without treating a feature note as a datum.
+pub(super) fn drop_on_origin(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) {
+    if controls_origins(a) || !s.origin.is_empty() {
+        wants.retain(|w| !on_origin(w));
+    }
 }
 
 pub(super) fn on_origin(w: &Want) -> bool {

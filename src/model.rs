@@ -4786,9 +4786,10 @@ pub(crate) fn finish_presentation(
         }
         crate::dims::gdt::cited_undrawn(&mut plan);
         crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
-        if expanded_notches
-            || crate::dims::pmi_policy::carries(effective.as_ref())
-            || !spec.origin.is_empty()
+        if !crate::decision_overrides::reference_only()
+            && (expanded_notches
+                || crate::dims::pmi_policy::carries(effective.as_ref())
+                || !spec.origin.is_empty())
         {
             crate::fixes::attach(effective.as_ref(), &mut plan);
         }
@@ -4894,7 +4895,7 @@ fn plan_automatic_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Inv
         }
     })?;
     crate::centrelines::trim_to_frame(&mut plan.views, plan.sheet.page);
-    if !crate::placement_intent::has_pins(spec) {
+    if !crate::placement_intent::has_pins(spec) && !crate::decision_overrides::reference_only() {
         type Labels = BTreeMap<String, (String, [f64; 2])>;
         static LABELS: crate::planning::BoundedMemo<Labels> = crate::planning::BoundedMemo::new(64);
         let base = pin_base(spec);
@@ -4942,7 +4943,10 @@ fn plan_automatic_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Inv
     // PMI completeness belongs to the selected drawing. Attach its remedies once,
     // after that audit in plan_recovered_inner, rather than hashing and enriching
     // every automatic candidate and then repeating the work on the public plan.
-    if !crate::dims::pmi_policy::carries(analysis) && spec.origin.is_empty() {
+    if !crate::decision_overrides::reference_only()
+        && !crate::dims::pmi_policy::controls_origins(analysis)
+        && spec.origin.is_empty()
+    {
         crate::fixes::attach(analysis, &mut plan);
     }
     Ok(plan)
@@ -5637,7 +5641,9 @@ fn plan_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 plan.record_dimension_labels();
             }
             crate::dims::pmi_policy::audit(analysis, spec, &mut plan);
-            crate::fixes::attach(analysis, &mut plan);
+            if !crate::decision_overrides::reference_only() {
+                crate::fixes::attach(analysis, &mut plan);
+            }
             Ok(plan)
         })
     })
@@ -5893,7 +5899,7 @@ fn plan_with_presentation(
     };
     let mut effective = spec.clone();
     if let Some(base) = &canonical {
-        crate::decision_overrides::remember_pin_reference(base);
+        crate::decision_overrides::remember_pin_anchor(spec, base);
         effective.sheet.size = Some(base.sheet.size.clone());
         effective.sheet.scale = Some(base.sheet.scale.clone());
         {

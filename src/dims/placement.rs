@@ -488,13 +488,17 @@ pub(crate) fn displaced_linear_fields(
         }) {
             fields.push("side");
         }
+        // Text clearance may nudge a label by up to 2 paper mm (less than
+        // one text height) without changing its requested along station. Lane
+        // offsets remain geometric constraints, with only 0.01 mm roundoff slack.
         if let Some(along) = request.along {
             let k = line.k;
             let kept = if along == Along::Slot(Slot::Outside) {
-                (p.label_box[k] - line.extent[1] - 1.0).abs() < 1e-6
+                p.label_box[k] >= line.extent[1] - 0.01
+                    && (p.label_box[k] - line.extent[1] - 1.0).abs() <= 2.0
             } else {
                 let at = line.span[0] + along.fraction() * (line.span[1] - line.span[0]);
-                ((p.label_box[k] + p.label_box[k + 2]) / 2.0 - at).abs() < 1e-6
+                ((p.label_box[k] + p.label_box[k + 2]) / 2.0 - at).abs() <= 2.0
             };
             if !kept {
                 fields.push("along");
@@ -502,7 +506,7 @@ pub(crate) fn displaced_linear_fields(
         }
         if request
             .lane
-            .is_some_and(|lane| (lane_at(outline, side, lane).0 - line.offset).abs() > 1e-6)
+            .is_some_and(|lane| (lane_at(outline, side, lane).0 - line.offset).abs() > 0.01)
         {
             fields.push("lane");
         }

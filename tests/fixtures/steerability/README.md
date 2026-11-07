@@ -92,3 +92,9 @@ failure. #299 additionally exercises a real specific source refusal and an
 accepted A2 crop as positive controls. #304 checks the existing public schema
 validator's `input/views/sections` path alongside decoding the proposed request;
 a generic serde type error anywhere in the Spec is insufficient.
+
+The review regression `mounting-plate.spec.json` uses the existing
+`tests/fixtures/samples/mounting-plate.step.gz` (the same geometry as the
+`dw-examples` mounting plate). Its baseline scheme puts two dimensions in one
+requested lane and nudges the slot-width text 1.5 mm: the lane conflict must be
+reported while the minor text-clearance nudge is accepted.

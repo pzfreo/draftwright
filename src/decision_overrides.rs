@@ -140,7 +140,8 @@ fn add(basis: &mut String, family: Family, target: Target<'_>) {
 thread_local! {
     static DEPTH: Cell<usize> = const { Cell::new(0) };
     static PLACEMENT_REFERENCE: RefCell<Option<Arc<Plan>>> = const { RefCell::new(None) };
-    static PIN_REFERENCE_REQUIRED: Cell<bool> = const { Cell::new(false) };
+    static PIN_ANCHOR: RefCell<Option<(crate::model::Spec, Arc<Plan>)>> = const { RefCell::new(None) };
+    static REFERENCE_ONLY: Cell<bool> = const { Cell::new(false) };
 }
 struct Boundary;
 impl Drop for Boundary {
@@ -148,7 +149,8 @@ impl Drop for Boundary {
         DEPTH.set(DEPTH.get() - 1);
         if DEPTH.get() == 0 {
             PLACEMENT_REFERENCE.set(None);
-            PIN_REFERENCE_REQUIRED.set(false);
+            PIN_ANCHOR.set(None);
+            REFERENCE_ONLY.set(false);
         }
     }
 }
@@ -162,15 +164,27 @@ pub(crate) fn boundary(
     DEPTH.set(DEPTH.get() + 1);
     let _guard = Boundary;
     if outer {
-        PIN_REFERENCE_REQUIRED.set(
-            crate::placement_intent::has_pins(spec)
-                && spec.dimensions.values().any(|d| d.place.is_some()),
-        );
-        let reference = prepare_placement_reference(analysis, spec).map(Arc::new);
+        let reference = (!crate::placement_intent::has_pins(spec))
+            .then(|| prepare_placement_reference(analysis, spec, None))
+            .flatten()
+            .map(Arc::new);
         PLACEMENT_REFERENCE.set(reference);
     }
     let mut plan = run()?;
     if outer {
+        if crate::placement_intent::has_pins(&plan.spec) {
+            let bound = crate::model::migrate(&plan.spec, analysis)
+                .ok()
+                .and_then(|s| crate::recognition_corrections::bind(analysis, s).ok());
+            let anchor = PIN_ANCHOR.with_borrow(|r| {
+                r.as_ref()
+                    .filter(|(s, _)| bound.as_ref() == Some(s))
+                    .map(|(_, p)| Arc::clone(p))
+            });
+            PLACEMENT_REFERENCE.set(
+                prepare_placement_reference(analysis, &plan.spec, anchor.as_deref()).map(Arc::new),
+            );
+        }
         crate::model::refresh_line_work_problems(&mut plan);
         report(analysis, &mut plan);
     }
@@ -186,22 +200,27 @@ pub(crate) fn placement_reference(spec: &crate::model::Spec) -> Option<Arc<Plan>
     PLACEMENT_REFERENCE.with_borrow(Clone::clone)
 }
 
-/// Pin planning already has the actual incumbent; share it without replanning.
-pub(crate) fn remember_pin_reference(plan: &Plan) {
-    if PIN_REFERENCE_REQUIRED.get() {
-        PLACEMENT_REFERENCE.with_borrow_mut(|p| {
-            p.get_or_insert_with(|| Arc::new(plan.clone()));
-        });
+/// Reuse the live pin anchor only as an anchor, never as a displacement
+/// baseline: its Spec deliberately omits presentation intent. The independent
+/// comparison below keeps that intent and changes only pin placement fields.
+pub(crate) fn remember_pin_anchor(spec: &crate::model::Spec, anchor: &Plan) {
+    if !reference_only() {
+        PIN_ANCHOR.set(Some((spec.clone(), Arc::new(anchor.clone()))));
     }
+}
+
+/// Reference drawings need geometry, not another canonical label-anchor replay
+/// or repair offers. These metadata passes cannot change the reference ink.
+pub(crate) fn reference_only() -> bool {
+    REFERENCE_ONLY.get()
 }
 
 fn prepare_placement_reference(
     analysis: &crate::model::Analysis,
     spec: &crate::model::Spec,
+    anchor: Option<&Plan>,
 ) -> Option<Plan> {
-    if crate::placement_intent::has_pins(spec)
-        || !spec.dimensions.values().any(|d| d.place.is_some())
-    {
+    if !spec.dimensions.values().any(|d| d.place.is_some()) {
         return None;
     }
     let effective = crate::spec_gdt::effective(analysis, spec).ok()?;
@@ -209,12 +228,62 @@ fn prepare_placement_reference(
     {
         return None;
     }
+    let pinned = spec
+        .dimensions
+        .values()
+        .any(|d| d.place.as_ref().is_some_and(|p| p.pinned));
     let mut base = spec.clone();
     for d in base.dimensions.values_mut() {
-        d.place = None;
+        if let Some(p) = d.place.as_mut() {
+            if pinned {
+                if p.pinned {
+                    // Keep the pin and its carrier; compare its authored offset
+                    // to its neutral automatic anchor, retaining every peer place.
+                    *p = crate::placement_intent::Place {
+                        view: p.view.clone(),
+                        pinned: true,
+                        ..Default::default()
+                    };
+                }
+            } else {
+                d.place = None;
+            }
+        }
+    }
+    if base == *spec {
+        return None;
     }
     base.dimensions.retain(|_, d| *d != Default::default());
-    crate::model::plan_recovered(analysis, &base).ok()
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            REFERENCE_ONLY.set(self.0);
+        }
+    }
+    let _restore = Restore(REFERENCE_ONLY.replace(true));
+    // Free placement comparisons use one primitive single-sheet solve, never
+    // allocator/recovery search. Pins retain the live finished anchor and need
+    // the same fixed-frame finishing path; reusing it avoids a canonical replay.
+    let anchored = crate::placement_intent::has_pins(spec);
+    let run = || {
+        if anchored {
+            crate::model::plan_recovered(analysis, &base)
+        } else {
+            crate::model::plan(analysis, &base)
+        }
+    };
+    let mut reference = if let Some(anchor) = anchor {
+        crate::planning::with_pin_reference(anchor.clone(), run)
+    } else {
+        run()
+    }
+    .ok()?;
+    if !anchored {
+        crate::iso_caption::refresh(analysis, &mut reference);
+        crate::view_gutters::apply(analysis, &mut reference);
+        crate::iso_caption::refresh(analysis, &mut reference);
+    }
+    Some(reference)
 }
 
 fn report_gdt_moves(plan: &mut Plan) {
@@ -237,25 +306,11 @@ fn report_gdt_moves(plan: &mut Plan) {
     let Some(before) = placement_reference(&plan.spec) else {
         return;
     };
-    let causes: Vec<_> = plan
-        .dimensions
-        .iter()
-        .filter(|d| {
-            plan.spec
-                .dimensions
-                .get(&d.id)
-                .is_some_and(|d| d.place.is_some())
-        })
-        .collect();
-    let names = causes
-        .iter()
-        .map(|d| crate::wording::item(&d.id, &d.kind, &d.label))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let paths: Vec<_> = causes
-        .iter()
-        .map(|d| format!("dimensions/{}/place", crate::items::key(&d.id)))
-        .collect();
+    // An automatically selected different paper is not a controlled local
+    // placement comparison. Do not publish a causal claim from that drawing.
+    if before.sheet.size != plan.sheet.size || before.sheet.scale != plan.sheet.scale {
+        return;
+    }
     for g in &mut plan.gdt {
         if plan
             .spec
@@ -276,21 +331,75 @@ fn report_gdt_moves(plan: &mut Plan) {
         let Some(now) = g.placed.as_ref() else {
             continue;
         };
+        // 0.01 paper mm is below a plotted stroke; packing's 0.00001 mm
+        // clearance epsilon is not a user-visible movement.
         if old
             .label_box
             .iter()
             .zip(now.label_box)
-            .all(|(a, b)| (a - b).abs() < 1e-6)
+            .all(|(a, b)| (a - b).abs() <= 0.01)
         {
             continue;
         }
+        // New ink crossing the old printed box is evidence of a particular
+        // cause. Other placement requests are not blamed merely for existing.
+        let causes: Vec<_> = plan
+            .dimensions
+            .iter()
+            .filter(|d| {
+                before
+                    .spec
+                    .dimensions
+                    .get(&d.id)
+                    .and_then(|d| d.place.as_ref())
+                    != plan
+                        .spec
+                        .dimensions
+                        .get(&d.id)
+                        .and_then(|d| d.place.as_ref())
+                    && d.view == g.view
+                    && crate::dims::ink_in_box(d, old.label_box)
+                    && !before
+                        .dimensions
+                        .iter()
+                        .find(|b| b.id == d.id)
+                        .is_some_and(|b| {
+                            b.view == g.view && crate::dims::ink_in_box(b, old.label_box)
+                        })
+            })
+            .collect();
+        let cause = if causes.is_empty() {
+            "the cause is unattributed; the placement-only reference establishes the move, but no newly intersecting dimension ink identifies a particular request".into()
+        } else {
+            format!(
+                "new ink at its old box from the requested place of {}",
+                causes
+                    .iter()
+                    .map(|d| crate::wording::item(&d.id, &d.kind, &d.label))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        let paths: Vec<_> = causes
+            .iter()
+            .map(|d| format!("dimensions/{}/place", crate::items::key(&d.id)))
+            .collect();
         let named = crate::wording::item(&g.id, &g.kind, &g.label);
         g.basis +=
             "; automatic position displaced by dimension placement; see gdt_position_changed";
         plan.problems.push(Problem {
-            id: format!("p:gdt_position_changed:{}", g.id), code: "gdt_position_changed".into(), severity: "warning".into(),
-            message: format!("{} moved from its automatic position while accommodating the requested place of {names}. The final attachment, clearance and sheet layout selected a different position, recorded in the plan.", crate::wording::capital(&named)),
-            subjects: std::iter::once(g.id.clone()).chain(causes.iter().map(|d| d.id.clone())).collect(), refs: paths.clone(), ..Default::default()
+            id: format!("p:gdt_position_changed:{}", g.id),
+            code: "gdt_position_changed".into(),
+            severity: "warning".into(),
+            message: format!(
+                "{} moved from its automatic position; {cause}.",
+                crate::wording::capital(&named)
+            ),
+            subjects: std::iter::once(g.id.clone())
+                .chain(causes.iter().map(|d| d.id.clone()))
+                .collect(),
+            refs: paths.clone(),
+            ..Default::default()
         });
     }
 }

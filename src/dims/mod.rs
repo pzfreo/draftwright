@@ -651,6 +651,13 @@ fn wording_of(w: &Want) -> String {
     crate::wording::item(&w.id, "", &w.terms.join(" "))
 }
 
+/// Exact new-ink evidence for a displacement cause, including text and heads.
+pub(crate) fn ink_in_box(d: &PlannedDimension, b: [f64; 4]) -> bool {
+    d.placed
+        .as_ref()
+        .is_some_and(|p| placement::boxes_overlap(p.label_box, b) || placement::ink_through(p, b))
+}
+
 /// Contact between annotation text and the other annotation's rendered ink.
 pub(crate) fn text_contact(a: &Placed, b: &Placed) -> bool {
     placement::boxes_overlap(a.label_box, b.label_box)
@@ -917,9 +924,7 @@ fn wants_uncached(
             .filter(|p| !p.subjects.iter().any(|s| stated.contains(s))),
     );
     problems.extend(pmi_policy::origins(analysis, spec, &mut out));
-    if pmi_policy::carries(analysis) || !spec.origin.is_empty() {
-        out.retain(|w| !pmi_policy::on_origin(w));
-    }
+    pmi_policy::drop_on_origin(analysis, spec, &mut out);
     // The part's PMI dimensions: on the model's items that state them, or their own.
     let (own, more, notes) = if pmi_policy::strict(analysis, spec) {
         pmi_policy::strict_callouts(analysis, &mut out);
@@ -1107,9 +1112,7 @@ fn restate(analysis: &Analysis, spec: &Spec, wants: &mut Vec<Want>, problems: &m
     }
     // The origins' own problems are reported with the default wants.
     let _ = pmi_policy::origins(analysis, spec, &mut own);
-    if pmi_policy::carries(analysis) || !spec.origin.is_empty() {
-        own.retain(|w| !pmi_policy::on_origin(w));
-    }
+    pmi_policy::drop_on_origin(analysis, spec, &mut own);
     wants.extend(own);
 }
 
@@ -5930,6 +5933,94 @@ pub(crate) fn measurement_ids(analysis: &Analysis) -> BTreeSet<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn feature_notes_preserve_on_origin_wants() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/steerability/guide-bar.step.gz");
+        let (_, a) =
+            crate::model::analyse_native_bytes("guide-bar.step.gz", &std::fs::read(path).unwrap())
+                .unwrap();
+        // A location at the selected origin is still a wanted measurement until
+        // a dimensional/datum policy owns it; notes cannot change that policy.
+        let w = size(&a.features[0].id, "location.length.x", 0., 0., &["0"]).0;
+        assert!(pmi_policy::on_origin(&w));
+        let mut spec = Spec::default();
+        let mut plain = vec![w.clone()];
+        pmi_policy::drop_on_origin(&a, &spec, &mut plain);
+        spec.features
+            .entry(a.features[0].id.clone())
+            .or_default()
+            .note = Some("X".into());
+        let noted = crate::spec_gdt::effective(&a, &spec).unwrap();
+        assert!(pmi_policy::carries(&noted));
+        let mut with_note = vec![w.clone()];
+        pmi_policy::drop_on_origin(&noted, &spec, &mut with_note);
+        assert_eq!(plain.len(), 1);
+        assert_eq!(with_note.len(), 1);
+        assert_eq!(with_note[0].id, plain[0].id);
+        // An explicit origin still owns the zero measurement in both drawings.
+        spec.origin.insert("x".into(), "min".into());
+        pmi_policy::drop_on_origin(&noted, &spec, &mut with_note);
+        assert!(with_note.is_empty());
+    }
+
+    #[test]
+    fn feature_note_preserves_candidate_repair_offers() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/steerability/guide-bar.step.gz");
+        let (_, a) =
+            crate::model::analyse_native_bytes("guide-bar.step.gz", &std::fs::read(path).unwrap())
+                .unwrap();
+        let mut spec: Spec = serde_json::from_value(serde_json::json!({"sheet":{"size":"A4","scale":"1:1"},"dimensions":{"d:envelope/width.length":{"place":{"view":"plan","side":"above","lane":40}}}})).unwrap();
+        let before = crate::model::plan_automatic(&a, &spec).unwrap();
+        spec.features
+            .entry(
+                a.features
+                    .iter()
+                    .find(|f| f.kind == "hole")
+                    .unwrap()
+                    .id
+                    .clone(),
+            )
+            .or_default()
+            .note = Some("X".into());
+        // Hide the note's ink to isolate the PMI policy from a legitimate new
+        // collision obstacle. The note record remains in the effective PMI.
+        let effective = crate::spec_gdt::effective(&a, &spec).unwrap();
+        let (items, _) = crate::pmi_lowering::lower(&effective, &|_| true);
+        let note = items
+            .iter()
+            .find(|g| g.source.starts_with("spec:features/"))
+            .unwrap();
+        spec.annotations.entry(note.id.clone()).or_default().omit = true;
+        let after = crate::model::plan_automatic(&a, &spec).unwrap();
+        let mut witnessed = 0;
+        for p in before
+            .problems
+            .iter()
+            .filter(|p| !p.offered_fixes().is_empty())
+        {
+            if let Some(q) = after
+                .problems
+                .iter()
+                .find(|q| q.code == p.code && q.subjects == p.subjects)
+            {
+                witnessed += 1;
+                assert_eq!(
+                    q.offered_fixes(),
+                    p.offered_fixes(),
+                    "{} {:?}",
+                    q.code,
+                    q.subjects
+                );
+            }
+        }
+        assert!(
+            witnessed > 0,
+            "must exercise a surviving repairable finding"
+        );
+    }
 
     #[test]
     fn compact_lanes_clear_labels_and_overshoot() {
