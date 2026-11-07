@@ -50,6 +50,16 @@
       "remove_d:step_level/step_height.length.h8"
     ]
   },
+  "326": {
+    "case": "steer_326_short_dimensions_inside",
+    "group": "C",
+    "reason": "Main moves the original 150/120 below 635/400, but its added 507.5/350 notch dimensions expose four horizontal and four vertical nesting inversions; crossings rise 18 to 24.",
+    "checks": [
+      "extension_crossings_do_not_increase",
+      "horizontal_nesting",
+      "vertical_nesting"
+    ]
+  },
   "327": {
     "case": "steer_327_unstated_outline_faces",
     "group": "A",

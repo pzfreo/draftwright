@@ -3908,7 +3908,6 @@ fn plan_inventory_ordered(
         &mut placed,
         &page,
     ));
-    placement::nest_linear(spec, &frames, &all, &chosen, &shared_owner, &mut placed);
     let interior_proofs = interior::proofs(analysis, views);
     let opening_proofs = all
         .iter()
@@ -4217,7 +4216,6 @@ fn plan_inventory_ordered(
         obstacles,
         &page,
     );
-    placement::nest_linear(spec, &frames, &all, &chosen, &shared_owner, &mut placed);
     for (i, w) in all.iter().enumerate() {
         if !fixed[i]
             && matches!(w.shape, Shape::Angular { .. })

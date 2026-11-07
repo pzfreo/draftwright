@@ -17,9 +17,6 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
-- Nest overlapping linear dimensions shortest-nearest across authored and generated
-  categories, including repaired and replayed stacks; explicit lanes and pins win (#326).
-
 - Number hole-table tags by increasing local row then column from the origin,
   with deterministic geometry ties and unchanged feature and item identities (#322).
 
