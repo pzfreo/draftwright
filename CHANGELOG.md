@@ -17,6 +17,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Keep generated hole-tag prose in sync with final labels; retain legacy numbering
+  when collision evidence is missing, restore recorded row order exactly, and
+  group spatial rows within 0.001 model mm. Document saved presentation metadata.
+
 - Number hole-table tags spatially after layout without changing identities, routes
   or paper; retain legacy numbering with an info finding when fixed ink blocks it (#322).
 

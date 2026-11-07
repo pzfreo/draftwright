@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Draftwright Plan hole-table presentation fields",
+  "description": "The hole-table presentation portion of draftwright.plan/1. Other Plan and annotation fields remain unconstrained by this schema. Optional recovery metadata is preserved in saved plans.",
+  "type": "object",
+  "required": [
+    "schema"
+  ],
+  "properties": {
+    "schema": {
+      "const": "draftwright.plan/1"
+    },
+    "hole_table": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/hole_table"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "hole_tables": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hole_table"
+      }
+    },
+    "balloons": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/balloon"
+      }
+    }
+  },
+  "$defs": {
+    "rectangle": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "hole_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "feature",
+        "cells",
+        "measurements"
+      ],
+      "properties": {
+        "tag": {
+          "type": "string"
+        },
+        "tag_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Original stable row/cell identity token when tag is relabelled; defaults to tag."
+        },
+        "feature": {
+          "type": "string"
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "measurements": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "hole_table": {
+      "type": "object",
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hole_row"
+          }
+        },
+        "row_order_before": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "Exact legacy sequence of stable row keys; absent until a final spatial permutation. Recovery restores this sequence and removes the field."
+        }
+      }
+    },
+    "balloon": {
+      "type": "object",
+      "properties": {
+        "label_box": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/rectangle"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label_box_before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/rectangle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Exact original transported text bounds, retained when a final label changes width. Recovery restores these bounds without floating-point reconstruction."
+        }
+      }
+    }
+  }
+}

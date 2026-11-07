@@ -219,6 +219,7 @@ fn covered_aliases_follow_a_location_into_a_drawn_schedule_only() {
     assert!(!carried(&plan).contains(&claim));
     let rows = vec![vec!["20".into()]];
     plan.hole_tables.push(crate::hole_table::HoleTable {
+        row_order_before: Vec::new(),
         sheet: 1,
         id: "schedule".into(),
         view: Some("v:plan".into()),

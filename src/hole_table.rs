@@ -120,6 +120,9 @@ pub struct HoleTable {
     pub covered: Vec<Measurement>,
     /// One row per hole, in the plan's order.
     pub rows: Vec<HoleRow>,
+    /// Exact legacy row identities, retained only after the publication permutation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub row_order_before: Vec<String>,
     pub default: bool,
     pub basis: String,
     /// Always shown: a table withdrawn is not in the plan.
@@ -474,6 +477,7 @@ pub fn escalate(analysis: &Analysis, plan: &mut Plan, table_sheet: Option<u32>) 
         {
             Some(blocks) => {
                 table = Some(HoleTable {
+                    row_order_before: Vec::new(),
                     sheet: table_sheet.filter(|n| *n > 1).unwrap_or(1),
                     id: ID.into(),
                     view: None,
@@ -1032,12 +1036,7 @@ pub(crate) fn unavailable(analysis: &Analysis, plan: &Plan, selection: &Selectio
     Problem {
         id: "p:hole_table_unavailable:sheet".into(),
         code: "hole_table_unavailable".into(),
-        severity: if plan.spec.hole_table == Setting::Always {
-            "warning"
-        } else {
-            "info"
-        }
-        .into(),
+        severity: "warning".into(),
         message: format!(
             "The requested hole table could not be placed on {} at {}: {} blocked by {} and the sheet boundaries. The original dimensions are kept; move these items or provide more paper.",
             plan.sheet.size,
@@ -2057,6 +2056,7 @@ mod tests {
         }))
         .unwrap();
         let table = HoleTable {
+            row_order_before: Vec::new(),
             sheet: 1,
             id: "hole_schedule_plan".into(),
             view: Some("v:plan".into()),
@@ -2976,6 +2976,7 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
         selection.replaced.extend(replaced);
         selection.pmi_replaced |= pmi_replaced;
         selection.tables.push(HoleTable {
+            row_order_before: Vec::new(),
             sheet: 1,
             id: format!("hole_schedule_{}", view.id.trim_start_matches("v:")), view: Some(view.id.clone()), origin: Some(origin), pcd, covered: Vec::new(),
             rows, default: plan.spec.hole_table == Setting::Auto, basis: {

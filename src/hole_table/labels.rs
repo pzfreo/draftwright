@@ -1,8 +1,82 @@
 //! A publication-only permutation: placement, routes, paper and identities stay legacy.
 use super::*;
 
-const BASIS: &str = "; tags numbered spatially after layout (rows within 0.000001 model mm, then columns from the origin)";
-const SAME_ROW: f64 = 1e-6;
+const BASIS: &str = "; tags numbered spatially after layout (rows within 0.001 model mm, then columns from the origin)";
+const SAME_ROW: f64 = 1e-3;
+
+pub(crate) fn coordinate_name(t: &HoleTable, tag: &str, axis: &str) -> String {
+    format!(
+        "table coordinate {tag} {axis} in the {} view",
+        t.view
+            .as_deref()
+            .unwrap_or("v:plan")
+            .trim_start_matches("v:")
+    )
+}
+
+/// The two generated prose consumers: hole-mark attachment bases and PMI findings.
+/// Match a complete, view-qualified reference, never a bare tag or a stable ID.
+/// Apply the permutation simultaneously so C1 -> C2 -> C3 cannot cascade.
+fn prose(plan: &mut Plan, reverse: bool, only: Option<&BTreeSet<String>>) {
+    let mut edits = Vec::new();
+    for t in plan.hole_table.iter().chain(&plan.hole_tables) {
+        if only.is_some_and(|ids| !ids.contains(&t.id)) {
+            continue;
+        }
+        let view = t
+            .view
+            .as_deref()
+            .unwrap_or("v:plan")
+            .trim_start_matches("v:");
+        for row in &t.rows {
+            if row.key() == row.tag {
+                continue;
+            }
+            let (old, new) = if reverse {
+                (row.tag.as_str(), row.key())
+            } else {
+                (row.key(), row.tag.as_str())
+            };
+            edits.push((
+                format!("hole table tag {old} in the {view} view"),
+                format!("hole table tag {new} in the {view} view"),
+            ));
+            for axis in ["x", "y", "z"] {
+                edits.push((coordinate_name(t, old, axis), coordinate_name(t, new, axis)));
+            }
+        }
+    }
+    for text in plan
+        .gdt
+        .iter_mut()
+        .map(|g| &mut g.basis)
+        .chain(plan.problems.iter_mut().map(|p| &mut p.message))
+    {
+        let mut matches: Vec<_> = edits
+            .iter()
+            .flat_map(|(old, new)| {
+                text.match_indices(old)
+                    .map(move |(i, _)| (i, old.len(), new))
+            })
+            .collect();
+        matches.sort_by_key(|(i, len, _)| (*i, std::cmp::Reverse(*len)));
+        if matches.is_empty() {
+            continue;
+        }
+        let mut next = String::new();
+        let mut start = 0;
+        for (i, len, new) in matches {
+            if i < start {
+                continue;
+            }
+            next.push_str(&text[start..i]);
+            next.push_str(new);
+            start = i + len;
+        }
+        next.push_str(&text[start..]);
+        *text = next;
+    }
+}
 
 fn family(tag: &str) -> &str {
     tag.find(|c: char| c.is_ascii_digit())
@@ -90,6 +164,7 @@ fn names(t: &HoleTable, balloons: &mut [Balloon]) {
 
 /// Public recover(plan(...)) must feed the original presentation back into the solver.
 pub(crate) fn restore(plan: &mut Plan) {
+    prose(plan, true, None);
     for t in plan.hole_table.iter_mut().chain(&mut plan.hole_tables) {
         if !t.rows.iter().any(|r| r.tag_id.is_some()) {
             continue;
@@ -121,28 +196,41 @@ pub(crate) fn restore(plan: &mut Plan) {
                 r.cells[0] = r.tag.clone();
             }
         }
-        if t.view.is_some() {
-            t.rows.sort_by(|a, b| {
-                a.cells[1]
-                    .cmp(&b.cells[1])
-                    .then_with(|| a.feature.cmp(&b.feature))
-            });
-        } else {
-            t.rows.sort_by(|a, b| {
-                a.tag
-                    .len()
-                    .cmp(&b.tag.len())
-                    .then_with(|| a.tag.cmp(&b.tag))
-            });
+        let order = std::mem::take(&mut t.row_order_before);
+        if !order.is_empty() {
+            t.rows
+                .sort_by_key(|row| order.iter().position(|id| id == row.key()));
         }
         cells(t);
-        t.basis = t.basis.replace(BASIS, "");
+        t.basis = t.basis.replace(BASIS, "").replace("; tags numbered spatially after layout (rows within 0.000001 model mm, then columns from the origin)", "");
     }
     plan.problems
         .retain(|p| p.code != "hole_table_tag_order_retained");
 }
 
+fn reading_order(ordered: &mut [(usize, f64, f64)], rows: &[HoleRow]) {
+    ordered.sort_by(|a, b| {
+        a.2.total_cmp(&b.2)
+            .then_with(|| a.1.total_cmp(&b.1))
+            .then_with(|| rows[a.0].feature.cmp(&rows[b.0].feature))
+    });
+    // Anchor each row at its lowest Y: no non-transitive pairwise tolerance comparator.
+    let mut first = 0;
+    while first < ordered.len() {
+        let end = (first + 1..ordered.len())
+            .find(|&j| ordered[j].2 - ordered[first].2 > SAME_ROW)
+            .unwrap_or(ordered.len());
+        ordered[first..end].sort_by(|a, b| {
+            a.1.total_cmp(&b.1)
+                .then_with(|| a.2.total_cmp(&b.2))
+                .then_with(|| rows[a.0].feature.cmp(&rows[b.0].feature))
+        });
+        first = end;
+    }
+}
+
 fn permute(analysis: &Analysis, plan: &Plan, t: &mut HoleTable) -> bool {
+    t.row_order_before = t.rows.iter().map(|row| row.key().to_owned()).collect();
     let Some(view) = plan
         .views
         .iter()
@@ -170,24 +258,7 @@ fn permute(analysis: &Analysis, plan: &Plan, t: &mut HoleTable) -> bool {
             let p = frame.view.map(h.at);
             ordered.push((i, p[0] - origin[0], p[1] - origin[1]));
         }
-        ordered.sort_by(|a, b| {
-            a.2.total_cmp(&b.2)
-                .then_with(|| a.1.total_cmp(&b.1))
-                .then_with(|| t.rows[a.0].feature.cmp(&t.rows[b.0].feature))
-        });
-        // Anchor each row at its lowest Y: no non-transitive pairwise tolerance comparator.
-        let mut first = 0;
-        while first < ordered.len() {
-            let end = (first + 1..ordered.len())
-                .find(|&j| ordered[j].2 - ordered[first].2 > SAME_ROW)
-                .unwrap_or(ordered.len());
-            ordered[first..end].sort_by(|a, b| {
-                a.1.total_cmp(&b.1)
-                    .then_with(|| a.2.total_cmp(&b.2))
-                    .then_with(|| t.rows[a.0].feature.cmp(&t.rows[b.0].feature))
-            });
-            first = end;
-        }
+        reading_order(&mut ordered, &t.rows);
         let rows: Vec<_> = ordered.iter().map(|&(i, _, _)| t.rows[i].clone()).collect();
         let labels: Vec<_> = slots.iter().map(|&i| t.rows[i].tag.clone()).collect();
         for ((&i, mut row), label) in slots.iter().zip(rows).zip(labels) {
@@ -206,14 +277,52 @@ fn blocked(
     before: &Plan,
     after: &Plan,
     t: &HoleTable,
-) -> Option<&'static str> {
+) -> Result<(), &'static str> {
+    let old_table = before
+        .hole_table
+        .iter()
+        .chain(&before.hole_tables)
+        .find(|a| a.id == t.id)
+        .ok_or("the original table is missing")?;
+    if t.rows.len() != old_table.rows.len()
+        || t.rows.iter().any(|r| {
+            !old_table
+                .rows
+                .iter()
+                .any(|old| old.key() == r.key() && old.feature == r.feature)
+        })
+    {
+        return Err("an original table row is missing");
+    }
+    let view = after
+        .views
+        .iter()
+        .find(|v| v.id == t.view.as_deref().unwrap_or("v:plan"))
+        .ok_or("the tag's carrying view is missing")?;
+    let page = std::iter::once(&after.sheet)
+        .chain(&after.sheets)
+        .find(|s| s.number == view.sheet)
+        .ok_or("the tag's carrying sheet is missing")?
+        .page;
+    if t.rows.iter().any(|row| {
+        !after
+            .balloons
+            .iter()
+            .any(|b| belongs(b, t) && b.features.contains(&row.feature))
+    }) {
+        return Err("a table row's certifying tag is missing");
+    }
     for b in after.balloons.iter().filter(|b| {
         belongs(b, t)
             && b.features
                 .iter()
                 .any(|f| t.rows.iter().any(|r| &r.feature == f))
     }) {
-        let old = before.balloons.iter().find(|a| a.id == b.id)?;
+        let old = before
+            .balloons
+            .iter()
+            .find(|a| a.id == b.id)
+            .ok_or("the original tag is missing")?;
         let (a, z) = (
             old.label_box.unwrap_or_else(|| tag_box(old)),
             b.label_box.unwrap_or_else(|| tag_box(b)),
@@ -221,34 +330,29 @@ fn blocked(
         if z[2] - z[0] <= a[2] - a[0] + 1e-9 {
             continue;
         }
-        let sheet = after.views.iter().find(|v| v.id == b.view)?.sheet;
-        let page = std::iter::once(&after.sheet)
-            .chain(&after.sheets)
-            .find(|s| s.number == sheet)?
-            .page;
+        let sheet = view.sheet;
         if z[0] < crate::layout::FRAME
             || z[1] < crate::layout::FRAME
             || z[2] > page[0] - crate::layout::FRAME
             || z[3] > page[1] - crate::layout::FRAME
         {
-            return Some("a wider tag would cross the sheet frame");
+            return Err("a wider tag would cross the sheet frame");
         }
         if b.radius > 0.
             && ((z[2] - z[0]) / 2. >= b.radius - RING || (z[3] - z[1]) / 2. >= b.radius - RING)
         {
-            return Some("a wider tag would cross its fixed ring");
+            return Err("a wider tag would cross its fixed ring");
         }
         if crate::dims::inspection::tag_blocker(after, sheet, &b.id, z).is_some()
             || b.leader.is_some_and(|l| crosses(l, z))
         {
-            return Some("a wider tag would collide with fixed annotation ink or a leader");
+            return Err("a wider tag would collide with fixed annotation ink or a leader");
         }
         if after.views.iter().any(|v| {
             v.id != b.view && v.sheet == sheet && overlap(z, Frame::new(analysis, v).outline)
         }) {
-            return Some("a wider tag would collide with another view");
+            return Err("a wider tag would collide with another view");
         }
-        let view = after.views.iter().find(|v| v.id == b.view)?;
         let frame = Frame::new(analysis, view);
         let read: BTreeMap<_, _> = holes::read(analysis)
             .into_iter()
@@ -276,13 +380,19 @@ fn blocked(
                     }
             })
         {
-            return Some("a wider tag would collide with the projected part");
+            return Err("a wider tag would collide with the projected part");
         }
+    }
+    if t.blocks.is_empty() {
+        return Err("the fixed table blocks are missing");
     }
     for block in &t.blocks {
         if let Some(p) = &block.placed {
             for row in block.rows.iter().skip(if t.view.is_some() { 2 } else { 1 }) {
                 for (c, text) in row.iter().enumerate() {
+                    if p.columns.len() <= c + 1 {
+                        return Err("the fixed column bounds are missing");
+                    }
                     let ink = if t.view.is_some() && c == 1 {
                         size_ink(text, crate::dims::font())
                     } else {
@@ -291,28 +401,25 @@ fn blocked(
                     if ink.max[0] - ink.min[0]
                         > p.columns[c + 1] - p.columns[c] - 2. * tables::PAD + 1e-6
                     {
-                        return Some("a reordered cell would collide with its fixed column rules");
+                        return Err("a reordered cell would collide with its fixed column rules");
                     }
                 }
             }
+        } else {
+            return Err("the fixed table block placement is missing");
         }
     }
     // A row-bound inspection leader is already routed. Moving its carrier is not relabelling.
-    let old = before
-        .hole_table
-        .iter()
-        .chain(&before.hole_tables)
-        .find(|a| a.id == t.id)?;
-    if t.rows.iter().zip(&old.rows).any(|(a, b)| {
+    if t.rows.iter().zip(&old_table.rows).any(|(a, b)| {
         a.key() != b.key()
             && after
                 .inspection_balloons
                 .iter()
                 .any(|ring| ring.item == format!("{}/{}", t.id, b.key()))
     }) {
-        return Some("row reordering would detach a fixed inspection leader from its requirement");
+        return Err("row reordering would detach a fixed inspection leader from its requirement");
     }
-    None
+    Ok(())
 }
 
 /// Called only at the outer public boundary, after every layout/routing/reporting pass.
@@ -325,6 +432,7 @@ pub(crate) fn finish(analysis: &Analysis, plan: &mut Plan) {
     let effective = crate::spec_gdt::effective(analysis, &plan.spec)
         .unwrap_or(std::borrow::Cow::Borrowed(analysis));
     let analysis = effective.as_ref();
+    let mut changed_tables = BTreeSet::new();
     for i in 0..count {
         let table = plan
             .hole_table
@@ -348,7 +456,7 @@ pub(crate) fn finish(analysis: &Analysis, plan: &mut Plan) {
             .chain(&mut trial.hole_tables)
             .nth(i)
             .expect("table cloned from this index") = table.clone();
-        if let Some(why) = blocked(analysis, plan, &trial, &table) {
+        if let Err(why) = blocked(analysis, plan, &trial, &table) {
             plan.problems.push(Problem {
                 id: format!("p:hole_table_tag_order_retained:{}", table.id),
                 code: "hole_table_tag_order_retained".into(),
@@ -360,6 +468,7 @@ pub(crate) fn finish(analysis: &Analysis, plan: &mut Plan) {
                 ..Default::default()
             });
         } else {
+            changed_tables.insert(table.id.clone());
             trial
                 .hole_table
                 .iter_mut()
@@ -370,6 +479,7 @@ pub(crate) fn finish(analysis: &Analysis, plan: &mut Plan) {
             *plan = trial;
         }
     }
+    prose(plan, false, Some(&changed_tables));
 }
 
 #[cfg(test)]
@@ -395,6 +505,190 @@ mod tests {
 
     fn value<T: serde::Serialize>(x: &T) -> serde_json::Value {
         serde_json::to_value(x).unwrap()
+    }
+
+    #[test]
+    fn generated_prose_names_the_printed_tag_without_cascading_or_changing_ids() {
+        let (a, original) = fixture();
+        let mut p = original.clone();
+        let table = &p.hole_tables[0];
+        for row in &table.rows {
+            p.problems.push(Problem {
+                id: format!("test:{}", row.feature),
+                message: format!(
+                    "{}; stable cell {}/{}",
+                    coordinate_name(table, &row.tag, "x"),
+                    table.id,
+                    row.key()
+                ),
+                ..Default::default()
+            });
+            p.gdt.push(serde_json::from_value(serde_json::json!({
+                "id": format!("test:{}", row.feature), "kind":"label", "view":"v:plan",
+                "side":"above", "source":"test", "faces":[], "cells":[], "label":"", "default":true,
+                "basis":format!("over its hole table tag {} in the plan view", row.tag), "state":{"kind":"shown"}
+            })).unwrap());
+        }
+        let before = value(&p);
+        finish(a, &mut p);
+        let table = &p.hole_tables[0];
+        assert!(table.rows.iter().any(|r| r.tag_id.is_some()));
+        for row in &table.rows {
+            let tag = p
+                .balloons
+                .iter()
+                .find(|b| b.certifying && b.features == [row.feature.clone()])
+                .unwrap();
+            assert_eq!(tag.tag, row.tag);
+            let id = format!("test:{}", row.feature);
+            let message = &p.problems.iter().find(|q| q.id == id).unwrap().message;
+            assert_eq!(
+                message,
+                &format!(
+                    "{}; stable cell {}/{}",
+                    coordinate_name(table, &tag.tag, "x"),
+                    table.id,
+                    row.key()
+                )
+            );
+            assert_eq!(
+                p.gdt.iter().find(|g| g.id == id).unwrap().basis,
+                format!("over its hole table tag {} in the plan view", tag.tag)
+            );
+        }
+        let published = value(&p);
+        finish(a, &mut p);
+        assert_eq!(
+            value(&p),
+            published,
+            "publishing twice cannot permute prose twice"
+        );
+        restore(&mut p);
+        assert_eq!(value(&p), before);
+    }
+
+    #[test]
+    fn missing_collision_evidence_keeps_legacy_numbering() {
+        let (a, before) = fixture();
+        let mut table = before.hole_tables[0].clone();
+        assert!(permute(a, before, &mut table));
+        for missing in [
+            "table",
+            "row",
+            "view",
+            "sheet",
+            "tag",
+            "original tag",
+            "block",
+        ] {
+            let mut original = before.clone();
+            let mut after = before.clone();
+            let mut t = table.clone();
+            names(&t, &mut after.balloons);
+            match missing {
+                "table" => original.hole_tables.clear(),
+                "row" => original.hole_tables[0].rows.clear(),
+                "view" => after.views.clear(),
+                "sheet" => after.views.iter_mut().for_each(|v| v.sheet = 99),
+                "tag" => after.balloons.clear(),
+                "original tag" => original.balloons.clear(),
+                "block" => t.blocks.clear(),
+                _ => unreachable!(),
+            }
+            assert!(blocked(a, &original, &after, &t).is_err(), "{missing}");
+        }
+        let mut p = before.clone();
+        p.balloons.clear();
+        finish(a, &mut p);
+        assert_eq!(p.hole_tables, before.hole_tables);
+        assert!(p.problems.iter().any(|q| q.code == "hole_table_tag_order_retained" && q.message.contains("missing")));
+    }
+
+    #[test]
+    fn recovery_restores_recorded_order_even_when_it_is_not_feature_or_tag_order() {
+        let (a, original) = fixture();
+        let mut original = original.clone();
+        original.hole_tables[0].rows.rotate_left(2);
+        cells(&mut original.hole_tables[0]);
+        let mut p = original.clone();
+        let mut table = p.hole_tables[0].clone();
+        assert!(permute(a, &p, &mut table));
+        assert_eq!(
+            table.row_order_before,
+            original.hole_tables[0]
+                .rows
+                .iter()
+                .map(|r| r.key().to_string())
+                .collect::<Vec<_>>()
+        );
+        names(&table, &mut p.balloons);
+        cells(&mut table);
+        p.hole_tables[0] = table;
+        p = serde_json::from_value(value(&p)).unwrap();
+        restore(&mut p);
+        assert_eq!(value(&p), value(&original));
+    }
+
+    #[test]
+    fn public_recover_round_trips_other_hole_tables_including_a_renumbered_one() {
+        let mut renumbered = 0;
+        for file in [
+            "parts/scattered_holes.step",
+            "recognition/issues/counterbored_block.step",
+        ] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(file);
+            let (_, a) = crate::model::analyse_native(&path).unwrap();
+            let spec = crate::model::Spec {
+                hole_table: Setting::Always,
+                ..Default::default()
+            };
+            // The public scheduled-plan API installs tables before recovery.
+            let planned = crate::model::plan_escalated(&a, &spec).unwrap();
+            assert!(!planned.hole_tables.is_empty(), "{file}");
+            renumbered += planned
+                .hole_tables
+                .iter()
+                .filter(|t| !t.row_order_before.is_empty())
+                .count();
+            let transported: Plan = serde_json::from_value(value(&planned)).unwrap();
+            let mut legacy = transported.clone();
+            restore(&mut legacy);
+            let expected = crate::model::recover(&a, &spec, legacy).unwrap();
+            let recovered = crate::model::recover(&a, &spec, transported).unwrap();
+            assert_eq!(
+                value(&recovered),
+                value(&expected),
+                "{file}: recover(plan(...))"
+            );
+        }
+        assert!(renumbered > 0);
+    }
+
+    #[test]
+    fn sub_micron_row_noise_does_not_override_printed_column_order() {
+        let (_, p) = fixture();
+        let mut points = [(0, 20., 0.), (1, 10., 0.0005), (2, 0., 0.002)];
+        reading_order(&mut points, &p.hole_tables[0].rows);
+        assert_eq!(points.map(|p| p.0), [1, 0, 2]);
+    }
+
+    #[test]
+    fn saved_presentation_metadata_matches_the_plan_schema() {
+        let (a, original) = fixture();
+        let mut p = original.clone();
+        finish(a, &mut p);
+        let schema = serde_json::from_str(include_str!("../../schemas/plan.json")).unwrap();
+        assert!(p.hole_tables.iter().any(|t| !t.row_order_before.is_empty()));
+        assert!(p.balloons.iter().any(|b| b.label_box_before.is_some()));
+        crate::mcp::validate(&schema, &value(&p)).unwrap();
+        let mut broken = value(&p);
+        broken["hole_tables"][0]["rows"][0]["tag_id"] = serde_json::json!(7);
+        assert!(crate::mcp::validate(&schema, &broken).is_err());
+        let mut broken = value(&p);
+        broken["balloons"][0]["label_box_before"] = serde_json::json!([1., 2.]);
+        assert!(crate::mcp::validate(&schema, &broken).is_err());
     }
 
     #[test]

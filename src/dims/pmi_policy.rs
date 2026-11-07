@@ -1133,9 +1133,10 @@ fn audit_inner(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
             for row in &table.rows {
                 for axis in AXES {
                     let cell = format!("{}/{}/{axis}", table.id, row.key());
-                    problem.message = problem
-                        .message
-                        .replace(&cell, &format!("table coordinate {} {axis}", row.tag));
+                    problem.message = problem.message.replace(
+                        &cell,
+                        &crate::hole_table::labels::coordinate_name(table, &row.tag, axis),
+                    );
                 }
             }
             for id in &mut problem.subjects {
