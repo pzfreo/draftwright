@@ -320,12 +320,12 @@ pub(crate) fn finish(analysis: &Analysis, plan: &mut Plan) {
         let mut trial = plan.clone();
         names(&table, &mut trial.balloons);
         cells(&mut table);
-        if i == 0 && trial.hole_table.is_some() {
-            trial.hole_table = Some(table.clone());
-        } else {
-            let j = i - usize::from(trial.hole_table.is_some());
-            trial.hole_tables[j] = table.clone();
-        }
+        *trial
+            .hole_table
+            .iter_mut()
+            .chain(&mut trial.hole_tables)
+            .nth(i)
+            .expect("table cloned from this index") = table.clone();
         if let Some(why) = blocked(analysis, plan, &trial, &table) {
             plan.problems.push(Problem {
                 id: format!("p:hole_table_tag_order_retained:{}", table.id),
@@ -338,12 +338,13 @@ pub(crate) fn finish(analysis: &Analysis, plan: &mut Plan) {
                 ..Default::default()
             });
         } else {
-            if i == 0 && trial.hole_table.is_some() {
-                trial.hole_table.as_mut().unwrap().basis += BASIS;
-            } else {
-                let j = i - usize::from(trial.hole_table.is_some());
-                trial.hole_tables[j].basis += BASIS;
-            }
+            trial
+                .hole_table
+                .iter_mut()
+                .chain(&mut trial.hole_tables)
+                .nth(i)
+                .expect("table cloned from this index")
+                .basis += BASIS;
             *plan = trial;
         }
     }
