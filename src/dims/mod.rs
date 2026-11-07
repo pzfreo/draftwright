@@ -120,6 +120,7 @@ mod notches;
 mod oriented_slots;
 mod pads;
 mod placement;
+pub(crate) use placement::displaced_linear_fields;
 mod plates;
 pub(crate) mod pmi_dimensions;
 pub(crate) mod pmi_policy;
@@ -3664,6 +3665,7 @@ fn plan_inventory_ordered(
         &mut sides,
         &mut lane,
         &fixed,
+        &places,
         &drawn,
         &mut placed,
         obstacles,

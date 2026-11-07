@@ -37,7 +37,7 @@ const OVERRIDES: [(&str, &str, &str); 9] = [
     (
         "dimension selection, origins and local presentation",
         "dimensions/<dimension> keys [omit, between, along, view, place, text, style, presentation]; dimension_source; origin; dimension_schemes; precision; faces/<face>/profile_corners",
-        "Keep measured values; force-show, named supports and wrap width unavailable (#309)",
+        "Displaced linear place fields report placement_displaced; keep measured values; force-show, named supports and wrap width unavailable (#309)",
     ),
     (
         "recognition, grouping and attachment",
@@ -144,19 +144,86 @@ impl Drop for Boundary {
     }
 }
 /// Nested canonical and recovery plans keep their original bases during the solve.
-pub(crate) fn boundary(run: impl FnOnce() -> Result<Plan, Invalid>) -> Result<Plan, Invalid> {
+pub(crate) fn boundary(
+    analysis: &crate::model::Analysis,
+    run: impl FnOnce() -> Result<Plan, Invalid>,
+) -> Result<Plan, Invalid> {
     let outer = DEPTH.get() == 0;
     DEPTH.set(DEPTH.get() + 1);
     let _guard = Boundary;
     let mut plan = run()?;
     if outer {
         crate::model::refresh_line_work_problems(&mut plan);
-        report(&mut plan);
+        report(analysis, &mut plan);
     }
     Ok(plan)
 }
 
-fn report(plan: &mut Plan) {
+fn report_placements(analysis: &crate::model::Analysis, plan: &mut Plan) {
+    let displaced = crate::dims::with_compact(
+        plan.sheet.dimension_spacing == crate::model::DimensionSpacing::Compact,
+        || crate::dims::displaced_linear_fields(analysis, plan),
+    );
+    // Refresh our findings once at the public boundary. Replayed plans may
+    // already carry reports, but no stale displacement should survive a fix.
+    plan.problems.retain(|p| p.code != "placement_displaced");
+    for d in &mut plan.dimensions {
+        if d.kind == "linear"
+            && d.placed.is_some()
+            && plan
+                .spec
+                .dimensions
+                .get(&d.id)
+                .and_then(|d| d.place.as_ref())
+                .is_some_and(|p| p.side.is_some() || p.lane.is_some() || p.along.is_some())
+            && !displaced.iter().any(|(id, _)| *id == d.id)
+            && !d.basis.contains("; applied linear place intent")
+        {
+            d.basis +=
+                "; applied linear place intent: requested side, lane and along fields retained";
+        }
+    }
+    for (id, fields) in displaced {
+        let d = plan.dimensions.iter_mut().find(|d| d.id == id).unwrap();
+        let named = crate::wording::item(&d.id, &d.kind, &d.label);
+        d.basis = d
+            .basis
+            .replace("the spec places it in", "the spec requests it in");
+        d.basis += &format!(
+            "; displaced place intent: {}; final layout uses the recorded ink position",
+            fields.join(", ")
+        );
+        let path = format!("dimensions/{}/place", crate::items::key(&id));
+        let causes: Vec<_> = plan
+            .dimensions
+            .iter()
+            .filter(|d| {
+                d.id != id
+                    && plan
+                        .spec
+                        .dimensions
+                        .get(&d.id)
+                        .and_then(|d| d.place.as_ref())
+                        .is_some_and(|p| p.pinned)
+            })
+            .map(|d| crate::wording::item(&d.id, &d.kind, &d.label))
+            .collect();
+        let cause = if causes.is_empty() {
+            "the final collision and sheet-boundary layout".into()
+        } else {
+            format!("the final layout around pinned {}", causes.join(", "))
+        };
+        plan.problems.push(Problem {
+            id: format!("p:placement_displaced:{id}"), code: "placement_displaced".into(), severity: "warning".into(),
+            message: format!("The requested place of {named} was displaced in {} by {cause}. The drawing is retained at its recorded position; adjust the placement or release the conflicting constraint.", fields.join(", ")),
+            subjects: vec![id], refs: vec![path], ..Default::default()
+        });
+    }
+    plan.status = crate::completeness::status(&plan.problems);
+}
+
+fn report(analysis: &crate::model::Analysis, plan: &mut Plan) {
+    report_placements(analysis, plan);
     crate::broken::check_anchors(plan);
     add(&mut plan.sheet.basis, Family::Part, Target::Document);
     if let Some(part) = &plan.spec.part

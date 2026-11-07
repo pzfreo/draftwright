@@ -75,15 +75,6 @@
       "tags_follow_rows_then_columns"
     ]
   },
-  "325": {
-    "case": "steer_325_pin_respects_other_placement",
-    "group": "C",
-    "reason": "Another pinned leader silently discards placement and the basis still claims it was applied.",
-    "checks": [
-      "basis_truthful",
-      "placement_kept_or_explained"
-    ]
-  },
   "326": {
     "case": "steer_326_short_dimensions_inside",
     "group": "C",

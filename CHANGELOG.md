@@ -17,6 +17,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Preserve explicit linear side and text stations around pinned neighbours where they fit;
+  report final displaced side, lane and along intent with truthful placement bases (#325).
 - Feature notes no longer restore tangent locations on unrelated on-axis bores (#311).
 
 - Pinned multi-sheet canonicals discard temporary moved-section omissions while

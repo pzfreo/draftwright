@@ -1723,6 +1723,39 @@ fn steer_325_pin_respects_other_placement() {
     c.finish(325);
 }
 
+#[test]
+fn coincident_explicit_lanes_report_displacement_without_refusing_the_drawing() {
+    let mut s = input(PIVOT);
+    s["dimensions"]
+        .as_object_mut()
+        .unwrap()
+        .remove("d:f:hole:4/bore.diameter");
+    let pitch = "d:f:hole_pattern:1/grid_pitch.length.col";
+    let width = "d:envelope/width.length";
+    for id in [pitch, width] {
+        s["dimensions"][id]["place"] = json!({"view":"plan","side":"above","lane":0,"along":0.25});
+    }
+    let p = planned(PIVOT, &s);
+    let finding = p
+        .plan
+        .problems
+        .iter()
+        .find(|f| {
+            f.code == "placement_displaced"
+                && [pitch, width]
+                    .iter()
+                    .any(|id| f.subjects.iter().any(|s| s == id))
+        })
+        .unwrap();
+    assert_eq!(finding.severity, "warning");
+    assert!(finding.message.contains("lane"));
+    let id = &finding.subjects[0];
+    assert!(finding.refs.contains(&format!("dimensions/{id}/place")));
+    let d = dim(&p.plan, id).unwrap();
+    assert!(!d.basis.contains("spec places"));
+    assert!(d.basis.contains("displaced place intent"));
+}
+
 fn extension_crossings(p: &Plan, view: &str) -> usize {
     let dims: Vec<_> = p
         .dimensions
