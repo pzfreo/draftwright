@@ -2403,6 +2403,78 @@ fn fill_selection_preserves_hard_findings_when_no_complete_candidate_exists() {
     }
 }
 
+/// Recovery must judge transported centre strokes before calling an automatic
+/// enlargement clean. GRM-05's A3/5:1 cross formerly exceeded the drawable inset.
+#[test]
+fn grm05_automatic_recovery_keeps_rendered_centre_ink_inside_the_page() {
+    let Some(dir) = corpus::dir() else { return };
+    let (part, mut a) = model::analyse(&dir.join("gramel/GRM-05_depth_lock_bolt.step")).unwrap();
+    let mut recognition = String::new();
+    flate2::read::GzDecoder::new(
+        std::fs::File::open(fixture("recognition/sheets/grm05.json.gz")).unwrap(),
+    )
+    .read_to_string(&mut recognition)
+    .unwrap();
+    model::recognise(&part, &mut a, &recognition).unwrap();
+    let spec = Spec::default();
+    let first = model::plan(&a, &spec).unwrap();
+    let p = model::recover(&a, &spec, first).unwrap();
+    assert!(
+        !p.problems.iter().any(|q| q.code == "annotation_off_sheet"),
+        "{:?}",
+        p.problems
+    );
+    let drawing = model::render(&part, &a, &p, &font()).unwrap();
+    let margin = draftwright::layout::margin();
+    let drawable = [
+        margin,
+        margin,
+        drawing.page[0] - margin,
+        drawing.page[1] - margin,
+    ];
+    assert!(
+        drawing
+            .sheet
+            .items
+            .iter()
+            .any(|i| i.name == "ink:v:plan:f:turned_step:1")
+    );
+    for item in drawing
+        .sheet
+        .items
+        .iter()
+        .filter(|i| i.kind == draftwright::output::Kind::Centreline)
+    {
+        assert!(
+            inside(item.ink, drawable),
+            "{}: {:?} outside {drawable:?}",
+            item.name,
+            item.ink
+        );
+    }
+}
+
+#[test]
+fn native_recovery_judges_centre_ink_after_deferred_finishing() {
+    let Some(dir) = corpus::dir() else { return };
+    let (part, a) = model::analyse_native(&dir.join("mfcadpp_holdout/388.step")).unwrap();
+    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    // Its finished A2 drawing fits. An unfinished axis endpoint must not
+    // force A1 before the enclosing paper trial finishes the view positions.
+    assert_eq!(p.sheet.size, "A2");
+    let drawing = model::render(&part, &a, &p, &font()).unwrap();
+    let m = draftwright::layout::margin();
+    let drawable = [m, m, drawing.page[0] - m, drawing.page[1] - m];
+    for item in drawing
+        .sheet
+        .items
+        .iter()
+        .filter(|i| i.kind == draftwright::output::Kind::Centreline)
+    {
+        assert!(inside(item.ink, drawable), "{}: {:?}", item.name, item.ink);
+    }
+}
+
 #[test]
 fn envelope_wide_bands_and_extent_fits_reach_the_ink() {
     let (part, a) = analysed("plate");

@@ -4025,6 +4025,24 @@ fn recover_candidates(
                     drawn_items_fit(analysis, &p)
                 } else {
                     finished_items_fit(analysis, &p)
+                        // Native allocation defers finishing to its enclosing paper
+                        // trials, which judge the completed drawing. Direct recovery
+                        // must check its final centre ink before publishing a choice.
+                        && (crate::planning::nominals_deferred() || layout::with_gutter(
+                            spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
+                            || {
+                                if line_work_problems(&p.sheet, &p.views).is_empty() {
+                                    return true;
+                                }
+                                // Packing can move centre ink outside its initial bounds.
+                                // Precision polish may move it back inside: check that
+                                // finished copy before rejecting otherwise fitting paper.
+                                let mut finished = p.clone();
+                                finished.spec.clone_from(&first.spec);
+                                finish_nominal_plan(analysis, spec, &mut finished);
+                                line_work_problems(&finished.sheet, &finished.views).is_empty()
+                            },
+                        ))
                 };
                 if actual_fit {
                     p.problems.retain(|q| q.code != "page_fit_uncertain");

@@ -13,6 +13,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Automatic recovery checks final centre-line bounds before accepting a sheet;
+  transported ink cannot turn a clean candidate into an off-sheet drawing after selection.
 - Manufacturing defaults preserve authored PMI finishes. GA process cells omit
   bought parts and guesses; CSV carries process provenance. Printed gear policy
   caps severity without promoting Info, and tolerance defaults use explicit
