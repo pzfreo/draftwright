@@ -406,3 +406,12 @@ fn decode_pack_base64(encoded: &str) -> Vec<u8> {
     }
     output
 }
+
+#[test]
+fn spec_part_selection_is_applied_by_the_one_shot_tool() {
+    let step = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/steerability/pivot-mount-plate.step.gz");
+    let replies = session(&[call(1, "plan", json!({"step":step,"spec":{"part":1}}))]);
+    assert_ne!(replies[0]["result"]["isError"], true, "{:?}", replies[0]);
+    assert_eq!(first(&replies[0])["binding"]["part_index"], 1);
+}

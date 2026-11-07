@@ -6,12 +6,29 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+### Added
+
+- Per-part manufacturing process from Spec, STEP UDA or material class, with
+  recorded provenance, process tolerance/finish defaults and conditional GA Process column.
+
+### Fixed
+
+- Manufacturing defaults preserve authored PMI finishes. GA process cells omit
+  bought parts and guesses; CSV carries process provenance. Printed gear policy
+  caps severity without promoting Info, and tolerance defaults use explicit
+  greater-of wording and CHECK marks for ungraded suggested standards.
+
 ### Changed
 
 - Draw named-feature longitudinal sections via `views/sections`, with pocket width,
   length and depth, and report unavailable or displaced section intent (#304).
 - Honour explicit `views/section_aa` requests through plain through holes; retain
   drawings with a specific warning when no supported cutting plane is available (#314).
+- Credit verified tangent/far-tangent pocket depth presentations in lint; require
+  the carrying diameter for far-tangent inference and recheck final centre-mark bounds.
+- Session opens honour Spec part selection; single-part Analyses omit `part_keys`.
+- Plan override guidance uses schema-valid item-kind paths and shorter dimension bases.
+
 - Plan bases name existing Spec controls from one nine-family override catalogue
   and explain unavailable overrides and the PMI/checker boundary (#309).
 - Pocket depth wording says `DEEP`, with truthful tangent-depth or opposite-tangent
@@ -31,6 +48,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 - Refuse contradictory repeated dimension requirements and fits on locations, pitches or station networks;
   validate note location roles against feature evidence. Preserve presentation-only scheme
   repeats with a warning, share centred-keyway evidence, and name detail scales as ratios.
+- Cover retained stale dimension edits and their path-specific warnings in browser parity;
+  leave peer routes unchanged for unapplied omissions. Keep refusing unsafe annotation
+  references without a nonempty PMI or note identity.
 
 ## 0.2.12 (2026-11-06)
 

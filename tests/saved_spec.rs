@@ -28,6 +28,25 @@ fn set_aside(path: &str, entry: Value, reason_code: &str) -> SetAside {
     }
 }
 
+#[test]
+fn an_unapplied_omit_leaves_other_dimensions_in_place() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/prismatic.step");
+    let (part, analysis) =
+        model::analyse_native_step(&path, &std::fs::read(&path).unwrap()).unwrap();
+    let mut s = Session::new(part, analysis, model::Spec::default()).unwrap();
+    let before = serde_json::to_value(s.plan()).unwrap();
+    s.set_spec(&spec(json!({"dimensions":{"d:unknown":{"omit":true}}})))
+        .unwrap();
+    let after = serde_json::to_value(s.plan()).unwrap();
+    assert_eq!(after["dimensions"], before["dimensions"]);
+    assert_eq!(after["views"], before["views"]);
+    assert!(s.plan().problems.iter().any(|p| {
+        p.code == "dimension_edit_unapplied" && p.subjects == ["dimensions/d:unknown"]
+    }));
+    assert!(s.drawing().svg().contains("<svg"));
+}
+
 /// Each "there is no …" refusal names the escaped Spec entry as data; its message and choices are
 /// unchanged, and other refusals carry no path.
 #[test]
@@ -45,6 +64,18 @@ fn refusals_name_the_entry_the_part_does_not_have() {
             "features/f:hole:99",
         ),
         (json!({"views":{"gone":{"omit":true}}}), "views/gone"),
+        (
+            json!({"annotations":{"unknown":{"omit":true}}}),
+            "annotations/unknown",
+        ),
+        (
+            json!({"annotations":{"pmi:":{"omit":true}}}),
+            "annotations/pmi:",
+        ),
+        (
+            json!({"annotations":{"n:":{"omit":true}}}),
+            "annotations/n:",
+        ),
     ];
     for (value, path) in cases {
         let e = s.set_spec(&spec(value.clone())).unwrap_err();
@@ -56,6 +87,7 @@ fn refusals_name_the_entry_the_part_does_not_have() {
         json!({"dimensions":{"d:f:hole:1/bore.diameter":{"omit":true}}}),
         json!({"dimensions":{"d:f:hole:99/bore.diameter":{"omit":true}}}),
         json!({"annotations":{"pmi:gone":{"omit":true}}}),
+        json!({"annotations":{"n:gone":{"omit":true}}}),
         json!({"precision":{"d:f:hole:99/bore.diameter":2}}),
     ] {
         let requested = spec(value);

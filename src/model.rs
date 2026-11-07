@@ -98,6 +98,10 @@ pub enum FaceGroup {
     Unexplained,
 }
 
+fn single_part_keys(keys: &BTreeMap<String, usize>) -> bool {
+    keys.len() <= 1
+}
+
 /// What the part is: regenerable from its STEP file, never edited.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -209,8 +213,9 @@ pub struct Analysis {
     /// as one, and the plan warns (`assembly_drawn_whole`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<FilePart>,
-    /// Persistent identities for every source part, including single-part files.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    /// Persistent identities when the source has multiple parts. Single-part documents keep
+    /// the existing schema shape; their product name identifies their sole part.
+    #[serde(default, skip_serializing_if = "single_part_keys")]
     pub part_keys: BTreeMap<String, usize>,
     /// The file's bodies that coincide with an earlier one (#212), when no part was chosen:
     /// when every body of an assembly coincides with the first, that part is read alone
@@ -372,6 +377,8 @@ pub struct Riser {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Spec {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process: Option<crate::process::Process>,
     pub schema: String,
     /// Part identity from `draftwright parts`: a persistent key or its numeric index.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -587,6 +594,7 @@ pub struct FeatureSpec {
 impl Default for Spec {
     fn default() -> Self {
         Spec {
+            process: None,
             schema: SPEC_SCHEMA.into(),
             part: None,
             binding: None,
@@ -899,6 +907,8 @@ pub struct Plan {
     /// edge conditions), each with what carries it ([`crate::pmi_lowering::plan_sheet`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requirements: Vec<crate::pmi_lowering::PlannedRequirement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process: Option<crate::process::Resolved>,
     /// The plan-view hole table a dropped hole item escalated to ([`crate::hole_table`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hole_table: Option<crate::hole_table::HoleTable>,
@@ -1901,6 +1911,7 @@ fn analyse_read_part(
         part_keys: defs
             .as_ref()
             .ok()
+            .filter(|defs| defs.len() > 1)
             .map(|defs| {
                 let parts = file_parts(defs);
                 crate::pack::part_keys(&parts)
@@ -4449,7 +4460,7 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     crate::decision_overrides::boundary(|| {
-        crate::bom::with_titles(analysis, spec, || {
+        let plan = crate::bom::with_titles(analysis, spec, || {
             layout::with_gutter(
                 spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
                 || {
@@ -4464,8 +4475,44 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
                     Ok(plan)
                 },
             )
-        })
+        })?;
+        retain_unapplied_edits(analysis, plan, plan_recovered)
     })
+}
+
+/// Validate the complete request first, then keep unapplied edits in the document without
+/// letting them steer layout. In particular, a stale omit must not reserve peer routes.
+fn retain_unapplied_edits(
+    analysis: &Analysis,
+    plan: Plan,
+    replan: fn(&Analysis, &Spec) -> Result<Plan, Invalid>,
+) -> Result<Plan, Invalid> {
+    let warnings: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "dimension_edit_unapplied")
+        .collect();
+    if warnings.is_empty() {
+        return Ok(plan);
+    }
+    let mut applicable = plan.spec.clone();
+    let mut retained = BTreeMap::new();
+    applicable.dimensions.retain(|id, edit| {
+        let path = format!("dimensions/{}", crate::items::key(id));
+        if warnings.iter().any(|p| p.subjects.contains(&path)) {
+            retained.insert(id.clone(), edit.clone());
+            false
+        } else {
+            true
+        }
+    });
+    if retained.is_empty() {
+        return Ok(plan);
+    }
+    let mut drawn = replan(analysis, &applicable)?;
+    drawn.spec.dimensions.extend(retained);
+    drawn.problems.extend(warnings.into_iter().cloned());
+    Ok(drawn)
 }
 
 /// Inspection balloons are placed on the finished sheet, after the paper policy has chosen its
@@ -5469,7 +5516,7 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     crate::decision_overrides::boundary(|| {
-        crate::bom::with_titles(analysis, spec, || {
+        let plan = crate::bom::with_titles(analysis, spec, || {
             layout::with_gutter(
                 spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
                 || {
@@ -5482,7 +5529,8 @@ pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                     Ok(plan)
                 },
             )
-        })
+        })?;
+        retain_unapplied_edits(analysis, plan, self::plan)
     })
 }
 
@@ -6182,7 +6230,7 @@ fn plan_with_presentation(
             .keys()
             .filter(|id| !annotation_ids.contains(id))
             .map(|id| {
-                Invalid {
+                (id, Invalid {
                     path: None,
                     also: Vec::new(),
                     message: format!(
@@ -6195,9 +6243,17 @@ fn plan_with_presentation(
                         annotation_ids.clone()
                     },
                 }
-                .at("annotations", id)
+                .at("annotations", id))
             });
-        for e in missing {
+        for (id, e) in missing {
+            // Stale PMI and automatic-note identities can return after a revision. An
+            // untyped name cannot identify either kind of annotation safely.
+            if !["pmi:", "n:"].into_iter().any(|prefix| {
+                id.strip_prefix(prefix)
+                    .is_some_and(|identity| !identity.is_empty())
+            }) {
+                return Err(e);
+            }
             problems.push(Problem {
                 id: format!(
                     "p:annotation_edit_unapplied:{}",
@@ -6504,7 +6560,8 @@ fn plan_with_presentation(
     // draftwright's order, unless only a fallback would make room for them: then each is placed
     // where it can be, or reported (crate::tables, crate::notes).
     // Part PMI notes precede the drawing's own notes; reconciliation never changes the Spec.
-    let (requirements, more) = crate::pmi_lowering::sheet_requirements(analysis);
+    let (mut requirements, more) = crate::pmi_lowering::sheet_requirements(analysis);
+    crate::process::defaults(analysis, spec, &mut requirements);
     problems.extend(more);
     let (mut notes_given, omitted_notes, more) =
         crate::notes::reconcile(&requirements, analysis, spec);
@@ -8187,6 +8244,7 @@ fn plan_with_presentation(
         tables,
         gdt,
         requirements,
+        process: Some(crate::process::resolve(analysis.bom.as_ref(), &spec)),
         hole_table: None,
         hole_tables: Vec::new(),
         balloons: Vec::new(),
@@ -9021,10 +9079,26 @@ fn radius_furniture(plan: &Plan) -> Vec<crate::dims::PlannedDimension> {
 }
 
 /// Recompute centre-line page bounds after a view and its ink move together.
+pub(crate) fn refresh_line_work_problems(plan: &mut Plan) {
+    // Packing can move a cross back onto the page after its initial finding was made.
+    // Recheck its actual final ink; do not suppress other annotations' off-sheet findings.
+    plan.problems
+        .retain(|p| !p.id.starts_with("p:annotation_off_sheet:ink:"));
+    layout::with_gutter(
+        plan.spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
+        || {
+            for sheet in std::iter::once(&plan.sheet).chain(&plan.sheets) {
+                plan.problems.extend(line_work_problems(sheet, &plan.views));
+            }
+        },
+    );
+    plan.status = crate::completeness::status(&plan.problems);
+}
+
 pub(crate) fn line_work_problems(sheet: &PlannedSheet, views: &[PlannedView]) -> Vec<Problem> {
     let [width, height] = sheet.page;
     let mut problems = Vec::new();
-    for v in views {
+    for v in views.iter().filter(|v| v.sheet == sheet.number) {
         for w in v.line_work.iter().filter(|w| w.kind != "cutting_plane") {
             if w.curves.iter().any(|c| {
                 let b = c.bbox();

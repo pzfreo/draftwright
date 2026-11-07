@@ -75,6 +75,12 @@
             "ignore"
           ]
         },
+        "process": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "origin": {
           "$ref": "#/A"
         },

@@ -170,6 +170,13 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     ("pocket_length.length", p.pocket.length),
                     (depth, p.pocket.depth),
                 ] {
+                    if name == "pocket_max_depth.length"
+                        && p.members
+                            .iter()
+                            .all(|member| pockets::alternative_depth(a, member, &f.id, marks))
+                    {
+                        continue;
+                    }
                     wanted.push(Wanted {
                         feature: f,
                         parameter: name.into(),

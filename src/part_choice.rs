@@ -65,10 +65,21 @@ pub(crate) fn check(analysis: &Analysis, spec: &Spec) -> Result<(), Invalid> {
 pub(crate) fn selected(analysis: &Analysis, choice: &PartChoice) -> Result<usize, Invalid> {
     match choice {
         PartChoice::Key(key) if analysis.part_keys.contains_key(key) => Ok(analysis.part_keys[key]),
-        PartChoice::Key(key)
-            if analysis.parts.is_empty() && analysis.product_name.as_ref() == Some(key) =>
-        {
-            Ok(0)
+        PartChoice::Key(_) if analysis.parts.is_empty() && analysis.product_name.is_some() => {
+            // Singleton maps are absent from the public document and its in-memory
+            // counterpart. Reconstruct the same key from the existing product metadata.
+            choice.resolve(&[FilePart {
+                part: analysis.binding.part_index.unwrap_or(0),
+                name: analysis.product_name.clone().unwrap_or_default(),
+                product_id: analysis
+                    .bom
+                    .as_ref()
+                    .and_then(|b| b.product_ids.first())
+                    .cloned()
+                    .unwrap_or_default(),
+                faces: analysis.binding.face_count,
+                instances: 1,
+            }])
         }
         _ => choice.resolve(&analysis.parts),
     }

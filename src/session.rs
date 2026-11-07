@@ -637,7 +637,8 @@ impl Session {
         features: Features<'_>,
         spec: Spec,
     ) -> Result<Self, Error> {
-        let (part, analysis) = api::analysed(step, part, features)?;
+        let (part, analysis) =
+            api::analysed(step, api::selected_part(step, part, &spec)?, features)?;
         Self::new(part, analysis, spec)
     }
     pub fn new(part: Part, analysis: Analysis, spec: Spec) -> Result<Self, Error> {
@@ -875,9 +876,9 @@ impl Session {
     }
     /// Open a saved Spec (JSON), which may have been made for an earlier draftwright or
     /// recognition: it is read in its current form (`sheet/preferred_printer` as
-    /// `sheet/preferred_max_size`, a `draftwright.spec/1` as `/2`), and each entry naming a
-    /// feature, face, dimension, annotation, view or measurement the part no longer has is set
-    /// aside, with the entry and why, and the rest applied as [`Session::set_spec`] applies it. A
+    /// `sheet/preferred_max_size`, a `draftwright.spec/1` as `/2`). Stale edits that can be kept
+    /// remain in the Spec with warnings. Entries that validation still refuses are set aside,
+    /// with the entry and why, and the rest applied as [`Session::set_spec`] applies it. A
     /// member an authored group names that the part no longer has is taken out of the group
     /// alone, unless the group is then no longer one, when the whole group is set aside. Any
     /// other refusal refuses the whole Spec, and the session is unchanged.

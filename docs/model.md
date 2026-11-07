@@ -2421,6 +2421,14 @@ Parameter names follow the Python version's role vocabulary (`role.kind[.discrim
 name that matches more than one measurement is refused rather than guessed (Python ADR 4
 invariant 6).
 
+Unavailable dimension edits remain in the Spec with a `dimension_edit_unapplied`
+warning whose `subjects` name the escaped edit path, even for an unknown ID; they
+create no measurement. Stale annotation edits with `pmi:<identity>` or `n:<identity>`
+likewise remain with `annotation_edit_unapplied`; an untyped or empty annotation
+identity is refused as an unsafe reference. `setSpec` and `openSpec` apply the same
+validation. `openSpec` additionally migrates legacy `sheet/preferred_printer` to
+`sheet/preferred_max_size` and sets aside entries that validation still refuses.
+
 **A PMI record's identity** (`pmi::identity`, `pmi::Report::identities`; the editor's
 `gdt::editor_key`, upstreamed) is its category and kind (`.basic` for a basic dimension), then,
 each tagged and left out when empty: its part in a file of several (`p<n>`), the drawing faces
@@ -3369,5 +3377,43 @@ undrawn depth presentation warns. Requirements belong to PMI, and checker
 conclusions have no presentation override. Basis reporting runs after the outer
 planning operation, so it cannot influence the layout solve.
 
-Basis guidance names each Spec object once and lists its keys, keeping item replies
-compact while retaining the complete control inventory.
+Basis guidance uses item-kind-specific paths: dimension callouts name `dimensions`,
+views name `views`, and only PMI prose labels name `annotations`. Each dimension
+lists its local controls once. Global recognition and callout defaults are reported
+on the sheet, keeping item replies compact.
+
+Lint verifies tangent-depth terms against the recognised cylinder and floor. A
+far-tangent floor distance defines depth only alongside a stated diameter of the
+carrying cylinder. Neither presentation invents a claim of the original depth.
+Single-part Analyses omit `part_keys` on serialization, retaining their existing
+schema shape; multi-part files keep the persistent selection map.
+### Manufacturing process
+
+Per-part `process` accepts `machined`, `3D printed: FDM`, `3D printed: resin`,
+`3D printed: powder`, `3D printed: metal`, `sheet metal`, `moulded`, or `cast`.
+Precedence is Spec > PRODUCT_DEFINITION's `specify process` UDA item
+`manufacturing_process` > material-class guess. `default.manufacturing_process`
+marks a suggestion, below a file answer. Plan `process` records the value, source
+(spec/file/suggested/guess), and basis; pack rows carry process and its source.
+Only the four `3D printing: filament/resin/powder/metal` material classes imply
+printing; absent evidence means machined. Guesses need checking.
+
+Printed general tolerances default to ±0.3 mm/0.3 % (FDM and powder),
+±0.15 mm/0.15 % (resin), or ±0.1 mm/0.2 % (metal), whichever is greater.
+The cell states “whichever is greater” on a second line and marks the value `CHECK`;
+the requirement basis spells out the full default. Moulded/cast use ISO 20457 /
+ISO 8062-3 without inventing a grade; a suggested or guessed process marks that
+ungraded standard `CHECK`. `sheet/title/tolerance` overrides these, including an
+explicit blank. Authored PMI finishes remain. Where no finish is authored,
+printed parts omit the default finish; moulded/cast use a no-removal symbol
+with “as moulded” / “as cast”. `sheet/default_finish` overrides the finish.
+`process: machined` restores machining policy. Printed gear semantics are capped
+at Warning; multi-solid Info findings stay Info. Other dimensioning lint is unchanged.
+GA lists append Process beside Material only when a non-bought row has a Spec,
+file or suggested value to print. Bought and guessed cells stay blank, including
+guesses of printing. CSV `process` and `process_source` mirror JSON `process` and
+`sources.process`; absent values stay blank. Made-part guesses remain labelled
+in JSON/CSV, but bought parts get no invented process. In a pack, override a part at
+`parts/<part-key>/drawing/process`, using its existing per-part drawing Spec.
+Insert and printed-thread
+hole callouts await Specify's hole functions and are outside this change.

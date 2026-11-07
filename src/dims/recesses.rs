@@ -66,13 +66,18 @@ pub enum DepthPresentation {
 }
 
 /// Derive the alternative from the recognised cylinder, never the part's bounding box.
-fn depth_term(cx: &Context, f: &Feature, p: &pockets::Placed) -> (&'static str, f64, &'static str) {
+fn depth_term(
+    cx: &Context,
+    f: &Feature,
+    geometry: &Feature,
+    p: &pockets::Placed,
+) -> (&'static str, f64, &'static str) {
     let entry = cx
         .spec
         .dimensions
         .get(&want_id(&f.id, "pocket_width.length"));
     if let Some(presentation) = entry.and_then(|d| d.presentation)
-        && let Ok(Grammar::Pocket(local)) = grammar(f)
+        && let Ok(Grammar::Pocket(local)) = grammar(geometry)
         && let Some((_, radius, on)) = local.mouth
     {
         let floor = local.origin[local.axis] - local.open_sign * local.depth / 2.0;
@@ -206,7 +211,7 @@ fn pocket_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) 
             }
         };
         let view = end_on(p.depth_axis);
-        let (depth, depth_value, deep) = depth_term(cx, f, &p);
+        let (depth, depth_value, deep) = depth_term(cx, f, f, &p);
         let m = |parameter: &str, value: f64| Measurement {
             feature: f.id.clone(),
             parameter: parameter.into(),
@@ -275,6 +280,8 @@ fn pocket_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) 
                 "a blind pocket's width, length and {}depth in one callout, in the view that looks into it",
                 if depth == "pocket_floor_from_far_extreme.length" {
                     "floor distance from the far cylinder tangent instead of "
+                } else if depth == "pocket_depth_from_tangent.length" {
+                    "tangent-referenced "
                 } else if p.mouth {
                     "greatest (its mouth is a cylinder) "
                 } else {
@@ -681,7 +688,23 @@ fn pattern_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>)
         let p = &group.pocket;
         let view = end_on(p.depth_axis);
         let count = group.members.len();
-        let (depth, depth_value, deep) = depth_term(cx, f, p);
+        let mut term = depth_term(cx, f, group.members[0], p);
+        if group.members.iter().any(|member| {
+            let other = depth_term(cx, f, member, p);
+            other.0 != term.0 || (other.1 - term.1).abs() > 1e-6
+        }) {
+            // A single grouped term cannot state different floor distances.
+            term = (
+                if p.mouth {
+                    "pocket_max_depth.length"
+                } else {
+                    "pocket_depth.length"
+                },
+                p.depth,
+                "DEEP",
+            );
+        }
+        let (depth, depth_value, deep) = term;
         let mut terms = vec![
             format!("{count}×"),
             fmt(p.width),

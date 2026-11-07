@@ -2225,12 +2225,72 @@ fn spec_depth_presentation_keeps_measured_terms() {
                 .any(|m| m.parameter == role && (m.value - value).abs() < 1e-6)
         );
         assert!(d.from_spec.iter().any(|f| f == "presentation"));
+        let r = rendered(SHAFT, &p);
+        assert!(
+            !missing(
+                r,
+                "pocket_requirement_missing",
+                "f:section_recess:1",
+                "pocket_max_depth.length"
+            ),
+            "{:?}",
+            r.lint
+        );
+        assert!(
+            !has(&p.plan, "annotation_off_sheet"),
+            "{:?}",
+            p.plan.problems
+        );
+        assert!(
+            !r.structural
+                .iter()
+                .any(|i| i.code == "annotation_off_sheet"),
+            "{:?}",
+            r.structural
+        );
+        assert!(!d.basis.contains("dimensions/<id>"));
+        let marks: Vec<_> = r.drawings.iter().flat_map(lint::marks).collect();
+        let depth_missing = |marks: &[lint::Mark]| {
+            lint::check(&fixture(SHAFT).analysis, marks)
+                .iter()
+                .any(|i| {
+                    i.code.starts_with("pocket_requirement_")
+                        && i.requirements
+                            .iter()
+                            .any(|q| q.parameter == "pocket_max_depth.length")
+                })
+        };
+        let mut wrong = marks.clone();
+        wrong
+            .iter_mut()
+            .filter(|m| m.claims.iter().any(|c| c.parameter == role))
+            .for_each(|m| m.text = "6 × 40 × 99 DEEP".into());
+        assert!(
+            depth_missing(&wrong),
+            "a false alternative must not certify depth"
+        );
         if choice == "far_extreme" {
             assert!(
                 !d.measurements
                     .iter()
                     .any(|m| m.parameter == "pocket_max_depth.length")
             );
+            assert!(d.basis.contains("far cylinder tangent"));
+            let mut no_radius = marks.clone();
+            for mark in &mut no_radius {
+                mark.claims.retain(|c| {
+                    !matches!(
+                        c.parameter.as_str(),
+                        "step.diameter" | "od.diameter" | "boss.diameter"
+                    )
+                });
+            }
+            assert!(
+                depth_missing(&no_radius),
+                "far floor alone does not determine depth"
+            );
+        } else {
+            assert!(!d.basis.contains("greatest"));
         }
     }
     for id in [id, "d:envelope/width.length"] {
@@ -2323,4 +2383,120 @@ fn explicit_section_reports_its_plane_or_missing_geometry() {
     assert!(p.plan.problems.iter().any(|p| p.code == "section_not_shown"
         && p.message.contains("no front-facing cutting plane")
         && p.message.contains("retained")));
+}
+
+/// Walk properties, map values and union/reference branches of the published schema.
+fn schema_path(schema: &Value, node: &Value, path: &[String]) -> bool {
+    if path.is_empty() {
+        return true;
+    }
+    if let Some(reference) = node.get("$ref").and_then(Value::as_str) {
+        return schema
+            .pointer(reference.strip_prefix('#').unwrap())
+            .is_some_and(|next| schema_path(schema, next, path));
+    }
+    if ["anyOf", "oneOf", "allOf"].iter().any(|key| {
+        node[*key]
+            .as_array()
+            .is_some_and(|branches| branches.iter().any(|next| schema_path(schema, next, path)))
+    }) {
+        return true;
+    }
+    node["properties"]
+        .get(&path[0])
+        .or_else(|| {
+            node.get("additionalProperties")
+                .filter(|next| next.is_object())
+        })
+        .is_some_and(|next| schema_path(schema, next, &path[1..]))
+}
+
+#[test]
+fn override_basis_paths_exist_in_the_published_spec_schema() {
+    let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
+    fn bases<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
+        match v {
+            Value::Object(map) => {
+                if let Some(s) = map.get("basis").and_then(Value::as_str) {
+                    out.push(s);
+                }
+                for child in map.values() {
+                    bases(child, out);
+                }
+            }
+            Value::Array(a) => {
+                for child in a {
+                    bases(child, out);
+                }
+            }
+            _ => (),
+        }
+    }
+    let mut checked = 0;
+    for name in [BRACKET, SHAFT, PIVOT, CTC] {
+        let p = planned(name, &minimal());
+        let value = serde_json::to_value(&p.plan).unwrap();
+        let mut all = Vec::new();
+        bases(&value, &mut all);
+        for basis in all {
+            for guidance in basis.split("; Spec: ").skip(1) {
+                for field in guidance.split("; ") {
+                    let (object, keys) = field
+                        .split_once(" keys [")
+                        .map_or((field, None), |(object, keys)| {
+                            (object, Some(keys.trim_end_matches(']')))
+                        });
+                    if !schema["properties"]
+                        .as_object()
+                        .unwrap()
+                        .contains_key(object.split('/').next().unwrap())
+                    {
+                        break;
+                    }
+                    let paths = keys.map_or_else(
+                        || vec![object.to_string()],
+                        |keys| {
+                            keys.split(", ")
+                                .map(|key| format!("{object}/{key}"))
+                                .collect()
+                        },
+                    );
+                    for path in paths {
+                        let parts: Vec<_> = path
+                            .split('/')
+                            .map(|s| s.replace("~1", "/").replace("~0", "~"))
+                            .collect();
+                        assert!(
+                            schema_path(&schema, &schema, &parts),
+                            "{name}: nonexistent {path} in {basis}"
+                        );
+                        if parts[0] == "annotations" {
+                            assert!(
+                                p.plan
+                                    .gdt
+                                    .iter()
+                                    .any(|g| g.kind == "label" && g.id == parts[1])
+                                    || p.plan.notes.iter().any(|n| n.default && n.id == parts[1]),
+                                "wrong annotation kind: {path}"
+                            );
+                        }
+                        if parts[0] == "dimensions" {
+                            assert!(
+                                p.plan.dimensions.iter().any(|d| d.id == parts[1])
+                                    || p.plan.omitted.iter().any(|d| d.id == parts[1]),
+                                "wrong dimension: {path}"
+                            );
+                        }
+                        checked += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 50);
+    assert!(!schema_path(
+        &schema,
+        &schema,
+        &["annotations".into(), "front".into(), "centre_marks".into()]
+    ));
 }
