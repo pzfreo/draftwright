@@ -2456,15 +2456,24 @@ fn grm05_automatic_recovery_keeps_rendered_centre_ink_inside_the_page() {
 
 #[test]
 fn native_recovery_judges_centre_ink_after_deferred_finishing() {
-    let Some(dir) = corpus::dir() else { return };
-    let (part, a) = model::analyse_native(&dir.join("mfcadpp_holdout/388.step")).unwrap();
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
-    // Its finished A2 drawing fits. An unfinished axis endpoint must not
-    // force A1 before the enclosing paper trial finishes the view positions.
-    assert_eq!(p.sheet.size, "A2");
+    let (part, a) = model::analyse_native(&fixture("coverage-holes/three-shafts.step")).unwrap();
+    let spec = spec(json!({"sheet": {"dimension_spacing": "compact"}}));
+    let p = model::plan_recovered(&a, &spec).unwrap();
+    // Its finished A3 drawing fits at full size. Judging an unfinished axis
+    // endpoint instead would select A4 at half size before the view positions settle.
+    assert_eq!(p.sheet.size, "A3");
+    assert_eq!(p.sheet.scale, "1:1");
+    assert!(!p.problems.iter().any(|q| q.code == "annotation_off_sheet"));
     let drawing = model::render(&part, &a, &p, &font()).unwrap();
     let m = draftwright::layout::margin();
     let drawable = [m, m, drawing.page[0] - m, drawing.page[1] - m];
+    assert!(
+        drawing
+            .sheet
+            .items
+            .iter()
+            .any(|i| i.kind == draftwright::output::Kind::Centreline)
+    );
     for item in drawing
         .sheet
         .items
