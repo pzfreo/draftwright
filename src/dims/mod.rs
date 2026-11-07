@@ -5477,6 +5477,24 @@ pub(crate) fn local_placement_fix(
                 {
                     return None;
                 }
+                // A strip-changing remedy must compose with other remedies.
+                // Do not turn its trial's incidental lane/text station into
+                // competing explicit promises when the side change suffices.
+                let mut requested = place.clone();
+                if d.kind == "linear"
+                    && requested.side.is_some()
+                    && plan
+                        .spec
+                        .dimensions
+                        .get(id)
+                        .and_then(|d| d.place.as_ref())
+                        .and_then(|p| p.side)
+                        .is_some_and(|side| Some(side) != requested.side)
+                {
+                    requested.lane = None;
+                    requested.along = None;
+                }
+                let place = &requested;
                 let ops = vec![Op::set(
                     format!("dimensions/{}/place", crate::items::key(id)),
                     // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
