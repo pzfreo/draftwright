@@ -220,6 +220,7 @@ pub(crate) fn furniture_bounds(
             let centre = crate::model::extent(analysis, &view).1;
             let at = |p| {
                 let q = view.map(p);
+                let q = m.broken.as_ref().map_or(q, |b| b.map(q));
                 [
                     m.at[0] + m.scale * (q[0] - centre[0]),
                     m.at[1] + m.scale * (q[1] - centre[1]),

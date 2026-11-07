@@ -60,37 +60,28 @@ impl Break {
             })
             .collect()
     }
-    pub(crate) fn ink(&self, size: [f64; 2], centre: [f64; 2], v: &PlannedView) -> Vec<Curve> {
-        let k = self.axis;
-        let j = 1 - k;
+    pub(crate) fn ink(&self, items: &[Item], centre: [f64; 2], v: &PlannedView) -> Vec<Curve> {
+        let Some(bounds) = crate::output::items_bbox(items) else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
         for side in 0..2 {
-            let x = v.at[k]
-                + v.scale
-                    * (self.map({
-                        let mut p = centre;
-                        p[k] = self.remove[side];
-                        p
-                    })[k]
-                        - centre[k]);
-            let low = v.at[j] - size[j] * v.scale / 2. - 1.;
-            let high = v.at[j] + size[j] * v.scale / 2. + 1.;
-            let mid = (low + high) / 2.;
-            let tooth = (self.gap * v.scale / 4.).min(1.);
-            let points = [
-                [x, low],
-                [x, mid - 1.5],
-                [x - tooth, mid - 0.5],
-                [x + tooth, mid + 0.5],
-                [x, mid + 1.5],
-                [x, high],
-            ];
-            out.extend(points.windows(2).map(|p| {
-                Curve::Line(
-                    if k == 0 { p[0] } else { [p[0][1], p[0][0]] },
-                    if k == 0 { p[1] } else { [p[1][1], p[1][0]] },
-                )
-            }));
+            let mut rect = bounds;
+            rect[self.axis + if side == 0 { 2 } else { 0 }] =
+                v.at[self.axis] + v.scale * (self.remove[side] - centre[self.axis]);
+            let mut boundary = crate::detail::Boundary::default();
+            for item in items {
+                if let Item::Edge(c) = item {
+                    boundary.add(c, &crate::detail::clip(c.clone(), rect), rect);
+                }
+            }
+            let shift = if side == 0 { 1. } else { -1. } * v.scale * self.reduction() / 2.;
+            out.extend(
+                boundary
+                    .ink(rect)
+                    .into_iter()
+                    .map(|c| shift_curve(c, self.axis, shift)),
+            );
         }
         out
     }

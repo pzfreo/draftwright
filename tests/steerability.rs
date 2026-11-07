@@ -2761,3 +2761,54 @@ fn broken_view_without_uniform_span_warns_and_retains_geometry() {
     );
     assert!(!rendered(FLANGE, &p).drawings[0].sheet.views.is_empty());
 }
+
+#[test]
+fn broken_view_uses_local_profile_and_keeps_section_markers_attached() {
+    let mut s = minimal();
+    s["views"] = json!({"front":{"break":{"axis":"x","remove":[5,25],"gap":6}}, "plan":{}, "sections":[{"id":"B","through":"f:section_recess:1"}]});
+    let p = planned(SHAFT, &s);
+    let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
+    assert!(v.broken.is_some());
+    let f = fixture(SHAFT);
+    let geometry = model::render_geometry(
+        &f.part,
+        &f.analysis,
+        &p.plan,
+        &mut f.projections.lock().unwrap(),
+    )
+    .unwrap();
+    let g = &geometry
+        .views
+        .iter()
+        .find(|(id, _)| id == "v:front")
+        .unwrap()
+        .1;
+    assert!(!g.breaks.is_empty());
+    for c in &g.breaks {
+        let b = c.bbox();
+        assert!(
+            b[1] >= v.at[1] - 10. * v.scale - 1.01 && b[3] <= v.at[1] + 10. * v.scale + 1.01,
+            "break must meet the 20 mm neck, not the 30 mm shoulder: {b:?}"
+        );
+    }
+    let parent = p.plan.views.iter().find(|v| v.id == "v:plan").unwrap();
+    let cut = parent
+        .line_work
+        .iter()
+        .find(|w| w.kind == "cutting_plane")
+        .unwrap();
+    let points: Vec<_> = cut
+        .curves
+        .iter()
+        .flat_map(|c| [c.start(), c.end()])
+        .collect();
+    let lo = points.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min);
+    let hi = points
+        .iter()
+        .map(|p| p[0])
+        .fold(f64::NEG_INFINITY, f64::max);
+    assert!(
+        ((hi - lo) - (120. - 14.) * parent.scale - 2. * draftwright::section::OVERRUN).abs() < 1e-5
+    );
+    assert_section_fits(SHAFT, &p);
+}

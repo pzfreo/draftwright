@@ -7,6 +7,15 @@ import tempfile
 import unittest
 
 
+def wire_fields(fields):
+    """Every Rust field, using its serialized name (including reserved words)."""
+    result = set()
+    for attrs, name in re.findall(r'((?:#\[[^\]]*\]\s*)*)pub ((?:r#)?\w+):', fields, re.S):
+        rename = re.search(r'\brename\s*=\s*"([^"]+)"', attrs)
+        result.add(rename.group(1) if rename else name.removeprefix('r#'))
+    return result
+
+
 class SpecContextBudget(unittest.TestCase):
     def test_new_nested_spec_field_does_not_change_any_advertised_schema(self):
         generator = Path(__file__).with_name('generate_mcp_schemas.py').resolve()
@@ -40,6 +49,16 @@ spec['properties']['sheet']['properties']['future_setting'] = {'type': 'string'}
         self.assertNotEqual(full[0], full[1])
         self.assertNotEqual(private[0], private[1])
 
+    def test_wire_field_inventory_keeps_renamed_raw_and_ordinary_fields(self):
+        fields = '''
+            #[serde(rename = "break", skip_serializing_if = "Option::is_none")]
+            pub broken: Option<Request>,
+            pub r#type: String,
+            #[serde(default)]
+            pub ordinary: bool,
+        '''
+        self.assertEqual(wire_fields(fields), {'break', 'type', 'ordinary'})
+
     def test_full_schema_covers_every_current_nested_spec_field(self):
         from mcp_spec import document
         root = Path(__file__).resolve().parents[1] / 'src'
@@ -47,6 +66,7 @@ spec['properties']['sheet']['properties']['future_setting'] = {'type': 'string'}
         types = {
             'model': {'Binding': 'binding', 'SheetSpec': 'sheet', 'ViewSpec': 'view',
                       'DimensionSpec': 'dimension', 'FeatureSpec': 'feature'},
+            'broken': {'Request': 'break'},
             'sheets': {'SheetsSpec': 'sheets'},
             'placement_intent': {'Place': 'place', 'ViewPlace': 'view_place', 'AnnotationSpec': 'annotation'},
             'label_text': {'Text': 'text'},
@@ -61,7 +81,7 @@ spec['properties']['sheet']['properties']['future_setting'] = {'type': 'string'}
             source = (root / (module + '.rs')).read_text()
             for struct, definition in structs.items():
                 fields = source.split('pub struct ' + struct + ' {', 1)[1].split('\n}', 1)[0]
-                self.assertEqual(set(re.findall(r'pub (\w+):', fields)),
+                self.assertEqual(wire_fields(fields),
                                  set(definitions[definition]['properties']), struct)
 
     def test_outline_covers_all_spec_keys_with_closed_top_level(self):
@@ -76,7 +96,7 @@ spec['properties']['sheet']['properties']['future_setting'] = {'type': 'string'}
         # Also guard drift from the actual Rust document model.
         model = Path(__file__).resolve().parents[1] / 'src/model.rs'
         spec = model.read_text().split('pub struct Spec {', 1)[1].split('\n}', 1)[0]
-        self.assertEqual(set(re.findall(r'pub (\w+):', spec)), set(shallow['properties']))
+        self.assertEqual(wire_fields(spec), set(shallow['properties']))
 
 
 if __name__ == '__main__':

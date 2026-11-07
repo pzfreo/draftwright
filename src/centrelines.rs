@@ -651,9 +651,17 @@ pub(crate) fn plan(a: &Analysis, views: &mut [PlannedView]) {
     let cuts: Vec<_> = views.iter().filter_map(|v| v.cut.clone()).collect();
     for c in cuts {
         if let Some(v) = views.iter_mut().find(|v| v.id == c.marked_in) {
-            let p = page(a, v, [lo[0], c.origin[1], lo[2]]);
-            let q = page(a, v, [hi[0], c.origin[1], hi[2]]);
-            let y = page(a, v, c.origin)[1];
+            let at = |p| {
+                let q = page(a, v, p);
+                v.broken.as_ref().map_or(q, |b| {
+                    let centre = crate::detail::crop_extent(a, v).1;
+                    let q = b.map([0, 1].map(|k| centre[k] + (q[k] - v.at[k]) / v.scale));
+                    [0, 1].map(|k| v.at[k] + v.scale * (q[k] - centre[k]))
+                })
+            };
+            let p = at([lo[0], c.origin[1], lo[2]]);
+            let q = at([hi[0], c.origin[1], hi[2]]);
+            let y = at(c.origin)[1];
             v.line_work.push(LineWork {
                 id: format!("ink:{}:cut:{}", v.id, c.label),
                 kind: "cutting_plane".into(),

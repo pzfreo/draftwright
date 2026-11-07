@@ -9933,9 +9933,9 @@ impl Projections {
         }
         geometry.breaks = boundary.ink(rect);
         if let Some(b) = &v.broken {
+            geometry.breaks.extend(b.ink(&geometry.visible, centre, v));
             geometry.visible = b.items(geometry.visible, centre, v);
             geometry.hidden = b.items(geometry.hidden, centre, v);
-            geometry.breaks.extend(b.ink(size, centre, v));
         }
         self.stats.bounds += 1;
         geometry.bbox = items_bbox(&geometry.visible);
@@ -12193,6 +12193,7 @@ pub(crate) fn cutting_line(
     let centre = extent(analysis, mv).1;
     let to_page = |p: [f64; 3]| {
         let q = mv.map(p);
+        let q = m.broken.as_ref().map_or(q, |b| b.map(q));
         [
             m.at[0] + m.scale * (q[0] - centre[0]),
             m.at[1] + m.scale * (q[1] - centre[1]),
