@@ -2500,12 +2500,15 @@ fn render_detects_detached_section_depth_witnesses() {
             &mut f.projections.lock().unwrap(),
         )
         .unwrap();
-        assert!(
-            drawing
-                .problems
-                .iter()
-                .any(|p| p.code == "dimension_witness_detached")
-        );
+        let problem = drawing
+            .problems
+            .iter()
+            .find(|p| p.code == "dimension_witness_detached")
+            .expect("detached depth attachment is reported");
+        assert_eq!(problem.severity, "error");
+        let labelled = serde_json::to_value(problem).unwrap();
+        assert_eq!(labelled["impact"], "incomplete");
+        assert_eq!(labelled["group"], "dimension_witness_detached");
     }
 }
 

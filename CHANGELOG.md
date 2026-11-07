@@ -13,6 +13,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Pinned multi-sheet canonicals discard temporary moved-section omissions while
+  retaining authored cuts. Detached dimension witnesses are classified as errors
+  with incomplete impact and a documented cause group.
+
 - Automatic recovery checks final centre-line bounds before accepting a sheet;
   transported ink cannot turn a clean candidate into an off-sheet drawing after selection.
 - Include explicit sections in pinned paper selection; retain automatic cuts when a named

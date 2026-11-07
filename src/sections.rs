@@ -31,13 +31,14 @@ impl Serialize for Views {
 impl Views {
     pub(crate) fn keep_sections_from(&mut self, source: &Self) {
         self.sections = source.sections.clone();
-        for (name, view) in source
-            .entries
-            .iter()
-            .filter(|(n, _)| n.starts_with("section_"))
-        {
+        for (name, view) in source.entries.iter().filter(|(name, view)| {
+            // A moved view's omission is allocator bookkeeping, not an
+            // authored section request in the whole-drawing reference.
+            name.starts_with("section_") && !(view.omit && view.sheet.is_some_and(|n| n > 1))
+        }) {
             let mut view = view.clone();
             view.place = None;
+            view.sheet = None;
             self.entries.insert(name.clone(), view);
         }
     }
@@ -210,7 +211,7 @@ pub(crate) fn attachment_problems(a: &Analysis, plan: &crate::model::Plan) -> Ve
             (!attached).then(|| Problem {
                 id: format!("p:dimension_witness_detached:{}", d.id),
                 code: "dimension_witness_detached".into(),
-                severity: "warning".into(),
+                severity: "error".into(),
                 message: "The section depth is not attached to its pocket floor and mouth; the displayed value alone does not establish that measurement.".into(),
                 subjects: vec![d.id.clone(), r.through.clone()],
                 ..Default::default()
