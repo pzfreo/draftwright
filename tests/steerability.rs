@@ -2225,7 +2225,10 @@ fn gdt_move_reports_name_the_item_and_dimension_placement_once() {
             }
             // None of these old datum boxes intersects the newly placed 510
             // ink. The move is real, but the request is not an evidenced cause.
-            assert_eq!(reports[0].subjects, [old.id.clone()]);
+            assert_eq!(
+                reports[0].subjects.as_slice(),
+                std::slice::from_ref(&old.id)
+            );
             assert!(reports[0].refs.is_empty());
             assert!(reports[0].message.contains("unattributed"));
             assert!(!reports[0].message.contains("510"));
