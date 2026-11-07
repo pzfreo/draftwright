@@ -303,6 +303,13 @@ fn blocked(
 /// Called only at the outer public boundary, after every layout/routing/reporting pass.
 pub(crate) fn finish(analysis: &Analysis, plan: &mut Plan) {
     let count = plan.hole_tables.len() + usize::from(plan.hole_table.is_some());
+    if count == 0 {
+        return;
+    }
+    // Read the same corrected features as the completed solver, without replanning.
+    let effective = crate::spec_gdt::effective(analysis, &plan.spec)
+        .unwrap_or(std::borrow::Cow::Borrowed(analysis));
+    let analysis = effective.as_ref();
     for i in 0..count {
         let table = plan
             .hole_table
