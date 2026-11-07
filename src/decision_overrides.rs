@@ -153,6 +153,7 @@ impl Drop for Boundary {
     }
 }
 /// Nested canonical and recovery plans keep their original bases during the solve.
+#[cfg_attr(target_arch = "wasm32", inline(never))]
 pub(crate) fn boundary(
     analysis: &crate::model::Analysis,
     spec: &crate::model::Spec,
@@ -373,6 +374,7 @@ fn report_placements(analysis: &crate::model::Analysis, plan: &mut Plan) {
     plan.status = crate::completeness::status(&plan.problems);
 }
 
+#[cfg_attr(target_arch = "wasm32", inline(never))]
 fn report(analysis: &crate::model::Analysis, plan: &mut Plan) {
     report_gdt_moves(plan);
     report_placements(analysis, plan);
