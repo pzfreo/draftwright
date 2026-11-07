@@ -1731,7 +1731,8 @@ fn explicit_pitch_and_offset_coexist_using_the_near_hole_row() {
     let id = "d:f:hole_pattern:1/grid_pitch.length.col";
     let d = dim(&p.plan, id).unwrap().placed.as_ref().unwrap();
     let v = p.plan.views.iter().find(|v| v.id == "v:plan").unwrap();
-    let top = fixture(PIVOT).analysis.envelope[1][1];
+    let [lo, hi] = fixture(PIVOT).analysis.envelope;
+    let top = (hi[1] - lo[1]) / 2.0;
     assert!(d.arrows[0][0][1] > v.at[1] + top * v.scale);
     assert!(d.lines[0][0][1] >= v.at[1] + (top - 12.0) * v.scale);
     let x = d
