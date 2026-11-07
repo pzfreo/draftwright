@@ -12852,12 +12852,12 @@
   {
     "set": "steps",
     "part": "h363",
-    "subject": "rust f:circular_blind_step:2",
+    "subject": "rust f:circular_blind_step:3",
     "field": "presence",
     "python": "-",
-    "rust": "f:circular_blind_step:2 [25, 26] {\"axis\":\"x\",\"centreline\":[[17.1918,0.0,0.0],[14.9084,0.0,0.0]],\"length\":2.28335,\"radius\":8.0471,\"section\":[[0.0,8.0471],[0.0,0.0],[8.0471,0.0]]}",
+    "rust": "f:circular_blind_step:3 [25, 26] {\"axis\":\"x\",\"centreline\":[[17.1918,0.0,0.0],[14.9084,0.0,0.0]],\"length\":2.28335,\"radius\":8.0471,\"section\":[[0.0,8.0471],[0.0,0.0],[8.0471,0.0]]}",
     "verdict": "rust-correct",
-    "evidence": "quiddity-rust#102 recognises circular blind and paired-ramp steps that Python does not; every prediction it added on the MFCAD++ parts matches their independent face labels (93 of 93 faces)."
+    "evidence": "quiddity-rust#102 recognises circular blind and paired-ramp steps that Python does not; every prediction it added on the MFCAD++ parts matches their independent face labels (93 of 93 faces). quiddity v0.4.9 (#215) inserts the newly proved Z-axis step before this unchanged X-axis step, renumbering it from 2 to 3."
   },
   {
     "set": "steps",
@@ -12872,12 +12872,12 @@
   {
     "set": "steps",
     "part": "h363",
-    "subject": "rust f:cylindrical_profile:2",
+    "subject": "rust f:circular_blind_step:2",
     "field": "presence",
     "python": "-",
-    "rust": "f:cylindrical_profile:2 [20] {\"axis\":\"z\",\"axis_point\":[33.316,0.0,18.818],\"faces\":[20.0],\"radius\":4.55,\"side\":\"concave\",\"sweep\":1.570796}",
+    "rust": "f:circular_blind_step:2 [20, 24] {\"axis\":\"z\",\"centreline\":[[33.3163,0.0,17.1386],[33.3163,0.0,20.4972]],\"length\":3.35864,\"radius\":4.55039,\"section\":[[33.3163,4.55038],[33.3163,0.0],[28.7659,0.0]]}",
     "verdict": "rust-correct",
-    "evidence": "quiddity-rust v0.2.3 (#127) publishes an otherwise unclaimed trimmed cylindrical profile, with the recorded analytic radius, actual surface axis, material side and sweep. Python has no residual-profile family. draftwright now retains its defining faces and states that radius, using independently extracted trimmed cylinder arcs for leader validation."
+    "evidence": "quiddity v0.4.9 (#208, #215) proves the intact cylindrical wall (face 20) and blind floor (face 24) despite the secondary cut adding a convex planar neighbour. The analytic Z-axis wall has radius 4.55039 mm and spans Z 17.1386 to 20.4972 (depth 3.35864 mm). This circular blind step replaces the residual cylindrical_profile:2; Python has no corresponding step. The drawing now states its radius and depth rather than only the profile radius."
   },
   {
     "set": "steps",
