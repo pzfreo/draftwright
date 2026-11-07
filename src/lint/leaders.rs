@@ -87,6 +87,7 @@ fn unit(a: V3) -> Option<V3> {
 /// A view as drawn: its projection, and where the part's centre lands, as
 /// [`super::coverage::drawn_centre_marks`] projects.
 struct Projection {
+    broken: Option<crate::output::BreakMap>,
     view: haecceity::hlr::View,
     at: P,
     centre: [f64; 2],
@@ -100,6 +101,7 @@ impl Projection {
         let centre = view.map([0, 1, 2].map(|k| 0.5 * (lo[k] + hi[k])));
         (f.scale.is_finite() && f.scale > 0.0).then_some(Projection {
             view,
+            broken: f.broken.clone(),
             at: f.at,
             centre,
             scale: f.scale,
@@ -108,6 +110,7 @@ impl Projection {
 
     fn page(&self, p: V3) -> P {
         let q = self.view.map(p);
+        let q = self.broken.as_ref().map_or(q, |b| b.map(q));
         [0, 1].map(|k| self.at[k] + self.scale * (q[k] - self.centre[k]))
     }
 

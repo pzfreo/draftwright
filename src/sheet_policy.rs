@@ -713,9 +713,11 @@ fn usable_with_base_contacts(
         base_contacts,
         strict_routes,
         None,
+        None,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn usable_prepared(
     analysis: &Analysis,
     plan: &Plan,
@@ -724,6 +726,7 @@ fn usable_prepared(
     base_contacts: Option<&Plan>,
     strict_routes: bool,
     prepared_reference: Option<&BTreeSet<(String, Vec<String>)>>,
+    unbroken_routes: Option<&Plan>,
 ) -> Result<(), String> {
     let drops = |p: &Plan| {
         p.problems
@@ -753,7 +756,10 @@ fn usable_prepared(
         Some("more undrawn GD&T")
     } else if !unreported_losses(plan).is_subset(&unreported_losses(reference)) {
         Some("unreported lost dimensions")
-    } else if strict_routes && model::longer_callouts(plan, reference) {
+    } else if strict_routes
+        && model::longer_callouts(plan, reference)
+        && unbroken_routes.is_none_or(|p| model::longer_callouts(plan, p))
+    {
         Some("a callout grows more than 2 paper mm beyond the displaced drawing")
     } else if pictorial_only_sheet(&plan.spec, plan) {
         Some("a sheet carries only the pictorial view")
@@ -981,7 +987,27 @@ pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> 
     let key = serde_json::to_vec(&(spec, crate::planning::policy_key(analysis)))
         .expect("sheet selection inputs serialize");
     crate::planning::memo(analysis, "selected-paper", key, || {
-        select_uncached(analysis, spec)
+        let plan = select_uncached(analysis, spec)?;
+        if (spec.sheet.size.is_none() || spec.sheet.scale.is_none())
+            && let Some(unbroken) = crate::broken::without(spec)
+        {
+            let mut full = select(analysis, &unbroken)?;
+            let rank = |p: &Plan| layout::PAGES.iter().position(|g| g.0 == p.sheet.size);
+            if rank(&plan) > rank(&full) || plan.sheet.scale_factor + 1e-9 < full.sheet.scale_factor
+            {
+                full.spec = spec.clone();
+                for (name, _) in spec.views.iter().filter(|(_, v)| v.broken.is_some()) {
+                    crate::broken::not_applied(
+                        &mut full.problems,
+                        name,
+                        &format!("views/{name}/break"),
+                        "no clean broken arrangement preserves the unbroken paper and scale; automatic policy keeps the unbroken drawing; pin sheet/size and sheet/scale to choose another pair",
+                    );
+                }
+                return Ok(full);
+            }
+        }
+        Ok(plan)
     })
 }
 
@@ -1127,6 +1153,20 @@ fn select_scales_full(
         finished_preview(analysis, spec, &intent, &baseline, None)?
     } else {
         baseline.clone()
+    };
+    // A smaller broken first estimate must not impose a tighter route budget
+    // than the actual unbroken drawing. Keep it as the drawable reference.
+    let unbroken_routes = if maximise && let Some(unbroken) = crate::broken::without(spec) {
+        let shown = select(analysis, &unbroken)?;
+        Some(finished_preview(
+            analysis,
+            &unbroken,
+            &shown.spec,
+            &shown,
+            None,
+        )?)
+    } else {
+        None
     };
     // The inner recovery can itself enlarge a valid first estimate before the
     // preferred-scale pass starts. Do not inherit a new finite-chain contact
@@ -1331,6 +1371,7 @@ fn select_scales_full(
                         None,
                         true,
                         prepared_reference.as_ref(),
+                        unbroken_routes.as_ref(),
                     )
                 {
                     let repairable = reason
@@ -1414,6 +1455,7 @@ fn select_scales_full(
                         None,
                         true,
                         prepared_reference.as_ref(),
+                        unbroken_routes.as_ref(),
                     )
                 } else {
                     usable(fit, &plan, &baseline, floor)
@@ -1461,6 +1503,7 @@ fn select_scales_full(
                                     Some(base),
                                     false,
                                     prepared_reference.as_ref(),
+                                    unbroken_routes.as_ref(),
                                 )
                                 .is_ok()
                         });
@@ -1484,6 +1527,7 @@ fn select_scales_full(
                         Some(&plan),
                         true,
                         prepared_reference.as_ref(),
+                        unbroken_routes.as_ref(),
                     )
                     .is_ok();
                 if seed_contacts || isolated_contacts {

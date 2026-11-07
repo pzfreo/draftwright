@@ -220,6 +220,7 @@ pub(crate) fn furniture_bounds(
             let centre = crate::model::extent(analysis, &view).1;
             let at = |p| {
                 let q = view.map(p);
+                let q = m.broken.as_ref().map_or(q, |b| b.map(q));
                 [
                     m.at[0] + m.scale * (q[0] - centre[0]),
                     m.at[1] + m.scale * (q[1] - centre[1]),
@@ -1480,7 +1481,7 @@ fn reserve_bounds(
                     v.at[1] + v.scale * analysis.drawing_iso_bounds()[3],
                 ]
             } else {
-                let size = if v.detail.is_some() {
+                let size = if v.detail.is_some() || v.broken.is_some() {
                     // A crop owns only its enlarged local outline. Reserving the
                     // whole part at the detail scale strands neighbouring bands.
                     crate::detail::crop_extent(analysis, v).0

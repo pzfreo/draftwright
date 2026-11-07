@@ -141,6 +141,38 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "break": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "axis": {
+                      "enum": [
+                        "x",
+                        "y",
+                        "z"
+                      ]
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "gap": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
+                    },
+                    "aligned": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "detail": {
                   "type": [
                     "object",
@@ -475,6 +507,38 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "break": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "axis": {
+                      "enum": [
+                        "x",
+                        "y",
+                        "z"
+                      ]
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "gap": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
+                    },
+                    "aligned": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "detail": {
                   "type": [
                     "object",
@@ -897,6 +961,38 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "break": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "axis": {
+                      "enum": [
+                        "x",
+                        "y",
+                        "z"
+                      ]
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "gap": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
+                    },
+                    "aligned": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "detail": {
                   "type": [
                     "object",
@@ -1220,6 +1316,38 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "break": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "axis": {
+                      "enum": [
+                        "x",
+                        "y",
+                        "z"
+                      ]
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "gap": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
+                    },
+                    "aligned": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "detail": {
                   "type": [
                     "object",
@@ -1561,6 +1689,38 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "break": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "axis": {
+                      "enum": [
+                        "x",
+                        "y",
+                        "z"
+                      ]
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "gap": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
+                    },
+                    "aligned": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "detail": {
                   "type": [
                     "object",
@@ -1880,6 +2040,38 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "break": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "axis": {
+                      "enum": [
+                        "x",
+                        "y",
+                        "z"
+                      ]
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "gap": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
+                    },
+                    "aligned": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "detail": {
                   "type": [
                     "object",
@@ -2246,6 +2438,38 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "break": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "axis": {
+                      "enum": [
+                        "x",
+                        "y",
+                        "z"
+                      ]
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "gap": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
+                    },
+                    "aligned": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "detail": {
                   "type": [
                     "object",
@@ -2616,6 +2840,38 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "break": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "axis": {
+                      "enum": [
+                        "x",
+                        "y",
+                        "z"
+                      ]
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "gap": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
+                    },
+                    "aligned": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "detail": {
                   "type": [
                     "object",
@@ -2967,6 +3223,38 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "break": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "axis": {
+                      "enum": [
+                        "x",
+                        "y",
+                        "z"
+                      ]
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "gap": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
+                    },
+                    "aligned": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "detail": {
                   "type": [
                     "object",
@@ -3290,6 +3578,38 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "break": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "axis": {
+                      "enum": [
+                        "x",
+                        "y",
+                        "z"
+                      ]
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "gap": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
+                    },
+                    "aligned": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "detail": {
                   "type": [
                     "object",
@@ -3604,6 +3924,38 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "break": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "axis": {
+                      "enum": [
+                        "x",
+                        "y",
+                        "z"
+                      ]
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "gap": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Retained gap in paper mm at every scale; default 6."
+                    },
+                    "aligned": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "detail": {
                   "type": [
                     "object",

@@ -322,12 +322,25 @@ pub(crate) fn apply(analysis: &Analysis, plan: &mut Plan) {
         .flatten();
     if automatic.is_some() {
         let carried = |v: &PlannedView| plan.dimensions.iter().filter(|d| d.view == v.id).count();
+        let rank = |(i, v): &(usize, &PlannedView)| (carried(v), std::cmp::Reverse(*i));
+        if plan.views.iter().any(|v| v.broken.is_some())
+            && let Some((_, v)) = plan
+                .views
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| profile(v) && asked(v) != Some(false))
+                .max_by_key(rank)
+                .filter(|(_, v)| v.broken.is_some())
+        {
+            let b = v.broken.as_ref().unwrap();
+            problems.push(Problem { id: format!("p:section_not_shown:break:{}", v.id), code: "section_not_shown".into(), severity: "warning".into(), subjects: vec![v.id.clone()], message: format!("Displaced automatic half section of {}: {} needs an uncut profile. Set views/{}/half_section to true to displace the break, or false to suppress this automatic choice.", v.id, b.source, spec_name(v)), ..Default::default() });
+        }
         chosen.extend(
             plan.views
                 .iter()
                 .enumerate()
-                .filter(|(_, v)| profile(v) && asked(v) != Some(false))
-                .max_by(|a, b| carried(a.1).cmp(&carried(b.1)).then(b.0.cmp(&a.0)))
+                .filter(|(_, v)| profile(v) && v.broken.is_none() && asked(v) != Some(false))
+                .max_by_key(rank)
                 .map(|(i, _)| i),
         );
     }
@@ -606,6 +619,60 @@ mod tests {
     /// quiddity-rust#123: a body without a boss or bands still qualifies for an
     /// authored half section. Visible shallow face recesses alone do not trigger one:
     /// the end view and rim/depth/angle callout describe them cleanly.
+    #[test]
+    fn automatic_half_section_does_not_overlay_a_broken_profile() {
+        let mut cbore = bore(5., 24., 24., "through");
+        cbore.1["cbore"] = json!({"diameter":8.,"depth":3.});
+        let a = part(&[(15., 0., 24.)], &[cbore]);
+        assert!(
+            why(&a).is_some(),
+            "this fixture must normally earn a half section"
+        );
+        let mut p = crate::model::plan(&a, &crate::model::Spec::default()).unwrap();
+        p.views.retain(|v| v.cut.is_none());
+        for v in &mut p.views {
+            v.half_section = None;
+            v.broken = Some(crate::broken::Break {
+                geometry: crate::output::BreakMap {
+                    centre: [0., 12.],
+                    axis: 1,
+                    remove: [5., 15.],
+                    gap: 2.,
+                },
+                source: "views/front/break".into(),
+                paper_gap: 2.,
+            });
+        }
+        apply(&a, &mut p);
+        assert!(p.views.iter().all(|v| v.half_section.is_none()));
+        assert!(p.problems.iter().any(|p| p.code == "section_not_shown"
+            && p.message.contains("Displaced automatic half section")));
+        // With equal inventories, the normal policy chooses the first profile.
+        // Breaking that view displaces its half section even when another can carry it.
+        let broken = p.views.iter().find_map(|v| v.broken.clone()).unwrap();
+        let front = p.views.iter().find(|v| v.id == "v:front").unwrap().clone();
+        let mut side = front.clone();
+        side.id = "v:side".into();
+        side.direction = [1., 0., 0.];
+        side.up = [0., 0., 1.];
+        p.views = vec![front, side];
+        p.dimensions.clear();
+        p.problems.clear();
+        for v in &mut p.views {
+            v.half_section = None;
+            v.broken = (v.id == "v:front").then(|| broken.clone());
+        }
+        apply(&a, &mut p);
+        assert!(p.problems.iter().any(|q| q.code == "section_not_shown"
+            && q.subjects.contains(&"v:front".into())
+            && q.message.contains("Displaced automatic half section")));
+        assert!(
+            p.views
+                .iter()
+                .any(|v| v.id == "v:side" && v.half_section.is_some())
+        );
+    }
+
     #[test]
     fn a_single_diameter_body_is_eligible_without_forcing_a_section() {
         let a = part(

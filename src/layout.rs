@@ -686,6 +686,8 @@ pub struct Request {
     pub candidate_arrangement: Option<Arrangement>,
     /// The part's extents along x, y and z, mm.
     pub size: [f64; 3],
+    /// Per-view shortening, in model mm along a projected axis.
+    pub breaks: Vec<(String, usize, f64, f64)>,
     pub strips: Strips,
     /// Exact aligned-dimension ink, measured separately at each candidate scale.
     pub aligned: Vec<crate::dims::AlignedDemand>,
@@ -720,6 +722,7 @@ impl Request {
             automatic_pair: false,
             candidate_arrangement: None,
             size,
+            breaks: Vec::new(),
             strips: Strips::without_features(),
             aligned: Vec::new(),
             sections: 0,
@@ -877,7 +880,21 @@ fn geometry_with(
     let (left, right, top, bottom) = (m.left, m.right, m.top, m.bottom);
     let furniture = req.furniture();
     let (tb_right, tb_bottom) = (furniture.right, furniture.bottom);
-    let bbox_max = x_size.max(y_size).max(z_size);
+    let bbox_max = if req.breaks.is_empty() {
+        x_size.max(y_size).max(z_size)
+    } else {
+        req.breaks
+            .iter()
+            .map(|(name, _, removed, gap)| {
+                let span = match name.as_str() {
+                    "side" => y_size.max(z_size),
+                    "plan" => x_size.max(y_size),
+                    _ => x_size.max(z_size),
+                };
+                span - (removed - gap / scale).max(0.)
+            })
+            .fold(x_size.max(y_size).max(z_size), f64::min)
+    };
     let fv_hw = x_size * scale / 2.0;
     let fv_hh = z_size * scale / 2.0;
     let pv_hh = y_size * scale / 2.0;
@@ -919,6 +936,20 @@ fn geometry_with(
         left: strips.sv_left,
         ..Block::bare(sv_hw, fv_hh)
     };
+    for (name, axis, removed, gap) in &req.breaks {
+        let reduction = (removed * scale - gap).max(0.);
+        let block = match name.as_str() {
+            "front" => &mut fv,
+            "plan" => &mut pv,
+            "side" => &mut sv,
+            _ => continue,
+        };
+        if *axis == 0 {
+            block.hw -= reduction / 2.;
+        } else {
+            block.hh -= reduction / 2.;
+        }
+    }
     for (view, [x0, y0, x1, y1]) in &scaled.angular {
         let block = match view.as_str() {
             "front" => &mut fv,

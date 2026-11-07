@@ -582,8 +582,75 @@ pub struct Sheet {
     pub frames: std::collections::BTreeMap<String, DrawnFrame>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+/// The discontinuous projection actually drawn, independent of author intent.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BreakMap {
+    /// Original projected envelope centre, in model mm.
+    pub centre: P,
+    pub axis: usize,
+    pub remove: [f64; 2],
+    pub gap: f64,
+}
+impl BreakMap {
+    pub fn reduction(&self) -> f64 {
+        self.remove[1] - self.remove[0] - self.gap
+    }
+    pub(crate) fn key(&self) -> Vec<u64> {
+        vec![
+            self.axis as u64,
+            self.remove[0].to_bits(),
+            self.remove[1].to_bits(),
+            self.gap.to_bits(),
+            self.centre[0].to_bits(),
+            self.centre[1].to_bits(),
+        ]
+    }
+    pub(crate) fn map(&self, mut p: [f64; 2]) -> [f64; 2] {
+        let x = p[self.axis];
+        p[self.axis] = if x <= self.remove[0] {
+            x + self.reduction() / 2.
+        } else if x >= self.remove[1] {
+            x - self.reduction() / 2.
+        } else {
+            (self.remove[0] + self.remove[1]) / 2.
+                + (x - (self.remove[0] + self.remove[1]) / 2.) * self.gap
+                    / (self.remove[1] - self.remove[0])
+        };
+        p
+    }
+    pub(crate) fn contains_page(&self, p: P, at: P, scale: f64) -> bool {
+        let mid = at[self.axis]
+            + scale * ((self.remove[0] + self.remove[1]) / 2. - self.centre[self.axis]);
+        (p[self.axis] - mid).abs() < self.gap * scale / 2. - 1e-6
+    }
+    /// Apply the discontinuity in paper space using the original projected frame.
+    pub(crate) fn page(&self, p: P, at: P, scale: f64, inverse: bool) -> P {
+        let q = [0, 1].map(|k| self.centre[k] + (p[k] - at[k]) / scale);
+        let q = if inverse {
+            self.inverse(q)
+        } else {
+            self.map(q)
+        };
+        [0, 1].map(|k| at[k] + scale * (q[k] - self.centre[k]))
+    }
+    pub(crate) fn inverse(&self, mut p: [f64; 2]) -> [f64; 2] {
+        let x = p[self.axis];
+        let mid = (self.remove[0] + self.remove[1]) / 2.;
+        p[self.axis] = if x <= mid - self.gap / 2. {
+            x - self.reduction() / 2.
+        } else if x >= mid + self.gap / 2. {
+            x + self.reduction() / 2.
+        } else {
+            mid + (x - mid) * (self.remove[1] - self.remove[0]) / self.gap
+        };
+        p
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DrawnFrame {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub broken: Option<BreakMap>,
     pub direction: [f64; 3],
     pub up: [f64; 3],
     pub at: P,
@@ -591,6 +658,15 @@ pub struct DrawnFrame {
     /// A half section's axis on the page ([`crate::half_section`]): the page coordinate (0 for
     /// x, 1 for y) that crosses it, and its value there. A half dimension is measured from it.
     pub half_axis: Option<(usize, f64)>,
+}
+
+impl DrawnFrame {
+    /// Undo the depicted shortening, retaining paper scale for independent ink measurements.
+    pub(crate) fn unfold(&self, p: P) -> P {
+        self.broken
+            .as_ref()
+            .map_or(p, |b| b.page(p, self.at, self.scale, true))
+    }
 }
 
 #[derive(Clone, Debug)]

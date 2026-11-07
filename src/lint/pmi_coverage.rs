@@ -764,6 +764,7 @@ pub(super) fn source_sites(
                     let centre = view.map([0, 1, 2].map(|k| 0.5 * (lo[k] + hi[k])));
                     let page = |p| {
                         let q = view.map(p);
+                        let q = frame.broken.as_ref().map_or(q, |b| b.map(q));
                         [0, 1].map(|k| frame.at[k] + frame.scale * (q[k] - centre[k]))
                     };
                     Some(

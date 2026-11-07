@@ -595,6 +595,35 @@ pub(crate) fn plan(a: &Analysis, views: &mut [PlannedView]) {
             });
         }
         merge(&mut v.line_work);
+        if let Some(b) = &v.broken {
+            let centre = crate::detail::crop_extent(a, v).1;
+            let mut work = std::mem::take(&mut v.line_work);
+            for w in &mut work {
+                w.curves = b
+                    .items(
+                        std::mem::take(&mut w.curves)
+                            .into_iter()
+                            .map(crate::output::Item::Edge)
+                            .collect(),
+                        centre,
+                        v,
+                    )
+                    .into_iter()
+                    .filter_map(|i| {
+                        if let crate::output::Item::Edge(c) = i {
+                            Some(c)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if let Some(p) = &mut w.centre {
+                    *p = b.page(*p, v.at, v.scale, false);
+                }
+            }
+            work.retain(|w| !w.curves.is_empty());
+            v.line_work = work;
+        }
         if v.detail.is_some() {
             let (size, _) = crate::detail::crop_extent(a, v);
             let rect = [
@@ -621,9 +650,15 @@ pub(crate) fn plan(a: &Analysis, views: &mut [PlannedView]) {
     let cuts: Vec<_> = views.iter().filter_map(|v| v.cut.clone()).collect();
     for c in cuts {
         if let Some(v) = views.iter_mut().find(|v| v.id == c.marked_in) {
-            let p = page(a, v, [lo[0], c.origin[1], lo[2]]);
-            let q = page(a, v, [hi[0], c.origin[1], hi[2]]);
-            let y = page(a, v, c.origin)[1];
+            let at = |p| {
+                let q = page(a, v, p);
+                v.broken
+                    .as_ref()
+                    .map_or(q, |b| b.page(q, v.at, v.scale, false))
+            };
+            let p = at([lo[0], c.origin[1], lo[2]]);
+            let q = at([hi[0], c.origin[1], hi[2]]);
+            let y = at(c.origin)[1];
             v.line_work.push(LineWork {
                 id: format!("ink:{}:cut:{}", v.id, c.label),
                 kind: "cutting_plane".into(),

@@ -42,6 +42,13 @@ impl Views {
             self.entries.insert(name.clone(), view);
         }
     }
+    pub(crate) fn keep_breaks_from(&mut self, source: &Self) {
+        for (name, view) in source.entries.iter().filter(|(_, v)| v.broken.is_some()) {
+            let mut view = view.clone();
+            view.place = None;
+            self.entries.insert(name.clone(), view);
+        }
+    }
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty() && self.sections.is_empty()
     }

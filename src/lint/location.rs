@@ -246,19 +246,9 @@ pub(crate) fn drawn_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
         }
         let span = mark.claims.iter().find_map(|c| {
             let word = c.feature.strip_prefix("station_witness:")?;
-            type Witness = ([f64; 3], [f64; 3], [f64; 2], f64, Vec<[[f64; 2]; 2]>);
-            let (direction, up, at, scale, lines): Witness = serde_json::from_str(word).ok()?;
-            ink_span(
-                a,
-                &crate::output::DrawnFrame {
-                    direction,
-                    up,
-                    at,
-                    scale,
-                    half_axis: None,
-                },
-                &lines,
-            )
+            let (frame, lines): (crate::output::DrawnFrame, Vec<[[f64; 2]; 2]>) =
+                serde_json::from_str(word).ok()?;
+            ink_span(a, &frame, &lines)
         });
         if mark
             .claims
@@ -659,6 +649,9 @@ pub fn ink_span(
         let run = e[1][1 - ink.k] - e[0][1 - ink.k];
         let p = e[0][ink.k]
             + (lines[2][0][1 - ink.k] - e[0][1 - ink.k]) * (e[1][ink.k] - e[0][ink.k]) / run;
+        let mut q = frame.at;
+        q[ink.k] = p;
+        let p = frame.unfold(q)[ink.k];
         0.5 * (a.envelope[0][axis] + a.envelope[1][axis])
             + sign * (p - frame.at[ink.k]) / frame.scale
     };

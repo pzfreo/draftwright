@@ -814,6 +814,8 @@ pub struct ViewSpec {
     /// forces it, false forbids it; absent keeps the automatic choice.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub half_section: Option<bool>,
+    #[serde(rename = "break", skip_serializing_if = "Option::is_none")]
+    pub broken: Option<crate::broken::Request>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<crate::detail::DetailSpec>,
@@ -1068,6 +1070,8 @@ pub struct PlannedView {
     /// A profile view drawn as a half section ([`crate::half_section`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub half_section: Option<crate::half_section::HalfSection>,
+    #[serde(default, rename = "break", skip_serializing_if = "Option::is_none")]
+    pub broken: Option<crate::broken::Break>,
 }
 
 /// A section's cutting plane: the material on the side `normal` points to is kept and seen from
@@ -1243,7 +1247,7 @@ pub(crate) fn invalid(message: impl Into<String>, choices: &[&str]) -> Invalid {
 }
 
 /// The standard views, third-angle (draftwright's default projection): towards the viewer, up.
-const VIEWS: [(&str, [f64; 3], [f64; 3]); 4] = [
+pub(crate) const VIEWS: [(&str, [f64; 3], [f64; 3]); 4] = [
     ("front", [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]),
     ("plan", [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
     ("side", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
@@ -2860,7 +2864,11 @@ pub(crate) fn fits_a3_at_full_size(analysis: &Analysis, first: &Plan) -> bool {
     let size = |v: &PlannedView| {
         // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.
         let view = View::new(v.direction, v.up).expect("planned view");
-        extent(analysis, &view).0
+        let mut size = extent(analysis, &view).0;
+        if let Some(b) = &v.broken {
+            size[b.axis] -= b.reduction();
+        }
+        size
     };
     let views: Vec<&PlannedView> = first
         .views
@@ -3830,7 +3838,10 @@ fn recover_candidates(
                     .any(|v| {
                         // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.
                         let view = View::new(v.direction, v.up).expect("planned view");
-                        let (size, _) = extent(analysis, &view);
+                        let (mut size, _) = extent(analysis, &view);
+                        if let Some(b) = &v.broken {
+                            size[b.axis] -= b.reduction();
+                        }
                         size[0] * scale > w - 2.0 * layout::margin()
                             || size[1] * scale > h - 2.0 * layout::margin()
                     })
@@ -4459,6 +4470,7 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
         }
     }
     base.views.keep_sections_from(&spec.views);
+    base.views.keep_breaks_from(&spec.views);
     if spec.dimensions.values().any(|d| d.between.is_some()) {
         base.dimension_source = spec.dimension_source;
         base.dimensions = spec.dimensions.clone();
@@ -5764,6 +5776,7 @@ fn plan_with_presentation(
             let mut unnamed = base.clone();
             unnamed.views.clear();
             unnamed.views.keep_sections_from(&spec.views);
+            unnamed.views.keep_breaks_from(&spec.views);
             if let Ok(default) = plan_automatic(analysis, &unnamed)
                 && base
                     .views
@@ -5772,6 +5785,7 @@ fn plan_with_presentation(
             {
                 base.views.clear();
                 base.views.keep_sections_from(&spec.views);
+                base.views.keep_breaks_from(&spec.views);
             }
         }
         // A multi-sheet request is planned by R5 allocation steps whose sheet-1 spec omits
@@ -6570,6 +6584,11 @@ fn plan_with_presentation(
         principals,
         shown("iso"),
     );
+    let breaks = crate::broken::resolve(analysis, spec, &mut problems);
+    request.breaks = breaks
+        .iter()
+        .map(|(name, b)| (name.clone(), b.axis, b.remove[1] - b.remove[0], b.paper_gap))
+        .collect();
     request.aligned = aligned;
     request.automatic_pair = automatic_pair;
     request.candidate_arrangement = candidate_arrangement;
@@ -6983,11 +7002,28 @@ fn plan_with_presentation(
                 state: ItemState::Shown,
                 cut: None,
                 half_section: None,
+                broken: None,
                 line_work: Vec::new(),
                 line_style: Default::default(), from_spec: Vec::new(),
             }
         })
         .collect();
+    for v in &mut views {
+        if let Some(b) = breaks.get(v.id.trim_start_matches("v:")) {
+            let scaled = b.at_scale(v.scale);
+            if scaled.reduction() > 0. {
+                v.broken = Some(scaled);
+                v.from_spec.push(b.source.clone());
+            } else {
+                crate::broken::not_applied(
+                    &mut problems,
+                    v.id.trim_start_matches("v:"),
+                    &b.source,
+                    "the removed interval is shorter on paper than the requested gap at this scale",
+                );
+            }
+        }
+    }
     if let (Some(cut), Some(area)) = (&section, g.section_boxes.first()) {
         let label = section_label.clone();
         views.push(PlannedView {
@@ -7010,6 +7046,7 @@ fn plan_with_presentation(
             line_work: Vec::new(),
             line_style: Default::default(), from_spec: if named_request.is_some() { vec!["views/sections/0".into()] } else if spec.views.contains_key(SECTION) { vec![format!("views/{SECTION}")] } else { Vec::new() },
             half_section: None,
+                broken: None,
             cut: Some(Cut {
                 xref: None,
                 label,
@@ -7060,6 +7097,7 @@ fn plan_with_presentation(
                 line_work: Vec::new(),
                 cut: None,
                 half_section: None,
+                broken: None,
                 line_style: Default::default(),
                 from_spec: Vec::new(),
                 detail: Some(detail),
@@ -9787,6 +9825,7 @@ impl Projections {
         let hidden = v.line_style.hidden.unwrap_or(v.id != "v:iso");
         let mut key = projection_key(v);
         key.extend(crate::modelled_threads::cache_key(analysis, spec, v));
+        key.extend(v.broken.as_ref().map_or_else(Vec::new, |b| b.key()));
         let placement = bits(&[
             &[v.scale, f64::from(v.id == "v:iso"), f64::from(hidden)],
             &centre,
@@ -9903,6 +9942,11 @@ impl Projections {
             geometry.hidden = crate::linework::hidden(&geometry.visible, geometry.hidden);
         }
         geometry.breaks = boundary.ink(rect);
+        if let Some(b) = &v.broken {
+            geometry.breaks.extend(b.ink(&geometry.visible, centre, v));
+            geometry.visible = b.items(geometry.visible, centre, v);
+            geometry.hidden = b.items(geometry.hidden, centre, v);
+        }
         self.stats.bounds += 1;
         geometry.bbox = items_bbox(&geometry.visible);
         // Breaks are owned visible ink too; their short end strokes can extend
@@ -10488,6 +10532,7 @@ fn render_annotations_with_cuts(
                 },
                 scale: v.scale,
                 half_axis: v.half_section.as_ref().map(|h| h.page_axis(analysis, v)),
+                broken: v.broken.as_ref().map(|b| b.geometry.clone()),
             },
         );
         for w in v.line_work.iter().filter(|w| w.kind != "cutting_plane") {
@@ -10515,11 +10560,10 @@ fn render_annotations_with_cuts(
             }
             layers[3].items.extend(ink);
         }
-        thin.extend(
-            crate::cosmetic::ink(analysis, &manufacturing, v)
-                .into_iter()
-                .map(Item::Edge),
-        );
+        let mut local_thin: Vec<_> = crate::cosmetic::ink(analysis, &manufacturing, v)
+            .into_iter()
+            .map(Item::Edge)
+            .collect();
         let carrier = crate::modelled_threads::carrier(
             part,
             analysis,
@@ -10528,7 +10572,11 @@ fn render_annotations_with_cuts(
         );
         let (_, thread_thin, _) =
             crate::modelled_threads::ink(analysis, &plan.spec, v, carrier.as_ref().unwrap_or(part));
-        thin.extend(thread_thin);
+        local_thin.extend(thread_thin);
+        if let Some(b) = &v.broken {
+            local_thin = b.items(local_thin, crate::detail::crop_extent(analysis, v).1, v);
+        }
+        thin.extend(local_thin);
         thin.extend(geometry.breaks.into_iter().map(Item::Edge));
         layers[0].items.extend(geometry.visible);
         layers[1].items.extend(geometry.hidden);
@@ -12155,6 +12203,7 @@ pub(crate) fn cutting_line(
     let centre = extent(analysis, mv).1;
     let to_page = |p: [f64; 3]| {
         let q = mv.map(p);
+        let q = m.broken.as_ref().map_or(q, |b| b.map(q));
         [
             m.at[0] + m.scale * (q[0] - centre[0]),
             m.at[1] + m.scale * (q[1] - centre[1]),

@@ -68,6 +68,8 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `boss_height_missing` | incomplete | The drawing does not state the boss height. |
 | `boss_height_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `boss_height_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |
+| `break_anchor_removed` | incomplete | An annotation anchors in the removed span; its attachment needs an unbroken region. |
+| `break_not_applied` | decision | The requested break has no proven uniform span or carrying view. |
 | `callout_dropped` | incomplete | A required drawing item was dropped before it could be stated. |
 | `chamfer_leader_target_mismatch` | readability | The chamfer leader points at the wrong geometry. |
 | `chamfer_leader_target_unverifiable` | readability | The chamfer leader target cannot be verified. |

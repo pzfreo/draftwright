@@ -683,6 +683,7 @@ pub(crate) fn reference_views(spec: &Spec) -> crate::sections::Views {
         .collect::<BTreeMap<_, _>>()
         .into();
     views.keep_sections_from(&spec.views);
+    views.keep_breaks_from(&spec.views);
     views
 }
 
@@ -894,6 +895,7 @@ fn auxiliary(
         line_style: Default::default(),
         from_spec: Vec::new(),
         half_section: None,
+        broken: None,
         cut: section.map(|s| {
             let [lo, hi] = analysis.envelope;
             model::Cut {

@@ -247,7 +247,7 @@ fn prepared_proofs(
     };
     views
         .iter()
-        .filter(|v| v.cut.is_none() && v.id != "v:iso")
+        .filter(|v| v.cut.is_none() && v.id != "v:iso" && v.broken.is_none())
         .filter_map(|v| {
             let view = haecceity::hlr::View::new(v.direction, v.up)?;
             let centre = crate::model::extent(analysis, &view).1;

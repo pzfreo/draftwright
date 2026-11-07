@@ -2627,3 +2627,302 @@ fn override_basis_paths_exist_in_the_published_spec_schema() {
         &["annotations".into(), "front".into(), "centre_marks".into()]
     ));
 }
+
+#[test]
+fn broken_view_keeps_true_witnesses_and_reduces_ink_extent() {
+    let mut s = input(BAR);
+    s["views"]["front"] = json!({"break":{}});
+    let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
+    draftwright::mcp::validate(&schema, &s).unwrap();
+    let p = planned(BAR, &s);
+    let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
+    let b = v.broken.as_ref().expect("proven cylindrical uniform span");
+    assert!(b.reduction() > 400.);
+    assert!(v.from_spec.iter().any(|p| p == "views/front/break"));
+    assert!(v.basis.contains("applied views/front/break"));
+    let r = rendered(BAR, &p);
+    let drawing = &r.drawings[0];
+    for finding in r.structural.iter().chain(&r.lint) {
+        assert!(
+            !matches!(
+                finding.code.as_str(),
+                "dimension_witness_detached" | "annotation_off_sheet" | "label_vs_measured"
+            ),
+            "{finding:?}"
+        );
+    }
+    for d in p
+        .plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "linear" && d.placed.is_some())
+    {
+        let frame = &drawing.sheet.frames[d.view.trim_start_matches("v:")];
+        let (_, a, b) = lint::location::ink_span(
+            &fixture(BAR).analysis,
+            frame,
+            &d.placed.as_ref().unwrap().lines,
+        )
+        .expect("true stations survive shortening");
+        assert!(((b - a).abs() - d.value).abs() < 1e-5, "{}: {a}..{b}", d.id);
+    }
+    let ink = drawing
+        .sheet
+        .views
+        .iter()
+        .find(|v| v.name == "v:front")
+        .unwrap();
+    assert!((ink.bbox[2] - ink.bbox[0]) / v.scale < 200.);
+    let across = p
+        .plan
+        .dimensions
+        .iter()
+        .find(|d| d.value == 600. && d.view == "v:front" && d.placed.is_some())
+        .unwrap();
+    let frame = &drawing.sheet.frames["front"];
+    let (_, start, end) = lint::location::ink_span(
+        &fixture(BAR).analysis,
+        frame,
+        &across.placed.as_ref().unwrap().lines,
+    )
+    .unwrap();
+    assert!(((end - start).abs() - 600.).abs() < 1e-5);
+    let mut wrong = drawing.clone();
+    let runs = &wrong
+        .annotations
+        .iter()
+        .find(|a| a.name == across.id)
+        .unwrap()
+        .runs;
+    let run = *runs
+        .iter()
+        .find(|&&i| wrong.text[i].text == "600")
+        .expect("printed true length");
+    wrong.text[run].text = "92".into();
+    assert!(
+        lint::structural::check(&wrong)
+            .iter()
+            .any(|f| f.code == "label_vs_measured"
+                && f.annotation.as_deref() == Some(across.id.as_str())),
+        "the shortened paper span must not be accepted as the true value"
+    );
+    assert!(
+        (across.placed.as_ref().unwrap().arrows[0][0][0]
+            - across.placed.as_ref().unwrap().arrows[1][0][0])
+            .abs()
+            / v.scale
+            < 200.
+    );
+    let f = fixture(BAR);
+    let geometry = model::render_geometry(
+        &f.part,
+        &f.analysis,
+        &p.plan,
+        &mut f.projections.lock().unwrap(),
+    )
+    .unwrap();
+    assert!(
+        geometry
+            .views
+            .iter()
+            .find(|(id, _)| id == "v:front")
+            .unwrap()
+            .1
+            .breaks
+            .len()
+            >= 8
+    );
+    assert_section_fits(BAR, &p);
+}
+
+#[test]
+fn broken_view_explicit_interval_survives_pinned_dimension() {
+    let mut s = input(BAR);
+    s["sheet"].as_object_mut().unwrap().remove("size");
+    s["sheet"].as_object_mut().unwrap().remove("scale");
+    s["views"]["front"] = json!({"break":{"axis":"x","remove":[100,500],"gap":8,"aligned":true}});
+    s["dimensions"]["d:f:turned_step:1/step.length"] =
+        json!({"place":{"view":"front","pinned":true}});
+    let p = planned(BAR, &s);
+    let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
+    let b = v.broken.as_ref().expect("pin_base must carry break");
+    assert_eq!(b.remove, [100., 500.]);
+    assert!((b.gap * v.scale - 8.).abs() < 1e-9);
+    assert!(!has(&p.plan, "break_not_applied"));
+    assert!(
+        p.plan
+            .views
+            .iter()
+            .any(|v| v.id == "v:plan" && v.broken.is_some())
+    );
+    assert!(
+        p.plan
+            .dimensions
+            .iter()
+            .any(|d| d.value == 600. && d.placed.is_some())
+    );
+    assert_section_fits(BAR, &p);
+}
+
+#[test]
+fn broken_view_without_uniform_span_warns_and_retains_geometry() {
+    let mut s = minimal();
+    s["views"]["front"] = json!({"break":{}});
+    let p = planned(FLANGE, &s);
+    let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
+    assert!(v.broken.is_none());
+    let warning = p
+        .plan
+        .problems
+        .iter()
+        .find(|p| p.code == "break_not_applied")
+        .unwrap();
+    assert!(
+        warning.message.contains("views/front/break")
+            && warning.message.contains("uniform axial span")
+    );
+    assert!(!rendered(FLANGE, &p).drawings[0].sheet.views.is_empty());
+}
+
+#[test]
+fn broken_view_uses_local_profile_and_keeps_section_markers_attached() {
+    let mut s = minimal();
+    s["views"] = json!({"front":{"break":{"axis":"x","remove":[5,25],"gap":6}}, "plan":{}, "sections":[{"id":"B","through":"f:section_recess:1"}]});
+    let p = planned(SHAFT, &s);
+    let mut full = s.clone();
+    full["views"]["front"]
+        .as_object_mut()
+        .unwrap()
+        .remove("break");
+    let full = planned(SHAFT, &full);
+    assert!(
+        p.plan.sheet.scale_factor >= full.plan.sheet.scale_factor,
+        "a break must not reduce scale: {} vs {}",
+        p.plan.sheet.scale,
+        full.plan.sheet.scale
+    );
+    let area = |p: &model::Plan| p.sheet.page[0] * p.sheet.page[1];
+    assert!(area(&p.plan) <= area(&full.plan));
+    let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
+    assert!(v.broken.is_some());
+    let f = fixture(SHAFT);
+    let geometry = model::render_geometry(
+        &f.part,
+        &f.analysis,
+        &p.plan,
+        &mut f.projections.lock().unwrap(),
+    )
+    .unwrap();
+    let g = &geometry
+        .views
+        .iter()
+        .find(|(id, _)| id == "v:front")
+        .unwrap()
+        .1;
+    assert!(g.breaks.len() > 20, "teeth must repeat across both ends");
+    let ymin = g
+        .breaks
+        .iter()
+        .map(|c| c.bbox()[1])
+        .fold(f64::INFINITY, f64::min);
+    let ymax = g
+        .breaks
+        .iter()
+        .map(|c| c.bbox()[3])
+        .fold(f64::NEG_INFINITY, f64::max);
+    assert!((ymin - (v.at[1] - 10. * v.scale - 2.)).abs() < 1e-6);
+    assert!((ymax - (v.at[1] + 10. * v.scale + 2.)).abs() < 1e-6);
+    for c in &g.breaks {
+        let b = c.bbox();
+        assert!(
+            b[1] >= v.at[1] - 10. * v.scale - 2.01 && b[3] <= v.at[1] + 10. * v.scale + 2.01,
+            "break must meet the 20 mm neck, not the 30 mm shoulder: {b:?}"
+        );
+    }
+    let parent = p.plan.views.iter().find(|v| v.id == "v:plan").unwrap();
+    let cut = parent
+        .line_work
+        .iter()
+        .find(|w| w.kind == "cutting_plane")
+        .unwrap();
+    let points: Vec<_> = cut
+        .curves
+        .iter()
+        .flat_map(|c| [c.start(), c.end()])
+        .collect();
+    let lo = points.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min);
+    let hi = points
+        .iter()
+        .map(|p| p[0])
+        .fold(f64::NEG_INFINITY, f64::max);
+    assert!(
+        ((hi - lo) - (120. - 20.) * parent.scale - 6. - 2. * draftwright::section::OVERRUN).abs()
+            < 1e-5
+    );
+    assert_section_fits(SHAFT, &p);
+    assert!(
+        !rendered(SHAFT, &p)
+            .structural
+            .iter()
+            .any(|f| f.code == "label_vs_measured")
+    );
+}
+
+#[test]
+fn broken_view_gap_is_constant_on_paper_and_displaced_alignment_warns() {
+    for scale in ["1:5", "1:10"] {
+        let mut s = input(BAR);
+        s["sheet"]["scale"] = json!(scale);
+        s["views"]["front"] = json!({"break":{"gap":8}});
+        let p = planned(BAR, &s);
+        let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
+        let b = v.broken.as_ref().unwrap();
+        assert!((b.gap * v.scale - 8.).abs() < 1e-9);
+        let r = rendered(BAR, &p);
+        assert!(!r.structural.iter().any(|f| f.code == "label_vs_measured"));
+    }
+    let mut s = input(BAR);
+    s["views"]["front"] = json!({"break":{}});
+    s["views"]["plan"] = json!({"half_section":true});
+    let p = planned(BAR, &s);
+    assert!(p.plan.problems.iter().any(|p| p.code == "break_not_applied"
+        && p.subjects.contains(&"v:plan".into())
+        && p.message.contains("displaced aligned intent")));
+}
+
+#[test]
+fn broken_view_never_worsens_partial_sheet_choices() {
+    for sheet in [
+        json!({"size":"A4"}),
+        json!({"scale":"1:1"}),
+        json!({"size":"A4","scale":"1:2"}),
+    ] {
+        let mut s = minimal();
+        s["sheet"] = sheet;
+        s["views"] = json!({"front":{"break":{"axis":"x","remove":[5,25],"gap":6}},
+            "plan":{},"sections":[{"id":"B","through":"f:section_recess:1"}]});
+        let broken = planned(SHAFT, &s);
+        s["views"]["front"].as_object_mut().unwrap().remove("break");
+        let full = planned(SHAFT, &s);
+        assert!(
+            broken.plan.sheet.scale_factor >= full.plan.sheet.scale_factor,
+            "{} vs {} for {}",
+            broken.plan.sheet.scale,
+            full.plan.sheet.scale,
+            s
+        );
+        assert!(
+            broken.plan.sheet.page[0] * broken.plan.sheet.page[1]
+                <= full.plan.sheet.page[0] * full.plan.sheet.page[1]
+        );
+        assert!(
+            broken.plan.views.iter().any(|v| v.broken.is_some())
+                || broken
+                    .plan
+                    .problems
+                    .iter()
+                    .any(|p| p.code == "break_not_applied"
+                        && p.message.contains("unbroken paper and scale"))
+        );
+    }
+}

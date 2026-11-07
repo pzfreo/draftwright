@@ -68,14 +68,6 @@
       "d:f:hole:3/location.length.y"
     ]
   },
-  "315": {
-    "case": "steer_315_broken_front",
-    "group": "B",
-    "reason": "The front view break field is unknown.",
-    "checks": [
-      "broken_view_accepted"
-    ]
-  },
   "321": {
     "case": "steer_321_explicit_table_fits",
     "group": "C",

@@ -38,6 +38,7 @@ fn rounded_concentric_centres_locate_only_the_drawn_radial_axes() {
                 at: [0., 0.],
                 scale: 1.,
                 half_axis: None,
+                broken: None,
             },
         );
         sheet.centre_marks.insert("end".into(), vec![[0., 0.]]);

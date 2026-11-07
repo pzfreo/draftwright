@@ -26,8 +26,8 @@ const OVERRIDES: [(&str, &str, &str); 9] = [
     ),
     (
         "view selection",
-        "views/sections; views/<view> keys [omit, half_section, detail]",
-        "Named and explicit sections use front-facing planes; cameras, half-section side and breaks unavailable (#315, #309)",
+        "views/sections; views/<view> keys [omit, half_section, detail, break]",
+        "Named and explicit sections use front-facing planes; cameras and half-section side unavailable (#309)",
     ),
     (
         "paper and arrangement",
@@ -157,6 +157,7 @@ pub(crate) fn boundary(run: impl FnOnce() -> Result<Plan, Invalid>) -> Result<Pl
 }
 
 fn report(plan: &mut Plan) {
+    crate::broken::check_anchors(plan);
     add(&mut plan.sheet.basis, Family::Part, Target::Document);
     if let Some(part) = &plan.spec.part
         && !plan.sheet.basis.contains("; applied part:")
@@ -176,6 +177,14 @@ fn report(plan: &mut Plan) {
         let id = v.id.trim_start_matches("v:");
         add(&mut v.basis, Family::Views, Target::View(id));
         add(&mut v.basis, Family::Linework, Target::View(id));
+        if let Some(b) = &v.broken
+            && !v.basis.contains(&format!("; applied {}:", b.source))
+        {
+            v.basis += &format!(
+                "; applied {}: uniform projected interval {:?}, retained gap {} paper mm; displaced full-length depiction; axis/remove/gap/aligned override automatic break choices",
+                b.source, b.remove, b.paper_gap
+            );
+        }
     }
     for d in &mut plan.dimensions {
         add(&mut d.basis, Family::Dimensions, Target::Dimension(&d.id));
@@ -228,6 +237,21 @@ fn report(plan: &mut Plan) {
     }
     for c in &mut plan.captions {
         add(&mut c.basis, Family::Sheet, Target::View("iso"));
+    }
+    for (name, entry) in &plan.spec.views {
+        if entry.broken.is_some()
+            && !plan
+                .views
+                .iter()
+                .any(|v| v.id == format!("v:{name}") && v.broken.is_some())
+        {
+            crate::broken::not_applied(
+                &mut plan.problems,
+                name,
+                &format!("views/{name}/break"),
+                "the carrying view is omitted or displaced",
+            );
+        }
     }
     for (id, entry) in &plan.spec.dimensions {
         if entry.presentation.is_some()

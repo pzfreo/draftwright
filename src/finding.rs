@@ -72,6 +72,8 @@ catalogue! {
     "boss_height_missing" => Incomplete, Code, "The drawing does not state the boss height.";
     "boss_height_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "boss_height_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
+    "break_anchor_removed" => Incomplete, Code, "An annotation anchors in the removed span; its attachment needs an unbroken region.";
+    "break_not_applied" => Decision, Code, "The requested break has no proven uniform span or carrying view.";
     "callout_dropped" => Incomplete, Code, "A required drawing item was dropped before it could be stated.";
     "chamfer_leader_target_mismatch" => Readability, Code, "The chamfer leader points at the wrong geometry.";
     "chamfer_leader_target_unverifiable" => Readability, Code, "The chamfer leader target cannot be verified.";

@@ -89,6 +89,7 @@ fn sheet(scale: f64, edges: Vec<Curve>, items: Vec<(Drawn, &str)>) -> Drawing {
                     at: [150.0, 150.0],
                     scale,
                     half_axis: None,
+                    broken: None,
                 },
             )]),
         },
