@@ -18,6 +18,23 @@ pub(super) fn apply(
         let Some(entry) = spec.dimensions.get(&w.id) else {
             continue;
         };
+        if let Some(presentation) = entry.presentation {
+            let parameter = match presentation {
+                super::recesses::DepthPresentation::TangentDepth => {
+                    "pocket_depth_from_tangent.length"
+                }
+                super::recesses::DepthPresentation::FarExtreme => {
+                    "pocket_floor_from_far_extreme.length"
+                }
+            };
+            if w.measurements.iter().any(|m| m.parameter == parameter) {
+                from_spec.push("presentation".into());
+                w.basis += &format!(
+                    "; applied dimensions/{}/presentation",
+                    crate::items::key(&w.id)
+                );
+            }
+        }
         if entry.text.is_none() && entry.style.is_none() {
             continue;
         }

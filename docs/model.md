@@ -3318,6 +3318,57 @@ Page references are 1-based in exact PDF order: GA first when present, then
 made-part sheets. Failed and bought rows have no sheets. The WASM Pack API is
 documented in [wasm.md](wasm.md#assembly-drawing-packs).
 
+
+### Part selection in the Spec
+
+`part` selects one part before recognition and drawing, like `--part K`. Use the
+persistent `key` printed by `draftwright parts`, or its numeric `part` index.
+A command/request selector must agree with the Spec; conflicts are refused.
+An Analysis supplied without its STEP must already describe the selected part:
+it cannot supply another part's geometry. Explicit selection of the already
+analysed principal part removes `assembly_principal_drawn`.
+
+
+### Cylindrical-mouth pocket depth
+
+A measured pocket depth says `DEEP`; a cylinder tangent is not a maximum allowed
+limit. On the pocket's width callout, `dimensions/<id>/presentation` selects
+`tangent_depth` (distance from the near cylinder tangent) or `far_extreme`
+(floor distance from the opposite tangent). Both distances are derived from the
+cylinder axis, radius and floor, including offset pockets.
+For a 30 mm cylinder and 3 mm depth these state 3 and 27 respectively. The choices claim `pocket_depth_from_tangent.length` and
+`pocket_floor_from_far_extreme.length`, never a fictitious 27 mm depth.
+PMI requirements and lint remain independent: the alternate term does not claim
+that an unstated source depth or toleranced requirement has been printed.
+Unsupported or unplaced presentation requests retain the drawing and warn.
+
+
+### Automatic-decision overrides
+
+Every automatic drawing choice is a default: its plan `basis` names the Spec
+controls, or explains the current limitation. The single inventory in
+`src/decision_overrides.rs` covers the approved nine families: selection and
+orientation; views; paper and arrangement; dimensions and origins; recognition,
+grouping and attachment; wording and precision; tables and furniture; linework,
+symbols and rings; requirements and checker conclusions. The inventory names
+only accepted fields and explicitly identifies pending #309 capabilities.
+References identify model geometry or drawing items, never absolute page points.
+`from_spec` records influence; item state and problems describe unmet intent.
+Part and depth presentation explicitly report application; an unsupported or
+undrawn depth presentation warns. Requirements belong to PMI, and checker
+conclusions have no presentation override. Basis reporting runs after the outer
+planning operation, so it cannot influence the layout solve.
+
+Basis guidance uses item-kind-specific paths: dimension callouts name `dimensions`,
+views name `views`, and only PMI prose labels name `annotations`. Each dimension
+lists its local controls once. Global recognition and callout defaults are reported
+on the sheet, keeping item replies compact.
+
+Lint verifies tangent-depth terms against the recognised cylinder and floor. A
+far-tangent floor distance defines depth only alongside a stated diameter of the
+carrying cylinder. Neither presentation invents a claim of the original depth.
+Single-part Analyses omit `part_keys` on serialization, retaining their existing
+schema shape; multi-part files keep the persistent selection map.
 ### Manufacturing process
 
 Per-part `process` accepts `machined`, `3D printed: FDM`, `3D printed: resin`,

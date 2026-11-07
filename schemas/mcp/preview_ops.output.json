@@ -38,10 +38,10 @@
                                 ]
                               },
                               "id": {
-                                "$ref": "#/E"
+                                "$ref": "#/D"
                               },
                               "kind": {
-                                "$ref": "#/E"
+                                "$ref": "#/D"
                               },
                               "label": {
                                 "$ref": "#/G"
@@ -70,7 +70,7 @@
                                         "const": "covered"
                                       },
                                       "by": {
-                                        "$ref": "#/E"
+                                        "$ref": "#/D"
                                       }
                                     },
                                     "additionalProperties": false,
@@ -82,7 +82,7 @@
                                         "const": "not_drawable"
                                       },
                                       "reason_code": {
-                                        "$ref": "#/E"
+                                        "$ref": "#/D"
                                       }
                                     },
                                     "additionalProperties": false,
@@ -132,7 +132,7 @@
                                 ]
                               },
                               "basis": {
-                                "$ref": "#/E"
+                                "$ref": "#/D"
                               }
                             },
                             "required": [
@@ -168,7 +168,7 @@
                         "const": "removed"
                       },
                       "id": {
-                        "$ref": "#/E"
+                        "$ref": "#/D"
                       }
                     },
                     "additionalProperties": false,
@@ -190,7 +190,7 @@
                             "type": "object",
                             "properties": {
                               "impact": {
-                                "$ref": "#/D"
+                                "$ref": "#/E"
                               },
                               "ink_is_leader": {
                                 "type": "boolean"
@@ -212,7 +212,7 @@
                             "additionalProperties": false,
                             "patternProperties": {
                               "^(group|id|code|severity|message)$(?!\n)": {
-                                "$ref": "#/E"
+                                "$ref": "#/D"
                               },
                               "^(subjects|refs|crossing_kinds)$(?!\n)": {
                                 "$ref": "#/B"
@@ -223,7 +223,7 @@
                             "type": "object",
                             "properties": {
                               "impact": {
-                                "$ref": "#/D"
+                                "$ref": "#/E"
                               },
                               "subjects": {
                                 "$ref": "#/B"
@@ -247,7 +247,7 @@
                             "additionalProperties": false,
                             "patternProperties": {
                               "^(group|id|code|severity|detail_ref|description)$(?!\n)": {
-                                "$ref": "#/E"
+                                "$ref": "#/D"
                               }
                             }
                           },
@@ -282,7 +282,7 @@
           "minProperties": 3
         },
         "delta_ref": {
-          "$ref": "#/E"
+          "$ref": "#/D"
         },
         "plans": {
           "type": "integer",
@@ -306,7 +306,10 @@
             ]
           },
           "message": {
-            "$ref": "#/E"
+            "$ref": "#/D"
+          },
+          "path": {
+            "$ref": "#/D"
           }
         },
         "required": [
@@ -328,7 +331,7 @@
         "$ref": "#/G"
       },
       "detail_ref": {
-        "$ref": "#/E"
+        "$ref": "#/D"
       }
     },
     "additionalProperties": false,
@@ -340,7 +343,7 @@
       "minProperties": 3,
       "properties": {
         "description": {
-          "$ref": "#/E"
+          "$ref": "#/D"
         },
         "ops": {
           "$ref": "#/C"
@@ -355,7 +358,7 @@
   },
   "B": {
     "items": {
-      "$ref": "#/E"
+      "$ref": "#/D"
     },
     "type": "array"
   },
@@ -371,7 +374,7 @@
               ]
             },
             "path": {
-              "$ref": "#/E"
+              "$ref": "#/D"
             },
             "value": {}
           },
@@ -384,7 +387,7 @@
               "const": "remove"
             },
             "path": {
-              "$ref": "#/E"
+              "$ref": "#/D"
             }
           },
           "additionalProperties": false,
@@ -396,15 +399,15 @@
     "type": "array"
   },
   "D": {
+    "type": "string"
+  },
+  "E": {
     "enum": [
       "incomplete",
       "decision",
       "readability",
       "advisory"
     ]
-  },
-  "E": {
-    "type": "string"
   },
   "F": {
     "enum": [

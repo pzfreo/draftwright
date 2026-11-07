@@ -25,6 +25,7 @@ def outline():
     """An explicit top-level contract, independent of all nested Spec definitions."""
     return {**obj({
         'schema': enum('draftwright.spec/1', 'draftwright.spec/2'),
+        'part': {'type': ['string', 'integer', 'null']},
         'binding': {'type': ['object', 'null']}, 'sheet': {'type': 'object'}, 'balloons': {'type':'object'},
         'iso_scale_factor': {'type': ['number', 'null']},
         'sheets': {'type': ['object', 'null']},
@@ -78,7 +79,7 @@ def document():
         'scheme': obj({'scheme': enum('chain', 'baseline', 'ordinate'), 'axis': enum('x', 'y', 'z'),
                        'targets': arr(S), 'view': nullable(enum('front', 'plan', 'side')), 'from': nullable(S)},
                       ('scheme', 'axis')),
-        'dimension': obj({**optional({'text': ref('text'), 'style': enum('reference', 'basic'),
+        'dimension': obj({**optional({'presentation': {**enum('tangent_depth', 'far_extreme'), 'description': 'Cylindrical-mouth pocket depth: tangent_depth measures from the near tangent; far_extreme states the floor distance from the opposite cylinder tangent. Both are measured from the cylinder axis, radius and pocket floor. Measured values are retained; unsupported requests warn.'}, 'text': ref('text'), 'style': enum('reference', 'basic'),
                         'kind': enum('linear', 'diameter', 'radius', 'angle'),
                         'between': arr(S, minItems=1, maxItems=2), 'along': enum('x', 'y', 'z', 'true'),
                         'tolerance': S, 'fit': S, 'view': S, 'place': ref('place')}), 'omit': B}),
@@ -116,6 +117,7 @@ def document():
     definitions['balloon_override'] = obj({'suppress': B, 'position': nullable(arr(N,minItems=2,maxItems=2))})
     definitions['balloon_settings'] = obj({'occurrences': B, 'items': mapping(ref('balloon_override'))})
     props = {'schema': enum('draftwright.spec/1', 'draftwright.spec/2'),
+             'part': {'description': 'Part identity from draftwright parts: persistent key (preferred) or numeric index. Acts like --part; conflicting command/request selectors are refused. A saved Analysis must already contain this part.', **nullable({'anyOf': [{**S, 'minLength': 1}, I]})},
              'binding': nullable(ref('binding')), 'sheet': ref('sheet'),
              'balloons': ref('balloon_settings'),
              'iso_scale_factor': nullable(N), 'sheets': nullable(ref('sheets')),

@@ -316,6 +316,9 @@
           },
           "message": {
             "$ref": "#/D"
+          },
+          "path": {
+            "$ref": "#/D"
           }
         },
         "required": [

@@ -235,6 +235,118 @@ pub fn wanted(analysis: &Analysis) -> Vec<Wanted<'_>> {
     out
 }
 
+/// Verify an alternative floor term independently of the planner's Spec. A far-tangent
+/// distance determines depth only when the carrying cylinder's diameter is also stated.
+pub(crate) fn alternative_depth(
+    a: &Analysis,
+    pocket: &Feature,
+    owner: &str,
+    marks: &[Mark],
+) -> bool {
+    let Ok(Grammar::Pocket(p)) = grammar(pocket) else {
+        return false;
+    };
+    let Some((mouth_axis, radius, on)) = p.mouth else {
+        return false;
+    };
+    let floor = p.origin[p.axis] - p.open_sign * p.depth / 2.;
+    let signed_floor = p.open_sign * (floor - on[p.axis]);
+    let stated = |role: &str, value: f64, term: &str| {
+        marks.iter().any(|m| {
+            !m.name.starts_with("suppressed:")
+                && m.claims
+                    .iter()
+                    .any(|c| c.feature == owner && c.parameter == role)
+                && m.text
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .split_once(term)
+                    .and_then(|(before, _)| before.split_whitespace().last())
+                    .is_some_and(|number| super::holes::states(number, value))
+        })
+    };
+    if stated(
+        "pocket_depth_from_tangent.length",
+        radius - signed_floor,
+        "DEEP FROM TANGENT",
+    ) {
+        return true;
+    }
+    if !stated(
+        "pocket_floor_from_far_extreme.length",
+        radius + signed_floor,
+        "FLOOR FROM FAR TANGENT",
+    ) {
+        return false;
+    }
+    let frame = frame(a);
+    let on = to_part(&frame, on);
+    let mut direction = [0.; 3];
+    direction[mouth_axis] = 1.;
+    let Some(axis) = principal(dir_to_part(&frame, direction)) else {
+        return false;
+    };
+    let stations = if mouth_axis == p.long_axis {
+        [p.lo, p.hi]
+    } else if mouth_axis == p.width_axis {
+        [p.w_center - p.width / 2., p.w_center + p.width / 2.]
+    } else {
+        return false;
+    };
+    let endpoints = stations.map(|station| {
+        let mut at = p.origin;
+        at[mouth_axis] = station;
+        to_part(&frame, at)[axis]
+    });
+    let outcomes = super::turned::outcomes(a, marks);
+    let matching = |b: &super::turned::Band| {
+        b.axis == axis
+            && (b.diameter - 2. * radius).abs() <= 1e-6
+            && (0..3).all(|k| k == axis || (b.on[k] - on[k]).abs() <= 1e-6)
+            && endpoints
+                .iter()
+                .all(|s| *s >= b.lo - 1e-6 && *s <= b.hi + 1e-6)
+    };
+    a.features.iter().any(|f| {
+        if f.kind == "boss" {
+            let Some(span) = super::redundancy::span(a, &f.id, "boss_height.length") else {
+                return false;
+            };
+            let Some(at) = parameters::place(&frame, f.parameters.get("location")) else {
+                return false;
+            };
+            let Ok(diameter) = parameters::size(f, "diameter") else {
+                return false;
+            };
+            return matching(&super::turned::Band {
+                axis: span.axis,
+                on: at,
+                lo: span.lo,
+                hi: span.hi,
+                diameter,
+            }) && marks.iter().any(|m| {
+                !m.name.starts_with("suppressed:")
+                    && m.claims
+                        .iter()
+                        .any(|c| c.feature == f.id && c.parameter == "boss.diameter")
+                    && super::holes::states(&m.text, diameter)
+            });
+        }
+        if f.kind != "turned_step" {
+            return false;
+        }
+        super::turned::band(&frame, f).is_ok_and(|b| {
+            matching(&b)
+                && outcomes.iter().any(|o| {
+                    o.feature == f.id
+                        && o.parameter == "step.diameter"
+                        && o.state == super::turned::State::Placed
+                })
+        })
+    })
+}
+
 /// The lone pocket findings.
 pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     let read = placed(analysis);
@@ -252,9 +364,16 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         }
         s
     };
+    let wanted: Vec<_> = wanted(analysis)
+        .into_iter()
+        .filter(|w| {
+            w.parameter != "pocket_max_depth.length"
+                || !alternative_depth(analysis, w.feature, &w.feature.id, marks)
+        })
+        .collect();
     parameters::coverage(
         "pocket",
-        &wanted(analysis),
+        &wanted,
         marks,
         noun,
         "the pocket's callout in the view that looks into it, and linear dimensions of its \

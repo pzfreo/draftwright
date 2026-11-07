@@ -1603,7 +1603,7 @@
     issues: [724, 725, 726, 727, 728, 1382, 1392, 1421, 1433]
     tests: []
   status: ported
-  rust_note: "Compact approved-value callout grammars remain implemented by the existing planners. Recess pockets, curved MAX DEEP pockets, channels and blind slots now receive their records on the native default path as well as the bridge. tests/native_recesses.rs checks native recess grammar and ownership; the existing pad, edge, step, slot and blend tests remain in force."
+  rust_note: "Compact approved-value callout grammars remain implemented by the existing planners. Recess pockets, curved DEEP pockets, channels and blind slots now receive their records on the native default path as well as the bridge. tests/native_recesses.rs checks native recess grammar and ownership; the existing pad, edge, step, slot and blend tests remain in force."
   rust_test: "audits::completeness_rules::each_raised_pad_states_its_footprint_height_and_location; core::native_recesses::native_recess_grammars_and_unsupported_dispositions_are_preserved"
   port_note: "Keep: callout text templates in the Plan's display-text formatter."
 

@@ -123,6 +123,9 @@
           },
           "message": {
             "$ref": "#/E"
+          },
+          "path": {
+            "$ref": "#/E"
           }
         },
         "required": [

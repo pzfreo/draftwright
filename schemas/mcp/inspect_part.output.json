@@ -257,6 +257,9 @@
           },
           "message": {
             "$ref": "#/C"
+          },
+          "path": {
+            "$ref": "#/C"
           }
         },
         "required": [

@@ -1100,7 +1100,7 @@
     tests: [tests/test_pocket_pattern_completeness_evidence.py]
   status: ported
   rust_test: "core::native_recesses::native_patterns_have_one_grouped_callout_pitches_and_absolute_location"
-  rust_note: "Native recognition/3 and the Python bridge retain unified pattern members as feature IDs. One pattern owns count, W/L/D (MAX DEEP under a cylinder), one/two pitches and two absolute centre locations. Members are not dimensioned or linted singly. Lattice and member specifications are verified before dimensions are credited. Quantity requires an explicit leading N× token; an equal width or length numeral cannot supply it. As Python, non-Z patterns have no location compiler owner and remain unverifiable; directions outside the part axes are explicitly unsupported."
+  rust_note: "Native recognition/3 and the Python bridge retain unified pattern members as feature IDs. One pattern owns count, W/L/D (DEEP under a cylinder; depth is measured, not a limit), one/two pitches and two absolute centre locations. Members are not dimensioned or linted singly. Lattice and member specifications are verified before dimensions are credited. Quantity requires an explicit leading N× token; an equal width or length numeral cannot supply it. As Python, non-Z patterns have no location compiler owner and remain unverifiable; directions outside the part axes are explicitly unsupported."
   port_note: "triage 2026-10-16: PORT, value medium, size L, stream recess-reader"
 
 - id: LINT-code-pocket_pattern_requirement_state

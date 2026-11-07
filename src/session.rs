@@ -637,7 +637,8 @@ impl Session {
         features: Features<'_>,
         spec: Spec,
     ) -> Result<Self, Error> {
-        let (part, analysis) = api::analysed(step, part, features)?;
+        let (part, analysis) =
+            api::analysed(step, api::selected_part(step, part, &spec)?, features)?;
         Self::new(part, analysis, spec)
     }
     pub fn new(part: Part, analysis: Analysis, spec: Spec) -> Result<Self, Error> {

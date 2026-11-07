@@ -106,7 +106,7 @@ fn native_patterns_have_one_grouped_callout_pitches_and_absolute_location() {
         assert_eq!(callouts.len(), 1, "{name}");
         assert!(callouts[0].label.starts_with(&format!("{count}× ")));
         if name.starts_with("curved") {
-            assert!(callouts[0].label.contains("MAX DEEP"));
+            assert!(callouts[0].label.contains("DEEP") && !callouts[0].label.contains("MAX"));
         }
         assert_eq!(
             dims.iter()
@@ -940,4 +940,50 @@ fn ctc05_cylindrical_profiles_are_counted_radii_with_spec_overrides() {
         .unwrap();
     assert!(edited.label.ends_with(" PROFILE"), "{}", edited.label);
     assert_eq!(edited.measurements, outer.measurements);
+}
+
+#[test]
+fn curved_pattern_depth_presentations_are_checked_against_every_member() {
+    let (part, a) = read("recesses/curved-grid.step.gz");
+    let f = a
+        .features
+        .iter()
+        .find(|f| f.kind == "pocket_pattern")
+        .unwrap();
+    let id = format!("d:{}/pocket_width.length", f.id);
+    for choice in ["tangent_depth", "far_extreme"] {
+        let spec: Spec =
+            serde_json::from_value(serde_json::json!({"dimensions":{&id:{"presentation":choice}}}))
+                .unwrap();
+        let p = model::plan(&a, &spec).unwrap();
+        let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
+        assert!(d.from_spec.iter().any(|s| s == "presentation"), "{d:?}");
+        let drawing = model::render(&part, &a, &p, &font()).unwrap();
+        let marks = lint::marks(&drawing);
+        let found = lint::pocket_patterns::coverage(&a, &marks);
+        assert!(
+            !found.iter().any(|i| i
+                .requirements
+                .iter()
+                .any(|r| r.parameter == "pocket_max_depth.length")),
+            "{choice}: {found:?}"
+        );
+        let mut wrong = marks.clone();
+        for mark in &mut wrong {
+            if mark.claims.iter().any(|c| {
+                c.feature == f.id
+                    && matches!(
+                        c.parameter.as_str(),
+                        "pocket_depth_from_tangent.length" | "pocket_floor_from_far_extreme.length"
+                    )
+            }) {
+                mark.text = "6× 999 × 999 × 999 DEEP".into();
+            }
+        }
+        assert!(lint::pocket_patterns::coverage(&a, &wrong).iter().any(|i| {
+            i.requirements
+                .iter()
+                .any(|r| r.parameter == "pocket_max_depth.length")
+        }));
+    }
 }

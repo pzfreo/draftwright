@@ -1556,7 +1556,7 @@ improvement plan and questions are the current work. Still open from before it:
 - From wave 5 (stream d-dims-recesses): `dims::recesses` dimensions the section recesses
   draftwright reads as pockets, hexagonal pockets, circular seats and open channels, through lint's
   port of `section_recess_fields` (`lint::section_recesses::grammar`, `lint::pockets`,
-  `lint::channels`): a pocket's `W × L × D DEEP` (`MAX DEEP` for a cylindrical mouth) in the view
+  `lint::channels`): a pocket's `W × L × D DEEP` (also `DEEP` for a cylindrical mouth) in the view
   that looks into it, located from the box to its centre (or its near end on the box) in both
   directions across it, in that view; `HEX AF A/F × D DEEP`; `øD × L LONG × A° ARC` with the seat
   axis's x, y and z locations; an open channel's width (only with plates along two axes, as
@@ -2059,7 +2059,7 @@ improvement plan and questions are the current work. Still open from before it:
     whistle frame (gzipped STEP, unpacked by the test): ISSUE-916-a **ported** (a pocket's leader
     tip is a rim side's midpoint on the matching axis, in four orientations and with a curved
     mouth; nothing crosses). Pending with a test and a note saying what is missing: ISSUE-1485-a
-    (MAX DEEP and five broken records refused; the planar-substitution clause is lint coverage,
+    (DEEP and five broken records refused; the planar-substitution clause is lint coverage,
     left to d-lint-coverage), ISSUE-917-a (one channel width; wall thickness not dimensioned),
     ISSUE-1593-a (no dimension in the title block on draftwright's four cases; one with nowhere
     to go is kept and reported, not withheld and re-planned), ISSUE-443-a (GRM-03's four step

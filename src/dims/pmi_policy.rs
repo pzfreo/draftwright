@@ -52,11 +52,17 @@ pub(super) fn wants(
     Vec<Problem>,
     BTreeMap<String, pmi_dimensions::Note>,
 ) {
-    let mut result = if s.origin.is_empty() && s.pmi != PmiMode::Strict {
+    let presentations: Vec<_> = s
+        .dimensions
+        .iter()
+        .filter_map(|(id, d)| d.presentation.map(|p| (id, p)))
+        .collect();
+    let mut result = if s.origin.is_empty() && s.pmi != PmiMode::Strict && presentations.is_empty()
+    {
         super::wants(a)
     } else {
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
-        let key = serde_json::to_vec(&(s.pmi, &s.origin)).unwrap();
+        let key = serde_json::to_vec(&(s.pmi, &s.origin, presentations)).unwrap();
         crate::planning::memo(a, "pmi-wants", key, || super::wants_uncached(a, s))
     };
     super::modelled_threads::apply(a, s, &mut result.0, &mut result.1);

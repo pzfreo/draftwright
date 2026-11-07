@@ -10,6 +10,26 @@
         "draftwright.spec/2"
       ]
     },
+    "part": {
+      "description": "Part identity from draftwright parts: persistent key (preferred) or numeric index. Acts like --part; conflicting command/request selectors are refused. A saved Analysis must already contain this part.",
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "binding": {
       "anyOf": [
         {
@@ -662,6 +682,20 @@
     "dimension": {
       "type": "object",
       "properties": {
+        "presentation": {
+          "anyOf": [
+            {
+              "enum": [
+                "tangent_depth",
+                "far_extreme"
+              ],
+              "description": "Cylindrical-mouth pocket depth: tangent_depth measures from the near tangent; far_extreme states the floor distance from the opposite cylinder tangent. Both are measured from the cylinder axis, radius and pocket floor. Measured values are retained; unsupported requests warn."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "text": {
           "anyOf": [
             {
@@ -1675,6 +1709,26 @@
           "enum": [
             "draftwright.spec/1",
             "draftwright.spec/2"
+          ]
+        },
+        "part": {
+          "description": "Part identity from draftwright parts: persistent key (preferred) or numeric index. Acts like --part; conflicting command/request selectors are refused. A saved Analysis must already contain this part.",
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "binding": {

@@ -66,10 +66,12 @@ pub mod revision;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stateless;
 
+mod decision_overrides;
 pub mod local_layout;
 mod nominal;
 mod notches;
 mod oriented_chamfers;
+mod part_choice;
 mod planning;
 mod quiddity_evidence;
 pub mod sheet_policy;

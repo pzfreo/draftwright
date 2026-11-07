@@ -13,12 +13,27 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Automatic recovery checks final centre-line bounds before accepting a sheet;
+  transported ink cannot turn a clean candidate into an off-sheet drawing after selection.
 - Manufacturing defaults preserve authored PMI finishes. GA process cells omit
   bought parts and guesses; CSV carries process provenance. Printed gear policy
   caps severity without promoting Info, and tolerance defaults use explicit
   greater-of wording and CHECK marks for ungraded suggested standards.
 
 ### Changed
+
+- Credit verified tangent/far-tangent pocket depth presentations in lint; require
+  the carrying diameter for far-tangent inference and recheck final centre-mark bounds.
+- Session opens honour Spec part selection; single-part Analyses omit `part_keys`.
+- Plan override guidance uses schema-valid item-kind paths and shorter dimension bases.
+
+- Plan bases name existing Spec controls from one nine-family override catalogue
+  and explain unavailable overrides and the PMI/checker boundary (#309).
+- Pocket depth wording says `DEEP`, with truthful tangent-depth or opposite-tangent
+  floor-distance presentation in the Spec (#305).
+- MCP error schemas include the existing Spec `path`, including part-selection refusals.
+- Select a part in the Spec by persistent key or numeric index (#324); refuse
+  conflicting command/request selectors.
 
 - Spec validation preserves truthful drawing requests (#308): warn for duplicate
   measurements, unavailable layout and stale edits; accept axis origins and
