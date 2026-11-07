@@ -2403,6 +2403,14 @@ Parameter names follow the Python version's role vocabulary (`role.kind[.discrim
 name that matches more than one measurement is refused rather than guessed (Python ADR 4
 invariant 6).
 
+Unavailable dimension edits remain in the Spec with a `dimension_edit_unapplied`
+warning whose `subjects` name the escaped edit path, even for an unknown ID; they
+create no measurement. Stale annotation edits with `pmi:<identity>` or `n:<identity>`
+likewise remain with `annotation_edit_unapplied`; an untyped or empty annotation
+identity is refused as an unsafe reference. `setSpec` and `openSpec` apply the same
+validation. `openSpec` additionally migrates legacy `sheet/preferred_printer` to
+`sheet/preferred_max_size` and sets aside entries that validation still refuses.
+
 **A PMI record's identity** (`pmi::identity`, `pmi::Report::identities`; the editor's
 `gdt::editor_key`, upstreamed) is its category and kind (`.basic` for a basic dimension), then,
 each tagged and left out when empty: its part in a file of several (`p<n>`), the drawing faces
