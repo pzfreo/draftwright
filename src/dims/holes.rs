@@ -908,7 +908,12 @@ fn round_whole(analysis: &Analysis, view: usize, k: usize, axis: P3) -> bool {
 /// `origin/<axis>` (`min` keeps the box side), or when the part carries PMI, whose datums own
 /// its origins.
 pub(super) fn round_origins(analysis: &Analysis, spec: &crate::model::Spec, wants: &mut Vec<Want>) {
-    if super::pmi_policy::carries(analysis) {
+    // Notes and manufacturing callouts do not select measurement origins. In
+    // particular, a note on a pattern must not restore tangent locations on an
+    // unrelated bore on the part's axis (#311).
+    if matches!(&analysis.pmi, Some(crate::pmi::Reading::Read(r)) if r.records.iter().any(|r| matches!(r.category,
+        crate::pmi::Category::Datum | crate::pmi::Category::Dimension | crate::pmi::Category::GeometricTolerance)))
+    {
         return;
     }
     let lo = analysis.envelope[0];
