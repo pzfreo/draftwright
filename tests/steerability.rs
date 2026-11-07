@@ -1662,6 +1662,39 @@ fn steer_322_spatial_table_tags() {
 }
 
 #[test]
+fn spatial_tag_labels_keep_feature_item_identities() {
+    let p = planned(PLATE, &input(PLATE));
+    let b = p
+        .plan
+        .balloons
+        .iter()
+        .find(|b| b.features == ["f:hole:7"])
+        .unwrap();
+    assert_eq!(b.tag, "C6");
+    assert_eq!(b.id, "hole_schedule_plan/tag/C9");
+    let r = rendered(PLATE, &p);
+    let cell = r
+        .drawings
+        .iter()
+        .flat_map(|d| &d.annotations)
+        .find(|a| a.name == "hole_schedule_plan/C9/x")
+        .unwrap();
+    assert!(
+        cell.claims
+            .iter()
+            .any(|c| c.feature == "f:hole:7" && c.parameter == "location.length.x")
+    );
+
+    let d = p
+        .plan
+        .dimensions
+        .iter()
+        .find(|d| d.id == "d:f:hole_pattern:1/bore.diameter")
+        .unwrap();
+    assert!(matches!(d.state, draftwright::items::State::Covered { .. }));
+}
+
+#[test]
 fn steer_323_axis_reference_guidance() {
     let mut s = input(PLATE);
     let key = s["dimensions"]["d:authored:slot_y"]["between"][1]

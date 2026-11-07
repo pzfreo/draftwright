@@ -11445,6 +11445,7 @@ fn render_annotations_with_cuts(
     // lint: its cells' text (the tag apart) and the measurements they state, as draftwright
     // registers the table's measurements.
     for t in plan.hole_table.iter().chain(&plan.hole_tables) {
+        let identities = crate::hole_table::identity_tags(analysis, plan, t);
         let table_from = dims.len();
         let mut row_runs: Vec<Vec<Vec<usize>>> = t
             .rows
@@ -11515,7 +11516,7 @@ fn render_annotations_with_cuts(
                             .join(" "),
                     ),
                     coordinate_origin: None,
-                    name: format!("{}/{}", t.id, row.tag),
+                    name: format!("{}/{}", t.id, identities[&row.feature]),
                     view: Some("v:plan".into()),
                     runs: cells.into_iter().flatten().collect(),
                     claims: row
@@ -11537,7 +11538,7 @@ fn render_annotations_with_cuts(
                             approved_claims: Vec::new(),
                             approved_text: Some(row.cells[c].clone()),
                             coordinate_origin: None,
-                            name: format!("{}/{}/entry", t.id, row.tag),
+                            name: format!("{}/{}/entry", t.id, identities[&row.feature]),
                             view: t.view.clone(),
                             runs,
                             claims: vec![Claim {
@@ -11584,7 +11585,12 @@ fn render_annotations_with_cuts(
                         approved_claims: Vec::new(),
                         approved_text: Some(row.cells[c].clone()),
                         coordinate_origin: if c > 1 { t.origin } else { None },
-                        name: format!("{}/{}/{}", t.id, row.tag, ["tag", "size", "x", "y"][c]),
+                        name: format!(
+                            "{}/{}/{}",
+                            t.id,
+                            identities[&row.feature],
+                            ["tag", "size", "x", "y"][c]
+                        ),
                         view: t.view.clone(),
                         runs,
                         claims,
