@@ -314,8 +314,8 @@ mention takes its default.
 
 `views/sections` requests a longitudinal section through named geometry, for example
 `"sections": [{"id": "A", "through": "f:section_recess:1"}]`. IDs are distinct
-letters A–H. The first drawable request replaces the automatic section, using a front-facing
-plane through a z-axis hole or a z-depth pocket running along x. The plan records
+letters A–H. When drawable, the first request replaces the automatic section, using a
+front-facing plane through a z-axis hole or a z-depth pocket running along x. The plan records
 the cut and the applied Spec path. A pocket section carries its measured width and
 length as a callout (width lies perpendicular to this plane), and a floor-attached depth
 from floor to mouth. On a cylindrical mouth this is the maximum depth from its
