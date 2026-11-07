@@ -129,6 +129,9 @@ def document():
     for key, name in [('views', 'view'), ('dimensions', 'dimension'), ('annotations', 'annotation'),
                       ('features', 'feature'), ('faces', 'face'), ('dimension_schemes', 'scheme')]:
         props[key] = mapping(ref(name))
+    props['views']['properties'] = {'sections': {
+        'description': 'Explicit longitudinal sections through named geometry. Unavailable planes retain the drawing with a specific warning.',
+        **arr(obj({'id': {**S, 'pattern': '^[A-H]$'}, 'through': {**S, 'minLength': 1}}, ('id', 'through'))) }}
     for key, name in [('feature_declarations', 'declaration'), ('notes', 'note'), ('tables', 'table'), ('gears', 'gear')]:
         props[key] = arr(ref(name))
     props['process'] = {'description': 'Per-part process. Overrides file specify process UDA and material-class guess. '

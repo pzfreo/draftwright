@@ -33,14 +33,6 @@
       "shoulders_defined"
     ]
   },
-  "304": {
-    "case": "steer_304_keyway_section",
-    "group": "B",
-    "reason": "The proposed named-feature section request is rejected specifically at input/views/sections by the public schema validator; serde alone gives a generic type error.",
-    "checks": [
-      "named_section"
-    ]
-  },
   "307": {
     "case": "steer_307_completeness_mutations",
     "group": "A",
@@ -74,14 +66,6 @@
     "checks": [
       "d:f:hole:3/location.length.x",
       "d:f:hole:3/location.length.y"
-    ]
-  },
-  "314": {
-    "case": "steer_314_plain_hole_section",
-    "group": "B",
-    "reason": "An explicit section through plain holes is not drawn.",
-    "checks": [
-      "explicit_section_drawn"
     ]
   },
   "315": {

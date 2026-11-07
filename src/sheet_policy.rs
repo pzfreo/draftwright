@@ -1054,7 +1054,19 @@ fn select_scales(
     forced_trials: &mut ForcedTrials,
 ) -> Result<Plan, Invalid> {
     if automatic(spec) && crate::placement_intent::has_pins(spec) {
-        return pinned(analysis, spec);
+        let retained = pinned(analysis, spec)?;
+        let requested_cut = !spec.views.sections.is_empty()
+            || spec.views.get(model::SECTION).is_some_and(|v| !v.omit);
+        if !requested_cut || model::finished_sheets_fit(analysis, &retained) {
+            return Ok(retained);
+        }
+        // Adding a cut changes the canonical composition. A pin in that new
+        // composition must participate in paper trials if its ink no longer fits;
+        // retaining an automatic pair must not publish clipped ink.
+        let mut selected = select_scales_full(analysis, spec, maximise, forced_trials)?;
+        selected.sheet.basis +=
+            "; requested section and pinned ink require a new fitting canonical paper/scale pair";
+        return Ok(selected);
     }
     if automatic(spec)
         && !crate::nominal::comparison()
@@ -2144,6 +2156,7 @@ fn pinned(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     let mut canonical = if !base.views.is_empty() {
         let mut unnamed = base.clone();
         unnamed.views.clear();
+        unnamed.views.keep_sections_from(&spec.views);
         let published = select(analysis, &unnamed)?;
         if base
             .views
@@ -2363,6 +2376,15 @@ fn replay_pins(
             }
         }
         plan.spec = intent;
+        // Replaying a cut into its canonical frame can leave the initial packing
+        // estimate's warning behind. Judge its finished ink just as paper trials do.
+        if (!spec.views.sections.is_empty()
+            || spec.views.get(model::SECTION).is_some_and(|v| !v.omit))
+            && plan.problems.iter().any(|p| p.code == "page_fit_uncertain")
+            && model::finished_items_fit(analysis, &plan)
+        {
+            plan.problems.retain(|p| p.code != "page_fit_uncertain");
+        }
         drop_internal_replan(&mut plan);
         for problem in canonical
             .problems

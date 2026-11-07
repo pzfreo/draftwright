@@ -137,7 +137,9 @@
             }
           },
           "views": {
+            "type": "object",
             "additionalProperties": {
+              "type": "object",
               "properties": {
                 "detail": {
                   "type": [
@@ -179,6 +181,26 @@
                     "boolean",
                     "null"
                   ]
+                }
+              }
+            },
+            "properties": {
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-H]$"
+                    },
+                    "through": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 2
                 }
               }
             }
@@ -249,7 +271,7 @@
         },
         "additionalProperties": false,
         "patternProperties": {
-          "^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
+          "^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
             "type": "object",
             "additionalProperties": {
               "type": "object"
@@ -449,7 +471,9 @@
             }
           },
           "views": {
+            "type": "object",
             "additionalProperties": {
+              "type": "object",
               "properties": {
                 "detail": {
                   "type": [
@@ -488,6 +512,26 @@
               "patternProperties": {
                 "^(hidden|half_section|centre_(marks|lines)|(thread|knurl)_depiction)$(?!\n)": {
                   "$ref": "#/A"
+                }
+              }
+            },
+            "properties": {
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-H]$"
+                    },
+                    "through": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 2
                 }
               }
             }
@@ -557,7 +601,7 @@
         },
         "additionalProperties": false,
         "patternProperties": {
-          "^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
+          "^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
             "type": "object",
             "additionalProperties": {
               "type": "object"
@@ -849,7 +893,9 @@
             }
           },
           "views": {
+            "type": "object",
             "additionalProperties": {
+              "type": "object",
               "properties": {
                 "detail": {
                   "type": [
@@ -891,6 +937,26 @@
                     "boolean",
                     "null"
                   ]
+                }
+              }
+            },
+            "properties": {
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-H]$"
+                    },
+                    "through": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 2
                 }
               }
             }
@@ -961,7 +1027,7 @@
         },
         "additionalProperties": false,
         "patternProperties": {
-          "^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
+          "^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
             "type": "object",
             "additionalProperties": {
               "type": "object"
@@ -1150,7 +1216,9 @@
             }
           },
           "views": {
+            "type": "object",
             "additionalProperties": {
+              "type": "object",
               "properties": {
                 "detail": {
                   "type": [
@@ -1192,6 +1260,26 @@
                     "boolean",
                     "null"
                   ]
+                }
+              }
+            },
+            "properties": {
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-H]$"
+                    },
+                    "through": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 2
                 }
               }
             }
@@ -1262,7 +1350,7 @@
         },
         "additionalProperties": false,
         "patternProperties": {
-          "^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
+          "^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
             "type": "object",
             "additionalProperties": {
               "type": "object"
@@ -1469,7 +1557,9 @@
             }
           },
           "views": {
+            "type": "object",
             "additionalProperties": {
+              "type": "object",
               "properties": {
                 "detail": {
                   "type": [
@@ -1511,6 +1601,26 @@
                     "boolean",
                     "null"
                   ]
+                }
+              }
+            },
+            "properties": {
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-H]$"
+                    },
+                    "through": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 2
                 }
               }
             }
@@ -1581,7 +1691,7 @@
         },
         "additionalProperties": false,
         "patternProperties": {
-          "^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
+          "^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
             "type": "object",
             "additionalProperties": {
               "type": "object"
@@ -1766,7 +1876,9 @@
             }
           },
           "views": {
+            "type": "object",
             "additionalProperties": {
+              "type": "object",
               "properties": {
                 "detail": {
                   "type": [
@@ -1808,6 +1920,26 @@
                     "boolean",
                     "null"
                   ]
+                }
+              }
+            },
+            "properties": {
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-H]$"
+                    },
+                    "through": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 2
                 }
               }
             }
@@ -1878,7 +2010,7 @@
         },
         "additionalProperties": false,
         "patternProperties": {
-          "^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
+          "^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
             "type": "object",
             "additionalProperties": {
               "type": "object"
@@ -2110,7 +2242,9 @@
             }
           },
           "views": {
+            "type": "object",
             "additionalProperties": {
+              "type": "object",
               "properties": {
                 "detail": {
                   "type": [
@@ -2152,6 +2286,26 @@
                     "boolean",
                     "null"
                   ]
+                }
+              }
+            },
+            "properties": {
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-H]$"
+                    },
+                    "through": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 2
                 }
               }
             }
@@ -2222,7 +2376,7 @@
         },
         "additionalProperties": false,
         "patternProperties": {
-          "^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
+          "^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
             "type": "object",
             "additionalProperties": {
               "type": "object"
@@ -2458,7 +2612,9 @@
             }
           },
           "views": {
+            "type": "object",
             "additionalProperties": {
+              "type": "object",
               "properties": {
                 "detail": {
                   "type": [
@@ -2500,6 +2656,26 @@
                     "boolean",
                     "null"
                   ]
+                }
+              }
+            },
+            "properties": {
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-H]$"
+                    },
+                    "through": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 2
                 }
               }
             }
@@ -2570,7 +2746,7 @@
         },
         "additionalProperties": false,
         "patternProperties": {
-          "^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
+          "^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
             "type": "object",
             "additionalProperties": {
               "type": "object"
@@ -2787,7 +2963,9 @@
             }
           },
           "views": {
+            "type": "object",
             "additionalProperties": {
+              "type": "object",
               "properties": {
                 "detail": {
                   "type": [
@@ -2829,6 +3007,26 @@
                     "boolean",
                     "null"
                   ]
+                }
+              }
+            },
+            "properties": {
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-H]$"
+                    },
+                    "through": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 2
                 }
               }
             }
@@ -2899,7 +3097,7 @@
         },
         "additionalProperties": false,
         "patternProperties": {
-          "^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
+          "^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
             "type": "object",
             "additionalProperties": {
               "type": "object"
@@ -3088,7 +3286,9 @@
             }
           },
           "views": {
+            "type": "object",
             "additionalProperties": {
+              "type": "object",
               "properties": {
                 "detail": {
                   "type": [
@@ -3130,6 +3330,26 @@
                     "boolean",
                     "null"
                   ]
+                }
+              }
+            },
+            "properties": {
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-H]$"
+                    },
+                    "through": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 2
                 }
               }
             }
@@ -3200,7 +3420,7 @@
         },
         "additionalProperties": false,
         "patternProperties": {
-          "^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
+          "^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
             "type": "object",
             "additionalProperties": {
               "type": "object"
@@ -3380,7 +3600,9 @@
             }
           },
           "views": {
+            "type": "object",
             "additionalProperties": {
+              "type": "object",
               "properties": {
                 "detail": {
                   "type": [
@@ -3422,6 +3644,26 @@
                     "boolean",
                     "null"
                   ]
+                }
+              }
+            },
+            "properties": {
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-H]$"
+                    },
+                    "through": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 2
                 }
               }
             }
@@ -3492,7 +3734,7 @@
         },
         "additionalProperties": false,
         "patternProperties": {
-          "^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
+          "^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)": {
             "type": "object",
             "additionalProperties": {
               "type": "object"

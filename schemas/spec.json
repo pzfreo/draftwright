@@ -124,6 +124,30 @@
       "type": "object",
       "additionalProperties": {
         "$ref": "#/$defs/view"
+      },
+      "properties": {
+        "sections": {
+          "description": "Explicit longitudinal sections through named geometry. Unavailable planes retain the drawing with a specific warning.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-H]$"
+              },
+              "through": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "through"
+            ]
+          }
+        }
       }
     },
     "dimensions": {
@@ -1825,6 +1849,30 @@
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/view"
+          },
+          "properties": {
+            "sections": {
+              "description": "Explicit longitudinal sections through named geometry. Unavailable planes retain the drawing with a specific warning.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-H]$"
+                  },
+                  "through": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "through"
+                ]
+              }
+            }
           }
         },
         "dimensions": {

@@ -108,6 +108,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `dimension_scheme_invalid` | decision | The authored dimension scheme needs a valid user definition. |
 | `dimension_text_stray` | readability | Dimension text is displaced from its own span. |
 | `dimension_view_not_shown` | incomplete | The dimension requires a view that is not drawn. |
+| `dimension_witness_detached` | incomplete | A detached witness or depth leader misstates where the dimension applies; the required measurement cannot be verified on the drawing. |
 | `dimensions_not_ported` | incomplete | No implemented dimension grammar states this feature requirement. |
 | `duplicate_measurement` | advisory | The same measurement is repeated on the drawing. |
 | `edges_not_drawn` | incomplete | Failed projection left model edges absent from the drawing. |

@@ -20,6 +20,7 @@ const BAR: &str = "guide-bar";
 const PLATE: &str = "perforated-plate";
 const PIVOT: &str = "pivot-mount-plate";
 const CTC: &str = "nist-ctc-01";
+const ENCLOSURE: &str = "electronics-enclosure-base";
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/steerability")
@@ -49,6 +50,8 @@ fn minimal() -> Value {
 fn bytes(name: &str) -> Vec<u8> {
     let path = if name == CTC {
         root().join("../pmi/step/nist_ctc_01_asme1_ap242-e1.stp.gz")
+    } else if name == ENCLOSURE {
+        root().join("../parts/electronics-enclosure-base.step.gz")
     } else {
         root().join(format!("{name}.step.gz"))
     };
@@ -77,8 +80,8 @@ struct Rendered {
     structural: Vec<LintIssue>,
 }
 fn fixture(name: &str) -> &'static Fixture {
-    static FIXTURES: [OnceLock<Fixture>; 7] = [const { OnceLock::new() }; 7];
-    let index = [BRACKET, SHAFT, FLANGE, BAR, PLATE, PIVOT, CTC]
+    static FIXTURES: [OnceLock<Fixture>; 8] = [const { OnceLock::new() }; 8];
+    let index = [BRACKET, SHAFT, FLANGE, BAR, PLATE, PIVOT, CTC, ENCLOSURE]
         .iter()
         .position(|n| *n == name)
         .unwrap();
@@ -1363,6 +1366,7 @@ fn steer_314_plain_hole_section() {
             .any(|v| v.id == "v:section_aa" && v.cut.is_some())
             && !has(&p.plan, "section_not_shown"),
     );
+    assert_section_fits(FLANGE, &p);
     c.finish(314);
 }
 
@@ -2299,6 +2303,212 @@ fn spec_depth_presentation_keeps_measured_terms() {
         let p = planned(SHAFT, &s);
         assert!(has(&p.plan, "dimension_edit_unapplied"));
         assert!(p.plan.spec.dimensions[id].presentation.is_some());
+    }
+}
+
+#[test]
+fn named_section_public_schema_and_geometry() {
+    let mut s = input("inline-301");
+    s["views"]["sections"] = json!([{"id":"B", "through":"f:section_recess:1"}]);
+    let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
+    draftwright::mcp::validate(&schema, &s).unwrap();
+    let inputs: Value =
+        serde_json::from_str(include_str!("../schemas/mcp-validation.json")).unwrap();
+    for tool in ["inspect_part", "render", "get_spec"] {
+        draftwright::mcp::validate(&inputs[tool], &json!({"part_ref":"part", "spec":s})).unwrap();
+    }
+    let p = planned(SHAFT, &s);
+    let v = p
+        .plan
+        .views
+        .iter()
+        .find(|v| v.id == "v:section_bb")
+        .unwrap();
+    let cut = v.cut.as_ref().unwrap();
+    assert_eq!(cut.normal, [0., 1., 0.]);
+    assert!(cut.origin[1].abs() < 1e-8);
+    assert_eq!(cut.label, "B");
+    assert!(v.from_spec.iter().any(|f| f == "views/sections/0"));
+    for (role, value) in [("pocket_width.length", 6.), ("pocket_depth.length", 3.)] {
+        let d = p
+            .plan
+            .dimensions
+            .iter()
+            .find(|d| {
+                d.view == v.id
+                    && d.placed.is_some()
+                    && d.measurements
+                        .iter()
+                        .any(|m| m.parameter == role && (m.value - value).abs() < 1e-8)
+            })
+            .unwrap();
+        assert!(d.from_spec.iter().any(|f| f == "views/sections/0"));
+    }
+    let rendered = rendered(SHAFT, &p);
+    assert!(
+        !rendered
+            .drawings
+            .iter()
+            .flat_map(|d| &d.problems)
+            .any(|p| p.code == "section_dropped")
+    );
+    s["views"]["sections"] = json!([{"id":"A", "through":"f:turned_step:2"}]);
+    let p = planned(SHAFT, &s);
+    assert!(
+        p.plan.problems.iter().any(|p| p.code == "section_not_shown"
+            && p.message.contains("no front-facing cutting plane"))
+    );
+    assert!(p.plan.views.iter().any(|v| v.id == "v:front"));
+}
+
+#[test]
+fn explicit_section_reports_its_plane_or_missing_geometry() {
+    let mut s = minimal();
+    s["views"] = json!({"section_aa":{}});
+    let p = planned(FLANGE, &s);
+    let v = p
+        .plan
+        .views
+        .iter()
+        .find(|v| v.id == "v:section_aa")
+        .unwrap();
+    let cut = v.cut.as_ref().unwrap();
+    assert!(v.from_spec.iter().any(|f| f == "views/section_aa"));
+    assert!(p.plan.views.iter().any(|v| v.id == cut.marked_in && v.line_work.iter().any(|w| w.kind == "cutting_plane")));
+    assert!(
+        !rendered(FLANGE, &p)
+            .drawings
+            .iter()
+            .flat_map(|d| &d.problems)
+            .any(|p| p.code == "section_dropped")
+    );
+    assert_section_fits(FLANGE, &p);
+    let p = planned(SHAFT, &s);
+    assert!(p.plan.views.iter().any(|v| v.id == "v:front"));
+    assert!(p.plan.problems.iter().any(|p| p.code == "section_not_shown"
+        && p.message.contains("no front-facing cutting plane")
+        && p.message.contains("retained")));
+}
+
+fn assert_section_fits(name: &str, p: &Planned) {
+    for problem in p
+        .plan
+        .problems
+        .iter()
+        .chain(rendered(name, p).drawings.iter().flat_map(|d| &d.problems))
+    {
+        assert!(
+            !matches!(
+                problem.code.as_str(),
+                "annotation_off_sheet" | "page_fit_uncertain" | "dimension_witness_detached"
+            ),
+            "{}: {}",
+            problem.code,
+            problem.message
+        );
+    }
+}
+
+#[test]
+fn named_section_with_pinned_dimension_fits_automatic_paper() {
+    let mut s = minimal();
+    s["views"] = json!({"plan":{}, "sections":[{"id":"B", "through":"f:section_recess:1"}]});
+    s["dimensions"] = json!({"d:envelope/width.length":{"place":{"view":"front", "pinned":true}}});
+    let p = planned(SHAFT, &s);
+    assert!(
+        p.plan
+            .views
+            .iter()
+            .any(|v| v.id == "v:section_bb" && v.cut.is_some())
+    );
+    assert!(
+        p.plan
+            .dimensions
+            .iter()
+            .any(|d| d.id == "d:envelope/width.length"
+                && d.placed.is_some()
+                && d.from_spec.iter().any(|f| f == "place"))
+    );
+    assert_section_fits(SHAFT, &p);
+}
+
+#[test]
+fn unavailable_named_section_keeps_automatic_cut_and_uses_requested_label() {
+    let automatic = planned(ENCLOSURE, &minimal());
+    let original = automatic
+        .plan
+        .views
+        .iter()
+        .find(|v| v.cut.is_some())
+        .expect("automatic enclosure section");
+    let mut s = minimal();
+    s["views"] = json!({"sections":[{"id":"B", "through":"f:fillet:1"}]});
+    let p = planned(ENCLOSURE, &s);
+    let retained = p
+        .plan
+        .views
+        .iter()
+        .find(|v| v.id == original.id)
+        .expect("retain automatic section");
+    assert_eq!(retained.cut, original.cut);
+    assert!(p.plan.problems.iter().any(
+        |p| p.code == "section_not_shown" && p.message.contains("section B through f:fillet:1")
+    ));
+    s["views"] = json!({"plan":{}, "section_bb":{"omit":true}, "sections":[{"id":"B", "through":"f:section_recess:1"}]});
+    let omitted = planned(SHAFT, &s);
+    let warning = omitted
+        .plan
+        .problems
+        .iter()
+        .find(|p| p.code == "section_not_shown" && p.message.contains("omit displaces"))
+        .unwrap();
+    assert!(warning.message.contains("Section B–B"));
+    assert_eq!(warning.refs, ["v:section_bb"]);
+}
+
+#[test]
+fn render_detects_detached_section_depth_witnesses() {
+    let mut s = minimal();
+    s["views"] = json!({"plan":{}, "sections":[{"id":"B", "through":"f:section_recess:1"}]});
+    let p = planned(SHAFT, &s);
+    assert_section_fits(SHAFT, &p);
+    for linear in [false, true] {
+        let mut detached = p.plan.clone();
+        let d = detached
+            .dimensions
+            .iter_mut()
+            .find(|d| {
+                d.view == "v:section_bb"
+                    && d.measurements
+                        .iter()
+                        .any(|m| m.parameter == "pocket_depth.length")
+            })
+            .unwrap();
+        let placed = d.placed.as_mut().unwrap();
+        if linear {
+            d.kind = "linear".into();
+            placed.lines = vec![[[16., 20.], [24., 20.]], [[16., 23.], [24., 23.]]];
+        } else {
+            placed.arrows[0][0] = [16., 20.];
+        }
+        let f = fixture(SHAFT);
+        let drawing = model::render_with(
+            &f.part,
+            &f.analysis,
+            &detached,
+            &Font::new(api::MONO.to_vec()).unwrap(),
+            &mut f.projections.lock().unwrap(),
+        )
+        .unwrap();
+        let problem = drawing
+            .problems
+            .iter()
+            .find(|p| p.code == "dimension_witness_detached")
+            .expect("detached depth attachment is reported");
+        assert_eq!(problem.severity, "error");
+        let labelled = serde_json::to_value(problem).unwrap();
+        assert_eq!(labelled["impact"], "incomplete");
+        assert_eq!(labelled["group"], "dimension_witness_detached");
     }
 }
 

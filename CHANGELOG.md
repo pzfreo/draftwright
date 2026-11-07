@@ -13,8 +13,16 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Pinned multi-sheet canonicals discard temporary moved-section omissions while
+  retaining authored cuts. Detached dimension witnesses are classified as errors
+  with incomplete impact and a documented cause group.
+
 - Automatic recovery checks final centre-line bounds before accepting a sheet;
   transported ink cannot turn a clean candidate into an off-sheet drawing after selection.
+- Include explicit sections in pinned paper selection; retain automatic cuts when a named
+  plane is unavailable, preserve requested labels, and attach keyway depth callouts to
+  their floors. Render diagnostics now detect detached section-depth witnesses.
+
 - Manufacturing defaults preserve authored PMI finishes. GA process cells omit
   bought parts and guesses; CSV carries process provenance. Printed gear policy
   caps severity without promoting Info, and tolerance defaults use explicit
@@ -22,6 +30,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Changed
 
+- Draw named-feature longitudinal sections via `views/sections`, with pocket width,
+  length and depth, and report unavailable or displaced section intent (#304).
+- Honour explicit `views/section_aa` requests through plain through holes; retain
+  drawings with a specific warning when no supported cutting plane is available (#314).
 - Credit verified tangent/far-tangent pocket depth presentations in lint; require
   the carrying diameter for far-tangent inference and recheck final centre-mark bounds.
 - Session opens honour Spec part selection; single-part Analyses omit `part_keys`.
