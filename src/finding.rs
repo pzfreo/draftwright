@@ -113,6 +113,7 @@ catalogue! {
     "dimension_scheme_invalid" => Decision, Code, "The authored dimension scheme needs a valid user definition.";
     "dimension_text_stray" => Readability, Code, "Dimension text is displaced from its own span.";
     "dimension_view_not_shown" => Incomplete, Code, "The dimension requires a view that is not drawn.";
+    "dimension_witness_detached" => Readability, Code, "Dimension witnesses do not attach to the measured geometry.";
     "dimensions_not_ported" => Incomplete, Feature, "No implemented dimension grammar states this feature requirement.";
     "duplicate_measurement" => Advisory, Code, "The same measurement is repeated on the drawing.";
     "edges_not_drawn" => Incomplete, Code, "Failed projection left model edges absent from the drawing.";
