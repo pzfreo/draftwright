@@ -274,14 +274,24 @@ fn drawing_marks(drawing: &Drawing, witnesses: bool) -> Vec<Mark> {
                     .as_deref()
                     .and_then(|v| drawing.sheet.frames.get(v.trim_start_matches("v:")))
             {
-                let witness = serde_json::to_string(&(
-                    frame.direction,
-                    frame.up,
-                    frame.at,
-                    frame.scale,
-                    &item.lines,
-                    &frame.broken,
-                ))
+                let witness = if let Some(broken) = &frame.broken {
+                    serde_json::to_string(&(
+                        frame.direction,
+                        frame.up,
+                        frame.at,
+                        frame.scale,
+                        &item.lines,
+                        broken,
+                    ))
+                } else {
+                    serde_json::to_string(&(
+                        frame.direction,
+                        frame.up,
+                        frame.at,
+                        frame.scale,
+                        &item.lines,
+                    ))
+                }
                 .unwrap();
                 claims.push(crate::output::Claim {
                     feature: format!("station_witness:{witness}"),

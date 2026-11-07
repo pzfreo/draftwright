@@ -246,16 +246,23 @@ pub(crate) fn drawn_edges(a: &Analysis, marks: &[Mark]) -> Vec<Edge> {
         }
         let span = mark.claims.iter().find_map(|c| {
             let word = c.feature.strip_prefix("station_witness:")?;
-            type Witness = (
+            type Witness = ([f64; 3], [f64; 3], [f64; 2], f64, Vec<[[f64; 2]; 2]>);
+            type BrokenWitness = (
                 [f64; 3],
                 [f64; 3],
                 [f64; 2],
                 f64,
                 Vec<[[f64; 2]; 2]>,
-                Option<crate::broken::Break>,
+                crate::broken::Break,
             );
-            let (direction, up, at, scale, lines, broken): Witness =
-                serde_json::from_str(word).ok()?;
+            let (direction, up, at, scale, lines, broken) =
+                match serde_json::from_str::<Witness>(word) {
+                    Ok((d, u, a, s, l)) => (d, u, a, s, l, None),
+                    Err(_) => {
+                        let (d, u, a, s, l, b): BrokenWitness = serde_json::from_str(word).ok()?;
+                        (d, u, a, s, l, Some(b))
+                    }
+                };
             ink_span(
                 a,
                 &crate::output::DrawnFrame {
@@ -668,11 +675,15 @@ pub fn ink_span(
         let run = e[1][1 - ink.k] - e[0][1 - ink.k];
         let p = e[0][ink.k]
             + (lines[2][0][1 - ink.k] - e[0][1 - ink.k]) * (e[1][ink.k] - e[0][ink.k]) / run;
-        let centre = view.map([0, 1, 2].map(|k| (a.envelope[0][k] + a.envelope[1][k]) / 2.));
-        let mut q = centre;
-        q[ink.k] += (p - frame.at[ink.k]) / frame.scale;
-        let q = frame.broken.as_ref().map_or(q, |b| b.inverse(q));
-        sign * q[ink.k]
+        if let Some(b) = &frame.broken {
+            let centre = view.map([0, 1, 2].map(|k| (a.envelope[0][k] + a.envelope[1][k]) / 2.));
+            let mut q = centre;
+            q[ink.k] += (p - frame.at[ink.k]) / frame.scale;
+            sign * b.inverse(q)[ink.k]
+        } else {
+            0.5 * (a.envelope[0][axis] + a.envelope[1][axis])
+                + sign * (p - frame.at[ink.k]) / frame.scale
+        }
     };
     Some((axis, station(&lines[0]), station(&lines[1])))
 }
