@@ -5149,6 +5149,31 @@ fn install_selection(
     selection: &crate::hole_table::Selection,
     plan: &impl Fn(&crate::hole_table::Selection) -> Result<Plan, Invalid>,
 ) -> Result<Option<Plan>, Invalid> {
+    if let Some(p) = install_selection_form(analysis, selection, plan)? {
+        return Ok(Some(p));
+    }
+    // Reserve each alternate form before composing views. Do not spend scale or
+    // discard an explicit table simply because its initial tall form failed.
+    if selection.tables.iter().any(|t| !t.default) {
+        for n in 2..=crate::hole_table::MAX_COLUMNS {
+            let mut trial = selection.clone();
+            trial.columns = Some(n);
+            if let Some(mut p) = install_selection_form(analysis, &trial, plan)? {
+                for t in &mut p.hole_tables {
+                    t.basis += "; applied hole_table: always; views composed around the complete table blocks";
+                }
+                return Ok(Some(p));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn install_selection_form(
+    analysis: &Analysis,
+    selection: &crate::hole_table::Selection,
+    plan: &impl Fn(&crate::hole_table::Selection) -> Result<Plan, Invalid>,
+) -> Result<Option<Plan>, Invalid> {
     let mut scheduled = plan(selection)?;
     let first = scheduled.clone();
     if crate::hole_table::install(analysis, &mut scheduled, selection) {
@@ -5255,7 +5280,9 @@ fn schedule_recovered(
         scheduled.sheet.fill = crate::sheet_fit::fill(analysis, &scheduled);
         Ok(scheduled)
     } else {
-        baseline.problems.push(Problem { id:"p:hole_table_unavailable:sheet".into(), code:"hole_table_unavailable".into(), severity:if spec.hole_table == crate::hole_table::Setting::Always { "warning" } else { "info" }.into(), message:"The selected schedule has no clear place at the recovered geometry scale; the original dimensions are kept.".into(), subjects:vec!["sheet".into()], ..Default::default() });
+        baseline.problems.push(crate::hole_table::unavailable(
+            analysis, &baseline, &selection,
+        ));
         Ok(baseline)
     }
 }
@@ -5422,7 +5449,7 @@ fn plan_escalated_uncached(
                     // A failed optional compaction is not a new drawing problem when
                     // every original hole requirement remains legible. Explicit requests
                     // and actual losses still report the failed schedule transaction.
-                    p.problems.push(Problem { id:"p:hole_table_unavailable:sheet".into(), code:"hole_table_unavailable".into(), severity:if spec.hole_table == crate::hole_table::Setting::Always { "warning" } else { "info" }.into(), message:"The selected hole table or one of its tags has no clear place; the original dimensions are kept.".into(), subjects:vec!["sheet".into()], ..Default::default() });
+                    p.problems.push(crate::hole_table::unavailable(analysis, &p, &selection));
                 }
             }
             p.table_outcome = crate::hole_table::escalate(analysis, &mut p,
@@ -7314,7 +7341,7 @@ fn plan_with_presentation(
             &notes_given,
             &radius_notes,
             &inactive,
-            presentation.map(|p| p.reserve_origins),
+            presentation.map(|p| (p.reserve_origins, p.columns)),
         ))
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         .expect("resolved candidate inputs serialize")

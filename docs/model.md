@@ -2720,6 +2720,10 @@ against Analysis geometry; a wrong or missing entry cell reports
 recognized bore axis can use a `pcd` statement, a located circle centre and an
 explicit `ANGLE` column (counterclockwise from local +X). Missing positions do
 not imply equal spacing; the member X/Y remain supplementary locating evidence.
+An explicit `hole_table: always` retries up to four block forms, reserving each
+before composing views; `sheet/table_columns` still wins. If installation fails,
+`hole_table_unavailable` retains the individual dimensions, names the blocking
+views or ink (or the sheet boundaries), and has decision impact for an explicit request.
 Tags and origin labels avoid boundaries, bore silhouettes, other annotation ink
 and section furniture; their resolved `label_box` is also judged by structural
 lint and the SVG quality instrument. Pins keep their callout or location ink. A row replaces a

@@ -1596,6 +1596,35 @@ fn steer_321_explicit_table_fits() {
 }
 
 #[test]
+fn explicit_table_reflows_views_and_reports_unmet_intent() {
+    let mut s = input(PLATE);
+    s.as_object_mut().unwrap().remove("dimensions");
+    s.as_object_mut().unwrap().remove("views");
+    let p = planned(PLATE, &s);
+    assert!(
+        !p.plan.hole_tables.is_empty(),
+        "free paper must be used for the explicit table"
+    );
+    for view in ["v:front", "v:plan", "v:side"] {
+        assert!(p.plan.views.iter().any(|v| v.id == view));
+    }
+    assert!(!has(&p.plan, "annotation_off_sheet"));
+    s["sheet"]["scale"] = json!("2:1");
+    s["sheet"]["size"] = json!("A4");
+    let crowded = planned(PLATE, &s);
+    let finding = crowded
+        .plan
+        .problems
+        .iter()
+        .find(|f| f.code == "hole_table_unavailable")
+        .unwrap();
+    assert_eq!(serde_json::to_value(finding).unwrap()["impact"], "decision");
+    assert!(finding.refs.iter().any(|r| r == "hole_table"));
+    assert!(finding.message.contains("blocked by"));
+    assert!(!finding.subjects.is_empty());
+}
+
+#[test]
 fn steer_322_spatial_table_tags() {
     let p = planned(PLATE, &input(PLATE));
     assert!(!p.plan.hole_tables.is_empty());

@@ -888,6 +888,111 @@ fn table_obstacles(analysis: &Analysis, plan: &Plan, dims: &[PlannedDimension]) 
     out
 }
 
+/// Explain the failed transaction using the same obstacles as installation.
+/// Reduce a block-space failure to an inclusion-minimal set of named blockers.
+pub(crate) fn unavailable(analysis: &Analysis, plan: &Plan, selection: &Selection) -> Problem {
+    let mut named: Vec<(String, Vec<Rect>)> = Vec::new();
+    for view in &plan.views {
+        let mut boxes = tables::obstacles(analysis, &plan.sheet, std::slice::from_ref(view), &[]);
+        boxes.pop(); // The title block is named separately below.
+        named.push((view.id.clone(), boxes));
+    }
+    let ink = plan
+        .dimensions
+        .iter()
+        .cloned()
+        .chain(plan.gdt.iter().filter_map(crate::dims::gdt::proxy));
+    for d in ink {
+        let mut boxes =
+            tables::obstacles(analysis, &plan.sheet, &plan.views, std::slice::from_ref(&d));
+        boxes.drain(
+            ..plan
+                .views
+                .iter()
+                .filter(|v| v.sheet == plan.sheet.number)
+                .count(),
+        );
+        boxes.pop();
+        if !boxes.is_empty() {
+            named.push((d.id, boxes));
+        }
+    }
+    named.push(("sheet/title".into(), vec![plan.sheet.title_block]));
+    for t in &plan.tables {
+        if let Some(p) = &t.placed {
+            named.push((t.id.clone(), vec![p.cells]));
+        }
+    }
+    if let Some(b) = &plan.notes_block {
+        named.push(("notes".into(), vec![b.cells]));
+    }
+    let fits = |named: &[(String, Vec<Rect>)]| {
+        let mut obstacles: Vec<_> = named.iter().flat_map(|(_, b)| b).copied().collect();
+        selection
+            .sizes(&plan.spec, plan.sheet.page)
+            .into_iter()
+            .all(|(size, corner)| {
+                let Some([x, y]) = tables::place(size, &plan.sheet, &obstacles, corner) else {
+                    return false;
+                };
+                obstacles.push([x, y, x + size[0], y + size[1]]);
+                true
+            })
+    };
+    let block_fits = fits(&named);
+    if !block_fits {
+        let mut i = 0;
+        while i < named.len() {
+            let removed = named.remove(i);
+            if fits(&named) {
+                named.insert(i, removed);
+                i += 1;
+            }
+        }
+    } else {
+        // Block space was available: the remaining failure is a nearby tag or
+        // origin mark, whose carrying view and annotation ink must stay clear.
+        named.retain(|(id, _)| {
+            selection.tables.iter().any(|t| t.view.as_ref() == Some(id))
+                || plan.dimensions.iter().any(|d| {
+                    &d.id == id
+                        && selection
+                            .tables
+                            .iter()
+                            .any(|t| t.view.as_ref() == Some(&d.view))
+                })
+        });
+    }
+    let mut subjects: Vec<_> = named.into_iter().map(|(id, _)| id).collect();
+    if subjects.is_empty() {
+        subjects.push("sheet".into());
+    }
+    Problem {
+        id: "p:hole_table_unavailable:sheet".into(),
+        code: "hole_table_unavailable".into(),
+        severity: if plan.spec.hole_table == Setting::Always {
+            "warning"
+        } else {
+            "info"
+        }
+        .into(),
+        message: format!(
+            "The requested hole table could not be placed on {} at {}: {} blocked by {} and the sheet boundaries. The original dimensions are kept; move these items or provide more paper.",
+            plan.sheet.size,
+            plan.sheet.scale,
+            if block_fits {
+                "nearby tags or the origin mark are"
+            } else {
+                "table block space is"
+            },
+            subjects.join(", ")
+        ),
+        subjects,
+        refs: vec!["hole_table".into()],
+        ..Default::default()
+    }
+}
+
 /// The table's blocks, placed towards the sheet's top right, in the fewest blocks (up to four)
 /// that fit; none when no wrapping fits.
 fn place_table(
@@ -2094,6 +2199,8 @@ pub(crate) struct Selection {
     /// marks need ([`origin_reservations`]): set for a second attempt, when a slot callout took
     /// such a place in the first ([`slot_callout_takes_origin`]).
     pub reserve_origins: bool,
+    /// A bounded layout trial; an authored column count takes precedence.
+    pub columns: Option<usize>,
     /// Whether a row replaces a callout whose size comes from PMI ([`select`]).
     pub pmi_replaced: bool,
     dimensions: Vec<PlannedDimension>,
@@ -2103,13 +2210,17 @@ impl Selection {
     /// Each schedule's reserved size on *page*: whole, or split into the fewest side-by-side
     /// blocks whose height fits the page (the author's count when `sheet/table_columns` sets
     /// one), as [`install`] first tries to place it.
+    fn columns(&self, spec: &crate::model::Spec, id: &str) -> Option<usize> {
+        columns(spec, id).or(self.columns)
+    }
+
     pub fn sizes(&self, spec: &crate::model::Spec, page: [f64; 2]) -> Vec<([f64; 2], Corner)> {
         self.tables
             .iter()
             .map(|t| {
                 let cells = schedule_cells(t);
                 let body = cells.len() - 2;
-                let n = *counts(columns(spec, &t.id), 2, body, page).start();
+                let n = *counts(self.columns(spec, &t.id), 2, body, page).start();
                 (
                     split_size(&schedule_widths(&cells), 2 + body.div_ceil(n), n),
                     Corner::TopRight,
@@ -3262,7 +3373,13 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
         let mut t = wanted.clone();
         // Install the form reserved before view layout. Alternate counts are chosen
         // during table reflow, not after the annotation bands have been allocated.
-        let n = *counts(columns(&plan.spec, &t.id), 2, t.rows.len(), plan.sheet.page).start();
+        let n = *counts(
+            selection.columns(&plan.spec, &t.id),
+            2,
+            t.rows.len(),
+            plan.sheet.page,
+        )
+        .start();
         let Some(blocks) = reflow_blocks(&t, &plan.sheet, &obstacles, Some(n)) else {
             return false;
         };

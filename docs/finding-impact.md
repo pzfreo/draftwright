@@ -155,7 +155,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `hole_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |
 | `hole_table_entry_invalid` | incomplete | The drawn evidence does not correctly state the required source information. |
 | `hole_table_escalated` | advisory | A hole table replaced crowded individual callouts. |
-| `hole_table_unavailable` | advisory | Individual dimensions remain when the requested table cannot be used. |
+| `hole_table_unavailable` | decision | An explicit table request was not met; individual dimensions remain. |
 | `interior_void` | advisory | A factual inventory of an internal cavity; its faces do not establish a hole opening. |
 | `iso_layout_overflow` | readability | The requested isometric scale exceeds its reserved layout area. |
 | `iso_projection_empty` | incomplete | The requested isometric view has no projected geometry. |

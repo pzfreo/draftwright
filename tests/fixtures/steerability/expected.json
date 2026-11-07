@@ -50,14 +50,6 @@
       "remove_d:step_level/step_height.length.h8"
     ]
   },
-  "321": {
-    "case": "steer_321_explicit_table_fits",
-    "group": "C",
-    "reason": "The requested table is withdrawn without naming a blocking view or annotation.",
-    "checks": [
-      "table_or_named_blocker"
-    ]
-  },
   "322": {
     "case": "steer_322_spatial_table_tags",
     "group": "C",

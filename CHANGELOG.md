@@ -17,6 +17,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Recompose views around alternate block forms of an explicit hole table before
+  withdrawing it; unmet requests report named blockers with decision impact (#321).
+
 - Reserve the printed ink of explicit linear lanes before placing views; transport
   view-relative dimension pins with their projection assembly to use free paper,
   and name exceeded sheet boundaries when the requested ink cannot fit (#296).
