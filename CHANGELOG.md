@@ -22,6 +22,12 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Changed
 
+- Pin quiddity and haecceity to git tag v0.4.9, keeping quiddity’s CLI feature
+  disabled for library and browser builds. PMI reading is unchanged (reader `/19`);
+  recognition now retains circular blind steps cut by another feature.
+- Share quiddity’s congruence proof for pack grouping, retaining metadata compatibility,
+  cached group fingerprints and representative-to-alias GA projection reuse.
+
 - Credit verified tangent/far-tangent pocket depth presentations in lint; require
   the carrying diameter for far-tangent inference and recheck final centre-mark bounds.
 - Session opens honour Spec part selection; single-part Analyses omit `part_keys`.
