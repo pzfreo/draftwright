@@ -1134,6 +1134,8 @@ pub(crate) fn plan_anchored(
     canonical: Option<&crate::model::Plan>,
     cache: &super::footprints::Cache,
 ) -> (Vec<PlannedGdt>, Vec<Problem>) {
+    let reference = crate::decision_overrides::placement_reference(spec);
+    let canonical = canonical.or(reference.as_deref());
     // A complete existing layout is also a candidate. Greedy improvements must not buy
     // fewer crossings by displacing later frames into text, other views or unreserved space.
     // Compare unique unordered pairs, since leader crossings can be reported both ways.
@@ -1301,6 +1303,37 @@ pub(crate) fn plan_anchored(
         }
     }
     best
+}
+
+fn translated(mut p: GdtPlaced, delta: P2) -> GdtPlaced {
+    use crate::placement_intent::{move_box, move_point};
+    move_point(&mut p.tip, delta);
+    move_box(&mut p.label_box, delta);
+    for line in p
+        .lines
+        .iter_mut()
+        .chain(&mut p.arrows)
+        .chain(&mut p.strokes)
+    {
+        for q in line {
+            move_point(q, delta);
+        }
+    }
+    for arc in &mut p.arcs {
+        if delta != [0.0, 0.0] {
+            arc[0] += delta[0];
+            arc[1] += delta[1];
+        }
+    }
+    for fill in &mut p.fills {
+        for q in fill {
+            move_point(q, delta);
+        }
+    }
+    for t in p.letters.iter_mut().chain(&mut p.runs) {
+        move_point(&mut t.at, delta);
+    }
+    p
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1606,33 +1639,7 @@ fn plan_search(
             && let Some(delta) = crate::placement_intent::anchor_delta(base, views, &g.view)
             && let Some(mut p) = g.placed.clone()
         {
-            use crate::placement_intent::{move_box, move_point};
-            move_point(&mut p.tip, delta);
-            move_box(&mut p.label_box, delta);
-            for line in p
-                .lines
-                .iter_mut()
-                .chain(&mut p.arrows)
-                .chain(&mut p.strokes)
-            {
-                for q in line {
-                    move_point(q, delta);
-                }
-            }
-            for arc in &mut p.arcs {
-                if delta != [0.0, 0.0] {
-                    arc[0] += delta[0];
-                    arc[1] += delta[1];
-                }
-            }
-            for fill in &mut p.fills {
-                for q in fill {
-                    move_point(q, delta);
-                }
-            }
-            for t in p.letters.iter_mut().chain(&mut p.runs) {
-                move_point(&mut t.at, delta);
-            }
+            p = translated(p, delta);
             labels.push(p.label_box);
             if protect {
                 labels.extend(p.fills.iter().map(|f| fill_box(f)));
@@ -1901,6 +1908,59 @@ fn plan_search(
                         }
                     }
                 }
+            }
+        }
+        // A dimension placement does not evict clear, unchanged GD&T ink merely
+        // because another greedy search finds a shorter leader. Compare its
+        // transported incumbent using the same exact obstacle grading.
+        if intent.is_none()
+            && !crate::placement_intent::has_pins(spec)
+            && let Some(base) = canonical
+            && let Some(g) = base.gdt.iter().find(|g| {
+                g.id == item.id
+                    && g.view == planned.view
+                    && g.cells == planned.cells
+                    && !super::hole_marks::attached(g)
+            })
+            && base.views.iter().any(|old| {
+                old.id == g.view
+                    && views.iter().any(|v| {
+                        v.id == old.id
+                            && v.scale == old.scale
+                            && v.direction == old.direction
+                            && v.up == old.up
+                    })
+            })
+            && let Some(delta) = crate::placement_intent::anchor_delta(base, views, &g.view)
+            && let Some(p) = g.placed.clone()
+        {
+            let p = translated(p, delta);
+            let candidate = Candidate {
+                lines: p.lines.clone(),
+                arrows: p.arrows.clone(),
+                fills: p.fills.clone(),
+                label_box: p.label_box,
+                origin: [0.; 2],
+                elbow: [0.; 2],
+            };
+            let grade = obstacles.grade(&candidate, None);
+            if grade.0 <= 1
+                && grade.1 == 0
+                && best
+                    .as_ref()
+                    .is_none_or(|b| grade <= obstacles.grade(&b.2, None))
+            {
+                labels.push(p.label_box);
+                if protect {
+                    labels.extend(p.fills.iter().map(|f| fill_box(f)));
+                    triangles.extend(p.fills.iter().cloned());
+                }
+                lines.extend(p.lines.iter().copied());
+                planned.side.clone_from(&g.side);
+                planned.state = State::Shown;
+                planned.placed = Some(p);
+                out.push(planned);
+                continue;
             }
         }
         // Invariant: The finite tier loop always evaluates its first candidate without pruning.

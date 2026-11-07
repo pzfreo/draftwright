@@ -94,14 +94,6 @@
       "right_ear"
     ]
   },
-  "330": {
-    "case": "steer_330_report_gdt_moves",
-    "group": "C",
-    "reason": "Unrelated datum/frame label boxes move without a finding naming the move.",
-    "checks": [
-      "gdt_unchanged_or_move_reported"
-    ]
-  },
   "331": {
     "case": "steer_331_finished_sheet_fits",
     "group": "D",

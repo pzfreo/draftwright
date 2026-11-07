@@ -213,6 +213,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `pinned_view_off_sheet` | readability | The explicitly placed view extends outside the drawing area; an error offers removal of its placement. |
 | `pinned_view_overlap` | readability | The pinned view overlaps another view. |
 | `placement_anchor_not_shown` | decision | The requested anchor is absent from the drawing. |
+| `gdt_position_changed` | decision | Dimension placement moved an unrelated GD&T item; the warning names the item and cause. |
 | `placement_displaced` | decision | The final layout displaced an explicit placement; the warning names the requested fields and cause. |
 | `placement_side_not_applicable` | decision | The authored side does not apply to this dimension. |
 | `placement_unapplied` | decision | The requested placement cannot be applied; an available drawing placement is retained. |

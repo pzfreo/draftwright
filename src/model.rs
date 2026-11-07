@@ -2654,7 +2654,7 @@ pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
 /// Find the smallest fit and its largest scale; only its immediate larger sheet, with an
 /// enlargement, may compete. Pins keep their canonical sheet; explicit choices override.
 pub fn recover(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(analysis, || recover_inner(analysis, spec, first))
+    crate::decision_overrides::boundary(analysis, spec, || recover_inner(analysis, spec, first))
 }
 
 fn recover_inner(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
@@ -4490,7 +4490,7 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(analysis, || {
+    crate::decision_overrides::boundary(analysis, spec, || {
         let plan = crate::bom::with_titles(analysis, spec, || {
             layout::with_gutter(
                 spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
@@ -5264,7 +5264,7 @@ fn schedule_recovered(
 /// the dimensions, which on most parts keeps a larger scale, but where the dimensions run on
 /// past it an item can find no place (nist_stc_09 e4 at 1:1: 13 frames across the plan).
 pub fn plan_escalated(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(analysis, || {
+    crate::decision_overrides::boundary(analysis, spec, || {
         crate::bom::with_titles(analysis, spec, || {
             let mut plan = plan_escalated_layout(analysis, spec)?;
             crate::characteristics::apply(analysis, &mut plan);
@@ -5546,7 +5546,7 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// drawing's findings. That recovery is [`recover`], applied by [`plan_recovered`], never here:
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(analysis, || {
+    crate::decision_overrides::boundary(analysis, spec, || {
         let plan = crate::bom::with_titles(analysis, spec, || {
             layout::with_gutter(
                 spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),

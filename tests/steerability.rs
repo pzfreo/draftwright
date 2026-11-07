@@ -1724,6 +1724,31 @@ fn steer_325_pin_respects_other_placement() {
 }
 
 #[test]
+fn explicit_pitch_and_offset_coexist_using_the_near_hole_row() {
+    let mut s = input(PIVOT);
+    s["dimensions"]["d:f:hole:4/bore.diameter"]["place"]["offset"] = json!([-20, -14]);
+    let p = planned(PIVOT, &s);
+    let id = "d:f:hole_pattern:1/grid_pitch.length.col";
+    let d = dim(&p.plan, id).unwrap().placed.as_ref().unwrap();
+    let v = p.plan.views.iter().find(|v| v.id == "v:plan").unwrap();
+    assert!(d.arrows[0][0][1] > v.at[1] + 70.0 * v.scale);
+    assert!(d.lines[0][0][1] > v.at[1] + 50.0 * v.scale);
+    let x = d
+        .arrows
+        .iter()
+        .map(|a| a[0][0])
+        .fold(f64::INFINITY, f64::min)
+        + 19.0 * v.scale;
+    assert!(((d.label_box[0] + d.label_box[2]) / 2.0 - x).abs() < 1e-6);
+    assert!(
+        !p.plan
+            .problems
+            .iter()
+            .any(|p| p.code == "placement_displaced" && p.subjects.iter().any(|s| s == id))
+    );
+}
+
+#[test]
 fn coincident_explicit_lanes_report_displacement_without_refusing_the_drawing() {
     let mut s = input(PIVOT);
     s["dimensions"]
@@ -1750,7 +1775,11 @@ fn coincident_explicit_lanes_report_displacement_without_refusing_the_drawing() 
     assert_eq!(finding.severity, "warning");
     assert!(finding.message.contains("lane"));
     let id = &finding.subjects[0];
-    assert!(finding.refs.contains(&format!("dimensions/{id}/place")));
+    assert!(
+        finding
+            .refs
+            .contains(&format!("dimensions/{}/place", draftwright::items::key(id)))
+    );
     let d = dim(&p.plan, id).unwrap();
     assert!(!d.basis.contains("spec places"));
     assert!(d.basis.contains("displaced place intent"));
@@ -2025,6 +2054,40 @@ fn steer_330_report_gdt_moves() {
         );
     }
     c.finish(330);
+}
+
+#[test]
+fn gdt_move_reports_name_the_item_and_dimension_placement_once() {
+    let mut s = input(CTC);
+    let after = planned(CTC, &s);
+    let cause = "d:envelope/notch_location_x.length.f97_e104_e108";
+    s["dimensions"].as_object_mut().unwrap().remove(cause);
+    let before = planned(CTC, &s);
+    assert!(!has(&before.plan, "gdt_position_changed"));
+    for old in &before.plan.gdt {
+        let new = after.plan.gdt.iter().find(|g| g.id == old.id).unwrap();
+        let moved = !close(
+            old.placed.as_ref().unwrap().label_box,
+            new.placed.as_ref().unwrap().label_box,
+        );
+        let reports: Vec<_> = after
+            .plan
+            .problems
+            .iter()
+            .filter(|p| p.code == "gdt_position_changed" && p.subjects.contains(&old.id))
+            .collect();
+        assert_eq!(reports.len(), usize::from(moved), "{}", old.id);
+        if moved {
+            assert_eq!(reports[0].severity, "warning");
+            assert!(reports[0].subjects.contains(&cause.to_string()));
+            assert!(reports[0].refs.contains(&format!(
+                "dimensions/{}/place",
+                draftwright::items::key(cause)
+            )));
+            assert!(reports[0].message.contains("requested place"));
+            assert!(new.basis.contains("position displaced"));
+        }
+    }
 }
 
 fn annotations_in_bounds(r: &Rendered) -> bool {

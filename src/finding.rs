@@ -219,6 +219,7 @@ catalogue! {
     "placement_anchor_not_shown" => Decision, Code, "The requested anchor is absent from the drawing.";
     "placement_side_not_applicable" => Decision, Code, "The authored side does not apply to this dimension.";
     "placement_unapplied" => Decision, Code, "The requested placement cannot be applied; an available drawing placement is retained.";
+    "gdt_position_changed" => Decision, Code, "Dimension placement moved an unrelated GD&T item; the warning names the item and cause.";
     "placement_displaced" => Decision, Code, "The final layout displaced an explicit placement; the warning names the requested fields and cause.";
     "plate_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "plate_requirement_suppressed" => Advisory, Requirement, "Other geometry already supplies the suppressed plate requirement.";

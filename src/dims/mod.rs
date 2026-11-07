@@ -3513,6 +3513,13 @@ fn plan_inventory_ordered(
         &page,
         &mut intended,
     );
+    for (i, placed) in intended.iter_mut().enumerate() {
+        if places[i].is_some_and(|p| !p.pinned)
+            && let (Some(p), Some(view)) = (placed, chosen[i])
+        {
+            placement::nearest_pattern_witnesses(analysis, &frames[view], &all[i].measurements, p);
+        }
+    }
     let prescribed = intended.clone();
     let mut locked: Vec<_> = intended.iter().map(Option::is_some).collect();
     let pin_ink: Vec<_> = all

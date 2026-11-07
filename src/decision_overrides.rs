@@ -1,7 +1,8 @@
 //! The approved #309 inventory. Only existing Spec fields belong in this table.
 //! Keep reporting outside the layout solve: bases must not change automatic geometry.
 use crate::model::{Invalid, Plan, Problem};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::sync::Arc;
 
 #[derive(Clone, Copy)]
 enum Family {
@@ -42,7 +43,7 @@ const OVERRIDES: [(&str, &str, &str); 9] = [
     (
         "recognition, grouping and attachment",
         "feature_declarations; features/<feature> keys [reclassify, suppress, split, pattern]; annotations/<annotation>/place",
-        "Named support overrides unavailable (#309)",
+        "Unrelated GD&T moves report gdt_position_changed; named support overrides unavailable (#309)",
     ),
     (
         "wording and precision",
@@ -136,27 +137,151 @@ fn add(basis: &mut String, family: Family, target: Target<'_>) {
     }
 }
 
-thread_local! { static DEPTH: Cell<usize> = const { Cell::new(0) }; }
+thread_local! {
+    static DEPTH: Cell<usize> = const { Cell::new(0) };
+    static PLACEMENT_REFERENCE: RefCell<Option<Arc<Plan>>> = const { RefCell::new(None) };
+}
 struct Boundary;
 impl Drop for Boundary {
     fn drop(&mut self) {
         DEPTH.set(DEPTH.get() - 1);
+        if DEPTH.get() == 0 {
+            PLACEMENT_REFERENCE.set(None);
+        }
     }
 }
 /// Nested canonical and recovery plans keep their original bases during the solve.
 pub(crate) fn boundary(
     analysis: &crate::model::Analysis,
+    spec: &crate::model::Spec,
     run: impl FnOnce() -> Result<Plan, Invalid>,
 ) -> Result<Plan, Invalid> {
     let outer = DEPTH.get() == 0;
     DEPTH.set(DEPTH.get() + 1);
     let _guard = Boundary;
+    if outer {
+        let reference = prepare_placement_reference(analysis, spec).map(Arc::new);
+        PLACEMENT_REFERENCE.set(reference);
+    }
     let mut plan = run()?;
     if outer {
         crate::model::refresh_line_work_problems(&mut plan);
         report(analysis, &mut plan);
     }
     Ok(plan)
+}
+
+/// The placement-free drawing keeps every other authored requirement. It is
+/// shared by GD&T's incumbent trial and the final public displacement report.
+pub(crate) fn placement_reference(spec: &crate::model::Spec) -> Option<Arc<Plan>> {
+    if crate::placement_intent::has_pins(spec)
+        || !spec.dimensions.values().any(|d| d.place.is_some())
+    {
+        return None;
+    }
+    PLACEMENT_REFERENCE.with_borrow(Clone::clone)
+}
+
+fn prepare_placement_reference(
+    analysis: &crate::model::Analysis,
+    spec: &crate::model::Spec,
+) -> Option<Plan> {
+    if crate::placement_intent::has_pins(spec)
+        || !spec.dimensions.values().any(|d| d.place.is_some())
+    {
+        return None;
+    }
+    let effective = crate::spec_gdt::effective(analysis, spec).ok()?;
+    if !matches!(&effective.pmi, Some(crate::pmi::Reading::Read(r)) if r.records.iter().any(|r| matches!(r.category, crate::pmi::Category::Datum | crate::pmi::Category::GeometricTolerance)))
+    {
+        return None;
+    }
+    let mut base = spec.clone();
+    for d in base.dimensions.values_mut() {
+        d.place = None;
+    }
+    base.dimensions.retain(|_, d| *d != Default::default());
+    crate::model::plan_recovered(analysis, &base).ok()
+}
+
+fn report_gdt_moves(plan: &mut Plan) {
+    plan.problems.retain(|p| p.code != "gdt_position_changed");
+    for g in &mut plan.gdt {
+        if !g
+            .basis
+            .contains("; automatic position displaced by dimension placement")
+        {
+            continue;
+        }
+        g.basis = g.basis.replace(
+            "; automatic position displaced by dimension placement; see gdt_position_changed",
+            "",
+        );
+    }
+    if crate::placement_intent::has_pins(&plan.spec)
+        || !plan.spec.dimensions.values().any(|d| d.place.is_some())
+    {
+        return;
+    }
+    let Some(before) = placement_reference(&plan.spec) else {
+        return;
+    };
+    let causes: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| {
+            plan.spec
+                .dimensions
+                .get(&d.id)
+                .is_some_and(|d| d.place.is_some())
+        })
+        .collect();
+    let names = causes
+        .iter()
+        .map(|d| crate::wording::item(&d.id, &d.kind, &d.label))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let paths: Vec<_> = causes
+        .iter()
+        .map(|d| format!("dimensions/{}/place", crate::items::key(&d.id)))
+        .collect();
+    for g in &mut plan.gdt {
+        if plan
+            .spec
+            .annotations
+            .get(&g.id)
+            .is_some_and(|a| a.place.is_some())
+        {
+            continue;
+        }
+        let Some(old) = before
+            .gdt
+            .iter()
+            .find(|old| old.id == g.id)
+            .and_then(|g| g.placed.as_ref())
+        else {
+            continue;
+        };
+        let Some(now) = g.placed.as_ref() else {
+            continue;
+        };
+        if old
+            .label_box
+            .iter()
+            .zip(now.label_box)
+            .all(|(a, b)| (a - b).abs() < 1e-6)
+        {
+            continue;
+        }
+        let named = crate::wording::item(&g.id, &g.kind, &g.label);
+        g.basis +=
+            "; automatic position displaced by dimension placement; see gdt_position_changed";
+        plan.problems.push(Problem {
+            id: format!("p:gdt_position_changed:{}", g.id), code: "gdt_position_changed".into(), severity: "warning".into(),
+            message: format!("{} moved from its automatic position while accommodating the requested place of {names}. The final attachment, clearance and sheet layout selected a different position, recorded in the plan.", crate::wording::capital(&named)),
+            subjects: std::iter::once(g.id.clone()).chain(causes.iter().map(|d| d.id.clone())).collect(), refs: paths.clone(), ..Default::default()
+        });
+    }
 }
 
 fn report_placements(analysis: &crate::model::Analysis, plan: &mut Plan) {
@@ -167,6 +292,21 @@ fn report_placements(analysis: &crate::model::Analysis, plan: &mut Plan) {
     // Refresh our findings once at the public boundary. Replayed plans may
     // already carry reports, but no stale displacement should survive a fix.
     plan.problems.retain(|p| p.code != "placement_displaced");
+    for d in &mut plan.dimensions {
+        if !d.basis.contains("place intent:") {
+            continue;
+        }
+        d.basis = d
+            .basis
+            .split("; ")
+            .filter(|part| {
+                !part.starts_with("displaced place intent:")
+                    && !part.starts_with("applied linear place intent:")
+                    && *part != "final layout uses the recorded ink position"
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+    }
     for d in &mut plan.dimensions {
         if d.kind == "linear"
             && d.placed.is_some()
@@ -223,6 +363,7 @@ fn report_placements(analysis: &crate::model::Analysis, plan: &mut Plan) {
 }
 
 fn report(analysis: &crate::model::Analysis, plan: &mut Plan) {
+    report_gdt_moves(plan);
     report_placements(analysis, plan);
     crate::broken::check_anchors(plan);
     add(&mut plan.sheet.basis, Family::Part, Target::Document);
