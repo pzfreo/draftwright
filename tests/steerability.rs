@@ -1621,6 +1621,7 @@ fn explicit_table_reflows_views_and_reports_unmet_intent() {
     assert_eq!(serde_json::to_value(finding).unwrap()["impact"], "decision");
     assert!(finding.refs.iter().any(|r| r == "hole_table"));
     assert!(finding.message.contains("blocked by"));
+    assert!(!finding.message.contains("v:") && !finding.message.contains("d:"));
     assert!(!finding.subjects.is_empty());
 }
 

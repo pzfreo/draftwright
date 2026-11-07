@@ -985,12 +985,17 @@ pub(crate) fn unavailable(analysis: &Analysis, plan: &Plan, selection: &Selectio
         }
     }
     named.push(("sheet/title".into(), vec![plan.sheet.title_block]));
-    for t in &plan.tables {
+    for t in plan
+        .tables
+        .iter()
+        .chain(plan.radius_table.iter().map(|t| &t.table))
+        .filter(|t| t.sheet == plan.sheet.number)
+    {
         if let Some(p) = &t.placed {
             named.push((t.id.clone(), vec![p.cells]));
         }
     }
-    if let Some(b) = &plan.notes_block {
+    for b in plan.notes_block.iter().chain(&plan.radius_notes_block) {
         named.push(("notes".into(), vec![b.cells]));
     }
     let fits = |named: &[(String, Vec<Rect>)]| {
@@ -1034,6 +1039,27 @@ pub(crate) fn unavailable(analysis: &Analysis, plan: &Plan, selection: &Selectio
     if subjects.is_empty() {
         subjects.push("sheet".into());
     }
+    let descriptions: Vec<_> = subjects
+        .iter()
+        .map(|id| {
+            if plan.views.iter().any(|v| &v.id == id) {
+                return crate::wording::view(id);
+            }
+            if let Some(d) = plan.dimensions.iter().find(|d| &d.id == id) {
+                return crate::wording::item(id, &d.kind, &d.label);
+            }
+            if let Some(g) = plan.gdt.iter().find(|g| &g.id == id) {
+                return crate::wording::item(id, &g.kind, &g.label);
+            }
+            match id.as_str() {
+                "sheet/title" => "the title block",
+                "notes" => "the notes block",
+                "sheet" => "the drawing area",
+                _ => "an existing table",
+            }
+            .into()
+        })
+        .collect();
     Problem {
         id: "p:hole_table_unavailable:sheet".into(),
         code: "hole_table_unavailable".into(),
@@ -1052,7 +1078,7 @@ pub(crate) fn unavailable(analysis: &Analysis, plan: &Plan, selection: &Selectio
             } else {
                 "table block space is"
             },
-            subjects.join(", ")
+            descriptions.join(", ")
         ),
         subjects,
         refs: vec!["hole_table".into()],
