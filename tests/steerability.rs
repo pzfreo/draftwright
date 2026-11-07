@@ -2639,6 +2639,30 @@ fn broken_view_keeps_true_witnesses_and_reduces_ink_extent() {
     assert!(v.basis.contains("applied views/front/break"));
     let r = rendered(BAR, &p);
     let drawing = &r.drawings[0];
+    for finding in r.structural.iter().chain(&r.lint) {
+        assert!(
+            !matches!(
+                finding.code.as_str(),
+                "dimension_witness_detached" | "annotation_off_sheet"
+            ),
+            "{finding:?}"
+        );
+    }
+    for d in p
+        .plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "linear" && d.placed.is_some())
+    {
+        let frame = &drawing.sheet.frames[d.view.trim_start_matches("v:")];
+        let (_, a, b) = lint::location::ink_span(
+            &fixture(BAR).analysis,
+            frame,
+            &d.placed.as_ref().unwrap().lines,
+        )
+        .expect("true stations survive shortening");
+        assert!(((b - a).abs() - d.value).abs() < 1e-5, "{}: {a}..{b}", d.id);
+    }
     let ink = drawing
         .sheet
         .views
