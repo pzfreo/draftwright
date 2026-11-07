@@ -24,7 +24,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 - Pin quiddity and haecceity to git tag v0.4.9, keeping quiddity’s CLI feature
   disabled for library and browser builds. PMI reading is unchanged (reader `/19`);
-  recognition now retains circular blind steps cut by another feature.
+  recognition now retains circular blind steps cut by another feature: corpus
+  `mfcadpp_holdout/363.step` gains the R4.550 × 3.359 DEEP callout in place of
+  a bare profile radius and a redundant step height.
 - Share quiddity’s congruence proof for pack grouping, retaining metadata compatibility,
   cached group fingerprints and representative-to-alias GA projection reuse.
 
