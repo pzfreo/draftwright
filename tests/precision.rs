@@ -286,7 +286,7 @@ fn requested_precision_survives_hole_schedule_cells_and_their_ink() {
                         .find(|r| r.feature == row.feature)
                         .unwrap();
                     assert_eq!(row.measurements, old.measurements, "{file}");
-                    let prefix = format!("{}/{}", table.id, row.tag);
+                    let prefix = format!("{}/{}", table.id, row.key());
                     let text = drawing
                         .annotations
                         .iter()
