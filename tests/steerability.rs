@@ -2248,6 +2248,11 @@ fn named_section_public_schema_and_geometry() {
     s["views"]["sections"] = json!([{"id":"B", "through":"f:section_recess:1"}]);
     let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
     draftwright::mcp::validate(&schema, &s).unwrap();
+    let inputs: Value =
+        serde_json::from_str(include_str!("../schemas/mcp-validation.json")).unwrap();
+    for tool in ["inspect_part", "render", "get_spec"] {
+        draftwright::mcp::validate(&inputs[tool], &json!({"part_ref":"part", "spec":s})).unwrap();
+    }
     let p = planned(SHAFT, &s);
     let v = p
         .plan
@@ -2281,7 +2286,7 @@ fn named_section_public_schema_and_geometry() {
             .drawings
             .iter()
             .flat_map(|d| &d.problems)
-            .any(|p| p.code == "section_refused")
+            .any(|p| p.code == "section_dropped")
     );
     s["views"]["sections"] = json!([{"id":"A", "through":"f:turned_step:2"}]);
     let p = planned(SHAFT, &s);
@@ -2290,4 +2295,32 @@ fn named_section_public_schema_and_geometry() {
             && p.message.contains("no front-facing cutting plane"))
     );
     assert!(p.plan.views.iter().any(|v| v.id == "v:front"));
+}
+
+#[test]
+fn explicit_section_reports_its_plane_or_missing_geometry() {
+    let mut s = minimal();
+    s["views"] = json!({"section_aa":{}});
+    let p = planned(FLANGE, &s);
+    let v = p
+        .plan
+        .views
+        .iter()
+        .find(|v| v.id == "v:section_aa")
+        .unwrap();
+    let cut = v.cut.as_ref().unwrap();
+    assert!(v.from_spec.iter().any(|f| f == "views/section_aa"));
+    assert!(p.plan.views.iter().any(|v| v.id == cut.marked_in && v.line_work.iter().any(|w| w.kind == "cutting_plane")));
+    assert!(
+        !rendered(FLANGE, &p)
+            .drawings
+            .iter()
+            .flat_map(|d| &d.problems)
+            .any(|p| p.code == "section_dropped")
+    );
+    let p = planned(SHAFT, &s);
+    assert!(p.plan.views.iter().any(|v| v.id == "v:front"));
+    assert!(p.plan.problems.iter().any(|p| p.code == "section_not_shown"
+        && p.message.contains("no front-facing cutting plane")
+        && p.message.contains("retained")));
 }

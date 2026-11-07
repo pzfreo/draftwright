@@ -48,18 +48,18 @@ spec['properties']['sheet']['properties']['keep_layout'] = nullable(B)
 spec['properties']['sheet']['properties']['zones'] = nullable(B)
 spec['properties']['sheet']['properties']['table_columns'] = {'type':'object','additionalProperties':{'type':'integer','minimum':1,'maximum':4}}
 spec['properties']['views']['additionalProperties'] = obj({**line_fields, 'half_section':nullable(B), 'detail':nullable(detail)}, extra=True)
+spec['properties']['views']['properties'] = {'sections': arr(obj({
+    'id': {**S, 'pattern': '^[A-H]$'}, 'through': {**S, 'minLength': 1}}, ['id', 'through']))}
 # Share the base map/list shapes while retaining each view/declaration constraint.
 # The common pattern and the named property both apply (draft 2020-12).
 # Scheme entries share the sparse per-ID object map; Rust validates complete entries.
 spec['patternProperties'] = {
-    '^(views|dimensions|annotations|features|faces|dimension_schemes)$(?!\n)':
+    '^(dimensions|annotations|features|faces|dimension_schemes)$(?!\n)':
         {'type':'object', 'additionalProperties':{'type':'object'}},
     '^(notes|tables|gears|feature_declarations)$(?!\n)': arr({'type':'object'}),
 }
 for name in ('dimensions', 'annotations', 'features', 'faces', 'notes', 'tables', 'gears'):
     del spec['properties'][name]
-del spec['properties']['views']['type']
-del spec['properties']['views']['additionalProperties']['type']
 del spec['properties']['feature_declarations']['type']
 del spec['properties']['feature_declarations']['items']['type']
 # The shared map pattern already requires dimensions and every entry to be objects.

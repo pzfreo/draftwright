@@ -6217,7 +6217,8 @@ fn plan_with_presentation(
         .views
         .keys()
         .filter(|name| {
-            !crate::sections::NAMES.contains(&name.as_str())
+            *name != SECTION
+                && !spec.views.sections.iter().any(|r| **name == format!("section_{}{}", r.id.to_lowercase(), r.id.to_lowercase()))
                 && !crate::detail::NAMES.contains(&name.as_str())
                 && !VIEWS.iter().any(|(v, ..)| v == *name)
         })
@@ -6245,6 +6246,11 @@ fn plan_with_presentation(
     let named_section = crate::sections::resolve(analysis, spec, &mut problems)?;
     if !spec.views.sections.is_empty() {
         demand.section = named_section;
+    } else if spec.views.get(SECTION).is_some_and(|v| !v.omit) && demand.section.is_none() {
+        demand.section = crate::demand::explicit_section(
+            &demand.holes,
+            0.5 * (analysis.envelope[0][1] + analysis.envelope[1][1]),
+        );
     }
     // The analysis's demand assumes the default Spec; edited wording or datum visibility
     // (`sheet/uncited_datums`, a datum's omit) changes which symbols need room.
@@ -6467,8 +6473,12 @@ fn plan_with_presentation(
             )
         }),
         None if spec.views.get(SECTION).is_some_and(|v| !v.omit) => problems.push(section_not_shown(
-            "the spec asks for it, but the part has no z-axis hole with a counterbore, spotface or bottom whose profile it would show, so there is no plane to cut; remove views/section_aa".into(),
+            "rejected views/section_aa: no front-facing cutting plane can be named from the recognised geometry (a z-axis hole or internal detail is needed); the request and the remaining drawing are retained".into(),
             vec![crate::items::Op::remove(format!("views/{SECTION}"))],
+        )),
+        Some(_) if section.is_none() && !spec.views.sections.is_empty() => problems.push(section_not_shown(
+            format!("rejected views/sections/0: views/{section_name}/omit displaces the requested section; the request and remaining drawing are retained"),
+            vec![crate::items::Op::remove(format!("views/{section_name}/omit"))],
         )),
         _ => {}
     }
@@ -6904,15 +6914,15 @@ fn plan_with_presentation(
             scale: pick.scale,
             area: *area,
             default: !spec.views.contains_key(SECTION) && spec.views.sections.is_empty(),
-            basis: format!(
+            basis: if let Some(r) = spec.views.sections.first() { format!("applied views/sections/0 through {}: longitudinal plane y = {}, seen from the front; displaced automatic section selection", r.through, fmt_ratio(cut.cut_y)) } else { format!(
                 "draftwright's section rule: {}; the plane y = {} cuts the densest row ({} physical details on it), seen from the front and placed right of the side view",
-                if !spec.views.sections.is_empty() { "applied views/sections/0 through named geometry; displaced automatic section selection" } else if cut.internal_detail { "at least three unlike internal details need a readable section" } else { "a z-axis hole with a counterbore, spotface or bottom shows its profile in no standard view" },
+                if spec.views.get(SECTION).is_some_and(|v| !v.omit) { "applied views/section_aa: explicit section through recognised geometry; displaced the automatic decision whether to show a section" } else if cut.internal_detail { "at least three unlike internal details need a readable section" } else { "a z-axis hole with a counterbore, spotface or bottom shows its profile in no standard view" },
                 fmt_ratio(cut.cut_y),
                 cut.holes
-            ),
+            ) },
             state: ItemState::Shown,
             line_work: Vec::new(),
-            line_style: Default::default(), from_spec: if spec.views.sections.is_empty() { Vec::new() } else { vec!["views/sections/0".into()] },
+            line_style: Default::default(), from_spec: if !spec.views.sections.is_empty() { vec!["views/sections/0".into()] } else if spec.views.contains_key(SECTION) { vec![format!("views/{SECTION}")] } else { Vec::new() },
             half_section: None,
             cut: Some(Cut {
                 xref: None,

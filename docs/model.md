@@ -326,6 +326,12 @@ specifically. An explicit section displaces the automatic plane; unavailable int
 remains in the Spec. Feature `anchor` is read for recognition corrections, below;
 a feature's `note` is read since K1b (below).
 
+`views/section_aa: {}` also requests a section through plain z-axis through holes.
+The densest row determines the plane, with ties going to the row nearest the
+part centre and then the lower station. This extends explicit requests only;
+automatic sections keep the hidden-profile rule. If no supported plane can be
+named, `section_not_shown` explains the missing geometry and the drawing is kept.
+
 - **Fields read:** `sheet` (`size`, `scale`, `preferred_max_size`, `preferred_max_sheets`, `dimension_spacing`, `frame_gutter`, `table_columns`, `title`, `references`, `fit_deviations`, `fit_limits`, `projection`, `default_finish`, `hidden`, `centre_marks`, `centre_lines`, `thread_depiction`, `knurl_depiction`), `sheets` (below), `views/<name>` (`omit`, `place`, `sheet`, `hidden`, `centre_marks`, `centre_lines`, `thread_depiction`, `knurl_depiction`, `half_section`),
   `iso_scale_factor`, `dimension_source`, `dimension_schemes/<name>` (`scheme`, `axis`, `targets`, `view`, `from`), `hole_table` (`auto`, `always`, `never`), `dimensions/<id>` (`omit`, `tolerance`, `fit`, `text`, `style`, `place`, `kind`, `between`, `along`, and the earlier `view`
   spelling), `annotations/<id>` (`omit`, `place`, `text` for prose callouts and automatic notes), `features/<id>` (`fit`, `datum`, `controls`, `finish`, `thread`, `knurl`, `note`, `anchor`, `reclassify`, `suppress`, `split`, `pattern`, `gusset_view`), `feature_declarations`,

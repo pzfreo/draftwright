@@ -68,14 +68,6 @@
       "d:f:hole:3/location.length.y"
     ]
   },
-  "314": {
-    "case": "steer_314_plain_hole_section",
-    "group": "B",
-    "reason": "An explicit section through plain holes is not drawn.",
-    "checks": [
-      "explicit_section_drawn"
-    ]
-  },
   "315": {
     "case": "steer_315_broken_front",
     "group": "B",

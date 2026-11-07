@@ -309,9 +309,19 @@ fn hole(h: &holes::Hole, pattern: Option<String>) -> Hole {
 /// a bottom has a profile no standard view shows; the plane cuts the densest row of them
 /// (within 0.5 mm), the tie going to the row nearest the part's centre.
 fn section(holes: &[Hole], centre_y: f64) -> Option<Section> {
+    section_rows(holes, centre_y, false)
+}
+
+/// An explicit request may show a plain through bore too. The existing row ranking
+/// still chooses a deterministic plane, without changing automatic section policy.
+pub(crate) fn explicit_section(holes: &[Hole], centre_y: f64) -> Option<Section> {
+    section_rows(holes, centre_y, true)
+}
+
+fn section_rows(holes: &[Hole], centre_y: f64, explicit: bool) -> Option<Section> {
     let ys: Vec<f64> = holes
         .iter()
-        .filter(|h| h.axis == Some(2) && (h.cbore || h.spotface || !h.through))
+        .filter(|h| h.axis == Some(2) && (explicit || h.cbore || h.spotface || !h.through))
         .map(|h| h.at[1])
         .collect();
     let mut rows: Vec<f64> = ys.iter().map(|y| (y * 10.0).round() / 10.0).collect();
