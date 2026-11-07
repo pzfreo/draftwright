@@ -38,6 +38,10 @@ checks flat, recess and slot leader tips against the faces their records publish
 open mouth), a turned length's witness stations against its band's shoulders, and a chamfer,
 turned diameter or turned length whose leader or witness misses its feature loses its coverage
 credit; a knurl note is its band's diameter callout, so its leader lands on the knurled surface.
+The Rust [section-depth attachment rule](section-witness-attachment.md) treats detached
+witnesses as incorrect measurement application: an error with incomplete impact.
+It adds no Python catalogue entry, so the catalogue counts remain unchanged.
+
 Counts are computed from the merged YAML entries:
 
 | File | Pending | Ported | Translated | Retired |
