@@ -13,6 +13,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Automatic recovery checks final centre-line bounds before accepting a sheet;
+  transported ink cannot turn a clean candidate into an off-sheet drawing after selection.
 - Include explicit sections in pinned paper selection; retain automatic cuts when a named
   plane is unavailable, preserve requested labels, and attach keyway depth callouts to
   their floors. Render diagnostics now detect detached section-depth witnesses.
