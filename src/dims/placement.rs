@@ -2666,6 +2666,7 @@ pub(super) fn settle_fixed(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn avoid_fixed(
+    analysis: &Analysis,
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
     chosen: &[Option<&str>],

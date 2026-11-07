@@ -3659,6 +3659,7 @@ fn plan_inventory_ordered(
         })
         .collect();
     placement::avoid_fixed(
+        analysis,
         &frames,
         &all,
         &chosen,
