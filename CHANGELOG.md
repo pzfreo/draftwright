@@ -17,9 +17,6 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
-- Number hole-table tags by increasing local row then column from the origin,
-  with deterministic geometry ties and unchanged feature and item identities (#322).
-
 - Recompose views around alternate block forms of an explicit hole table before
   withdrawing it; unmet requests report named blockers with decision impact (#321).
 

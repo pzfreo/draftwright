@@ -453,40 +453,8 @@ fn an_escalated_table_is_whole_on_the_sheet_with_a_balloon_per_row() {
     assert_eq!(p.balloons.len(), t.rows.len());
     for (b, r) in p.balloons.iter().zip(&t.rows) {
         assert!(b.certifying && b.tag == r.tag && b.features == [r.feature.clone()]);
-        // IDs retain their original feature association while printed tags
-        // follow the spatial row order (#322).
-        let original: Vec<_> = first
-            .dimensions
-            .iter()
-            .filter(|d| d.view == "v:plan" && d.kind == "callout" && d.id.starts_with("d:f:hole:"))
-            .flat_map(|d| {
-                d.measurements
-                    .iter()
-                    .filter(|m| m.parameter == "bore.diameter")
-            })
-            .map(|m| &m.feature)
-            .collect();
-        let index = original.iter().position(|f| **f == r.feature).unwrap();
-        assert_eq!(
-            b.id,
-            format!("balloon_plan_{}_0", hole_table::tags(original.len())[index])
-        );
+        assert_eq!(b.id, format!("balloon_plan_{}_0", r.tag));
     }
-    let station = |r: &HoleRow| {
-        let at = |axis| {
-            r.measurements
-                .iter()
-                .find(|m| m.parameter == axis)
-                .unwrap()
-                .value
-        };
-        (at("location.length.y"), at("location.length.x"))
-    };
-    assert!(
-        t.rows
-            .windows(2)
-            .all(|rows| station(&rows[0]) <= station(&rows[1]))
-    );
     let [w, h] = p.sheet.page;
     let drawable = [10.0, 10.0, w - 10.0, h - 10.0];
     let rings: Vec<[f64; 4]> = p

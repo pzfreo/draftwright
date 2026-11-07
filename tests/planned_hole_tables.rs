@@ -1085,12 +1085,7 @@ fn approved_diameter_tolerances_reach_every_scheduled_size_cell_verbatim() {
         let cell = drawing
             .annotations
             .iter()
-            .find(|a| {
-                a.name.ends_with("/size")
-                    && a.claims
-                        .iter()
-                        .any(|c| c.feature == row.feature && c.parameter == "bore.diameter")
-            })
+            .find(|a| a.name.ends_with(&format!("/{}/size", row.tag)))
             .unwrap();
         let ink = cell
             .runs

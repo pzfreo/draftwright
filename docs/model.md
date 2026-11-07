@@ -2710,11 +2710,7 @@ A tag sits beside its hole only where it is plainly nearer that hole's rim and
 centre than any other scheduled hole's; otherwise it takes a short leader from
 the hole's rim (shortest, fewest crossings, fanning outward from neighbours,
 never through another scheduled rim, label or tag leader).
-Tags are grouped by approved size wording. Within each family, tags number by
-increasing row (local Y), then column (local X), from the marked origin; rescue
-tables use the same spatial rule. Coordinates are quantized at 0.000001 model mm; feature identity breaks ties. Printed tag changes
-never rename feature, dimension or tag item IDs. X/Y are the carrying view's
-two in-plane coordinates. The origin
+Tags are grouped by approved size wording; X/Y are the carrying view's two in-plane coordinates. The origin
 and positive coordinate directions are marked in that view. Size and location
 cells retain the planner's formatting and tolerances; an authored omission
 is not resurrected. Rows retain typed measurement claims, and the rendered

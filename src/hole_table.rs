@@ -557,16 +557,6 @@ pub fn escalate(analysis: &Analysis, plan: &mut Plan, table_sheet: Option<u32>) 
         landed = place_balloons(&specs, &frame, plan, &attempt, &fixed, false);
     }
 
-    // Tag labels may change reading order; item identities keep their original
-    // feature association for saved edits and inspection references.
-    for b in landed.iter_mut().flatten().filter(|b| b.certifying) {
-        if let Some(i) = loose
-            .iter()
-            .position(|(_, f)| b.features.first().is_some_and(|id| id == f))
-        {
-            b.id = format!("balloon_plan_{}_0", row_tags[i]);
-        }
-    }
     // Commit.
     if let Some(why) = table_failure {
         plan.problems.push(Problem {
@@ -737,58 +727,6 @@ fn say(plan: &mut Plan, i: usize, why: &str) {
     }
 }
 
-/// Local coordinates increase along the marked axes: row (second coordinate),
-/// then column (first coordinate). Quantize at the geometry tolerance so nearly
-/// coincident rows do not acquire STEP traversal order from floating-point drift.
-fn spatial_order(
-    a: [f64; 3],
-    b: [f64; 3],
-    origin: [f64; 3],
-    axes: [usize; 2],
-) -> std::cmp::Ordering {
-    let key = |p: [f64; 3]| axes.map(|k| ((p[k] - origin[k]) / 1e-6).round() as i64);
-    let (a, b) = (key(a), key(b));
-    a[1].cmp(&b[1]).then(a[0].cmp(&b[0]))
-}
-
-/// Stable row and cell identities retain the pre-spatial feature association.
-pub(crate) fn identity_tags(
-    analysis: &Analysis,
-    plan: &Plan,
-    table: &HoleTable,
-) -> BTreeMap<String, String> {
-    if table.view.is_some() {
-        return schedule_identity_tags(&table.rows);
-    }
-    let loose = loose(analysis, plan);
-    loose
-        .iter()
-        .zip(tags(loose.len()))
-        .map(|((_, f), tag)| ((*f).into(), tag))
-        .collect()
-}
-
-// Historical tag tokens are identities, independent of the printed spatial tags.
-fn schedule_identity_tags(rows: &[HoleRow]) -> BTreeMap<String, String> {
-    let mut rows: Vec<_> = rows.iter().collect();
-    rows.sort_by(|a, b| a.cells[1].cmp(&b.cells[1]).then(a.feature.cmp(&b.feature)));
-    let (mut family, mut number, mut last) = (0, 0, "");
-    rows.into_iter()
-        .map(|r| {
-            if family == 0 || r.cells[1] != last {
-                family += 1;
-                number = 0;
-                last = &r.cells[1];
-            }
-            number += 1;
-            (
-                r.feature.clone(),
-                format!("{}{number}", tags(family)[family - 1]),
-            )
-        })
-        .collect()
-}
-
 /// The table's rows for *loose* (each a callout's index and a hole), tagged *tags*, and the
 /// dimensions the table replaces.
 fn rows(
@@ -847,12 +785,7 @@ fn rows(
         }
     };
     let mut out = Vec::new();
-    // Both schedule paths read increasing row, then column, from the origin.
-    let mut spatial = loose.to_vec();
-    spatial.sort_by(|a, b| {
-        spatial_order(read[a.1].at, read[b.1].at, origin, [0, 1]).then_with(|| a.1.cmp(b.1))
-    });
-    for ((i, f), tag) in spatial.iter().zip(tags) {
+    for ((i, f), tag) in loose.iter().zip(tags) {
         let d = &plan.dimensions[*i];
         let at = d.terms.iter().position(|t| t.starts_with('⌀'));
         let tolerance = !d.from_spec.is_empty();
@@ -2956,14 +2889,6 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
         rows.sort_by(|a, b| {
             a.cells[1]
                 .cmp(&b.cells[1])
-                .then_with(|| {
-                    spatial_order(
-                        read[a.feature.as_str()].at,
-                        read[b.feature.as_str()].at,
-                        origin,
-                        [axes[0], axes[1]],
-                    )
-                })
                 .then_with(|| a.feature.cmp(&b.feature))
         });
         let mut group = 0;
@@ -3599,6 +3524,7 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
         let mut leaders: Vec<Segment> = Vec::new();
         // One tag per page position: coaxial rows (near and far face) share it.
         struct Group {
+            tag: String,
             text: String,
             features: Vec<String>,
             principal: Option<usize>,
@@ -3607,7 +3533,6 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
             others: Vec<([f64; 2], f64)>,
             size: [f64; 2],
         }
-        let identities = schedule_identity_tags(&t.rows);
         let mut groups: Vec<Group> = Vec::new();
         let mut tagged = BTreeSet::new();
         for row in &t.rows {
@@ -3648,6 +3573,7 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
             let ink = crate::dims::label_ink(std::slice::from_ref(&text), crate::dims::font());
             let width = (ink.max[0] - ink.min[0]).max(text.len() as f64 * crate::dims::TEXT * 0.6);
             groups.push(Group {
+                tag: row.tag.clone(),
                 text,
                 features: members.iter().map(|r| r.feature.clone()).collect(),
                 principal: h.principal.map(|(k, _)| k),
@@ -3657,19 +3583,6 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
                 size: [width, crate::dims::TEXT],
             });
         }
-        // Display row order must not change greedy placement priority or the
-        // first tag an existing shared attachment selects. Keep the historical
-        // family/feature order while printing the new spatial labels.
-        let families: BTreeMap<_, _> = t
-            .rows
-            .iter()
-            .map(|r| (r.feature.as_str(), r.cells[1].as_str()))
-            .collect();
-        groups.sort_by(|a, b| {
-            families[a.features[0].as_str()]
-                .cmp(families[b.features[0].as_str()])
-                .then(a.features[0].cmp(&b.features[0]))
-        });
         let boxed = |g: &Group, at: [f64; 2]| -> Rect {
             [
                 at[0] - g.size[0] * 0.5,
@@ -3827,7 +3740,7 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
             // Invariant: The placement loop returns false on a missing slot before reaching this zip.
             let (at, leader) = slot.expect("every tag placed");
             marks.push(Balloon {
-                id: format!("{}/tag/{}", t.id, identities[&g.features[0]]),
+                id: format!("{}/tag/{}", t.id, g.tag),
                 tag: g.text,
                 view: view.id.clone(),
                 features: g.features,

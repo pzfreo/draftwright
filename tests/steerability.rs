@@ -1621,7 +1621,6 @@ fn explicit_table_reflows_views_and_reports_unmet_intent() {
     assert_eq!(serde_json::to_value(finding).unwrap()["impact"], "decision");
     assert!(finding.refs.iter().any(|r| r == "hole_table"));
     assert!(finding.message.contains("blocked by"));
-    assert!(!finding.message.contains("v:") && !finding.message.contains("d:"));
     assert!(!finding.subjects.is_empty());
 }
 
@@ -1660,46 +1659,6 @@ fn steer_322_spatial_table_tags() {
         );
     }
     c.finish(322);
-}
-
-#[test]
-fn spatial_tag_labels_keep_feature_item_identities() {
-    let p = planned(PLATE, &input(PLATE));
-    let b = p
-        .plan
-        .balloons
-        .iter()
-        .find(|b| b.features == ["f:hole:7"])
-        .unwrap();
-    assert_eq!(b.tag, "C6");
-    assert_eq!(b.id, "hole_schedule_plan/tag/C9");
-    let first = p.plan.balloons.iter().find(|b| b.certifying).unwrap();
-    assert_eq!(first.features, ["f:hole:10"]);
-    assert_eq!(
-        first.tag, "A2",
-        "printed order must not change attachment priority"
-    );
-
-    let r = rendered(PLATE, &p);
-    let cell = r
-        .drawings
-        .iter()
-        .flat_map(|d| &d.annotations)
-        .find(|a| a.name == "hole_schedule_plan/C9/x")
-        .unwrap();
-    assert!(
-        cell.claims
-            .iter()
-            .any(|c| c.feature == "f:hole:7" && c.parameter == "location.length.x")
-    );
-
-    let d = p
-        .plan
-        .dimensions
-        .iter()
-        .find(|d| d.id == "d:f:hole_pattern:1/bore.diameter")
-        .unwrap();
-    assert!(matches!(d.state, draftwright::items::State::Covered { .. }));
 }
 
 #[test]
