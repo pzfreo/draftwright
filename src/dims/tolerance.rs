@@ -9,8 +9,8 @@
 //!   magnitude is never rounded into another requirement. A zero deviation is written `0`,
 //!   unsigned (ISO 129-1): `+0 -0.1` prints `0 -0.1`.
 //! - **A fit** is set on a hole or a cylindrical boss (`features/<id>/fit`): an ISO 286 class
-//!   from draftwright's table (`fits.py`: holes H, G, F; shafts h, g, f, js, k, n, p; grades 5 to
-//!   11; nominal sizes up to 250 mm). It is printed after the diameter of the callout that states
+//!   independent of the optional deviation table (holes H, G, F; shafts h, g, f, js, k, n, p;
+//!   grades 5 to 11; nominal sizes up to 250 mm). It is printed after the diameter that states
 //!   the feature's size, as the class alone (`⌀8.1 H7 THRU`) by default; `sheet/fit_deviations: true` adds stacked deviations.
 //!
 //! A band is withheld, and the plan says so, when the sheet cannot state it truthfully:
@@ -26,21 +26,65 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Omitted, Want, fmt, levenshtein};
+use super::{Omitted, Want, levenshtein};
 use crate::items::{Op, State, key};
 use crate::model::{Analysis, Invalid, Problem, Spec};
 
 // The fit table's classes and grades, in order, which [`choices`] lists and [`apply`] sorts into
 // hole and shaft classes, and the largest nominal size it covers, mm (ISO 286's band up to and
 // including 250), are haecceity's, as the table is (#258).
-use haecceity::presentation::tolerance::{GRADES, HOLE_CLASSES, MAX_NOMINAL_MM, SHAFT_CLASSES};
+use haecceity::presentation::tolerance::{GRADES, HOLE_CLASSES, SHAFT_CLASSES};
 
 /// The requirement notation of fits and bands: ISO 286 classes and their limit deviations, and
 /// a band or a class's stacked deviations as text. haecceity's shared presentation module owns
 /// it, so the sheet and Specify's STEP callouts state a requirement the same way (#258).
-pub(super) use haecceity::presentation::tolerance::{
-    band, deviations, fit, limits_term, with_limits,
-};
+pub(super) use haecceity::presentation::tolerance::{band, deviations, limits_term, with_limits};
+
+/// Reading a class is independent of our optional numerical-deviation table.
+pub(super) fn fit(code: &str) -> Result<(&str, u32), String> {
+    let n = code
+        .find(|c: char| c.is_ascii_digit())
+        .unwrap_or(code.len());
+    let (letters, grade) = code.split_at(n);
+    let classes = [
+        "A", "B", "C", "CD", "D", "E", "EF", "F", "FG", "G", "H", "JS", "J", "K", "M", "N", "P",
+        "R", "S", "T", "U", "V", "X", "Y", "Z", "ZA", "ZB", "ZC",
+    ];
+    let valid_case = letters.bytes().all(|c| c.is_ascii_uppercase())
+        || letters.bytes().all(|c| c.is_ascii_lowercase());
+    if valid_case
+        && classes
+            .iter()
+            .any(|class| class.eq_ignore_ascii_case(letters))
+        && (grade == "01"
+            || grade
+                .parse::<u32>()
+                .is_ok_and(|g| g <= 18 && grade == g.to_string()))
+    {
+        return Ok((letters, grade.parse().unwrap()));
+    }
+    Err(format!(
+        "{code:?} is not an ISO 286 fit class; use a class such as H7, N9 or js9."
+    ))
+}
+
+fn fit_text(
+    code: &str,
+    nominal: f64,
+    id: &str,
+    spec: &Spec,
+    problems: &mut Vec<Problem>,
+) -> String {
+    if !limits_shown(spec) {
+        return code.into();
+    }
+    if let Some(limits) = deviations(code, nominal) {
+        return with_limits(code, limits);
+    }
+    problems.push(problem("fit_deviations_unavailable", id,
+        format!("The fit {code} is printed, but requested numerical deviations at {nominal} mm are outside the supported ISO 286 table; no deviations were invented."), vec![id.into()]));
+    code.into()
+}
 
 /// A kept item, as [`super::plan`] holds it: the want, whether it is a default, its view and the
 /// views that look along it.
@@ -124,6 +168,136 @@ fn tolerance(text: &str) -> Result<(String, bool), String> {
     ))
 }
 
+/// Equal decimal bands can have different authored precision or symmetric notation.
+pub(super) fn same_band(a: &str, b: &str) -> bool {
+    type Decimal<'a> = (&'a str, &'a str);
+    type Band<'a> = (Decimal<'a>, Decimal<'a>);
+    fn number(s: &str) -> Option<Decimal<'_>> {
+        let s = magnitude(s)?;
+        let (whole, fraction) = s.split_once('.').unwrap_or((s, ""));
+        Some((
+            whole.trim_start_matches('0'),
+            fraction.trim_end_matches('0'),
+        ))
+    }
+    fn normalized(t: &str) -> Option<Band<'_>> {
+        let t = t.trim();
+        if let Some(n) = t.strip_prefix('±').and_then(number) {
+            return Some((n, n));
+        }
+        let mut words = t.split_whitespace();
+        let upper = number(words.next()?.strip_prefix('+')?)?;
+        let lower = number(words.next()?.strip_prefix('-')?)?;
+        words.next().is_none().then_some((upper, lower))
+    }
+    normalized(a)
+        .zip(normalized(b))
+        .is_some_and(|(a, b)| a == b)
+}
+
+/// ISO fits qualify a physical size between opposed surfaces, never a station or pitch.
+fn size_parameter(p: &str) -> bool {
+    let (quantity, unit) = p.split_once('.').unwrap_or((p, ""));
+    p == "diameter"
+        || (unit == "diameter" && quantity != "bolt_circle")
+        || (unit == "length"
+            && (matches!(
+                quantity,
+                "width"
+                    | "depth"
+                    | "height"
+                    | "thickness"
+                    | "step"
+                    | "groove"
+                    | "polygon_across_flats"
+                    | "profile_across_flats"
+                    | "general_size"
+            ) || quantity.ends_with("_width")
+                || quantity.ends_with("_length")
+                || quantity.ends_with("_depth")
+                || quantity.ends_with("_height")
+                || quantity.ends_with("_thickness")))
+}
+
+fn feature_size(a: &Analysis, spec: &Spec, w: &Want) -> bool {
+    // Coverage riders do not change the quantity the leading nominal states.
+    if w.measurements
+        .first()
+        .is_some_and(|m| size_parameter(&m.parameter))
+    {
+        return true;
+    }
+    // Authored linear quantities carry geometry parameters until ownership is attached.
+    // Only a pair of parallel physical planes proves a linear feature of size;
+    // an axis/point-to-datum or axis-to-axis location does not.
+    let Some(refs) = spec.dimensions.get(&w.id).and_then(|d| d.between.as_ref()) else {
+        return false;
+    };
+    let [p, q] = refs.as_slice() else {
+        return false;
+    };
+    use crate::model::dimension_geometry::Reference;
+    match (a.dimension_reference(p), a.dimension_reference(q)) {
+        (Ok(Reference::Plane { normal: p, .. }), Ok(Reference::Plane { normal: q, .. })) => {
+            ((0..3).map(|k| p[k] * q[k]).sum::<f64>().abs() - 1.).abs() < 1e-6
+        }
+        _ => false,
+    }
+}
+
+/// Compare effective requirements, including an unedited owner's general tolerance.
+pub(super) fn same_requirement(
+    a: &Analysis,
+    spec: &Spec,
+    p: &Want,
+    q: &Want,
+    subjects: &BTreeSet<String>,
+) -> bool {
+    let inherited = spec.sheet.title.get("tolerance").cloned().or_else(|| {
+        crate::pmi_lowering::sheet_requirements(a)
+            .0
+            .into_iter()
+            .find(|r| r.kind == "general_tolerance")
+            .map(|r| r.value)
+    });
+    let requirement = |w: &Want| {
+        let edit = spec.dimensions.get(&w.id);
+        if let Some(t) = edit.and_then(|e| e.tolerance.as_deref()) {
+            return (false, Some(t));
+        }
+        if let Some(f) = edit.and_then(|e| e.fit.as_deref()) {
+            return (true, Some(f));
+        }
+        if let Some(f) = w
+            .measurements
+            .iter()
+            .filter(|m| {
+                m.parameter == parameter(&w.id)
+                    && FITTED.iter().any(|(_, p)| *p == m.parameter)
+                    && (subjects.is_empty() || subjects.contains(&m.feature))
+            })
+            .find_map(|m| spec.features.get(&m.feature).and_then(|f| f.fit.as_deref()))
+        {
+            return (true, Some(f));
+        }
+        (
+            false,
+            (crate::dims::is_envelope_extent(&w.id)
+                .then_some(spec.envelope_tolerance.as_deref())
+                .flatten())
+            .or(inherited.as_deref()),
+        )
+    };
+    let (fit_p, p) = requirement(p);
+    let (fit_q, q) = requirement(q);
+    fit_p == fit_q
+        && match (p, q) {
+            (Some(p), Some(q)) => p == q || (!fit_p && same_band(p, q)),
+            (None, None) => true,
+            _ => false,
+        }
+}
+
 /// Whether the sheet requests stacked fit deviations (off by default).
 pub(super) fn limits_shown(spec: &Spec) -> bool {
     spec.sheet.fit_deviations.or(spec.sheet.fit_limits) == Some(true)
@@ -148,19 +322,12 @@ pub(crate) fn check(spec: &Spec) -> Result<(), Invalid> {
                 message: why,
                 choices: vec![],
             })?;
-            let authored_size = id.starts_with("d:authored:")
-                && entry.between.is_some()
-                && matches!(
-                    entry.kind.as_deref().unwrap_or("linear"),
-                    "linear" | "diameter"
-                );
-            if (!crate::dims::is_envelope_extent(id) && !authored_size) || entry.tolerance.is_some()
-            {
+            if entry.tolerance.is_some() {
                 return Err(Invalid {
                     path: None,
                     also: Vec::new(),
                     message: format!(
-                        "The fit of {id} belongs to an overall extent or an authored linear size/diameter with no explicit tolerance."
+                        "The fit of {id} conflicts with its explicit tolerance; a size takes one or the other."
                     ),
                     choices: vec![],
                 });
@@ -241,22 +408,13 @@ fn path(id: &str) -> String {
     format!("dimensions/{}/tolerance", key(id))
 }
 
-fn problem(code: &str, subject: &str, message: String, subjects: Vec<String>) -> Problem {
-    Problem {
-        id: format!("p:{code}:{subject}"),
-        code: code.into(),
-        severity: "warning".into(),
-        message,
-        subjects,
-        ..Default::default()
-    }
-}
+use super::warning as problem;
 
 /// Puts the spec's tolerances and fits on the kept items' labels, before they are placed, and
 /// reports what cannot be stated. Returns, for each kept item, what of it the spec gave
 /// (`tolerance`, `fit`). Refused: a fit on a feature that does not exist or cannot take one, or
-/// that draftwright's table does not cover at its size, and a size given both a tolerance and a
-/// fit.
+/// a size given contradictory tolerance and fit requirements. Numerical table coverage
+/// affects only requested deviations.
 pub(super) fn apply(
     analysis: &Analysis,
     spec: &Spec,
@@ -312,11 +470,11 @@ pub(super) fn apply(
         // Invariant: check validated this same immutable fit code before apply.
         let (letters, grade) = fit(code).expect("checked");
         let hole = f.kind == "hole";
-        if hole != HOLE_CLASSES.contains(&letters) {
+        if hole != letters.bytes().all(|c| c.is_ascii_uppercase()) {
             let other = if hole {
-                letters.to_uppercase()
+                letters.to_ascii_uppercase()
             } else {
-                letters.to_lowercase()
+                letters.to_ascii_lowercase()
             };
             let (what, class) = if hole {
                 ("hole", "an upper-case hole class")
@@ -333,19 +491,13 @@ pub(super) fn apply(
             });
         }
         let d = f.parameters.get("diameter").and_then(|v| v.as_f64());
-        match d {
-            Some(d) if d > 0.0 && d <= MAX_NOMINAL_MM => {}
-            _ => {
-                return Err(Invalid {
-                    path: None,
-                    also: Vec::new(),
-                    message: format!(
-                        "The fit {code:?} of {id:?} cannot be resolved: its nominal ⌀{} is outside draftwright's ISO 286 table (up to {MAX_NOMINAL_MM} mm); give its dimension a tolerance instead.",
-                        d.map_or("?".into(), fmt)
-                    ),
-                    choices: vec![],
-                });
-            }
+        if !d.is_some_and(|d| d.is_finite() && d > 0.0) {
+            return Err(Invalid {
+                message: format!("The fit {code} of {id} needs a unique positive nominal size."),
+                choices: vec![],
+                path: None,
+                also: vec![],
+            });
         }
         fits.insert(id, code);
         // Invariant: The preceding validation found this same nominal in the fit table.
@@ -376,6 +528,19 @@ pub(super) fn apply(
             }
         }
         let extent_fit = spec.dimensions.get(&w.id).and_then(|e| e.fit.as_deref());
+        if let Some(code) = extent_fit
+            && member_fits.iter().flatten().any(|fit| *fit != code)
+        {
+            return Err(Invalid {
+                message: format!(
+                    "{} has conflicting dimension and feature fit requirements; retain one compatible class.",
+                    w.id
+                ),
+                path: None,
+                also: vec![],
+                choices: vec![],
+            });
+        }
         let authored = spec
             .dimensions
             .get(&w.id)
@@ -405,21 +570,23 @@ pub(super) fn apply(
             });
         }
         let band = if let Some(code) = extent_fit {
-            let limits = deviations(code, w.value).ok_or_else(|| Invalid {
-                path: None,
-                also: Vec::new(),
-                message: format!(
-                    "The fit {code} of {} is outside the ISO 286 table at {} mm.",
-                    w.id, w.value
-                ),
-                choices: vec![],
-            })?;
+            if !w.value.is_finite()
+                || w.value <= 0.0
+                || matches!(w.shape, super::Shape::Angular { .. })
+                || !feature_size(analysis, spec, w)
+            {
+                return Err(Invalid {
+                    message: format!(
+                        "The fit of {} needs a positive feature of size, not a location, pitch, radius or angle.",
+                        w.id
+                    ),
+                    path: None,
+                    also: vec![],
+                    choices: vec![],
+                });
+            }
             given.push("fit".into());
-            Some(if limits_shown(spec) {
-                with_limits(code, limits)
-            } else {
-                code.into()
-            })
+            Some(fit_text(code, w.value, &w.id, spec, problems))
         } else if let Some(t) = authored {
             // Invariant: check validated this same immutable tolerance text before apply.
             let (text, nothing) = tolerance(&t).expect("checked");
@@ -449,11 +616,13 @@ pub(super) fn apply(
             if member_fits.iter().all(|f| *f == Some(first)) {
                 given.push("fit".to_string());
                 w.basis += &format!("; its fit is the spec's ({})", members.join(", "));
-                let limits = nominals
-                    .get(members[0].as_str())
-                    .and_then(|&d| deviations(first, d))
-                    .filter(|_| limits_shown(spec));
-                Some(limits.map_or(first.to_string(), |l| with_limits(first, l)))
+                Some(fit_text(
+                    first,
+                    nominals[members[0].as_str()],
+                    &w.id,
+                    spec,
+                    problems,
+                ))
             } else {
                 None
             }
@@ -641,6 +810,88 @@ mod tests {
     use haecceity::presentation::tolerance::deviation;
 
     #[test]
+    fn feature_fits_qualify_only_their_size_and_measured_member() {
+        let a = crate::lint::paired_ramp_steps::tests::part(
+            "boss",
+            serde_json::json!({"diameter":8.,"height":3.}),
+        );
+        let mut spec: Spec = serde_json::from_value(serde_json::json!({
+            "sheet":{"title":{"tolerance":"±0.1"}},
+            "features":{"f:boss:1":{"fit":"h6"}},
+            "dimensions":{"d:authored:copy":{"tolerance":"±0.1"}}
+        }))
+        .unwrap();
+        let mut original = Want {
+            id: "d:f:boss:1/boss_height.length".into(),
+            views: vec!["front"],
+            value: 3.,
+            terms: vec!["3".into()],
+            measurements: vec![super::super::Measurement {
+                feature: "f:boss:1".into(),
+                parameter: "boss_height.length".into(),
+                value: 3.,
+            }],
+            basis: String::new(),
+            shape: super::super::Shape::Callout {
+                arcs: vec![],
+                sites: vec![],
+            },
+            turning: None,
+        };
+        let mut copy = original.clone();
+        copy.id = "d:authored:copy".into();
+        // The boss's diameter fit does not change its height's general band.
+        assert!(same_requirement(
+            &a,
+            &spec,
+            &copy,
+            &original,
+            &BTreeSet::from(["f:boss:1".into()])
+        ));
+        original.id = "d:f:boss:1/boss.diameter".into();
+        original.measurements[0].parameter = "boss.diameter".into();
+        original.value = 8.;
+        original.terms = vec!["⌀8".into()];
+        original.measurements[0].value = 8.;
+        copy.value = 8.;
+        copy.terms = vec!["⌀8".into()];
+        copy.measurements[0].parameter = "diameter".into();
+        copy.measurements[0].value = 8.;
+        // The diameter itself must not acquire an explicit band alongside its fit.
+        assert!(!same_requirement(
+            &a,
+            &spec,
+            &copy,
+            &original,
+            &BTreeSet::from(["f:boss:1".into()])
+        ));
+        original.measurements.push(super::super::Measurement {
+            feature: "f:boss:2".into(),
+            parameter: "boss.diameter".into(),
+            value: 8.,
+        });
+        // A shared label's other member must not lend its fit to this member.
+        assert!(same_requirement(
+            &a,
+            &spec,
+            &copy,
+            &original,
+            &BTreeSet::from(["f:boss:2".into()])
+        ));
+        spec.dimensions
+            .get_mut("d:authored:copy")
+            .unwrap()
+            .tolerance = None;
+        assert!(same_requirement(
+            &a,
+            &spec,
+            &copy,
+            &original,
+            &BTreeSet::from(["f:boss:2".into()])
+        ));
+    }
+
+    #[test]
     fn tolerances_read_as_draftwright_prints_them() {
         let read = |t: &str| tolerance(t).map(|r| r.0);
         assert_eq!(read("±0.05").unwrap(), "±0.05");
@@ -699,10 +950,31 @@ mod tests {
     }
 
     #[test]
-    fn fits_are_draftwrights_table() {
+    fn valid_fit_classes_print_independently_of_the_deviation_table() {
         assert_eq!(fit("H7"), Ok(("H", 7)));
         assert_eq!(fit("js6"), Ok(("js", 6)));
-        for bad in ["H4", "H12", "K7", "N7", "x6", "7", "H", "H 7", "Hh7"] {
+        for (code, letters, grade) in [
+            ("H4", "H", 4),
+            ("H12", "H", 12),
+            ("K7", "K", 7),
+            ("N7", "N", 7),
+            ("x6", "x", 6),
+        ] {
+            assert_eq!(fit(code), Ok((letters, grade)));
+            assert_eq!(deviations(code, 20.0), None);
+            let mut problems = Vec::new();
+            let mut spec = Spec::default();
+            assert_eq!(fit_text(code, 20.0, "d:size", &spec, &mut problems), code);
+            assert!(problems.is_empty());
+            spec.sheet.fit_deviations = Some(true);
+            assert_eq!(fit_text(code, 20.0, "d:size", &spec, &mut problems), code);
+            assert!(
+                problems
+                    .iter()
+                    .any(|p| p.code == "fit_deviations_unavailable")
+            );
+        }
+        for bad in ["7", "H", "H 7", "Hh7", "I7", "H19"] {
             assert!(fit(bad).is_err(), "{bad}");
         }
     }

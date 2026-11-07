@@ -326,20 +326,32 @@ fn both_dimension_sources_and_their_validation() {
             .contains("\"dimension_source\":\"authored\"")
     );
 
-    // An omission inside an authored set is refused: leaving it out is how.
+    // An explicit omission inside an authored set is honoured.
     spec.dimensions.get_mut(width).unwrap().omit = true;
     let (_, a) = analysed_with("plate", &json);
-    let e = model::plan(&a, &spec).unwrap_err();
-    assert!(e.message.contains("authored set"), "{}", e.message);
+    let plan = model::plan(&a, &spec).unwrap();
+    assert!(plan.dimensions.iter().all(|d| d.id != width));
+    assert!(plan.omitted.iter().any(|d| d.id == width));
+    assert!(!plan.views.is_empty());
 
-    // An unknown ID (a version 1 ID, naming a view): the nearest are offered.
+    // A saved version-1 ID is retained without guessing which item it edits.
     let mut spec = Spec::default();
     spec.dimensions.insert(
         "d:envelope/width.length@plan".into(),
         DimensionSpec::default(),
     );
-    let e = model::plan(&a, &spec).unwrap_err();
-    assert!(e.choices.iter().any(|c| c == width), "{:?}", e.choices);
+    let plan = model::plan(&a, &spec).unwrap();
+    assert!(
+        plan.problems
+            .iter()
+            .any(|p| p.code == "dimension_edit_unapplied")
+    );
+    assert_eq!(plan.spec.dimensions, spec.dimensions);
+    assert!(
+        plan.dimensions
+            .iter()
+            .any(|d| d.id == width && d.placed.is_some())
+    );
 
     // A source that does not exist is refused by the schema, naming the two.
     let e = serde_json::from_value::<Spec>(json!({"dimension_source": "both"})).unwrap_err();
@@ -603,7 +615,7 @@ fn features_with_no_ported_dimensions_are_reported() {
 
 /// An ID never names the view that carries its dimension (`draftwright.spec/2`), so omitting that
 /// view moves the dimension and keeps its ID; a version 2 spec keyed by a version 1 ID (with its
-/// `@<view>`) is refused, and the refusal reads it as the ID it now has, first among the choices.
+/// `@<view>`) warns without silently applying the stale edit to the current dimension.
 #[test]
 fn an_omitted_view_keeps_a_dimensions_id_and_an_old_key_reads_as_the_new_one() {
     let (_, a) = analysed_with("plate", &recognition("plate"));
@@ -625,13 +637,16 @@ fn an_omitted_view_keeps_a_dimensions_id_and_an_old_key_reads_as_the_new_one() {
         "dimensions": {"d:envelope/width.length@front": {"omit": true}}
     }))
     .unwrap();
-    let e = model::plan(&a, &spec).unwrap_err();
-    assert_eq!(e.choices[0], "d:envelope/width.length", "{:?}", e.choices);
+    let plan = model::plan(&a, &spec).unwrap();
     assert!(
-        e.message.contains("reads as \"d:envelope/width.length\""),
-        "{}",
-        e.message
+        plan.problems
+            .iter()
+            .any(|p| p.code == "dimension_edit_unapplied")
     );
+    assert_eq!(plan.spec.dimensions, spec.dimensions);
+    let width = find(&plan, "d:envelope/width.length");
+    assert_eq!(width.view, "v:plan");
+    assert!(width.placed.is_some());
 }
 
 /// A countersunk hole's callout states its countersink as quiddity records it (`major_diameter`,

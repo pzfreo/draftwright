@@ -120,9 +120,20 @@ fn duplicates_are_refused_with_the_existing_owner_and_bad_references_are_actiona
     let (_, a) = plate();
     let mut s = authored(&a);
     s.dimension_source = model::DimensionSource::Auto;
-    let e = model::plan_recovered(&a, &s).unwrap_err();
-    assert!(e.message.contains("duplicates"), "{e:?}");
-    assert!(!e.choices.is_empty());
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("contradicts")
+    );
+    s.envelope_tolerance = Some("±0.1".into());
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.id == "d:authored:width" && d.placed.is_some())
+    );
     let mut s = authored(&a);
     s.dimensions
         .get_mut("d:authored:width")
@@ -216,20 +227,23 @@ fn coincident_locations_on_different_features_are_drawn_and_fill_their_own_roles
 }
 
 #[test]
-fn coincident_location_on_the_same_feature_keeps_the_k6_refusal() {
+fn coincident_location_on_the_same_feature_warns() {
     let (_, a, datum, holes) = coincident_locations();
     let owner = format!("d:{}/location.length.y", holes[0]);
     let s = parse(json!({"dimensions":{
         "d:authored:hole_y":{"between":[format!("axis:{}",holes[0]),datum],"along":"y"}
     }}));
-    let e = model::plan_recovered(&a, &s).unwrap_err();
-    assert_eq!(
-        e.message,
-        format!(
-            "d:authored:hole_y duplicates the quantity owned by {owner}; remove d:authored:hole_y and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
-        )
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(
+        p.problems
+            .iter()
+            .any(|f| f.code == "duplicate_measurement" && f.subjects.contains(&owner))
     );
-    assert_eq!(e.choices, [owner]);
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.id == "d:authored:hole_y" && d.placed.is_some())
+    );
 }
 
 #[test]
@@ -253,16 +267,17 @@ fn an_automatic_owners_additional_feature_claim_is_also_a_k6_duplicate() {
             spec["dimensions"][&owner] = json!({"view":"plan"});
         }
         let s = parse(spec);
-        let e = model::plan_recovered(&a, &s).unwrap_err();
-        // This owner already states hole 2's location: a second 12 is a real
-        // same-feature duplicate, not merely a coincident foreign feature.
-        assert_eq!(
-            e.message,
-            format!(
-                "d:authored:other_y duplicates the quantity owned by {owner}; remove d:authored:other_y and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
-            )
+        let p = model::plan_recovered(&a, &s).unwrap();
+        assert!(
+            p.problems
+                .iter()
+                .any(|f| f.code == "duplicate_measurement" && f.subjects.contains(&owner))
         );
-        assert_eq!(e.choices.as_slice(), std::slice::from_ref(&owner));
+        assert!(
+            p.dimensions
+                .iter()
+                .any(|d| d.id == "d:authored:other_y" && d.placed.is_some())
+        );
     }
 }
 
@@ -384,16 +399,30 @@ fn a_hole_to_hole_pitch_does_not_absolutely_locate_either_hole() {
 fn a_face_axis_alias_and_reversed_references_still_name_the_same_feature() {
     let (_, a, datum, holes) = coincident_locations();
     let cylinder = cylinder_face(&a, &holes[0]);
-    let s = parse(json!({"dimension_source":"authored","dimensions":{
+    let mut s = parse(json!({"dimension_source":"authored","dimensions":{
         "d:authored:first":{"between":[format!("axis:{}",holes[0]),datum],"along":"y","view":"plan"},
         "d:authored:second":{"between":[datum,format!("axis:{cylinder}")],"along":"true","view":"side"}
     }}));
-    let e = model::plan_recovered(&a, &s).unwrap_err();
-    assert_eq!(
-        e.message,
-        "d:authored:second duplicates the quantity owned by d:authored:first; remove d:authored:second and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|f| f.code == "duplicate_measurement"));
+    for id in ["d:authored:first", "d:authored:second"] {
+        assert!(
+            p.dimensions
+                .iter()
+                .any(|d| d.id == id && d.placed.is_some())
+        );
+    }
+    s.dimensions.get_mut("d:authored:first").unwrap().tolerance = Some("±0.1".into());
+    s.dimensions.get_mut("d:authored:second").unwrap().tolerance = Some("±0.2".into());
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("contradicts")
     );
-    assert_eq!(e.choices, ["d:authored:first"]);
+    s.dimensions.get_mut("d:authored:second").unwrap().tolerance = Some("+0.10 -0.100".into());
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
 }
 
 fn cylinder_face(a: &Analysis, feature: &str) -> String {
@@ -446,14 +475,17 @@ fn a_face_axis_alias_does_not_inherit_an_unmeasurable_compound_axis() {
         "d:authored:alias":{"between":[format!("axis:{}",cylinder_face(&a,&holes[0])),datum],"along":"y","view":"plan"}
     }}));
     let owner = format!("d:{}/location.length.y", holes[0]);
-    let e = model::plan_recovered(&a, &s).unwrap_err();
-    assert_eq!(
-        e.message,
-        format!(
-            "d:authored:alias duplicates the quantity owned by {owner}; remove d:authored:alias and set tolerance/view/place on the existing owner (K6: one quantity, one owner)."
-        )
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(
+        p.problems
+            .iter()
+            .any(|f| f.code == "duplicate_measurement" && f.subjects.contains(&owner))
     );
-    assert_eq!(e.choices, [owner]);
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.id == "d:authored:alias" && d.placed.is_some())
+    );
 
     // Sharing a face does not give the compound a measurable feature axis or
     // turn the hole's location into a statement about that compound.
@@ -709,7 +741,19 @@ fn cylinders_spheres_and_axis_offsets_are_measured_and_linted() {
             model::plan_recovered(&a, &duplicate)
                 .unwrap_err()
                 .message
-                .contains("duplicates")
+                .contains("contradicts")
+        );
+        duplicate
+            .dimensions
+            .get_mut("d:authored:size")
+            .unwrap()
+            .tolerance = None;
+        let p = model::plan_recovered(&a, &duplicate).unwrap();
+        assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
+        assert!(
+            p.dimensions
+                .iter()
+                .any(|d| d.id == "d:authored:size" && d.placed.is_some())
         );
     }
     let x = planes(&a, 0);
@@ -775,12 +819,15 @@ fn authored_precision_pins_and_duplicate_authored_quantities() {
         "d:authored:second".into(),
         s.dimensions["d:authored:width"].clone(),
     );
-    assert!(
-        model::plan_recovered(&a, &s)
-            .unwrap_err()
-            .message
-            .contains("duplicates")
-    );
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
+    for id in ["d:authored:width", "d:authored:second"] {
+        assert!(
+            p.dimensions
+                .iter()
+                .any(|d| d.id == id && d.placed.is_some())
+        );
+    }
 }
 
 #[test]
@@ -1568,5 +1615,88 @@ fn another_pockets_half_length_is_not_a_dimension_between_this_pockets_faces() {
     assert!(
         missing(&second.id),
         "the second pocket's 20 is not the first pocket's half interval"
+    );
+}
+
+#[test]
+fn a_slot_end_cylinder_does_not_alias_the_slots_centre() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/steerability");
+    let (_, a) = model::analyse_native_bytes(
+        "perforated-plate.step.gz",
+        &std::fs::read(dir.join("perforated-plate.step.gz")).unwrap(),
+    )
+    .unwrap();
+    let original: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("perforated-plate.spec.json")).unwrap())
+            .unwrap();
+    let end = original["dimensions"]["d:authored:slot_y"]["between"][1]
+        .as_str()
+        .unwrap();
+    let left = planes(&a, 0)[0].0.clone();
+    let s = parse(
+        json!({"dimension_source":"authored", "dimensions":{"d:authored:end":{"between":[left,end],"along":"x","view":"plan"}}}),
+    );
+    let p = model::plan_recovered(&a, &s).unwrap();
+    let d = p
+        .dimensions
+        .iter()
+        .find(|d| d.id == "d:authored:end")
+        .unwrap();
+    assert!(d.placed.is_some());
+    let Reference::Vertex { point, .. } = a.dimension_reference("axis:f:slot:1").unwrap() else {
+        panic!("slot centre point");
+    };
+    assert!((d.value - (point[0] - a.envelope[0][0]).abs()).abs() > 1e-5);
+    assert!(
+        !d.measurements
+            .iter()
+            .any(|m| m.feature == "f:slot:1" && m.parameter == "location.length.x")
+    );
+}
+
+#[test]
+fn repeated_sizes_require_matching_effective_tolerances_and_fits() {
+    let (_, a) = plate();
+    let mut s = authored(&a);
+    s.dimension_source = model::DimensionSource::Auto;
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("contradicts")
+    );
+    s.sheet.title.insert("tolerance".into(), "±0.2".into());
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("contradicts")
+    );
+    s.sheet.title.insert("tolerance".into(), "±0.10".into());
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.id == "d:authored:width" && d.placed.is_some())
+    );
+    s.dimensions.insert(
+        "d:envelope/width.length".into(),
+        serde_json::from_value(json!({"fit":"H7"})).unwrap(),
+    );
+    assert!(
+        model::plan_recovered(&a, &s)
+            .unwrap_err()
+            .message
+            .contains("contradicts")
+    );
+    s.dimensions.get_mut("d:authored:width").unwrap().tolerance = None;
+    s.dimensions.get_mut("d:authored:width").unwrap().fit = Some("H7".into());
+    let p = model::plan_recovered(&a, &s).unwrap();
+    assert!(p.problems.iter().any(|p| p.code == "duplicate_measurement"));
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.id == "d:authored:width" && d.label.contains("H7") && d.placed.is_some())
     );
 }

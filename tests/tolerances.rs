@@ -326,10 +326,51 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     assert_eq!(e.choices, ["±0.05", "+0.1 -0.02"]);
     // A fit from outside draftwright's table, of the wrong case, or on a feature that takes none.
     let hole = "f:hole:1";
-    let e = refused(json!({ "features": { hole: { "fit": "K7" } } }));
+    let class_only = model::plan(&a, &spec(json!({"features":{hole:{"fit":"K7"}}}))).unwrap();
     assert!(
-        e.message.contains(hole) && e.message.contains("table"),
-        "{e}"
+        !class_only
+            .problems
+            .iter()
+            .any(|p| p.code == "fit_deviations_unavailable")
+    );
+    assert!(
+        class_only
+            .problems
+            .iter()
+            .any(|p| p.code == "tolerance_withheld" && p.subjects.contains(&hole.into()))
+    );
+    assert!(class_only.dimensions.iter().any(|d| d.placed.is_some()));
+    assert!(!label(&class_only, "d:f:hole_pattern:1/bore.diameter").contains("K7"));
+    let p = model::plan(
+        &a,
+        &spec(json!({"sheet":{"fit_deviations":true}, "features":{hole:{"fit":"K7"}}})),
+    )
+    .unwrap();
+    assert!(
+        p.problems
+            .iter()
+            .any(|p| p.code == "tolerance_withheld" && p.subjects.contains(&hole.into()))
+    );
+    assert!(!label(&p, "d:f:hole_pattern:1/bore.diameter").contains("K7"));
+    // A single boss has a unique callout, so a valid class outside the table prints.
+    let (_, boss) = analysed("boss_circle");
+    let p = model::plan(&boss, &spec(json!({"features":{"f:boss:1":{"fit":"m9"}}}))).unwrap();
+    assert!(label(&p, "d:f:boss:1/boss.diameter").contains("m9"));
+    assert!(
+        !p.problems
+            .iter()
+            .any(|p| p.code == "fit_deviations_unavailable")
+    );
+    let p = model::plan(
+        &boss,
+        &spec(json!({"sheet":{"fit_deviations":true}, "features":{"f:boss:1":{"fit":"m9"}}})),
+    )
+    .unwrap();
+    assert!(label(&p, "d:f:boss:1/boss.diameter").contains("m9"));
+    assert!(
+        p.problems
+            .iter()
+            .any(|p| p.code == "fit_deviations_unavailable")
     );
     let e = refused(json!({ "features": { hole: { "fit": "h7" } } }));
     assert!(e.message.starts_with("\"h7\" reads as \"H7\""), "{e}");
@@ -347,14 +388,20 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     let mut big = a.clone();
     let f = big.features.iter_mut().find(|f| f.id == hole).unwrap();
     f.parameters.insert("diameter".into(), json!(300.0));
-    let e = model::plan(
+    let p = model::plan(
         &big,
-        &spec(json!({ "features": { hole: { "fit": "H7" } } })),
+        &spec(json!({"sheet":{"fit_deviations":true}, "features":{hole:{"fit":"H7"}}})),
     )
-    .unwrap_err();
+    .unwrap();
     assert!(
-        e.message.contains("⌀300") && e.message.contains("250"),
-        "{e}"
+        p.problems
+            .iter()
+            .any(|p| p.code == "fit_deviations_unavailable")
+    );
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.placed.is_some() && d.label.contains("H7"))
     );
     // A boss takes a shaft class, and a slot or fillet no fit at all.
     let (_, b) = analysed("boss_circle");
@@ -576,4 +623,96 @@ fn a_toleranced_height_keeps_its_own_dimension() {
     let plan = model::plan(&a, &extent).unwrap();
     assert!(heights(&plan).is_empty());
     assert_eq!(label(&plan, "d:envelope/depth.length"), "32.268 ±0.1");
+}
+
+#[test]
+fn a_generated_diameter_accepts_a_class_without_optional_deviations() {
+    let (_, a) = analysed("plate");
+    let p = model::plan(
+        &a,
+        &spec(json!({"dimensions":{"d:f:hole_pattern:1/bore.diameter":{"fit":"N9"}}})),
+    )
+    .unwrap();
+    assert!(label(&p, "d:f:hole_pattern:1/bore.diameter").contains("N9"));
+    assert!(
+        !p.problems
+            .iter()
+            .any(|p| p.code == "fit_deviations_unavailable")
+    );
+    let contradictory = spec(
+        json!({"dimensions":{"d:f:hole_pattern:1/bore.diameter":{"fit":"N9"}}, "features":{"f:hole:1":{"fit":"H7"}}}),
+    );
+    assert!(
+        model::plan(&a, &contradictory)
+            .unwrap_err()
+            .message
+            .contains("conflicting")
+    );
+    let unreadable = spec(json!({"features":{"f:hole:1":{"fit":"ſ9"}}}));
+    assert!(model::plan(&a, &unreadable).is_err());
+}
+
+#[test]
+fn dimension_fits_refuse_locations_and_pitches_but_keep_feature_sizes() {
+    let (_, a) = model::analyse_native(&fixture("parts/scattered_holes.step")).unwrap();
+    let id = "d:f:hole:2/location.length.y";
+    let e = model::plan_recovered(&a, &spec(json!({"dimensions":{id:{"fit":"H7"}}}))).unwrap_err();
+    assert!(
+        e.message.contains("feature of size") && e.message.contains(id),
+        "{e:?}"
+    );
+    let (_, a) = analysed("plate");
+    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let id = &p
+        .dimensions
+        .iter()
+        .find(|d| d.id.contains("pitch.length"))
+        .unwrap()
+        .id;
+    assert!(
+        model::plan_recovered(&a, &spec(json!({"dimensions":{id:{"fit":"H7"}}})))
+            .unwrap_err()
+            .message
+            .contains("feature of size")
+    );
+    // A chain edge may own coverage for the overall width without measuring that size.
+    let (_, native) = model::analyse_native(&fixture("parts/plate.step")).unwrap();
+    let mut targets: Vec<_> = native
+        .features
+        .iter()
+        .filter(|f| f.kind == "hole")
+        .map(|f| f.id.clone())
+        .collect();
+    targets.push("max".into());
+    let mut chain = spec(
+        json!({"dimension_schemes":{"x":{"scheme":"chain","axis":"x","view":"plan","from":"min","targets":targets}}}),
+    );
+    let plan = model::plan_recovered(&native, &chain).unwrap();
+    let link = plan
+        .dimensions
+        .iter()
+        .find(|d| {
+            d.id.starts_with("d:scheme:")
+                && d.measurements
+                    .iter()
+                    .any(|m| m.feature == "scheme_owns:envelope" && m.parameter == "width.length")
+        })
+        .unwrap();
+    assert!(link.value < native.envelope[1][0] - native.envelope[0][0]);
+    chain.dimensions.insert(
+        link.id.clone(),
+        serde_json::from_value(json!({"fit":"H7"})).unwrap(),
+    );
+    let error = model::plan_recovered(&native, &chain).unwrap_err();
+    assert!(error.message.contains("feature of size") && error.message.contains(&link.id));
+    let p = model::plan_recovered(
+        &a,
+        &spec(json!({"dimensions":{"d:envelope/width.length":{"fit":"H7"}}})),
+    )
+    .unwrap();
+    assert!(
+        p.dimensions
+            .iter()
+            .any(|d| d.label.contains("H7") && d.placed.is_some())
+    );
 }

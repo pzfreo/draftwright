@@ -110,7 +110,15 @@ fn origin(a: &Analysis, reference: &str, k: usize) -> Option<f64> {
     if reference == "min" || reference == "max" {
         return Some(a.envelope[usize::from(reference == "max")][k]);
     }
-    // Feature origins must prove a planar face, not merely a cylindrical axis station.
+    if reference.starts_with("axis:") {
+        let crate::model::dimension_geometry::Reference::Edge { ends, .. } =
+            a.dimension_reference(reference).ok()?
+        else {
+            return None;
+        };
+        return ((ends[1][k] - ends[0][k]).abs() < 1e-8).then_some(ends[0][k]);
+    }
+    // Bare feature origins must prove a unique planar station.
     if let Some(f) = a.features.iter().find(|f| f.id == reference) {
         let mut planes: Vec<f64> = f
             .faces

@@ -803,7 +803,7 @@
     issues: [933]
     tests: ["test_add_dimension.py", "test_sheet_identity_invariant.py (test_dimension_intent_verb_roster_is_closed)"]
   status: translated
-  rust_rule: "R4 (accepted 2026-10-07): A Spec dimension_source (auto, authored); an authored set is complete; invalid combinations are validation errors. Decided 2026-10-07: keep both modes, defaults by default and an opt-in complete set. In the Spec schema as dimension_source (auto | authored) with dimensions keyed by ID; an omission inside an authored set, an unknown ID and an unknown source are refused."
+  rust_rule: "R4 (accepted 2026-10-07): A Spec dimension_source (auto, authored); an authored set is complete; invalid combinations are validation errors. Decided 2026-10-07: keep both modes, defaults by default and an opt-in complete set. In the Spec schema as dimension_source (auto | authored) with dimensions keyed by ID; omissions inside an authored set are honoured, stale IDs warn without applying the edit, and an unknown source remains refused (#308)."
   rust_test: dimensions::dimension_rules::both_dimension_sources_and_their_validation
   port_note: "Translate: Spec has an explicit dimension_source {auto, authored}; authored lists are complete; auto may carry additions; invalid combinations are Spec validation errors."
 
@@ -817,8 +817,8 @@
     tests: ["test_parameter_id.py", "test_dimension_role_vocabulary.py", "test_add_dimension.py (test_an_ambiguous_role_raises_rather_than_guessing)"]
   status: ported
   port_note: "Keep: stable Spec/Plan ids use the same derived scheme so Python-era ids map one-to-one."
-  rust_test: audits::trust_rules::dimension_ids_are_derived_and_a_bare_role_is_refused
-  rust_note: "Over the fixture parts and the sampled corpus parts, every ID is d:<feature>/<role.kind[.discriminator]>@<view>, unique, naming a recognised feature, pattern, the envelope or the height ladder (step_level, draftwright's StepLevelFeature, whose rungs and shoulders are discriminated by their own value to the thousandth, step_height.length.h16, step_position.length.x136_525, never by rank, so losing a level renames no other rung and its old ID is refused: tests/dims_steps.rs::a_rungs_id_names_its_height_not_its_rank; see ARCH0015-2), and unchanged when recognition reports its features in reverse order (feature IDs: tests/bridge.rs::ids_are_unique_stable_and_independent_of_discovery_order). The spec addresses a dimension only by its whole ID, so no selector can be ambiguous: a bare role or an unknown ID is refused with the nearest IDs. The parameter names are draftwright's, compared fact by fact in tests/dimensions.rs."
+  rust_test: audits::trust_rules::dimension_ids_are_derived_and_a_bare_role_warns_without_applying
+  rust_note: "Over the fixture parts and the sampled corpus parts, every ID is d:<feature>/<role.kind[.discriminator]>@<view>, unique, naming a recognised feature, pattern, the envelope or the height ladder (step_level, draftwright's StepLevelFeature, whose rungs and shoulders are discriminated by their own value to the thousandth, step_height.length.h16, step_position.length.x136_525, never by rank, so losing a level renames no other rung and its old ID warns as an unapplied edit: tests/dims_steps.rs::a_rungs_id_names_its_height_not_its_rank; see ARCH0015-2), and unchanged when recognition reports its features in reverse order (feature IDs: tests/bridge.rs::ids_are_unique_stable_and_independent_of_discovery_order). The spec addresses a dimension only by its whole ID, so no selector can be ambiguous: a bare role or an unknown saved ID is retained with an unapplied-edit warning; no measured item is guessed or omitted. The parameter names are draftwright's, compared fact by fact in tests/dimensions.rs."
 
 - id: ADR4-7
   statement: "Suppression changes what is shown, never what the drawing asserts: no renderer derives an engineering fact from a parameter's absence."
@@ -1291,7 +1291,7 @@
   status: ported
   rust_note: "Complete drawing planning preserves Python's two explicit-scale floors (the raw single-pass estimate remains diagnostic): refuse a smallest part extent below 0.1 paper mm (or a degenerate extent), and warn legibility_floor_breached below 10 paper mm only when automatic geometric composition offers a legible fit. The requested scale is honoured. This advisory is independent of Rust's automatic opening-based scale floor."
   port_note: "triage 2026-10-16: PORT, value low, size S, stream views-and-layout"
-  rust_test: "rendering::views_layout_rules::explicit_scales_warn_below_legibility_and_refuse_degenerate_geometry"
+  rust_test: "rendering::views_layout_rules::explicit_scales_preserve_requested_scale_with_legibility_warnings"
 
 - id: ARCH0004-4
   statement: "Automatic page selection reserves authored table footprints before the flexible isometric and is not a 'smallest page on which lint happens to be clean' optimiser; a caller-forced page that places every requirement is honoured."

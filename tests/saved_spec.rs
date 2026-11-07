@@ -28,6 +28,25 @@ fn set_aside(path: &str, entry: Value, reason_code: &str) -> SetAside {
     }
 }
 
+#[test]
+fn an_unapplied_omit_leaves_other_dimensions_in_place() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/prismatic.step");
+    let (part, analysis) =
+        model::analyse_native_step(&path, &std::fs::read(&path).unwrap()).unwrap();
+    let mut s = Session::new(part, analysis, model::Spec::default()).unwrap();
+    let before = serde_json::to_value(s.plan()).unwrap();
+    s.set_spec(&spec(json!({"dimensions":{"d:unknown":{"omit":true}}})))
+        .unwrap();
+    let after = serde_json::to_value(s.plan()).unwrap();
+    assert_eq!(after["dimensions"], before["dimensions"]);
+    assert_eq!(after["views"], before["views"]);
+    assert!(s.plan().problems.iter().any(|p| {
+        p.code == "dimension_edit_unapplied" && p.subjects == ["dimensions/d:unknown"]
+    }));
+    assert!(s.drawing().svg().contains("<svg"));
+}
+
 /// Each "there is no …" refusal names the escaped Spec entry as data; its message and choices are
 /// unchanged, and other refusals carry no path.
 #[test]
@@ -37,14 +56,6 @@ fn refusals_name_the_entry_the_part_does_not_have() {
     assert!(s.analysis().features.iter().any(|f| f.id == "f:hole:1"));
     let cases = [
         (
-            json!({"dimensions":{"d:f:hole:1/bore.diameter":{"omit":true}}}),
-            "dimensions/d:f:hole:1~1bore.diameter",
-        ),
-        (
-            json!({"dimensions":{"d:f:hole:99/bore.diameter":{"omit":true}}}),
-            "dimensions/d:f:hole:99~1bore.diameter",
-        ),
-        (
             json!({"features":{"f:hole:99":{"suppress":true}}}),
             "features/f:hole:99",
         ),
@@ -52,14 +63,18 @@ fn refusals_name_the_entry_the_part_does_not_have() {
             json!({"features":{"f:hole:99":{"fit":"H7"}}}),
             "features/f:hole:99",
         ),
-        (
-            json!({"annotations":{"pmi:gone":{"omit":true}}}),
-            "annotations/pmi:gone",
-        ),
         (json!({"views":{"gone":{"omit":true}}}), "views/gone"),
         (
-            json!({"precision":{"d:f:hole:99/bore.diameter":2}}),
-            "precision/d:f:hole:99~1bore.diameter",
+            json!({"annotations":{"unknown":{"omit":true}}}),
+            "annotations/unknown",
+        ),
+        (
+            json!({"annotations":{"pmi:":{"omit":true}}}),
+            "annotations/pmi:",
+        ),
+        (
+            json!({"annotations":{"n:":{"omit":true}}}),
+            "annotations/n:",
         ),
     ];
     for (value, path) in cases {
@@ -68,16 +83,23 @@ fn refusals_name_the_entry_the_part_does_not_have() {
         assert_eq!(e.path.as_deref(), Some(path), "{value}");
         assert_eq!(serde_json::to_value(&e).unwrap()["path"], path);
     }
-    let e = s
-        .set_spec(&spec(
-            json!({"dimensions":{"d:f:hole:1/bore.diameter":{"omit":true}}}),
-        ))
-        .unwrap_err();
-    assert_eq!(
-        e.message,
-        "There is no dimension \"d:f:hole:1/bore.diameter\" on this part."
-    );
-    assert_eq!(e.choices.len(), 5);
+    for value in [
+        json!({"dimensions":{"d:f:hole:1/bore.diameter":{"omit":true}}}),
+        json!({"dimensions":{"d:f:hole:99/bore.diameter":{"omit":true}}}),
+        json!({"annotations":{"pmi:gone":{"omit":true}}}),
+        json!({"annotations":{"n:gone":{"omit":true}}}),
+        json!({"precision":{"d:f:hole:99/bore.diameter":2}}),
+    ] {
+        let requested = spec(value);
+        s.set_spec(&requested).unwrap();
+        assert!(
+            s.plan()
+                .problems
+                .iter()
+                .any(|p| p.code.ends_with("edit_unapplied"))
+        );
+        assert!(s.plan().dimensions.iter().any(|d| d.placed.is_some()));
+    }
     let e = s
         .set_spec(&spec(
             json!({"dimensions":{"d:f:hole:4/bore.diameter":{"place":{"view":"iso"}}}}),
@@ -112,21 +134,6 @@ fn open_spec_sets_aside_what_the_part_no_longer_has() {
         got,
         [
             set_aside(
-                "annotations/pmi:gone",
-                json!({"omit": true}),
-                "no_annotation"
-            ),
-            set_aside(
-                "dimensions/d:f:hole:1~1bore.diameter",
-                json!({"omit": true}),
-                "no_dimension"
-            ),
-            set_aside(
-                "dimensions/d:f:hole:99~1bore.diameter",
-                json!({"place": {"side": "above"}}),
-                "no_feature"
-            ),
-            set_aside(
                 "features/f:hole:99",
                 json!({"suppress": true}),
                 "no_feature"
@@ -143,11 +150,12 @@ fn open_spec_sets_aside_what_the_part_no_longer_has() {
     assert_eq!(opened.spec, serde_json::to_value(s.spec()).unwrap());
     assert_eq!(opened.spec["sheet"]["preferred_max_size"], "A4");
     assert!(opened.spec["sheet"].get("preferred_printer").is_none());
-    assert_eq!(
-        opened.spec["dimensions"],
-        json!({"d:f:hole:4/bore.diameter": {"omit": true}})
-    );
+    assert_eq!(opened.spec["dimensions"], saved["dimensions"]);
     assert_eq!(opened.spec["views"], json!({"iso": {"omit": true}}));
+    assert_eq!(opened.spec["annotations"]["pmi:gone"], json!({"omit":true}));
+    for code in ["dimension_edit_unapplied", "annotation_edit_unapplied"] {
+        assert!(s.plan().problems.iter().any(|p| p.code == code));
+    }
     assert!(opened.spec.get("features").is_none_or(|f| f == &json!({})));
     // Applied: the bore is omitted and the iso view is not drawn.
     assert!(
@@ -435,8 +443,7 @@ fn a_gone_group_member_is_set_aside_alone_while_the_group_holds() {
     );
 }
 
-/// The reason is decided by what the part has, whichever entry is refused first: a dimension on
-/// a gone feature is `no_feature` whether or not the feature's own entry is saved too; a detail
+/// Stale dimension edits warn independently of entries that cannot be read: a detail
 /// view around a gone face is `no_face`, and one from a source view the part does not have is
 /// `no_view`, with the detail's path.
 #[test]
@@ -453,19 +460,20 @@ fn reason_codes_do_not_depend_on_the_order_of_refusals() {
             .into_iter()
             .map(|a| (a.path, a.reason_code))
             .collect();
-        assert_eq!(
-            reasons[0],
-            (
-                "dimensions/d:f:hole:99~1bore.diameter".to_string(),
-                "no_feature".to_string()
-            ),
-            "{saved}"
-        );
+        let expected = if saved.get("features").is_some() {
+            vec![("features/f:hole:99".to_string(), "no_feature".to_string())]
+        } else {
+            vec![]
+        };
+        assert_eq!(reasons, expected, "{saved}");
+        assert_eq!(opened.spec["dimensions"], dimension);
         assert!(
-            reasons[1..]
+            s.plan()
+                .problems
                 .iter()
-                .all(|(p, r)| p == "features/f:hole:99" && r == "no_feature")
+                .any(|p| p.code == "dimension_edit_unapplied")
         );
+        assert!(s.plan().dimensions.iter().any(|d| d.placed.is_some()));
     }
 
     let mut s = plate();
@@ -499,10 +507,9 @@ fn reason_codes_do_not_depend_on_the_order_of_refusals() {
     );
 }
 
-/// Every stale entry one check finds is named by its refusal (the first as `path`), so they are
-/// set aside together.
+/// Every stale dimension edit is retained and individually reported without applying it.
 #[test]
-fn many_stale_entries_are_set_aside_together() {
+fn many_stale_dimension_edits_are_retained_with_individual_warnings() {
     let mut s = plate();
     let mut dimensions = serde_json::Map::new();
     for i in 0..12 {
@@ -516,19 +523,23 @@ fn many_stale_entries_are_set_aside_together() {
     let saved = json!({"dimensions": dimensions});
     let plans = s.stats().plans;
     let opened = s.open_spec(&saved.to_string()).unwrap();
-    assert_eq!(opened.set_aside.len(), 24);
+    assert!(opened.set_aside.is_empty());
     assert_eq!(
-        opened
-            .set_aside
+        s.plan()
+            .problems
             .iter()
-            .filter(|a| a.reason_code == "no_feature")
+            .filter(|p| p.code == "dimension_edit_unapplied")
             .count(),
-        12
+        24
     );
-    assert_eq!(
-        opened.spec["dimensions"],
-        json!({"d:f:hole:4/bore.diameter": {"omit": true}})
+    assert_eq!(opened.spec["dimensions"], saved["dimensions"]);
+    assert!(
+        s.plan()
+            .dimensions
+            .iter()
+            .all(|d| d.id != "d:f:hole:4/bore.diameter")
     );
+    assert!(s.plan().dimensions.iter().any(|d| d.placed.is_some()));
     // One committed edit opened it.
     assert_eq!(s.stats().plans, plans + 1);
 }

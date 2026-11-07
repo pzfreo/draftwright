@@ -55,6 +55,18 @@
 //! [`levels`] (the height ladder) each say what their family wants dimensioned, and
 //! [`placement`] places it. A new family is a new planner module and an entry in the list.
 
+/// A drawing shortcoming that preserves the requested, measurable statement.
+fn warning(code: &str, subject: &str, message: String, subjects: Vec<String>) -> Problem {
+    Problem {
+        id: format!("p:{code}:{subject}"),
+        code: code.into(),
+        severity: "warning".into(),
+        message,
+        subjects,
+        ..Default::default()
+    }
+}
+
 pub mod angular;
 pub(crate) mod authored;
 pub(crate) mod blends;
@@ -1683,7 +1695,7 @@ pub(crate) fn callout_bands(
     }
     let (mut wants, ..) = pmi_policy::wants(analysis, spec);
     callouts::apply(analysis, spec, &mut wants);
-    let scheme_covered = schemes::apply(analysis, spec, &mut wants)?;
+    let (scheme_covered, _) = schemes::apply(analysis, spec, &mut wants)?;
     authored::append(analysis, spec, &mut wants)?;
 
     if !scheme_covered.is_empty() {
@@ -1795,8 +1807,9 @@ fn lanes_uncached(
 ) -> Result<(crate::layout::Lanes, Vec<AlignedDemand>), Invalid> {
     let (mut wants, mut problems, notes) = pmi_policy::wants(analysis, spec);
     callouts::apply(analysis, spec, &mut wants);
-    let scheme_covered = schemes::apply(analysis, spec, &mut wants)?;
-    authored::append(analysis, spec, &mut wants)?;
+    let (scheme_covered, scheme_problems) = schemes::apply(analysis, spec, &mut wants)?;
+    problems.extend(scheme_problems);
+    problems.extend(authored::append(analysis, spec, &mut wants)?);
 
     if scheme_covered.is_empty() {
         wants.retain(|w| !excluded.contains(&w.id));
@@ -2205,7 +2218,7 @@ pub(crate) fn reserve_linear_intent(
     }
     let (mut wants, _, _) = pmi_policy::wants(analysis, spec);
     callouts::apply(analysis, spec, &mut wants);
-    let scheme_covered = schemes::apply(analysis, spec, &mut wants)?;
+    let (scheme_covered, _) = schemes::apply(analysis, spec, &mut wants)?;
     if !spec.dimension_schemes.is_empty() {
         authored::append(analysis, spec, &mut wants)?;
     }
@@ -2552,7 +2565,7 @@ pub(crate) fn check_known(analysis: &Analysis, spec: &Spec) -> Result<(), Invali
     schemes::apply(analysis, spec, &mut wants)?;
     authored::append(analysis, spec, &mut wants)?;
     profile_angles::apply(analysis, spec, &mut wants)?;
-    unknown_dimensions(spec, &wants.iter().map(|w| w.id.as_str()).collect())
+    Ok(())
 }
 
 /// The planned dimensions under *spec*, placed around *views* on *sheet*, with what the spec
@@ -2994,8 +3007,9 @@ fn plan_inventory_ordered(
 ) -> Result<(Planned, Vec<PlannedDimension>), Invalid> {
     let (mut wants, mut problems, notes) = pmi_policy::wants(analysis, spec);
     callouts::apply(analysis, spec, &mut wants);
-    let scheme_covered = schemes::apply(analysis, spec, &mut wants)?;
-    authored::append(analysis, spec, &mut wants)?;
+    let (scheme_covered, scheme_problems) = schemes::apply(analysis, spec, &mut wants)?;
+    problems.extend(scheme_problems);
+    problems.extend(authored::append(analysis, spec, &mut wants)?);
     profile_angles::apply(analysis, spec, &mut wants)?;
 
     let retired: Vec<_> = if scheme_covered.is_empty() {
@@ -3070,16 +3084,16 @@ fn plan_inventory_ordered(
             choices: vec![],
         });
     }
-    unknown_dimensions(spec, &ids)?;
-    for (id, entry) in &spec.dimensions {
-        if entry.omit && spec.dimension_source == DimensionSource::Authored {
-            return Err(Invalid {
-                path: None,
-                also: Vec::new(),
-                message: format!(
-                    "{id:?} is omitted inside an authored set; in an authored set a dimension is left out by not listing it."
-                ),
-                choices: vec![],
+    problems.extend(precision::unapplied(spec, &wants));
+    if let Err(e) = unknown_dimensions(spec, &ids) {
+        for path in e.path.iter().chain(&e.also) {
+            problems.push(Problem {
+                id: format!("p:dimension_edit_unapplied:{path}"),
+                subjects: vec![path.clone()],
+                code: "dimension_edit_unapplied".into(),
+                severity: "warning".into(),
+                message: "A dimension named by the saved Spec has no current measurement; its edit is retained but cannot be applied.".into(),
+                ..Default::default()
             });
         }
     }
@@ -3195,7 +3209,7 @@ fn plan_inventory_ordered(
             continue;
         }
         match spec.dimension_source {
-            DimensionSource::Auto if entry.is_some_and(|e| e.omit) => omitted.push(Omitted {
+            _ if entry.is_some_and(|e| e.omit) => omitted.push(Omitted {
                 label: crate::callouts::label(&w.terms),
                 id: w.id,
                 basis: "authored: the spec omits it".into(),
@@ -3305,7 +3319,7 @@ fn plan_inventory_ordered(
         }));
     }
     wording::apply(spec, &mut kept, &mut given)?;
-    wording::check_covered(spec, &kept, &omitted)?;
+    problems.extend(wording::check_covered(spec, &kept, &omitted));
     let labels: BTreeMap<&str, &[String]> = kept
         .iter()
         .map(|(w, ..)| (w.id.as_str(), w.terms.as_slice()))
@@ -3362,15 +3376,15 @@ fn plan_inventory_ordered(
                 Shape::Callout { .. } | Shape::Linear { .. } | Shape::Aligned { .. }
             )
         {
-            return Err(Invalid {
-                path: None,
-                also: Vec::new(),
-                message: format!(
+            problems.push(warning(
+                "placement_unapplied",
+                &w.id,
+                format!(
                     "The placement offset of {} applies only to callouts and linear dimensions.",
-                    w.id
+                    wording_of(w)
                 ),
-                choices: vec!["side".into(), "lane".into(), "along".into()],
-            });
+                vec![w.id.clone()],
+            ));
         }
         if spec
             .dimensions
@@ -3384,15 +3398,15 @@ fn plan_inventory_ordered(
                     && chosen[i].is_some_and(|v| d.view == format!("v:{v}"))
             })
         {
-            return Err(Invalid {
-                path: None,
-                also: Vec::new(),
-                message: format!(
+            problems.push(warning(
+                "placement_unapplied",
+                &w.id,
+                format!(
                     "{} has no automatic linear placement in the requested view",
-                    w.id
+                    wording_of(w)
                 ),
-                choices: vec![],
-            });
+                vec![w.id.clone()],
+            ));
         }
         if let Some(p) = spec.dimensions.get(&w.id).and_then(|e| e.place.as_ref())
             && let (Shape::Linear { axis, .. }, Some(side), Some(v)) = (&w.shape, p.side, chosen[i])
@@ -3403,20 +3417,15 @@ fn plan_inventory_ordered(
                 )
             })
         {
-            let horizontal = placement::across(&frames[v], *axis) == Some(true);
-            return Err(Invalid {
-                path: None,
-                also: Vec::new(),
-                message: format!(
+            problems.push(warning(
+                "placement_unapplied",
+                &w.id,
+                format!(
                     "The side of {} must be parallel to its dimension line in {v}.",
-                    w.id
+                    wording_of(w)
                 ),
-                choices: if horizontal {
-                    vec!["above".into(), "below".into()]
-                } else {
-                    vec!["left".into(), "right".into()]
-                },
-            });
+                vec![w.id.clone()],
+            ));
         }
     }
     let mut intended: Vec<Option<Placed>> = all

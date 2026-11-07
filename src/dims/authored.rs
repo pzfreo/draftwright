@@ -1,7 +1,7 @@
 //! Spec-authored quantities use the ordinary Want -> lanes -> placement -> ink pipeline.
 use super::{Measurement, Shape, Want, fmt};
 use crate::model::dimension_geometry::{Reference, dot, sub, unit};
-use crate::model::{Analysis, Invalid, Spec};
+use crate::model::{Analysis, Invalid, Problem, Spec};
 
 fn invalid(message: impl Into<String>) -> Invalid {
     Invalid {
@@ -69,15 +69,20 @@ pub(crate) fn check(s: &Spec) -> Result<(), Invalid> {
     Ok(())
 }
 
-pub(super) fn append(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<(), Invalid> {
+pub(super) fn append(
+    a: &Analysis,
+    s: &Spec,
+    wants: &mut Vec<Want>,
+) -> Result<Vec<Problem>, Invalid> {
     if !s.dimensions.keys().any(|id| id.starts_with("d:authored:"))
         && !s
             .dimensions
             .values()
             .any(|d| d.between.is_some() || d.kind.is_some() || d.along.is_some())
     {
-        return Ok(());
+        return Ok(super::schemes::check_authored(s, wants));
     }
+    let mut problems = Vec::new();
     check(s)?;
     for (id, d) in s.dimensions.iter().filter(|(_, d)| d.between.is_some()) {
         // Invariant: This loop selects authored dimensions with between references.
@@ -235,20 +240,30 @@ pub(super) fn append(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<()
             if duplicate(a, &w, existing, refs, kind)
                 && (kind != "linear" || same_features(a, refs, existing))
             {
-                return Err(Invalid {
-                    path: None,
-                    also: Vec::new(),
-                    message: format!(
-                        "{id} duplicates the quantity owned by {}; remove {id} and set tolerance/view/place on the existing owner (K6: one quantity, one owner).",
+                if !super::tolerance::same_requirement(
+                    a,
+                    s,
+                    &w,
+                    existing,
+                    &referenced_features(a, refs),
+                ) {
+                    return Err(invalid(format!(
+                        "{id} contradicts the requirement on {}; repeated measurements must have the compatible tolerances and fits.",
                         existing.id
-                    ),
-                    choices: vec![existing.id.clone()],
+                    )));
+                }
+                problems.push(Problem {
+                    id: format!("p:duplicate_measurement:{id}:{}", existing.id),
+                    code: "duplicate_measurement".into(), severity: "warning".into(),
+                    message: format!("{} repeats a measurement already stated by {}; both truthful statements are retained.", super::wording_of(&w), super::wording_of(existing)),
+                    subjects: vec![id.clone(), existing.id.clone()], ..Default::default()
                 });
             }
         }
         wants.push(w);
     }
-    super::schemes::check_authored(s, wants)
+    problems.extend(super::schemes::check_authored(s, wants));
+    Ok(problems)
 }
 
 fn linear_span(s: &Shape) -> Option<(usize, f64, f64)> {
@@ -378,7 +393,9 @@ fn reference_features(a: &Analysis, reference: &str) -> std::collections::BTreeS
                             })
                         })
                     })
-                }) && a.dimension_reference(&format!("axis:{}", f.id)).is_ok()
+                }) && a
+                    .dimension_reference(&format!("axis:{}", f.id))
+                    .is_ok_and(|r| matches!(r, Reference::Edge { .. }))
                 {
                     out.insert(f.id.clone());
                 }
@@ -508,11 +525,24 @@ mod tests {
                         .unwrap();
                 s.dimensions.insert("d:authored:test".into(), d);
                 super::append(&a, &s, &mut wants.clone())
-                    .err()
-                    .and_then(|e| e.choices.first().cloned())
+                    .unwrap()
+                    .into_iter()
+                    .find(|p| p.code == "duplicate_measurement")
+                    .and_then(|p| p.subjects.get(1).cloned())
                     .map(|id| (key.clone(), *radius, id))
             })
             .unwrap();
+        let plan = crate::model::plan_recovered(&a, &s).unwrap();
+        assert!(
+            plan.problems
+                .iter()
+                .any(|p| p.code == "duplicate_measurement")
+        );
+        assert!(
+            plan.dimensions
+                .iter()
+                .any(|d| d.id == "d:authored:test" && d.placed.is_some())
+        );
         s.dimension_source = crate::model::DimensionSource::Authored;
         super::append(&a, &s, &mut wants).unwrap();
         let authored = wants.iter().find(|w| w.id == "d:authored:test").unwrap();

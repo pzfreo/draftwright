@@ -48,6 +48,7 @@ catalogue! {
     "angular_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "angular_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
     "angular_support_mismatch" => Incomplete, Code, "The drawn evidence does not correctly state the required source information.";
+    "annotation_edit_unapplied" => Decision, Code, "A saved annotation edit has no current item; its intent is retained.";
     "annotation_ink_overlap" => Readability, Code, "Annotation ink impairs the legibility of another annotation; leader-through-text is included.";
     "annotation_leader_crossing" => Readability, Crossing, "Leader, dimension-line or arrow crossings impair reading; extension-only crossings are advisory.";
     "annotation_leader_long" => Readability, Code, "The leader is longer than the preferred reading distance.";
@@ -104,6 +105,7 @@ catalogue! {
     "detail_unplaceable" => Readability, Code, "A detail has no room; its dimensions remain on the parent view.";
     "diameter_leader_target_mismatch" => Readability, Code, "The diameter leader points at the wrong geometry.";
     "diameter_leader_target_unverifiable" => Readability, Code, "The diameter leader target cannot be verified.";
+    "dimension_edit_unapplied" => Decision, Code, "A saved dimension or precision edit has no current printed item; its intent is retained.";
     "dimension_line_crossing" => Readability, Code, "Dimension lines cross each other.";
     "dimension_line_shared" => Readability, Code, "Dimension strokes share a line and are harder to distinguish.";
     "dimension_not_authored" => Incomplete, Code, "Authored-only dimensioning leaves this required dimension absent.";
@@ -124,6 +126,7 @@ catalogue! {
     "features_not_recognised" => Incomplete, Code, "Unsupported recognition leaves required feature information unstated.";
     "fillet_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "fillet_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
+    "fit_deviations_unavailable" => Advisory, Code, "The valid fit class states the requirement; optional numerical deviations are unavailable.";
     "flat_leader_target_mismatch" => Readability, Code, "The flat leader points at the wrong geometry.";
     "flat_leader_target_unverifiable" => Readability, Code, "The flat leader target cannot be verified.";
     "flat_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
@@ -137,6 +140,7 @@ catalogue! {
     "gear_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "gear_semantics_missing" => Decision, Code, "Gear manufacturing semantics must be supplied by the user.";
     "general_tolerance_missing" => Decision, Code, "Only the user can choose the general tolerance.";
+    "geometry_below_resolution" => Readability, Code, "The requested scale projects geometry below normal drawing resolution.";
     "groove_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "groove_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
     "gusset_rib_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
@@ -153,6 +157,7 @@ catalogue! {
     "hole_table_escalated" => Advisory, Code, "A hole table replaced crowded individual callouts.";
     "hole_table_unavailable" => Advisory, Code, "Individual dimensions remain when the requested table cannot be used.";
     "interior_void" => Advisory, Feature, "A factual inventory of an internal cavity; its faces do not establish a hole opening.";
+    "iso_layout_overflow" => Readability, Code, "The requested isometric scale exceeds its reserved layout area.";
     "iso_projection_empty" => Incomplete, Code, "The requested isometric view has no projected geometry.";
     "label_centerline_overlap" => Readability, Code, "A centreline crosses label ink.";
     "label_crowded" => Readability, Code, "Text lies within 0.5 mm of another label or of foreign line-work; it stays legible but reads as touching.";
@@ -168,6 +173,7 @@ catalogue! {
     "leader_through_feature" => Readability, Code, "A leader crosses feature material on its way to its target.";
     "leader_to_hidden_edge" => Readability, Code, "A leader ends on an edge its view shows hidden.";
     "legibility_floor_breached" => Readability, Code, "The selected geometry scale is below the requested legibility floor.";
+    "location_on_axis" => Advisory, Code, "The turning axis already fixes this centred location; no tangent dimension is needed.";
     "location_on_datum" => Advisory, Code, "The datum already states this zero location.";
     "location_ref_dropped" => Incomplete, Code, "A required drawing item was dropped before it could be stated.";
     "manufacturing_reference_unresolved" => Incomplete, Code, "A manufacturing requirement reference has no resolved drawn requirement.";
@@ -209,6 +215,7 @@ catalogue! {
     "pinned_view_overlap" => Readability, Code, "The pinned view overlaps another view.";
     "placement_anchor_not_shown" => Decision, Code, "The requested anchor is absent from the drawing.";
     "placement_side_not_applicable" => Decision, Code, "The authored side does not apply to this dimension.";
+    "placement_unapplied" => Decision, Code, "The requested placement cannot be applied; an available drawing placement is retained.";
     "plate_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "plate_requirement_suppressed" => Advisory, Requirement, "Other geometry already supplies the suppressed plate requirement.";
     "plate_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";

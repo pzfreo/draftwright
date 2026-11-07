@@ -22,7 +22,7 @@ fn pinned(a: &Analysis, scale: &str) -> Result<Plan, model::Invalid> {
 }
 
 #[test]
-fn explicit_scales_warn_below_legibility_and_refuse_degenerate_geometry() {
+fn explicit_scales_preserve_requested_scale_with_legibility_warnings() {
     let mut a = bare();
     a.envelope = [[0.0; 3], [680.0, 860.0, 80.0]];
     let p = pinned(&a, "1:10").unwrap();
@@ -38,11 +38,16 @@ fn explicit_scales_warn_below_legibility_and_refuse_degenerate_geometry() {
         "{}",
         warning.message
     );
-    let error = pinned(&a, "1:1000").unwrap_err();
-    assert!(error.message.contains("0.00125"), "{error}");
+    let tiny = pinned(&a, "1:1000").unwrap();
+    assert_eq!(tiny.sheet.scale, "1:1000");
+    let (part, _) = model::analyse_native(&root().join("tests/fixtures/parts/plate.step")).unwrap();
+    let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &tiny, &font).unwrap();
+    assert!(drawing.svg().contains("<svg"));
     assert!(
-        error.message.contains("geometry degenerates") && error.message.contains("0.1 mm"),
-        "{error}"
+        tiny.problems
+            .iter()
+            .any(|p| p.code == "geometry_below_resolution")
     );
     assert!(
         !pinned(&a, "1:5")

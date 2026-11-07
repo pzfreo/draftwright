@@ -558,7 +558,37 @@ pub(crate) fn check_claims(analysis: &Analysis, spec: &Spec) -> Result<(), Inval
     if spec.features.values().all(|f| f.note_satisfies.is_empty()) {
         return Ok(());
     }
-    let ids = crate::dims::measurement_ids(analysis);
+    let mut ids = crate::dims::measurement_ids(analysis);
+    // The vocabulary includes locations already conveyed by datums or symmetry;
+    // absence from the missing-requirement findings does not erase a measurable role.
+    ids.extend(
+        crate::lint::pockets::placed(analysis)
+            .into_iter()
+            .flat_map(|(f, p)| {
+                p.ok().into_iter().flat_map(move |p| {
+                    crate::lint::pockets::locations(&p, analysis.envelope[0])
+                        .into_iter()
+                        .map(move |(role, _)| format!("d:{}/{role}", f.id))
+                })
+            }),
+    );
+    // Inclined holes also have entry-point locations in the legacy hole-coverage
+    // vocabulary, even where an infinite axis has no unique Cartesian station.
+    ids.extend(
+        crate::lint::coverage::sites(analysis, &[])
+            .into_iter()
+            .flat_map(|s| {
+                let (subject, axis) = (s.subject, s.axis);
+                (0..3)
+                    .filter(move |&k| k != axis)
+                    .map(move |k| format!("d:{subject}/location.length.{}", ["x", "y", "z"][k]))
+            }),
+    );
+    ids.extend(
+        crate::lint::location::targets(analysis)
+            .into_iter()
+            .map(|(f, k, _)| format!("d:{f}/location.length.{}", ["x", "y", "z"][k])),
+    );
     for (id, f) in &spec.features {
         for role in &f.note_satisfies {
             if !ids.contains(&format!("d:{id}/{role}")) {

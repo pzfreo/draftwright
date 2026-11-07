@@ -133,6 +133,23 @@ pub fn placed(analysis: &Analysis) -> Vec<(&Feature, Result<Placed, String>)> {
         .collect()
 }
 
+/// A cylindrical mouth proves the centre plane of a keyway on its carrying band.
+pub(crate) fn centred_mouth(analysis: &Analysis, p: &Placed) -> bool {
+    p.mouth
+        && analysis
+            .features
+            .iter()
+            .filter(|f| f.kind == "turned_step")
+            .any(|f| {
+                super::turned::band(&frame(analysis), f).is_ok_and(|b| {
+                    b.axis == p.long_axis
+                        && p.lo >= b.lo - 1e-6
+                        && p.hi <= b.hi + 1e-6
+                        && (p.w_center - b.on[p.width_axis]).abs() <= 1e-6
+                })
+            })
+}
+
 /// A pocket's locations from the datum *datum* (the part's box corner): each direction's
 /// parameter and distance, leaving out a direction in which it is on the datum.
 pub fn locations(p: &Placed, datum: [f64; 3]) -> Vec<(String, f64)> {
@@ -200,6 +217,9 @@ pub fn wanted(analysis: &Analysis) -> Vec<Wanted<'_>> {
             continue;
         }
         for (parameter, v) in locations(&p, analysis.envelope[0]) {
+            if parameter.ends_with(AXES[p.width_axis]) && centred_mouth(analysis, &p) {
+                continue;
+            }
             let axis = parameter.rsplit('.').next().unwrap_or("?").to_string();
             out.push(Wanted {
                 feature: f,

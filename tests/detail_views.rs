@@ -833,3 +833,36 @@ fn a_detail_caption_is_drawn_in_its_reserved_crop_slot() {
         "drawing must use the row protected during placement"
     );
 }
+
+#[test]
+fn unavailable_detail_warning_uses_the_drawings_scale_notation() {
+    let (part, a) = fixture("mounting_plate");
+    let mut s = authored(json!("f:hole:1"), Some("plan"));
+    s.sheet.size = Some("A4".into());
+    s.sheet.scale = Some("1:5".into());
+    s.views
+        .get_mut("detail_c")
+        .unwrap()
+        .detail
+        .as_mut()
+        .unwrap()
+        .scale_factor = 1000.;
+    let p = model::plan_recovered(&a, &s).unwrap();
+    let warning = p
+        .problems
+        .iter()
+        .find(|p| p.code == "detail_unplaceable")
+        .unwrap();
+    assert!(
+        warning.message.contains("scale 200:1"),
+        "{}",
+        warning.message
+    );
+    let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
+    assert!(
+        model::render(&part, &a, &p, &font)
+            .unwrap()
+            .svg()
+            .contains("<svg")
+    );
+}

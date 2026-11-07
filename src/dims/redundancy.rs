@@ -77,6 +77,54 @@ pub(super) fn consolidate(
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
 ) -> References {
+    if !spec
+        .dimensions
+        .values()
+        .any(|d| d.style == Some(crate::label_text::Style::Reference))
+    {
+        return controlling(a, spec, kept, given, omitted);
+    }
+    // Filter information-only statements out of every controlling pass. Apply the
+    // surviving controllers back in input order, without a sorting/merging pass.
+    let information = |w: &Want| {
+        spec.dimensions
+            .get(&w.id)
+            .is_some_and(|d| d.style == Some(crate::label_text::Style::Reference))
+    };
+    let (mut controls, mut fields): (Vec<_>, Vec<_>) = kept
+        .iter()
+        .zip(given.iter())
+        .filter(|((w, ..), _)| !information(w))
+        .map(|(w, g)| (w.clone(), g.clone()))
+        .unzip();
+    let references = controlling(a, spec, &mut controls, &mut fields, omitted);
+    let mut surviving = controls.into_iter().zip(fields).peekable();
+    (*kept, *given) = std::mem::take(kept)
+        .into_iter()
+        .zip(std::mem::take(given))
+        .filter_map(|(w, g)| {
+            if information(&w.0) {
+                Some((w, g))
+            } else if surviving
+                .peek()
+                .is_some_and(|((next, ..), _)| next.id == w.0.id)
+            {
+                surviving.next()
+            } else {
+                None
+            }
+        })
+        .unzip();
+    references
+}
+
+fn controlling(
+    a: &Analysis,
+    spec: &Spec,
+    kept: &mut Vec<Kept>,
+    given: &mut Vec<Vec<String>>,
+    omitted: &mut Vec<Omitted>,
+) -> References {
     super::gussets::share(kept, given, omitted);
     let mut references = References::new();
     if !walkable(a) {

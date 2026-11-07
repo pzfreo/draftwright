@@ -18,6 +18,23 @@ All notable changes to draftwright-rust are recorded here, in the style of
   caps severity without promoting Info, and tolerance defaults use explicit
   greater-of wording and CHECK marks for ungraded suggested standards.
 
+### Changed
+
+- Spec validation preserves truthful drawing requests (#308): warn for duplicate
+  measurements, unavailable layout and stale edits; accept axis origins and
+  Cartesian note roles. ISO 286 fit classes print even outside the optional
+  deviation table, without inventing limits.
+- Keep required lengths alongside reference dimensions (#317), attach pattern notes
+  in the circle's plan view (#312), retain authored dimension views (#303), accept
+  slot-centre references (#320), and omit centred keyway tangent locations (#302).
+
+- Refuse contradictory repeated dimension requirements and fits on locations, pitches or station networks;
+  validate note location roles against feature evidence. Preserve presentation-only scheme
+  repeats with a warning, share centred-keyway evidence, and name detail scales as ratios.
+- Cover retained stale dimension edits and their path-specific warnings in browser parity;
+  leave peer routes unchanged for unapplied omissions. Keep refusing unsafe annotation
+  references without a nonempty PMI or note identity.
+
 ## 0.2.12 (2026-11-06)
 
 On quiddity-rust 0.4.8 (was 0.4.7). Its PMI reader no longer reports a face-less shape aspect

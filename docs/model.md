@@ -1,5 +1,29 @@
 # The draftwright model: three documents and five operations
 
+Spec validation refuses an instruction only when it would state something false,
+names a quantity that cannot be measured unambiguously, or cannot be drawn
+truthfully. Otherwise generation produces the drawing and explains the shortcoming
+in a specific warning. Failure to find layout space is not proof of impossibility.
+Strict automated acceptance remains separate from generation.
+
+The refusal-family audit (#308) keeps measured-label placeholders, unique and
+revision-safe geometry references, incompatible requirements (including semantic
+PMI), readable document/symbol/precision syntax, finite geometry and positive
+scales, valid sheet/view relationships, recognition proofs and gear geometry
+checks. A missing source view or degenerate crop cannot support a truthful detail;
+a failed layout search can, however, leave the parent drawing and warn.
+Truthful same-feature repeats and repeated scheme intervals warn as
+`duplicate_measurement`. Stale or covered label edits and unavailable placements
+retain their Spec intent and warn; authored omissions are allowed. Fits print the
+valid ISO 286 class independently of the numerical table: only requested deviations
+that cannot be calculated warn, and none are invented. Unique transverse axis
+origins and the checker's Cartesian location-role vocabulary are accepted.
+`axis:f:slot:<id>` names the unique centre of a recognised slot in the part frame.
+Sheet-layout retention is an explicit transaction contract; its strict edit check
+is separate from whether a drawing can be generated. Unknown document versions,
+malformed notes/tables and unsupported representation syntax remain unreadable
+instructions, rather than presentation shortcomings.
+
 This note describes how a drawing is described, edited and produced in draftwright-rust. It
 replaces the Python implementation's authoring DSL (the fluent `Sheet` facade, the script
 emitter and the deferred-intent compiler) with a small, stateless API. A command line, a
@@ -2378,6 +2402,14 @@ reads it back from any of the three.
 Parameter names follow the Python version's role vocabulary (`role.kind[.discriminator]`). A
 name that matches more than one measurement is refused rather than guessed (Python ADR 4
 invariant 6).
+
+Unavailable dimension edits remain in the Spec with a `dimension_edit_unapplied`
+warning whose `subjects` name the escaped edit path, even for an unknown ID; they
+create no measurement. Stale annotation edits with `pmi:<identity>` or `n:<identity>`
+likewise remain with `annotation_edit_unapplied`; an untyped or empty annotation
+identity is refused as an unsafe reference. `setSpec` and `openSpec` apply the same
+validation. `openSpec` additionally migrates legacy `sheet/preferred_printer` to
+`sheet/preferred_max_size` and sets aside entries that validation still refuses.
 
 **A PMI record's identity** (`pmi::identity`, `pmi::Report::identities`; the editor's
 `gdt::editor_key`, upstreamed) is its category and kind (`.basic` for a basic dimension), then,

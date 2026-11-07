@@ -640,6 +640,7 @@ impl Analysis {
     /// A transverse analytic feature-axis station, independent of profile/notch evidence.
     pub(crate) fn axis_station(&self, id: &str, k: usize) -> Option<f64> {
         match self.dimension_reference(&format!("axis:{id}")).ok()? {
+            Reference::Vertex { point, .. } => Some(point[k]),
             Reference::Cylinder { origin, axis, .. } if axis[k].abs() < 1e-6 => Some(origin[k]),
             Reference::Edge { ends, .. } if (ends[0][k] - ends[1][k]).abs() < 1e-6 => {
                 Some(0.5 * (ends[0][k] + ends[1][k]))
@@ -823,6 +824,21 @@ impl Analysis {
                 ))?]
             } else {
                 let f=self.features.iter().find(|f| f.id==id).ok_or_else(|| format!("Unknown axis feature {id}; choose axis:<key from Analysis.edge_ink.references> (prefix the complete cylindrical face:v1:… key with axis:)."))?;
+                if f.kind == "slot" {
+                    let o = crate::lint::slots::outline(self, f)?;
+                    let mut point = [0.0; 3];
+                    point[o.long] = 0.5 * (o.ends[0] + o.ends[1]);
+                    point[o.wide] = o.centre;
+                    point[o.deep] = 0.5 * (o.through[0] + o.through[1]);
+                    return Ok(Reference::Vertex {
+                        point,
+                        membership: Membership {
+                            features: vec![f.id.clone()],
+                            faces: f.faces.clone(),
+                            ..Default::default()
+                        },
+                    });
+                }
                 f.faces
                     .iter()
                     .filter_map(|&i| {

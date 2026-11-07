@@ -147,7 +147,7 @@ fn reference_and_basic_are_explicit_and_keep_the_measured_claims() {
 }
 
 #[test]
-fn invalid_wording_and_unknown_or_covered_references_are_refused_with_a_fix() {
+fn invalid_wording_is_refused_and_unapplied_edits_warn() {
     let (_, a) = analysed("plate");
     let id = "d:envelope/width.length";
     for text in [
@@ -177,9 +177,13 @@ fn invalid_wording_and_unknown_or_covered_references_are_refused_with_a_fix() {
         json!({"dimensions":{"d:missing/value":{"text":{"suffix":"REF"}}}}),
         json!({"annotations":{"pmi:missing":{"text":{"template":"{value} REF"}}}}),
     ] {
-        let error = model::plan(&a, &serde_json::from_value(spec).unwrap()).unwrap_err();
-        assert!(error.message.contains("There is no"));
-        assert!(!error.choices.is_empty());
+        let plan = model::plan(&a, &serde_json::from_value(spec).unwrap()).unwrap();
+        assert!(
+            plan.problems
+                .iter()
+                .any(|p| p.code.ends_with("edit_unapplied"))
+        );
+        assert!(plan.dimensions.iter().any(|d| d.placed.is_some()));
     }
     let base = cache::default_plan(&a, false);
     if let Some(o) = base
@@ -190,9 +194,13 @@ fn invalid_wording_and_unknown_or_covered_references_are_refused_with_a_fix() {
         let spec: Spec =
             serde_json::from_value(json!({"dimensions":{&o.id:{"text":{"suffix":"REF"}}}}))
                 .unwrap();
-        let error = model::plan(&a, &spec).unwrap_err();
-        assert!(error.message.contains("owning dimension"));
-        assert!(!error.choices.is_empty());
+        let plan = model::plan(&a, &spec).unwrap();
+        assert!(
+            plan.problems
+                .iter()
+                .any(|p| p.code == "dimension_edit_unapplied")
+        );
+        assert!(plan.dimensions.iter().any(|d| d.placed.is_some()));
     }
 }
 

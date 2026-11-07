@@ -155,8 +155,21 @@ fn preview_refusal_and_history_are_transactional() {
     assert_eq!(serde_json::to_vec(s.state()).unwrap(), initial);
     assert_eq!(s.stats(), stats);
     assert!(s.undo().is_err());
+    let mut stale = open("plate").unwrap();
+    stale
+        .apply(&[Op::set("dimensions/unknown/omit", json!(true))], true)
+        .unwrap();
     assert!(
-        s.apply(&[Op::set("dimensions/unknown/omit", json!(true))], true)
+        stale
+            .plan()
+            .problems
+            .iter()
+            .any(|p| p.code == "dimension_edit_unapplied")
+    );
+    assert!(stale.spec().dimensions["unknown"].omit);
+    assert!(stale.plan().dimensions.iter().any(|d| d.placed.is_some()));
+    assert!(
+        s.apply(&[Op::set("dimension_source", json!("unreadable"))], true)
             .is_err()
     );
     assert_eq!(serde_json::to_vec(s.state()).unwrap(), initial);

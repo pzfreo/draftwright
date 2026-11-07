@@ -872,3 +872,78 @@ fn a_spec_threads_depth_on_its_holes_is_required_by_lint() {
         );
     }
 }
+
+#[test]
+fn location_notes_accept_only_the_features_actual_lint_roles() {
+    let (_, a) = plate();
+    let roles: std::collections::BTreeSet<_> = draftwright::lint::check(&a, &[])
+        .into_iter()
+        .flat_map(|i| i.requirements)
+        .filter(|r| r.parameter.starts_with("location.length."))
+        .map(|r| (r.feature, r.parameter))
+        .collect();
+    assert!(!roles.is_empty());
+    let (owner, role) = roles.iter().next().unwrap();
+    let p = model::plan_recovered(
+        &a,
+        &spec(json!({"features":{owner:{"note":"LOCATION PER PROCESS", "note_satisfies":[role]}}})),
+    )
+    .unwrap();
+    assert!(!p.views.is_empty());
+    let hole = a
+        .features
+        .iter()
+        .find(|f| f.kind == "hole" && f.fingerprint.axis.is_some())
+        .expect("the plate has an axial hole");
+    let owner = &hole.id;
+    let axis = hole.fingerprint.axis.unwrap();
+    let invalid = format!(
+        "location.length.{}",
+        ["x", "y", "z"][(0..3)
+            .max_by(|&i, &j| axis[i].abs().total_cmp(&axis[j].abs()))
+            .unwrap()]
+    );
+    assert!(!roles.contains(&(owner.clone(), invalid.clone())));
+    let e = model::plan_recovered(
+        &a,
+        &spec(
+            json!({"features":{owner:{"note":"LOCATION PER PROCESS", "note_satisfies":[invalid]}}}),
+        ),
+    )
+    .unwrap_err();
+    assert!(e.message.contains("not a measurement role"));
+    // A centred keyway still has a measurable transverse location, even though
+    // the carrying axis already conveys it and lint asks for no extra dimension.
+    let bytes =
+        std::fs::read(root().join("tests/fixtures/steerability/stepped-shaft-keyway.step.gz"))
+            .unwrap();
+    let mut step = Vec::new();
+    flate2::read::GzDecoder::new(bytes.as_slice())
+        .read_to_end(&mut step)
+        .unwrap();
+    let path = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("note-role-{}.step", std::process::id()));
+    std::fs::write(&path, step).unwrap();
+    let (_, shaft) = model::analyse_native(&path).unwrap();
+    let (f, placed) = draftwright::lint::pockets::placed(&shaft)
+        .into_iter()
+        .find(|(_, p)| p.as_ref().is_ok_and(|p| p.mouth))
+        .unwrap();
+    let p = placed.unwrap();
+    let role = draftwright::lint::pockets::locations(&p, shaft.envelope[0])
+        .into_iter()
+        .find(|(r, _)| r.ends_with(["x", "y", "z"][p.width_axis]))
+        .unwrap()
+        .0;
+    assert!(
+        !draftwright::lint::pockets::wanted(&shaft)
+            .iter()
+            .any(|w| w.feature.id == f.id && w.parameter == role)
+    );
+    let plan = model::plan_recovered(
+        &shaft,
+        &spec(json!({"features":{&f.id:{"note":"CENTRED ON AXIS", "note_satisfies":[role]}}})),
+    )
+    .unwrap();
+    assert!(!plan.views.is_empty());
+}

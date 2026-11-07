@@ -72,16 +72,19 @@ fn expand(a: &Analysis, r: &str, out: &mut BTreeSet<String>) -> Result<(), Inval
     Ok(())
 }
 
-pub(super) fn apply(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<Covered, Invalid> {
+pub(super) fn apply(
+    a: &Analysis,
+    s: &Spec,
+    wants: &mut Vec<Want>,
+) -> Result<(Covered, Vec<crate::model::Problem>), Invalid> {
+    let mut problems = Vec::new();
     let mut covered = Covered::new();
     if s.dimension_schemes.is_empty() {
-        return Ok(covered);
+        return Ok((covered, Vec::new()));
     }
     crate::dimension_scheme::check(s)?;
     crate::dimension_scheme::check_binding(a, s)?;
     let old = wants.clone();
-    let mut occupied: Vec<(usize, &'static str, f64, bool, String)> = Vec::new();
-    let mut named_owners = BTreeMap::new();
     for (name, d) in &s.dimension_schemes {
         let fail = |why: String| {
             invalid(format!(
@@ -178,15 +181,6 @@ pub(super) fn apply(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<Cov
             .iter()
             .map(|r| a.scheme_station(r, k).map(|p| (r.clone(), p)).map_err(fail))
             .collect::<Result<_, _>>()?;
-        for (reference, p) in &sites {
-            if (p[k] - origin[k]).abs() > 1e-6
-                && let Some(other) = named_owners.insert((k, reference.clone()), name.clone())
-            {
-                return Err(fail(format!(
-                    "Target {reference} is already dimensioned by scheme {other}, including across views; remove the duplicate target or combine the entries."
-                )));
-            }
-        }
         sites.push((datum.into(), origin));
         // Coincident stations share one witness: use the member nearest the ordinary
         // exterior strip, so an extension does not traverse another row of the pattern.
@@ -214,16 +208,6 @@ pub(super) fn apply(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<Cov
             return Err(fail(
                 "All targets coincide with the datum; choose at least one distinct station.".into(),
             ));
-        }
-        for (_, p) in &sites {
-            if let Some((_, _, _, _, other)) = occupied.iter().find(|(j, _, x, was_datum, _)| {
-                *j == k && (*x - p[k]).abs() < 1e-6 && (*x - origin[k]).abs() > 1e-6 && !was_datum
-            }) {
-                return Err(fail(format!(
-                    "This location is already owned by scheme {other}; combine the entries or remove the overlap."
-                )));
-            }
-            occupied.push((k, view, p[k], (p[k] - origin[k]).abs() < 1e-6, name.clone()));
         }
         let mut pairs = Vec::new();
         if d.scheme == "chain" {
@@ -297,46 +281,18 @@ pub(super) fn apply(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) -> Result<Cov
                         .any(|f| f.id == m.feature && f.kind == "slot_pattern"))
             });
             if parent {
-                check_edits(s, w)?;
+                if let Some(p) = edited_duplicate(s, w)? {
+                    problems.push(p);
+                    continue;
+                }
                 // Invariant: The generated dimension was pushed immediately before recording its id.
                 covered.insert(w.id.clone(), generated.last().unwrap().id.clone());
             }
         }
         wants.extend(generated);
     }
-    // An explicit carrier must not leave an automatic owner on a different view.
-    for (name, d) in &s.dimension_schemes {
-        let Some(view) = d.view.as_deref() else {
-            continue;
-        };
-        if d.targets.is_empty() {
-            continue;
-        }
-        // Invariant: Dimension scheme check permits only x, y and z axes.
-        let k = AXES.iter().position(|&k| k == d.axis).unwrap();
-        let mut refs = BTreeSet::new();
-        for r in &d.targets {
-            expand(a, r, &mut refs)?;
-        }
-        for w in &old {
-            if eligible(w, k)
-                && !w.views.contains(&view)
-                && w.measurements.iter().any(|m| {
-                    d.targets.contains(&m.feature)
-                        || refs.contains(&m.feature)
-                        || refs.contains(&format!("start:{}", m.feature))
-                })
-            {
-                return Err(invalid(format!(
-                    "dimension_schemes/{name}: {} already locates the target on {}; choose that compatible view or remove the conflicting target.",
-                    w.id,
-                    w.views.join(" or ")
-                )));
-            }
-        }
-    }
-    complete_ownership(a, s, &old, wants, &mut covered)?;
-    Ok(covered)
+    problems.extend(complete_ownership(a, s, &old, wants, &mut covered)?);
+    Ok((covered, problems))
 }
 
 pub(super) fn from_spec(w: &Want) -> Option<String> {
@@ -398,12 +354,14 @@ pub(super) fn ink(w: &Want, mut p: super::Placed) -> super::Placed {
 }
 
 /// #78 dimensions may not close an authored network through a different pair of endpoints.
-pub(super) fn check_authored(s: &Spec, wants: &[Want]) -> Result<(), Invalid> {
+pub(super) fn check_authored(s: &Spec, wants: &[Want]) -> Vec<crate::model::Problem> {
+    let mut problems = Vec::new();
     if s.dimension_schemes.is_empty() {
-        return Ok(());
+        return problems;
     }
     for w in wants.iter().filter(|w| {
-        w.id.starts_with("d:authored:") && !s.dimensions.get(&w.id).is_some_and(|d| d.omit)
+        (w.id.starts_with("d:authored:") || w.id.starts_with("d:scheme:"))
+            && !s.dimensions.get(&w.id).is_some_and(|d| d.omit)
     }) {
         let interval = |shape: &Shape| match shape {
             Shape::Linear { a, b, axis, .. } => Some((*axis, a[*axis], b[*axis])),
@@ -418,7 +376,7 @@ pub(super) fn check_authored(s: &Spec, wants: &[Want]) -> Result<(), Invalid> {
         let edges: Vec<_> = wants
             .iter()
             .enumerate()
-            .filter(|(_, o)| o.id.starts_with("d:scheme:"))
+            .filter(|(_, o)| o.id.starts_with("d:scheme:") && o.id != w.id)
             .filter_map(|(i, o)| {
                 let (axis, a, b) = interval(&o.shape)?;
                 (axis == k).then_some((crate::lint::redundancy::Span::new(k, a, b), i))
@@ -427,17 +385,14 @@ pub(super) fn check_authored(s: &Spec, wants: &[Want]) -> Result<(), Invalid> {
         if crate::lint::redundancy::path(&edges, crate::lint::redundancy::Span::new(k, lo, hi))
             .is_some()
         {
-            return Err(invalid(format!(
-                "{} closes the dimension_schemes station network; remove that authored dimension or choose disjoint scheme targets.",
-                w.id
-            )));
+            problems.push(super::warning("duplicate_measurement", &w.id, format!("{} repeats an interval stated by the authored dimension scheme; the measured statement is retained.", super::wording_of(w)), vec![w.id.clone()]));
         }
     }
-    Ok(())
+    problems
 }
 
-fn check_edits(s: &Spec, w: &Want) -> Result<(), Invalid> {
-    if s.precision.contains_key(&w.id)
+fn has_edits(s: &Spec, w: &Want) -> bool {
+    s.precision.contains_key(&w.id)
         || s.dimensions.get(&w.id).is_some_and(|d| {
             d.tolerance.is_some()
                 || d.fit.is_some()
@@ -447,13 +402,30 @@ fn check_edits(s: &Spec, w: &Want) -> Result<(), Invalid> {
                 || d.view.is_some()
                 || d.omit
         })
+}
+
+/// A scheme cannot silently weaken an edited owner's manufacturing requirement.
+fn edited_duplicate(s: &Spec, w: &Want) -> Result<Option<crate::model::Problem>, Invalid> {
+    if s.dimensions
+        .get(&w.id)
+        .is_some_and(|d| d.tolerance.is_some() || d.fit.is_some())
     {
         return Err(invalid(format!(
-            "{} has explicit dimension intent; remove that edit before replacing its owner, then edit the generated scheme owner.",
+            "{} contradicts the scheme's general-tolerance intervals; remove its tolerance or fit, or choose disjoint targets.",
             w.id
         )));
     }
-    Ok(())
+    Ok(has_edits(s, w).then(|| {
+        super::warning(
+            "duplicate_measurement",
+            &w.id,
+            format!(
+                "{} retains its presentation edit alongside the scheme repeating its location.",
+                super::wording_of(w)
+            ),
+            vec![w.id.clone()],
+        )
+    }))
 }
 
 /// Give authored links priority, then retain automatic controllers only while they
@@ -464,7 +436,8 @@ fn complete_ownership(
     old: &[Want],
     wants: &mut [Want],
     covered: &mut Covered,
-) -> Result<(), Invalid> {
+) -> Result<Vec<crate::model::Problem>, Invalid> {
+    let mut problems = Vec::new();
     use crate::lint::redundancy::{Span, path};
     type Edges = Vec<(Span, usize)>;
     let mut graphs: BTreeMap<(usize, &'static str), Edges> = BTreeMap::new();
@@ -477,12 +450,6 @@ fn complete_ownership(
         };
         let span = Span::new(axis, p[axis], q[axis]);
         let edges = graphs.entry((axis, w.views[0])).or_default();
-        if path(edges, span).is_some() {
-            return Err(invalid(format!(
-                "{} closes a chain across dimension_schemes; combine the entries or remove the redundant scheme.",
-                w.id
-            )));
-        }
         edges.push((span, i));
     }
     for ((k, view), mut edges) in graphs {
@@ -558,11 +525,13 @@ fn complete_ownership(
                 .copied()
                 .find(|&j| j >= old.len());
             if let Some(owner) = authored {
+                if let Some(p) = edited_duplicate(s, w)? {
+                    problems.push(p);
+                    continue;
+                }
                 if routes.iter().any(Option::is_none) {
-                    return Err(invalid(format!(
-                        "{} is a counted pattern with only some intervals replaced by dimension_schemes; target the whole pattern or all its member stations, or remove the overlapping scheme.",
-                        w.id
-                    )));
+                    problems.push(super::warning("duplicate_measurement", &w.id, format!("{} retains its full counted statement alongside a scheme repeating some of its intervals.", super::wording_of(w)), vec![w.id.clone(), wants[owner].id.clone()]));
+                    continue;
                 }
                 if w.id.starts_with("d:pmi:")
                     || w.measurements.iter().any(|m| m.feature.starts_with("pmi:"))
@@ -572,7 +541,6 @@ fn complete_ownership(
                         w.id
                     )));
                 }
-                check_edits(s, w)?;
                 covered.insert(w.id.clone(), wants[owner].id.clone());
                 for m in &w.measurements {
                     wants[owner].measurements.push(Measurement {
@@ -586,5 +554,5 @@ fn complete_ownership(
             }
         }
     }
-    Ok(())
+    Ok(problems)
 }

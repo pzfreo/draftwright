@@ -495,7 +495,7 @@ pub struct DimensionSpec {
     /// rules; ARCH0011-1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tolerance: Option<String>,
-    /// ISO 286 class on this extent; `sheet/fit_deviations` adds stacked deviations.
+    /// ISO 286 class on a linear size or diameter; `sheet/fit_deviations` requests deviations.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fit: Option<String>,
     /// The view that carries it (`front`, `plan` or `side`), where the default would put it
@@ -4424,7 +4424,7 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::bom::with_titles(analysis, spec, || {
+    let plan = crate::bom::with_titles(analysis, spec, || {
         layout::with_gutter(
             spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
             || {
@@ -4439,7 +4439,43 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
                 Ok(plan)
             },
         )
-    })
+    })?;
+    retain_unapplied_edits(analysis, plan, plan_recovered)
+}
+
+/// Validate the complete request first, then keep unapplied edits in the document without
+/// letting them steer layout. In particular, a stale omit must not reserve peer routes.
+fn retain_unapplied_edits(
+    analysis: &Analysis,
+    plan: Plan,
+    replan: fn(&Analysis, &Spec) -> Result<Plan, Invalid>,
+) -> Result<Plan, Invalid> {
+    let warnings: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "dimension_edit_unapplied")
+        .collect();
+    if warnings.is_empty() {
+        return Ok(plan);
+    }
+    let mut applicable = plan.spec.clone();
+    let mut retained = BTreeMap::new();
+    applicable.dimensions.retain(|id, edit| {
+        let path = format!("dimensions/{}", crate::items::key(id));
+        if warnings.iter().any(|p| p.subjects.contains(&path)) {
+            retained.insert(id.clone(), edit.clone());
+            false
+        } else {
+            true
+        }
+    });
+    if retained.is_empty() {
+        return Ok(plan);
+    }
+    let mut drawn = replan(analysis, &applicable)?;
+    drawn.spec.dimensions.extend(retained);
+    drawn.problems.extend(warnings.into_iter().cloned());
+    Ok(drawn)
 }
 
 /// Inspection balloons are placed on the finished sheet, after the paper policy has chosen its
@@ -5440,7 +5476,7 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// drawing's findings. That recovery is [`recover`], applied by [`plan_recovered`], never here:
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::bom::with_titles(analysis, spec, || {
+    let plan = crate::bom::with_titles(analysis, spec, || {
         layout::with_gutter(
             spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
             || {
@@ -5453,7 +5489,8 @@ pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 Ok(plan)
             },
         )
-    })
+    })?;
+    retain_unapplied_edits(analysis, plan, self::plan)
 }
 
 fn plan_once(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
@@ -5751,6 +5788,7 @@ fn plan_with_presentation(
         // Tolerance, fit and wording edits change annotation ink, not the part projections.
         // Keep authored geometry in the complete unedited frame too.
         let mut base = spec.clone();
+        base.envelope_tolerance = None;
         // Text is laid out before optional final gutters. Reusing a spaced frame
         // here can exhaust a label's border clearance before its ink is settled.
         base.sheet.view_gutter = Some(0.0);
@@ -6149,7 +6187,7 @@ fn plan_with_presentation(
             .keys()
             .filter(|id| !annotation_ids.contains(id))
             .map(|id| {
-                Invalid {
+                (id, Invalid {
                     path: None,
                     also: Vec::new(),
                     message: format!(
@@ -6162,10 +6200,28 @@ fn plan_with_presentation(
                         annotation_ids.clone()
                     },
                 }
-                .at("annotations", id)
+                .at("annotations", id))
             });
-        if let Some(e) = Invalid::first_of(missing) {
-            return Err(e);
+        for (id, e) in missing {
+            // Stale PMI and automatic-note identities can return after a revision. An
+            // untyped name cannot identify either kind of annotation safely.
+            if !["pmi:", "n:"].into_iter().any(|prefix| {
+                id.strip_prefix(prefix)
+                    .is_some_and(|identity| !identity.is_empty())
+            }) {
+                return Err(e);
+            }
+            problems.push(Problem {
+                id: format!(
+                    "p:annotation_edit_unapplied:{}",
+                    e.path.as_deref().unwrap_or("unknown")
+                ),
+                code: "annotation_edit_unapplied".into(),
+                severity: "warning".into(),
+                message: "An annotation named by the saved Spec no longer exists; its edit is retained but cannot be applied.".into(),
+                subjects: e.path.into_iter().collect(),
+                ..Default::default()
+            });
         }
     }
     let given = spec;
@@ -6231,7 +6287,19 @@ fn plan_with_presentation(
                 || crate::dims::reduction_preserves_requirements(analysis, spec, kept, &excluded))
     });
     // A part that is not turned leaves out a plan or side view that adds nothing (#222).
-    let reduction = reduction.or_else(|| crate::dims::idle_view(analysis, spec, &demand));
+    let reduction = reduction
+        .or_else(|| crate::dims::idle_view(analysis, spec, &demand))
+        .filter(|(_, dropped, _)| {
+            !spec.dimensions.values().any(|d| {
+                !d.omit
+                    && (d.between.is_some() || spec.dimension_source == DimensionSource::Authored)
+                    && d.place
+                        .as_ref()
+                        .and_then(|p| p.view.as_deref())
+                        .or(d.view.as_deref())
+                        == Some(*dropped)
+            })
+        });
     let shown = |name: &str| match spec.views.get(name) {
         Some(v) => !v.omit,
         None => !reduction.as_ref().is_some_and(|r| r.1 == name),
@@ -6271,6 +6339,8 @@ fn plan_with_presentation(
         .any(|d| d.tolerance.is_some() || d.text.is_some() || d.style.is_some())
     {
         let mut nominal = spec.clone();
+        // This internal frame measures nominal ink, with all explicit bands removed.
+        nominal.envelope_tolerance = None;
         for d in nominal.dimensions.values_mut() {
             d.tolerance = None;
             d.text = None;
@@ -6337,15 +6407,7 @@ fn plan_with_presentation(
             ));
         }
         if smallest * scale < 0.1 {
-            return Err(invalid(
-                format!(
-                    "scale {} projects the smallest part dimension to {:.3} mm; drawing geometry degenerates below 0.1 mm. Use scale ≥ {} or omit the scale for automatic selection.",
-                    scale_name(scale),
-                    smallest * scale,
-                    0.1 / smallest
-                ),
-                &[],
-            ));
+            problems.push(Problem { id: "p:geometry_below_resolution:sheet".into(), code: "geometry_below_resolution".into(), severity: "warning".into(), message: format!("scale {} projects the smallest part dimension to {:.3} mm, below 0.1 mm drawing resolution; the requested scale is retained.", scale_name(scale), smallest * scale), subjects: vec!["sheet".into()], ..Default::default() });
         }
     }
     // ISO 5456-2's two methods: third angle (draftwright's) unless the spec says first.
@@ -6738,7 +6800,17 @@ fn plan_with_presentation(
                 || b[2] > g.iso[2] + 1e-6
                 || b[3] > g.iso[3] + 1e-6)
         {
-            return Err(invalid(INFEASIBLE_ISO_SCALE, &[]));
+            if automatic_pair {
+                return Err(invalid(INFEASIBLE_ISO_SCALE, &[]));
+            }
+            problems.push(Problem {
+                id: "p:iso_layout_overflow:v:iso".into(),
+                code: "iso_layout_overflow".into(),
+                severity: "warning".into(),
+                message: INFEASIBLE_ISO_SCALE.into(),
+                subjects: vec!["v:iso".into()],
+                ..Default::default()
+            });
         }
     }
     if shown("iso") && analysis.drawing_iso_bounds() == [0.0; 4] {
@@ -6901,15 +6973,8 @@ fn plan_with_presentation(
                 from_spec: Vec::new(),
                 detail: Some(detail),
             });
-        } else if detail.authored {
-            return Err(invalid(
-                format!(
-                    "Authored detail {name} needs its source view and room for its crop at the requested scale."
-                ),
-                &[],
-            ));
         } else {
-            problems.push(Problem {id:format!("p:detail_unplaceable:v:{name}"),code:"detail_unplaceable".into(),severity:"warning".into(),message:format!("{} detail has no reserved room or source view; its dimensions remain on the parent.",detail.kind),refs:vec![format!("v:{name}")],..Default::default()});
+            problems.push(Problem {id:format!("p:detail_unplaceable:v:{name}"),code:"detail_unplaceable".into(),severity:"warning".into(),message:format!("Detail {name} has insufficient layout space for its crop at scale {}; its dimensions remain on the parent.", scale_name(detail.scale)),refs:vec![format!("v:{name}")],..Default::default()});
         }
     }
     if require_automatic

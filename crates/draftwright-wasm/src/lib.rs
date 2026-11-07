@@ -667,11 +667,15 @@ mod tests {
         assert_eq!(refused["code"], "invalid");
         let opened: Value =
             serde_json::from_str(&s.open_spec_json(&saved.to_string()).unwrap()).unwrap();
-        assert_eq!(
-            opened["set_aside"],
-            json!([{"path":"dimensions/d:f:hole:1~1bore.diameter","entry":{"omit":true},
-                "reason_code":"no_dimension"}])
+        assert_eq!(opened["set_aside"], json!([]));
+        assert_eq!(opened["spec"]["dimensions"], saved["dimensions"]);
+        assert!(
+            s.0.plan()
+                .problems
+                .iter()
+                .any(|p| p.code == "dimension_edit_unapplied")
         );
+        assert!(s.render_svg().unwrap().contains("<svg"));
         assert_eq!(opened["spec"]["sheet"]["preferred_max_size"], "A3");
         let current: Value = serde_json::from_str(&s.spec_json()).unwrap();
         assert_eq!(opened["spec"], current);
