@@ -135,6 +135,7 @@ catalogue! {
     "flat_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "flat_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
     "frame_datum_not_drawn" => Incomplete, Source, "A drawn feature control frame cites a datum the drawing does not show.";
+    "gdt_position_changed" => Decision, Code, "Dimension placement moved an unrelated GD&T item; the warning names the item and cause.";
     "gear_axis_mismatch" => Incomplete, Code, "The drawn evidence does not correctly state the required source information.";
     "gear_correspondence_unverifiable" => Incomplete, Code, "The source gear requirement cannot be matched to the depicted gear.";
     "gear_repeat_count_mismatch" => Incomplete, Code, "The drawn evidence does not correctly state the required source information.";
@@ -217,6 +218,7 @@ catalogue! {
     "pinned_view_off_sheet" => Readability, Code, "The explicitly placed view extends outside the drawing area; an error offers removal of its placement.";
     "pinned_view_overlap" => Readability, Code, "The pinned view overlaps another view.";
     "placement_anchor_not_shown" => Decision, Code, "The requested anchor is absent from the drawing.";
+    "placement_displaced" => Decision, Code, "The final layout displaced an explicit placement; the warning names the requested fields and cause.";
     "placement_side_not_applicable" => Decision, Code, "The authored side does not apply to this dimension.";
     "placement_unapplied" => Decision, Code, "The requested placement cannot be applied; an available drawing placement is retained.";
     "plate_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";

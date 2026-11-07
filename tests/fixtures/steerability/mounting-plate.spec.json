@@ -1,0 +1,79 @@
+{
+ "schema": "draftwright.spec/2",
+ "sheet": {
+  "scale": "1:1",
+  "size": "A4",
+  "title": {
+   "tolerance": "ISO 2768-m"
+  }
+ },
+ "dimension_schemes": {
+  "holes-x": {
+   "scheme": "baseline",
+   "axis": "x",
+   "from": "min",
+   "targets": [
+    "f:hole:1",
+    "f:hole:2",
+    "f:hole:3",
+    "f:hole:4",
+    "f:hole:5",
+    "f:slot:1"
+   ]
+  },
+  "holes-y": {
+   "scheme": "baseline",
+   "axis": "y",
+   "from": "min",
+   "targets": [
+    "f:hole:1",
+    "f:hole:2",
+    "f:hole:3",
+    "f:hole:4",
+    "f:hole:5"
+   ]
+  }
+ },
+ "dimensions": {
+  "d:f:slot:1/slot_width.length": {
+   "place": {
+    "along": "middle",
+    "lane": 0,
+    "side": "above",
+    "view": "plan"
+   }
+  },
+  "d:scheme:holes-y/bee123019a8ada36": {
+   "place": {
+    "along": "middle",
+    "lane": 1,
+    "side": "left",
+    "view": "plan"
+   }
+  },
+  "d:scheme:holes-y/23c244b80eadd066": {
+   "place": {
+    "along": "middle",
+    "lane": 1,
+    "side": "left",
+    "view": "plan"
+   }
+  },
+  "d:f:hole_pattern:1/bore.diameter": {
+   "place": {
+    "along": "outside",
+    "lane": 0,
+    "side": "above",
+    "view": "plan"
+   }
+  }
+ },
+ "views": {
+  "iso": {
+   "omit": true
+  },
+  "side": {
+   "omit": true
+  }
+ }
+}

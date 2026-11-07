@@ -131,6 +131,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `flat_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `flat_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |
 | `frame_datum_not_drawn` | incomplete | A drawn feature control frame cites a datum the drawing does not show. |
+| `gdt_position_changed` | decision | Dimension placement moved an unrelated GD&T item; the warning names the item and cause. |
 | `gear_axis_mismatch` | incomplete | The drawn evidence does not correctly state the required source information. |
 | `gear_correspondence_unverifiable` | incomplete | The source gear requirement cannot be matched to the depicted gear. |
 | `gear_repeat_count_mismatch` | incomplete | The drawn evidence does not correctly state the required source information. |
@@ -213,6 +214,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `pinned_view_off_sheet` | readability | The explicitly placed view extends outside the drawing area; an error offers removal of its placement. |
 | `pinned_view_overlap` | readability | The pinned view overlaps another view. |
 | `placement_anchor_not_shown` | decision | The requested anchor is absent from the drawing. |
+| `placement_displaced` | decision | The final layout displaced an explicit placement; the warning names the requested fields and cause. |
 | `placement_side_not_applicable` | decision | The authored side does not apply to this dimension. |
 | `placement_unapplied` | decision | The requested placement cannot be applied; an available drawing placement is retained. |
 | `plate_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |

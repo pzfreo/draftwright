@@ -976,10 +976,15 @@ pub(crate) fn finish(plan: &mut Plan, analysis: &Analysis) {
                         } else {
                             "above"
                         };
-                        p.fix = vec![Op::set(
-                            format!("dimensions/{}/place", key(&d.id)),
-                            json!({"view":d.view.trim_start_matches("v:"),"side":side,"lane":0,"along":"outside"}),
-                        )];
+                        // A linear strip change must compose with other fixes:
+                        // let layout coordinate lanes and text stations rather
+                        // than promise lane zero/outside for every moved item.
+                        let place = if d.kind == "linear" {
+                            json!({"view":d.view.trim_start_matches("v:"),"side":side})
+                        } else {
+                            json!({"view":d.view.trim_start_matches("v:"),"side":side,"lane":0,"along":"outside"})
+                        };
+                        p.fix = vec![Op::set(format!("dimensions/{}/place", key(&d.id)), place)];
                     }
                 } else if let Some(g) = p
                     .subjects

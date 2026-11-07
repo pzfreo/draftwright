@@ -17,6 +17,18 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Bound GD&T placement comparisons to a primitive sheet pass or a reused pin
+  anchor; ignore sub-stroke drift, attribute causes to new intersecting ink or
+  the sole changed dimension placement, and retain peer intent in pin comparisons.
+  Ambiguous moves use drawing-author wording. Small text-clearance nudges do not
+  count as displaced along intent. Note-only PMI keeps geometry origins and repairs.
+
+- Retain clear datum and control-frame positions across dimension placement edits;
+  report moved GD&T items and the placement requests that caused re-layout (#330).
+- Preserve explicit linear side and text stations around pinned neighbours where they fit;
+  report final displaced side, lane and along intent with truthful placement bases (#325).
+- Feature notes no longer restore tangent locations on unrelated on-axis bores (#311).
+
 - Pinned multi-sheet canonicals discard temporary moved-section omissions while
   retaining authored cuts. Detached dimension witnesses are classified as errors
   with incomplete impact and a documented cause group.

@@ -251,6 +251,9 @@ fn a_shared_line_left_by_an_edit_is_a_new_error() {
     for op in ops.iter_mut().filter(|op| op.path.ends_with("/place")) {
         let mut v = serde_json::to_value(&*op).unwrap();
         v["value"]["pinned"] = serde_json::json!(true);
+        // Construct the conflicting edit explicitly: repair offers leave
+        // lanes automatic so that applying several remedies can compose.
+        v["value"]["lane"] = serde_json::json!(0);
         v["value"].as_object_mut().unwrap().remove("along");
         *op = serde_json::from_value(v).unwrap();
     }

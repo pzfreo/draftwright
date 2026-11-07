@@ -438,6 +438,85 @@ fn lane_at(o: [f64; 4], side: Side, lane: usize) -> (f64, f64) {
     }
 }
 
+/// Audit the final ink, after all repairs, rather than claiming that an early
+/// placement request survived merely because it entered the solver.
+pub(crate) fn displaced_linear_fields(
+    analysis: &crate::model::Analysis,
+    plan: &crate::model::Plan,
+) -> Vec<(String, Vec<&'static str>)> {
+    use crate::placement_intent::{Along, Side as Requested, Slot};
+    let mut out = Vec::new();
+    for d in &plan.dimensions {
+        let Some(request) = plan
+            .spec
+            .dimensions
+            .get(&d.id)
+            .and_then(|d| d.place.as_ref())
+        else {
+            continue;
+        };
+        let Some(p) = d.placed.as_ref().filter(|_| d.kind == "linear") else {
+            continue;
+        };
+        let Some(line) = linear_ink(&p.lines) else {
+            continue;
+        };
+        let Some(view) = plan.views.iter().find(|v| v.id == d.view) else {
+            continue;
+        };
+        let outline = Frame::new(analysis, view).outline();
+        let side = if line.k == 0 {
+            if line.offset > (outline[1] + outline[3]) / 2.0 {
+                Side::Above
+            } else {
+                Side::Below
+            }
+        } else if line.offset > (outline[0] + outline[2]) / 2.0 {
+            Side::Right
+        } else {
+            Side::Left
+        };
+        let mut fields = Vec::new();
+        if request.side.is_some_and(|s| {
+            !matches!(
+                (s, side),
+                (Requested::Above, Side::Above)
+                    | (Requested::Below, Side::Below)
+                    | (Requested::Left, Side::Left)
+                    | (Requested::Right, Side::Right)
+            )
+        }) {
+            fields.push("side");
+        }
+        // Text clearance may nudge a label by up to 2 paper mm (less than
+        // one text height) without changing its requested along station. Lane
+        // offsets remain geometric constraints, with only 0.01 mm roundoff slack.
+        if let Some(along) = request.along {
+            let k = line.k;
+            let kept = if along == Along::Slot(Slot::Outside) {
+                p.label_box[k] >= line.extent[1] - 0.01
+                    && (p.label_box[k] - line.extent[1] - 1.0).abs() <= 2.0
+            } else {
+                let at = line.span[0] + along.fraction() * (line.span[1] - line.span[0]);
+                ((p.label_box[k] + p.label_box[k + 2]) / 2.0 - at).abs() <= 2.0
+            };
+            if !kept {
+                fields.push("along");
+            }
+        }
+        if request
+            .lane
+            .is_some_and(|lane| (lane_at(outline, side, lane).0 - line.offset).abs() > 0.01)
+        {
+            fields.push("lane");
+        }
+        if !fields.is_empty() {
+            out.push((d.id.clone(), fields));
+        }
+    }
+    out
+}
+
 /// Exterior callout elbow rows, in paper mm; keys are the four Spec side names.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LabelRows {
@@ -2591,12 +2670,14 @@ pub(super) fn settle_fixed(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn avoid_fixed(
+    analysis: &Analysis,
     frames: &BTreeMap<&str, Frame>,
     items: &[Want],
     chosen: &[Option<&str>],
     sides: &mut [Option<Side>],
     lanes: &mut [usize],
     fixed: &[bool],
+    places: &[Option<&crate::placement_intent::Place>],
     drawn: &[bool],
     placed: &mut [Option<Placed>],
     obstacles: &[PlannedDimension],
@@ -2645,6 +2726,58 @@ pub(super) fn avoid_fixed(
         };
         if !blocked(p) {
             continue;
+        }
+        // A pin may obstruct a peer's witness without obstructing its requested
+        // side or text station. Try that intent in the same strip before any
+        // automatic slide or opposite-side fallback (#325).
+        if let Some(request) = places[i].filter(|_| matches!(items[i].shape, Shape::Linear { .. }))
+        {
+            // Repair only an actual contact: choosing a pin must not shorten
+            // an unrelated, already clear explicit witness (#325).
+            let mut nearer = p.clone();
+            nearest_pattern_witnesses(analysis, &frames[view], &items[i].measurements, &mut nearer);
+            if page.fits(&nearer, view) && !blocked(&nearer) {
+                placed[i] = Some(nearer);
+                continue;
+            }
+            let first = request.lane.unwrap_or(lanes[i]);
+            let mut preserved = None;
+            for lane in first..first + 64 {
+                let mut trial = request.clone();
+                trial.lane = Some(lane);
+                let Some(p) = intent(&frames[view], &items[i], &trial, side, lanes[i], 0.0) else {
+                    continue;
+                };
+                if !page.fits(&p, view) || blocked(&p) {
+                    continue;
+                }
+                if placed.iter().enumerate().any(|(j, q)| {
+                    j != i
+                        && drawn[i]
+                        && drawn[j]
+                        && chosen[j] == Some(view)
+                        && q.as_ref().is_some_and(|q| {
+                            dimension_lines_overlap(&p, q)
+                                && !dimension_lines_overlap(placed[i].as_ref().unwrap(), q)
+                        })
+                }) {
+                    continue;
+                }
+                preserved = Some((p, lane));
+                break;
+            }
+            if let Some((p, lane)) = preserved {
+                sides[i] = Some(match request.side {
+                    Some(crate::placement_intent::Side::Above) => Side::Above,
+                    Some(crate::placement_intent::Side::Below) => Side::Below,
+                    Some(crate::placement_intent::Side::Left) => Side::Left,
+                    Some(crate::placement_intent::Side::Right) => Side::Right,
+                    None => side,
+                });
+                lanes[i] = lane;
+                placed[i] = Some(p);
+                continue;
+            }
         }
         let slid = slides(p, page.drawable).find(|p| page.fits(p, view) && !blocked(p));
         if let Some(p) = slid {

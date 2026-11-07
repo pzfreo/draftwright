@@ -2475,7 +2475,7 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
         let Some(mut origin) = datum_corner(analysis, &axes) else {
             continue;
         };
-        if crate::dims::pmi_policy::carries(analysis) || !plan.spec.origin.is_empty() {
+        if crate::dims::pmi_policy::controls_origins(analysis) || !plan.spec.origin.is_empty() {
             origin = crate::dims::pmi_policy::origin_point(analysis, &plan.spec);
         }
         let mut rows = Vec::new();
@@ -2804,7 +2804,7 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
             id: format!("hole_schedule_{}", view.id.trim_start_matches("v:")), view: Some(view.id.clone()), origin: Some(origin), pcd, covered: Vec::new(),
             rows, default: plan.spec.hole_table == Setting::Auto, basis: {
                 let mut basis = format!("plan-time hole schedule: {n} holes, {crowded} crowded ordinates, {conflicts} leader crossings; local X/Y from the marked datum corner");
-                if crate::dims::pmi_policy::carries(analysis) || !plan.spec.origin.is_empty() {
+                if crate::dims::pmi_policy::controls_origins(analysis) || !plan.spec.origin.is_empty() {
                     basis += &format!("; origin: {}", crate::dims::pmi_policy::origin_description(analysis, &plan.spec));
                 }
                 basis

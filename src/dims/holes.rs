@@ -908,7 +908,7 @@ fn round_whole(analysis: &Analysis, view: usize, k: usize, axis: P3) -> bool {
 /// `origin/<axis>` (`min` keeps the box side), or when the part carries PMI, whose datums own
 /// its origins.
 pub(super) fn round_origins(analysis: &Analysis, spec: &crate::model::Spec, wants: &mut Vec<Want>) {
-    if super::pmi_policy::carries(analysis) {
+    if super::pmi_policy::controls_origins(analysis) {
         return;
     }
     let lo = analysis.envelope[0];

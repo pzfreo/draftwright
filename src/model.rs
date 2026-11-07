@@ -879,6 +879,10 @@ pub struct Plan {
     /// A pin replay's canonical gutter translations, spent instead of a new gutter solve.
     #[serde(skip)]
     pub(crate) replay_gutters: Option<BTreeMap<String, [f64; 2]>>,
+    /// The selected pin solve's anchor, consumed by the public movement audit.
+    /// Keeping it with the candidate prevents reuse of a rejected trial's anchor.
+    #[serde(skip)]
+    pub(crate) placement_anchor: Option<std::sync::Arc<Plan>>,
     /// Canonical linear label positions relative to their carrier origins; editor metadata.
     #[serde(skip)]
     pub(crate) dimension_labels: BTreeMap<String, (String, [f64; 2])>,
@@ -2654,7 +2658,7 @@ pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
 /// Find the smallest fit and its largest scale; only its immediate larger sheet, with an
 /// enlargement, may compete. Pins keep their canonical sheet; explicit choices override.
 pub fn recover(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(|| recover_inner(analysis, spec, first))
+    crate::decision_overrides::boundary(analysis, spec, || recover_inner(analysis, spec, first))
 }
 
 fn recover_inner(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
@@ -4490,7 +4494,7 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(|| {
+    crate::decision_overrides::boundary(analysis, spec, || {
         let plan = crate::bom::with_titles(analysis, spec, || {
             layout::with_gutter(
                 spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
@@ -4786,9 +4790,10 @@ pub(crate) fn finish_presentation(
         }
         crate::dims::gdt::cited_undrawn(&mut plan);
         crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
-        if expanded_notches
-            || crate::dims::pmi_policy::carries(effective.as_ref())
-            || !spec.origin.is_empty()
+        if !crate::decision_overrides::reference_only()
+            && (expanded_notches
+                || crate::dims::pmi_policy::carries(effective.as_ref())
+                || !spec.origin.is_empty())
         {
             crate::fixes::attach(effective.as_ref(), &mut plan);
         }
@@ -4894,7 +4899,7 @@ fn plan_automatic_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Inv
         }
     })?;
     crate::centrelines::trim_to_frame(&mut plan.views, plan.sheet.page);
-    if !crate::placement_intent::has_pins(spec) {
+    if !crate::placement_intent::has_pins(spec) && !crate::decision_overrides::reference_only() {
         type Labels = BTreeMap<String, (String, [f64; 2])>;
         static LABELS: crate::planning::BoundedMemo<Labels> = crate::planning::BoundedMemo::new(64);
         let base = pin_base(spec);
@@ -4942,7 +4947,10 @@ fn plan_automatic_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Inv
     // PMI completeness belongs to the selected drawing. Attach its remedies once,
     // after that audit in plan_recovered_inner, rather than hashing and enriching
     // every automatic candidate and then repeating the work on the public plan.
-    if !crate::dims::pmi_policy::carries(analysis) && spec.origin.is_empty() {
+    if !crate::decision_overrides::reference_only()
+        && !crate::dims::pmi_policy::controls_origins(analysis)
+        && spec.origin.is_empty()
+    {
         crate::fixes::attach(analysis, &mut plan);
     }
     Ok(plan)
@@ -5264,7 +5272,7 @@ fn schedule_recovered(
 /// the dimensions, which on most parts keeps a larger scale, but where the dimensions run on
 /// past it an item can find no place (nist_stc_09 e4 at 1:1: 13 frames across the plan).
 pub fn plan_escalated(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(|| {
+    crate::decision_overrides::boundary(analysis, spec, || {
         crate::bom::with_titles(analysis, spec, || {
             let mut plan = plan_escalated_layout(analysis, spec)?;
             crate::characteristics::apply(analysis, &mut plan);
@@ -5546,7 +5554,7 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// drawing's findings. That recovery is [`recover`], applied by [`plan_recovered`], never here:
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(|| {
+    crate::decision_overrides::boundary(analysis, spec, || {
         let plan = crate::bom::with_titles(analysis, spec, || {
             layout::with_gutter(
                 spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
@@ -5637,7 +5645,9 @@ fn plan_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 plan.record_dimension_labels();
             }
             crate::dims::pmi_policy::audit(analysis, spec, &mut plan);
-            crate::fixes::attach(analysis, &mut plan);
+            if !crate::decision_overrides::reference_only() {
+                crate::fixes::attach(analysis, &mut plan);
+            }
             Ok(plan)
         })
     })
@@ -8298,6 +8308,12 @@ fn plan_with_presentation(
             .as_ref()
             .filter(|_| crate::placement_intent::has_pins(&spec))
             .map(|c| c.gutter_deltas.clone()),
+        placement_anchor: canonical.as_ref().filter(|_| {
+            !crate::decision_overrides::reference_only()
+                && crate::placement_intent::has_pins(&spec)
+                && crate::decision_overrides::has_placement_change(&spec)
+                && matches!(&analysis.pmi, Some(crate::pmi::Reading::Read(r)) if r.records.iter().any(|r| matches!(r.category, crate::pmi::Category::Datum | crate::pmi::Category::GeometricTolerance)))
+        }).map(|p| std::sync::Arc::new(p.clone())),
         dimension_labels: canonical
             .as_ref()
             .map(|p| p.dimension_labels.clone())
