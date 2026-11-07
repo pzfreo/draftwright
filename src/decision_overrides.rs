@@ -313,6 +313,23 @@ fn report_gdt_moves(plan: &mut Plan) {
     if before.sheet.size != plan.sheet.size || before.sheet.scale != plan.sheet.scale {
         return;
     }
+    // Count Spec changes, including requests without drawn ink. A single
+    // changed placement explains the move even when packing acts indirectly.
+    let changed: std::collections::BTreeSet<_> = before
+        .spec
+        .dimensions
+        .keys()
+        .chain(plan.spec.dimensions.keys())
+        .filter(|id| {
+            before
+                .spec
+                .dimensions
+                .get(*id)
+                .and_then(|d| d.place.as_ref())
+                != plan.spec.dimensions.get(*id).and_then(|d| d.place.as_ref())
+        })
+        .map(String::as_str)
+        .collect();
     for g in &mut plan.gdt {
         if plan
             .spec
@@ -343,22 +360,13 @@ fn report_gdt_moves(plan: &mut Plan) {
         {
             continue;
         }
-        // New ink crossing the old printed box is evidence of a particular
-        // cause. Other placement requests are not blamed merely for existing.
-        let causes: Vec<_> = plan
+        // Prefer direct ink evidence when several placements changed. With
+        // just one change, the placement-only comparison identifies the cause.
+        let mut causes: Vec<_> = plan
             .dimensions
             .iter()
             .filter(|d| {
-                before
-                    .spec
-                    .dimensions
-                    .get(&d.id)
-                    .and_then(|d| d.place.as_ref())
-                    != plan
-                        .spec
-                        .dimensions
-                        .get(&d.id)
-                        .and_then(|d| d.place.as_ref())
+                changed.contains(d.id.as_str())
                     && d.view == g.view
                     && crate::dims::ink_in_box(d, old.label_box)
                     && !before
@@ -369,22 +377,33 @@ fn report_gdt_moves(plan: &mut Plan) {
                             b.view == g.view && crate::dims::ink_in_box(b, old.label_box)
                         })
             })
+            .map(|d| d.id.as_str())
             .collect();
+        if causes.is_empty() && changed.len() == 1 {
+            causes.extend(changed.iter().copied());
+        }
         let cause = if causes.is_empty() {
-            "the cause is unattributed; the placement-only reference establishes the move, but no newly intersecting dimension ink identifies a particular request".into()
+            "while the requested dimension placements were laid out".into()
         } else {
             format!(
-                "new ink at its old box from the requested place of {}",
+                "to make room for the requested place of {}",
                 causes
                     .iter()
-                    .map(|d| crate::wording::item(&d.id, &d.kind, &d.label))
+                    .map(|id| {
+                        plan.dimensions
+                            .iter()
+                            .chain(&before.dimensions)
+                            .find(|d| d.id == *id)
+                            .map(|d| crate::wording::item(&d.id, &d.kind, &d.label))
+                            .unwrap_or_else(|| format!("dimension {id}"))
+                    })
                     .collect::<Vec<_>>()
                     .join(", ")
             )
         };
         let paths: Vec<_> = causes
             .iter()
-            .map(|d| format!("dimensions/{}/place", crate::items::key(&d.id)))
+            .map(|id| format!("dimensions/{}/place", crate::items::key(id)))
             .collect();
         let named = crate::wording::item(&g.id, &g.kind, &g.label);
         g.basis +=
@@ -394,11 +413,11 @@ fn report_gdt_moves(plan: &mut Plan) {
             code: "gdt_position_changed".into(),
             severity: "warning".into(),
             message: format!(
-                "{} moved from its automatic position; {cause}.",
+                "{} moved from its automatic position {cause}.",
                 crate::wording::capital(&named)
             ),
             subjects: std::iter::once(g.id.clone())
-                .chain(causes.iter().map(|d| d.id.clone()))
+                .chain(causes.iter().map(|id| (*id).to_string()))
                 .collect(),
             refs: paths.clone(),
             ..Default::default()

@@ -18,8 +18,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 ### Fixed
 
 - Bound GD&T placement comparisons to a primitive sheet pass or a reused pin
-  anchor; ignore sub-stroke drift, attribute causes only to new intersecting ink,
-  and retain peer intent in pin comparisons. Small text-clearance nudges do not
+  anchor; ignore sub-stroke drift, attribute causes to new intersecting ink or
+  the sole changed dimension placement, and retain peer intent in pin comparisons.
+  Ambiguous moves use drawing-author wording. Small text-clearance nudges do not
   count as displaced along intent. Note-only PMI keeps geometry origins and repairs.
 
 - Retain clear datum and control-frame positions across dimension placement edits;

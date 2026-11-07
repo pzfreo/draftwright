@@ -2223,15 +2223,22 @@ fn gdt_move_reports_name_the_item_and_dimension_placement_once() {
                     "no new ink even reaches the old box"
                 );
             }
-            // None of these old datum boxes intersects the newly placed 510
-            // ink. The move is real, but the request is not an evidenced cause.
+            // No new ink reaches these boxes, but withdrawing only this one
+            // placement establishes the notch dimension as the cause.
+            assert_eq!(reports[0].subjects, vec![old.id.clone(), cause.into()]);
             assert_eq!(
-                reports[0].subjects.as_slice(),
-                std::slice::from_ref(&old.id)
+                reports[0].refs,
+                vec![format!(
+                    "dimensions/{}/place",
+                    draftwright::items::key(cause)
+                )]
             );
-            assert!(reports[0].refs.is_empty());
-            assert!(reports[0].message.contains("unattributed"));
-            assert!(!reports[0].message.contains("510"));
+            assert!(
+                reports[0]
+                    .message
+                    .contains("to make room for the requested place of")
+            );
+            assert!(reports[0].message.contains("510"));
             assert!(new.basis.contains("position displaced"));
         }
     }
