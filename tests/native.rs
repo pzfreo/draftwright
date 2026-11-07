@@ -1861,19 +1861,26 @@ fn the_reader_knows_the_providers_schema() {
 fn quiddity_and_haecceity_are_pinned_together() {
     let lock =
         std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.lock")).unwrap();
-    let source = |name: &str| {
+    let field = |name: &str, key: &str| {
         let block = lock
             .split("[[package]]")
             .find(|b| b.contains(&format!("name = \"{name}\"\n")))
             .unwrap_or_else(|| panic!("{name} is not in Cargo.lock"));
         block
             .lines()
-            .find_map(|l| l.strip_prefix("source = "))
+            .find_map(|l| l.strip_prefix(key))
             .unwrap()
             .to_string()
     };
-    assert!(source("haecceity").contains('#'), "{}", source("haecceity"));
-    assert_eq!(source("quiddity"), source("haecceity"));
+    let pin = |name: &str| (field(name, "source = "), field(name, "version = "));
+    // Either one git commit for both, or one crates.io release (published from one tag).
+    let (source, _) = pin("haecceity");
+    assert!(
+        source.contains('#')
+            || source == "\"registry+https://github.com/rust-lang/crates.io-index\"",
+        "{source}"
+    );
+    assert_eq!(pin("quiddity"), pin("haecceity"));
 }
 
 /// Python quiddity 0.3.9 reports 12 countersinks on ctc04 (its recognition JSON, faces through

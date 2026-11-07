@@ -1,8 +1,8 @@
 {
   "format": "draftwright.wasm-size-budget/1",
-  "ceiling_bytes": 21100000,
+  "ceiling_bytes": 23300000,
   "baseline": {
-    "measured_on": "2026-10-30",
+    "measured_on": "2026-11-07",
     "rust": "1.99.0",
     "wasm_pack": "0.15.0",
     "target": "web",
@@ -10,9 +10,9 @@
     "optimization": "wasm-pack default wasm-opt (version 117)",
     "brotli_version": "1.2.0",
     "brotli_lgwin": 22,
-    "raw_bytes": 19112511,
-    "gzip_level_9_bytes": 6506512,
-    "brotli_quality_11_bytes": 4359459
+    "raw_bytes": 21162479,
+    "gzip_level_9_bytes": 7264593,
+    "brotli_quality_11_bytes": 4878408
   },
-  "policy": "Raw WASM ceiling: baseline + 10%, rounded up to 100,000 bytes. Raising it requires a reviewed JSON edit. Re-baselined 2026-10-19 (maintainer-approved) on main's CI build after feature growth since 2026-10-16 (PMI notes, references, sheets). Re-baselined 2026-10-23 (maintainer-approved) for quiddity-rust v0.1.1 (+622 KB). Re-baselined 2026-10-30 (maintainer-approved) on PR #260's CI build for quiddity-rust v0.2.5 and inspection balloons (#254)."
+  "policy": "Raw WASM ceiling: baseline + 10%, rounded up to 100,000 bytes. Raising it requires a reviewed JSON edit. Re-baselined 2026-10-19 (maintainer-approved) on main's CI build after feature growth since 2026-10-16 (PMI notes, references, sheets). Re-baselined 2026-10-23 (maintainer-approved) for quiddity-rust v0.1.1 (+622 KB). Re-baselined 2026-10-30 (maintainer-approved) on PR #260's CI build for quiddity-rust v0.2.5 and inspection balloons (#254). Re-baselined 2026-11-07 (Paul approved 2026-11-07: sections, Spec overrides/part, manufacturing process, validation rules, broken views) on PR #359's CI build."
 }

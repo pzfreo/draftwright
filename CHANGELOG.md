@@ -57,6 +57,15 @@ All notable changes to draftwright-rust are recorded here, in the style of
   length and depth, and report unavailable or displaced section intent (#304).
 - Honour explicit `views/section_aa` requests through plain through holes; retain
   drawings with a specific warning when no supported cutting plane is available (#314).
+- Depend on quiddity and haecceity 0.4.9 from crates.io (`=0.4.9`, the same source as
+  tag v0.4.9), keeping quiddity’s CLI feature disabled for library and browser builds.
+  The kernel pin check reads exact crates.io versions as their release tags. PMI reading is unchanged (reader `/19`);
+  recognition now retains circular blind steps cut by another feature: corpus
+  `mfcadpp_holdout/363.step` gains the R4.550 × 3.359 DEEP callout in place of
+  a bare profile radius and a redundant step height.
+- Share quiddity’s congruence proof for pack grouping, retaining metadata compatibility,
+  cached group fingerprints and representative-to-alias GA projection reuse.
+
 - Credit verified tangent/far-tangent pocket depth presentations in lint; require
   the carrying diameter for far-tangent inference and recheck final centre-mark bounds.
 - Session opens honour Spec part selection; single-part Analyses omit `part_keys`.
