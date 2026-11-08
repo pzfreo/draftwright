@@ -504,3 +504,25 @@ test('openSpec migration report has native parity', () => {
     assert.deepEqual(opened, JSON.parse(native.stdout.trim().split('\n').at(-1)));
   } finally { engine.free(); }
 });
+
+test('openSpec feature and ladder maps have native parity', () => {
+  const cases = [
+    {name: 'mounting_plate.step', part: 'tests/fixtures/parts/mounting_plate.step', spec: 'spec1.json', old: 'f:hole:4', now: 'f:hole:f9'},
+    {name: 'stepped_block.step', part: 'tests/fixtures/recognition/steps/stepped_block.step', spec: 'spec2.json', old: 'step_height.length.h10', now: 'step_height.length.f6'},
+  ];
+  for (const item of cases) {
+    const spec = JSON.parse(readFileSync(new URL(`../tests/fixtures/stable_ids/${item.spec}`, import.meta.url)));
+    const engine = new Engine(item.name, readFileSync(new URL(`../${item.part}`, import.meta.url)));
+    try {
+      const opened = JSON.parse(engine.openSpec(JSON.stringify(spec)));
+      assert.equal(opened.ids[item.old], item.now);
+      assert.ok(opened.migrated.length > 0);
+      assert.deepEqual(opened.set_aside, []);
+      const native = spawnSync(process.env.DRAFTWRIGHT_WASM_REFERENCE ?? 'target/release/examples/wasm_reference', [], {
+        cwd: root, input: JSON.stringify({...item, steps: [{edit: 'migration', action: 'open_spec', spec}]}), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+      });
+      assert.equal(native.status, 0, native.stderr);
+      assert.deepEqual(opened, JSON.parse(native.stdout.trim().split('\n').at(-1)));
+    } finally { engine.free(); }
+  }
+});
