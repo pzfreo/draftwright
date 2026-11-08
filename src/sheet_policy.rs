@@ -2807,11 +2807,28 @@ mod tests {
         let Some(a) = corpus("mfcadpp_holdout/275.step") else {
             return;
         };
-        let before = model::plan_recovered(&a, &Spec::default()).unwrap();
+        let mut before = model::plan_recovered(&a, &Spec::default()).unwrap();
         assert_eq!(
             before.sheet.dimension_spacing,
             model::DimensionSpacing::Compact
         );
+        // #299 intentionally leaves title-tolerance fixes free of layout pins. This
+        // generic retention check supplies a dimension-local remedy instead, keeping
+        // all of its original compact-spacing and paper/scale assertions below.
+        let dimension = before
+            .dimensions
+            .iter()
+            .find(|d| d.placed.is_some())
+            .unwrap();
+        before.problems.push(model::Problem {
+            code: "tolerance_not_shown".into(),
+            fix: vec![crate::items::Op::set(
+                format!("dimensions/{}/tolerance", crate::items::key(&dimension.id)),
+                json!("±0.1"),
+            )],
+            ..Default::default()
+        });
+        crate::fixes::retain_local_layout(&mut before);
         let fix = before
             .problems
             .iter()

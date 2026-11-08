@@ -7,15 +7,6 @@
       "feature_not_located"
     ]
   },
-  "299": {
-    "case": "steer_299_agent_rough_edges",
-    "group": "E",
-    "reason": "Detail layout now warns specifically; the tolerance fix still freezes layout and reference rounding is reported.",
-    "checks": [
-      "reference_precision",
-      "tolerance_fix_local"
-    ]
-  },
   "300": {
     "case": "steer_300_oblique_shoulders",
     "group": "A",

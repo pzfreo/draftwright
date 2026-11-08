@@ -138,9 +138,7 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                     .get(&d.name)
                     .map(|wording| wording.body(text));
                 let text = match &body {
-                    Some(Some(body)) if label_value(body).is_some() => {
-                        body.trim_start_matches('(').trim_end_matches(')')
-                    }
+                    Some(Some(body)) if label_value(body).is_some() => body.as_str(),
                     Some(_) => {
                         issues.push(issue(format!("l:label_vs_measured:{}", d.name), "label_vs_measured", Severity::Error,
                             "Authored wording or its measured value is missing or damaged; restore the generated value and wording wrapper.".into(), Some(d)));
@@ -266,7 +264,7 @@ fn number(s: &str) -> Option<(f64, &str)> {
 /// leading number of the text before any tolerance, after a diameter, radius or reference
 /// bracket.
 pub(crate) fn label_value(label: &str) -> Option<f64> {
-    let label = label.trim();
+    let label = label.trim().trim_start_matches('(').trim_end_matches(')');
     if let Some((count, rest)) = number(label)
         && let Some(rest) = rest.trim_start().strip_prefix(['×', 'x'])
         && count.fract() == 0.0
@@ -282,7 +280,7 @@ pub(crate) fn label_value(label: &str) -> Option<f64> {
 /// The places a label's value is written to (draftwright's `_displayed_decimals`): the sheet's,
 /// unless the label is a bare number written to more.
 fn displayed_decimals(label: &str) -> usize {
-    let bare = label.trim().trim_start_matches(['⌀', 'Ø', 'ø', 'R', ' ']);
+    let bare = reference_body(label).trim_start_matches(['⌀', 'Ø', 'ø', 'R', ' ']);
     let is_bare = !bare.is_empty()
         && bare.chars().all(|c| c.is_ascii_digit() || c == '.')
         && bare.chars().filter(|&c| c == '.').count() <= 1
@@ -293,6 +291,15 @@ fn displayed_decimals(label: &str) -> usize {
         0
     };
     SHEET_DECIMALS.max(places)
+}
+
+fn reference_body(label: &str) -> &str {
+    let label = label.trim();
+    label
+        .strip_prefix('(')
+        .and_then(|body| body.strip_suffix(')'))
+        .unwrap_or(label)
+        .trim()
 }
 
 fn label_vs_measured(
@@ -309,10 +316,11 @@ fn label_vs_measured(
     }
     // A PMI label in inches states its unit (`pmi`'s `INCH`) and the record's own digits: its
     // value and its rounding are read in inches, then compared in millimetres.
-    let inch = label.split_whitespace().any(|t| t == "INCH");
+    let body = reference_body(label);
+    let inch = body.split_whitespace().any(|t| t == "INCH");
     let (unit, places) = if inch {
-        let digits: String = label
-            .trim()
+        let digits: String = body
+            .trim_start_matches('(')
             .chars()
             .take_while(|c| c.is_ascii_digit() || *c == '.')
             .collect();
@@ -330,7 +338,11 @@ fn label_vs_measured(
     let measured = page / scale;
     let shift = (value - measured).abs();
     if shift <= unit * 0.5 * 10f64.powi(-places) + 1e-9 {
-        if shift > NOMINAL_SHIFT_FLOOR {
+        if shift > NOMINAL_SHIFT_FLOOR
+            && !(precision.is_some()
+                && label.trim().starts_with('(')
+                && label.trim().ends_with(')'))
+        {
             rounded.push((shift, label.to_string(), measured));
         }
         return None;
@@ -789,11 +801,13 @@ mod tests {
         assert_eq!(label_value("7.5 ±0.1"), Some(7.5));
         assert_eq!(label_value("(25)"), Some(25.0));
         assert_eq!(label_value("4× ⌀8.5 THRU"), Some(8.5));
+        assert_eq!(label_value("(4× ⌀8.5 THRU)"), Some(8.5));
         assert_eq!(label_value("3× 20"), Some(20.0));
         assert_eq!(label_value("M10"), Some(10.0));
         assert_eq!(label_value("THRU"), None);
         assert_eq!(displayed_decimals("40"), 1);
         assert_eq!(displayed_decimals("4.45"), 2);
+        assert_eq!(displayed_decimals("(25.125)"), 3);
         assert_eq!(displayed_decimals("12 ±0.05"), 1);
     }
 }

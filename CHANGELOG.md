@@ -14,6 +14,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
   dimension without a page-fit warning or scale-change fix (#331). Retain existing
   carriers when the finished assembly cannot fit at the requested pair.
 
+- Keep the general-tolerance remedy local to the title block, without pinning paper, scale
+  or layout. Honour deliberate reference precision, including bracketed mm and inch labels
+  (#299).
+
 ## 0.2.13 (2026-11-08)
 
 On quiddity-rust 0.4.9, now from crates.io (was 0.4.8 from a git tag). This release makes

@@ -411,6 +411,11 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
     for problem in &mut plan.problems {
         let mut fixes = problem.offered_fixes();
         for fix in &mut fixes {
+            // Choosing the title-block tolerance changes no view placement. Keep
+            // this offer local without turning automatic paper selection into a pin.
+            if !fix.ops.is_empty() && fix.ops.iter().all(|op| op.path == "sheet/title/tolerance") {
+                continue;
+            }
             if fix.scope() != Scope::Local {
                 if plan.spec.sheet.keep_layout == Some(true)
                     && fix.scope() == Scope::Sheet
