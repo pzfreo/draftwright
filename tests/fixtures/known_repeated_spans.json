@@ -43,7 +43,7 @@
     "part": "nist_ftc_10_asme1_rb",
     "items": [
       "d:f:hole_pattern:f200/location.length.z",
-      "d:step_level/step_height.length.h12_5"
+      "d:step_level/step_height.length.f165"
     ],
     "kind": "span",
     "verdict": "rust-correct",

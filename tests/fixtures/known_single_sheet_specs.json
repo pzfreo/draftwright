@@ -9118,7 +9118,7 @@
         "d:f:hole_pattern:f200/location.length.z": {
           "tolerance": "\u00b10.1"
         },
-        "d:step_level/step_height.length.h12_5": {
+        "d:step_level/step_height.length.f165": {
           "tolerance": "\u00b10.1"
         }
       },
@@ -9168,7 +9168,7 @@
         "d:f:hole_pattern:f200/location.length.z": {
           "tolerance": "\u00b10.1"
         },
-        "d:step_level/step_height.length.h12_5": {
+        "d:step_level/step_height.length.f165": {
           "tolerance": "\u00b10.1"
         }
       },
@@ -9181,7 +9181,7 @@
         "d:f:hole_pattern:f200/location.length.z": {
           "tolerance": "\u00b10.1"
         },
-        "d:step_level/step_height.length.h12_5": {
+        "d:step_level/step_height.length.f165": {
           "tolerance": "\u00b10.2"
         }
       },
@@ -9208,7 +9208,7 @@
         "d:f:hole_pattern:f200/location.length.z": {
           "tolerance": "\u00b10.1"
         },
-        "d:step_level/step_height.length.h12_5": {
+        "d:step_level/step_height.length.f165": {
           "tolerance": "\u00b10.2"
         }
       },
