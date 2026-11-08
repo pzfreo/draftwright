@@ -5,7 +5,7 @@ Recognised springs default to the ISO 2162-1 simplified outline, end coils and c
 Use the additive spec/2 feature override to draw the complete wire geometry:
 
 ```json
-{"schema":"draftwright.spec/2","features":{"f:helical_spring:1":{"spring":"full"}}}
+{"schema":"draftwright.spec/2","features":{"f:helical_spring:f0":{"spring":"full"}}}
 ```
 
 `features/<feature-id>/spring` accepts `"simplified"` or `"full"`. It applies only to that recognised spring. Remove the field to restore the default. The normal Spec edit operations support setting and removing it. Full depiction retains the data table and the two spring dimensions; it does not create individual wire-segment hole, boss or fillet requirements.
