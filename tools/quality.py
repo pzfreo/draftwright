@@ -846,7 +846,7 @@ def random_pins(plan, name, seed, count):
     # redundant dimension (cgb203's repeated `180`, 2026-10-27) must not turn a pin cell into an
     # error, and pinning all candidates is at least as demanding as pinning `count` of them.
     count = min(count, len(candidates))
-    spec = {"schema": "draftwright.spec/2"}
+    spec = {"schema": "draftwright.spec/3"}
     for id_, kind, place in candidates[:count]:
         spec.setdefault(kind, {})[id_[2:] if kind == "views" else id_] = {"place": place}
     return spec, [c[0] for c in candidates[:count]], len(candidates)
