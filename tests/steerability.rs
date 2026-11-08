@@ -1141,8 +1141,7 @@ fn steer_308_refusal_boundary() {
         "not in draftwright's table",
     );
     let mut s = input("inline-293");
-    s["features"] =
-        json!({"f:hole:f9":{"note":"LOCATED ALONG FLANGE", "note_satisfies":["location.length.z"]}});
+    s["features"] = json!({"f:hole:f9":{"note":"LOCATED ALONG FLANGE", "note_satisfies":["location.length.z"]}});
     c.accepts(
         BRACKET,
         &s,
