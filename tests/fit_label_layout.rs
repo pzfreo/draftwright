@@ -85,7 +85,7 @@ fn clear_label(plan: &Plan, id: &str, text: &str) {
 fn editor_spindle_g6_label_clears_dimension_lines_and_arrows() {
     let a = spindle();
     let default = model::plan_recovered(&a, &Spec::default()).unwrap();
-    clear_label(&default, "d:f:turned_step:1/step.diameter", "ø10 g6");
+    clear_label(&default, "d:f:turned_step:f2/step.diameter", "ø10 g6");
     let mut spec = Spec::default();
     spec.sheet.fit_deviations = Some(true);
     let plan = model::plan_recovered(&a, &spec).unwrap();
@@ -94,7 +94,7 @@ fn editor_spindle_g6_label_clears_dimension_lines_and_arrows() {
     assert_eq!(plan.sheet.scale, "1:1");
     clear_label(
         &plan,
-        "d:f:turned_step:1/step.diameter",
+        "d:f:turned_step:f2/step.diameter",
         "ø10 g6 -0.005\n-0.014",
     );
     let h6 = plan

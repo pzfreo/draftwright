@@ -785,7 +785,7 @@ fn holes_of_different_requirements_are_called_out_apart() {
     assert!(
         plan.dimensions
             .iter()
-            .any(|d| d.id.contains("hole_pattern:2/grid_pitch"))
+            .any(|d| d.id.contains("hole_pattern:f77/grid_pitch"))
     );
 }
 
@@ -1263,7 +1263,7 @@ fn an_external_diameter_annotates_the_turned_size_with_its_signs() {
     };
     assert_eq!(label("d:envelope/od.diameter"), "2× ø130 -0.014/-0.039");
     assert_eq!(
-        label("d:f:turned_step:3/step.diameter"),
+        label("d:f:turned_step:f89/step.diameter"),
         "ø70 -0.03/-0.06 OD"
     );
     // bolt_thread_knurl's shank: the turned step's ø6 takes its band, and nothing restates it.
@@ -1271,7 +1271,7 @@ fn an_external_diameter_annotates_the_turned_size_with_its_signs() {
     let d = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:turned_step:3/step.diameter")
+        .find(|d| d.id == "d:f:turned_step:f6/step.diameter")
         .unwrap();
     assert_eq!(d.label, "ø6 0/-0.008");
     assert!(d.basis.contains("lower_ap242_external_diameter_tolerances"));

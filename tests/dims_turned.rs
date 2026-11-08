@@ -332,7 +332,7 @@ fn the_overall_finishes_the_default_baseline_and_a_partial_profile_keeps_its_len
         strs(&[
             ("d:envelope/od.diameter", "ø30"),
             ("d:envelope/height.length", "70"),
-            ("d:f:turned_step:f0/step.length", "40"),
+            ("d:f:turned_step:1/step.length", "40"),
         ])
     );
     let height = plan
@@ -383,22 +383,22 @@ fn repeated_lengths_and_twin_flanges_are_stated_once() {
         strs(&[
             ("d:envelope/od.diameter", "2× ø30"),
             ("d:envelope/height.length", "70"),
-            ("d:f:turned_step:f6/step.diameter", "ø20"),
-            ("d:f:turned_step:f0/step.length", "23.34"),
-            ("d:f:turned_step:f6/step_position.length", "46.66"),
+            ("d:f:turned_step:2/step.diameter", "ø20"),
+            ("d:f:turned_step:1/step.length", "23.34"),
+            ("d:f:turned_step:2/step_position.length", "46.66"),
         ])
     );
     let chain = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:turned_step:f0/step.length")
+        .find(|d| d.id == "d:f:turned_step:1/step.length")
         .unwrap();
     let members: Vec<&str> = chain
         .measurements
         .iter()
         .map(|m| m.feature.as_str())
         .collect();
-    assert_eq!(members, ["f:turned_step:f0"]);
+    assert_eq!(members, ["f:turned_step:1"]);
     let od = plan
         .dimensions
         .iter()
@@ -421,8 +421,8 @@ fn repeated_lengths_and_twin_flanges_are_stated_once() {
         strs(&[
             ("d:envelope/od.diameter", "ø30"),
             ("d:envelope/height.length", "70"),
-            ("d:f:turned_step:f0/step.diameter", "2× ø30"),
-            ("d:f:turned_step:f0/step.length", "40"),
+            ("d:f:turned_step:1/step.diameter", "2× ø30"),
+            ("d:f:turned_step:1/step.length", "40"),
         ])
     );
 }
@@ -442,13 +442,13 @@ fn equal_z_bands_share_a_callout_and_a_bore_sized_band_reads_od() {
         strs(&[
             ("d:envelope/od.diameter", "ø30"),
             ("d:envelope/height.length", "70"),
-            ("d:f:turned_step:f0/step.diameter", "2× ø16"),
+            ("d:f:turned_step:1/step.diameter", "2× ø16"),
         ])
     );
     let pair = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:turned_step:f0/step.diameter")
+        .find(|d| d.id == "d:f:turned_step:1/step.diameter")
         .unwrap();
     assert_eq!(pair.measurements.len(), 2);
     assert_eq!(pair.measurements[1].feature, "f:turned_step:3");
@@ -468,7 +468,7 @@ fn equal_z_bands_share_a_callout_and_a_bore_sized_band_reads_od() {
     let d = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:turned_step:f0/step.diameter")
+        .find(|d| d.id == "d:f:turned_step:1/step.diameter")
         .unwrap();
     assert_eq!(d.label, "2× ø16 OD");
 }
@@ -500,12 +500,12 @@ fn a_part_turned_about_y_reads_its_diameters_end_on() {
         strs(&[
             ("d:envelope/od.diameter", "ø30"),
             ("d:envelope/depth.length", "70"),
-            ("d:f:turned_step:f0/step.diameter", "ø20"),
-            ("d:f:turned_step:f6/step.diameter", "ø24"),
+            ("d:f:turned_step:1/step.diameter", "ø20"),
+            ("d:f:turned_step:2/step.diameter", "ø24"),
             ("d:f:turned_step:3/step.diameter", "ø20"),
             ("d:f:turned_step:4/step.length", "40"),
             ("d:f:turned_step:3/step_position.length", "50"),
-            ("d:f:turned_step:f6/step_position.length", "60"),
+            ("d:f:turned_step:2/step_position.length", "60"),
         ])
     );
 }
@@ -718,8 +718,8 @@ fn a_short_shoulder_never_erases_its_neighbours_lengths() {
     assert_eq!(
         ids,
         [
-            "d:f:turned_step:f0/step.length",
-            "d:f:turned_step:f6/step.length",
+            "d:f:turned_step:1/step.length",
+            "d:f:turned_step:2/step.length",
             "d:f:turned_step:3/step.length",
         ],
         "{got:?}"
@@ -858,7 +858,7 @@ fn lands_between_equal_grooves_state_the_diameter_once_and_close_their_chain() {
         .collect();
     assert_eq!(
         lands,
-        ["f:turned_step:f3", "f:turned_step:f7", "f:turned_step:f8"]
+        ["f:turned_step:1", "f:turned_step:2", "f:turned_step:3"]
     );
     assert!(
         !plan
@@ -880,7 +880,7 @@ fn lands_between_equal_grooves_state_the_diameter_once_and_close_their_chain() {
         .filter(|m| m.parameter == "groove.length")
         .map(|m| m.feature.as_str())
         .collect();
-    assert_eq!(claimed, ["f:groove:f7", "f:groove:f12"]);
+    assert_eq!(claimed, ["f:groove:1", "f:groove:2"]);
     // Every land's diameter is credited by lint, through the overall diameter's claims.
     let ledger = ledger(&a, &plan);
     assert!(
@@ -891,7 +891,7 @@ fn lands_between_equal_grooves_state_the_diameter_once_and_close_their_chain() {
         "{ledger:?}"
     );
     // The 46 land closes the chain 10 + 2 + 46 + 2 + 10 with the 70 overall.
-    let middle = "d:f:turned_step:f7/step.length";
+    let middle = "d:f:turned_step:2/step.length";
     assert!(plan.dimensions.iter().all(|d| d.id != middle));
     let covered = plan.omitted.iter().find(|o| o.id == middle).unwrap();
     assert!(
@@ -903,8 +903,8 @@ fn lands_between_equal_grooves_state_the_diameter_once_and_close_their_chain() {
     let reference = plan.dimensions.iter().find(|d| d.id == middle).unwrap();
     assert_eq!(reference.label, "(46)");
     for id in [
-        "d:f:turned_step:f3/step.length",
-        "d:f:turned_step:f8/step.length",
+        "d:f:turned_step:1/step.length",
+        "d:f:turned_step:3/step.length",
         "d:envelope/height.length",
     ] {
         let d = plan.dimensions.iter().find(|d| d.id == id).unwrap();
@@ -917,7 +917,7 @@ fn lands_between_equal_grooves_state_the_diameter_once_and_close_their_chain() {
 /// overall length; with a member on another solid, or no solid filling the box, none is walked.
 #[test]
 fn a_chain_on_the_solid_that_fills_the_box_closes_among_several() {
-    let middle = "d:f:turned_step:f6/step.length";
+    let middle = "d:f:turned_step:2/step.length";
     let mut a = lands_between_grooves();
     a.solid_count = Some(2);
     let body: Vec<usize> = a.features.iter().flat_map(|f| f.faces.clone()).collect();

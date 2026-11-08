@@ -1996,7 +1996,7 @@ fn a_rungs_witnesses_stand_on_its_levels_support() {
     for (name, analysis, plan) in planned() {
         let [lo, hi] = analysis.envelope;
         for d in &plan.dimensions {
-            if !d.id.starts_with("d:step_level/step_height.length.h") {
+            if !d.id.starts_with("d:step_level/step_height.length.f") {
                 continue;
             }
             let (Some(p), Some(v)) = (&d.placed, plan.views.iter().find(|v| v.id == d.view)) else {

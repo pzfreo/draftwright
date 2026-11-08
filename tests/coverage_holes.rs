@@ -656,7 +656,7 @@ fn inclined_holes_and_bosses_are_called_out_where_seen_most_nearly_end_on() {
         .filter(|q| q.code == "feature_not_dimensioned")
         .flat_map(|q| q.subjects.iter().map(String::as_str))
         .collect();
-    assert_eq!(unstated, ["f:hole:1", "f:hole:f9", "f:boss:3", "f:boss:4"]);
+    assert_eq!(unstated, ["f:hole:1", "f:hole:2", "f:boss:3", "f:boss:4"]);
     let findings = lint::check(&a, &marks(&a));
     assert!(
         !findings

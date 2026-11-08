@@ -150,10 +150,10 @@ fn grooves_and_flats_match_draftwrights_sheets() {
             &[
                 "d:f:groove:f214/groove.length",
                 "d:f:groove:f217/groove.length",
-                "d:f:flat:1/flat.length",
+                "d:f:flat:f139/flat.length",
             ]
         } else {
-            &["d:f:flat:1/flat.length"]
+            &["d:f:flat:f11/flat.length"]
         };
         assert_eq!(ours, want, "{name}");
         for code in ["dimensions_not_ported", "feature_not_dimensioned"] {
@@ -309,7 +309,7 @@ fn a_record_that_cannot_be_stated_is_reported() {
     assert!(items(&plan).is_empty());
     assert_eq!(
         codes(&plan, "feature_not_dimensioned"),
-        ["f:flat:1", "f:flat:f13"]
+        ["f:flat:f11", "f:flat:f13"]
     );
     let messages: Vec<&str> = plan
         .problems

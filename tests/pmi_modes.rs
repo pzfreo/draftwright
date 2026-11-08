@@ -552,7 +552,7 @@ fn one_pmi_axis_does_not_cover_an_unrelated_coincident_hole_axis() {
         .iter()
         .filter(|d| !d.id.starts_with("d:pmi:"))
         .flat_map(|d| &d.measurements)
-        .any(|m| m.feature == "f:hole:4" && m.parameter == "location.length.y");
+        .any(|m| m.feature == "f:hole:f9" && m.parameter == "location.length.y");
     assert!(engine, "the unrelated ⌀8 hole still needs its y location");
 }
 #[test]

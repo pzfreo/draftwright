@@ -200,7 +200,7 @@ fn ctc01_prints_the_authored_bands_as_draftwright_does() {
     let s = spec(json!({
         "dimensions": {
             "d:f:hole_pattern:f77/bore.diameter": { "tolerance": "±0.05" },
-            "d:f:fillet:f19/fillet.radius": { "tolerance": "±0.5" },
+            "d:f:fillet:f49/fillet.radius": { "tolerance": "±0.5" },
             "d:f:slot:f4/slot_width.length": { "tolerance": "+0.1 -0" },
             "d:f:polygonal_boss:f61/polygon_across_flats.length": { "tolerance": "±0.2" },
             "d:envelope/height.length": { "tolerance": "±1" }
@@ -215,7 +215,7 @@ fn ctc01_prints_the_authored_bands_as_draftwright_does() {
             "4× ⌀35 ±0.05 THRU",
             "tolerance",
         ),
-        ("d:f:fillet:f19/fillet.radius", "7× R50 ±0.5", "tolerance"),
+        ("d:f:fillet:f49/fillet.radius", "7× R50 ±0.5", "tolerance"),
         // Python prints "40 +0.1 -0.0"; ISO 129-1 writes a zero deviation 0, unsigned.
         ("d:f:slot:f4/slot_width.length", "40 +0.1 0", "tolerance"),
         (
@@ -237,7 +237,7 @@ fn ctc01_prints_the_authored_bands_as_draftwright_does() {
     // past the plan's reserved area with its longer label 7× R50 ±0.5; its leader now stands
     // where either label fits.)
     let bare = model::plan(&a, &Spec::default()).unwrap();
-    let added = "p:annotation_outside_area:d:f:fillet:f19/fillet.radius|v:plan";
+    let added = "p:annotation_outside_area:d:f:fillet:f49/fillet.radius|v:plan";
     assert_eq!(
         bare.problems
             .iter()
@@ -325,7 +325,7 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     assert!(e.message.contains("d:envelope/width.length"), "{e}");
     assert_eq!(e.choices, ["±0.05", "+0.1 -0.02"]);
     // A fit from outside draftwright's table, of the wrong case, or on a feature that takes none.
-    let hole = "f:hole:1";
+    let hole = "f:hole:f6";
     let class_only = model::plan(&a, &spec(json!({"features":{hole:{"fit":"K7"}}}))).unwrap();
     assert!(
         !class_only
@@ -354,8 +354,8 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     assert!(!label(&p, "d:f:hole_pattern:f6/bore.diameter").contains("K7"));
     // A single boss has a unique callout, so a valid class outside the table prints.
     let (_, boss) = analysed("boss_circle");
-    let p = model::plan(&boss, &spec(json!({"features":{"f:boss:f0":{"fit":"m9"}}}))).unwrap();
-    assert!(label(&p, "d:f:boss:f0/boss.diameter").contains("m9"));
+    let p = model::plan(&boss, &spec(json!({"features":{"f:boss:1":{"fit":"m9"}}}))).unwrap();
+    assert!(label(&p, "d:f:boss:1/boss.diameter").contains("m9"));
     assert!(
         !p.problems
             .iter()
@@ -363,10 +363,10 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     );
     let p = model::plan(
         &boss,
-        &spec(json!({"sheet":{"fit_deviations":true}, "features":{"f:boss:f0":{"fit":"m9"}}})),
+        &spec(json!({"sheet":{"fit_deviations":true}, "features":{"f:boss:1":{"fit":"m9"}}})),
     )
     .unwrap();
-    assert!(label(&p, "d:f:boss:f0/boss.diameter").contains("m9"));
+    assert!(label(&p, "d:f:boss:1/boss.diameter").contains("m9"));
     assert!(
         p.problems
             .iter()
@@ -407,16 +407,16 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     let (_, b) = analysed("boss_circle");
     let e = model::plan(
         &b,
-        &spec(json!({ "features": { "f:boss:f0": { "fit": "H7" } } })),
+        &spec(json!({ "features": { "f:boss:1": { "fit": "H7" } } })),
     )
     .unwrap_err();
     assert!(e.message.starts_with("\"H7\" reads as \"h7\""), "{e}");
     let plan = model::plan(
         &b,
-        &spec(json!({ "features": { "f:boss:f0": { "fit": "h7" } } })),
+        &spec(json!({ "features": { "f:boss:1": { "fit": "h7" } } })),
     )
     .unwrap();
-    assert_eq!(label(&plan, "d:f:boss:f0/boss.diameter"), "ø12 h7");
+    assert_eq!(label(&plan, "d:f:boss:1/boss.diameter"), "ø12 h7");
 }
 
 /// Nothing the spec authors is dropped in silence: a tolerance on a dimension the plan leaves
@@ -603,7 +603,7 @@ fn a_toleranced_height_keeps_its_own_dimension() {
     }
     b.parameters.insert("location".into(), top.into());
     b.parameters.insert("height".into(), (hi[1] - lo[1]).into());
-    let id = "d:f:boss:f6/boss_height.length";
+    let id = "d:f:boss:f4/boss_height.length";
     let heights = |plan: &Plan| {
         plan.dimensions
             .iter()

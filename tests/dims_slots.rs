@@ -241,7 +241,7 @@ fn ftc06_bosses_are_counted_called_out_and_their_heights_stated() {
         shared
             .measurements
             .iter()
-            .any(|m| m.feature == "step_level" && m.parameter == "step_height.length.f11")
+            .any(|m| m.feature == "step_level" && m.parameter == "step_height.length.h38_1")
     );
     let bosses = of_kind(&a, "boss");
     for d in plan.dimensions.iter().filter(|d| {
@@ -320,7 +320,7 @@ fn slot_and_boss_items_can_be_omitted_by_id() {
         .map(|d| d.id.clone())
         .collect();
     // Its diameter; its height is conveyed by the hole callout on whose floor it stands (ADR1-8).
-    assert_eq!(ids, ["d:f:boss:f6/boss.diameter"]);
+    assert_eq!(ids, ["d:f:boss:f4/boss.diameter"]);
     let mut spec = Spec::default();
     spec.dimensions.insert(
         ids[0].clone(),
@@ -657,7 +657,7 @@ fn a_boss_height_between_the_parts_own_faces_is_the_overall_extents() {
         .unwrap();
     assert_eq!(
         (callout.id.as_str(), callout.label.as_str()),
-        ("d:f:hole:f10/bore.diameter", "⌀12.990 ↧ 5.73")
+        ("d:f:hole:f8/bore.diameter", "⌀12.990 ↧ 5.73")
     );
     // Flush with both faces of the part, its height is the overall depth's: one fact, one owner.
     let [lo, hi] = a.envelope;

@@ -171,14 +171,14 @@ fn the_spindles_bracketed_length_is_a_reference_with_what_determines_it() {
         .iter()
         .find(|d| d.label == "(12)")
         .expect("the spindle's (12)");
-    assert_eq!(d.id, "d:f:turned_step:3/step.length");
+    assert_eq!(d.id, "d:f:turned_step:f9/step.length");
     assert!(d.reference);
     assert_eq!(
         d.determined_by,
         [
             "d:envelope/height.length",
-            "d:f:turned_step:1/step.length",
-            "d:f:turned_step:2/step.length"
+            "d:f:turned_step:f2/step.length",
+            "d:f:turned_step:f6/step.length"
         ]
     );
     for id in &d.determined_by {

@@ -81,7 +81,7 @@ fn leaders_ending_on_hidden_edges_are_reported() {
     for (file, id, view) in [
         (
             "gramel/GRM-03_thumbwheel_drive_screw.step",
-            "d:f:hole:1/bore.diameter",
+            "d:f:hole:f12/bore.diameter",
             "v:side",
         ),
         (
