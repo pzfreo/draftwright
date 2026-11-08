@@ -411,7 +411,7 @@ mod tests {
         let x = mark("step_level", "20", &["step_position.length.f7_0"]);
         let y = mark("step_level", "40", &["step_position.length.f7_1"]);
         assert!(shoulder_coverage(&a, &[x.clone(), y]).is_empty());
-        let missing = shoulder_coverage(&a, &[x.clone()]);
+        let missing = shoulder_coverage(&a, std::slice::from_ref(&x));
         assert_eq!(missing.len(), 1);
         assert_eq!(
             missing[0].requirements[0].parameter,
