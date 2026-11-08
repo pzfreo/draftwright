@@ -260,10 +260,10 @@ fn steer_293_inclined_hole() {
     let r = rendered(BRACKET, &p);
     let mut c = Checks::default();
     for code in ["feature_not_located", "feature_not_dimensioned"] {
-        c.want(code, !missing(r, code, "f:hole:2", ""));
+        c.want(code, !missing(r, code, "f:hole:f9", ""));
     }
     let mut note = s;
-    note["features"] = json!({"f:hole:2":{"note":"LOCATED ALONG FLANGE AND ACROSS", "note_satisfies":["location.length.z"]}});
+    note["features"] = json!({"f:hole:f9":{"note":"LOCATED ALONG FLANGE AND ACROSS", "note_satisfies":["location.length.z"]}});
     c.accepts(
         BRACKET,
         &note,
@@ -1142,7 +1142,7 @@ fn steer_308_refusal_boundary() {
     );
     let mut s = input("inline-293");
     s["features"] =
-        json!({"f:hole:2":{"note":"LOCATED ALONG FLANGE", "note_satisfies":["location.length.z"]}});
+        json!({"f:hole:f9":{"note":"LOCATED ALONG FLANGE", "note_satisfies":["location.length.z"]}});
     c.accepts(
         BRACKET,
         &s,
@@ -1257,7 +1257,7 @@ fn steer_310_concentric_pattern() {
             !missing(
                 r,
                 "hole_pattern_requirement_missing",
-                "f:hole_pattern:1",
+                "f:hole_pattern:f5",
                 role,
             ),
         );
@@ -1272,7 +1272,7 @@ fn steer_310_concentric_pattern() {
                 .any(|f| f.code == "hole_pattern_requirement_missing"
                     && f.requirements
                         .iter()
-                        .any(|q| q.feature == "f:hole_pattern:1" && q.parameter == role)),
+                        .any(|q| q.feature == "f:hole_pattern:f0" && q.parameter == role)),
             "an unstated off-axis grid location must still be reported: {role}"
         );
     }
@@ -2755,7 +2755,7 @@ fn unavailable_named_section_keeps_automatic_cut_and_uses_requested_label() {
         p.plan.problems.iter().any(|p| p.code == "section_not_shown"
             && p.message.contains("section B through f:fillet:f17"))
     );
-    s["views"] = json!({"plan":{}, "section_bb":{"omit":true}, "sections":[{"id":"B", "through":"f:section_recess:1"}]});
+    s["views"] = json!({"plan":{}, "section_bb":{"omit":true}, "sections":[{"id":"B", "through":"f:section_recess:f6"}]});
     let omitted = planned(SHAFT, &s);
     let warning = omitted
         .plan
