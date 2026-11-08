@@ -35,9 +35,10 @@ use crate::title_block::{self, TitleCell};
 /// horizontal face levels (`levels`), version 4 their supports and the step risers
 /// (`level_supports`, `risers`), version 5 the families the recogniser did not give
 /// (`unrecognised`), version 6 the principal boundary faces' loops lint's profile check reads
-/// (`principal_profiles`), version 7 the part's AP242 PMI (`pmi`).
+/// (`principal_profiles`), version 7 the part's AP242 PMI (`pmi`), and version 8 the
+/// supporting faces of ladder evidence and optional legacy feature identities.
 pub const ANALYSIS_SCHEMA: &str = "draftwright.analysis/8";
-/// The analyses [`plan`] reads: this version, and versions 2 to 6 (it reads them with none of
+/// The analyses [`plan`] reads: this version, and versions 2 to 7 (it reads them with none of
 /// what they lack).
 pub const ANALYSIS_SCHEMAS: [&str; 7] = [
     "draftwright.analysis/2",
@@ -53,7 +54,8 @@ pub const ANALYSIS_SCHEMAS: [&str; 7] = [
 /// (version 1 by its Part 21 instance, `pmi:<category>:#<n>`); the carrying view is the entry's
 /// `view`. A version 1 spec is read through [`migrate`].
 pub const SPEC_SCHEMA: &str = "draftwright.spec/3";
-/// The specs [`plan`] reads: this version, and version 1 through [`migrate`].
+/// Version 3 anchors feature and ladder IDs on faces. Versions 1 and 2 are read through
+/// [`migrate`] until [`crate::stable_ids::LAST_LEGACY_SPEC_READER`].
 pub const SPEC_SCHEMAS: [&str; 3] = ["draftwright.spec/1", "draftwright.spec/2", SPEC_SCHEMA];
 pub const PLAN_SCHEMA: &str = "draftwright.plan/1";
 
@@ -9354,8 +9356,9 @@ fn retain_short_leaders(analysis: &Analysis, plan: &mut Plan, bare: &Plan) {
     }
 }
 
-/// *spec* as this version reads it (`draftwright.spec/2`): a version 2 spec as it is; a version
-/// 1 spec with each dimension's key rewritten to the form it now has (R1 invariant 9: a change
+/// *spec* as this version reads it (`draftwright.spec/3`), with the exact face-ID map applied
+/// throughout its keys and string references. A version 1 spec additionally has each
+/// dimension's key rewritten to the form it now has (R1 invariant 9: a change
 /// of form is read, never guessed at):
 /// - `d:<feature>/<parameter>@<view>` becomes `d:<feature>/<parameter>`: the view was where the
 ///   plan routed it, not a decision, so the entry does not keep it as its `view`;
@@ -9366,7 +9369,7 @@ fn retain_short_leaders(analysis: &Analysis, plan: &mut Plan, bare: &Plan) {
 ///   kept as it was, for [`plan`] to refuse with the nearest IDs.
 ///
 /// Two keys that come to one are ambiguous, and refused with both as the candidates. Anything
-/// but a version 1 or 2 spec is refused.
+/// but a known schema is refused; old schemas expire at the named legacy-reader cutoff.
 pub fn migrate(spec: &Spec, analysis: &Analysis) -> Result<Spec, Invalid> {
     if spec.schema == SPEC_SCHEMA {
         return Ok(spec.clone());

@@ -11,9 +11,9 @@
 //! and declined to call it a feature). A record type the bridge does not know is refused.
 //!
 //! quiddity's derived hole patterns are kept beside the features (`Recognition::patterns`), each
-//! naming its member holes by feature ID, as `f:hole_pattern:<n>`, ranked by faces. Its derived
-//! slot patterns (`SlotArray`, `SlotGrid`) become `slot_pattern` features, `f:slot_pattern:<n>`
-//! ranked by faces like any feature, on their members' faces, whose `slots` parameter names the
+//! naming its member holes by feature ID, as `f:hole_pattern:f<lowest face>`. Its derived
+//! slot patterns (`SlotArray`, `SlotGrid`) become `slot_pattern` features, `f:slot_pattern:f<lowest face>`
+//! like any feature, on their members' faces, whose `slots` parameter names the
 //! member slots by feature ID in quiddity's order: the slot features the lint and dimension
 //! planners already take a `slot_pattern`'s faces to own. A member must be exactly one slot
 //! record, and the members' own pattern links (`dependents`) must agree, or the read is refused.
@@ -22,8 +22,8 @@
 //! version, the quiddity release that wrote it ([`QUIDDITY_VERSIONS`]), its coordinate space, its
 //! families and the record types each carries ([`RECORDS`]), and its derived collections.
 //!
-//! A feature's ID is `f:<kind>:<n>`: its rank, from 1, among the features of its kind ordered by
-//! their faces. Its fingerprint follows quiddity-rust's `docs/correspondence.md` until quiddity
+//! A feature's ID is `f:<kind>:f<lowest face>`; local numeric suffixes distinguish a shared
+//! lowest face, ordered by full face lists. The former rank is retained in `legacy_id`. Its fingerprint follows quiddity-rust's `docs/correspondence.md` until quiddity
 //! issues its own: family and subtype, intrinsic sizes, axis, position in the part's frame, and
 //! pattern count and pitch (a hole's or slot's in its pattern, and a slot pattern's own).
 
@@ -83,7 +83,7 @@ pub struct Recognition {
 pub struct HolePattern {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub legacy_id: Option<String>,
-    /// `f:hole_pattern:<n>`: its rank, from 1, among the patterns ordered by their faces.
+    /// `f:hole_pattern:f<lowest face>`, with a local suffix only on a shared anchor.
     pub id: String,
     /// `grid`, `bolt_circle` or `linear`, from the sizes quiddity gives it.
     pub arrangement: String,
