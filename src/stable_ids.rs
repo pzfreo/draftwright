@@ -248,6 +248,7 @@ fn unmapped(v: &Value, a: &Analysis) -> Vec<(String, String)> {
             while let Some((start, end)) = crate::revision_rename::next_id(rest) {
                 let id = &rest[start..end];
                 if id.starts_with("f:")
+                    && !id.starts_with("f:declared:")
                     && id
                         .rsplit(':')
                         .next()
@@ -422,6 +423,22 @@ mod tests {
             "f:hole_pattern:mounting": {"pattern":{"arrangement":"linear","members":["f:hole:f6","f:hole:f7"]}}
         }})).unwrap();
         crate::recognition_corrections::check(&spec).unwrap();
+    }
+
+    #[test]
+    fn numeric_declared_names_remain_authored_not_unmigrated_ranks() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/mounting_plate.step");
+        let (_, a) = crate::model::analyse_native(&path).unwrap();
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "feature_declarations":[{"id":"f:declared:123", "kind":"hole", "faces":["face:6"]}]
+        }))
+        .unwrap();
+        let result = migrate(&spec, &a).unwrap();
+        assert_eq!(result.spec.feature_declarations[0].id, "f:declared:123");
+        assert!(result.migrated.is_empty());
+        assert!(result.unmapped.is_empty());
+        assert!(!result.ids.contains_key("f:declared:123"));
     }
 
     #[test]

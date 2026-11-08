@@ -601,11 +601,23 @@ pub fn lint_sheets(analysis: &Analysis, drawings: &[Drawing]) -> Vec<LintIssue> 
 
 /// Every ported rule's findings on a drawing whose annotations are *marks*.
 pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
-    let verified: Vec<_> = marks
+    let aliases = crate::geometry_ids::legacy_ids(analysis);
+    let mut verified: Vec<_> = marks
         .iter()
         .filter(|m| blends::verified_row(analysis, m))
         .cloned()
         .collect();
+    // Captured drawings can still carry exact legacy ladder claims. Resolve them
+    // from geometry evidence before judging the unchanged printed text.
+    for mark in &mut verified {
+        for claim in &mut mark.claims {
+            if claim.feature == "step_level"
+                && let Some(current) = aliases.get(&claim.parameter)
+            {
+                claim.parameter.clone_from(current);
+            }
+        }
+    }
     let printed = &verified;
     let (mut extra, scheme_issues) = schemes::evidence(analysis, printed);
     extra.extend(location::evidence(analysis, printed));
