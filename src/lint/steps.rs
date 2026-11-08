@@ -27,7 +27,7 @@
 //! owner's; here a claim on the ladder (`step_level`), a plate or the overall extents (`envelope`)
 //! must state the leg's length, or the part of the extent it leaves, as an annotation does.
 //! Python also matches each claim's drawn span to the interval; lint's marks carry no span, and
-//! the ladder's parameters name their value (`step_height.length.f6`), so the value stands in.
+//! the ladder's anchored claims identify the interval, while the printed value verifies it.
 
 use serde_json::Value;
 
@@ -183,7 +183,16 @@ impl Term {
                     && (c.parameter == self.parameter
                         || c.parameter
                             .strip_prefix(self.parameter.as_str())
-                            .is_some_and(|rest| rest.starts_with('.')))
+                            .is_some_and(|rest| rest.starts_with('.'))
+                        || (self.feature == "step_level"
+                            && matches!(
+                                c.parameter.as_str(),
+                                "step_height.length" | "step_position.length"
+                            )
+                            && self
+                                .parameter
+                                .strip_prefix(&c.parameter)
+                                .is_some_and(|rest| rest.starts_with('.'))))
             }) && holes::states(&m.text, self.value)
         })
     }
@@ -485,6 +494,26 @@ mod tests {
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].code, "through_step_requirement_unverifiable");
     }
+    #[test]
+    fn face_ladder_terms_keep_captured_generic_claims_and_check_the_value() {
+        for parameter in ["step_height.length", "step_position.length"] {
+            let term = Term::new("step_level", &format!("{parameter}.f6"), 10.);
+            let mark = |parameter: &str, text: &str| Mark {
+                name: "ladder".into(),
+                view: None,
+                text: text.into(),
+                claims: vec![Claim {
+                    feature: "step_level".into(),
+                    parameter: parameter.into(),
+                }],
+            };
+            assert!(term.stated(&[mark(parameter, "10")]));
+            assert!(term.stated(&[mark(&format!("{parameter}.f6"), "10")]));
+            assert!(!term.stated(&[mark(parameter, "11")]));
+            assert!(!term.stated(&[mark(&format!("{parameter}.f7"), "10")]));
+        }
+    }
+
     /// test_framed_step_family_evidence's legacy case, as draftwright's `stepped_block` fixture
     /// cuts it: a 20 × 10 step along y from the top edge of a 40 × 30 × 20 block. Its legs are
     /// stated by the ladder and the overall extents (the level 10 above the base and the height
