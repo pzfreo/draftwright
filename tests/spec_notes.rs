@@ -559,7 +559,11 @@ fn the_session_offers_finish_thread_knurl_and_note_paths() {
             .get("features/f:hole:f3/thread")
             .is_some()
     );
-    assert!(options["settable"].get("features/f:hole:f3/knurl").is_none());
+    assert!(
+        options["settable"]
+            .get("features/f:hole:f3/knurl")
+            .is_none()
+    );
 }
 
 #[test]
