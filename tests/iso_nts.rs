@@ -8,8 +8,6 @@ use std::path::Path;
 #[path = "common/corpus.rs"]
 mod corpus;
 
-use sha2::{Digest, Sha256};
-
 use draftwright::model::{self, NTS_CAPTION, NTS_CAPTION_ID, Plan, nts_caption_at};
 use draftwright::output::{Drawing, Drawn, Kind};
 
@@ -431,7 +429,7 @@ fn session_edits_remove_and_restore_the_caption_in_items_and_furniture() {
 /// `16× R7` callout was `d:f:fillet:3`). In v0.2.3 (#127), concave fillets move this
 /// same convex presenter to `d:f:fillet:16`. Their two radius entries become that one.
 fn hanger_renumbered(mut spec: model::Spec) -> model::Spec {
-    let fillet = spec.dimensions.remove("d:f:fillet:3/fillet.radius");
+    let fillet = spec.dimensions.remove("d:f:fillet:f14/fillet.radius");
     let blend = spec.dimensions.remove("d:f:blend:10/blend.radius");
     if let Some(entry) = fillet.or(blend) {
         spec.dimensions
@@ -440,23 +438,14 @@ fn hanger_renumbered(mut spec: model::Spec) -> model::Spec {
     spec
 }
 
-fn saved_spec(analysis: &model::Analysis, prefix: &str) -> model::Spec {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let saved: std::collections::BTreeMap<String, Vec<model::Spec>> = serde_json::from_slice(
-        &std::fs::read(root.join("tests/fixtures/known_single_sheet_specs.json")).unwrap(),
-    )
-    .unwrap();
-    saved[&analysis.binding.source_sha256]
-        .iter()
-        .find(|spec| {
-            let hash: String = Sha256::digest(serde_json::to_vec(spec).unwrap())
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
-            hash.starts_with(prefix)
-        })
-        .unwrap_or_else(|| panic!("missing single-sheet spec {prefix}"))
-        .clone()
+fn saved_spec(name: &str) -> model::Spec {
+    let input = match name {
+        "hanger-first" => include_str!("fixtures/layout/nts-hanger.spec.json"),
+        "hanger-review" => include_str!("fixtures/layout/review-hanger.spec.json"),
+        "mounting-plate" => include_str!("fixtures/layout/nts-mounting-plate.spec.json"),
+        _ => panic!("unknown saved regression input {name}"),
+    };
+    serde_json::from_str(input).unwrap()
 }
 
 #[test]
@@ -467,8 +456,8 @@ fn hanger_authored_dimensions_leave_the_nts_caption_clear_of_ink() {
         model::analyse_native(&corpus.join("ttt_inputs/sm-hanger.step")).unwrap();
     let font =
         draftwright::text::Font::open(&root.join("fonts").join(draftwright::dims::FONT)).unwrap();
-    for prefix in ["060815f5", "85c2add8"] {
-        let spec = hanger_renumbered(saved_spec(&analysis, prefix));
+    for prefix in ["hanger-first", "hanger-review"] {
+        let spec = hanger_renumbered(saved_spec(prefix));
         let plan = model::plan_recovered(&analysis, &spec).unwrap();
         assert_eq!(plan.sheet.size, "A4");
         assert_eq!(plan.sheet.scale, "1:2");
@@ -516,7 +505,7 @@ fn pinned_refits_snap_the_isometric_to_sheet_scale() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let (_, analysis) =
         model::analyse_native(&root.join("tests/fixtures/parts/mounting_plate.step")).unwrap();
-    let plan = model::plan_recovered(&analysis, &saved_spec(&analysis, "2894e20b")).unwrap();
+    let plan = model::plan_recovered(&analysis, &saved_spec("mounting-plate")).unwrap();
     assert_eq!(iso_ratio(&plan), 1.0);
     assert!(plan.captions.is_empty());
 }

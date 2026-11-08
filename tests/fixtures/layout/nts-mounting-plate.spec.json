@@ -1,0 +1,15 @@
+{
+  "schema": "draftwright.spec/3",
+  "sheet": {},
+  "views": {
+    "plan": {
+      "place": {
+        "align": "start",
+        "gap": 20.0,
+        "pinned": true,
+        "relative_to": "front",
+        "side": "right"
+      }
+    }
+  }
+}

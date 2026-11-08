@@ -282,7 +282,12 @@ fn ids(plan: &Plan) -> Vec<&str> {
 
 /// The correlated set (ARCH0015-2) a dimension belongs to: the step-height ladder, or the
 /// ladder's shoulders along one axis, as `dims::correlated_set` reads its ID.
-fn ladder_set(id: &str) -> Option<&str> {
+fn ladder_set<'a>(plan: &'a Plan, id: &'a str) -> Option<&'a str> {
+    let id = plan
+        .ids
+        .iter()
+        .find_map(|(old, new)| (new == id).then_some(old.as_str()))
+        .unwrap_or(id);
     const HEIGHTS: &str = "d:step_level/step_height.length";
     if id.starts_with(HEIGHTS) {
         return Some(HEIGHTS);
@@ -387,7 +392,9 @@ fn omitting_one_dimension_moves_no_other() {
                     .iter()
                     .copied()
                     .filter(|i| {
-                        i != gone && ladder_set(gone).is_some_and(|s| ladder_set(i) == Some(s))
+                        i != gone
+                            && ladder_set(&full, gone)
+                                .is_some_and(|s| ladder_set(&full, i) == Some(s))
                     })
                     .collect();
                 let whole = |id: &str| {
@@ -1127,7 +1134,10 @@ fn a_location_that_fits_on_neither_side_shares_a_held_lane() {
         // Slot n in a view.
         // Nothing off the sheet; no stranded slot location left to chain.
         ("nist/nist_ftc_08_asme1_rc.stp", &[][..]),
-        ("nist/nist_ftc_09_asme1_rd.stp", &["f78@front", "f86@front"][..]),
+        (
+            "nist/nist_ftc_09_asme1_rd.stp",
+            &["f78@front", "f86@front"][..],
+        ),
     ] {
         let (_, mut analysis) = model::analyse_native(&dir.join(file)).unwrap();
         if !slots.is_empty() {
