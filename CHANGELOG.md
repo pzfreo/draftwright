@@ -10,18 +10,17 @@ All notable changes to draftwright-rust are recorded here, in the style of
   suffixes only on a shared lowest face. Ladder heights and shoulder positions use their
   supporting faces, so resizing or inserting unrelated geometry does not rename items.
 
-### WASM API
-
-- `openSpec` includes `migrated: [{path, from, to}]` and `ids: {old: new}` alongside
-  `spec` and `set_aside`; the editor can migrate external saved references too.
-
-
 - `draftwright.analysis/8` retains the faces of level supports and risers and optional
   `legacy_id` values on recognised features and hole patterns. Spec reads use an exact
   whole-document identity map, with `migrated: [{path, from, to}]` and `ids: {old: new}`
   on plans and session/browser `openSpec` replies. Colliding renamed keys are refused.
 - `draftwright.spec/3` migration retains unknown keys. Specs `/1` and `/2` remain readable
   through 0.3.9; later releases explain conversion using that last compatible release.
+
+### WASM API
+
+- `openSpec` includes `migrated: [{path, from, to}]` and `ids: {old: new}` alongside
+  `spec` and `set_aside`; the editor can migrate external saved references too.
 
 ## 0.2.13 (2026-11-08)
 
