@@ -213,7 +213,7 @@ fn a_recess_at_both_mouths_says_both_sides() {
     let d = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:hole:1/bore.diameter")
+        .find(|d| d.id == "d:f:hole:f10/bore.diameter")
         .unwrap();
     // Line breaks are layout, which may split a term's words.
     let text = d

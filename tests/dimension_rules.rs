@@ -189,7 +189,7 @@ fn blind_and_through_holes_are_separate_requirements() {
         assert_eq!(
             located
                 .iter()
-                .filter(|f| **f == format!("f:hole:{h}"))
+                .filter(|f| **f == ["f:hole:f6", "f:hole:f7", "f:hole:f8", "f:hole:f9"][h - 1])
                 .count(),
             2,
             "f:hole:{h}"

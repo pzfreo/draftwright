@@ -1095,7 +1095,7 @@ fn a_callout_that_does_not_fit_its_lane_goes_beside_its_view() {
     let d = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:hole_pattern:1/bore.diameter")
+        .find(|d| d.id == "d:f:hole_pattern:f17/bore.diameter")
         .unwrap();
     let p = d.placed.as_ref().unwrap();
     let b = p.label_box;

@@ -159,10 +159,10 @@ fn grm05_states_its_step_diameters_and_lengths_as_draftwright_does() {
         strs(&[
             ("d:envelope/od.diameter", "ø10"),
             ("d:envelope/height.length", "32"),
-            ("d:f:turned_step:2/step.diameter", "ø6.25"),
-            ("d:f:turned_step:3/step.diameter", "ø6"),
-            ("d:f:turned_step:1/step.length", "14"),
-            ("d:f:turned_step:2/step_position.length", "19"),
+            ("d:f:turned_step:f4/step.diameter", "ø6.25"),
+            ("d:f:turned_step:f6/step.diameter", "ø6"),
+            ("d:f:turned_step:f0/step.length", "14"),
+            ("d:f:turned_step:f4/step_position.length", "19"),
         ])
     );
     let od = plan
@@ -177,7 +177,7 @@ fn grm05_states_its_step_diameters_and_lengths_as_draftwright_does() {
         .collect();
     assert_eq!(
         claims,
-        ["envelope/od.diameter", "f:turned_step:1/step.diameter"]
+        ["envelope/od.diameter", "f:turned_step:f0/step.diameter"]
     );
     assert!(
         reported(&plan, "dimensions_not_ported").is_empty()

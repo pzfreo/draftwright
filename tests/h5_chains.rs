@@ -785,7 +785,12 @@ fn cgb202_counts_its_equal_rods_once() {
         .flat_map(|n| {
             owners(
                 &p,
-                ["f:boss:f1815", "f:boss:f1824", "f:boss:f1833", "f:boss:f1842"][n - 3],
+                [
+                    "f:boss:f1815",
+                    "f:boss:f1824",
+                    "f:boss:f1833",
+                    "f:boss:f1842",
+                ][n - 3],
                 "boss_height.length",
             )
         })
@@ -904,7 +909,7 @@ fn m10063_a_rung_on_its_pockets_floor_is_conveyed_by_the_pocket_callout() {
     let a = trimmed("m10063");
     let p = model::plan(&a, &Spec::default()).unwrap();
     let rung = "d:step_level/step_height.length.f39";
-    let callout = "d:f:section_recess:3/pocket_width.length";
+    let callout = "d:f:section_recess:f25/pocket_width.length";
     assert!(!p.dimensions.iter().any(|d| d.id == rung));
     assert_eq!(covered_by(&p, rung), callout);
     assert_eq!(

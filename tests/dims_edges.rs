@@ -93,7 +93,7 @@ fn equal_fillets_share_one_counted_callout() {
     let c = callouts(&plan);
     assert_eq!(c.len(), 1, "{:?}", labels(&plan));
     let c = c[0];
-    assert_eq!(c.id, "d:f:fillet:1/fillet.radius");
+    assert_eq!(c.id, "d:f:fillet:f2/fillet.radius");
     assert_eq!((c.kind.as_str(), c.label.as_str()), ("callout", "4× R2"));
     assert_eq!(c.terms, ["4×", "R2"]);
     assert_eq!(c.view, "v:plan", "the fillets run along the part's z");
@@ -102,7 +102,7 @@ fn equal_fillets_share_one_counted_callout() {
     features.sort();
     assert_eq!(
         features,
-        ["f:fillet:1", "f:fillet:2", "f:fillet:3", "f:fillet:4"]
+        ["f:fillet:f2", "f:fillet:f3", "f:fillet:f7", "f:fillet:f8"]
     );
     assert!(
         c.measurements

@@ -742,7 +742,7 @@ fn a_hole_beside_a_round_boss_is_located_from_its_axis() {
             .unwrap()
             .at
     };
-    let (origin, beside) = (at("f:hole:1"), at("f:hole:2"));
+    let (origin, beside) = (at("f:hole:f10"), at("f:hole:f11"));
     let locations = |p: &model::Plan| -> Vec<(String, f64, Vec<String>)> {
         p.dimensions
             .iter()
@@ -764,13 +764,13 @@ fn a_hole_beside_a_round_boss_is_located_from_its_axis() {
     for (k, axis) in ["x", "y"].iter().enumerate() {
         let (_, value, claims) = found
             .iter()
-            .find(|(id, ..)| *id == format!("d:f:hole:2/location.length.{axis}"))
+            .find(|(id, ..)| *id == format!("d:f:hole:f11/location.length.{axis}"))
             .unwrap();
         assert!(
             (value - (beside[k] - origin[k]).abs()).abs() < 1e-6,
             "{axis}: {value}"
         );
-        assert!(claims.contains(&format!("f:hole:1 location.length.{axis}")));
+        assert!(claims.contains(&format!("f:hole:f10 location.length.{axis}")));
     }
     let d = model::render(&part, &a, &p, &font).unwrap();
     assert!(
@@ -785,7 +785,7 @@ fn a_hole_beside_a_round_boss_is_located_from_its_axis() {
     let rows: Vec<_> = p.hole_tables.iter().flat_map(|t| &t.rows).collect();
     assert!(!rows.is_empty());
     for r in &rows {
-        let hole = if r.feature == "f:hole:1" {
+        let hole = if r.feature == "f:hole:f10" {
             origin
         } else {
             beside
@@ -817,7 +817,7 @@ fn a_hole_beside_a_round_boss_is_located_from_its_axis() {
     assert_eq!(found.len(), 4, "{found:?}");
     for (id, value, _) in &found {
         let k = if id.ends_with('x') { 0 } else { 1 };
-        let hole = if id.starts_with("d:f:hole:1/") {
+        let hole = if id.starts_with("d:f:hole:f10/") {
             origin
         } else {
             beside
@@ -1014,7 +1014,7 @@ fn a_leader_to_a_coaxial_bore_leaves_its_centre_lines() {
     assert!(
         p.dimensions
             .iter()
-            .any(|d| d.id == "d:f:hole:1/bore.diameter" && d.placed.is_some())
+            .any(|d| d.id == "d:f:hole:f10/bore.diameter" && d.placed.is_some())
     );
     let along: Vec<_> = p
         .problems
@@ -1035,7 +1035,7 @@ fn a_leader_beside_a_coaxial_bores_centre_line_moves_off_it() {
     assert!(
         p.dimensions
             .iter()
-            .any(|d| d.id == "d:f:hole:1/bore.diameter" && d.placed.is_some())
+            .any(|d| d.id == "d:f:hole:f2/bore.diameter" && d.placed.is_some())
     );
     let along: Vec<_> = p
         .problems

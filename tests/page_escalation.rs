@@ -350,7 +350,7 @@ fn an_info_or_view_box_finding_is_not_a_hard_failure() {
     sheet_rule::assert_rule("m1000", &expected);
     assert!(!codes(&expected).contains(&"layout_recovery_exhausted"));
 
-    let id = "d:f:section_recess:4/seat_location.location.z";
+    let id = "d:f:section_recess:f25/seat_location.location.z";
     let mut first = model::plan_escalated(&analysis, &Spec::default()).unwrap();
     first.problems.push(model::Problem {
         id: format!("p:annotation_over_view:{id}:v:side"),
