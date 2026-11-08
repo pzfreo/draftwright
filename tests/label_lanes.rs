@@ -255,7 +255,7 @@ fn precise_labels_keep_their_span_after_the_final_inventory_settles() {
         let hole = p
             .dimensions
             .iter()
-            .find(|d| d.id == "d:f:hole:1/bore.diameter")
+            .find(|d| d.id == "d:f:hole:f13/bore.diameter")
             .unwrap();
         assert!((hole.measurements[0].value - 7.44654).abs() < 1e-4);
         assert_eq!(hole.label, "⌀7.4 ↧ 5.9");
