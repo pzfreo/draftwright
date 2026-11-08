@@ -152,9 +152,9 @@ fn a_document_of_an_unknown_version_is_refused() {
     older.schema = "draftwright.analysis/2".into();
     assert!(model::plan(&older, &Spec::default()).is_ok());
 
-    let spec: Spec = serde_json::from_value(json!({ "schema": "draftwright.spec/3" })).unwrap();
+    let spec: Spec = serde_json::from_value(json!({ "schema": "draftwright.spec/4" })).unwrap();
     let e = model::plan(&analysis, &spec).unwrap_err();
-    assert!(e.message.contains("draftwright.spec/3"), "{e}");
+    assert!(e.message.contains("draftwright.spec/4"), "{e}");
     assert_eq!(e.choices, model::SPEC_SCHEMAS);
     // Version 1 is read, through the migration.
     let spec: Spec = serde_json::from_value(json!({ "schema": "draftwright.spec/1" })).unwrap();
@@ -165,7 +165,7 @@ fn a_document_of_an_unknown_version_is_refused() {
     // Through the adapters' one entry point, it is the caller's to fix.
     let e = api::call(
         "plan",
-        &json!({ "step": fixture("parts/plate.step"), "spec": { "schema": "draftwright.spec/3" } }),
+        &json!({ "step": fixture("parts/plate.step"), "spec": { "schema": "draftwright.spec/4" } }),
     )
     .unwrap_err();
     assert_eq!(e.code, "invalid", "{e}");

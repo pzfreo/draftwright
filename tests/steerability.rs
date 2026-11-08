@@ -45,7 +45,7 @@ fn input(name: &str) -> Value {
     value
 }
 fn minimal() -> Value {
-    json!({"schema":"draftwright.spec/2"})
+    json!({"schema":"draftwright.spec/3"})
 }
 fn bytes(name: &str) -> Vec<u8> {
     let path = if name == CTC {

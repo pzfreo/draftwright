@@ -79,7 +79,7 @@ fn known_bad_specs_are_refused_and_existing_preflight_guidance_is_preserved() {
         json!(null),
         json!([]),
         json!({"unknown":true}),
-        json!({"schema":"draftwright.spec/3"}),
+        json!({"schema":"draftwright.spec/4"}),
         json!({"sheet":{"size":42}}),
         json!({"sheet":{"centre_marks":"false"}}),
         json!({"sheet":{"uncited_datums":"false"}}),

@@ -10735,7 +10735,7 @@
   "parts/plate.step:spec:0388c1f2b421cc54316cdc9cac80f0d62ec6f22d830dbde4ab2e3364034f0669": {
     "choices": [
       "draftwright.spec/1",
-      "draftwright.spec/2"
+      "draftwright.spec/3"
     ],
     "refused": "The spec is \"draftwright.spec/3\", which this draftwright does not read."
   },
@@ -11090,7 +11090,7 @@
       "d:envelope/width.length@front",
       "d:envelope/width.length@plan"
     ],
-    "refused": "The spec is \"draftwright.spec/1\", whose dimension keys \"d:envelope/width.length@front\" and \"d:envelope/width.length@plan\" both read as \"d:envelope/width.length\" in draftwright.spec/2 (a dimension's ID no longer names its view, and a PMI dimension is named by its record's identity): keep one of them."
+    "refused": "The spec is \"draftwright.spec/1\", whose dimension keys \"d:envelope/width.length@front\" and \"d:envelope/width.length@plan\" both read as \"d:envelope/width.length\" in draftwright.spec/3 (a dimension's ID no longer names its view, and a PMI dimension is named by its record's identity): keep one of them."
   },
   "parts/plate.step:spec:4431611433da296bb762e8311fc10940709aa9d7ddea5a248e3eaf64eb1405d6": {
     "choices": [
@@ -11395,7 +11395,7 @@
       "d:f:hole_pattern:1/grid_pitch.length.col",
       "d:f:hole_pattern:1/grid_pitch.length.row"
     ],
-    "refused": "There is no dimension \"d:envelope/width.length@plan\" on this part: a dimension's ID no longer names its view (draftwright.spec/2), so it reads as \"d:envelope/width.length\"."
+    "refused": "There is no dimension \"d:envelope/width.length@plan\" on this part: a dimension's ID no longer names its view (draftwright.spec/3), so it reads as \"d:envelope/width.length\"."
   },
   "parts/plate.step:spec:7ec150e24fa47a9db2597acb886be217463e1f3408b522b734d78438fed68bf1": {
     "pdf": "6d6d31299e8069b703c0509b0ec34fc78b25db5830fca8de50dc7044abfe1297",
@@ -12180,7 +12180,7 @@
       "d:f:hole_pattern:1/grid_pitch.length.row",
       "d:f:hole_pattern:1/grid_pitch.length.col"
     ],
-    "refused": "There is no dimension \"d:envelope/width.length@front\" on this part: a dimension's ID no longer names its view (draftwright.spec/2), so it reads as \"d:envelope/width.length\"."
+    "refused": "There is no dimension \"d:envelope/width.length@front\" on this part: a dimension's ID no longer names its view (draftwright.spec/3), so it reads as \"d:envelope/width.length\"."
   },
   "parts/plate.step:spec:fe20bc8279f6695ff4e2472b6a64ef7742ec2235ecfab08d88c7d9f8f90087ac": {
     "pdf": "8f29e8259ed0c92e5082b4cb00a4deb9dad128a3bf7d25eacafd1fea2108fd07",
