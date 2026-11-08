@@ -555,7 +555,7 @@ mod tests {
         )
         .unwrap();
         let options: Value = serde_json::from_str(&s.placement_options_json().unwrap()).unwrap();
-        let id = "d:f:hole_pattern:1/bore.diameter";
+        let id = "d:f:hole_pattern:f6/bore.diameter";
         assert_eq!(options[id]["operation_scopes"]["place"], "local");
         assert_eq!(options["v:iso"]["operation_scopes"]["omit"], "view");
         let snapshot: Value = serde_json::from_str(&s.snapshot().unwrap()).unwrap();
@@ -586,7 +586,7 @@ mod tests {
             include_bytes!("../../../tests/fixtures/samples/editor-plate.step"),
         )
         .unwrap();
-        let id = "d:f:hole_pattern:1/bore.diameter";
+        let id = "d:f:hole_pattern:f6/bore.diameter";
         let before =
             s.0.plan()
                 .dimensions
@@ -660,7 +660,7 @@ mod tests {
         )
         .unwrap();
         let saved = json!({"sheet":{"preferred_printer":"A3"},
-            "dimensions":{"d:f:hole:1/bore.diameter":{"omit":true}}});
+            "dimensions":{"d:f:hole:f6/bore.diameter":{"omit":true}}});
         let refused: Value =
             serde_json::from_str(&error_json(&s.set_spec(&saved.to_string()).unwrap_err()))
                 .unwrap();

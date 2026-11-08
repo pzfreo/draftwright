@@ -394,7 +394,7 @@ test('openSpec retains stale dimension edits, migrates printer settings and sets
   const direct = new Engine('mounting_plate.step', bytes);
   try {
     const dimensions = {
-      'd:f:hole:f9/bore.diameter': { omit: true }, 'd:f:hole:1/bore.diameter': { omit: true } };
+      'd:f:hole:f9/bore.diameter': { omit: true }, 'd:f:hole:f6/bore.diameter': { omit: true } };
     const saved = JSON.stringify({ sheet: { preferred_printer: 'A3' }, dimensions });
     const before = engine.plan();
     invalid(() => engine.setSpec(saved), /preferred_printer.*preferred_max_size/);
@@ -404,14 +404,14 @@ test('openSpec retains stale dimension edits, migrates printer settings and sets
     assert.deepEqual(opened.spec, JSON.parse(engine.spec()));
     assert.deepEqual(opened.spec.dimensions, dimensions);
     assert.equal(opened.spec.sheet.preferred_max_size, 'A3');
-    const plan = unappliedDimension(engine, 'dimensions/d:f:hole:1~1bore.diameter');
-    assert.ok(!plan.dimensions.some(dimension => dimension.id === 'd:f:hole:1/bore.diameter'));
+    const plan = unappliedDimension(engine, 'dimensions/d:f:hole:f6~1bore.diameter');
+    assert.ok(!plan.dimensions.some(dimension => dimension.id === 'd:f:hole:f6/bore.diameter'));
     assert.ok(plan.omitted.some(item => item.id === 'd:f:hole:f9/bore.diameter'
       && item.state.kind === 'omitted_by_user'), 'the live dimension omit is applied');
     // A fresh engine proves setSpec validates the same stale entry; this is not a no-op.
     direct.setSpec(JSON.stringify({ sheet: { preferred_max_size: 'A3' }, dimensions }));
     assert.deepEqual(JSON.parse(direct.spec()), opened.spec);
-    assert.deepEqual(unappliedDimension(direct, 'dimensions/d:f:hole:1~1bore.diameter'), plan);
+    assert.deepEqual(unappliedDimension(direct, 'dimensions/d:f:hole:f6~1bore.diameter'), plan);
     const unknownView = JSON.stringify({ ...opened.spec, views: { ...opened.spec.views, gone: { omit: true } } });
     const refusal = (() => { try { engine.setSpec(unknownView); } catch (e) { return JSON.parse(e); } })();
     assert.equal(refusal.code, 'invalid');
@@ -420,7 +420,7 @@ test('openSpec retains stale dimension edits, migrates printer settings and sets
     const recovered = JSON.parse(engine.openSpec(unknownView));
     assert.deepEqual(recovered.set_aside, [{ path: 'views/gone', entry: { omit: true }, reason_code: 'no_view' }]);
     assert.deepEqual(recovered.spec, opened.spec);
-    assert.deepEqual(unappliedDimension(engine, 'dimensions/d:f:hole:1~1bore.diameter'), plan);
+    assert.deepEqual(unappliedDimension(engine, 'dimensions/d:f:hole:f6~1bore.diameter'), plan);
     assert.deepEqual(JSON.parse(specOps(JSON.stringify({ schema: 'a', x: { 'b/c': 1, d: 1 } }), JSON.stringify({ schema: 'b', x: { 'b/c': [2] } }))),
       [{ op: 'set', path: 'x/b~1c', value: [2] }, { op: 'remove', path: 'x/d' }]);
     invalid(() => specOps('{', '{}'));

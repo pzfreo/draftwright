@@ -390,10 +390,10 @@ fn a_control_citing_a_set_aside_datum_is_kept_with_its_warning() {
 /// aside, as it was saved.
 #[test]
 fn a_gone_group_member_is_set_aside_alone_while_the_group_holds() {
-    // f:hole:3 (x = 30, y = -15) is renumbered f:hole:103.
-    let mut s = renumbered("f:hole:3", "f:hole:103");
+    // f:hole:f8 (x = 30, y = -15) is renumbered f:hole:f103.
+    let mut s = renumbered("f:hole:f8", "f:hole:f103");
     let row = json!({"pattern": {"arrangement": "linear",
-                                 "members": ["f:hole:1", "f:hole:3", "f:hole:2"]}});
+                                 "members": ["f:hole:f6", "f:hole:f8", "f:hole:f7"]}});
     let saved = json!({"features": {"f:hole_pattern:row": row}});
     let e = s.set_spec(&spec(saved.clone())).unwrap_err();
     assert_eq!(
@@ -405,13 +405,13 @@ fn a_gone_group_member_is_set_aside_alone_while_the_group_holds() {
         opened.set_aside,
         [set_aside(
             "features/f:hole_pattern:row/pattern/members/1",
-            json!("f:hole:3"),
+            json!("f:hole:f8"),
             "no_feature"
         )]
     );
     assert_eq!(
         opened.spec["features"]["f:hole_pattern:row"]["pattern"]["members"],
-        json!(["f:hole:1", "f:hole:2"])
+        json!(["f:hole:f6", "f:hole:f7"])
     );
     assert!(
         s.plan()
@@ -421,9 +421,9 @@ fn a_gone_group_member_is_set_aside_alone_while_the_group_holds() {
     );
 
     // Four members on a 2 × 2 grid: three are no grid, so the whole group is set aside.
-    let mut t = renumbered("f:hole:6", "f:hole:106");
+    let mut t = renumbered("f:hole:f11", "f:hole:f106");
     let grid = json!({"pattern": {"arrangement": "grid",
-        "members": ["f:hole:1", "f:hole:2", "f:hole:5", "f:hole:6"]}});
+        "members": ["f:hole:f6", "f:hole:f7", "f:hole:f10", "f:hole:f11"]}});
     let saved = json!({"features": {"f:hole_pattern:corner": grid.clone()},
                        "views": {"iso": {"omit": true}}});
     let opened = t.open_spec(&saved.to_string()).unwrap();
