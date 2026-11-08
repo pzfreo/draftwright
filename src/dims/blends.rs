@@ -16,11 +16,8 @@ const GENERAL_COUNT: usize = 5;
 pub(crate) use crate::lint::blends::{RADIUS_TABLE, RELIEF_NOTE};
 type ViewSites<'a> = BTreeMap<(&'static str, usize), Vec<([f64; 3], &'a Feature)>>;
 
-fn drawing_order(f: &Feature) -> &str {
-    f.legacy_id.as_deref().unwrap_or(&f.id)
-}
-
 fn groups(a: &Analysis) -> Vec<Vec<&Feature>> {
+    let a_analysis = a;
     let pocket_corners = crate::lint::pockets::pattern_corner_blends(a);
     let mut groups = BTreeMap::<String, Vec<&Feature>>::new();
     for f in a.features.iter().filter(|f| {
@@ -34,7 +31,10 @@ fn groups(a: &Analysis) -> Vec<Vec<&Feature>> {
     }
     let mut out: Vec<_> = groups.into_values().collect();
     for group in &mut out {
-        group.sort_by(|a, b| drawing_order(a).cmp(drawing_order(b)));
+        group.sort_by(|a, b| {
+            crate::geometry_ids::presentation_key(a_analysis, &a.id)
+                .cmp(&crate::geometry_ids::presentation_key(a_analysis, &b.id))
+        });
     }
     out.sort_by(|a, b| {
         radius(a[0])
@@ -42,7 +42,10 @@ fn groups(a: &Analysis) -> Vec<Vec<&Feature>> {
             .unwrap()
             // Invariant: groups contains only features with a successfully read radius.
             .total_cmp(&radius(b[0]).unwrap())
-            .then(drawing_order(a[0]).cmp(drawing_order(b[0])))
+            .then(
+                crate::geometry_ids::presentation_key(a_analysis, &a[0].id)
+                    .cmp(&crate::geometry_ids::presentation_key(a_analysis, &b[0].id)),
+            )
     });
     out
 }
@@ -731,14 +734,16 @@ mod identity_tests {
         let mut first = a.features[0].clone();
         first.kind = "blend".into();
         first.id = "f:blend:f7".into();
-        first.legacy_id = Some("f:blend:1".into());
+        first.presentation_order = None;
+        first.legacy_id = Some("f:blend:99".into());
         first.faces = vec![7];
         first
             .parameters
             .insert("radius".into(), serde_json::json!(0.25));
         let mut second = first.clone();
         second.id = "f:blend:f14".into();
-        second.legacy_id = Some("f:blend:2".into());
+        second.presentation_order = None;
+        second.legacy_id = Some("f:blend:1".into());
         second.faces = vec![14];
         a.features = vec![first, second];
         let groups = groups(&a);

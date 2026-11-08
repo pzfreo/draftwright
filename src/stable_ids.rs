@@ -62,24 +62,6 @@ fn complete_ids(plan: &mut Plan) {
     }
 }
 
-/// Keep presentation tie-breaks identical while public names change spelling.
-pub(crate) fn presentation_key<'a>(a: &'a Analysis, id: &'a str) -> &'a str {
-    a.features
-        .iter()
-        .find(|f| f.id == id)
-        .and_then(|f| f.legacy_id.as_deref())
-        .or_else(|| {
-            a.recognition
-                .as_ref()?
-                .patterns
-                .iter()
-                .find(|p| p.id == id)?
-                .legacy_id
-                .as_deref()
-        })
-        .unwrap_or(id)
-}
-
 pub(crate) fn feature_names(
     features: &[crate::bridge::Feature],
     patterns: &[crate::bridge::HolePattern],
@@ -157,6 +139,37 @@ pub(crate) fn anchor(
     Ok(())
 }
 
+// Migration-only spelling map. Current identity, spans and drawing order never read it.
+fn ladder_legacy_ids(a: &Analysis) -> BTreeMap<String, String> {
+    let mut ids = BTreeMap::new();
+    for z in crate::geometry_ids::heights(a) {
+        ids.insert(
+            format!(
+                "step_height.length.h{}",
+                crate::geometry_ids::coordinate_word(z - a.envelope[0][2])
+            ),
+            crate::geometry_ids::height_parameter(a, z),
+        );
+    }
+    for r in &a.risers {
+        for (axis, positions) in [(&r.axis, &r.positions), (&r.other_axis, &r.other_positions)] {
+            let Some(k) = ["x", "y", "z"].iter().position(|x| *x == axis) else {
+                continue;
+            };
+            for &at in positions {
+                ids.insert(
+                    format!(
+                        "step_position.length.{axis}{}",
+                        crate::geometry_ids::coordinate_word((at - a.envelope[0][k]).abs())
+                    ),
+                    crate::geometry_ids::position_parameter(a, k, at),
+                );
+            }
+        }
+    }
+    ids
+}
+
 pub fn ids(a: &Analysis) -> BTreeMap<String, String> {
     let mut ids: BTreeMap<_, _> = a
         .features
@@ -171,7 +184,7 @@ pub fn ids(a: &Analysis) -> BTreeMap<String, String> {
         );
     }
     ids.extend(
-        crate::geometry_ids::legacy_ids(a)
+        ladder_legacy_ids(a)
             .iter()
             .map(|(o, n)| (o.clone(), n.clone())),
     );
@@ -280,12 +293,15 @@ fn unmapped(v: &Value, a: &Analysis) -> Vec<(String, String)> {
                     let end = s[i..]
                         .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
                         .map_or(s.len(), |n| i + n);
-                    out.push((path.into(), s[i..end].into()));
+                    let parameter = &s[i..end];
+                    if crate::geometry_ids::parameter_span(a, parameter).is_none() {
+                        out.push((path.into(), parameter.into()));
+                    }
                 }
             }
         };
         match v {
-            Value::String(s) => scan(s, path, out),
+            Value::String(_) => {}
             Value::Object(o) => {
                 for (k, x) in o {
                     let p = if path.is_empty() {
@@ -457,6 +473,37 @@ mod tests {
             assert!(message.contains(&format!("draftwright {v} no longer reads")));
             assert!(message.contains("draftwright 0.3.9, the last release"));
         }
+    }
+
+    #[test]
+    fn a_live_faceless_ladder_key_in_spec3_is_not_an_unmigrated_identity() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/recognition/steps/stepped_block.step");
+        let (_, mut a) = crate::model::analyse_native(&path).unwrap();
+        a.features.clear();
+        a.level_supports.clear();
+        a.risers.clear();
+        a.face_attachments.clear();
+        a.edge_ink = None;
+        let spec: Spec = serde_json::from_value(serde_json::json!({"schema":"draftwright.spec/3",
+            "dimensions":{"d:step_level/step_height.length.h10":{}}}))
+        .unwrap();
+        let p = crate::model::plan(&a, &spec).unwrap();
+        assert!(
+            p.dimensions
+                .iter()
+                .any(|d| d.id == "d:step_level/step_height.length.h10")
+        );
+        assert!(!p.problems.iter().any(|p| p.code == "id_not_migrated"));
+        assert!(migrate(&spec, &a).unwrap().unmapped.is_empty());
+        let prose: Spec = serde_json::from_value(
+            serde_json::json!({"notes":[{"id":"n:1","text":"step_height.length.h99"}]}),
+        )
+        .unwrap();
+        assert!(
+            migrate(&prose, &a).unwrap().unmapped.is_empty(),
+            "prose is not an identity key"
+        );
     }
 
     #[test]

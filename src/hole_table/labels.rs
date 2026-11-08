@@ -213,8 +213,8 @@ fn reading_order(analysis: &Analysis, ordered: &mut [(usize, f64, f64)], rows: &
         a.2.total_cmp(&b.2)
             .then_with(|| a.1.total_cmp(&b.1))
             .then_with(|| {
-                crate::stable_ids::presentation_key(analysis, &rows[a.0].feature).cmp(
-                    crate::stable_ids::presentation_key(analysis, &rows[b.0].feature),
+                crate::geometry_ids::presentation_key(analysis, &rows[a.0].feature).cmp(
+                    &crate::geometry_ids::presentation_key(analysis, &rows[b.0].feature),
                 )
             })
     });
@@ -228,8 +228,8 @@ fn reading_order(analysis: &Analysis, ordered: &mut [(usize, f64, f64)], rows: &
             a.1.total_cmp(&b.1)
                 .then_with(|| a.2.total_cmp(&b.2))
                 .then_with(|| {
-                    crate::stable_ids::presentation_key(analysis, &rows[a.0].feature).cmp(
-                        crate::stable_ids::presentation_key(analysis, &rows[b.0].feature),
+                    crate::geometry_ids::presentation_key(analysis, &rows[a.0].feature).cmp(
+                        &crate::geometry_ids::presentation_key(analysis, &rows[b.0].feature),
                     )
                 })
         });

@@ -2492,13 +2492,31 @@ indices. A height cluster uses its lowest face as `step_height.length.f<face>`; 
 uses its lowest riser face as `step_position.length.f<face>`. Shoulders sharing that face
 receive local `_0`, `_1`, … suffixes in axis/station order. Numbers in these names are face
 indices, never heights, positions or ranks among unrelated features. Planning and lint use
-one shared map. Older Analyses lacking face evidence retain their old ladder spelling.
+one geometric resolver. A level first uses its recorded support faces, then its own
+principal plane at that height from `face_attachments` or the face membership in
+`edge_ink.references`. It can therefore have a face ID even when no witness support is
+eligible. A shoulder uses its riser faces, or its own principal plane when riser face
+identity is absent. Only a station with no matching face index in any of these sources
+uses the coordinate fallback (`h<height>` or `<axis><distance>`). This is possible in
+older, synthetic or partial Analyses, including deliberately faceless analysis/8 input;
+a missing witness support alone does not enable it. A live fallback key in spec/3 is not
+an `id_not_migrated` problem.
+
+Optional `presentation_order` on automatic features and hole patterns records their
+geometric enumeration before reconciliation removes contradictory records. It is drawing
+metadata, never a Spec identity. Drawing ties retain decimal lexical enumeration order
+(10 before 2); axes and intervals are resolved directly from level/riser/plane evidence.
+Neither operation reads `legacy_id` or `ids`. The ordinal remains when the legacy Spec
+reader is retired. Captured drawing claims retain their coordinate grammar independently
+of the Spec compatibility window; lint resolves such claims from geometry, not a Spec
+migration map.
 
 `model::migrate` applies an exact old → new map over the current Analysis through revision's
 whole-document rename. It rewrites keys and string references throughout the Spec, including
 dimensions, precision, features, origins, schemes, notes and sheet settings. Collisions are
-refused; no entry wins by iteration order. Unmapped keys are kept; an `id_not_migrated`
-info problem identifies their saved path. Existing validation still reports inactive edits
+refused; no entry wins by iteration order. Unmapped ID keys are kept; an `id_not_migrated`
+info problem identifies their saved path only when no current item has that identity.
+Unknown Spec properties are still refused (`deny_unknown_fields`); prose is not an identity key. Existing validation still reports inactive edits
 and `openSpec` separately reports entries it must set aside as `no_feature`, etc.
 
 Both a plan and native/browser `openSpec` expose these exact JSON fields (always present,

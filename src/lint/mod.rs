@@ -601,7 +601,6 @@ pub fn lint_sheets(analysis: &Analysis, drawings: &[Drawing]) -> Vec<LintIssue> 
 
 /// Every ported rule's findings on a drawing whose annotations are *marks*.
 pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
-    let aliases = crate::geometry_ids::legacy_ids(analysis);
     let mut verified: Vec<_> = marks
         .iter()
         .filter(|m| blends::verified_row(analysis, m))
@@ -612,9 +611,10 @@ pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     for mark in &mut verified {
         for claim in &mut mark.claims {
             if claim.feature == "step_level"
-                && let Some(current) = aliases.get(&claim.parameter)
+                && let Some(current) =
+                    crate::geometry_ids::claim_parameter(analysis, &claim.parameter)
             {
-                claim.parameter.clone_from(current);
+                claim.parameter = current;
             }
         }
     }

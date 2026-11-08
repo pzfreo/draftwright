@@ -282,20 +282,14 @@ fn ids(plan: &Plan) -> Vec<&str> {
 
 /// The correlated set (ARCH0015-2) a dimension belongs to: the step-height ladder, or the
 /// ladder's shoulders along one axis, as `dims::correlated_set` reads its ID.
-fn ladder_set<'a>(plan: &'a Plan, id: &'a str) -> Option<&'a str> {
-    let id = plan
-        .ids
-        .iter()
-        .find_map(|(old, new)| (new == id).then_some(old.as_str()))
-        .unwrap_or(id);
-    const HEIGHTS: &str = "d:step_level/step_height.length";
-    if id.starts_with(HEIGHTS) {
-        return Some(HEIGHTS);
+fn ladder_set(analysis: &Analysis, id: &str) -> Option<String> {
+    if id.starts_with("d:step_level/step_height.length") {
+        return Some("heights".into());
     }
-    let rest = id.strip_prefix("d:step_level/step_position.length.")?;
-    rest.get(..1)
-        .filter(|a| ["x", "y", "z"].contains(a))
-        .map(|_| &id[..id.len() - rest.len() + 1])
+    let parameter = id.strip_prefix("d:step_level/")?;
+    analysis
+        .ladder_axis(parameter)
+        .map(|axis| format!("shoulders:{axis}"))
 }
 
 /// The placed items by ID.
@@ -393,8 +387,8 @@ fn omitting_one_dimension_moves_no_other() {
                     .copied()
                     .filter(|i| {
                         i != gone
-                            && ladder_set(&full, gone)
-                                .is_some_and(|s| ladder_set(&full, i) == Some(s))
+                            && ladder_set(analysis, gone)
+                                .is_some_and(|s| ladder_set(analysis, i).as_ref() == Some(&s))
                     })
                     .collect();
                 let whole = |id: &str| {

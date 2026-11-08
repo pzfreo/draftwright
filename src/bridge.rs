@@ -81,6 +81,9 @@ pub struct Recognition {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HolePattern {
+    /// Geometric enumeration order for drawing tie-breaks, independent of saved-ID migration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation_order: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub legacy_id: Option<String>,
     /// `f:hole_pattern:f<lowest face>`, with a local suffix only on a shared anchor.
@@ -207,6 +210,9 @@ fn home(family: &str, record_type: &str) -> Result<Home, String> {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Feature {
+    /// Geometric enumeration order for drawing tie-breaks, independent of saved-ID migration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation_order: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub legacy_id: Option<String>,
     pub id: String,
@@ -449,6 +455,7 @@ pub fn read(part: &Part, sha256: &str, json: &str) -> Result<(Recognition, Vec<F
         };
         features.push((
             Feature {
+                presentation_order: None,
                 legacy_id: None,
                 id: String::new(),
                 kind: kind(&q.family),
@@ -499,6 +506,7 @@ pub fn read(part: &Part, sha256: &str, json: &str) -> Result<(Recognition, Vec<F
         };
         features.push((
             Feature {
+                presentation_order: None,
                 legacy_id: None,
                 id: String::new(),
                 kind: "slot_pattern".into(),
@@ -569,6 +577,7 @@ pub fn read(part: &Part, sha256: &str, json: &str) -> Result<(Recognition, Vec<F
     }
     flats::merge(part, &frame, &mut features);
     let mut patterns = hole_patterns(&derived.hole_patterns, &features)?;
+    crate::geometry_ids::assign_presentation_order(&mut features, &mut patterns);
     voids::reconcile(part, &mut features, &mut patterns);
     crate::stable_ids::anchor(&mut features, &mut patterns)?;
     // Records with no ID are ordered by everything they carry.
@@ -947,6 +956,7 @@ fn hole_patterns(qs: &[QHolePattern], features: &[Feature]) -> Result<Vec<HolePa
             ));
         };
         out.push(HolePattern {
+            presentation_order: None,
             legacy_id: None,
             id: String::new(),
             arrangement: arrangement.into(),

@@ -23,6 +23,8 @@ pub mod finding;
 pub mod fixes;
 pub mod gears;
 mod geometry_ids;
+#[cfg(test)]
+mod geometry_ids_tests;
 pub mod graphical_pmi;
 pub mod half_section;
 mod hole_exits;

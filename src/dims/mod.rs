@@ -4702,15 +4702,10 @@ fn correlated_set(analysis: &Analysis, id: &str) -> Option<&'static str> {
         return Some(HEIGHTS);
     }
     let parameter = id.strip_prefix("d:step_level/")?;
-    let map = crate::geometry_ids::legacy_ids(analysis);
-    let old = map
-        .iter()
-        .find(|(_, new)| *new == parameter)
-        .map_or(parameter, |(old, _)| old.as_str());
-    match old.strip_prefix("step_position.length.")?.get(..1)? {
-        "x" => Some("d:step_level/step_position.length.x"),
-        "y" => Some("d:step_level/step_position.length.y"),
-        "z" => Some("d:step_level/step_position.length.z"),
+    match analysis.ladder_axis(parameter)? {
+        0 => Some("d:step_level/step_position.length.x"),
+        1 => Some("d:step_level/step_position.length.y"),
+        2 => Some("d:step_level/step_position.length.z"),
         _ => None,
     }
 }
@@ -4835,7 +4830,7 @@ fn presentation_id(a: &Analysis, w: &Want) -> String {
         |m| {
             w.id.replacen(
                 &m.feature,
-                crate::stable_ids::presentation_key(a, &m.feature),
+                &crate::geometry_ids::presentation_key(a, &m.feature),
                 1,
             )
         },

@@ -35,8 +35,9 @@ const FORBIDDEN: [&str; 14] = [
 ];
 
 /// The `crate::` paths lint may use.
-const ALLOWED: [&str; 12] = [
+const ALLOWED: [&str; 13] = [
     "crate::model::Analysis",
+    "crate::model::dimension_geometry::Reference",
     "crate::bridge",
     "crate::pmi",
     "crate::pmi_lowering",
@@ -227,6 +228,7 @@ mod tests {
     fn the_guard_catches_what_it_should() {
         let bad = [
             "use crate::model::Plan;",
+            "use crate::model::dimension_geometry::check;",
             "use crate::model::{Analysis, Spec};",
             "fn f(p: &Plan) {}",
             "let s = drawing.spec.clone();",

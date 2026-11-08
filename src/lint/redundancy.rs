@@ -62,34 +62,19 @@ pub(crate) fn path(edges: &[(Span, usize)], target: Span) -> Option<Vec<usize>> 
 }
 
 pub(crate) fn level_span(a: &Analysis, parameter: &str) -> Option<Span> {
-    let map = crate::geometry_ids::legacy_ids(a);
-    let parameter = map
-        .iter()
-        .find(|(_, new)| *new == parameter)
-        .map_or(parameter, |(old, _)| old.as_str());
-    let h: f64 = parameter
-        .strip_prefix("step_height.length.h")?
-        .replace('_', ".")
-        .parse()
-        .ok()?;
-    let z = a
-        .levels
-        .iter()
-        .find(|z| (**z - a.envelope[0][2] - h).abs() <= TOL)?;
-    Some(Span::new(2, a.envelope[0][2], *z))
+    let (k, lo, hi) = crate::geometry_ids::parameter_span(a, parameter)
+        .or_else(|| crate::geometry_ids::coordinate_claim(a, parameter))?;
+    (k == 2 && parameter.starts_with("step_height.")).then(|| Span::new(k, lo, hi))
 }
 
-/// A ladder shoulder `step_position.length.<axis><position>`, measured from the part's box.
+/// A ladder shoulder's actual axis and interval, resolved from its riser face.
 pub(crate) fn position_span(a: &Analysis, parameter: &str) -> Option<Span> {
-    let map = crate::geometry_ids::legacy_ids(a);
-    let parameter = map
-        .iter()
-        .find(|(_, new)| *new == parameter)
-        .map_or(parameter, |(old, _)| old.as_str());
-    let word = parameter.strip_prefix("step_position.length.")?;
-    let k = ["x", "y", "z"].iter().position(|x| word.starts_with(x))?;
-    let v: f64 = word[1..].replace('_', ".").parse().ok()?;
-    Some(Span::new(k, a.envelope[0][k], a.envelope[0][k] + v))
+    if !parameter.starts_with("step_position.length.") {
+        return None;
+    }
+    let (k, lo, hi) = crate::geometry_ids::parameter_span(a, parameter)
+        .or_else(|| crate::geometry_ids::coordinate_claim(a, parameter))?;
+    Some(Span::new(k, lo, hi))
 }
 
 /// A slot's walls across its width, and the centre line between them, in part coordinates.

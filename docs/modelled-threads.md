@@ -48,7 +48,7 @@ Per-occurrence overrides express intent, using the stable feature ID:
 ```json
 {
   "features": {
-    "f:modelled_thread:1": {
+    "f:modelled_thread:f75": {
       "modelled_thread": {
         "depiction": false,
         "designation": "SPECIAL THREAD"

@@ -941,6 +941,7 @@ pub fn read(part: &Part, doc: &RecognitionDocument) -> Result<Native, String> {
             return Err(format!("{} has no ascending faces to anchor it", r.id));
         }
         features.push(Feature {
+            presentation_order: None,
             legacy_id: None,
             id: String::new(),
             kind: "hole".into(),
@@ -1010,6 +1011,7 @@ pub fn read(part: &Part, doc: &RecognitionDocument) -> Result<Native, String> {
     evidence.sort_by_cached_key(key);
     refusals.sort_by_cached_key(key);
     features.extend(others);
+    crate::geometry_ids::assign_presentation_order(&mut features, &mut patterns);
     super::voids::reconcile(part, &mut features, &mut patterns);
     crate::stable_ids::anchor(&mut features, &mut patterns)?;
     let (features, others) = features.into_iter().partition(|f| f.kind == "hole");
@@ -1099,6 +1101,7 @@ fn feature(
         }
     }
     Ok(Feature {
+        presentation_order: None,
         legacy_id: None,
         id: String::new(),
         kind: super::kind(&r.family),

@@ -8,6 +8,12 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Changed
 
+- Ladder IDs use a level's own plane faces even without an eligible witness support;
+  coordinate names remain only for genuinely faceless evidence. Live fallback keys are
+  not reported as unmigrated. Internal drawing order and axis/span lookup are independent
+  of legacy Spec aliases. The stable compatibility cutoff also applies to later-core
+  prereleases such as 0.3.10-alpha.1.
+
 - Automatic feature and hole-pattern IDs now use `f:<kind>:f<lowest face>`, with local
   suffixes only on a shared lowest face. Ladder heights and shoulder positions use their
   supporting faces, so resizing or inserting unrelated geometry does not rename items.

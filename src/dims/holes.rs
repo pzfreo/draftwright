@@ -746,7 +746,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         owners.sort_by_key(|(o, _)| {
             (
                 rank(o),
-                crate::stable_ids::presentation_key(analysis, o).to_owned(),
+                crate::geometry_ids::presentation_key(analysis, o).into_owned(),
             )
         });
         owners.dedup_by(|a, b| a.0 == b.0);
