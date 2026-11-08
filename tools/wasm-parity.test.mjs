@@ -507,8 +507,8 @@ test('openSpec migration report has native parity', () => {
 
 test('openSpec feature and ladder maps have native parity', () => {
   const cases = [
-    {name: 'mounting_plate.step', part: 'tests/fixtures/parts/mounting_plate.step', spec: 'spec1.json', old: 'f:hole:f9', now: 'f:hole:f9'},
-    {name: 'stepped_block.step', part: 'tests/fixtures/recognition/steps/stepped_block.step', spec: 'spec2.json', old: 'step_height.length.f6', now: 'step_height.length.f6'},
+    {name: 'mounting_plate.step', part: 'tests/fixtures/parts/mounting_plate.step', spec: 'spec1.json', old: 'f:hole:4', now: 'f:hole:f9'},
+    {name: 'stepped_block.step', part: 'tests/fixtures/recognition/steps/stepped_block.step', spec: 'spec2.json', old: 'step_height.length.h10', now: 'step_height.length.f6'},
   ];
   for (const item of cases) {
     const spec = JSON.parse(readFileSync(new URL(`../tests/fixtures/stable_ids/${item.spec}`, import.meta.url)));
