@@ -780,7 +780,7 @@ fn a_missed_boss_uses_its_named_negative_end_and_the_same_height_planner() {
 }
 
 #[test]
-fn saved_corrections_rebind_members_fits_and_measurement_policies_when_ranks_change() {
+fn saved_corrections_rebind_members_fits_and_measurement_policies_when_ids_change() {
     let (_, a) = plate();
     let members = a.recognition.as_ref().unwrap().patterns[0].members.clone();
     let outside = a
@@ -804,9 +804,16 @@ fn saved_corrections_rebind_members_fits_and_measurement_policies_when_ranks_cha
     for f in &mut again.features {
         let old = f.id.clone();
         f.id = format!(
-            "{}:{}",
+            "{}:f{}",
             old.rsplit_once(':').unwrap().0,
-            old.rsplit_once(':').unwrap().1.parse::<usize>().unwrap() + 100
+            old.rsplit_once(':')
+                .unwrap()
+                .1
+                .strip_prefix('f')
+                .unwrap()
+                .parse::<usize>()
+                .unwrap()
+                + 100
         );
         renamed.insert(old, f.id.clone());
     }

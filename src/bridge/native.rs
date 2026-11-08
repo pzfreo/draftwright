@@ -1250,6 +1250,10 @@ fn check(record: &Map<String, Value>, record_type: &str) -> Result<(), String> {
 /// slot is in at most one pattern; anything else is refused. Each pattern and its members take
 /// the members' count and pitch as their fingerprint's pattern, as the bridge's do.
 fn name_slot_members(features: &mut [Feature]) -> Result<(), String> {
+    if !features.iter().any(|f| f.kind == "slot_pattern") {
+        return Ok(());
+    }
+    let names = crate::stable_ids::feature_names(features, &[])?;
     let mut used: Vec<usize> = Vec::new();
     for p in 0..features.len() {
         if features[p].kind != "slot_pattern" {
@@ -1257,7 +1261,7 @@ fn name_slot_members(features: &mut [Feature]) -> Result<(), String> {
         }
         let records = match features[p].parameters.get("slots") {
             Some(Value::Array(a)) => a.clone(),
-            _ => return Err(format!("{} has no member slots", features[p].id)),
+            _ => return Err(format!("{} has no member slots", names[p])),
         };
         let mut members = Vec::new();
         for m in &records {
@@ -1274,13 +1278,13 @@ fn name_slot_members(features: &mut [Feature]) -> Result<(), String> {
                 [_] => {
                     return Err(format!(
                         "quiddity puts one slot in a slot pattern twice ({})",
-                        features[p].id
+                        names[p]
                     ));
                 }
                 _ => {
                     return Err(format!(
                         "{}'s member matches {} slots, not one",
-                        features[p].id,
+                        names[p],
                         found.len()
                     ));
                 }
@@ -1290,7 +1294,7 @@ fn name_slot_members(features: &mut [Feature]) -> Result<(), String> {
             .iter()
             .map(|&i| slot_centre(&features[i].parameters))
             .collect::<Option<Vec<_>>>()
-            .ok_or_else(|| format!("{} has a member with no location", features[p].id))?;
+            .ok_or_else(|| format!("{} has a member with no location", names[p]))?;
         let pattern = super::pattern(&centres);
         let ids: Vec<Value> = members
             .iter()

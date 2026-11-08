@@ -62,10 +62,10 @@ fn complete_ids(plan: &mut Plan) {
     }
 }
 
-pub(crate) fn anchor(
-    features: &mut [crate::bridge::Feature],
-    patterns: &mut [crate::bridge::HolePattern],
-) -> Result<(), String> {
+pub(crate) fn feature_names(
+    features: &[crate::bridge::Feature],
+    patterns: &[crate::bridge::HolePattern],
+) -> Result<Vec<String>, String> {
     let records: Vec<_> = features
         .iter()
         .map(|f| (f.kind.as_str(), f.faces.as_slice()))
@@ -99,6 +99,14 @@ pub(crate) fn anchor(
             );
         }
     }
+    Ok(names)
+}
+
+pub(crate) fn anchor(
+    features: &mut [crate::bridge::Feature],
+    patterns: &mut [crate::bridge::HolePattern],
+) -> Result<(), String> {
+    let names = feature_names(features, patterns)?;
     let map: BTreeMap<_, _> = features
         .iter()
         .map(|f| &f.id)
