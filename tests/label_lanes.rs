@@ -179,8 +179,8 @@ fn precise_labels_keep_their_span_after_the_final_inventory_settles() {
         (
             "mfcadpp/10047.step",
             vec![
-                ("d:f:slot:1/slot_width.length", "4.53"),
-                ("d:f:section_recess:6/location_pocket.z", "3.526"),
+                ("d:f:slot:f5/slot_width.length", "4.53"),
+                ("d:f:section_recess:f27/location_pocket.z", "3.526"),
             ],
         ),
         (
@@ -229,7 +229,7 @@ fn precise_labels_keep_their_span_after_the_final_inventory_settles() {
     let slot = p
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:slot:1/slot_width.length")
+        .find(|d| d.id == "d:f:slot:f117/slot_width.length")
         .unwrap();
     assert_eq!(slot.label, "192.21");
     let fillet = p

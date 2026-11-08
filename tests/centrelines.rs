@@ -216,7 +216,7 @@ fn a_grid_located_by_its_centre_marks_the_centre() {
     let at = |w: &Value| [0, 1].map(|k| w["centre"][k].as_f64().unwrap());
     let mark = crosses
         .iter()
-        .find(|w| w["id"] == "ink:v:plan:f:hole_pattern:1")
+        .find(|w| w["id"] == "ink:v:plan:f:hole_pattern:f6")
         .unwrap();
     let members: Vec<_> = crosses
         .iter()
@@ -469,13 +469,13 @@ fn callouts_do_not_borrow_hole_centre_strokes(file: &str) {
         let d = p
             .dimensions
             .iter()
-            .find(|d| d.id == "d:f:hole:17/bore.diameter")
+            .find(|d| d.id == "d:f:hole:f174/bore.diameter")
             .unwrap();
         let v = p.views.iter().find(|v| v.id == d.view).unwrap();
         let centre = v
             .line_work
             .iter()
-            .find(|w| w.id == "ink:v:side:f:hole:17")
+            .find(|w| w.id == "ink:v:side:f:hole:f174")
             .unwrap()
             .centre
             .unwrap();

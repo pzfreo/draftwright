@@ -145,7 +145,7 @@ fn ra_0_8_on_a_plate_face_draws_its_iso_1302_symbol() {
     // On a feature, its cylinders carry it; a removal condition is drawn as ISO 1302's bar.
     let (part, a) = spindle();
     let s = spec(
-        json!({"features": {"f:turned_step:2": {"finish": {"ra": 1.6, "removal": "required"}}}}),
+        json!({"features": {"f:turned_step:f6": {"finish": {"ra": 1.6, "removal": "required"}}}}),
     );
     let plan = model::plan_recovered(&a, &s).unwrap();
     let f = gdt(&plan, "surface_finish")[0];
@@ -153,7 +153,7 @@ fn ra_0_8_on_a_plate_face_draws_its_iso_1302_symbol() {
     let step = a
         .features
         .iter()
-        .find(|f| f.id == "f:turned_step:2")
+        .find(|f| f.id == "f:turned_step:f6")
         .unwrap();
     assert_eq!(f.faces, step.faces);
     assert!(f.placed.is_some());
@@ -266,12 +266,12 @@ fn m10_and_a_knurl_on_the_spindle_print_after_their_diameters() {
     let (part, a) = spindle();
     assert!(a.pmi.is_none(), "the sample spindle carries no PMI");
     let s = spec(json!({"features": {
-        "f:turned_step:f0": {"thread": {"designation": "M10", "length": 15}},
-        "f:turned_step:3": {"knurl": {"pattern": "diamond", "pitch": 0.8}}
+        "f:turned_step:f2": {"thread": {"designation": "M10", "length": 15}},
+        "f:turned_step:f9": {"knurl": {"pattern": "diamond", "pitch": 0.8}}
     }}));
     let plan = model::plan_recovered(&a, &s).unwrap();
     assert_eq!(
-        dimension(&plan, "d:f:turned_step:f0/step.diameter").label,
+        dimension(&plan, "d:f:turned_step:f2/step.diameter").label,
         "M10; 15 MIN FULL THREAD"
     );
     // The ø24 step's diameter is the overall diameter's, which prints its knurl.
@@ -288,8 +288,8 @@ fn m10_and_a_knurl_on_the_spindle_print_after_their_diameters() {
         &a,
         &spec(json!({"features": {
             "f:turned_step:f6": {"thread": {"designation": "M16"}},
-            "f:turned_step:f0": {"thread": {"designation": "M10", "length": 40}},
-            "f:hole:1": {"thread": {"designation": "M5", "length": 12}}
+            "f:turned_step:f2": {"thread": {"designation": "M10", "length": 40}},
+            "f:hole:f3": {"thread": {"designation": "M5", "length": 12}}
         }})),
     )
     .unwrap();
@@ -359,7 +359,7 @@ fn a_thread_and_a_knurl_on_bosses_print_on_their_diameter_callouts() {
 fn a_feature_note_and_a_sheet_note_are_drawn() {
     let (part, a) = spindle();
     let s = spec(json!({
-        "features": {"f:hole:f6": {"note": "DRILL AND TAP AFTER HARDENING"}},
+        "features": {"f:hole:f3": {"note": "DRILL AND TAP AFTER HARDENING"}},
         "notes": [{"id": "n:1", "text": "BREAK ALL SHARP EDGES"}]
     }));
     let plan = model::plan_recovered(&a, &s).unwrap();
@@ -367,10 +367,10 @@ fn a_feature_note_and_a_sheet_note_are_drawn() {
     assert_eq!(labels.len(), 1);
     let note = labels[0];
     assert_eq!(note.cells, ["DRILL AND TAP AFTER HARDENING"]);
-    assert_eq!(note.source, "spec:features/f:hole:f6/note");
+    assert_eq!(note.source, "spec:features/f:hole:f3/note");
     assert!(note.basis.starts_with("spec-authored"), "{}", note.basis);
     assert!(note.placed.is_some());
-    let hole = a.features.iter().find(|f| f.id == "f:hole:f6").unwrap();
+    let hole = a.features.iter().find(|f| f.id == "f:hole:f3").unwrap();
     assert_eq!(note.faces, hole.faces);
     assert_eq!(plan.notes.len(), 1);
     assert_eq!(plan.notes[0].rows, ["1  BREAK ALL SHARP EDGES"]);
@@ -404,7 +404,7 @@ fn spec_finish_threads_and_knurls_win_over_step_pmi_with_a_problem() {
     let s = spec(json!({
         "features": {
             "f:turned_step:f9": {"knurl": {"pattern": "straight", "pitch": 1.0}},
-            "f:hole:1": {"thread": {"designation": "M5x0.8-6H", "length": 8}}
+            "f:hole:f3": {"thread": {"designation": "M5x0.8-6H", "length": 8}}
         },
         "sheet": {"default_finish": {"ra": 1.6, "removal": "required"}}
     }));
@@ -414,7 +414,7 @@ fn spec_finish_threads_and_knurls_win_over_step_pmi_with_a_problem() {
         "ø24\nSTRAIGHT KNURL P1"
     );
     assert_eq!(
-        dimension(&plan, "d:f:hole:1/bore.diameter").label,
+        dimension(&plan, "d:f:hole:f3/bore.diameter").label,
         "M5-6H ↧ 8\n⌀4.2 ↧ 9.2"
     );
     let finishes: Vec<_> = plan
@@ -438,7 +438,7 @@ fn spec_finish_threads_and_knurls_win_over_step_pmi_with_a_problem() {
             ),
             (
                 "manufacturing_requirement:#925",
-                "spec:features/f:hole:1/thread"
+                "spec:features/f:hole:f3/thread"
             ),
             (
                 "manufacturing_requirement:#947",
@@ -543,9 +543,9 @@ fn the_session_offers_finish_thread_knurl_and_note_paths() {
     let (part, a) = spindle();
     let session = draftwright::Session::new(part, a, Spec::default()).unwrap();
     let options =
-        serde_json::to_value(session.options("d:f:turned_step:f0/step.diameter").unwrap()).unwrap();
+        serde_json::to_value(session.options("d:f:turned_step:f2/step.diameter").unwrap()).unwrap();
     let settable = &options["settable"];
-    let base = "features/f:turned_step:f0";
+    let base = "features/f:turned_step:f2";
     for path in ["finish", "thread", "knurl", "note"] {
         assert!(
             settable.get(format!("{base}/{path}")).is_some(),
@@ -553,13 +553,13 @@ fn the_session_offers_finish_thread_knurl_and_note_paths() {
         );
     }
     let options =
-        serde_json::to_value(session.options("d:f:hole:1/bore.diameter").unwrap()).unwrap();
+        serde_json::to_value(session.options("d:f:hole:f3/bore.diameter").unwrap()).unwrap();
     assert!(
         options["settable"]
-            .get("features/f:hole:1/thread")
+            .get("features/f:hole:f3/thread")
             .is_some()
     );
-    assert!(options["settable"].get("features/f:hole:1/knurl").is_none());
+    assert!(options["settable"].get("features/f:hole:f3/knurl").is_none());
 }
 
 #[test]
@@ -683,7 +683,7 @@ fn specify_thread_designation_refines_its_marked_requirement_and_retains_length(
             .contains("specify-core:written:v1")
     );
     let s = spec(json!({"features": {
-        "f:hole:1": {"thread": {"designation": "M5-6H"}},
+        "f:hole:f3": {"thread": {"designation": "M5-6H"}},
         "f:turned_step:f9": {"knurl": {"pattern": "straight", "pitch": 1.0}}
     }}));
     let plan = model::plan_recovered(&a, &s).unwrap();
@@ -695,7 +695,7 @@ fn specify_thread_designation_refines_its_marked_requirement_and_retains_length(
         "The Spec's M5-6H refines Specify's thread designation."
     );
     assert_eq!(
-        dimension(&plan, "d:f:hole:1/bore.diameter").label,
+        dimension(&plan, "d:f:hole:f3/bore.diameter").label,
         "M5-6H ↧ 6.5\n⌀4.2 ↧ 9.2"
     );
     let overrides = problems(&plan, "spec_overrides_pmi");
@@ -706,10 +706,10 @@ fn specify_thread_designation_refines_its_marked_requirement_and_retains_length(
     );
     // An explicit length still takes precedence over the inherited minimum full thread.
     let s =
-        spec(json!({"features": {"f:hole:1": {"thread": {"designation": "M5-6H", "length": 6}}}}));
+        spec(json!({"features": {"f:hole:f3": {"thread": {"designation": "M5-6H", "length": 6}}}}));
     let plan = model::plan_recovered(&a, &s).unwrap();
     assert!(
-        dimension(&plan, "d:f:hole:1/bore.diameter")
+        dimension(&plan, "d:f:hole:f3/bore.diameter")
             .label
             .starts_with("M5-6H ↧ 6")
     );

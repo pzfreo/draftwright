@@ -810,7 +810,7 @@ fn hole_location_uses_perpendicular_witnesses_and_rejects_oblique_crossings_1000
     let location = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:hole:1/location.length.y")
+        .find(|d| d.id == "d:f:hole:f8/location.length.y")
         .unwrap();
     assert_eq!(location.view, "v:side");
     let p = location.placed.as_ref().unwrap();
@@ -1502,7 +1502,7 @@ fn flat_cut_bands_chamfers_and_fillets_lead_to_their_own_faces() {
         (
             "nist/nist_ctc_05_asme1_rd.stp",
             &[
-                "d:f:turned_step:1/step.diameter",
+                "d:f:turned_step:f1/step.diameter",
                 "d:f:chamfer:f82/chamfer.length",
             ][..],
         ),
@@ -1545,7 +1545,7 @@ fn flat_cut_bands_chamfers_and_fillets_lead_to_their_own_faces() {
             let d = plan
                 .dimensions
                 .iter()
-                .find(|d| d.id == "d:f:turned_step:1/step.diameter")
+                .find(|d| d.id == "d:f:turned_step:f1/step.diameter")
                 .unwrap();
             assert_eq!(
                 d.view, "v:side",

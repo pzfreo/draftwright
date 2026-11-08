@@ -1127,14 +1127,14 @@ fn a_location_that_fits_on_neither_side_shares_a_held_lane() {
         // Slot n in a view.
         // Nothing off the sheet; no stranded slot location left to chain.
         ("nist/nist_ftc_08_asme1_rc.stp", &[][..]),
-        ("nist/nist_ftc_09_asme1_rd.stp", &["1@front", "3@front"][..]),
+        ("nist/nist_ftc_09_asme1_rd.stp", &["f78@front", "f86@front"][..]),
     ] {
         let (_, mut analysis) = model::analyse_native(&dir.join(file)).unwrap();
         if !slots.is_empty() {
             // FTC-09's slots 1 and 2 are congruent, so one slot callout would state them and
             // each would be located by its centre: slot 2 is split from the callout, so slot 1
             // keeps the low-end location and length whose lanes this test reads.
-            corpus::split_slot(&mut analysis, "f:slot:2");
+            corpus::split_slot(&mut analysis, "f:slot:f82");
         }
         let plan = api::plan_analysed(
             &analysis,

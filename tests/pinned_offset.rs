@@ -13,7 +13,7 @@ mod corpus;
 #[macro_use]
 mod support;
 
-const ID: &str = "d:f:hole_pattern:1/bore.diameter";
+const ID: &str = "d:f:hole_pattern:f6/bore.diameter";
 
 fn session() -> Session {
     let path =

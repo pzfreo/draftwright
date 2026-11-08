@@ -101,8 +101,8 @@ fn ctc01_consumes_bevel_faces_and_sizes_both_notches_without_duplicate_c50() {
         1
     );
     for id in [
-        "d:f:slot:1/slot_width.length",
-        "d:f:slot:2/slot_width.length",
+        "d:f:slot:f4/slot_width.length",
+        "d:f:slot:f8/slot_width.length",
     ] {
         let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
         let ink = d.placed.as_ref().unwrap();

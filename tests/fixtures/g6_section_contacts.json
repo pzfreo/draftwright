@@ -5,7 +5,7 @@
     "code": "leader_centerline_overlap",
     "dimensions": [
       {
-        "id": "d:f:hole:2/bore.diameter",
+        "id": "d:f:hole:f17/bore.diameter",
         "placed": {
           "arrows": [
             [
@@ -63,7 +63,7 @@
         }
       },
       {
-        "id": "d:f:flat:1/flat.length",
+        "id": "d:f:flat:f11/flat.length",
         "placed": {
           "arrows": [
             [
@@ -132,7 +132,7 @@
     "code": "label_section_furniture_overlap",
     "dimensions": [
       {
-        "id": "d:f:flat:1/flat.length",
+        "id": "d:f:flat:f11/flat.length",
         "placed": {
           "arrows": [
             [
@@ -201,7 +201,7 @@
     "code": "label_section_furniture_overlap",
     "dimensions": [
       {
-        "id": "d:f:flat:1/flat.length",
+        "id": "d:f:flat:f2/flat.length",
         "placed": {
           "arrows": [
             [
