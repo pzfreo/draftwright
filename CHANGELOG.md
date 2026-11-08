@@ -8,8 +8,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Removed
 
-- For #298: remove the compatibility `draftwright-mcp` binary from CLI release archives.
-  The MCP is the hosted service at https://mcp.draftwright.io.
+- The command-line release archives no longer include the `draftwright-mcp` binary. Use the
+  hosted MCP service at https://mcp.draftwright.io (#298).
 
 ## 0.2.13 (2026-11-08)
 
