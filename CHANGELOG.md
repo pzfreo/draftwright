@@ -4,7 +4,17 @@ All notable changes to draftwright-rust are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.2.14 (2026-11-08)
+
+Still on quiddity-rust 0.4.9. An explicit paper and scale pair is kept by moving an
+overflowing view row into free space on the sheet; the title-block tolerance fix no longer pins
+the paper, scale or layout; and a bracketed reference dimension is no longer flagged for rounding.
+
+Existing drawings change only where a paper and scale pair was set and a view row overflowed:
+in the corpus, three CTC-01 variants lose an off-sheet annotation and a page-fit warning, and
+two of them also lose two GD&T-moved reports because datums B and C now stay put.
+Callers that apply fixes see one change: the title-block tolerance fix is now a single local
+`set sheet/title/tolerance` op, where it used to also pin the paper, scale and layout.
 
 ### Fixed
 
