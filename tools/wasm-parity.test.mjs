@@ -484,3 +484,23 @@ test('Pack: gzip assembly, native equality, pages, transactional rebuild and dis
   invalid(() => new Pack(part, bytes, '{"schema":"wrong"}'));
   invalid(() => listParts('bad.step', new Uint8Array([1, 2, 3])));
 });
+
+// Migration packets are the browser editor's contract; compare native and WASM structurally.
+test('openSpec migration report has native parity', () => {
+  const replay = JSON.parse(readFileSync(new URL('../tests/fixtures/wasm/prismatic.json', import.meta.url)));
+  const engine = new Engine(replay.name, readFileSync(new URL(`../${replay.part}`, import.meta.url)));
+  try {
+    const dimension = JSON.parse(engine.plan()).dimensions.find(d => d.id.startsWith('d:envelope/'));
+    assert.ok(dimension);
+    const old = `${dimension.id}@front`;
+    const spec = {schema: 'draftwright.spec/1', dimensions: {[old]: {omit: true}}};
+    const opened = JSON.parse(engine.openSpec(JSON.stringify(spec)));
+    assert.deepEqual(opened.migrated, [{path: `dimensions/${old.replaceAll('/', '~1')}`, from: old, to: dimension.id}]);
+    assert.equal(typeof opened.ids, 'object');
+    const native = spawnSync(process.env.DRAFTWRIGHT_WASM_REFERENCE ?? 'target/release/examples/wasm_reference', [], {
+      cwd: root, input: JSON.stringify({...replay, steps: [{edit: 'migration', action: 'open_spec', spec}]}), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    });
+    assert.equal(native.status, 0, native.stderr);
+    assert.deepEqual(opened, JSON.parse(native.stdout.trim().split('\n').at(-1)));
+  } finally { engine.free(); }
+});

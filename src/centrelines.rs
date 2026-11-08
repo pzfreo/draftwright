@@ -1490,6 +1490,7 @@ mod tests {
         let points: Vec<_> = holes.iter().map(|h| [h.at[0], h.at[1]]).collect();
         let (c, r) = fitted_circle(&points, 1.).unwrap();
         let p = crate::bridge::HolePattern {
+            legacy_id: None,
             id: "f:hole_pattern:unproven".into(),
             arrangement: "bolt_circle".into(),
             members: holes.iter().map(|h| h.feature.id.clone()).collect(),

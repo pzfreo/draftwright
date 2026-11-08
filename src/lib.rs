@@ -51,6 +51,7 @@ pub mod sheets;
 pub mod spec_gdt;
 pub mod spec_notes;
 mod springs;
+pub mod stable_ids;
 pub use session::Session;
 pub mod tables;
 pub mod text;

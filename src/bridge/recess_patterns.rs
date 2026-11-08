@@ -114,6 +114,7 @@ pub fn append(
         let mut parameters = p.clone();
         parameters.insert("members".into(), ids.into());
         added.push(Feature {
+            legacy_id: None,
             id: String::new(),
             kind: "pocket_pattern".into(),
             fingerprint: Fingerprint {

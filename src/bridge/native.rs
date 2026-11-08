@@ -941,6 +941,7 @@ pub fn read(part: &Part, doc: &RecognitionDocument) -> Result<Native, String> {
             return Err(format!("{} has no ascending faces to anchor it", r.id));
         }
         features.push(Feature {
+            legacy_id: None,
             id: String::new(),
             kind: "hole".into(),
             fingerprint: Fingerprint {
@@ -1097,6 +1098,7 @@ fn feature(
         }
     }
     Ok(Feature {
+        legacy_id: None,
         id: String::new(),
         kind: super::kind(&r.family),
         fingerprint: Fingerprint {

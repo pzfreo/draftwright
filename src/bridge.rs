@@ -81,6 +81,8 @@ pub struct Recognition {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HolePattern {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_id: Option<String>,
     /// `f:hole_pattern:<n>`: its rank, from 1, among the patterns ordered by their faces.
     pub id: String,
     /// `grid`, `bolt_circle` or `linear`, from the sizes quiddity gives it.
@@ -205,6 +207,8 @@ fn home(family: &str, record_type: &str) -> Result<Home, String> {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Feature {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_id: Option<String>,
     pub id: String,
     pub kind: String,
     /// The part's faces, ascending.
@@ -445,6 +449,7 @@ pub fn read(part: &Part, sha256: &str, json: &str) -> Result<(Recognition, Vec<F
         };
         features.push((
             Feature {
+                legacy_id: None,
                 id: String::new(),
                 kind: kind(&q.family),
                 fingerprint: Fingerprint {
@@ -494,6 +499,7 @@ pub fn read(part: &Part, sha256: &str, json: &str) -> Result<(Recognition, Vec<F
         };
         features.push((
             Feature {
+                legacy_id: None,
                 id: String::new(),
                 kind: "slot_pattern".into(),
                 fingerprint: Fingerprint {
@@ -940,6 +946,7 @@ fn hole_patterns(qs: &[QHolePattern], features: &[Feature]) -> Result<Vec<HolePa
             ));
         };
         out.push(HolePattern {
+            legacy_id: None,
             id: String::new(),
             arrangement: arrangement.into(),
             members,

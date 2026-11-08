@@ -36,24 +36,25 @@ use crate::title_block::{self, TitleCell};
 /// (`level_supports`, `risers`), version 5 the families the recogniser did not give
 /// (`unrecognised`), version 6 the principal boundary faces' loops lint's profile check reads
 /// (`principal_profiles`), version 7 the part's AP242 PMI (`pmi`).
-pub const ANALYSIS_SCHEMA: &str = "draftwright.analysis/7";
+pub const ANALYSIS_SCHEMA: &str = "draftwright.analysis/8";
 /// The analyses [`plan`] reads: this version, and versions 2 to 6 (it reads them with none of
 /// what they lack).
-pub const ANALYSIS_SCHEMAS: [&str; 6] = [
+pub const ANALYSIS_SCHEMAS: [&str; 7] = [
     "draftwright.analysis/2",
     "draftwright.analysis/3",
     "draftwright.analysis/4",
     "draftwright.analysis/5",
     "draftwright.analysis/6",
+    "draftwright.analysis/7",
     ANALYSIS_SCHEMA,
 ];
 /// Version 2 names a dimension by what it measures, `d:<feature>/<parameter>` (version 1 added
 /// the view that carries it, `@<view>`), and a PMI item by its record's semantic identity
 /// (version 1 by its Part 21 instance, `pmi:<category>:#<n>`); the carrying view is the entry's
 /// `view`. A version 1 spec is read through [`migrate`].
-pub const SPEC_SCHEMA: &str = "draftwright.spec/2";
+pub const SPEC_SCHEMA: &str = "draftwright.spec/3";
 /// The specs [`plan`] reads: this version, and version 1 through [`migrate`].
-pub const SPEC_SCHEMAS: [&str; 2] = ["draftwright.spec/1", SPEC_SCHEMA];
+pub const SPEC_SCHEMAS: [&str; 3] = ["draftwright.spec/1", "draftwright.spec/2", SPEC_SCHEMA];
 pub const PLAN_SCHEMA: &str = "draftwright.plan/1";
 
 /// Which file, and which reading of it, a document was made from.
@@ -348,6 +349,8 @@ pub struct Unrecognised {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LevelSupport {
+    #[serde(default)]
+    pub faces: Vec<usize>,
     pub z: f64,
     pub x_span: [f64; 2],
     pub y_span: [f64; 2],
@@ -360,6 +363,8 @@ pub struct LevelSupport {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Riser {
+    #[serde(default)]
+    pub faces: Vec<usize>,
     pub vertical: bool,
     pub axis: String,
     pub positions: Vec<f64>,
@@ -830,6 +835,10 @@ pub struct ViewSpec {
 /// What the sheet will say.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Plan {
+    #[serde(default)]
+    pub migrated: Vec<crate::stable_ids::Migrated>,
+    #[serde(default)]
+    pub ids: BTreeMap<String, String>,
     /// Authored recognition changes, including suppression with no resulting annotation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recognition_corrections: Vec<crate::recognition_corrections::Applied>,
@@ -2010,6 +2019,7 @@ pub fn recognise(part: &Part, analysis: &mut Analysis, json: &str) -> Result<(),
     analysis.radius_arcs = crate::radius::evidence(part, &features);
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
+    crate::stable_ids::record_legacy(analysis);
     dimension_geometry::memberships(analysis);
     analysis.unrecognised.clear();
     Ok(())
@@ -2130,6 +2140,7 @@ pub fn recognise_document(
     analysis.radius_arcs = crate::radius::evidence(part, &features);
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
+    crate::stable_ids::record_legacy(analysis);
     dimension_geometry::memberships(analysis);
     analysis.modelled_thread_ink = crate::modelled_threads::evidence(part, analysis);
     // Physical threads use conventional carriers. Their raw helix HLR would be
@@ -4495,24 +4506,32 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(analysis, spec, || {
-        let plan = crate::bom::with_titles(analysis, spec, || {
-            layout::with_gutter(
-                spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
-                || {
-                    let plan = plan_recovered_once(analysis, spec)?;
-                    let plan = balloon_fallback(analysis, spec, plan)?;
-                    let mut plan = manufacturing_fallback(analysis, spec, plan, |s| {
-                        plan_recovered_once(analysis, s)
-                    })?;
-                    crate::graphical_pmi::apply(analysis, &mut plan);
-                    crate::hole_exits::report(analysis, &mut plan);
-                    plan.record_callout_offsets();
-                    Ok(plan)
-                },
-            )
-        })?;
-        retain_unapplied_edits(analysis, plan, plan_recovered)
+    let migration = crate::stable_ids::migrate(spec, analysis)?;
+    let spec = &migration.spec;
+    let result = (|| {
+        crate::decision_overrides::boundary(analysis, spec, || {
+            let plan = crate::bom::with_titles(analysis, spec, || {
+                layout::with_gutter(
+                    spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
+                    || {
+                        let plan = plan_recovered_once(analysis, spec)?;
+                        let plan = balloon_fallback(analysis, spec, plan)?;
+                        let mut plan = manufacturing_fallback(analysis, spec, plan, |s| {
+                            plan_recovered_once(analysis, s)
+                        })?;
+                        crate::graphical_pmi::apply(analysis, &mut plan);
+                        crate::hole_exits::report(analysis, &mut plan);
+                        plan.record_callout_offsets();
+                        Ok(plan)
+                    },
+                )
+            })?;
+            retain_unapplied_edits(analysis, plan, plan_recovered)
+        })
+    })();
+    result.map(|mut plan| {
+        migration.report(&mut plan);
+        plan
     })
 }
 
@@ -5582,22 +5601,31 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// drawing's findings. That recovery is [`recover`], applied by [`plan_recovered`], never here:
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(analysis, spec, || {
-        let plan = crate::bom::with_titles(analysis, spec, || {
-            layout::with_gutter(
-                spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
-                || {
-                    let plan = plan_once(analysis, spec)?;
-                    let mut plan =
-                        manufacturing_fallback(analysis, spec, plan, |s| plan_once(analysis, s))?;
-                    crate::graphical_pmi::apply(analysis, &mut plan);
-                    crate::hole_exits::report(analysis, &mut plan);
-                    plan.record_callout_offsets();
-                    Ok(plan)
-                },
-            )
-        })?;
-        retain_unapplied_edits(analysis, plan, self::plan)
+    let migration = crate::stable_ids::migrate(spec, analysis)?;
+    let spec = &migration.spec;
+    let result = (|| {
+        crate::decision_overrides::boundary(analysis, spec, || {
+            let plan = crate::bom::with_titles(analysis, spec, || {
+                layout::with_gutter(
+                    spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
+                    || {
+                        let plan = plan_once(analysis, spec)?;
+                        let mut plan = manufacturing_fallback(analysis, spec, plan, |s| {
+                            plan_once(analysis, s)
+                        })?;
+                        crate::graphical_pmi::apply(analysis, &mut plan);
+                        crate::hole_exits::report(analysis, &mut plan);
+                        plan.record_callout_offsets();
+                        Ok(plan)
+                    },
+                )
+            })?;
+            retain_unapplied_edits(analysis, plan, self::plan)
+        })
+    })();
+    result.map(|mut plan| {
+        migration.report(&mut plan);
+        plan
     })
 }
 
@@ -8297,6 +8325,8 @@ fn plan_with_presentation(
         }
     }
     let mut plan = Plan {
+        migrated: Vec::new(),
+        ids: crate::stable_ids::ids(analysis),
         characteristics: Vec::new(),
         inspection_balloons: Vec::new(),
         recognition_corrections: Vec::new(),
@@ -9339,7 +9369,11 @@ fn retain_short_leaders(analysis: &Analysis, plan: &mut Plan, bare: &Plan) {
 /// Two keys that come to one are ambiguous, and refused with both as the candidates. Anything
 /// but a version 1 or 2 spec is refused.
 pub fn migrate(spec: &Spec, analysis: &Analysis) -> Result<Spec, Invalid> {
-    if spec.schema == SPEC_SCHEMA {
+    crate::stable_ids::migrate(spec, analysis).map(|m| m.spec)
+}
+
+pub(crate) fn migrate_v1(spec: &Spec, analysis: &Analysis) -> Result<Spec, Invalid> {
+    if spec.schema != "draftwright.spec/1" {
         return Ok(spec.clone());
     }
     if !SPEC_SCHEMAS.contains(&spec.schema.as_str()) {

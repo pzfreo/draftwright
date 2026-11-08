@@ -184,6 +184,8 @@ pub struct Delta {
 /// A saved Spec as [`Session::open_spec`] opened it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OpenedSpec {
+    pub migrated: Vec<crate::stable_ids::Migrated>,
+    pub ids: BTreeMap<String, String>,
     /// The Spec applied: the session's Spec after opening.
     pub spec: Value,
     /// The entries left out, in the order they were refused.
@@ -897,8 +899,8 @@ impl Session {
         }
         let spec: Spec = serde_json::from_value(value).map_err(invalid)?;
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
-        let mut value =
-            serde_json::to_value(model::migrate(&spec, self.analysis())?).expect("spec serialises");
+        let migration = crate::stable_ids::migrate(&spec, self.analysis())?;
+        let mut value = serde_json::to_value(&migration.spec).expect("spec serialises");
         let saved = value.clone();
         let mut set_aside = Vec::new();
         loop {
@@ -937,7 +939,11 @@ impl Session {
         for s in &mut set_aside {
             s.reason_code = reason_code(analysis, &s.path, &s.entry, &exists).into();
         }
+        migration.report(&mut self.state.plan);
+        self.state.problems = self.state.plan.problems.clone();
         Ok(OpenedSpec {
+            migrated: migration.migrated,
+            ids: migration.ids,
             // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
             spec: serde_json::to_value(self.spec()).expect("spec serialises"),
             set_aside,

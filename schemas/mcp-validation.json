@@ -8,7 +8,8 @@
           "schema": {
             "enum": [
               "draftwright.spec/1",
-              "draftwright.spec/2"
+              "draftwright.spec/2",
+              "draftwright.spec/3"
             ]
           },
           "binding": {
@@ -387,7 +388,8 @@
           "schema": {
             "enum": [
               "draftwright.spec/1",
-              "draftwright.spec/2"
+              "draftwright.spec/2",
+              "draftwright.spec/3"
             ]
           },
           "binding": {
@@ -828,7 +830,8 @@
           "schema": {
             "enum": [
               "draftwright.spec/1",
-              "draftwright.spec/2"
+              "draftwright.spec/2",
+              "draftwright.spec/3"
             ]
           },
           "binding": {
@@ -1183,7 +1186,8 @@
           "schema": {
             "enum": [
               "draftwright.spec/1",
-              "draftwright.spec/2"
+              "draftwright.spec/2",
+              "draftwright.spec/3"
             ]
           },
           "binding": {
@@ -1556,7 +1560,8 @@
           "schema": {
             "enum": [
               "draftwright.spec/1",
-              "draftwright.spec/2"
+              "draftwright.spec/2",
+              "draftwright.spec/3"
             ]
           },
           "binding": {
@@ -1907,7 +1912,8 @@
           "schema": {
             "enum": [
               "draftwright.spec/1",
-              "draftwright.spec/2"
+              "draftwright.spec/2",
+              "draftwright.spec/3"
             ]
           },
           "binding": {
@@ -2305,7 +2311,8 @@
           "schema": {
             "enum": [
               "draftwright.spec/1",
-              "draftwright.spec/2"
+              "draftwright.spec/2",
+              "draftwright.spec/3"
             ]
           },
           "binding": {
@@ -2707,7 +2714,8 @@
           "schema": {
             "enum": [
               "draftwright.spec/1",
-              "draftwright.spec/2"
+              "draftwright.spec/2",
+              "draftwright.spec/3"
             ]
           },
           "binding": {
@@ -3090,7 +3098,8 @@
           "schema": {
             "enum": [
               "draftwright.spec/1",
-              "draftwright.spec/2"
+              "draftwright.spec/2",
+              "draftwright.spec/3"
             ]
           },
           "binding": {
@@ -3445,7 +3454,8 @@
           "schema": {
             "enum": [
               "draftwright.spec/1",
-              "draftwright.spec/2"
+              "draftwright.spec/2",
+              "draftwright.spec/3"
             ]
           },
           "binding": {
@@ -3791,7 +3801,8 @@
           "schema": {
             "enum": [
               "draftwright.spec/1",
-              "draftwright.spec/2"
+              "draftwright.spec/2",
+              "draftwright.spec/3"
             ]
           },
           "binding": {

@@ -6,6 +6,13 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- `draftwright.analysis/8` retains the faces of level supports and risers and optional
+  `legacy_id` values on recognised features and hole patterns. Spec reads use an exact
+  whole-document identity map, with `migrated: [{path, from, to}]` and `ids: {old: new}`
+  on plans and session/browser `openSpec` replies. Colliding renamed keys are refused.
+- `draftwright.spec/3` migration retains unknown keys. Specs `/1` and `/2` remain readable
+  through 0.3.9; later releases explain conversion using that last compatible release.
+
 ## 0.2.13 (2026-11-08)
 
 On quiddity-rust 0.4.9, now from crates.io (was 0.4.8 from a git tag). This release makes

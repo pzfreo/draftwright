@@ -633,6 +633,7 @@ fn feature(
         .filter_map(|n| Some((n.into(), p.get(n)?.as_f64()?)))
         .collect();
     Ok(Feature {
+        legacy_id: None,
         id: id.into(),
         kind: kind.name().into(),
         faces,
@@ -1356,6 +1357,7 @@ fn pattern(
     faces.sort_unstable();
     faces.dedup();
     let result = HolePattern {
+        legacy_id: None,
         id: id.into(),
         arrangement: p.arrangement.name().into(),
         members,

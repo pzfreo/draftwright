@@ -475,19 +475,8 @@ impl Matching {
     }
 
     fn rename_value(&self, v: &Value) -> Result<Value, (String, Bind)> {
-        Ok(match v {
-            Value::String(s) => Value::String(self.rename(s)?),
-            Value::Array(a) => Value::Array(
-                a.iter()
-                    .map(|x| self.rename_value(x))
-                    .collect::<Result<_, _>>()?,
-            ),
-            Value::Object(o) => Value::Object(
-                o.iter()
-                    .map(|(k, x)| Ok((self.rename(k)?, self.rename_value(x)?)))
-                    .collect::<Result<Map<_, _>, _>>()?,
-            ),
-            other => other.clone(),
+        rename_value(v, &|s| self.rename(s), &|s| {
+            (s, Bind::Ambiguous(Vec::new()))
         })
     }
 
@@ -685,9 +674,71 @@ impl Matching {
     }
 }
 
+/// The same whole-document rename used by revision carrying, with an exact identity map.
+/// Unknown IDs are identity mappings; two object keys reaching one key are refused.
+pub(crate) fn rename_spec(v: &Value, ids: &BTreeMap<String, String>) -> Result<Value, String> {
+    rename_value(v, &|s| Ok::<_, String>(rename_ids(s, ids)), &|s| s)
+}
+
+pub(crate) fn rename_ids(s: &str, ids: &BTreeMap<String, String>) -> String {
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut out = String::new();
+    let mut rest = s;
+    while !rest.is_empty() {
+        let next = ids
+            .iter()
+            .filter_map(|(old, new)| {
+                rest.match_indices(old.as_str())
+                    .find(|(i, _)| {
+                        (*i == 0 || !rest[..*i].ends_with(word))
+                            && !rest[i + old.len()..].starts_with(word)
+                    })
+                    .map(|(i, _)| (i, old, new))
+            })
+            .min_by(|a, b| a.0.cmp(&b.0).then(b.1.len().cmp(&a.1.len())));
+        let Some((i, old, new)) = next else {
+            out.push_str(rest);
+            break;
+        };
+        out.push_str(&rest[..i]);
+        out.push_str(new);
+        rest = &rest[i + old.len()..];
+    }
+    out
+}
+
+fn rename_value<E>(
+    v: &Value,
+    rename: &impl Fn(&str) -> Result<String, E>,
+    collision: &impl Fn(String) -> E,
+) -> Result<Value, E> {
+    Ok(match v {
+        Value::String(s) => Value::String(rename(s)?),
+        Value::Array(a) => Value::Array(
+            a.iter()
+                .map(|x| rename_value(x, rename, collision))
+                .collect::<Result<_, _>>()?,
+        ),
+        Value::Object(o) => {
+            let mut out = Map::new();
+            for (k, x) in o {
+                let key = rename(k)?;
+                if out.contains_key(&key) {
+                    return Err(collision(format!(
+                        "More than one Spec entry reads as {key:?}; keep one of them."
+                    )));
+                }
+                out.insert(key, rename_value(x, rename, collision)?);
+            }
+            Value::Object(out)
+        }
+        other => other.clone(),
+    })
+}
+
 /// The span of the next `f:<kind>:<n>` or `face:<n>` in *s*, or of a face or edge list embedded
 /// in an ID after `.` or `:` (`profile_angle.angle.f12`, `outer_profile:f12:e3:e4`, `:f3.4`).
-fn next_id(s: &str) -> Option<(usize, usize)> {
+pub(crate) fn next_id(s: &str) -> Option<(usize, usize)> {
     let b = s.as_bytes();
     let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
     let digit = |k: usize| k < b.len() && b[k].is_ascii_digit();
@@ -718,9 +769,19 @@ fn next_id(s: &str) -> Option<(usize, usize)> {
                 }
                 j += 1;
             }
+            let anchored = feature && j < b.len() && b[j] == b'f';
+            if anchored {
+                j += 1;
+            }
             let digits = j;
             while j < b.len() && b[j].is_ascii_digit() {
                 j += 1;
+            }
+            if j > digits && anchored && j < b.len() && b[j] == b'_' && digit(j + 1) {
+                j += 1;
+                while digit(j) {
+                    j += 1;
+                }
             }
             if j > digits && (j == b.len() || !word(b[j])) {
                 return Some((i, j));
@@ -1395,6 +1456,25 @@ mod tests {
             records: BTreeMap::new(),
             same_faces,
         }
+    }
+
+    #[test]
+    fn face_anchored_features_are_single_tokens() {
+        let s = "d:f:hole:f21/bore.diameter|f:section_recess:f146_2 face:9";
+        let mut rest = s;
+        let mut found = Vec::new();
+        while let Some((a, b)) = next_id(rest) {
+            found.push(&rest[a..b]);
+            rest = &rest[b..];
+        }
+        assert_eq!(found, ["f:hole:f21", "f:section_recess:f146_2", "face:9"]);
+        let mut m = matching(true);
+        m.features
+            .insert("f:hole:f21".into(), Bind::To("f:hole:f77".into()));
+        assert_eq!(
+            m.rename("d:f:hole:f21/bore.diameter"),
+            Ok("d:f:hole:f77/bore.diameter".into())
+        );
     }
 
     #[test]

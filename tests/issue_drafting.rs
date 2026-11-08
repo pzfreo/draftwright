@@ -2076,6 +2076,7 @@ fn a_shoulder_on_the_box_is_reported_not_drawn() {
         ("x", &[0.0][..])
     );
     let on_box = |axis: &str, at: f64| model::Riser {
+        faces: Vec::new(),
         axis: axis.into(),
         positions: vec![at],
         ..wall.clone()

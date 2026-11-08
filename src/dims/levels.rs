@@ -70,6 +70,7 @@ pub(crate) fn evidence(part: &haecceity::Part) -> (Vec<LevelSupport>, Vec<Riser>
             let inside = b.min[2] + margin < level.z && level.z < b.max[2] - margin;
             let (x, y) = (level.x_span, level.y_span);
             inside.then_some(LevelSupport {
+                faces,
                 z: level.z,
                 x_span: [x.0, x.1],
                 y_span: [y.0, y.1],
@@ -79,6 +80,7 @@ pub(crate) fn evidence(part: &haecceity::Part) -> (Vec<LevelSupport>, Vec<Riser>
     let risers = recognise_risers(part)
         .into_iter()
         .map(|r| Riser {
+            faces: r.faces,
             vertical: r.vertical,
             axis: r.axis.to_string(),
             positions: r.positions,

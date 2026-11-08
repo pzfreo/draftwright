@@ -7,7 +7,8 @@
     "schema": {
       "enum": [
         "draftwright.spec/1",
-        "draftwright.spec/2"
+        "draftwright.spec/2",
+        "draftwright.spec/3"
       ]
     },
     "part": {
@@ -1771,7 +1772,8 @@
         "schema": {
           "enum": [
             "draftwright.spec/1",
-            "draftwright.spec/2"
+            "draftwright.spec/2",
+            "draftwright.spec/3"
           ]
         },
         "part": {

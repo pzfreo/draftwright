@@ -117,6 +117,7 @@ impl FaceLevel {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RiserEvidence {
+    pub(crate) faces: Vec<usize>,
     pub(crate) vertical: bool,
     pub(crate) axis: char,
     pub(crate) positions: Vec<f64>,
@@ -376,6 +377,7 @@ fn riser_proposals(
         }
         let at_envelope = |z: f64| (z - bb.min[2]).abs() < tol || (z - bb.max[2]).abs() < tol;
         let record = RiserEvidence {
+            faces: vec![f],
             vertical,
             axis: ['x', 'y'][axis],
             positions: positions
@@ -396,7 +398,9 @@ fn riser_proposals(
             tol,
             body_levels: body_levels.clone(),
         };
-        if !found.contains(&record) {
+        if let Some(existing) = found.iter_mut().find(|r| r.order(&record).is_eq()) {
+            existing.faces.push(f);
+        } else {
             found.push(record);
         }
     }
