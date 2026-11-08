@@ -20,7 +20,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
 - Translate overflowing projection rows into vacant same-sheet space at an
   explicit paper/scale pair, keeping unrelated rows and controls fixed. Preserve
   authored placements, routes and scale; CTC-01 keeps A3 1:5 and its placed 510
-  dimension without a page-fit warning or scale-change fix (#331).
+  dimension without a page-fit warning or scale-change fix (#331). Retain existing
+  carriers when the finished assembly cannot fit at the requested pair.
 
 - Keep generated hole-tag prose in sync with final labels; retain legacy numbering
   when collision evidence is missing, restore recorded row order exactly, and

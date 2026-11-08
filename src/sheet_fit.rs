@@ -1829,7 +1829,7 @@ pub(crate) fn reserve_linear_corridors(
     // a generated peer outside the frame (#331). Only actual printed overflow
     // unlocks this correction; empty estimated bands do not move a fitting pair.
     let settled_overflow = !automatic_pair && can_settle_explicit_overflow(plan);
-    let free = (explicit_lane
+    let mut free = (explicit_lane
         || settled_overflow
         || (!crate::placement_intent::has_pins(&plan.spec)
             && (automatic_pair
@@ -1956,6 +1956,21 @@ pub(crate) fn reserve_linear_corridors(
                 shifts[i][k] += lift[k];
             }
         }
+        // Borrow vacant paper only when the finished assembly can actually fit.
+        // A genuinely oversized fixed pair must retain its established carriers:
+        // a partial correction can drive clear lines through neighbouring views.
+        if settled_overflow
+            && group.iter().any(|&i| {
+                (0..2).any(|k| {
+                    plan.views[i].area[k] + shifts[i][k] < margin() - 1e-6
+                        || plan.views[i].area[k + 2] + shifts[i][k]
+                            > plan.sheet.page[k] - margin() + 1e-6
+                })
+            })
+        {
+            shifts.fill([0.0; 2]);
+            free = false;
+        }
         // A whole projection assembly can clear page furniture by a rigid lift.
         // Its settled dimensions and control frames keep their relative positions.
         let title = plan.sheet.title_block;
@@ -1971,7 +1986,8 @@ pub(crate) fn reserve_linear_corridors(
                     .then_some(title[3] + 1.0 - a[1] - d[1])
             })
             .fold(0.0, f64::max);
-        if raise > 0.0
+        if free
+            && raise > 0.0
             && group.iter().all(|&i| {
                 plan.views[i].area[3] + shifts[i][1] + raise <= plan.sheet.page[1] - margin()
             })
