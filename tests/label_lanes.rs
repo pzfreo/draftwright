@@ -269,7 +269,7 @@ fn precise_labels_keep_their_span_after_the_final_inventory_settles() {
             ) && q
                 .subjects
                 .iter()
-                .any(|id| id == &slot.id || id == "d:f:section_recess:1/seat_diameter.diameter")
+                .any(|id| id == &slot.id || id == "d:f:section_recess:f156/seat_diameter.diameter")
         }),
         "a table must not freeze newly obstructed old witnesses or seat leaders"
     );

@@ -616,7 +616,7 @@ fn omitting_one_dimension_moves_no_other() {
                             if let Some(slab) = slab
                                 && d.measurements.iter().any(|m| {
                                     m.feature == "step_level"
-                                        && m.parameter.starts_with("step_height.length.h")
+                                        && m.parameter.starts_with("step_height.length.f")
                                 })
                             {
                                 let slab = draftwright::lint::plates::read(analysis, slab).unwrap();
