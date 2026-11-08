@@ -68,13 +68,5 @@
       "left_ear",
       "right_ear"
     ]
-  },
-  "331": {
-    "case": "steer_331_finished_sheet_fits",
-    "group": "D",
-    "reason": "The generated 650 really overflows (3.1/0.1 mm) in the original placement; the fitting false-warning variants now pass.",
-    "checks": [
-      "annotations_in_bounds"
-    ]
   }
 }

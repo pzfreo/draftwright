@@ -1805,7 +1805,24 @@ pub(crate) fn reserve_linear_corridors(
                 || b[3] > plan.sheet.page[1] - margin() + 1e-6
         })
     });
+    // A fixed paper/scale pair still permits its unpinned projection assembly
+    // to use vacant paper. In particular, an authored dimension must not freeze
+    // a generated peer outside the frame (#331). Only actual printed overflow
+    // unlocks this correction; empty estimated bands do not move a fitting pair.
+    let settled_overflow = !automatic_pair
+        && plan.spec.sheet.size.is_some()
+        && plan.spec.sheet.scale.is_some()
+        && !crate::placement_intent::has_pins(&plan.spec)
+        && plan.dimensions.iter().any(|d| {
+            d.kind == "linear"
+                && crate::dims::ink_box(d).is_some_and(|b| {
+                    (0..2).any(|k| {
+                        b[k] < margin() - 1e-6 || b[k + 2] > plan.sheet.page[k] - margin() + 1e-6
+                    })
+                })
+        });
     let free = (explicit_lane
+        || settled_overflow
         || (!crate::placement_intent::has_pins(&plan.spec)
             && (automatic_pair
                 || plan.spec.sheet.size.is_none()
@@ -1822,13 +1839,19 @@ pub(crate) fn reserve_linear_corridors(
             .filter(|(_, v)| matches!(v.id.as_str(), "v:front" | "v:plan"))
             .map(|(i, _)| i)
             .collect();
-        if let (Some(front), Some(top)) = (index("v:front"), index("v:plan")) {
+        // A finished explicit pair only needs rigid transport. Reopening its
+        // estimated gaps would move already clear GD&T toward page furniture.
+        if let (Some(front), Some(top)) = (index("v:front"), index("v:plan"))
+            && !settled_overflow
+        {
             let (below, above) = if first { (top, front) } else { (front, top) };
             let gap = (old[above].1[1] - old[below].1[3]).max(0.0);
             let extra = (plan.views[below].area[3] + gap - plan.views[above].area[1]).max(0.0);
             shifts[top][1] += if first { -extra } else { extra };
         }
-        if let Some(side) = index("v:side") {
+        if let Some(side) = index("v:side")
+            && !settled_overflow
+        {
             let edge = column
                 .iter()
                 .map(|&i| {
@@ -1892,7 +1915,22 @@ pub(crate) fn reserve_linear_corridors(
                 .map(|&i| plan.views[i].area[k] + shifts[i][k])
                 .fold(f64::INFINITY, f64::min)
         });
-        let lift = lower.map(|v| (margin() - v).max(0.0));
+        let lift = [0, 1].map(|k| {
+            let minimum = margin() - lower[k];
+            if settled_overflow {
+                let upper = group
+                    .iter()
+                    .map(|&i| plan.views[i].area[k + 2] + shifts[i][k])
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let maximum = plan.sheet.page[k] - margin() - upper;
+                if minimum <= maximum {
+                    // The nearest rigid translation preserves projection alignment,
+                    // authored sides/lanes and every settled witness/leader route.
+                    return 0.0_f64.clamp(minimum, maximum);
+                }
+            }
+            minimum.max(0.0)
+        });
         for &i in &group {
             for k in 0..2 {
                 shifts[i][k] += lift[k];

@@ -2310,8 +2310,8 @@ fn steer_331_finished_sheet_fits() {
         .remove("d:envelope/notch_location_x.length.f97_e104_e108");
     let original_baseline = planned(CTC, &s);
     let mut c = Checks::default();
-    // Main's additional generated dimensions have changed the issue's premise:
-    // the 650 really overflows by 3.1 mm with the 510 placed, 0.1 mm without it.
+    // The settled 650 and authored dimensions must fit the requested pair,
+    // with and without the requested 510 below the front view.
     c.want(
         "annotations_in_bounds",
         annotations_in_bounds(rendered(CTC, &original))
@@ -2319,9 +2319,18 @@ fn steer_331_finished_sheet_fits() {
     );
     for p in [&original, &original_baseline] {
         assert!(
-            has(&p.plan, "page_fit_uncertain"),
-            "the original 650 overflow must retain its page-fit warning"
+            !has(&p.plan, "page_fit_uncertain"),
+            "the repaired finished drawing fits at the requested A3 1:5"
         );
+        assert!(!has(&p.plan, "annotation_over_title_block"));
+        assert_eq!(p.plan.sheet.size, "A3");
+        assert_eq!(p.plan.sheet.scale, "1:5");
+        for (id, value) in [
+            ("d:f:hole_pattern:2/grid_pitch.length.col", 650.),
+            ("d:envelope/notch_location_x.length.f97_e104_e108", 510.),
+        ] {
+            assert!(dim(&p.plan, id).is_some_and(|d| (d.value - value).abs() < 1e-5));
+        }
     }
 
     // Keep every dimension and the original A3 1:5. Moving only the 650 below
@@ -2359,6 +2368,38 @@ fn steer_331_finished_sheet_fits() {
         !has(&after.plan, "page_fit_uncertain"),
     );
     c.finish(331);
+}
+
+#[test]
+fn smaller_isometric_keeps_the_requested_pair_on_a3_and_a2() {
+    for paper in ["A3", "A2"] {
+        for factor in [0.25, 0.5] {
+            let mut s = input(BAR);
+            s["sheet"]["size"] = json!(paper);
+            s["sheet"]["scale"] = json!("1:2");
+            s["iso_scale_factor"] = json!(factor);
+            let p = planned(BAR, &s);
+            assert_eq!(p.plan.sheet.size, paper);
+            assert_eq!(p.plan.sheet.scale, "1:2");
+            assert!(!has(&p.plan, "page_fit_uncertain"));
+            assert!(annotations_in_bounds(rendered(BAR, &p)));
+            assert_eq!(
+                p.plan.views.iter().find(|v| v.id == "v:iso").unwrap().scale,
+                0.5 * factor,
+            );
+        }
+    }
+}
+
+#[test]
+fn page_fit_warning_retains_a_genuinely_oversized_drawing() {
+    let mut s = input(CTC);
+    s["sheet"]["scale"] = json!("1:1");
+    let p = planned(CTC, &s);
+    assert!(has(&p.plan, "page_fit_uncertain"));
+    assert!(!annotations_in_bounds(rendered(CTC, &p)));
+    assert_eq!(p.plan.sheet.size, "A3");
+    assert_eq!(p.plan.sheet.scale, "1:1");
 }
 
 #[test]
