@@ -235,7 +235,7 @@ fn specs(part: &str, base: &Plan) -> Vec<(String, Spec)> {
         specs.push((
             "thread and knurl override".into(),
             spec(json!({"features": {
-                "f:hole:1": {"thread": {"designation": "M5-6H", "length": 8}},
+                "f:hole:f3": {"thread": {"designation": "M5-6H", "length": 8}},
                 "f:turned_step:f9": {"knurl": {"pattern": "straight", "pitch": 1.0}}
             }})),
         ));
