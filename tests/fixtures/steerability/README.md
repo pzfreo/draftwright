@@ -58,7 +58,9 @@ work is intentionally left to their separately approved implementation stream.
 #298 exercises the built CLI's help/version, service discovery, plan offset
 metadata, and the actual release packaging recipe. The package step is run in
 a temporary directory with both built binaries and the shipped source assets;
-`tar` member names must include MCP, the schema, and the model docs. No upload
+`tar` member names must include the CLI, the schema, and the model docs, and must
+exclude the development/test compatibility binary. Help must identify the hosted MCP
+service at https://mcp.draftwright.io. No upload
 step is executed. The portable tar branch checks the common staging payload.
 #299 covers items 2–4 from the backlog's test-case column; changing stable ID
 vocabulary (item 1) needs its own geometry-edit identity contract.

@@ -38,7 +38,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: cli-${{ matrix.target }}
-      - run: cargo build --locked --release --bin draftwright --bin draftwright-mcp --target ${{ matrix.target }}
+      - run: cargo build --locked --release --bin draftwright --target ${{ matrix.target }}
       - name: Try it on a revision
         # The hole_removed pair: one entry renumbers with its hole, one is set aside with the
         # removed hole.
@@ -59,7 +59,6 @@ jobs:
           name="draftwright-${RELEASE_TAG:-pr}-${{ matrix.target }}"
           mkdir -p dist "$name"
           cp "target/${{ matrix.target }}/release/draftwright${{ matrix.exe }}" LICENSE README.md "$name/"
-          cp "target/${{ matrix.target }}/release/draftwright-mcp${{ matrix.exe }}" "$name/"
           cp -R schemas "$name/"
           mkdir -p "$name/docs"
           cp docs/model.md docs/mcp.md "$name/docs/"

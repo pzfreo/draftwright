@@ -6,6 +6,11 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+### Removed
+
+- For #298: remove the compatibility `draftwright-mcp` binary from CLI release archives.
+  The MCP is the hosted service at https://mcp.draftwright.io.
+
 ## 0.2.13 (2026-11-08)
 
 On quiddity-rust 0.4.9, now from crates.io (was 0.4.8 from a git tag). This release makes

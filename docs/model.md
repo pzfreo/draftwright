@@ -2419,11 +2419,8 @@ output is byte-identical to analysing the same STEP with the same features.
   gives `{"id": 1, "ok": true, "result": …}` or `{"id": 1, "ok": false, "error": {…}}`, and
   `{"op": "hello"}` gives the protocol version and the operations. A malformed line is answered,
   and the service carries on.
-- **MCP server.** `draftwright-mcp` speaks MCP over stdio (JSON-RPC 2.0, one message per line).
-  Its tools map one-to-one onto the operations, each with an input schema and a description
-  written for an LLM; `plan`, `render` and `review` take `analysis` as an object, and `plan`
-  requires no `step`. Results are the documents as JSON text; `review` adds the drawing as SVG
-  text. A refused request is a tool error (`isError`) carrying the message and the choices.
+- **MCP.** The hosted service is at https://mcp.draftwright.io. Connect your MCP client to
+  that URL; see [MCP tools and discovery](mcp.md).
 
 **File exports.** `api::write` creates unique sibling staging files exclusively and publishes
 with atomic replacement per destination. Concurrent callers use last-writer-wins per file

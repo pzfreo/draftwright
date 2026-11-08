@@ -1,5 +1,6 @@
 //! The operations every adapter calls (ADR R1): the command line, the JSON-lines service
-//! (`draftwright serve`) and the MCP server (`draftwright-mcp`) are thin layers over these.
+//! (`draftwright serve`) and development/test MCP adapters are thin layers over these.
+//! User MCP integrations use the hosted service at <https://mcp.draftwright.io>.
 //!
 //! - [`analyse`], [`plan`], [`edit`], [`render`] (with [`write`]), [`spec`] and [`review`],
 //!   typed, over the documents of [`crate::model`]; [`plan_analysed`], [`render_analysed`] and
@@ -8,7 +9,7 @@
 //!   come from ([`Features`]), Rust quiddity's recognition among them (the command line's
 //!   default); the others, and [`call`], take Python quiddity's JSON or none;
 //! - [`spec_ops`]: the edit ops that turn one Spec into another;
-//! - [`call`]: the same operations by name with JSON arguments, as the service and the MCP server
+//! - [`call`]: the same operations by name with JSON arguments, as the service and local adapters
 //!   receive them. Requests carry their documents and name the STEP file by path, so nothing is
 //!   kept between calls. [`Service`] additionally owns the live JSON-lines session.
 //!

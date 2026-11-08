@@ -600,6 +600,12 @@ fn steer_298_agent_discovery() {
             .output()
             .unwrap();
         c.want(flag, out.status.success());
+        if flag == "--help" {
+            let help = String::from_utf8(out.stdout).unwrap();
+            assert!(help.contains("MCP: the hosted service at https://mcp.draftwright.io."));
+            assert!(!help.contains("draftwright-mcp"));
+            assert!(help.contains("development/test MCP adapter"));
+        }
     }
     c.want("schema_operation", api::OPERATIONS.contains(&"spec_schema"));
     c.want(
@@ -650,13 +656,13 @@ fn steer_298_agent_discovery() {
     );
     let members = release_members();
     for path in [
-        "draftwright-mcp",
+        "draftwright",
         "schemas/spec.json",
         "docs/model.md",
         "docs/mcp.md",
         "docs/rules/README.md",
     ] {
-        let path = if path == "draftwright-mcp" {
+        let path = if path == "draftwright" {
             format!("{path}{}", std::env::consts::EXE_SUFFIX)
         } else {
             path.into()
@@ -668,6 +674,13 @@ fn steer_298_agent_discovery() {
                 .any(|name| name.ends_with(&format!("/{path}"))),
         );
     }
+    assert!(
+        members
+            .iter()
+            .all(|name| !name.ends_with("/draftwright-mcp")
+                && !name.ends_with("/draftwright-mcp.exe")),
+        "the development/test compatibility binary must not ship: {members:?}"
+    );
     // Check the actual archive payload, not just the positive staging recipe.
     let docs: BTreeSet<_> = members
         .iter()

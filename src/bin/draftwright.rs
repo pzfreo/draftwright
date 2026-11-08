@@ -69,6 +69,7 @@ use serde_json::{Value, json};
 const PROTOCOL: u32 = 1;
 
 const AFTER_HELP: &str = "Discovery: schemas/spec.json, docs/model.md and docs/mcp.md ship in the release.
+MCP: the hosted service at https://mcp.draftwright.io.
 JSON-lines serve: {\"op\":\"hello\"} lists operations; spec_schema and item_options use the MCP argument shapes.";
 
 /// The command line. Values are kept as text and checked by [`run`], so a bad `--part` or
@@ -208,7 +209,7 @@ enum Command {
     /// print the Spec's JSON Schema
     #[command(name = "spec_schema")]
     SpecSchema,
-    /// print the settable paths of one item of a part opened by the MCP server
+    /// print the settable paths of one item of a locally cached part
     #[command(name = "item_options")]
     ItemOptions {
         part_ref: String,
@@ -218,9 +219,9 @@ enum Command {
     },
     /// answer JSON-lines requests on stdin
     Serve,
-    /// the MCP server over stdio
+    /// development/test MCP adapter over stdio; user MCP: https://mcp.draftwright.io
     McpStdio,
-    /// the MCP server over HTTP on a loopback address
+    /// development/test MCP adapter over loopback HTTP; user MCP: https://mcp.draftwright.io
     McpHttp {
         /// default 127.0.0.1:8765
         address: Option<String>,

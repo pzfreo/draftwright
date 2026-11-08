@@ -20,7 +20,7 @@ The toolchain is pinned in `rust-toolchain.toml`. haecceity and Rust quiddity co
 the public `pzfreo/quiddity`, pinned in `Cargo.lock`, so no secret is needed.
 
 ```
-cargo build --release      # target/release/draftwright and target/release/draftwright-mcp
+cargo build --release --bin draftwright      # target/release/draftwright
 ```
 
 ## Browser WASM package
@@ -69,7 +69,6 @@ draftwright render part.step --features part.features.json -o out
                                                        # features from Python quiddity instead
 draftwright spec out.pdf                               # the Spec a drawing (SVG, DXF, PDF, PNG) was made from
 draftwright serve                                      # the same operations as a JSON-lines service
-draftwright-mcp                                        # the same operations as an MCP server (stdio)
 ```
 
 `draftwright --help` lists the commands and `draftwright <command> --help` a command's
@@ -91,7 +90,7 @@ wins. A multi-format export is not transactional; formats can come from differen
 and a later failure leaves already published formats in place. Cleanup removes only that
 invocation's staging file. Output names and rendered bytes are unchanged.
 
-`--spec` is optional: without it the defaults are drawn. The service, the MCP server and the
+`--spec` is optional: without it the defaults are drawn. The JSON-lines service and the
 library (`api::analyse(step, None)` and the rest) are not switched to native recognition:
 there, no `features` still means no features, and Python's JSON is passed as `features`.
 `api::analyse_from` and its siblings take `Features::Native` for the command line's choice.
@@ -116,9 +115,8 @@ compares the drawings. It writes into the `-o` directory:
 When the whole part is turned between the files, edges are not compared and the report says so.
 PMI frames and datums are not yet compared.
 
-To use the MCP server from an MCP client, register the `draftwright-mcp` binary as a stdio
-server (for Claude Code: `claude mcp add draftwright -- /path/to/draftwright-mcp`). It has not
-yet been tried in a real client.
+The MCP is the hosted service at https://mcp.draftwright.io. Connect your MCP client to
+that URL; see [MCP documentation](docs/mcp.md).
 
 ## What alpha 1 does
 
@@ -360,6 +358,7 @@ which AGPL-3.0 code may use. The fonts in `fonts/` are IBM Plex, vendored from d
 SIL Open Font License 1.1 (the `LICENSE-*-OFL.txt` files beside them).
 
 
-CLI release archives include both `draftwright` and `draftwright-mcp`, `schemas/spec.json`
+CLI release archives include `draftwright`, `schemas/spec.json`
 and the agent documentation under `docs/`. Start with `draftwright --help`,
 `draftwright --version`, or `draftwright spec_schema`; see [MCP and item discovery](docs/mcp.md#cli-release-discovery).
+The MCP is the hosted service at https://mcp.draftwright.io.

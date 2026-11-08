@@ -1,11 +1,17 @@
 # Stateless MCP
 
+The MCP is the hosted service at https://mcp.draftwright.io. Connect your MCP client to
+that URL.
+
+## Development/test adapters
+
 `draftwright mcp-http [127.0.0.1:8765]` serves local Streamable HTTP at `/mcp`.
 `draftwright mcp-stdio` serves the same JSON-RPC tools over newline-delimited stdio.
 Set `DRAFTWRIGHT_CACHE` to a persistent directory (default `.cache/draftwright`).
-These are development/evaluation adapters, bound to loopback without authentication.
-The earlier `draftwright-mcp` executable retains its document-passing compatibility API;
-new integrations use the subcommands. No production service was changed.
+These are development/test adapters; HTTP binds to loopback without authentication.
+The source-only `draftwright-mcp` compatibility adapter retains its document-passing API
+for development and tests. It is not shipped in CLI releases. User integrations use the
+hosted service above.
 
 The HTTP implementation uses the JSON-response mode of [MCP Streamable HTTP
 2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports).
@@ -27,9 +33,9 @@ on Linux without an unbounded wait. Bare-LF blank lines terminate reading prompt
 and are refused by header parsing with 400. This read deadline excludes tool
 computation. Cold computation runs synchronously here; production jobs are below.
 
-## Drawing packs in the compatibility adapter
+## Drawing packs in the development/test compatibility adapter
 
-The `draftwright-mcp` executable exposes `pack` with `step` (a path or registered
+The development/test `draftwright-mcp` adapter exposes `pack` with `step` (a path or registered
 part ref) or `part_ref`, and optional PackSpec `spec`. Its default result contains
 one compact JSON **Report** text block and a short row/page/failure summary.
 It exports no files by default and does not repeat the report in structured content.
@@ -78,7 +84,7 @@ is drawn whole and its plan warns `assembly_drawn_whole`, unless every body coin
 one part's (`coincident_bodies`) or lies within the largest body's box
 (`assembly_principal_drawn`), when that part is drawn alone. `serve` offers the tool as
 `mcp_parts`, and its batch operations (`analyse`, `plan`, `render`, `review`, `open`) take the
-same `part`, with a `parts` operation; the compatibility `draftwright-mcp` server has a `parts`
+same `part`, with a `parts` operation; the development/test compatibility adapter has a `parts`
 tool and a `part` argument too (docs/model.md, "Assemblies: one chosen part").
 
 Tool input and output schemas are standalone draft-2020-12 files under `schemas/mcp/`.
@@ -162,8 +168,9 @@ and history are author state and should be retained.
 PNG uses the existing deterministic renderer, with a direct paper-region viewport (millimetres,
 y up: `[left,bottom,right,top]`). ID overlays use the bundled font over resolved item bounds;
 PDF uses the existing delivery renderer. All exports retain the bound Spec, including crops.
-File exports through `api::write` (CLI, JSON-lines `render` and the compatibility MCP server)
-use unique sibling staging files created exclusively, then atomic replacement per destination.
+File exports through `api::write` (CLI, JSON-lines `render` and the development/test
+compatibility adapter) use unique sibling staging files created exclusively, then atomic
+replacement per destination.
 Concurrent exports to one prefix use last-writer-wins per file (the last successful rename).
 Cleanup removes only the invocation's staged copy. A multi-format export is not transactional:
 formats may come from different callers, and a later failure leaves earlier published formats.
@@ -477,13 +484,13 @@ session assembly selects that renderer's page and ink without allocating anew.
 
 ## CLI release discovery
 
-The CLI release archive includes `draftwright`, `draftwright-mcp`, `schemas/`,
+The MCP is the hosted service at https://mcp.draftwright.io.
+The CLI release archive includes `draftwright`, `schemas/`,
 `docs/model.md`, `docs/mcp.md` and the linked `docs/rules/` catalogue. Internal working notes
 are excluded.
 `draftwright --help` lists commands and discovery paths; `draftwright --version` prints the
 release version. `draftwright spec_schema` returns the full Spec schema. To discover an item's
-choices, obtain a `part_ref` from `inspect_part` through `draftwright mcp-stdio` (or the
-`mcp_inspect_part` serve operation), then run
+choices locally, obtain a `part_ref` from the `mcp_inspect_part` serve operation, then run
 `draftwright item_options <part_ref> <id> [--spec spec.json]`.
 
 `serve` also accepts `spec_schema` and `item_options`, with the same arguments and results as
@@ -492,7 +499,7 @@ MCP. Use `{"id":1,"op":"spec_schema","arguments":{}}` or
 `serve` requires a nested `arguments` object for `item_options` (including `mcp_item_options`):
 it keeps the item's ID separate from the request correlation ID. Missing, null or non-object
 `arguments` are refused. CLI and direct API calls still take flat tool arguments.
-The standalone `draftwright-mcp` also advertises both discovery tools.
+The development/test compatibility adapter also advertises both discovery tools.
 
 A placed callout's Plan dimension record includes `callout_offset: [dx,dy]`, in paper mm,
 y up. It is its current bend minus the canonical automatic tip, exactly the `offset` from
