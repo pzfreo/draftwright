@@ -75,7 +75,7 @@ fn summary_points_to_live_task_items_within_wire_budget() {
             assert!(keys.iter().any(|i| i["id"] == "d:envelope/width.length"));
         }
         if part == "m10127" {
-            assert!(keys.iter().any(|i| i["id"] == "d:f:hole:1/bore.diameter"));
+            assert!(keys.iter().any(|i| i["id"] == "d:f:hole:f3/bore.diameter"));
         }
     }
 }

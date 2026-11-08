@@ -1547,7 +1547,7 @@ fn turned_part_families_are_read_with_draftwrights_ids() {
             ("f:fillet:f7", "fillet", &[7]),
             // v0.2.3: whole-body classification co-owns all faces; step records remain.
             (
-                "f:turned_body:1",
+                "f:turned_body:f0",
                 "turned_body",
                 &[0, 1, 2, 3, 4, 5, 6, 7, 8]
             ),

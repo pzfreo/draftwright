@@ -90,10 +90,10 @@ fn turned_features_are_in_the_parts_frame() {
     assert_eq!(
         summary,
         [
-            ("f:fillet:1", vec![1], 0.4),
-            ("f:fillet:2", vec![2], 39.6),
-            ("f:fillet:3", vec![5], 40.4),
-            ("f:fillet:4", vec![7], 69.6),
+            ("f:fillet:f1", vec![1], 0.4),
+            ("f:fillet:f2", vec![2], 39.6),
+            ("f:fillet:f5", vec![5], 40.4),
+            ("f:fillet:f7", vec![7], 69.6),
             ("f:turned_step:f0", vec![0], 20.0),
             ("f:turned_step:f6", vec![6], 55.0),
         ]
@@ -206,7 +206,7 @@ fn refusals_and_evidence_are_not_features() {
     json["quiddity"]["derived"]["hole_patterns"] = serde_json::json!([]);
     let (r, features) = read_all(&json).unwrap();
     let ids: Vec<_> = features.iter().map(|f| f.id.as_str()).collect();
-    assert_eq!(ids, ["f:hole:f6", "f:hole:f7"]);
+    assert_eq!(ids, ["f:hole:f8", "f:hole:f9"]);
     assert_eq!(features[0].faces, [8]);
     assert_eq!(r.refusals.len(), 1);
     assert_eq!(r.refusals[0].subtype, "SectionRecessRefusal");
@@ -261,7 +261,7 @@ fn circular_face_patterns_count_and_pitch_their_instances() {
         .iter()
         .find(|f| f.kind == "circular_face_pattern")
         .unwrap();
-    assert_eq!(p.id, "f:circular_face_pattern:1");
+    assert_eq!(p.id, "f:circular_face_pattern:f6");
     assert_eq!(p.faces, [6, 7, 8, 9]);
     let pattern = p.fingerprint.pattern.as_ref().unwrap();
     assert_eq!((pattern.count, pattern.pitch), (4, 20.0));
