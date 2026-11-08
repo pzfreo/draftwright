@@ -4,7 +4,7 @@
     {
       "properties": {
         "schema": {
-          "const": "draftwright.analysis/7"
+          "const": "draftwright.analysis/8"
         },
         "binding": {
           "type": "object",
