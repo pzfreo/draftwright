@@ -38,7 +38,7 @@ def outline():
         'hole_table': enum('auto', 'always', 'never'),
         'envelope_tolerance': {'type': ['string', 'null']},
         **{k: {'type': 'array'} for k in ('notes', 'tables', 'gears', 'feature_declarations')},
-    }), 'description': 'Typed outline only. Call spec_schema {} for the full Spec and get_spec spec_read schemas; item_options gives valid edit paths and choices.'}
+    }), 'description': 'Outline. Call spec_schema {} for the full Spec and get_spec spec_read schemas; item_options gives valid edit paths and choices.'}
 
 
 def document():
