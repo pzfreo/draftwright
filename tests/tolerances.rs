@@ -354,8 +354,8 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     assert!(!label(&p, "d:f:hole_pattern:f6/bore.diameter").contains("K7"));
     // A single boss has a unique callout, so a valid class outside the table prints.
     let (_, boss) = analysed("boss_circle");
-    let p = model::plan(&boss, &spec(json!({"features":{"f:boss:1":{"fit":"m9"}}}))).unwrap();
-    assert!(label(&p, "d:f:boss:1/boss.diameter").contains("m9"));
+    let p = model::plan(&boss, &spec(json!({"features":{"f:boss:f0":{"fit":"m9"}}}))).unwrap();
+    assert!(label(&p, "d:f:boss:f0/boss.diameter").contains("m9"));
     assert!(
         !p.problems
             .iter()
@@ -363,10 +363,10 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     );
     let p = model::plan(
         &boss,
-        &spec(json!({"sheet":{"fit_deviations":true}, "features":{"f:boss:1":{"fit":"m9"}}})),
+        &spec(json!({"sheet":{"fit_deviations":true}, "features":{"f:boss:f0":{"fit":"m9"}}})),
     )
     .unwrap();
-    assert!(label(&p, "d:f:boss:1/boss.diameter").contains("m9"));
+    assert!(label(&p, "d:f:boss:f0/boss.diameter").contains("m9"));
     assert!(
         p.problems
             .iter()
@@ -407,16 +407,16 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     let (_, b) = analysed("boss_circle");
     let e = model::plan(
         &b,
-        &spec(json!({ "features": { "f:boss:1": { "fit": "H7" } } })),
+        &spec(json!({ "features": { "f:boss:f0": { "fit": "H7" } } })),
     )
     .unwrap_err();
     assert!(e.message.starts_with("\"H7\" reads as \"h7\""), "{e}");
     let plan = model::plan(
         &b,
-        &spec(json!({ "features": { "f:boss:1": { "fit": "h7" } } })),
+        &spec(json!({ "features": { "f:boss:f0": { "fit": "h7" } } })),
     )
     .unwrap();
-    assert_eq!(label(&plan, "d:f:boss:1/boss.diameter"), "ø12 h7");
+    assert_eq!(label(&plan, "d:f:boss:f0/boss.diameter"), "ø12 h7");
 }
 
 /// Nothing the spec authors is dropped in silence: a tolerance on a dimension the plan leaves
