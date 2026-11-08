@@ -1650,6 +1650,25 @@ fn reserve_bounds(
     }
 }
 
+/// Whether a movable explicit pair needs correction for printed linear ink.
+/// Used by the live solve and its bounded placement-only comparison.
+pub(crate) fn can_settle_explicit_overflow(plan: &Plan) -> bool {
+    plan.spec.sheet.size.is_some()
+        && plan.spec.sheet.scale.is_some()
+        && plan.spec.sheet.keep_layout != Some(true)
+        && !crate::model::dimension_text_edited(&plan.spec)
+        && !plan.spec.views.values().any(|v| v.place.is_some())
+        && !crate::placement_intent::has_pins(&plan.spec)
+        && plan.dimensions.iter().any(|d| {
+            d.kind == "linear"
+                && crate::dims::ink_box(d).is_some_and(|b| {
+                    (0..2).any(|k| {
+                        b[k] < margin() - 1e-6 || b[k + 2] > plan.sheet.page[k] - margin() + 1e-6
+                    })
+                })
+        })
+}
+
 /// Final compose-then-pack pass for settled linear ink (ISSUE-563-b). Use the
 /// complete placement inventory so omitting a dimension does not change a pin's
 /// frame. Moving a view block transports its already settled routes unchanged.
@@ -1809,18 +1828,7 @@ pub(crate) fn reserve_linear_corridors(
     // to use vacant paper. In particular, an authored dimension must not freeze
     // a generated peer outside the frame (#331). Only actual printed overflow
     // unlocks this correction; empty estimated bands do not move a fitting pair.
-    let settled_overflow = !automatic_pair
-        && plan.spec.sheet.size.is_some()
-        && plan.spec.sheet.scale.is_some()
-        && !crate::placement_intent::has_pins(&plan.spec)
-        && plan.dimensions.iter().any(|d| {
-            d.kind == "linear"
-                && crate::dims::ink_box(d).is_some_and(|b| {
-                    (0..2).any(|k| {
-                        b[k] < margin() - 1e-6 || b[k + 2] > plan.sheet.page[k] - margin() + 1e-6
-                    })
-                })
-        });
+    let settled_overflow = !automatic_pair && can_settle_explicit_overflow(plan);
     let free = (explicit_lane
         || settled_overflow
         || (!crate::placement_intent::has_pins(&plan.spec)

@@ -282,6 +282,20 @@ fn prepare_placement_reference(
     }
     .ok()?;
     if !anchored {
+        // Compare the same finished paper geometry. A primitive reference has
+        // not composed its measured linear corridors; an explicit pair's new
+        // row correction must apply here too, without allocator/fix searches.
+        if crate::sheet_fit::can_settle_explicit_overflow(&reference) {
+            let inventory = reference.dimensions.clone();
+            crate::sheet_fit::reserve_linear_corridors(
+                analysis,
+                &mut reference,
+                &inventory,
+                false,
+                None,
+                &crate::dims::footprints::Cache::default(),
+            );
+        }
         crate::iso_caption::refresh(analysis, &mut reference);
         crate::view_gutters::apply(analysis, &mut reference);
         crate::iso_caption::refresh(analysis, &mut reference);
