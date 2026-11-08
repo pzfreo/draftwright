@@ -222,7 +222,7 @@
     },
     {
       "part": "ctc01",
-      "subject": "f:hole:1",
+      "subject": "f:hole:f73",
       "group": "2× ø20 blind at (0.000, -99.496, -25.000)",
       "parameter": "grouping.count",
       "python": null,
@@ -232,7 +232,7 @@
     },
     {
       "part": "ftc06",
-      "subject": "f:hole:11",
+      "subject": "f:hole:f106",
       "group": "2× ø6.35 blind at (0.000, 77.786, -158.750)",
       "parameter": "grouping.count",
       "python": null,
@@ -242,7 +242,7 @@
     },
     {
       "part": "ftc06",
-      "subject": "f:hole:5",
+      "subject": "f:hole:f59",
       "group": "2× ø14.2875 THRU at (0.000, 78.740, -15.875)",
       "parameter": "grouping.count",
       "python": null,
@@ -262,7 +262,7 @@
     },
     {
       "part": "ctc01",
-      "subject": "f:oriented_chamfer:1",
+      "subject": "f:oriented_chamfer:f99",
       "group": "oriented_chamfer [angle=45, leg1=5, leg2=5, length=51.962] at (-25.000, -41.858, 47.500)",
       "parameter": "oriented_chamfer.length",
       "python": null,
@@ -272,7 +272,7 @@
     },
     {
       "part": "ctc01",
-      "subject": "f:oriented_chamfer:2",
+      "subject": "f:oriented_chamfer:f100",
       "group": "oriented_chamfer [angle=45, leg1=5, leg2=5, length=51.962] at (25.000, -41.858, 47.500)",
       "parameter": "oriented_chamfer.length",
       "python": null,
@@ -282,7 +282,7 @@
     },
     {
       "part": "ctc01",
-      "subject": "f:oriented_chamfer:3",
+      "subject": "f:oriented_chamfer:f103",
       "group": "oriented_chamfer [angle=45, leg1=5, leg2=5, length=51.962] at (-25.000, 41.858, 47.500)",
       "parameter": "oriented_chamfer.length",
       "python": null,
@@ -292,7 +292,7 @@
     },
     {
       "part": "ctc01",
-      "subject": "f:oriented_chamfer:4",
+      "subject": "f:oriented_chamfer:f104",
       "group": "oriented_chamfer [angle=45, leg1=5, leg2=5, length=51.962] at (25.000, 41.858, 47.500)",
       "parameter": "oriented_chamfer.length",
       "python": null,
@@ -322,7 +322,7 @@
     },
     {
       "part": "ctc01",
-      "subject": "f:slot:1",
+      "subject": "f:slot:f4",
       "group": "slot [end_radius=20, length=120, width=40] at (-285.000, 0.000, -25.000)",
       "parameter": "location_slot_across.length",
       "python": null,
