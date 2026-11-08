@@ -225,10 +225,9 @@ pub(super) fn share(
             continue;
         }
         group.sort_by(|x, y| {
-            kept[*x]
-                .1
-                .cmp(&kept[*y].1)
-                .then(kept[*x].0.id.cmp(&kept[*y].0.id))
+            kept[*x].1.cmp(&kept[*y].1).then_with(|| {
+                super::presentation_id(a, &kept[*x].0).cmp(&super::presentation_id(a, &kept[*y].0))
+            })
         });
         let winner = group[0];
         let by = kept[winner].0.id.clone();

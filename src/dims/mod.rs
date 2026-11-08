@@ -3206,7 +3206,7 @@ fn plan_inventory_ordered(
         bosses::consolidate(analysis, &mut defaults, &mut unused);
         let mut nominal = vec![Vec::new(); defaults.len()];
         holes::consolidate(analysis, &mut defaults, &mut nominal, &mut unused);
-        recesses::consolidate(&mut defaults, &mut nominal, &mut unused);
+        recesses::consolidate(analysis, &mut defaults, &mut nominal, &mut unused);
         plates::share(analysis, &mut defaults, &mut nominal, &mut unused);
         share_statements(&mut defaults, &mut nominal, &mut unused, true);
         share_pmi(
@@ -3311,7 +3311,7 @@ fn plan_inventory_ordered(
     precision::labels(spec, kept.iter_mut().map(|(w, ..)| w))?;
     let mut given = tolerance::apply(analysis, spec, &mut kept, &omitted, &mut problems)?;
     holes::consolidate(analysis, &mut kept, &mut given, &mut omitted);
-    recesses::consolidate(&mut kept, &mut given, &mut omitted);
+    recesses::consolidate(analysis, &mut kept, &mut given, &mut omitted);
     plates::share(analysis, &mut kept, &mut given, &mut omitted);
     share_statements(&mut kept, &mut given, &mut omitted, true);
     let before_pmi = omitted.len();
@@ -4825,6 +4825,20 @@ fn correlated_sets(
         });
     }
     (spread, problems)
+}
+
+/// Stable presentation ordering while recognized public identities change spelling.
+fn presentation_id(a: &Analysis, w: &Want) -> String {
+    w.measurements.first().map_or_else(
+        || w.id.clone(),
+        |m| {
+            w.id.replacen(
+                &m.feature,
+                crate::stable_ids::presentation_key(a, &m.feature),
+                1,
+            )
+        },
+    )
 }
 
 /// One span, one dimension (ARCH0009-6): kept items stating the same [`SHARED`] size or

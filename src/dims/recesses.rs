@@ -876,6 +876,7 @@ type Kept = (Want, bool, Option<&'static str>, Vec<&'static str>);
 /// A recess location coincident with an existing dimension of the same datum span
 /// needs one carrier. Keep every exact measurement claim and an explicit covered ledger row.
 pub(super) fn consolidate(
+    analysis: &crate::model::Analysis,
     kept: &mut Vec<Kept>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<super::Omitted>,
@@ -1042,6 +1043,10 @@ pub(super) fn consolidate(
         }
         _ => None,
     };
+    let order: Vec<_> = kept
+        .iter()
+        .map(|k| super::presentation_id(analysis, &k.0))
+        .collect();
     let mut gone = std::collections::BTreeSet::new();
     for i in 0..kept.len() {
         if gone.contains(&i) || !recess_location(&kept[i].0) {
@@ -1061,7 +1066,7 @@ pub(super) fn consolidate(
                         || m.feature.starts_with("f:oriented_slot:")
                 })
             })
-            .filter(|&j| !recess_location(&kept[j].0) || kept[j].0.id < kept[i].0.id)
+            .filter(|&j| !recess_location(&kept[j].0) || order[j] < order[i])
             .filter(|&j| {
                 span(&kept[j]).is_some_and(|t| {
                     s.0 == t.0
@@ -1071,12 +1076,7 @@ pub(super) fn consolidate(
                 }) && carries(&kept[j].0.terms, &kept[i].0)
                     && given[i] == given[j]
             })
-            .min_by_key(|&j| {
-                (
-                    !kept[j].0.id.starts_with("d:envelope/"),
-                    kept[j].0.id.clone(),
-                )
-            });
+            .min_by_key(|&j| (!kept[j].0.id.starts_with("d:envelope/"), order[j].clone()));
         if let Some(j) = winner {
             let claims = kept[i].0.measurements.clone();
             for m in claims {
