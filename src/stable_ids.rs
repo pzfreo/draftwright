@@ -283,7 +283,10 @@ pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
         return Err(invalid(message));
     }
     if !SPEC_SCHEMAS.contains(&spec.schema.as_str()) {
-        let mut error = invalid(format!("The spec is {:?}, which this draftwright does not read.", spec.schema));
+        let mut error = invalid(format!(
+            "The spec is {:?}, which this draftwright does not read.",
+            spec.schema
+        ));
         error.choices = SPEC_SCHEMAS.iter().map(|s| (*s).into()).collect();
         return Err(error);
     }
