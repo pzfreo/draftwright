@@ -386,7 +386,7 @@ fn a_table_without_every_balloon_is_withdrawn_whole() {
 
 /// The scattered-holes plate (`tests/fixtures/parts/scattered_holes.step`, written by
 /// `tools/make_scattered_holes.py`: 18 through holes of three sizes in no pattern), its plan-view
-/// location `d:f:hole:1/location.length.x` reported off the sheet as a stand-in: the plate
+/// location `d:f:hole:f6/location.length.x` reported off the sheet as a stand-in: the plate
 /// has room, so the table is kept whole.
 fn forced() -> (&'static (Part, Analysis), Plan) {
     static READ: OnceLock<(Part, Analysis)> = OnceLock::new();

@@ -1405,7 +1405,7 @@ fn a_chamfer_tip_lies_on_its_bevel() {
                 direction,
                 vec![callout(
                     "d:c",
-                    &[("f:chamfer:1", "chamfer.length")],
+                    &[("f:chamfer:f38", "chamfer.length")],
                     tip,
                     [130.0, 110.0],
                 )],
@@ -1414,7 +1414,7 @@ fn a_chamfer_tip_lies_on_its_bevel() {
         )
     };
     let turned = feature(
-        "f:chamfer:1",
+        "f:chamfer:f38",
         "chamfer",
         json!({ "angle": 45.0, "at": [0.0, -4.5, 4.5], "axis": "z", "corner": null,
                 "leg1": 1.0, "leg2": 1.0, "turned": true }),
@@ -1430,7 +1430,7 @@ fn a_chamfer_tip_lies_on_its_bevel() {
         one("chamfer_leader_target_mismatch", "d:c")
     );
     let prismatic = feature(
-        "f:chamfer:1",
+        "f:chamfer:f38",
         "chamfer",
         json!({ "angle": 45.0, "at": [0.0, 9.5, 9.5], "axis": "x", "corner": null,
                 "leg1": 1.0, "leg2": 1.0, "turned": false }),
@@ -1503,7 +1503,7 @@ fn flat_cut_bands_chamfers_and_fillets_lead_to_their_own_faces() {
             "nist/nist_ctc_05_asme1_rd.stp",
             &[
                 "d:f:turned_step:1/step.diameter",
-                "d:f:chamfer:1/chamfer.length",
+                "d:f:chamfer:f82/chamfer.length",
             ][..],
         ),
         (

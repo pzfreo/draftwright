@@ -591,7 +591,7 @@ fn the_cgb245_view_pin_reproducer_keeps_its_schedule() {
     let (_, mut analysis) = cache::native(&corpus.join("cadgenbench_inputs/cgb245.step"));
     // The reproducer pins slot 1's own length: its congruent twin is split from the slot
     // callout, so the two are not called out together and slot 1 keeps that dimension.
-    corpus::split_slot(&mut analysis, "f:slot:2");
+    corpus::split_slot(&mut analysis, "f:slot:f21");
     let base = cache::default_plan(&analysis, true);
     assert!(!tables(&base).as_array().unwrap().is_empty());
     let ordinary = model::plan_recovered(&analysis, &setting("never")).unwrap();
@@ -612,7 +612,7 @@ fn the_cgb245_view_pin_reproducer_keeps_its_schedule() {
                 <= base.sheet.page[k] - draftwright::layout::margin()
         );
     }
-    let mut ops: Vec<_> = ["d:envelope/height.length", "d:f:slot:1/location_slot.length", "d:f:slot:1/slot_length.length", "d:f:slot:1/slot_width.length", "d:step_level/step_height.length.f407", "d:step_level/step_height.length.f128"].iter().map(|id| serde_json::json!({"op":"set", "path":format!("dimensions/{}/place",draftwright::items::key(id)), "value":{"pinned":true}})).collect();
+    let mut ops: Vec<_> = ["d:envelope/height.length", "d:f:slot:f13/location_slot.length", "d:f:slot:f13/slot_length.length", "d:f:slot:f13/slot_width.length", "d:step_level/step_height.length.f407", "d:step_level/step_height.length.f128"].iter().map(|id| serde_json::json!({"op":"set", "path":format!("dimensions/{}/place",draftwright::items::key(id)), "value":{"pinned":true}})).collect();
     // Pin each view at the gap the default layout reports (as the editor does), so the
     // default gutter is replayed rather than replaced by an explicit zero.
     let area = |id: &str| base.views.iter().find(|v| v.id == id).unwrap().area;

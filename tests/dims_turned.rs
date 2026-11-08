@@ -383,22 +383,22 @@ fn repeated_lengths_and_twin_flanges_are_stated_once() {
         strs(&[
             ("d:envelope/od.diameter", "2× ø30"),
             ("d:envelope/height.length", "70"),
-            ("d:f:turned_step:2/step.diameter", "ø20"),
-            ("d:f:turned_step:1/step.length", "23.34"),
-            ("d:f:turned_step:2/step_position.length", "46.66"),
+            ("d:f:turned_step:f6/step.diameter", "ø20"),
+            ("d:f:turned_step:f0/step.length", "23.34"),
+            ("d:f:turned_step:f6/step_position.length", "46.66"),
         ])
     );
     let chain = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:turned_step:1/step.length")
+        .find(|d| d.id == "d:f:turned_step:f0/step.length")
         .unwrap();
     let members: Vec<&str> = chain
         .measurements
         .iter()
         .map(|m| m.feature.as_str())
         .collect();
-    assert_eq!(members, ["f:turned_step:1"]);
+    assert_eq!(members, ["f:turned_step:f0"]);
     let od = plan
         .dimensions
         .iter()
@@ -421,8 +421,8 @@ fn repeated_lengths_and_twin_flanges_are_stated_once() {
         strs(&[
             ("d:envelope/od.diameter", "ø30"),
             ("d:envelope/height.length", "70"),
-            ("d:f:turned_step:1/step.diameter", "2× ø30"),
-            ("d:f:turned_step:1/step.length", "40"),
+            ("d:f:turned_step:f0/step.diameter", "2× ø30"),
+            ("d:f:turned_step:f0/step.length", "40"),
         ])
     );
 }

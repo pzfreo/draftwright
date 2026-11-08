@@ -82,7 +82,7 @@ fn a_part_slightly_off_the_axes_is_drawn_square_in_its_own_frame() {
         "{}",
         plan["problems"]
     );
-    for feature in ["f:hole:1", "f:hole:2", "f:boss:1"] {
+    for feature in ["f:hole:1", "f:hole:2", "f:boss:f3"] {
         assert!(
             plan["dimensions"]
                 .as_array()

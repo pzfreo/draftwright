@@ -699,13 +699,13 @@ fn datum_rebased_plane_location_also_states_its_coincident_plate_thickness() {
         let owner = p
             .dimensions
             .iter()
-            .find(|d| d.id == "d:step_level/step_height.length.h50")
+            .find(|d| d.id == "d:step_level/step_height.length.f2")
             .unwrap();
         assert_eq!(owner.label, "50");
         assert!(owner.basis.contains("measured from datum A"));
         for (feature, parameter) in [
-            ("step_level", "step_height.length.h50"),
-            ("f:plate:1", "thickness.length"),
+            ("step_level", "step_height.length.f2"),
+            ("f:plate:f2", "thickness.length"),
         ] {
             let claims: Vec<_> = p
                 .dimensions
@@ -720,7 +720,7 @@ fn datum_rebased_plane_location_also_states_its_coincident_plate_thickness() {
             assert_eq!(claims[0].id, owner.id);
         }
         assert!(p.omitted.iter().any(|d| {
-            d.id == "d:f:plate:1/thickness.length"
+            d.id == "d:f:plate:f2/thickness.length"
                 && matches!(&d.state, draftwright::items::State::Covered { by } if by == &owner.id)
         }));
         let placed = owner.placed.as_ref().unwrap();

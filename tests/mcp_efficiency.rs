@@ -222,8 +222,8 @@ fn one_feature_problem_query_returns_all_member_fixes() {
         &cache,
         "apply_ops",
         json!({"part_ref":summary["part_ref"], "parent":summary["spec_version"], "ops":[
-            {"op":"set", "path":"dimensions/d:f:slot:1~1slot_length.length/place", "value":{"side":"below", "lane":99, "pinned":true}},
-            {"op":"set", "path":"dimensions/d:f:slot:1~1slot_width.length/place", "value":{"side":"left", "lane":99, "pinned":true}}
+            {"op":"set", "path":"dimensions/d:f:slot:f4~1slot_length.length/place", "value":{"side":"below", "lane":99, "pinned":true}},
+            {"op":"set", "path":"dimensions/d:f:slot:f4~1slot_width.length/place", "value":{"side":"left", "lane":99, "pinned":true}}
         ]}),
     );
     let version = &edited["spec_version"];
@@ -235,7 +235,7 @@ fn one_feature_problem_query_returns_all_member_fixes() {
             "list_problems",
             json!({
                 "part_ref":summary["part_ref"], "spec_version":version,
-                "filter":{"feature":"f:slot:1"}, "cursor":cursor
+                "filter":{"feature":"f:slot:f4"}, "cursor":cursor
             }),
         );
         for row in result["items"].as_array().unwrap() {
@@ -329,7 +329,7 @@ fn one_feature_problem_query_returns_all_member_fixes() {
 fn verbose_feature_problem_stays_actionable_and_can_be_cleared() {
     let (cache, summary) = open("actionable-feature", "ctc01");
     let query = json!({"part_ref":summary["part_ref"],
-        "spec_version":summary["spec_version"],"problem_filter":{"feature":"f:slot:1"}});
+        "spec_version":summary["spec_version"],"problem_filter":{"feature":"f:slot:f4"}});
     let inspected = call(&cache, "inspect_part", query);
     let rows = inspected["problem_page"]["items"].as_array().unwrap();
     assert_eq!(rows.len(), 1);
@@ -341,7 +341,7 @@ fn verbose_feature_problem_stays_actionable_and_can_be_cleared() {
         row["subjects"]
             .as_array()
             .unwrap()
-            .contains(&json!("f:slot:1"))
+            .contains(&json!("f:slot:f4"))
     );
     let mut ops = row["fix"]
         .as_array()
@@ -400,7 +400,7 @@ fn verbose_feature_problem_stays_actionable_and_can_be_cleared() {
         &cache,
         "list_problems",
         json!({"part_ref":summary["part_ref"],
-        "spec_version":applied["spec_version"],"filter":{"feature":"f:slot:1"}}),
+        "spec_version":applied["spec_version"],"filter":{"feature":"f:slot:f4"}}),
     );
     assert_eq!(remaining["total"], 0, "{remaining}");
     let delta: Value = serde_json::from_slice(
@@ -421,12 +421,12 @@ fn inspection_batches_a_filtered_problem_page_with_registration() {
     let result = call(
         &cache,
         "inspect_part",
-        json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"problem_filter":{"feature":"f:slot:1"}}),
+        json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"problem_filter":{"feature":"f:slot:f4"}}),
     );
     let problems = call(
         &cache,
         "list_problems",
-        json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"filter":{"feature":"f:slot:1"}}),
+        json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"filter":{"feature":"f:slot:f4"}}),
     );
     assert_eq!(result["problem_page"], problems);
     let actual: Vec<Value> = result["problem_page"]["items"]
@@ -852,7 +852,7 @@ fn an_oversized_trade_keeps_the_finding_inline_and_the_remedy_lossless() {
     let description = "Trade-off: adds an extension crossing. ".repeat(100);
     let row = json!({"id":"p:example", "code":"extension_through_feature",
         "severity":"warning", "impact":"readability", "group":"extension-path",
-        "subjects":["d:example", "f:slot:1"], "fix":ops,
+        "subjects":["d:example", "f:slot:f4"], "fix":ops,
         "fixes":[{"scope":"local", "description":description, "ops":ops}]});
     let page = mcp::page(&cache, vec![row.clone()], &json!({})).unwrap();
     let inline = &page["items"][0];

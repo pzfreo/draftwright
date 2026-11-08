@@ -203,7 +203,7 @@ fn mixed_view_and_item_pins_keep_settled_peers_in_the_guttered_frame() {
             "d:envelope/height.length",
             "d:envelope/depth.length",
             "d:f:section_recess:f18/pocket_width.length",
-            "d:f:paired_ramp_step:1/ramp_angle.angle",
+            "d:f:paired_ramp_step:f2/ramp_angle.angle",
             "d:f:hole:f10/bore.diameter",
         ] {
             spec.dimensions.entry(id.into()).or_default().place =

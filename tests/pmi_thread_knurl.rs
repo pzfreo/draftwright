@@ -1047,7 +1047,7 @@ fn structured_full_thread_aliases_must_agree_with_each_other_and_prose() {
 #[test]
 fn spec_and_pmi_threads_share_short_designations_and_one_style_override() {
     let (_, a) = external_thread();
-    let id = "d:f:turned_step:1/step.diameter";
+    let id = "d:f:turned_step:f2/step.diameter";
     let pmi = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(
         pmi.dimensions.iter().find(|d| d.id == id).unwrap().label,
@@ -1058,7 +1058,7 @@ fn spec_and_pmi_threads_share_short_designations_and_one_style_override() {
         ("M10x1-6g LH", "M10 x 1-6g LH"),
     ] {
         let spec: Spec = serde_json::from_value(serde_json::json!({
-            "features":{"f:turned_step:1":{"thread":{"designation":designation}}}
+            "features":{"f:turned_step:f2":{"thread":{"designation":designation}}}
         }))
         .unwrap();
         let plan = model::plan(&a, &spec).unwrap();
@@ -1069,7 +1069,7 @@ fn spec_and_pmi_threads_share_short_designations_and_one_style_override() {
     }
     let note: Spec = serde_json::from_value(serde_json::json!({
         "sheet":{"callouts":{"style":"full"}},
-        "features":{"f:turned_step:1":{"callouts":{"style":"note"}}},
+        "features":{"f:turned_step:f2":{"callouts":{"style":"note"}}},
         "dimensions":{id:{"text":{"template":"{value} AFTER PLATING"}}}
     }))
     .unwrap();

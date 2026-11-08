@@ -324,19 +324,30 @@ fn a_thread_and_a_knurl_on_bosses_print_on_their_diameter_callouts() {
     };
     let (_, a) = corpus::analyse(&dir, "nist/nist_ftc_06_asme1_rd.stp", "ftc06");
     let s = spec(json!({"features": {
-        "f:boss:5": {"thread": {"designation": "M31.75x1.5"}},
-        "f:boss:6": {"knurl": {"pattern": "straight", "pitch": 1}}
+        "f:boss:f41": {"thread": {"designation": "M31.75x1.5"}},
+        "f:boss:f43": {"knurl": {"pattern": "straight", "pitch": 1}}
     }}));
     let plan = model::plan(&a, &s).unwrap();
-    let thread = dimension(&plan, "d:f:boss:5/boss.diameter");
+    let thread = dimension(&plan, "d:f:boss:f41/boss.diameter");
     assert_eq!(thread.label, "M31.75 x 1.5");
     assert!(thread.measurements.iter().any(|m| m.parameter == "thread"));
-    assert!(thread.measurements.iter().all(|m| m.feature != "f:boss:7"));
-    let knurl = dimension(&plan, "d:f:boss:6/boss.diameter");
+    assert!(
+        thread
+            .measurements
+            .iter()
+            .all(|m| m.feature != "f:boss:f46")
+    );
+    let knurl = dimension(&plan, "d:f:boss:f43/boss.diameter");
     assert_eq!(knurl.label, "ø22.86\nSTRAIGHT KNURL P1");
     assert!(knurl.measurements.iter().any(|m| m.parameter == "knurl"));
-    assert_eq!(dimension(&plan, "d:f:boss:7/boss.diameter").label, "ø31.75");
-    assert_eq!(dimension(&plan, "d:f:boss:8/boss.diameter").label, "ø22.86");
+    assert_eq!(
+        dimension(&plan, "d:f:boss:f46/boss.diameter").label,
+        "ø31.75"
+    );
+    assert_eq!(
+        dimension(&plan, "d:f:boss:f90/boss.diameter").label,
+        "ø22.86"
+    );
     assert!(
         problems(&plan, "pmi_not_lowered").is_empty(),
         "{:?}",
@@ -532,9 +543,9 @@ fn the_session_offers_finish_thread_knurl_and_note_paths() {
     let (part, a) = spindle();
     let session = draftwright::Session::new(part, a, Spec::default()).unwrap();
     let options =
-        serde_json::to_value(session.options("d:f:turned_step:1/step.diameter").unwrap()).unwrap();
+        serde_json::to_value(session.options("d:f:turned_step:f0/step.diameter").unwrap()).unwrap();
     let settable = &options["settable"];
-    let base = "features/f:turned_step:1";
+    let base = "features/f:turned_step:f0";
     for path in ["finish", "thread", "knurl", "note"] {
         assert!(
             settable.get(format!("{base}/{path}")).is_some(),

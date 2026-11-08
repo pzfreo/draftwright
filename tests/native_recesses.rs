@@ -699,7 +699,7 @@ fn recess_locations_do_not_send_an_existing_ramp_leader_through_extra_hidden_edg
     let mut earlier = a.clone();
     earlier.features.retain(|f| f.kind != "section_recess");
     let before = model::plan_recovered(&earlier, &Spec::default()).unwrap();
-    let id = "d:f:paired_ramp_step:1/ramp_angle.angle";
+    let id = "d:f:paired_ramp_step:f2/ramp_angle.angle";
     let crossings = |a: &Analysis, p: &model::Plan| {
         use draftwright::output::Item;
         let d = p.dimensions.iter().find(|d| d.id == id).unwrap();

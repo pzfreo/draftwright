@@ -430,7 +430,7 @@ fn offset_members_expose_the_projected_arc_span() {
 fn pinning_a_callout_at_its_reported_offset_on_a_multi_sheet_plan_moves_nothing() {
     let Some(dir) = corpus::dir() else { return };
     let part = dir.join("cadgenbench_inputs/cgb243.step.gz");
-    let id = "d:f:boss:1/boss.diameter";
+    let id = "d:f:boss:f86/boss.diameter";
     let open = || Session::open(&part, api::Features::Native, Spec::default()).unwrap();
     let placed = |s: &Session| -> Placed {
         s.plan()

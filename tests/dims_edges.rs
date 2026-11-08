@@ -323,7 +323,7 @@ fn lint_finds_the_fillets_stated() {
     assert_eq!(missing(&Spec::default()), 0);
     let mut spec = Spec::default();
     spec.dimensions.insert(
-        "d:f:fillet:1/fillet.radius".into(),
+        "d:f:fillet:f2/fillet.radius".into(),
         DimensionSpec {
             omit: true,
             ..Default::default()

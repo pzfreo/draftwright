@@ -57,10 +57,10 @@ for name in parts:
         statements[dimension["id"]] = f'{dimension["label"]} ({dimension["view"]})'
         direct += 1
     if name == "1000":
-        assert next(d for d in plan["dimensions"] if d["id"] == "d:f:plate:1/thickness.length")["view"] == "v:plan"
+        assert next(d for d in plan["dimensions"] if d["id"] == "d:f:plate:f0/thickness.length")["view"] == "v:plan"
     if name == "10038":
         assert not any(d["id"] == "d:step_level/step_height.length.f4" for d in plan["dimensions"]), "10038: redundant underside closes a chain"
-        assert next(d for d in plan["dimensions"] if d["id"] == "d:f:plate:1/thickness.length")["view"] == "v:side"
+        assert next(d for d in plan["dimensions"] if d["id"] == "d:f:plate:f1/thickness.length")["view"] == "v:side"
     if name == "10007":
         assert direct == 0, "10007: ladder intervals must not close dimension chains"
     print(f"{name:28} {len(plates):5} {direct:6} {covered:7} " + "; ".join(statements.values()))

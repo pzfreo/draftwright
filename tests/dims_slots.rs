@@ -976,7 +976,7 @@ fn ctc01_hex_boss_location_is_conveyed_by_its_hole_grid() {
     for (axis, label) in [("x", "400"), ("y", "225")] {
         let stated = in_plan(&plan, label);
         let grid = format!("d:f:hole_pattern:1/location.length.{axis}");
-        let boss = format!("d:f:polygonal_boss:1/location.length.{axis}");
+        let boss = format!("d:f:polygonal_boss:f61/location.length.{axis}");
         assert_eq!(
             stated,
             std::slice::from_ref(&grid),

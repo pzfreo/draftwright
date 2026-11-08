@@ -451,7 +451,7 @@ fn shoulders_on_slot_walls_are_references_when_the_slot_is_stated() {
     let p = model::plan(&native("nist/nist_ftc_09_asme1_rd.stp"), &references()).unwrap();
     assert_eq!(label(&p, "d:step_level/step_height.length.f81"), "(41.275)");
     let p = model::plan(&native("nist/nist_ftc_10_asme1_rb.stp"), &references()).unwrap();
-    assert_eq!(label(&p, "d:step_level/step_height.length.h62_5"), "(62.5)");
+    assert_eq!(label(&p, "d:step_level/step_height.length.f163"), "(62.5)");
 }
 
 #[test]
@@ -782,10 +782,16 @@ fn cgb202_counts_its_equal_rods_once() {
     let a = trimmed("cgb202");
     let p = model::plan(&a, &Spec::default()).unwrap();
     let rods: Vec<_> = (3..=6)
-        .flat_map(|n| owners(&p, &format!("f:boss:{n}"), "boss_height.length"))
+        .flat_map(|n| {
+            owners(
+                &p,
+                ["f:boss:f1815", "f:boss:f1824", "f:boss:f1833", "f:boss:f1842"][n - 3],
+                "boss_height.length",
+            )
+        })
         .collect();
     let one = (
-        "d:f:boss:3/boss_height.length".to_string(),
+        "d:f:boss:f1815/boss_height.length".to_string(),
         "4× 255".to_string(),
     );
     assert_eq!(rods, vec![one; 4]);
@@ -797,11 +803,11 @@ fn cgb202_counts_its_equal_rods_once() {
 fn ctc01_polygonal_boss_height_is_conveyed_by_its_level_and_the_overall() {
     let a = trimmed("ctc01");
     let p = model::plan(&a, &Spec::default()).unwrap();
-    assert!(owners(&p, "f:polygonal_boss:1", "boss_height.length").is_empty());
-    covered_by(&p, "d:f:polygonal_boss:1/boss_height.length");
+    assert!(owners(&p, "f:polygonal_boss:f61", "boss_height.length").is_empty());
+    covered_by(&p, "d:f:polygonal_boss:f61/boss_height.length");
     for id in [
         "d:envelope/height.length",
-        "d:step_level/step_height.length.h100",
+        "d:step_level/step_height.length.f3",
     ] {
         assert!(
             p.dimensions.iter().any(|d| d.id == id && !d.reference),
@@ -812,7 +818,7 @@ fn ctc01_polygonal_boss_height_is_conveyed_by_its_level_and_the_overall() {
     let boss = shown
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:polygonal_boss:1/boss_height.length")
+        .find(|d| d.id == "d:f:polygonal_boss:f61/boss_height.length")
         .unwrap();
     assert_eq!((boss.label.as_str(), boss.reference), ("(50)", true));
     let issues = lint::check(&a, &marks(&p));
@@ -832,7 +838,7 @@ fn ctc01_polygonal_boss_height_is_conveyed_by_its_level_and_the_overall() {
 fn cgb217_keeps_its_short_shoulder_and_leaves_the_longest_band_to_the_total() {
     let a = trimmed("cgb217");
     let p = model::plan(&a, &Spec::default()).unwrap();
-    let shoulder = owners(&p, "f:turned_step:3", "step.length");
+    let shoulder = owners(&p, "f:turned_step:f322", "step.length");
     assert_eq!(shoulder.len(), 1);
     assert_eq!(shoulder[0].1, "1");
     assert!(owners(&p, "f:turned_step:5", "step.length").is_empty());
@@ -1049,11 +1055,11 @@ fn h275_through_step_legs_yield_to_the_plates_and_overalls_that_state_them() {
     let x = "d:f:through_step:f7/through_step_leg.length.x";
     let y = "d:f:through_step:f7/through_step_leg.length.y";
     let p = model::plan(&a, &Spec::default()).unwrap();
-    assert_eq!(covered_by(&p, x), "d:f:plate:1/thickness.length");
-    assert_eq!(covered_by(&p, y), "d:f:plate:2/thickness.length");
+    assert_eq!(covered_by(&p, x), "d:f:plate:f0/thickness.length");
+    assert_eq!(covered_by(&p, y), "d:f:plate:f1/thickness.length");
     for (id, label) in [
-        ("d:f:plate:1/thickness.length", "4.045"),
-        ("d:f:plate:2/thickness.length", "11.345"),
+        ("d:f:plate:f0/thickness.length", "4.045"),
+        ("d:f:plate:f1/thickness.length", "11.345"),
         ("d:envelope/width.length", "13.398"),
         ("d:envelope/depth.length", "34.060"),
     ] {
@@ -1071,12 +1077,12 @@ fn h275_through_step_legs_yield_to_the_plates_and_overalls_that_state_them() {
         (
             x,
             "(9.353)",
-            ["d:f:plate:1/thickness.length", "d:envelope/width.length"],
+            ["d:f:plate:f0/thickness.length", "d:envelope/width.length"],
         ),
         (
             y,
             "(22.715)",
-            ["d:f:plate:2/thickness.length", "d:envelope/depth.length"],
+            ["d:f:plate:f1/thickness.length", "d:envelope/depth.length"],
         ),
     ] {
         assert_eq!(shown(&with, id), (label.to_string(), true));
@@ -1088,7 +1094,7 @@ fn h275_through_step_legs_yield_to_the_plates_and_overalls_that_state_them() {
     let kept = model::plan(&a, &toleranced).unwrap();
     assert_eq!(shown(&kept, x), ("9.353 ±0.1".to_string(), false));
     assert_eq!(
-        shown(&kept, "d:f:plate:1/thickness.length"),
+        shown(&kept, "d:f:plate:f0/thickness.length"),
         ("4.045".to_string(), false)
     );
     // Lint, independently: the leg drawn beside the plate and the overall closes a chain.
@@ -1110,14 +1116,11 @@ fn h275_through_step_legs_yield_to_the_plates_and_overalls_that_state_them() {
 #[test]
 fn h274_a_leg_from_a_face_level_to_the_top_yields_to_the_rung_and_the_overall() {
     let a = trimmed("h274");
-    let leg = "d:f:through_step:1/through_step_leg.length.z";
+    let leg = "d:f:through_step:f7/through_step_leg.length.z";
     let p = model::plan(&a, &Spec::default()).unwrap();
+    assert_eq!(covered_by(&p, leg), "d:step_level/step_height.length.f7");
     assert_eq!(
-        covered_by(&p, leg),
-        "d:step_level/step_height.length.h8_395"
-    );
-    assert_eq!(
-        shown(&p, "d:step_level/step_height.length.h8_395"),
+        shown(&p, "d:step_level/step_height.length.f7"),
         ("8.395".to_string(), false)
     );
     let codes = [
@@ -1137,7 +1140,7 @@ fn h274_a_leg_from_a_face_level_to_the_top_yields_to_the_rung_and_the_overall() 
 #[test]
 fn h483_a_rung_a_circular_step_depth_closes_is_a_reference() {
     let a = trimmed("h483");
-    let rung = "d:step_level/step_height.length.h6_495";
+    let rung = "d:step_level/step_height.length.f10";
     let callout = "d:f:circular_blind_step:f6/circular_step_radius.radius";
     let p = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(covered_by(&p, rung), "d:envelope/height.length");
@@ -1152,11 +1155,11 @@ fn h483_a_rung_a_circular_step_depth_closes_is_a_reference() {
     drawn.push(mark(
         rung,
         "6.495",
-        &[("step_level", "step_height.length.h6_495")],
+        &[("step_level", "step_height.length.f10")],
     ));
     assert_eq!(
         findings(&a, &drawn, &codes),
-        ["l:closed_dimension_chain:step_level/step_height.length.h6_495"]
+        ["l:closed_dimension_chain:step_level/step_height.length.f10"]
     );
 }
 
@@ -1166,12 +1169,12 @@ fn h483_a_rung_a_circular_step_depth_closes_is_a_reference() {
 #[test]
 fn h265_a_rung_on_a_hex_pockets_floor_is_conveyed_by_its_callout() {
     let a = trimmed("h265");
-    let rung = "d:step_level/step_height.length.h5_35";
-    let callout = "d:f:section_recess:4/polygon_across_flats.length";
+    let rung = "d:step_level/step_height.length.f35";
+    let callout = "d:f:section_recess:f20/polygon_across_flats.length";
     let p = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(covered_by(&p, rung), callout);
     assert_eq!(
-        owners(&p, "step_level", "step_height.length.h5_35"),
+        owners(&p, "step_level", "step_height.length.f35"),
         [(callout.to_string(), "HEX 4.818 A/F × 5.35 DEEP".to_string())]
     );
     let codes = ["duplicate_measurement", "closed_dimension_chain"];
@@ -1180,11 +1183,11 @@ fn h265_a_rung_on_a_hex_pockets_floor_is_conveyed_by_its_callout() {
     twice.push(mark(
         rung,
         "5.35",
-        &[("step_level", "step_height.length.h5_35")],
+        &[("step_level", "step_height.length.f35")],
     ));
     assert!(
         findings(&a, &twice, &codes)
-            .contains(&"l:duplicate_measurement:step_level/step_height.length.h5_35".to_string())
+            .contains(&"l:duplicate_measurement:step_level/step_height.length.f35".to_string())
     );
 }
 
