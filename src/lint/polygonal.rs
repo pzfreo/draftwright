@@ -579,7 +579,7 @@ mod tests {
     /// size across flats and its length; a second stock makes both unverifiable.
     #[test]
     fn polygonal_stock_states_its_size_across_flats_and_length() {
-        let id = "f:polygonal_stock:f0";
+        let id = "f:polygonal_stock:1";
         let a = part("polygonal_stock", prism(6, 24.0, -30.0, 30.0));
         let af = mark(id, "HEX 24 A/F", "polygon_across_flats.length");
         let l = mark(id, "60", "stock_length.length");

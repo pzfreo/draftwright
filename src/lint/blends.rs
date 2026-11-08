@@ -245,13 +245,13 @@ mod tests {
         let mut a = part(&[json!({"radius":0.25,
             "path":{"at":[12.3456,67.8901,0.0],"direction":[0.0,0.0,1.0]}})]);
         a.blend_sites
-            .insert("f:blend:f7".into(), vec![[12.5956, 67.8901, 0.0]]);
+            .insert("f:blend:1".into(), vec![[12.5956, 67.8901, 0.0]]);
         let mut row = Mark {
-            name: format!("{RADIUS_TABLE}/f:blend:f7"),
+            name: format!("{RADIUS_TABLE}/f:blend:1"),
             view: Some("v:plan".into()),
             text: "PLAN 12.346 67.890 R0.25".into(),
             claims: vec![Claim {
-                feature: "f:blend:f7".into(),
+                feature: "f:blend:1".into(),
                 parameter: "blend.radius".into(),
             }],
         };
@@ -267,7 +267,7 @@ mod tests {
         }
         a.features[0].parameters.insert("radius".into(), json!(2.1));
         a.blend_sites
-            .insert("f:blend:f7".into(), vec![[14.4456, 67.8901, 0.0]]);
+            .insert("f:blend:1".into(), vec![[14.4456, 67.8901, 0.0]]);
         row.text = "PLAN 12.346 67.890 R.2".into();
         assert!(!verified_row(&a, &row));
     }

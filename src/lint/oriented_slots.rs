@@ -262,7 +262,7 @@ mod tests {
             claims: parameters
                 .iter()
                 .map(|p| Claim {
-                    feature: "f:oriented_slot:f8".into(),
+                    feature: "f:oriented_slot:1".into(),
                     parameter: p.to_string(),
                 })
                 .collect(),
@@ -306,7 +306,7 @@ mod tests {
         );
         assert_eq!(
             coverage(&a, &[])[0].message,
-            "oriented slot f:oriented_slot:f8 2 wide × 4.543 long, at (4.675, 0.369, 0.703): \
+            "oriented slot f:oriented_slot:1 2 wide × 4.543 long, at (4.675, 0.369, 0.703): \
              requirement oriented_slot_width.length (2 wide) is not stated on the sheet"
         );
 

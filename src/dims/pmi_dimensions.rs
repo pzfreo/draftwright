@@ -1839,7 +1839,7 @@ mod tests {
             geometry: None,
         };
         let step = |value: f64| Want {
-            id: "d:f:turned_step:f0/step.diameter".into(),
+            id: "d:f:turned_step:1/step.diameter".into(),
             views: vec!["front"],
             value,
             terms: vec![format!("⌀{value}")],

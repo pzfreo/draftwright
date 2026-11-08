@@ -1409,7 +1409,7 @@ mod tests {
     fn a_hole_location_outranks_a_coincident_boss_and_slot_location() {
         let (kept, gone) = merged(vec![
             location("f:slot:1", "location_slot_across.length", 40.0, "40"),
-            location("f:boss:f1", "location.length.x", 40.0, "40"),
+            location("f:boss:1", "location.length.x", 40.0, "40"),
             location("f:hole:1", "location.length.x", 40.0, "40"),
         ]);
         let hole = "d:f:hole:1/location.length.x";
@@ -1417,16 +1417,16 @@ mod tests {
         assert_eq!(
             gone,
             [
-                ("d:f:boss:f1/location.length.x".into(), hole.into()),
+                ("d:f:boss:1/location.length.x".into(), hole.into()),
                 ("d:f:slot:1/location_slot_across.length".into(), hole.into()),
             ]
         );
         // Omitting the hole's (it is then not kept) promotes the boss's, which conveys the slot's.
         let (kept, gone) = merged(vec![
             location("f:slot:1", "location_slot_across.length", 40.0, "40"),
-            location("f:boss:f1", "location.length.x", 40.0, "40"),
+            location("f:boss:1", "location.length.x", 40.0, "40"),
         ]);
-        assert_eq!(kept, ["d:f:boss:f1/location.length.x"]);
+        assert_eq!(kept, ["d:f:boss:1/location.length.x"]);
         assert_eq!(gone.len(), 1);
     }
 

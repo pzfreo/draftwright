@@ -552,7 +552,7 @@ mod tests {
             claims: parameters
                 .iter()
                 .map(|p| Claim {
-                    feature: "f:section_recess:f5".into(),
+                    feature: "f:section_recess:1".into(),
                     parameter: p.to_string(),
                 })
                 .collect(),

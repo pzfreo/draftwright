@@ -218,7 +218,7 @@ mod tests {
             claims: parameters
                 .iter()
                 .map(|p| Claim {
-                    feature: "f:groove:f214".into(),
+                    feature: "f:groove:1".into(),
                     parameter: p.to_string(),
                 })
                 .collect(),
@@ -258,7 +258,7 @@ mod tests {
         let issue = &coverage(&a, &[])[0];
         assert_eq!(
             issue.message,
-            "groove f:groove:f214 10 wide, ø122, axis (1, 0, 0), at (-116.39, 0.024, 0.003): \
+            "groove f:groove:1 10 wide, ø122, axis (1, 0, 0), at (-116.39, 0.024, 0.003): \
              requirement groove.length (10 WIDE) is not stated on the sheet"
         );
     }
@@ -307,15 +307,15 @@ mod tests {
             view: Some("v:plan".into()),
             text: "⌀3 ↧ 2".into(),
             claims: vec![
-                claim("f:hole:f155", "bore.diameter"),
-                claim("f:hole:f155", "bore.depth"),
+                claim("f:hole:1", "bore.diameter"),
+                claim("f:hole:1", "bore.depth"),
             ],
         };
         let boss = |text: &str| Mark {
             name: "m_boss".into(),
             view: Some("v:plan".into()),
             text: text.into(),
-            claims: vec![claim("f:boss:f39", "boss.diameter")],
+            claims: vec![claim("f:boss:1", "boss.diameter")],
         };
         assert!(annular_coverage(&a, &[hole.clone(), boss("ø2")]).is_empty());
         let codes: Vec<String> = annular_coverage(&a, &[hole, boss("ø2.5")])

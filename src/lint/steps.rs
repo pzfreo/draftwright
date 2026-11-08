@@ -410,7 +410,7 @@ mod tests {
             "binding": { "source_sha256": "", "part": "test", "face_count": 2, "loader": "test" },
             "envelope": [[0.0, 0.0, 0.0], [100.0, 100.0, 10.0]],
             "features": [{
-                "id": "f:through_step:f9", "kind": "through_step", "faces": [0, 1],
+                "id": "f:through_step:1", "kind": "through_step", "faces": [0, 1],
                 "parameters": record,
                 "fingerprint": { "version": "test", "family": "through_steps",
                                  "subtype": "ThroughStep", "sizes": {},
@@ -453,7 +453,7 @@ mod tests {
             view: Some("v:plan".into()),
             text: text.into(),
             claims: vec![Claim {
-                feature: "f:through_step:f6".into(),
+                feature: "f:through_step:1".into(),
                 parameter: format!("through_step_leg.length.{axis}"),
             }],
         };

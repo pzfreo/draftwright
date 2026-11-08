@@ -106,7 +106,7 @@ pub(crate) mod tests {
             view: Some("v:front".into()),
             text: text.into(),
             claims: vec![Claim {
-                feature: "f:paired_ramp_step:f6".into(),
+                feature: "f:paired_ramp_step:1".into(),
                 parameter: parameter.into(),
             }],
         };

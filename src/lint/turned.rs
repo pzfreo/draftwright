@@ -821,19 +821,19 @@ mod tests {
         assert_eq!(b.axis, 2);
         assert!((b.lo - 13.8).abs() < 1e-9 && (b.hi - 14.8).abs() < 1e-9);
         let marks = [
-            mark("m_steplen0", "1", "f:turned_step:f0", "step.length"),
-            mark("m_steplen1", "5.5", "f:turned_step:f6", "step.length"),
+            mark("m_steplen0", "1", "f:turned_step:1", "step.length"),
+            mark("m_steplen1", "5.5", "f:turned_step:2", "step.length"),
             mark("m_steplen2", "1.2", "f:turned_step:3", "step.length"),
-            mark("m_dia_z1", "ø6", "f:turned_step:f6", "step.diameter"),
+            mark("m_dia_z1", "ø6", "f:turned_step:2", "step.diameter"),
             mark("dim_od", "ø7.5", "envelope", "od.diameter"),
         ];
         assert_eq!(
             states(&a, &marks),
             [
-                "f:turned_step:f0 step.length Placed",
-                "f:turned_step:f0 step.diameter Placed",
-                "f:turned_step:f6 step.length Placed",
-                "f:turned_step:f6 step.diameter Placed",
+                "f:turned_step:1 step.length Placed",
+                "f:turned_step:1 step.diameter Placed",
+                "f:turned_step:2 step.length Placed",
+                "f:turned_step:2 step.diameter Placed",
                 "f:turned_step:3 step.length Unverifiable",
                 "f:turned_step:3 step.diameter Missing",
             ]

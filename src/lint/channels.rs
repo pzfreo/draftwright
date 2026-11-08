@@ -580,7 +580,7 @@ mod tests {
         .map(|(p, v)| (p.to_string(), v.to_string()))
         .collect();
         assert_eq!(named, want);
-        let id = "f:section_recess:f5";
+        let id = "f:section_recess:1";
         let callout = Mark {
             name: "m_circular_channel_y0".into(),
             view: Some("v:front".into()),
@@ -640,10 +640,10 @@ mod tests {
             mark(
                 "dim_channel_y0",
                 "25",
-                "f:section_recess:f5",
+                "f:section_recess:1",
                 "channel_width.length",
             ),
-            mark("dim_plate_y0", "12.5", "f:plate:f1", "thickness.length"),
+            mark("dim_plate_y0", "12.5", "f:plate:1", "thickness.length"),
             mark("m_env_depth", "50", "envelope", "depth.length"),
         ];
         assert!(coverage(&a, &marks).is_empty());
@@ -660,11 +660,11 @@ mod tests {
         }
         // With one plate axis the recess is the step ladder's rebate: nothing is required.
         let mut rebate = a.clone();
-        rebate.features.retain(|f| f.id != "f:plate:f3");
+        rebate.features.retain(|f| f.id != "f:plate:3");
         assert!(coverage(&rebate, &[]).is_empty());
         // No plate below the channel: its thickness cannot be checked.
         let mut thin = a;
-        thin.features.retain(|f| f.id != "f:plate:f1");
+        thin.features.retain(|f| f.id != "f:plate:1");
         thin.features[1].parameters["axis"] = json!("x");
         let found = coverage(&thin, &marks);
         assert_eq!(

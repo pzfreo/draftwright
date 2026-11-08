@@ -594,12 +594,12 @@ mod tests {
             .enumerate()
             .map(|(i, c)| hole(&format!("f:hole:{}", i + 1), [c[0], c[1], 0.0], 6.0))
             .collect();
-        fs.push(hole("f:hole:f10", [50.0, 50.0, 0.0], 20.0));
+        fs.push(hole("f:hole:5", [50.0, 50.0, 0.0], 20.0));
         let read: Vec<Hole> = fs.iter().map(|f| Hole::read(f, &frame).unwrap()).collect();
         let all: Vec<&Hole> = read.iter().collect();
         let circle = |members: &[&str]| HolePattern {
             legacy_id: None,
-            id: "f:hole_pattern:f6".into(),
+            id: "f:hole_pattern:1".into(),
             arrangement: "bolt_circle".into(),
             members: members.iter().map(|m| m.to_string()).collect(),
             faces: vec![],
@@ -608,7 +608,7 @@ mod tests {
                 .unwrap()
                 .clone(),
         };
-        let four = circle(&["f:hole:f6", "f:hole:f7", "f:hole:f8", "f:hole:f9"]);
+        let four = circle(&["f:hole:1", "f:hole:2", "f:hole:3", "f:hole:4"]);
         assert_eq!(established(&four, &all), Ok(vec![0, 1, 2, 3]));
         // Without the bore, nothing corroborates it.
         let err = established(&four, &all[..4]).unwrap_err();
@@ -643,10 +643,10 @@ mod tests {
         // The bore cannot be a member (it is not of the members' size), and a circle without a
         // centre has nothing on it.
         let mut five = four.clone();
-        five.members.push("f:hole:f10".into());
+        five.members.push("f:hole:5".into());
         assert_eq!(
             established(&five, &all).unwrap_err(),
-            "its pattern f:hole_pattern:f6 is not of identical holes, so each is called out as itself"
+            "its pattern f:hole_pattern:1 is not of identical holes, so each is called out as itself"
         );
         let mut centreless = four.clone();
         centreless.parameters.remove("center");
