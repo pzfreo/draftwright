@@ -39,15 +39,15 @@
       "remove_d:authored:keyway_start",
       "remove_d:envelope/od.diameter",
       "remove_d:envelope/width.length",
-      "remove_d:f:chamfer:2/chamfer.length",
-      "remove_d:f:hole:1/bore.diameter",
-      "remove_d:f:hole:1/location.length.x",
-      "remove_d:f:hole:1/location.length.y",
-      "remove_d:f:hole:2/bore.diameter",
-      "remove_d:f:section_recess:1/pocket_width.length",
-      "remove_d:f:turned_step:2/step.length",
-      "remove_d:f:turned_step:3/step.length",
-      "remove_d:step_level/step_height.length.h8"
+      "remove_d:f:chamfer:f12/chamfer.length",
+      "remove_d:f:hole:f6/bore.diameter",
+      "remove_d:f:hole:f6/location.length.x",
+      "remove_d:f:hole:f6/location.length.y",
+      "remove_d:f:hole:f9/bore.diameter",
+      "remove_d:f:section_recess:f6/pocket_width.length",
+      "remove_d:f:turned_step:f4/step.length",
+      "remove_d:f:turned_step:f10/step.length",
+      "remove_d:step_level/step_height.length.f2"
     ]
   },
   "326": {
