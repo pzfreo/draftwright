@@ -6,6 +6,14 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+### Fixed
+
+- Translate overflowing projection rows into vacant same-sheet space at an
+  explicit paper/scale pair, keeping unrelated rows and controls fixed. Preserve
+  authored placements, routes and scale; CTC-01 keeps A3 1:5 and its placed 510
+  dimension without a page-fit warning or scale-change fix (#331). Retain existing
+  carriers when the finished assembly cannot fit at the requested pair.
+
 ## 0.2.13 (2026-11-08)
 
 On quiddity-rust 0.4.9, now from crates.io (was 0.4.8 from a git tag). This release makes
