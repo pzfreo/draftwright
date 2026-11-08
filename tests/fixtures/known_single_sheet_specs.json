@@ -31315,7 +31315,7 @@
       "dimensions": {
         "d:envelope/width.length": {},
         "d:f:hole:9/bore.diameter": {},
-        "d:f:hole_pattern:1/bore.diameter": {}
+        "d:f:hole_pattern:f6/bore.diameter": {}
       },
       "schema": "draftwright.spec/3",
       "sheet": {}
@@ -33202,7 +33202,7 @@
         "d:f:hole:9/bore.diameter": {
           "omit": true
         },
-        "d:f:hole_pattern:1/bore.diameter": {
+        "d:f:hole_pattern:f6/bore.diameter": {
           "omit": true
         }
       },

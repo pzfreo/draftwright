@@ -14,7 +14,7 @@
   }
  },
  "dimensions": {
-  "d:f:hole:2/location.length.x": {
+  "d:f:hole:f3/location.length.x": {
    "omit": true
   },
   "d:envelope/width.length": {
@@ -23,12 +23,12 @@
   "d:authored:hole2_from_shoulder": {
    "between": [
     "face:v1:a6bd768fe74c3575cad2c5cfe2268013d93f33886195ad328cd17fcc8af7792c",
-    "axis:f:hole:2"
+    "axis:f:hole:f3"
    ],
    "along": "x",
    "view": "plan"
   },
-  "d:f:turned_step:2/step.length": {
+  "d:f:turned_step:f6/step.length": {
    "view": "front"
   }
  }

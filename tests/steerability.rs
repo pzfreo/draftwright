@@ -2135,7 +2135,7 @@ fn mounting_plate_text_nudge_is_not_displaced_intent_but_shared_lane_is() {
     assert!(p.problems.iter().any(|f| {
         f.code == "placement_displaced"
             && f.subjects
-                .contains(&"d:scheme:holes-y/23c244b80eadd066".into())
+                .contains(&"d:scheme:holes-y/b692eed9eed9c9df".into())
             && f.message.contains("lane")
     }));
 }
