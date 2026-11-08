@@ -4701,7 +4701,7 @@ fn correlated_set(analysis: &Analysis, id: &str) -> Option<&'static str> {
         return Some(HEIGHTS);
     }
     let parameter = id.strip_prefix("d:step_level/")?;
-    let map = levels::legacy_ids(analysis);
+    let map = crate::geometry_ids::legacy_ids(analysis);
     let old = map
         .iter()
         .find(|(_, new)| *new == parameter)

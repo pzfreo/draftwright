@@ -4129,6 +4129,7 @@ mod tests {
         crate::dims::contacts::report(&a, &mut b);
         model::note_final_conflicts(&mut b);
         b.record_callout_offsets();
+        crate::stable_ids::migrate(&s, &a).unwrap().report(&mut b);
         let p = model::plan_recovered(&a, &s).unwrap();
         assert!(p.sheet_candidates.is_empty());
         assert_eq!(

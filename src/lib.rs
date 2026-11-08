@@ -22,6 +22,7 @@ pub mod evaluation;
 pub mod finding;
 pub mod fixes;
 pub mod gears;
+mod geometry_ids;
 pub mod graphical_pmi;
 pub mod half_section;
 mod hole_exits;

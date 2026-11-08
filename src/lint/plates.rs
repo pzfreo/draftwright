@@ -421,7 +421,7 @@ pub fn alternatives(a: &Analysis, f: &Feature) -> Vec<Vec<Term>> {
                 let h = z - a.envelope[0][2];
                 terms.push(vec![Term::new(
                     "step_level",
-                    &crate::dims::levels::height_parameter(a, z),
+                    &crate::geometry_ids::height_parameter(a, z),
                     h,
                 )]);
             }
@@ -466,7 +466,7 @@ pub fn alternatives(a: &Analysis, f: &Feature) -> Vec<Vec<Term>> {
                 let value = t - a.envelope[0][k];
                 Some(vec![Term::new(
                     "step_level",
-                    &crate::dims::levels::position_parameter(a, k, t),
+                    &crate::geometry_ids::position_parameter(a, k, t),
                     value,
                 )])
             } else {

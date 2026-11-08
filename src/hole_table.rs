@@ -2906,9 +2906,10 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
             }
         }
         rows.sort_by(|a, b| {
-            a.cells[1]
-                .cmp(&b.cells[1])
-                .then_with(|| a.feature.cmp(&b.feature))
+            a.cells[1].cmp(&b.cells[1]).then_with(|| {
+                crate::stable_ids::presentation_key(analysis, &a.feature)
+                    .cmp(crate::stable_ids::presentation_key(analysis, &b.feature))
+            })
         });
         let mut group = 0;
         let mut number = 0;

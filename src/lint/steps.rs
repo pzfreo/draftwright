@@ -244,9 +244,9 @@ pub fn alternatives(analysis: &Analysis, f: &Feature) -> Vec<Alternatives> {
         let extent = Term::new("envelope", EXTENTS[k], hi[k] - lo[k]);
         let ladder = |at: f64| {
             if k == 2 && analysis.level_supports.iter().any(|s| !s.faces.is_empty()) {
-                crate::dims::levels::height_parameter(analysis, at)
+                crate::geometry_ids::height_parameter(analysis, at)
             } else if k < 2 && analysis.risers.iter().any(|r| !r.faces.is_empty()) {
-                crate::dims::levels::position_parameter(analysis, k, at)
+                crate::geometry_ids::position_parameter(analysis, k, at)
             } else if k == 2 {
                 "step_height.length".into()
             } else {

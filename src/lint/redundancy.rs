@@ -62,7 +62,7 @@ pub(crate) fn path(edges: &[(Span, usize)], target: Span) -> Option<Vec<usize>> 
 }
 
 pub(crate) fn level_span(a: &Analysis, parameter: &str) -> Option<Span> {
-    let map = crate::dims::levels::legacy_ids(a);
+    let map = crate::geometry_ids::legacy_ids(a);
     let parameter = map
         .iter()
         .find(|(_, new)| *new == parameter)
@@ -81,7 +81,7 @@ pub(crate) fn level_span(a: &Analysis, parameter: &str) -> Option<Span> {
 
 /// A ladder shoulder `step_position.length.<axis><position>`, measured from the part's box.
 pub(crate) fn position_span(a: &Analysis, parameter: &str) -> Option<Span> {
-    let map = crate::dims::levels::legacy_ids(a);
+    let map = crate::geometry_ids::legacy_ids(a);
     let parameter = map
         .iter()
         .find(|(_, new)| *new == parameter)

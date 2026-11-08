@@ -62,6 +62,15 @@ fn complete_ids(plan: &mut Plan) {
     }
 }
 
+/// Keep presentation tie-breaks identical while public names change spelling.
+pub(crate) fn presentation_key<'a>(a: &'a Analysis, id: &'a str) -> &'a str {
+    a.features
+        .iter()
+        .find(|f| f.id == id)
+        .and_then(|f| f.legacy_id.as_deref())
+        .unwrap_or(id)
+}
+
 pub(crate) fn feature_names(
     features: &[crate::bridge::Feature],
     patterns: &[crate::bridge::HolePattern],
@@ -153,7 +162,7 @@ pub fn ids(a: &Analysis) -> BTreeMap<String, String> {
         );
     }
     ids.extend(
-        crate::dims::levels::legacy_ids(a)
+        crate::geometry_ids::legacy_ids(a)
             .iter()
             .map(|(o, n)| (o.clone(), n.clone())),
     );
