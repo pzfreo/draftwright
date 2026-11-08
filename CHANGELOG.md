@@ -6,100 +6,96 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+## 0.2.13 (2026-11-08)
+
+On quiddity-rust 0.4.9, now from crates.io (was 0.4.8 from a git tag). This release makes
+drawings easier to steer from the Spec: broken views, sections through named features,
+per-part manufacturing process, and clearer reports when one edit moves something else.
+
+Existing drawings change in three ways:
+
+- Hole-table tags are renumbered in reading order (17 corpus drawings; only tags and row order change).
+- Keyway and pocket depths read `3 DEEP` instead of `3 MAX DEEP`.
+- Better recognition of circular blind steps changes `mfcadpp_holdout/363.step`.
+
+Refer to holes by `tag_id` or key, not by the printed tag.
+
+The optimised browser build is about 21.3 MB, under its 23.3 MB budget.
+
 ### Added
 
-- Geometry-referenced broken principal views with ISO 128 zig-zag lines, true
-  dimensions, shortened sheet extents and reported Spec overrides (#315). Break gaps
-  and repeated teeth use paper millimetres; conflicting alignment and removed anchors warn.
-
-- Per-part manufacturing process from Spec, STEP UDA or material class, with
-  recorded provenance, process tolerance/finish defaults and conditional GA Process column.
-
-### Fixed
-
-- Keep generated hole-tag prose in sync with final labels; retain legacy numbering
-  when collision evidence is missing, restore recorded row order exactly, and
-  group spatial rows within 0.001 model mm. Document saved presentation metadata.
-
-- Number hole-table tags spatially after layout without changing identities, routes
-  or paper; retain legacy numbering with an info finding when fixed ink blocks it (#322).
-
-- Recompose views around alternate block forms of an explicit hole table before
-  withdrawing it; unmet requests report named blockers with decision impact (#321).
-
-- Reserve the printed ink of explicit linear lanes before placing views; transport
-  view-relative dimension pins with their projection assembly to use free paper,
-  and name exceeded sheet boundaries when the requested ink cannot fit (#296).
-
-- Bound GD&T placement comparisons to a primitive sheet pass or a reused pin
-  anchor; ignore sub-stroke drift, attribute causes to new intersecting ink or
-  the sole changed dimension placement, and retain peer intent in pin comparisons.
-  Ambiguous moves use drawing-author wording. Small text-clearance nudges do not
-  count as displaced along intent. Note-only PMI keeps geometry origins and repairs.
-
-- Retain clear datum and control-frame positions across dimension placement edits;
-  report moved GD&T items and the placement requests that caused re-layout (#330).
-- Preserve explicit linear side and text stations around pinned neighbours where they fit;
-  report final displaced side, lane and along intent with truthful placement bases (#325).
-- Feature notes no longer restore tangent locations on unrelated on-axis bores (#311).
-
-- Pinned multi-sheet canonicals discard temporary moved-section omissions while
-  retaining authored cuts. Detached dimension witnesses are classified as errors
-  with incomplete impact and a documented cause group.
-
-- Automatic recovery checks final centre-line bounds before accepting a sheet;
-  transported ink cannot turn a clean candidate into an off-sheet drawing after selection.
-- Include explicit sections in pinned paper selection; retain automatic cuts when a named
-  plane is unavailable, preserve requested labels, and attach keyway depth callouts to
-  their floors. Render diagnostics now detect detached section-depth witnesses.
-
-- Manufacturing defaults preserve authored PMI finishes. GA process cells omit
-  bought parts and guesses; CSV carries process provenance. Printed gear policy
-  caps severity without promoting Info, and tolerance defaults use explicit
-  greater-of wording and CHECK marks for ungraded suggested standards.
+- Broken views (`views/<id>/break`): a long principal view can be shortened with ISO 128
+  zig-zag break lines. Dimensions keep their true values. Break gaps are in paper millimetres.
+  Breaks that conflict with view alignment, or that would remove a dimension's anchor, warn
+  (`break_not_applied`, `break_anchor_removed`) (#315).
+- Sections through a named feature (`views/sections: [{id, through}]`), showing a pocket's
+  width, length and depth (#304). An explicit `views/section_aa` request can now cut through
+  plain through holes (#314). Requested sections are counted when the sheet is chosen. An
+  unmet request keeps the automatic section and gives a specific warning.
+- Per-part manufacturing process (top-level `process`), from the Spec, a STEP user-defined
+  attribute or the material class. The drawing states only what is known. Process tolerance
+  and finish defaults never override authored PMI. The GA drawing gains a Process column when
+  any part has one; bought parts and guesses are left blank. `pack.csv` gains `process` and
+  `process_source` columns.
+- Select a part in the Spec by persistent key or numeric index (top-level `part`) (#324).
+  Conflicting command-line and Spec selections are refused, and session opens honour the
+  Spec's part.
+- Hole plan records gain `tag_id`, a stable identity for a hole-table tag, and
+  `label_box_before` (#322).
+- `gdt_position_changed` warning: when a dimension edit moves a datum or control frame by
+  more than 0.01 mm on paper, the warning names the cause where it can (#330).
+- `placement_displaced` reports where an explicit dimension placement was moved to fit, with
+  the final side, lane and position (#325).
+- `dimension_witness_detached` error, when a dimension's witness line does not reach its feature.
+- Every automatic decision's plan entry names the Spec field that overrides it, or says why
+  none exists (#309).
 
 ### Changed
 
-- Draw named-feature longitudinal sections via `views/sections`, with pocket width,
-  length and depth, and report unavailable or displaced section intent (#304).
-- Honour explicit `views/section_aa` requests through plain through holes; retain
-  drawings with a specific warning when no supported cutting plane is available (#314).
-- Depend on quiddity and haecceity 0.4.9 from crates.io (`=0.4.9`, the same source as
-  tag v0.4.9), keeping quiddity’s CLI feature disabled for library and browser builds.
-  The kernel pin check reads exact crates.io versions as their release tags. PMI reading is unchanged (reader `/19`);
-  recognition now retains circular blind steps cut by another feature: corpus
-  `mfcadpp_holdout/363.step` gains the R4.550 × 3.359 DEEP callout in place of
-  a bare profile radius and a redundant step height.
-- Share quiddity’s congruence proof for pack grouping, retaining metadata compatibility,
-  cached group fingerprints and representative-to-alias GA projection reuse.
+- Hole-table tags are numbered in reading order (row, then column, from the origin) after
+  layout. Hole identities, leader routes and sheet size don't change. A table keeps its old
+  numbering, with an info finding, when new labels would collide (#322).
+- Pocket and keyway depths say `DEEP`, with the depth measured either to the tangent or to
+  the far side of the floor, which the Spec can choose (`dimensions/<id>/presentation`) (#305).
+- Lint credits a location only when the drawing shows it. A bolt circle on the axis of the
+  round outline counts as located when the true-shape view draws the outline, the pitch circle
+  and their common centre. A reference-only dimension, or table credit taken from another
+  feature, no longer locates a hole. A slot's transverse location can be taken from either
+  edge (#310, #316, #319). Across the corpus, `duplicate_measurement` findings fall and
+  `slot_requirement_missing` findings rise slightly.
+- Spec validation keeps what the author asked for (#308): duplicate measurements, layout that
+  can't be honoured and stale edits warn. Axis origins and Cartesian note
+  roles are accepted. ISO 286 fit classes print even without the optional deviation table.
+  Contradictory repeated requirements or fits on the same location, pitch or station network
+  are refused.
+- Required lengths stay alongside reference dimensions (#317). Pattern notes attach in the
+  circle's plan view (#312), authored dimension views are kept (#303), and slot-centre
+  references are accepted (#320). Centred keyways no longer get a tangent location (#302),
+  and feature notes no longer add tangent locations to unrelated bores on the same axis (#311).
+- Linear repair offers no longer include `lane: 0, along: outside`.
+- Single-part Analyses omit `part_keys`. MCP error schemas include the Spec `path`.
 
-- Credit verified tangent/far-tangent pocket depth presentations in lint; require
-  the carrying diameter for far-tangent inference and recheck final centre-mark bounds.
-- Session opens honour Spec part selection; single-part Analyses omit `part_keys`.
-- Plan override guidance uses schema-valid item-kind paths and shorter dimension bases.
+### Fixed
 
-- Plan bases name existing Spec controls from one nine-family override catalogue
-  and explain unavailable overrides and the PMI/checker boundary (#309).
-- Pocket depth wording says `DEEP`, with truthful tangent-depth or opposite-tangent
-  floor-distance presentation in the Spec (#305).
-- MCP error schemas include the existing Spec `path`, including part-selection refusals.
-- Select a part in the Spec by persistent key or numeric index (#324); refuse
-  conflicting command/request selectors.
+- Packs merge identical parts that are pure translations of each other, such as bolts
+  exported as separate products ("M3×8 hex bolt #1" … "#4"). The face-by-face proof still
+  decides each merge, and the trailing " #n" is dropped from the shared display name (#351).
+- An explicit hole table is kept by rearranging the views around another table shape before
+  it is withdrawn. An unmet request names what blocked it (#321).
+- Explicit dimension lanes reserve their printed space before views are placed, and pinned
+  dimensions move with their view. When the requested dimensions cannot fit, the finding
+  names the sheet edge they exceed (#296).
+- Datums and control frames keep their positions when unrelated dimension placements are edited (#330).
+- Automatic sheet selection checks the finished drawing, including centre lines, so a sheet it
+  accepts cannot end up with ink off the sheet.
+- Keyway depth callouts attach to the keyway floor in sections.
 
-- Spec validation preserves truthful drawing requests (#308): warn for duplicate
-  measurements, unavailable layout and stale edits; accept axis origins and
-  Cartesian note roles. ISO 286 fit classes print even outside the optional
-  deviation table, without inventing limits.
-- Keep required lengths alongside reference dimensions (#317), attach pattern notes
-  in the circle's plan view (#312), retain authored dimension views (#303), accept
-  slot-centre references (#320), and omit centred keyway tangent locations (#302).
+### Dependencies
 
-- Refuse contradictory repeated dimension requirements and fits on locations, pitches or station networks;
-  validate note location roles against feature evidence. Preserve presentation-only scheme
-  repeats with a warning, share centred-keyway evidence, and name detail scales as ratios.
-- Cover retained stale dimension edits and their path-specific warnings in browser parity;
-  leave peer routes unchanged for unapplied omissions. Keep refusing unsafe annotation
-  references without a nonempty PMI or note identity.
+- quiddity and haecceity 0.4.9 from crates.io (`=0.4.9`), with quiddity's command-line
+  feature turned off for library and browser builds. PMI reading is unchanged. Recognition now
+  keeps circular blind steps cut by another feature: `mfcadpp_holdout/363.step` gains an
+  R4.550 × 3.359 DEEP callout in place of a bare profile radius and a redundant step height.
 
 ## 0.2.12 (2026-11-06)
 
