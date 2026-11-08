@@ -2720,6 +2720,33 @@ against Analysis geometry; a wrong or missing entry cell reports
 recognized bore axis can use a `pcd` statement, a located circle centre and an
 explicit `ANGLE` column (counterclockwise from local +X). Missing positions do
 not imply equal spacing; the member X/Y remain supplementary locating evidence.
+An explicit `hole_table: always` retries up to four block forms, reserving each
+before composing views; `sheet/table_columns` still wins. If installation fails,
+`hole_table_unavailable` retains the individual dimensions, names the blocking
+views or ink (or the sheet boundaries), and has decision impact for an explicit request.
+Published hole-table tags are numbered within each existing size family in rising
+local Y rows, then rising local X columns from the table origin. A row includes
+centres within 0.001 model mm of its lowest Y; ties use Y then feature identity.
+This model-space tolerance absorbs sub-micron projection noise independently of sheet scale.
+This final permutation changes printed tags and table-row order only: row/cell
+identities retain their original token (`tag_id` when different). Placement and
+routing see legacy numbering throughout. A wider label or reordered cell that
+collides with fixed ink retains the whole table's legacy numbering, with an info
+`hole_table_tag_order_retained` finding. A fixed inspection leader also retains
+its original row carrier. No table, route, view or sheet is moved by relabelling.
+Generated attachment bases and coordinate findings name the final printed tags;
+coordinate references include the carrying view to distinguish tables.
+
+The hole-table presentation fields in Plan JSON are described by
+[`schemas/plan.json`](../schemas/plan.json). Optional row `tag_id` is the original
+stable row/cell token; `tag` is the printed label. A permuted table records the
+exact original sequence of row keys in `row_order_before`. A balloon whose text
+width changed records its original `[xmin, ymin, xmax, ymax]` in
+`label_box_before`, in paper mm. These sparse fields are saved, not just internal
+state: public recovery restores the recorded order, labels, prose and exact
+transported bounds before solving, then republishes the final labels. Older plans
+without a recorded order retain their supplied order rather than guessing it.
+
 Tags and origin labels avoid boundaries, bore silhouettes, other annotation ink
 and section furniture; their resolved `label_box` is also judged by structural
 lint and the SVG quality instrument. Pins keep their callout or location ink. A row replaces a

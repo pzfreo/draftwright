@@ -362,6 +362,27 @@ fn steer_296_reserve_explicit_lane() {
 }
 
 #[test]
+fn explicit_lane_reports_exhausted_paper() {
+    let mut s = input("inline-293");
+    s["dimensions"]["d:envelope/height.length"]["place"] = json!({"side":"left","lane":40});
+    let p = planned(BRACKET, &s);
+    assert!(p.plan.problems.iter().any(|f| {
+        f.code == "annotation_off_sheet"
+            && f.message.contains("boundary exceeded by")
+            && f.subjects
+                .iter()
+                .any(|id| p.plan.dimensions.iter().any(|d| &d.id == id))
+    }));
+    assert!(
+        dim(&p.plan, "d:envelope/height.length")
+            .unwrap()
+            .from_spec
+            .iter()
+            .any(|f| f == "place")
+    );
+}
+
+#[test]
 fn steer_297_reference_roles() {
     let _p = planned(BRACKET, &input("inline-293"));
     let refs = serde_json::to_value(fixture(BRACKET).analysis.edge_ink.as_ref().unwrap()).unwrap();
@@ -1572,6 +1593,35 @@ fn steer_321_explicit_table_fits() {
         !p.plan.hole_tables.is_empty() || blockers_named,
     );
     c.finish(321);
+}
+
+#[test]
+fn explicit_table_reflows_views_and_reports_unmet_intent() {
+    let mut s = input(PLATE);
+    s.as_object_mut().unwrap().remove("dimensions");
+    s.as_object_mut().unwrap().remove("views");
+    let p = planned(PLATE, &s);
+    assert!(
+        !p.plan.hole_tables.is_empty(),
+        "free paper must be used for the explicit table"
+    );
+    for view in ["v:front", "v:plan", "v:side"] {
+        assert!(p.plan.views.iter().any(|v| v.id == view));
+    }
+    assert!(!has(&p.plan, "annotation_off_sheet"));
+    s["sheet"]["scale"] = json!("2:1");
+    s["sheet"]["size"] = json!("A4");
+    let crowded = planned(PLATE, &s);
+    let finding = crowded
+        .plan
+        .problems
+        .iter()
+        .find(|f| f.code == "hole_table_unavailable")
+        .unwrap();
+    assert_eq!(serde_json::to_value(finding).unwrap()["impact"], "decision");
+    assert!(finding.refs.iter().any(|r| r == "hole_table"));
+    assert!(finding.message.contains("blocked by"));
+    assert!(!finding.subjects.is_empty());
 }
 
 #[test]

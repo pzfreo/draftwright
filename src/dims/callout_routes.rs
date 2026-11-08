@@ -1157,6 +1157,7 @@ mod tests {
         let a = crate::model::analyse_native(&path).unwrap().1;
         let mut plan = crate::model::plan(&a, &Spec::default()).unwrap();
         plan.balloons.push(crate::hole_table::Balloon {
+            label_box_before: None,
             id: "schedule/tag/B8".into(),
             tag: "B8".into(),
             view: "v:plan".into(),

@@ -1792,13 +1792,27 @@ pub(crate) fn reserve_linear_corridors(
         .collect();
     let mut shifts = vec![[0.0; 2]; plan.views.len()];
     let index = |id: &str| plan.views.iter().position(|v| v.id == id);
-    let free = !crate::placement_intent::has_pins(&plan.spec)
+    // Dimension pins are relative to their carrier, not absolute paper coordinates.
+    // Unlock fixed frames only for actual requested-lane overflow; spare reserved
+    // bands must not move an already fitting drawing.
+    let explicit_lane = plan.dimensions.iter().any(|d| {
+        plan.spec.dimensions.get(&d.id).is_some_and(|entry| {
+            !entry.omit && entry.place.as_ref().is_some_and(|p| p.lane.is_some())
+        }) && crate::dims::ink_box(d).is_some_and(|b| {
+            b[0] < margin() - 1e-6
+                || b[1] < margin() - 1e-6
+                || b[2] > plan.sheet.page[0] - margin() + 1e-6
+                || b[3] > plan.sheet.page[1] - margin() + 1e-6
+        })
+    });
+    let free = (explicit_lane
+        || (!crate::placement_intent::has_pins(&plan.spec)
+            && (automatic_pair
+                || plan.spec.sheet.size.is_none()
+                || plan.spec.sheet.scale.is_none())))
         && !crate::model::dimension_text_edited(&plan.spec)
         && !plan.spec.views.values().any(|v| v.place.is_some())
-        // A named sheet and scale retain their established projection frame,
-        // including section marks. Reserve the full ink without silently moving
-        // that frame; automatic sheet candidates may compose their free blocks.
-        && (automatic_pair || plan.spec.sheet.size.is_none() || plan.spec.sheet.scale.is_none());
+        && plan.spec.sheet.keep_layout != Some(true);
     if free {
         let first = plan.spec.sheet.projection.as_deref() == Some("first");
         let column: Vec<usize> = plan
@@ -1908,6 +1922,14 @@ pub(crate) fn reserve_linear_corridors(
                 shifts[i][1] += raise;
             }
         }
+    }
+    if explicit_lane && shifts.iter().any(|d| *d != [0.0; 2]) {
+        plan.sheet.basis = plan.sheet.basis.replace(
+            "anchor frames and sheet choice kept fixed for placement pins",
+            "sheet choice retained; view carriers translated for the requested lane",
+        );
+        plan.sheet.basis +=
+            "; applied explicit lane reservation by transporting its carrying views";
     }
     for (i, v) in plan.views.iter_mut().enumerate() {
         let delta = shifts[i];

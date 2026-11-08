@@ -278,7 +278,7 @@ pub(crate) fn apply(analysis: &Analysis, plan: &mut Plan) {
                         .map(|row| (t, row))
                 })
             {
-                c.drawn_item = Some(format!("{}/{}", table.id, row.tag));
+                c.drawn_item = Some(format!("{}/{}", table.id, row.key()));
                 c.sheet = Some(table.sheet);
                 c.view = table.view.clone();
             }

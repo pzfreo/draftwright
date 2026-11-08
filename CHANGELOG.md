@@ -17,6 +17,20 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
+- Keep generated hole-tag prose in sync with final labels; retain legacy numbering
+  when collision evidence is missing, restore recorded row order exactly, and
+  group spatial rows within 0.001 model mm. Document saved presentation metadata.
+
+- Number hole-table tags spatially after layout without changing identities, routes
+  or paper; retain legacy numbering with an info finding when fixed ink blocks it (#322).
+
+- Recompose views around alternate block forms of an explicit hole table before
+  withdrawing it; unmet requests report named blockers with decision impact (#321).
+
+- Reserve the printed ink of explicit linear lanes before placing views; transport
+  view-relative dimension pins with their projection assembly to use free paper,
+  and name exceeded sheet boundaries when the requested ink cannot fit (#296).
+
 - Bound GD&T placement comparisons to a primitive sheet pass or a reused pin
   anchor; ignore sub-stroke drift, attribute causes to new intersecting ink or
   the sole changed dimension placement, and retain peer intent in pin comparisons.

@@ -61,6 +61,8 @@
 //! - The rows come from the plan's callouts: a hole whose callout the spec omits has no row
 //!   (draftwright tabulates every z hole of its model, with blank cells) (undetermined).
 
+pub(crate) mod labels;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use haecceity::hlr::View;
@@ -118,6 +120,9 @@ pub struct HoleTable {
     pub covered: Vec<Measurement>,
     /// One row per hole, in the plan's order.
     pub rows: Vec<HoleRow>,
+    /// Exact legacy row identities, retained only after the publication permutation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub row_order_before: Vec<String>,
     pub default: bool,
     pub basis: String,
     /// Always shown: a table withdrawn is not in the plan.
@@ -141,10 +146,20 @@ pub struct PitchCircle {
 #[serde(deny_unknown_fields)]
 pub struct HoleRow {
     pub tag: String,
+    /// Original identity token when the final display label differs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag_id: Option<String>,
     pub feature: String,
     /// `TAG`, `⌀`, `DEPTH`, `X`, `Y`.
     pub cells: Vec<String>,
     pub measurements: Vec<Measurement>,
+}
+
+impl HoleRow {
+    /// Stable row/cell identity, independent of the final printed tag.
+    pub fn key(&self) -> &str {
+        self.tag_id.as_deref().unwrap_or(&self.tag)
+    }
 }
 
 /// A balloon: a ring with its tag, leadered from a hole's rim.
@@ -167,6 +182,9 @@ pub struct Balloon {
     pub radius: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_box: Option<Rect>,
+    /// Exact legacy bounds for feeding a published relabelling back into recovery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_box_before: Option<Rect>,
     /// The leader from the hole's rim (its arrowhead's tip) to the ring; none when the ring
     /// could not clear the hole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -459,6 +477,7 @@ pub fn escalate(analysis: &Analysis, plan: &mut Plan, table_sheet: Option<u32>) 
         {
             Some(blocks) => {
                 table = Some(HoleTable {
+                    row_order_before: Vec::new(),
                     sheet: table_sheet.filter(|n| *n > 1).unwrap_or(1),
                     id: ID.into(),
                     view: None,
@@ -835,6 +854,7 @@ fn rows(
             }
         }
         out.push(HoleRow {
+            tag_id: None,
             tag: tag.clone(),
             feature: (*f).into(),
             cells,
@@ -886,6 +906,152 @@ fn table_obstacles(analysis: &Analysis, plan: &Plan, dims: &[PlannedDimension]) 
             .filter_map(|t| t.placed.as_ref().map(|p| p.cells)),
     );
     out
+}
+
+/// Explain the failed transaction using the same obstacles as installation.
+/// Reduce a block-space failure to an inclusion-minimal set of named blockers.
+pub(crate) fn unavailable(analysis: &Analysis, plan: &Plan, selection: &Selection) -> Problem {
+    // Automatic candidates often fail before recovery picks a drawing. Preserve
+    // their lightweight advisory; only an explicit request needs blocker proofs.
+    if plan.spec.hole_table != Setting::Always {
+        return Problem { id: "p:hole_table_unavailable:sheet".into(), code: "hole_table_unavailable".into(), severity: "info".into(),
+            message: "The automatic hole table or its tags have no clear place; the original dimensions are kept.".into(),
+            subjects: vec!["sheet".into()], ..Default::default() };
+    }
+    let mut named: Vec<(String, Vec<Rect>)> = Vec::new();
+    for view in &plan.views {
+        let mut boxes = tables::obstacles(analysis, &plan.sheet, std::slice::from_ref(view), &[]);
+        boxes.pop(); // The title block is named separately below.
+        named.push((view.id.clone(), boxes));
+    }
+    let ink = plan
+        .dimensions
+        .iter()
+        .cloned()
+        .chain(plan.gdt.iter().filter_map(crate::dims::gdt::proxy));
+    for d in ink {
+        let mut boxes =
+            tables::obstacles(analysis, &plan.sheet, &plan.views, std::slice::from_ref(&d));
+        boxes.drain(
+            ..plan
+                .views
+                .iter()
+                .filter(|v| v.sheet == plan.sheet.number)
+                .count(),
+        );
+        boxes.pop();
+        if !boxes.is_empty() {
+            named.push((d.id, boxes));
+        }
+    }
+    named.push(("sheet/title".into(), vec![plan.sheet.title_block]));
+    for t in plan
+        .tables
+        .iter()
+        .chain(plan.radius_table.iter().map(|t| &t.table))
+        .filter(|t| t.sheet == plan.sheet.number)
+    {
+        if let Some(p) = &t.placed {
+            named.push((t.id.clone(), vec![p.cells]));
+        }
+    }
+    for b in plan.notes_block.iter().chain(&plan.radius_notes_block) {
+        named.push(("notes".into(), vec![b.cells]));
+    }
+    let fits = |named: &[(String, Vec<Rect>)]| {
+        let mut obstacles: Vec<_> = named.iter().flat_map(|(_, b)| b).copied().collect();
+        selection
+            .sizes(&plan.spec, plan.sheet.page)
+            .into_iter()
+            .all(|(size, corner)| {
+                let Some([x, y]) = tables::place(size, &plan.sheet, &obstacles, corner) else {
+                    return false;
+                };
+                obstacles.push([x, y, x + size[0], y + size[1]]);
+                true
+            })
+    };
+    let block_fits = fits(&named);
+    if !block_fits {
+        let mut i = 0;
+        while i < named.len() {
+            let removed = named.remove(i);
+            if fits(&named) {
+                named.insert(i, removed);
+                i += 1;
+            }
+        }
+    } else {
+        // Block space was available: the remaining failure is a nearby tag or
+        // origin mark, whose carrying view and annotation ink must stay clear.
+        named.retain(|(id, _)| {
+            selection.tables.iter().any(|t| t.view.as_ref() == Some(id))
+                || plan.dimensions.iter().any(|d| {
+                    &d.id == id
+                        && selection
+                            .tables
+                            .iter()
+                            .any(|t| t.view.as_ref() == Some(&d.view))
+                })
+        });
+    }
+    let mut subjects: Vec<_> = named.into_iter().map(|(id, _)| id).collect();
+    if subjects.is_empty() {
+        subjects.push("sheet".into());
+    }
+    let descriptions: Vec<_> = subjects
+        .iter()
+        .map(|id| {
+            if plan.views.iter().any(|v| &v.id == id) {
+                return crate::wording::view(id);
+            }
+            if let Some(d) = plan.dimensions.iter().find(|d| &d.id == id) {
+                return crate::wording::item(id, &d.kind, &d.label);
+            }
+            if let Some(g) = plan.gdt.iter().find(|g| &g.id == id) {
+                return crate::wording::item(id, &g.kind, &g.label);
+            }
+            match id.as_str() {
+                "sheet/title" => "the title block",
+                "notes" => "the notes block",
+                "sheet" => "the drawing area",
+                _ => "an existing table",
+            }
+            .into()
+        })
+        .collect();
+    let refs = std::iter::once("hole_table".into())
+        .chain(
+            subjects
+                .iter()
+                .filter(|id| matches!(id.as_str(), "sheet/title" | "notes"))
+                .cloned(),
+        )
+        .collect();
+    for id in &mut subjects {
+        if matches!(id.as_str(), "sheet/title" | "notes") {
+            *id = "sheet".into();
+        }
+    }
+    Problem {
+        id: "p:hole_table_unavailable:sheet".into(),
+        code: "hole_table_unavailable".into(),
+        severity: "warning".into(),
+        message: format!(
+            "The requested hole table could not be placed on {} at {}: {} blocked by {} and the sheet boundaries. The original dimensions are kept; move these items or provide more paper.",
+            plan.sheet.size,
+            plan.sheet.scale,
+            if block_fits {
+                "nearby tags or the origin mark are"
+            } else {
+                "table block space is"
+            },
+            descriptions.join(", ")
+        ),
+        subjects,
+        refs,
+        ..Default::default()
+    }
 }
 
 /// The table's blocks, placed towards the sheet's top right, in the fewest blocks (up to four)
@@ -1745,6 +1911,7 @@ fn place_reference_bands(
         rings.push([at[0] - r, at[1] - r, at[0] + r, at[1] + r]);
         leaders.extend(leader);
         out[i] = Some(Balloon {
+            label_box_before: None,
             id: format!("balloon_plan_{}_0", w.tag),
             tag: w.tag.clone(),
             view: view.into(),
@@ -1889,6 +2056,7 @@ mod tests {
         }))
         .unwrap();
         let table = HoleTable {
+            row_order_before: Vec::new(),
             sheet: 1,
             id: "hole_schedule_plan".into(),
             view: Some("v:plan".into()),
@@ -1901,6 +2069,7 @@ mod tests {
             blocks: Vec::new(),
             rows: (0..18)
                 .map(|i| HoleRow {
+                    tag_id: None,
                     tag: i.to_string(),
                     feature: format!("f{i}"),
                     measurements: Vec::new(),
@@ -2094,6 +2263,8 @@ pub(crate) struct Selection {
     /// marks need ([`origin_reservations`]): set for a second attempt, when a slot callout took
     /// such a place in the first ([`slot_callout_takes_origin`]).
     pub reserve_origins: bool,
+    /// A bounded layout trial; an authored column count takes precedence.
+    pub columns: Option<usize>,
     /// Whether a row replaces a callout whose size comes from PMI ([`select`]).
     pub pmi_replaced: bool,
     dimensions: Vec<PlannedDimension>,
@@ -2103,13 +2274,17 @@ impl Selection {
     /// Each schedule's reserved size on *page*: whole, or split into the fewest side-by-side
     /// blocks whose height fits the page (the author's count when `sheet/table_columns` sets
     /// one), as [`install`] first tries to place it.
+    fn columns(&self, spec: &crate::model::Spec, id: &str) -> Option<usize> {
+        columns(spec, id).or(self.columns)
+    }
+
     pub fn sizes(&self, spec: &crate::model::Spec, page: [f64; 2]) -> Vec<([f64; 2], Corner)> {
         self.tables
             .iter()
             .map(|t| {
                 let cells = schedule_cells(t);
                 let body = cells.len() - 2;
-                let n = *counts(columns(spec, &t.id), 2, body, page).start();
+                let n = *counts(self.columns(spec, &t.id), 2, body, page).start();
                 (
                     split_size(&schedule_widths(&cells), 2 + body.div_ceil(n), n),
                     Corner::TopRight,
@@ -2640,6 +2815,7 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                 }
                 cells.push(entry_cell(analysis, view.direction, h.at, h.direction));
                 rows.push(HoleRow {
+                    tag_id: None,
                     tag: String::new(),
                     feature: f.into(),
                     cells,
@@ -2800,6 +2976,7 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
         selection.replaced.extend(replaced);
         selection.pmi_replaced |= pmi_replaced;
         selection.tables.push(HoleTable {
+            row_order_before: Vec::new(),
             sheet: 1,
             id: format!("hole_schedule_{}", view.id.trim_start_matches("v:")), view: Some(view.id.clone()), origin: Some(origin), pcd, covered: Vec::new(),
             rows, default: plan.spec.hole_table == Setting::Auto, basis: {
@@ -3262,7 +3439,13 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
         let mut t = wanted.clone();
         // Install the form reserved before view layout. Alternate counts are chosen
         // during table reflow, not after the annotation bands have been allocated.
-        let n = *counts(columns(&plan.spec, &t.id), 2, t.rows.len(), plan.sheet.page).start();
+        let n = *counts(
+            selection.columns(&plan.spec, &t.id),
+            2,
+            t.rows.len(),
+            plan.sheet.page,
+        )
+        .start();
         let Some(blocks) = reflow_blocks(&t, &plan.sheet, &obstacles, Some(n)) else {
             return false;
         };
@@ -3577,6 +3760,7 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
             // Invariant: The placement loop returns false on a missing slot before reaching this zip.
             let (at, leader) = slot.expect("every tag placed");
             marks.push(Balloon {
+                label_box_before: None,
                 id: format!("{}/tag/{}", t.id, g.tag),
                 tag: g.text,
                 view: view.id.clone(),
@@ -3611,6 +3795,7 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
             return false;
         };
         marks.push(Balloon {
+            label_box_before: None,
             id: format!("{}/origin", t.id),
             tag: "0".into(),
             view: view.id.clone(),
@@ -3638,6 +3823,7 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
             ),
         ] {
             marks.push(Balloon {
+                label_box_before: None,
                 id: format!("{}/origin/{name}", t.id),
                 tag: name.to_uppercase(),
                 view: view.id.clone(),

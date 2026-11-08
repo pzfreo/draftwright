@@ -569,13 +569,13 @@ fn specify_plate_draws_every_number_on_its_requirement() {
         let inventory = items::items(&p);
         let item = inventory
             .iter()
-            .find(|i| i.id == format!("{}/{}", table.id, row.tag))
+            .find(|i| i.id == format!("{}/{}", table.id, row.key()))
             .unwrap();
         assert!(!item.characteristic_numbers.is_empty(), "{}", row.tag);
         assert!(
             p.inspection_balloons
                 .iter()
-                .any(|b| b.item == format!("{}/{}", table.id, row.tag)),
+                .any(|b| b.item == format!("{}/{}", table.id, row.key())),
             "{} has no number ring",
             row.tag
         );
@@ -691,7 +691,7 @@ fn specify_plate_draws_every_number_on_its_requirement() {
                 table
                     .rows
                     .iter()
-                    .any(|row| Some(format!("{}/{}", table.id, row.tag)).as_ref()
+                    .any(|row| Some(format!("{}/{}", table.id, row.key())).as_ref()
                         == c.drawn_item.as_ref()
                         && row.cells[1] == "⌀5 THRU M6-6H THRU")
             );

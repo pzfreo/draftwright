@@ -2214,7 +2214,7 @@ pub(crate) fn reserve_linear_intent(
     views: &[(&str, P3, P3)],
     excluded: &BTreeSet<String>,
     bands: &mut crate::layout::Lanes,
-) -> Result<(), Invalid> {
+) -> Result<Vec<crate::layout::CalloutBand>, Invalid> {
     // A bare automatic placement is a no-op, including a bare pin. Its full
     // settled corridor is measured in composition; it requests no extra tier.
     if !spec.dimensions.values().any(|d| {
@@ -2222,14 +2222,20 @@ pub(crate) fn reserve_linear_intent(
             .as_ref()
             .is_some_and(|p| p.side.is_some() || p.lane.is_some())
     }) {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let (mut wants, _, _) = pmi_policy::wants(analysis, spec);
     callouts::apply(analysis, spec, &mut wants);
     let (scheme_covered, _) = schemes::apply(analysis, spec, &mut wants)?;
-    if !spec.dimension_schemes.is_empty() {
-        authored::append(analysis, spec, &mut wants)?;
-    }
+    authored::append(analysis, spec, &mut wants)?;
+    let mut printed: Vec<_> = wants
+        .into_iter()
+        .map(|w| (w, false, None, Vec::new()))
+        .collect();
+    precision::labels(spec, printed.iter_mut().map(|(w, ..)| w))?;
+    let mut given = tolerance::apply(analysis, spec, &mut printed, &[], &mut Vec::new())?;
+    wording::apply(spec, &mut printed, &mut given)?;
+    let mut wants: Vec<_> = printed.into_iter().map(|(w, ..)| w).collect();
     if scheme_covered.is_empty() {
         wants.retain(|w| !excluded.contains(&w.id));
     } else {
@@ -2318,6 +2324,7 @@ pub(crate) fn reserve_linear_intent(
             }
         }
     }
+    let mut measured = Vec::new();
     for (i, w) in wants.iter().enumerate() {
         let Some(p) = spec
             .dimensions
@@ -2362,8 +2369,39 @@ pub(crate) fn reserve_linear_intent(
                 .unwrap_or_else(|| p.lane.unwrap_or(lane[i]))
                 + 1,
         );
+        // A rotated label or outside arrow can reach beyond the generic lane
+        // estimate. Reserve its printed paper depth before fixing view origins.
+        let mut intent = p.clone();
+        intent.lane = Some(
+            resolved_lanes
+                .get(&i)
+                .copied()
+                .unwrap_or_else(|| p.lane.unwrap_or(lane[i])),
+        );
+        if let Some(ink) = placement::intent(&frames[view], w, &intent, default_side, lane[i], 0.0)
+        {
+            let mut bounds = ink.label_box;
+            for point in ink.lines.iter().chain(&ink.arrows).flatten() {
+                for k in 0..2 {
+                    bounds[k] = bounds[k].min(point[k]);
+                    bounds[k + 2] = bounds[k + 2].max(point[k]);
+                }
+            }
+            let outline = frames[view].outline();
+            let (name, depth) = match side {
+                placement::Side::Left => ("left", outline[0] - bounds[0]),
+                placement::Side::Right => ("right", bounds[2] - outline[2]),
+                placement::Side::Below => ("below", outline[1] - bounds[1]),
+                placement::Side::Above => ("above", bounds[3] - outline[3]),
+            };
+            measured.push(crate::layout::CalloutBand {
+                view,
+                side: name,
+                depth,
+            });
+        }
     }
-    Ok(())
+    Ok(measured)
 }
 
 /// Judge the final drawn ink, including arrow flares, after all ordinary lane passes.

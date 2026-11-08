@@ -303,7 +303,7 @@ pub fn items(plan: &Plan) -> Vec<Item> {
                 .find_map(|t| {
                     t.rows
                         .iter()
-                        .find(|r| *id == format!("{}/{}", t.id, r.tag))
+                        .find(|r| *id == format!("{}/{}", t.id, r.key()))
                         .map(|r| (t, r))
                 })
         {

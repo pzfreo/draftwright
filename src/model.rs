@@ -2657,7 +2657,8 @@ pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
 /// Select from finished, complete drawings under the maintainer's sheet policy (2026-10-12).
 /// Find the smallest fit and its largest scale; only its immediate larger sheet, with an
 /// enlargement, may compete. Pins keep their canonical sheet; explicit choices override.
-pub fn recover(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, Invalid> {
+pub fn recover(analysis: &Analysis, spec: &Spec, mut first: Plan) -> Result<Plan, Invalid> {
+    crate::hole_table::labels::restore(&mut first);
     crate::decision_overrides::boundary(analysis, spec, || recover_inner(analysis, spec, first))
 }
 
@@ -5149,6 +5150,31 @@ fn install_selection(
     selection: &crate::hole_table::Selection,
     plan: &impl Fn(&crate::hole_table::Selection) -> Result<Plan, Invalid>,
 ) -> Result<Option<Plan>, Invalid> {
+    if let Some(p) = install_selection_form(analysis, selection, plan)? {
+        return Ok(Some(p));
+    }
+    // Reserve each alternate form before composing views. Do not spend scale or
+    // discard an explicit table simply because its initial tall form failed.
+    if selection.tables.iter().any(|t| !t.default) {
+        for n in 2..=crate::hole_table::MAX_COLUMNS {
+            let mut trial = selection.clone();
+            trial.columns = Some(n);
+            if let Some(mut p) = install_selection_form(analysis, &trial, plan)? {
+                for t in &mut p.hole_tables {
+                    t.basis += "; applied hole_table: always; views composed around the complete table blocks";
+                }
+                return Ok(Some(p));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn install_selection_form(
+    analysis: &Analysis,
+    selection: &crate::hole_table::Selection,
+    plan: &impl Fn(&crate::hole_table::Selection) -> Result<Plan, Invalid>,
+) -> Result<Option<Plan>, Invalid> {
     let mut scheduled = plan(selection)?;
     let first = scheduled.clone();
     if crate::hole_table::install(analysis, &mut scheduled, selection) {
@@ -5255,7 +5281,9 @@ fn schedule_recovered(
         scheduled.sheet.fill = crate::sheet_fit::fill(analysis, &scheduled);
         Ok(scheduled)
     } else {
-        baseline.problems.push(Problem { id:"p:hole_table_unavailable:sheet".into(), code:"hole_table_unavailable".into(), severity:if spec.hole_table == crate::hole_table::Setting::Always { "warning" } else { "info" }.into(), message:"The selected schedule has no clear place at the recovered geometry scale; the original dimensions are kept.".into(), subjects:vec!["sheet".into()], ..Default::default() });
+        baseline.problems.push(crate::hole_table::unavailable(
+            analysis, &baseline, &selection,
+        ));
         Ok(baseline)
     }
 }
@@ -5422,7 +5450,7 @@ fn plan_escalated_uncached(
                     // A failed optional compaction is not a new drawing problem when
                     // every original hole requirement remains legible. Explicit requests
                     // and actual losses still report the failed schedule transaction.
-                    p.problems.push(Problem { id:"p:hole_table_unavailable:sheet".into(), code:"hole_table_unavailable".into(), severity:if spec.hole_table == crate::hole_table::Setting::Always { "warning" } else { "info" }.into(), message:"The selected hole table or one of its tags has no clear place; the original dimensions are kept.".into(), subjects:vec!["sheet".into()], ..Default::default() });
+                    p.problems.push(crate::hole_table::unavailable(analysis, &p, &selection));
                 }
             }
             p.table_outcome = crate::hole_table::escalate(analysis, &mut p,
@@ -6435,7 +6463,15 @@ fn plan_with_presentation(
         crate::dims::lanes_excluding(analysis, &shown_views, &excluded, spec)?
     };
     demand.lanes = lanes;
-    crate::dims::reserve_linear_intent(analysis, spec, &shown_views, &excluded, &mut demand.lanes)?;
+    demand
+        .callout_bands
+        .extend(crate::dims::reserve_linear_intent(
+            analysis,
+            spec,
+            &shown_views,
+            &excluded,
+            &mut demand.lanes,
+        )?);
     // Full printed extents reserve ink, but an authored linear tolerance must not recenter
     // every projection and its unrelated dimensions (ARCH0003-2). Keep the established
     // linear anchor bands separately; the placed blocks below still use the full extents.
@@ -7306,7 +7342,7 @@ fn plan_with_presentation(
             &notes_given,
             &radius_notes,
             &inactive,
-            presentation.map(|p| p.reserve_origins),
+            presentation.map(|p| (p.reserve_origins, p.columns)),
         ))
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         .expect("resolved candidate inputs serialize")
@@ -11480,7 +11516,7 @@ fn render_annotations_with_cuts(
                             .join(" "),
                     ),
                     coordinate_origin: None,
-                    name: format!("{}/{}", t.id, row.tag),
+                    name: format!("{}/{}", t.id, row.key()),
                     view: Some("v:plan".into()),
                     runs: cells.into_iter().flatten().collect(),
                     claims: row
@@ -11502,7 +11538,7 @@ fn render_annotations_with_cuts(
                             approved_claims: Vec::new(),
                             approved_text: Some(row.cells[c].clone()),
                             coordinate_origin: None,
-                            name: format!("{}/{}/entry", t.id, row.tag),
+                            name: format!("{}/{}/entry", t.id, row.key()),
                             view: t.view.clone(),
                             runs,
                             claims: vec![Claim {
@@ -11549,7 +11585,7 @@ fn render_annotations_with_cuts(
                         approved_claims: Vec::new(),
                         approved_text: Some(row.cells[c].clone()),
                         coordinate_origin: if c > 1 { t.origin } else { None },
-                        name: format!("{}/{}/{}", t.id, row.tag, ["tag", "size", "x", "y"][c]),
+                        name: format!("{}/{}/{}", t.id, row.key(), ["tag", "size", "x", "y"][c]),
                         view: t.view.clone(),
                         runs,
                         claims,
