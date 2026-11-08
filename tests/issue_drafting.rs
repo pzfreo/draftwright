@@ -302,7 +302,7 @@ fn each_axis_of_a_location_is_its_own_measurement() {
     let full = ids(&plan);
     for gone in [
         "d:f:hole:f11/location.length.x",
-        "d:f:hole_pattern:1/location.length.y",
+        "d:f:hole_pattern:f7/location.length.y",
     ] {
         let left = ids(&model::plan(analysis, &omitting(&[gone])).unwrap());
         let mut expected = full.clone();
