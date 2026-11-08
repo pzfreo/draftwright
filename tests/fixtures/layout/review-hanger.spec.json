@@ -1,0 +1,18 @@
+{
+  "dimension_source": "authored",
+  "dimensions": {
+    "d:envelope/depth.length": {},
+    "d:envelope/height.length": {},
+    "d:envelope/width.length": {},
+    "d:f:blend:10/blend.radius": {},
+    "d:f:fillet:f14/fillet.radius": {},
+    "d:f:hole:f69/location.length.y": {},
+    "d:f:hole:f69/location.length.z": {},
+    "d:f:plate:f4/thickness.length": {},
+    "d:step_level/step_height.length.f32": {},
+    "d:step_level/step_height.length.f4": {},
+    "d:step_level/step_height.length.f64": {}
+  },
+  "schema": "draftwright.spec/3",
+  "sheet": {}
+}

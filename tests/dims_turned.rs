@@ -68,6 +68,7 @@ fn with_bands(bands: &[(f64, f64, f64)]) -> Analysis {
     for (i, (lo, hi, d)) in bands.iter().enumerate() {
         let mut f = template.clone();
         f.id = format!("f:turned_step:{}", i + 1);
+        f.legacy_id = None;
         f.parameters.insert("lo".into(), json!(lo));
         f.parameters.insert("hi".into(), json!(hi));
         f.parameters.insert("diameter".into(), json!(d));

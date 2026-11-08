@@ -1034,7 +1034,9 @@ fn congruent_lone_slots_are_dimensioned_as_slots_located_by_their_centres() {
             .map(|m| m.feature.as_str())
             .collect();
         claimed.sort();
-        assert_eq!(claimed, of_kind(&a, "slot"), "{parameter}");
+        let mut expected = of_kind(&a, "slot");
+        expected.sort();
+        assert_eq!(claimed, expected, "{parameter}");
     }
     assert!(
         slots

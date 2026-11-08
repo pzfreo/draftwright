@@ -1,0 +1,12 @@
+{
+  "dimensions": {
+    "d:f:boss:f6/boss_height.length": {
+      "place": {
+        "pinned": true
+      },
+      "tolerance": "\u00b10.25"
+    }
+  },
+  "schema": "draftwright.spec/3",
+  "sheet": {}
+}
