@@ -26,12 +26,13 @@ impl Migration {
     pub(crate) fn report(&self, plan: &mut Plan) {
         plan.migrated = self.migrated.clone();
         plan.ids = self.ids.clone();
+        complete_ids(plan);
         for (path, id) in &self.unmapped {
             let problem = format!("p:id_not_migrated:{path}:{id}");
             if !plan.problems.iter().any(|p| p.id == problem) {
                 plan.problems.push(crate::model::Problem {
                     id: problem, code: "id_not_migrated".into(), severity: "info".into(),
-                    message: format!("No current geometry maps {id:?}; the saved key is retained without guessing a binding."),
+                    message: "A saved identity has no exact mapping in the current geometry; its key is retained.".into(),
                     subjects: vec![path.clone()], refs: vec![id.clone()], ..Default::default()
                 });
             }
@@ -39,15 +40,94 @@ impl Migration {
     }
 }
 
-pub(crate) fn record_legacy(a: &mut Analysis) {
-    for f in &mut a.features {
-        f.legacy_id = Some(f.id.clone());
-    }
-    if let Some(r) = &mut a.recognition {
-        for p in &mut r.patterns {
-            p.legacy_id = Some(p.id.clone());
+/// Assign final names after all recognition merges; rank assignment remains unchanged above
+/// this boundary and is retained only for exact saved-Spec migration.
+fn complete_ids(plan: &mut Plan) {
+    let reverse = plan
+        .ids
+        .iter()
+        .map(|(o, n)| (n.clone(), o.clone()))
+        .collect();
+    for id in plan
+        .dimensions
+        .iter()
+        .map(|d| &d.id)
+        .chain(plan.omitted.iter().map(|d| &d.id))
+        .chain(plan.problems.iter().map(|p| &p.id))
+    {
+        let old = crate::revision::rename_ids(id, &reverse);
+        if old != *id {
+            plan.ids.insert(old, id.clone());
         }
     }
+}
+
+pub(crate) fn anchor(
+    features: &mut [crate::bridge::Feature],
+    patterns: &mut [crate::bridge::HolePattern],
+) -> Result<(), String> {
+    let records: Vec<_> = features
+        .iter()
+        .map(|f| (f.kind.as_str(), f.faces.as_slice()))
+        .chain(
+            patterns
+                .iter()
+                .map(|p| ("hole_pattern", p.faces.as_slice())),
+        )
+        .collect();
+    let mut groups: BTreeMap<(&str, usize), Vec<(usize, &[usize])>> = BTreeMap::new();
+    for (i, (kind, faces)) in records.iter().enumerate() {
+        let face = faces
+            .iter()
+            .min()
+            .ok_or_else(|| format!("{kind} has no faces to anchor its ID"))?;
+        groups.entry((kind, *face)).or_default().push((i, faces));
+    }
+    let mut names = vec![String::new(); records.len()];
+    for ((kind, face), mut group) in groups {
+        group.sort_by(|a, b| a.1.cmp(b.1));
+        let shared = group.len() > 1;
+        for (n, (i, _)) in group.into_iter().enumerate() {
+            names[i] = format!(
+                "f:{kind}:f{face}{}",
+                if shared {
+                    format!("_{n}")
+                } else {
+                    String::new()
+                }
+            );
+        }
+    }
+    let map: BTreeMap<_, _> = features
+        .iter()
+        .map(|f| &f.id)
+        .chain(patterns.iter().map(|p| &p.id))
+        .cloned()
+        .zip(names.iter().cloned())
+        .collect();
+    for (i, f) in features.iter_mut().enumerate() {
+        f.legacy_id = Some(std::mem::replace(&mut f.id, names[i].clone()));
+        f.parameters = serde_json::from_value(crate::revision::rename_spec(
+            &Value::Object(f.parameters.clone()),
+            &map,
+        )?)
+        .expect("parameter object");
+    }
+    for (i, p) in patterns.iter_mut().enumerate() {
+        p.legacy_id = Some(std::mem::replace(
+            &mut p.id,
+            names[features.len() + i].clone(),
+        ));
+        for member in &mut p.members {
+            *member = crate::revision::rename_ids(member, &map);
+        }
+        p.parameters = serde_json::from_value(crate::revision::rename_spec(
+            &Value::Object(p.parameters.clone()),
+            &map,
+        )?)
+        .expect("parameter object");
+    }
+    Ok(())
 }
 
 pub fn ids(a: &Analysis) -> BTreeMap<String, String> {
@@ -63,6 +143,7 @@ pub fn ids(a: &Analysis) -> BTreeMap<String, String> {
                 .filter_map(|p| Some((p.legacy_id.clone()?, p.id.clone()))),
         );
     }
+    ids.extend(crate::dims::levels::legacy_ids(a));
     ids.retain(|old, new| old != new);
     ids
 }
@@ -240,6 +321,42 @@ pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn anchors_and_collision_suffixes_are_local_and_order_independent() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/mounting_plate.step");
+        let (_, a) = crate::model::analyse_native(&path).unwrap();
+        let template = &a.features[0];
+        let feature = |id: &str, faces: Vec<usize>| {
+            let mut f = template.clone();
+            f.kind = "section_recess".into();
+            f.id = id.into();
+            f.faces = faces;
+            f
+        };
+        let original = vec![
+            feature("f:section_recess:1", vec![9]),
+            feature("f:section_recess:2", vec![146, 152, 166]),
+            feature("f:section_recess:3", vec![146, 154, 164]),
+        ];
+        let mut fs = original.clone();
+        anchor(&mut fs, &mut []).unwrap();
+        assert_eq!(
+            fs.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
+            [
+                "f:section_recess:f9",
+                "f:section_recess:f146_0",
+                "f:section_recess:f146_1"
+            ]
+        );
+        let mut reduced = original[1..].to_vec();
+        reduced.reverse();
+        anchor(&mut reduced, &mut []).unwrap();
+        assert_eq!(reduced[0].id, fs[2].id);
+        assert_eq!(reduced[1].id, fs[1].id);
+        assert_eq!(fs[1].legacy_id.as_deref(), Some("f:section_recess:2"));
+    }
+
     #[test]
     fn approved_refusal_and_window() {
         assert!(refusal("draftwright.spec/2", "0.3.9").is_none());

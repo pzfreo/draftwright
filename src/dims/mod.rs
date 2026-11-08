@@ -3228,13 +3228,13 @@ fn plan_inventory_ordered(
                 .iter()
                 .filter(|u| {
                     matches!(&u.state, State::Covered { by }
-                        if correlated_set(by) != correlated_set(&u.id))
+                        if correlated_set(analysis, by) != correlated_set(analysis, &u.id))
                 })
                 .map(|u| u.id.as_str())
                 .collect()
         })
         .unwrap_or_default();
-    let (with_set, set_problems) = correlated_sets(spec, &wants, &conveyed);
+    let (with_set, set_problems) = correlated_sets(analysis, spec, &wants, &conveyed);
     problems.extend(set_problems);
     for ((w, view), along) in wants.into_iter().zip(chosen.iter().copied()).zip(end_on) {
         let entry = spec.dimensions.get(&w.id);
@@ -4695,14 +4695,23 @@ fn share(
 /// rise among them), or the ladder's shoulders along one axis. None for any other dimension: a
 /// turned profile's chain is not one, since omitting one link of a chain is ordinary drafting
 /// and its baseline already restores a band's length when a rung is omitted (#33).
-fn correlated_set(id: &str) -> Option<&str> {
+fn correlated_set(analysis: &Analysis, id: &str) -> Option<&'static str> {
     const HEIGHTS: &str = "d:step_level/step_height.length";
     if id.starts_with(HEIGHTS) {
         return Some(HEIGHTS);
     }
-    let rest = id.strip_prefix("d:step_level/step_position.length.")?;
-    let axis = rest.get(..1).filter(|a| ["x", "y", "z"].contains(a))?;
-    Some(&id[..id.len() - rest.len() + axis.len()])
+    let parameter = id.strip_prefix("d:step_level/")?;
+    let map = levels::legacy_ids(analysis);
+    let old = map
+        .iter()
+        .find(|(_, new)| *new == parameter)
+        .map_or(parameter, |(old, _)| old.as_str());
+    match old.strip_prefix("step_position.length.")?.get(..1)? {
+        "x" => Some("d:step_level/step_position.length.x"),
+        "y" => Some("d:step_level/step_position.length.y"),
+        "z" => Some("d:step_level/step_position.length.z"),
+        _ => None,
+    }
 }
 
 /// Stream K6 (ARCH0015-2): a correlated set (the step-height ladder, the shoulders along an
@@ -4716,6 +4725,7 @@ fn correlated_set(id: &str) -> Option<&str> {
 /// set) is not approved by the set: it stays with its owner, conveyed or not authored as main's
 /// authored-set parity decides.
 fn correlated_sets(
+    analysis: &Analysis,
     spec: &Spec,
     wants: &[Want],
     conveyed: &BTreeSet<&str>,
@@ -4726,7 +4736,7 @@ fn correlated_sets(
         if !auto && conveyed.contains(w.id.as_str()) {
             continue;
         }
-        if let Some(set) = correlated_set(&w.id) {
+        if let Some(set) = correlated_set(analysis, &w.id) {
             sets.entry(set).or_default().push(&w.id);
         }
     }

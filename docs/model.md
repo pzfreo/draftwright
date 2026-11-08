@@ -57,7 +57,7 @@ edited.
 
 ```json
 {
-  "schema": "draftwright.analysis/7",
+  "schema": "draftwright.analysis/8",
   "binding": { "source_sha256": "…", "part": "10127", "face_count": 27, "loader": "haecceity 0.1" },
   "frame": { "origin": [0, 0, 0], "axes": [[1, 0, 0], [0, 1, 0], [0, 0, 1]] },
   "envelope": { "min": [0, 0, 0], "max": [28.8, 32.3, 44.7] },
@@ -181,8 +181,11 @@ edited.
   through a bridge (`src/bridge.rs`): `tools/recognise.py part.step -o r.json` writes it, and
   `analyse`, `plan`, `render` and `review` take it as `--features r.json` (an optional
   `features` path in the service and MCP requests). The bridge refuses JSON from
-  another file or whose faces (count, surface type, area) are not the part's. A feature's `n` is
-  its rank among its kind ordered by faces; `recognition` records the recogniser and the frame
+  another file or whose faces (count, surface type, area) are not the part's. A feature's ID is
+  `f:<kind>:f<lowest face>`. Only features of the same kind sharing that lowest face
+  receive `_0`, `_1`, …, ordered by their complete ascending face lists. Other features
+  retain their names when a feature is added or removed. Optional `legacy_id` records
+  the previous `f:<kind>:<rank>` spelling during the migration window; `recognition` records the recogniser and the frame
   quiddity's parameters are in. Every quiddity record type has one home: a feature, evidence
   (`recognition.evidence`, e.g. face levels and risers) or a refusal (`recognition.refusals`,
   with quiddity's reason); a record type the bridge does not know is refused. `recognition` and
@@ -191,7 +194,7 @@ edited.
   records, fingerprints that name each feature's defining faces, but its records themselves do
   not carry their defining faces, so the bridge does not read it yet.
 - **Slot patterns** are features: quiddity's derived `slot_patterns` (`SlotArray`, `SlotGrid`)
-  become `slot_pattern` features, `f:slot_pattern:<n>` ranked by faces, on their member slots'
+  become `slot_pattern` features, `f:slot_pattern:f<lowest face>`, on their member slots'
   faces, with quiddity's record (its pitch and direction, or its rows, columns, pitches, angle and
   centre) whose `slots` names the members by feature ID in quiddity's order. A member must be one
   slot record, and the members' own pattern links must agree, or the read is refused; members
@@ -287,7 +290,7 @@ mention takes its default.
 
 ```json
 {
-  "schema": "draftwright.spec/2",
+  "schema": "draftwright.spec/3",
   "binding": { "source_sha256": "…" },
   "sheet": { "size": "A3", "scale": "2:1",
              "title": { "title": "BRACKET", "number": "DWG-001", "material": "6082-T6" } },
@@ -2226,8 +2229,8 @@ dimension in its default view, with a warning (`dimension_view_not_shown`). The 
 `view` in `from_spec`. A version 2 spec keyed by a version 1 ID is refused, reading it as the ID
 it now has (first among the choices). Every planner states each quantity once under one ID
 (asserted in every build); a planner that drew one quantity in two views would give the second a
-discriminator from what it states, as the height ladder's rungs are told apart by their heights
-(`step_height.length.h12_001`), never from where it is drawn.
+discriminator from what it states, as the height ladder's rungs are told apart by their supporting faces
+(`step_height.length.f12`), never by their measured heights or where they are drawn.
 
 The spec chooses the source (ADR4-5): `"dimension_source": "auto"` (the default: the defaults
 less `dimensions/<id>/omit`) or `"authored"` (exactly the IDs listed in `dimensions`, a complete
@@ -2476,17 +2479,61 @@ labels are the same too (NIST STC-09's two identical `0.03 ±0.01 INCH` records,
 be told from (ADR R1 invariant 5). Problems about PMI records still name the record's source
 (`p:pmi_not_lowered:<source>`), as the record is not an item.
 
-**Spec versions.** `draftwright.spec/2` is the version this build writes. A
-`draftwright.spec/1` spec is read through `model::migrate` (in `plan`, so every caller of the
-library gets it; the plan's embedded spec is the migrated one): `d:<feature>/<parameter>@<view>`
-becomes `d:<feature>/<parameter>` (the view was where the plan routed it, not a decision, so the
-entry does not keep it as its `view`), and a PMI dimension's `pmi:<category>:#<n>` becomes its
-record's identity, when the spec is bound to the analysis's file (a Part 21 instance names a
-record only in its own file). Two keys that come to one are refused, with both as the
-candidates; a key whose record has no identity, or is of another file, is kept for `plan` to
-refuse with the nearest IDs. `edit` has no analysis and leaves a spec's version and keys as they
-are. A version 1 spec plans as it did (`tests/identity.rs`, on fixtures the 0.1.0-alpha.1 build
-planned).
+**Spec versions and identity migration.** This build writes `draftwright.spec/3` and
+`draftwright.analysis/8`. Automatic features and hole patterns use
+`f:<kind>:f<lowest face>`; `_0`, `_1`, … are added only within a kind sharing that face,
+ordered by the full face list. Their optional `legacy_id` is the exact previous rank ID.
+Authored `f:declared:<name>` and `f:hole_pattern:<name>` names are unchanged; automatic
+face names (`f<digits>` and their numeric suffixes) and all-digit pattern names are reserved.
+Superseded duplicates remain recognised and migrate like every other feature.
+
+Analysis/8 `level_supports` and `risers` each carry `faces: [number, …]`, the source face
+indices. A height cluster uses its lowest face as `step_height.length.f<face>`; a shoulder
+uses its lowest riser face as `step_position.length.f<face>`. Shoulders sharing that face
+receive local `_0`, `_1`, … suffixes in axis/station order. Numbers in these names are face
+indices, never heights, positions or ranks among unrelated features. Planning and lint use
+one shared map. Older Analyses lacking face evidence retain their old ladder spelling.
+
+`model::migrate` applies an exact old → new map over the current Analysis through revision's
+whole-document rename. It rewrites keys and string references throughout the Spec, including
+dimensions, precision, features, origins, schemes, notes and sheet settings. Collisions are
+refused; no entry wins by iteration order. Unmapped keys are kept; an `id_not_migrated`
+info problem identifies their saved path. Existing validation still reports inactive edits
+and `openSpec` separately reports entries it must set aside as `no_feature`, etc.
+
+Both a plan and native/browser `openSpec` expose these exact JSON fields (always present,
+including when empty):
+
+```json
+{
+  "migrated": [
+    {"path": "dimensions/d:f:hole:1~1bore.diameter", "from": "d:f:hole:1/bore.diameter", "to": "d:f:hole:f21/bore.diameter"}
+  ],
+  "ids": {"f:hole:1": "f:hole:f21", "d:f:hole:1/bore.diameter": "d:f:hole:f21/bore.diameter"}
+}
+```
+
+`migrated` reports each changed key or string value, with `from` and `to` strings and its
+RFC 6901 escaped path in the saved document, without a leading slash. A changed key's path
+uses its old spelling. Nested arrays use numeric indices. Schema changes alone are not ID
+migrations. `ids` is an object of exact old-ID → new-ID string pairs: automatic features,
+hole patterns, ladder parameters, and the plan's composed dimension and problem IDs. It
+includes current mappings even for a spec/3 open with no migrated entries. Callers can use
+these pairs for accepted problem IDs and other lists held outside the Spec; the same token
+substitution composes embedded references. Unknown keys are never mapped speculatively.
+
+`openSpec` returns `{spec, set_aside, migrated, ids}`. `spec` is the applied spec/3 document;
+`set_aside` remains `[{path, entry, reason_code}]`, separate from successful migrations.
+The browser method returns this object as a JSON string. The editor and MCP should persist
+the returned Spec and apply `ids` to their external saved references.
+
+Specs `/1` and `/2` are accepted through **0.3.9**, the tenth release starting at 0.3.0.
+From 0.3.10 they are refused with the approved conversion instructions: run
+`draftwright plan PART.step --spec FILE` with 0.3.9 and keep the `spec` it prints. The
+single cutoff is `stable_ids::LAST_LEGACY_SPEC_READER`; there is no permanent migrate command.
+Spec/1 additionally drops `@<view>` from dimension keys and maps old PMI instance names to
+record identities when the file binding permits it, as before. `edit` has no Analysis and
+preserves the incoming version until the Spec is read for planning.
 
 ## Rebinding: when the STEP changes
 
@@ -3225,7 +3272,7 @@ The independent, strict pack Spec (`schemas/pack-spec.json`) contains intent:
       "quantity": 4,
       "separate": false,
       "drawing": {
-        "schema": "draftwright.spec/2",
+        "schema": "draftwright.spec/3",
         "sheet": { "size": "A3" }
       }
     }

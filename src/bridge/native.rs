@@ -1011,6 +1011,7 @@ pub fn read(part: &Part, doc: &RecognitionDocument) -> Result<Native, String> {
     refusals.sort_by_cached_key(key);
     features.extend(others);
     super::voids::reconcile(part, &mut features, &mut patterns);
+    crate::stable_ids::anchor(&mut features, &mut patterns)?;
     let (features, others) = features.into_iter().partition(|f| f.kind == "hole");
     Ok(Native {
         recogniser: format!(

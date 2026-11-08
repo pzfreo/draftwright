@@ -192,13 +192,19 @@ pub fn check(s: &Spec) -> Result<(), Invalid> {
                     "a pattern needs a f:hole_pattern:<name> id and at least two distinct holes",
                 ));
             }
-            if id["f:hole_pattern:".len()..]
-                .bytes()
-                .all(|b| b.is_ascii_digit())
+            let name = &id["f:hole_pattern:".len()..];
+            if name.bytes().all(|b| b.is_ascii_digit())
+                || name.strip_prefix('f').is_some_and(|s| {
+                    let mut parts = s.split('_');
+                    parts
+                        .next()
+                        .is_some_and(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+                        && parts.all(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+                })
             {
                 return Err(invalid(
                     &path,
-                    "an authored pattern needs a nonnumeric name such as f:hole_pattern:mounting, so re-analysis cannot collide with an automatic rank",
+                    "an authored pattern needs a nonnumeric name such as f:hole_pattern:mounting, so re-analysis cannot collide with an automatic face anchor",
                 ));
             }
             for m in &p.members {

@@ -762,7 +762,7 @@ impl Footprints {
         owners.iter().any(|m| {
             m.feature == id
                 || (m.feature == "step_level"
-                    && m.parameter.starts_with("step_height.length.h")
+                    && m.parameter.starts_with("step_height.length.")
                     && self
                         .members
                         .get(&format!("step_level/{}", super::key(m.value)))

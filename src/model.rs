@@ -2019,7 +2019,6 @@ pub fn recognise(part: &Part, analysis: &mut Analysis, json: &str) -> Result<(),
     analysis.radius_arcs = crate::radius::evidence(part, &features);
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
-    crate::stable_ids::record_legacy(analysis);
     dimension_geometry::memberships(analysis);
     analysis.unrecognised.clear();
     Ok(())
@@ -2140,7 +2139,6 @@ pub fn recognise_document(
     analysis.radius_arcs = crate::radius::evidence(part, &features);
     analysis.profile_arcs = crate::arc::evidence(part, &features);
     analysis.features = features;
-    crate::stable_ids::record_legacy(analysis);
     dimension_geometry::memberships(analysis);
     analysis.modelled_thread_ink = crate::modelled_threads::evidence(part, analysis);
     // Physical threads use conventional carriers. Their raw helix HLR would be

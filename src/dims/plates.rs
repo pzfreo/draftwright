@@ -163,7 +163,7 @@ pub(super) fn consolidate(a: &Analysis, kept: &mut Vec<Kept>, omitted: &mut Vec<
                 }
                 if rung.measurements.iter().any(|m| {
                     m.feature == "step_level"
-                        && m.parameter.starts_with("step_height.length.h")
+                        && m.parameter.starts_with("step_height.length.")
                         && (m.value - (lo[2] - a.envelope[0][2])).abs() <= 1e-3
                 }) {
                     omitted.push(Omitted {

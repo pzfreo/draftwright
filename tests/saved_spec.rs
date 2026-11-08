@@ -543,3 +543,73 @@ fn many_stale_dimension_edits_are_retained_with_individual_warnings() {
     // One committed edit opened it.
     assert_eq!(s.stats().plans, plans + 1);
 }
+
+#[test]
+fn spec1_feature_ids_migrate_with_exact_paths_and_external_ids() {
+    let mut s = plate();
+    let opened = s
+        .open_spec(include_str!("fixtures/stable_ids/spec1.json"))
+        .unwrap();
+    assert_eq!(opened.spec["schema"], "draftwright.spec/3");
+    assert_eq!(
+        opened.spec["dimensions"]["d:f:hole:f9/bore.diameter"]["tolerance"],
+        "±0.1"
+    );
+    assert_eq!(
+        serde_json::to_value(&opened.migrated).unwrap(),
+        json!([
+            {"path":"dimensions/d:f:hole:4~1bore.diameter@front", "from":"d:f:hole:4/bore.diameter@front", "to":"d:f:hole:f9/bore.diameter"}
+        ])
+    );
+    assert_eq!(opened.ids["f:hole:4"], "f:hole:f9");
+    assert!(opened.set_aside.is_empty());
+    let again = s.open_spec(&opened.spec.to_string()).unwrap();
+    assert!(again.migrated.is_empty());
+    assert_eq!(again.ids["f:hole:4"], "f:hole:f9");
+}
+
+#[test]
+fn spec2_ladder_ids_migrate_and_unmapped_keys_are_preserved() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/recognition/steps/stepped_block.step");
+    let (part, analysis) = model::analyse_native(&path).unwrap();
+    assert_eq!(analysis.schema, "draftwright.analysis/8");
+    assert_eq!(analysis.level_supports[0].faces, [6]);
+    assert_eq!(analysis.risers[0].faces, [7]);
+    let mut s = Session::new(part, analysis, model::Spec::default()).unwrap();
+    let opened = s
+        .open_spec(include_str!("fixtures/stable_ids/spec2.json"))
+        .unwrap();
+    assert!(opened.set_aside.is_empty());
+    assert_eq!(
+        serde_json::to_value(&opened.migrated).unwrap(),
+        json!([
+            {"path":"dimensions/d:step_level~1step_height.length.h10", "from":"d:step_level/step_height.length.h10", "to":"d:step_level/step_height.length.f6"},
+            {"path":"dimensions/d:step_level~1step_position.length.x20", "from":"d:step_level/step_position.length.x20", "to":"d:step_level/step_position.length.f7"}
+        ])
+    );
+    assert!(
+        opened.spec["dimensions"]
+            .get("d:step_level/step_height.length.f6")
+            .is_some()
+    );
+    assert_eq!(
+        opened.ids["step_height.length.h10"],
+        "step_height.length.f6"
+    );
+    let saved = spec(json!({"schema":"draftwright.spec/2", "dimensions": {
+        "d:f:hole:99/bore.diameter":{"omit":true},
+        "d:step_level/step_height.length.h999":{"omit":true}
+    }}));
+    let migrated = model::migrate(&saved, s.analysis()).unwrap();
+    assert_eq!(migrated.dimensions, saved.dimensions);
+    let p = model::plan_recovered(s.analysis(), &saved).unwrap();
+    assert_eq!(p.spec.dimensions, saved.dimensions);
+    let problems: Vec<_> = p
+        .problems
+        .iter()
+        .filter(|p| p.code == "id_not_migrated")
+        .collect();
+    assert_eq!(problems.len(), 2);
+    assert!(problems.iter().all(|p| p.severity == "info"));
+}

@@ -271,7 +271,7 @@ fn controlling(
             ladder_span(a, &kept[i].0)
                 .filter(|_| {
                     kept[i].0.measurements.iter().any(|m| {
-                        m.feature == "step_level" && m.parameter.starts_with("step_height.length.h")
+                        m.feature == "step_level" && m.parameter.starts_with("step_height.length.")
                     })
                 })
                 .map(|(s, _)| s)
@@ -416,7 +416,7 @@ fn controlling(
         }
         let Some((s, rebased)) = ladder_span(a, &kept[i].0).filter(|_| {
             kept[i].0.measurements.iter().any(|m| {
-                m.feature == "step_level" && m.parameter.starts_with("step_height.length.h")
+                m.feature == "step_level" && m.parameter.starts_with("step_height.length.")
             })
         }) else {
             continue;
@@ -622,7 +622,7 @@ fn rungs_on_compound_labels(
                 && !references.values().any(|by| by.contains(&w.id))
                 && w.measurements.iter().any(|m| {
                     m.feature == "step_level"
-                        && (m.parameter.starts_with("step_height.length.h")
+                        && (m.parameter.starts_with("step_height.length.")
                             || m.parameter.starts_with("step_position.length."))
                 })
         })

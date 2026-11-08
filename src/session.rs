@@ -943,7 +943,7 @@ impl Session {
         self.state.problems = self.state.plan.problems.clone();
         Ok(OpenedSpec {
             migrated: migration.migrated,
-            ids: migration.ids,
+            ids: self.state.plan.ids.clone(),
             // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
             spec: serde_json::to_value(self.spec()).expect("spec serialises"),
             set_aside,
