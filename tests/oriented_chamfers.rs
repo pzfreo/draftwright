@@ -507,7 +507,7 @@ fn bounded_notches_reserve_acute_arcs_and_leave_dense_general_profiles_alone() {
             assert_eq!(p.sheet.scale, "2:1");
             for (feature, parameters) in [
                 (
-                    "f:section_recess:1",
+                    "f:section_recess:f8",
                     &[
                         "pocket_width.length",
                         "pocket_length.length",
@@ -517,7 +517,7 @@ fn bounded_notches_reserve_acute_arcs_and_leave_dense_general_profiles_alone() {
                     ][..],
                 ),
                 (
-                    "f:section_recess:5",
+                    "f:section_recess:f35",
                     &[
                         "pocket_width.length",
                         "pocket_length.length",
@@ -527,7 +527,7 @@ fn bounded_notches_reserve_acute_arcs_and_leave_dense_general_profiles_alone() {
                     ][..],
                 ),
                 (
-                    "f:section_recess:2",
+                    "f:section_recess:f16",
                     &["polygon_across_flats.length", "pocket_depth.length"][..],
                 ),
             ] {
