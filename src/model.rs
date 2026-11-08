@@ -4506,27 +4506,25 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
-    let result = (|| {
-        crate::decision_overrides::boundary(analysis, spec, || {
-            let plan = crate::bom::with_titles(analysis, spec, || {
-                layout::with_gutter(
-                    spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
-                    || {
-                        let plan = plan_recovered_once(analysis, spec)?;
-                        let plan = balloon_fallback(analysis, spec, plan)?;
-                        let mut plan = manufacturing_fallback(analysis, spec, plan, |s| {
-                            plan_recovered_once(analysis, s)
-                        })?;
-                        crate::graphical_pmi::apply(analysis, &mut plan);
-                        crate::hole_exits::report(analysis, &mut plan);
-                        plan.record_callout_offsets();
-                        Ok(plan)
-                    },
-                )
-            })?;
-            retain_unapplied_edits(analysis, plan, plan_recovered)
-        })
-    })();
+    let result = crate::decision_overrides::boundary(analysis, spec, || {
+        let plan = crate::bom::with_titles(analysis, spec, || {
+            layout::with_gutter(
+                spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
+                || {
+                    let plan = plan_recovered_once(analysis, spec)?;
+                    let plan = balloon_fallback(analysis, spec, plan)?;
+                    let mut plan = manufacturing_fallback(analysis, spec, plan, |s| {
+                        plan_recovered_once(analysis, s)
+                    })?;
+                    crate::graphical_pmi::apply(analysis, &mut plan);
+                    crate::hole_exits::report(analysis, &mut plan);
+                    plan.record_callout_offsets();
+                    Ok(plan)
+                },
+            )
+        })?;
+        retain_unapplied_edits(analysis, plan, plan_recovered)
+    });
     result.map(|mut plan| {
         migration.report(&mut plan);
         plan
@@ -5317,13 +5315,19 @@ fn schedule_recovered(
 /// the dimensions, which on most parts keeps a larger scale, but where the dimensions run on
 /// past it an item can find no place (nist_stc_09 e4 at 1:1: 13 frames across the plan).
 pub fn plan_escalated(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(analysis, spec, || {
+    let migration = crate::stable_ids::migrate(spec, analysis)?;
+    let spec = &migration.spec;
+    let result = crate::decision_overrides::boundary(analysis, spec, || {
         crate::bom::with_titles(analysis, spec, || {
             let mut plan = plan_escalated_layout(analysis, spec)?;
             crate::characteristics::apply(analysis, &mut plan);
             crate::hole_exits::report(analysis, &mut plan);
             Ok(plan)
         })
+    });
+    result.map(|mut plan| {
+        migration.report(&mut plan);
+        plan
     })
 }
 
@@ -5601,26 +5605,23 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
-    let result = (|| {
-        crate::decision_overrides::boundary(analysis, spec, || {
-            let plan = crate::bom::with_titles(analysis, spec, || {
-                layout::with_gutter(
-                    spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
-                    || {
-                        let plan = plan_once(analysis, spec)?;
-                        let mut plan = manufacturing_fallback(analysis, spec, plan, |s| {
-                            plan_once(analysis, s)
-                        })?;
-                        crate::graphical_pmi::apply(analysis, &mut plan);
-                        crate::hole_exits::report(analysis, &mut plan);
-                        plan.record_callout_offsets();
-                        Ok(plan)
-                    },
-                )
-            })?;
-            retain_unapplied_edits(analysis, plan, self::plan)
-        })
-    })();
+    let result = crate::decision_overrides::boundary(analysis, spec, || {
+        let plan = crate::bom::with_titles(analysis, spec, || {
+            layout::with_gutter(
+                spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
+                || {
+                    let plan = plan_once(analysis, spec)?;
+                    let mut plan =
+                        manufacturing_fallback(analysis, spec, plan, |s| plan_once(analysis, s))?;
+                    crate::graphical_pmi::apply(analysis, &mut plan);
+                    crate::hole_exits::report(analysis, &mut plan);
+                    plan.record_callout_offsets();
+                    Ok(plan)
+                },
+            )
+        })?;
+        retain_unapplied_edits(analysis, plan, self::plan)
+    });
     result.map(|mut plan| {
         migration.report(&mut plan);
         plan
@@ -9367,6 +9368,9 @@ fn retain_short_leaders(analysis: &Analysis, plan: &mut Plan, bare: &Plan) {
 /// Two keys that come to one are ambiguous, and refused with both as the candidates. Anything
 /// but a version 1 or 2 spec is refused.
 pub fn migrate(spec: &Spec, analysis: &Analysis) -> Result<Spec, Invalid> {
+    if spec.schema == SPEC_SCHEMA {
+        return Ok(spec.clone());
+    }
     crate::stable_ids::migrate(spec, analysis).map(|m| m.spec)
 }
 

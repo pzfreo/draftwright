@@ -9,19 +9,18 @@
 //!   a level whose every support is a side-facing pad's edge, the floor of an edge-open pocket
 //!   cut along z, and the corner of a through step dimensioned as one ([`ownership`]). A part
 //!   with turned steps has no ladder.
-//! - **Heights** are `step_height.length.h<height>` (16 → `h16`, 12.5 → `h12_5`), base to level, each a linear
+//! - **Heights** are `step_height.length.f<lowest support face>`, base to level, each a linear
 //!   dimension whose witnesses stand on the level's support (its faces' largest x and smallest y;
 //!   the part's box when it has none), the shortest innermost. Three or more equal rises (within
 //!   10 %) are one `N× rise`, `step_height.length` (`_step_repeat`), counting the rise to the top
 //!   when it matches too.
 //! - **Shoulders** are quiddity's risers projected onto the levels (`project_step_shoulders`: a
 //!   wall's foot on a level, a ramp's ends on levels or the part's top or bottom), less those at
-//!   a through step's leg; each is `step_position.length.<axis><position>` (`x42_5`) from the
+//!   a through step's leg; each is `step_position.length.f<lowest riser face>` (local suffixes on a shared face) from the
 //!   part's box, in the plan (x) or the side (y). One standing exactly on the box is not a
 //!   distance (`_is_zero_step_position`): it is reported, not drawn. Equal shoulders are stated once
 //!   (draftwright draws each riser's).
-//! - Each rung and shoulder is its own item and measurement, discriminated by its own value
-//!   (to the thousandth), never by its rank among its siblings, so a level a revision adds
+//! - Each rung and shoulder is its own item and measurement, anchored on its supporting faces, never on its measured value or a rank among siblings, so a level a revision adds
 //!   renames no other rung (ADR4-6). draftwright addresses each set as one (`step_height.length`,
 //!   `step_position.length`; ARCH0015-2, not ported).
 //!
@@ -347,7 +346,7 @@ fn thousandths(z: f64) -> i64 {
     (z * 1e3).round() as i64
 }
 
-/// A value to the thousandth as an ID word: 16 → `16`, 12.5 → `12_5`, -3.25 → `m3_25`.
+/// The legacy value word used only by the exact migration map: 16 → `16`, 12.5 → `12_5`, -3.25 → `m3_25`.
 fn word(v: f64) -> String {
     let t = thousandths(v);
     let (sign, t) = if t < 0 { ("m", -t) } else { ("", t) };
@@ -362,7 +361,14 @@ fn word(v: f64) -> String {
 
 /// The exact old-parameter → face-parameter map, shared by migration, planning and lint.
 /// Old analyses without faces keep their old spelling; current evidence always has faces.
-pub(crate) fn legacy_ids(a: &crate::model::Analysis) -> std::collections::BTreeMap<String, String> {
+pub(crate) fn legacy_ids(
+    a: &crate::model::Analysis,
+) -> std::sync::Arc<std::collections::BTreeMap<String, String>> {
+    crate::planning::memo(a, "ladder_identity_map", Vec::new(), || {
+        std::sync::Arc::new(build_legacy_ids(a))
+    })
+}
+fn build_legacy_ids(a: &crate::model::Analysis) -> std::collections::BTreeMap<String, String> {
     use std::collections::BTreeMap;
     let mut heights: BTreeMap<i64, usize> = BTreeMap::new();
     for s in &a.level_supports {
@@ -427,7 +433,7 @@ pub(crate) fn legacy_ids(a: &crate::model::Analysis) -> std::collections::BTreeM
 
 pub(crate) fn height_parameter(a: &crate::model::Analysis, z: f64) -> String {
     let old = format!("step_height.length.h{}", word(z - a.envelope[0][2]));
-    legacy_ids(a).remove(&old).unwrap_or(old)
+    legacy_ids(a).get(&old).cloned().unwrap_or(old)
 }
 pub(crate) fn position_parameter(a: &crate::model::Analysis, k: usize, at: f64) -> String {
     let old = format!(
@@ -435,7 +441,7 @@ pub(crate) fn position_parameter(a: &crate::model::Analysis, k: usize, at: f64) 
         AXES[k],
         word((at - a.envelope[0][k]).abs())
     );
-    legacy_ids(a).remove(&old).unwrap_or(old)
+    legacy_ids(a).get(&old).cloned().unwrap_or(old)
 }
 
 fn near(z: f64, zs: &[f64]) -> bool {

@@ -55,7 +55,7 @@ fn complete_ids(plan: &mut Plan) {
         .chain(plan.omitted.iter().map(|d| &d.id))
         .chain(plan.problems.iter().map(|p| &p.id))
     {
-        let old = crate::revision::rename_ids(id, &reverse);
+        let old = crate::revision_rename::rename_ids(id, &reverse);
         if old != *id {
             plan.ids.insert(old, id.clone());
         }
@@ -75,7 +75,8 @@ pub(crate) fn anchor(
                 .map(|p| ("hole_pattern", p.faces.as_slice())),
         )
         .collect();
-    let mut groups: BTreeMap<(&str, usize), Vec<(usize, &[usize])>> = BTreeMap::new();
+    type Anchors<'a> = BTreeMap<(&'a str, usize), Vec<(usize, &'a [usize])>>;
+    let mut groups: Anchors<'_> = BTreeMap::new();
     for (i, (kind, faces)) in records.iter().enumerate() {
         let face = faces
             .iter()
@@ -107,7 +108,7 @@ pub(crate) fn anchor(
         .collect();
     for (i, f) in features.iter_mut().enumerate() {
         f.legacy_id = Some(std::mem::replace(&mut f.id, names[i].clone()));
-        f.parameters = serde_json::from_value(crate::revision::rename_spec(
+        f.parameters = serde_json::from_value(crate::revision_rename::rename_spec(
             &Value::Object(f.parameters.clone()),
             &map,
         )?)
@@ -119,9 +120,9 @@ pub(crate) fn anchor(
             names[features.len() + i].clone(),
         ));
         for member in &mut p.members {
-            *member = crate::revision::rename_ids(member, &map);
+            *member = crate::revision_rename::rename_ids(member, &map);
         }
-        p.parameters = serde_json::from_value(crate::revision::rename_spec(
+        p.parameters = serde_json::from_value(crate::revision_rename::rename_spec(
             &Value::Object(p.parameters.clone()),
             &map,
         )?)
@@ -143,7 +144,11 @@ pub fn ids(a: &Analysis) -> BTreeMap<String, String> {
                 .filter_map(|p| Some((p.legacy_id.clone()?, p.id.clone()))),
         );
     }
-    ids.extend(crate::dims::levels::legacy_ids(a));
+    ids.extend(
+        crate::dims::levels::legacy_ids(a)
+            .iter()
+            .map(|(o, n)| (o.clone(), n.clone())),
+    );
     ids.retain(|old, new| old != new);
     ids
 }
@@ -172,7 +177,7 @@ fn escape(s: &str) -> String {
 /// Report changes to keys and string values, including references nested in arrays.
 fn changes(v: &Value, path: &str, map: &BTreeMap<String, String>, out: &mut Vec<Migrated>) {
     let mut changed = |s: &str, path: String| {
-        let to = crate::revision::rename_ids(s, map);
+        let to = crate::revision_rename::rename_ids(s, map);
         if s != to {
             out.push(Migrated {
                 path,
@@ -190,7 +195,7 @@ fn changes(v: &Value, path: &str, map: &BTreeMap<String, String>, out: &mut Vec<
                 } else {
                     format!("{path}/{}", escape(k))
                 };
-                let to = crate::revision::rename_ids(k, map);
+                let to = crate::revision_rename::rename_ids(k, map);
                 if *k != to {
                     out.push(Migrated {
                         path: p.clone(),
@@ -214,7 +219,7 @@ fn unmapped(v: &Value, a: &Analysis) -> Vec<(String, String)> {
     fn visit(v: &Value, path: &str, a: &Analysis, out: &mut Vec<(String, String)>) {
         let scan = |s: &str, path: &str, out: &mut Vec<(String, String)>| {
             let mut rest = s;
-            while let Some((start, end)) = crate::revision::next_id(rest) {
+            while let Some((start, end)) = crate::revision_rename::next_id(rest) {
                 let id = &rest[start..end];
                 if id.starts_with("f:")
                     && id
@@ -278,10 +283,9 @@ pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
         return Err(invalid(message));
     }
     if !SPEC_SCHEMAS.contains(&spec.schema.as_str()) {
-        return Err(invalid(format!(
-            "The spec is {:?}, which this draftwright does not read.",
-            spec.schema
-        )));
+        let mut error = invalid(format!("The spec is {:?}, which this draftwright does not read.", spec.schema));
+        error.choices = SPEC_SCHEMAS.iter().map(|s| (*s).into()).collect();
+        return Err(error);
     }
     let ids = ids(a);
     let mut out = crate::model::migrate_v1(spec, a)?;
@@ -295,13 +299,13 @@ pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
                 one.dimensions.retain(|k, _| k == old);
                 let v1 = crate::model::migrate_v1(&one, a)?;
                 if let Some(new) = v1.dimensions.keys().next() {
-                    map.insert(old.clone(), crate::revision::rename_ids(new, &ids));
+                    map.insert(old.clone(), crate::revision_rename::rename_ids(new, &ids));
                 }
             }
         }
         let original = serde_json::to_value(spec).expect("Spec serializes");
         changes(&original, "", &map, &mut migrated);
-        let value = crate::revision::rename_spec(
+        let value = crate::revision_rename::rename_spec(
             &serde_json::to_value(&out).expect("Spec serializes"),
             &ids,
         )
@@ -358,6 +362,23 @@ mod tests {
     }
 
     #[test]
+    fn authored_patterns_reserve_automatic_face_names() {
+        for name in ["12", "f12", "f12_0"] {
+            let spec: Spec = serde_json::from_value(serde_json::json!({"features": {
+                format!("f:hole_pattern:{name}"): {"pattern":{"arrangement":"linear","members":["f:hole:f6","f:hole:f7"]}}
+            }})).unwrap();
+            assert!(
+                crate::recognition_corrections::check(&spec).is_err(),
+                "{name}"
+            );
+        }
+        let spec: Spec = serde_json::from_value(serde_json::json!({"features": {
+            "f:hole_pattern:mounting": {"pattern":{"arrangement":"linear","members":["f:hole:f6","f:hole:f7"]}}
+        }})).unwrap();
+        crate::recognition_corrections::check(&spec).unwrap();
+    }
+
+    #[test]
     fn approved_refusal_and_window() {
         assert!(refusal("draftwright.spec/2", "0.3.9").is_none());
         assert_eq!(
@@ -377,7 +398,7 @@ mod tests {
     fn exact_whole_document_rename_and_collision() {
         let map = BTreeMap::from([("f:hole:1".into(), "f:hole:f21".into())]);
         let v = serde_json::json!({"dimensions":{"d:f:hole:1/bore.diameter":{}}, "sheet":{"origin":"f:hole:1"}, "notes":[{"text":"p:problem:d:f:hole:1/bore.diameter|f:hole:10"}]});
-        let n = crate::revision::rename_spec(&v, &map).unwrap();
+        let n = crate::revision_rename::rename_spec(&v, &map).unwrap();
         assert!(n["dimensions"].get("d:f:hole:f21/bore.diameter").is_some());
         assert_eq!(n["sheet"]["origin"], "f:hole:f21");
         assert_eq!(
@@ -385,8 +406,11 @@ mod tests {
             "p:problem:d:f:hole:f21/bore.diameter|f:hole:10"
         );
         assert!(
-            crate::revision::rename_spec(&serde_json::json!({"f:hole:1":1,"f:hole:f21":2}), &map)
-                .is_err()
+            crate::revision_rename::rename_spec(
+                &serde_json::json!({"f:hole:1":1,"f:hole:f21":2}),
+                &map
+            )
+            .is_err()
         );
     }
 }
