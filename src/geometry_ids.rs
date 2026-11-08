@@ -1,4 +1,6 @@
 //! Face-anchored ladder names and their exact legacy spellings, independent of planning and lint.
+use crate::model::Analysis;
+
 const AXES: [&str; 3] = ["x", "y", "z"];
 fn thousandths(v: f64) -> i64 {
     (v * 1000.).round() as i64
@@ -19,7 +21,7 @@ fn word(v: f64) -> String {
 
 /// The exact old-parameter → face-parameter map, shared by migration, planning and lint.
 /// Old analyses without faces keep their old spelling; current evidence always has faces.
-pub(crate) fn legacy_ids(a: &crate::model::Analysis) -> std::collections::BTreeMap<String, String> {
+pub(crate) fn legacy_ids(a: &Analysis) -> std::collections::BTreeMap<String, String> {
     use std::collections::BTreeMap;
     let mut heights: BTreeMap<i64, usize> = BTreeMap::new();
     for s in &a.level_supports {
@@ -82,11 +84,11 @@ pub(crate) fn legacy_ids(a: &crate::model::Analysis) -> std::collections::BTreeM
     out
 }
 
-pub(crate) fn height_parameter(a: &crate::model::Analysis, z: f64) -> String {
+pub(crate) fn height_parameter(a: &Analysis, z: f64) -> String {
     let old = format!("step_height.length.h{}", word(z - a.envelope[0][2]));
     legacy_ids(a).get(&old).cloned().unwrap_or(old)
 }
-pub(crate) fn position_parameter(a: &crate::model::Analysis, k: usize, at: f64) -> String {
+pub(crate) fn position_parameter(a: &Analysis, k: usize, at: f64) -> String {
     let old = format!(
         "step_position.length.{}{}",
         AXES[k],
