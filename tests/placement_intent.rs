@@ -1061,13 +1061,13 @@ fn bare_pins_do_not_restack_settled_linear_labels() {
     for (file, ids) in [
         (
             "gramel/GRM-03_thumbwheel_drive_screw.step",
-            vec!["d:f:turned_step:3/step.length"],
+            vec!["d:f:turned_step:f6/step.length"],
         ),
         (
             "cadgenbench_inputs/cgb245.step",
             vec![
-                "d:f:hole:12/location.length.x",
-                "d:step_level/step_height.length.h23_226",
+                "d:f:hole:f20/location.length.x",
+                "d:step_level/step_height.length.f53",
                 "d:envelope/depth.length",
             ],
         ),
@@ -1098,8 +1098,8 @@ fn relative_isometric_pins_fit_the_remaining_region() {
             "gramel/GRM-03_thumbwheel_drive_screw.step",
             40,
             vec![
-                "d:f:turned_step:1/step.diameter",
-                "d:f:turned_step:1/step.length",
+                "d:f:turned_step:f2/step.diameter",
+                "d:f:turned_step:f2/step.length",
             ],
         ),
         (
@@ -1110,7 +1110,7 @@ fn relative_isometric_pins_fit_the_remaining_region() {
                 "d:f:hole:1/location.length.z",
                 "d:f:hole:1/location.length.y",
                 "d:envelope/depth.length",
-                "d:step_level/step_height.length.h65",
+                "d:step_level/step_height.length.f64",
                 "d:envelope/width.length",
             ],
         ),
@@ -1157,9 +1157,9 @@ fn right_pinned_callouts_have_clear_lanes_and_free_dimensions() {
     .unwrap();
     model::recognise(&part, &mut a, &features).unwrap();
     let ids = [
-        "d:f:hole_pattern:1/bore.diameter",
-        "d:f:hole:4/bore.diameter",
-        "d:f:hole:7/bore.diameter",
+        "d:f:hole_pattern:f6/bore.diameter",
+        "d:f:hole:f9/bore.diameter",
+        "d:f:hole:f12/bore.diameter",
     ];
     for alongs in [["start", "middle", "end"], ["middle"; 3]] {
         let mut s = Spec::default();
@@ -1182,7 +1182,7 @@ fn right_pinned_callouts_have_clear_lanes_and_free_dimensions() {
             // Report that crossing instead of quietly moving its pin to a clear station.
             assert_eq!(problems.len(), 1, "{alongs:?}: {problems:?}");
             assert_eq!(problems[0].code, "leader_through_feature");
-            assert_eq!(problems[0].subjects, [ids[1], "f:hole:7"]);
+            assert_eq!(problems[0].subjects, [ids[1], "f:hole:f12"]);
             assert!(problems[0].refs.contains(&ids[1].into()));
         }
         let view = p.views.iter().find(|v| v.id == "v:plan").unwrap();

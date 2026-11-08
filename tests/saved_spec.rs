@@ -52,8 +52,8 @@ fn an_unapplied_omit_leaves_other_dimensions_in_place() {
 #[test]
 fn refusals_name_the_entry_the_part_does_not_have() {
     let mut s = plate();
-    // f:hole:1 is on the plate (in f:hole_pattern:1), but its bore diameter is not drawn.
-    assert!(s.analysis().features.iter().any(|f| f.id == "f:hole:1"));
+    // f:hole:f6 is on the plate (in f:hole_pattern:f6), but its bore diameter is not drawn.
+    assert!(s.analysis().features.iter().any(|f| f.id == "f:hole:f6"));
     let cases = [
         (
             json!({"features":{"f:hole:99":{"suppress":true}}}),
@@ -84,7 +84,7 @@ fn refusals_name_the_entry_the_part_does_not_have() {
         assert_eq!(serde_json::to_value(&e).unwrap()["path"], path);
     }
     for value in [
-        json!({"dimensions":{"d:f:hole:1/bore.diameter":{"omit":true}}}),
+        json!({"dimensions":{"d:f:hole:f6/bore.diameter":{"omit":true}}}),
         json!({"dimensions":{"d:f:hole:99/bore.diameter":{"omit":true}}}),
         json!({"annotations":{"pmi:gone":{"omit":true}}}),
         json!({"annotations":{"n:gone":{"omit":true}}}),
@@ -102,7 +102,7 @@ fn refusals_name_the_entry_the_part_does_not_have() {
     }
     let e = s
         .set_spec(&spec(
-            json!({"dimensions":{"d:f:hole:4/bore.diameter":{"place":{"view":"iso"}}}}),
+            json!({"dimensions":{"d:f:hole:f9/bore.diameter":{"place":{"view":"iso"}}}}),
         ))
         .unwrap_err();
     assert_eq!(e.path, None);
@@ -118,8 +118,8 @@ fn open_spec_sets_aside_what_the_part_no_longer_has() {
         "schema": "draftwright.spec/2",
         "sheet": {"preferred_printer": "A4"},
         "dimensions": {
-            "d:f:hole:4/bore.diameter": {"omit": true},
-            "d:f:hole:1/bore.diameter": {"omit": true},
+            "d:f:hole:f9/bore.diameter": {"omit": true},
+            "d:f:hole:f6/bore.diameter": {"omit": true},
             "d:f:hole:99/bore.diameter": {"place": {"side": "above"}},
         },
         "features": {"f:hole:99": {"suppress": true}},
@@ -162,7 +162,7 @@ fn open_spec_sets_aside_what_the_part_no_longer_has() {
         s.plan()
             .dimensions
             .iter()
-            .all(|d| d.id != "d:f:hole:4/bore.diameter")
+            .all(|d| d.id != "d:f:hole:f9/bore.diameter")
     );
     assert!(s.plan().views.iter().all(|v| v.id != "v:iso"));
     // A Spec the part has whole is opened as set_spec opens it, with nothing set aside.
@@ -180,7 +180,7 @@ fn open_spec_still_refuses_other_refusals() {
     let before = serde_json::to_value(s.spec()).unwrap();
     for saved in [
         json!({"features": {"f:hole:99": {"suppress": true}},
-               "dimensions": {"d:f:hole:4/bore.diameter": {"place": {"view": "iso"}}}}),
+               "dimensions": {"d:f:hole:f9/bore.diameter": {"place": {"view": "iso"}}}}),
         json!({"dimensions": {"d:f:hole:99/bore.diameter": {"omit": true}},
                "sheet": {"preferred_max_sheets": 0}}),
     ] {
@@ -230,7 +230,7 @@ fn spec_ops_turn_one_spec_into_another() {
     let before = serde_json::to_value(s.spec()).unwrap();
     let mut after = before.clone();
     after["dimensions"] = json!({
-        "d:f:hole:4/bore.diameter": {"omit": true},
+        "d:f:hole:f9/bore.diameter": {"omit": true},
         "d:envelope/width.length": {"place": {"view": "plan"}},
     });
     after["sheet"]["size"] = json!("A3");
@@ -238,7 +238,7 @@ fn spec_ops_turn_one_spec_into_another() {
     let ops = api::spec_ops(&before, &after);
     assert!(
         ops.iter()
-            .any(|op| op.path == "dimensions/d:f:hole:4~1bore.diameter/omit")
+            .any(|op| op.path == "dimensions/d:f:hole:f9~1bore.diameter/omit")
     );
     let edited = model::edit(s.spec(), &serde_json::to_value(&ops).unwrap()).unwrap();
     assert_eq!(serde_json::to_value(&edited).unwrap(), after);
@@ -282,17 +282,17 @@ fn a_stale_anchor_is_set_aside_and_a_malformed_one_refused() {
     let mut s = plate();
     let gone = format!("face:sha256:{}", "0".repeat(64));
     let saved = json!({
-        "features": {"f:hole:4": {"suppress": true, "anchor": {"faces": [gone]}}},
+        "features": {"f:hole:f9": {"suppress": true, "anchor": {"faces": [gone]}}},
         "views": {"iso": {"omit": true}},
     });
     let e = s.set_spec(&spec(saved.clone())).unwrap_err();
-    assert_eq!(e.path.as_deref(), Some("features/f:hole:4"));
+    assert_eq!(e.path.as_deref(), Some("features/f:hole:f9"));
     let opened = s.open_spec(&saved.to_string()).unwrap();
     assert_eq!(
         opened.set_aside,
         [set_aside(
-            "features/f:hole:4",
-            saved["features"]["f:hole:4"].clone(),
+            "features/f:hole:f9",
+            saved["features"]["f:hole:f9"].clone(),
             "no_feature"
         )]
     );
@@ -302,12 +302,12 @@ fn a_stale_anchor_is_set_aside_and_a_malformed_one_refused() {
         s.plan()
             .dimensions
             .iter()
-            .any(|d| d.id == "d:f:hole:4/bore.diameter")
+            .any(|d| d.id == "d:f:hole:f9/bore.diameter")
     );
 
     let mut t = plate();
     let malformed =
-        json!({"features": {"f:hole:4": {"suppress": true, "anchor": {"faces": ["face:1"]}}}});
+        json!({"features": {"f:hole:f9": {"suppress": true, "anchor": {"faces": ["face:1"]}}}});
     let e = t.open_spec(&malformed.to_string()).unwrap_err();
     assert_eq!(e.path, None);
 }
@@ -319,7 +319,7 @@ fn a_stale_face_entry_is_set_aside() {
     let mut s = plate();
     let saved = json!({
         "faces": {"face:99999": {"datum": "B"}, "bottom": {"datum": "A"}},
-        "features": {"f:hole:4": {"controls": [
+        "features": {"f:hole:f9": {"controls": [
             {"characteristic": "position", "tolerance": 0.1, "datums": ["A"]}]}},
     });
     let e = s.set_spec(&spec(saved.clone())).unwrap_err();
@@ -357,7 +357,7 @@ fn a_control_citing_a_set_aside_datum_is_kept_with_its_warning() {
     let control = json!({"controls": [
         {"characteristic": "position", "tolerance": 0.1, "datums": ["A"]}]});
     let saved = json!({
-        "features": {"f:hole:99": {"datum": "A"}, "f:hole:4": control},
+        "features": {"f:hole:99": {"datum": "A"}, "f:hole:f9": control},
         "views": {"iso": {"omit": true}},
     });
     let opened = s.open_spec(&saved.to_string()).unwrap();
@@ -369,13 +369,13 @@ fn a_control_citing_a_set_aside_datum_is_kept_with_its_warning() {
             "no_feature"
         )]
     );
-    assert_eq!(opened.spec["features"]["f:hole:4"], control);
+    assert_eq!(opened.spec["features"]["f:hole:f9"], control);
     assert_eq!(opened.spec["views"], json!({"iso": {"omit": true}}));
     assert!(
         s.plan()
             .gdt
             .iter()
-            .any(|g| g.source == "spec:features/f:hole:4/controls/0")
+            .any(|g| g.source == "spec:features/f:hole:f9/controls/0")
     );
     assert!(
         s.plan()
@@ -493,7 +493,7 @@ fn reason_codes_do_not_depend_on_the_order_of_refusals() {
     // The plate has no section, so no detail can be taken from one.
     let mut s = plate();
     assert!(s.plan().views.iter().all(|v| v.id != "v:section_aa"));
-    let from = json!({"detail": {"around": "f:hole:4", "from": "section_aa", "scale_factor": 3.0}});
+    let from = json!({"detail": {"around": "f:hole:f9", "from": "section_aa", "scale_factor": 3.0}});
     let e = s
         .set_spec(&spec(json!({"views": {"detail_b": from}})))
         .unwrap_err();
@@ -519,7 +519,7 @@ fn many_stale_dimension_edits_are_retained_with_individual_warnings() {
         );
         dimensions.insert(format!("d:envelope/bogus{i}.length"), json!({"omit": true}));
     }
-    dimensions.insert("d:f:hole:4/bore.diameter".into(), json!({"omit": true}));
+    dimensions.insert("d:f:hole:f9/bore.diameter".into(), json!({"omit": true}));
     let saved = json!({"dimensions": dimensions});
     let plans = s.stats().plans;
     let opened = s.open_spec(&saved.to_string()).unwrap();
@@ -537,7 +537,7 @@ fn many_stale_dimension_edits_are_retained_with_individual_warnings() {
         s.plan()
             .dimensions
             .iter()
-            .all(|d| d.id != "d:f:hole:4/bore.diameter")
+            .all(|d| d.id != "d:f:hole:f9/bore.diameter")
     );
     assert!(s.plan().dimensions.iter().any(|d| d.placed.is_some()));
     // One committed edit opened it.

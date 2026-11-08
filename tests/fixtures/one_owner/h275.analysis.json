@@ -65,7 +65,7 @@
     "subtype": "Plate",
     "version": "draftwright-bridge/2"
    },
-   "id": "f:plate:1",
+   "id": "f:plate:f0",
    "kind": "plate",
    "parameters": {
     "axis": "x",
@@ -118,7 +118,7 @@
     "subtype": "Plate",
     "version": "draftwright-bridge/2"
    },
-   "id": "f:plate:2",
+   "id": "f:plate:f1",
    "kind": "plate",
    "parameters": {
     "axis": "y",
@@ -171,7 +171,7 @@
     "subtype": "ThroughStep",
     "version": "draftwright-bridge/2"
    },
-   "id": "f:through_step:1",
+   "id": "f:through_step:f17",
    "kind": "through_step",
    "parameters": {
     "at": [

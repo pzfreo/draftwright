@@ -599,7 +599,7 @@ fn a_label_across_an_axis_end_trims_the_overrun() {
     let natural = base
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:hole:17/bore.diameter")
+        .find(|d| d.id == "d:f:hole:f174/bore.diameter")
         .unwrap()
         .placed
         .as_ref()
@@ -608,7 +608,7 @@ fn a_label_across_an_axis_end_trims_the_overrun() {
     let axis = side
         .line_work
         .iter()
-        .find(|w| w.id == "ink:v:side:f:hole:13")
+        .find(|w| w.id == "ink:v:side:f:hole:f130")
         .unwrap();
     let a = axis.curves[0].start();
     let b = axis.curves[0].end();
@@ -616,7 +616,7 @@ fn a_label_across_an_axis_end_trims_the_overrun() {
     let tip = natural.lines[0][0];
     let spec: Spec = serde_json::from_value(serde_json::json!({
         "sheet": {"size": base.sheet.size, "scale": base.sheet.scale},
-        "dimensions": {"d:f:hole:17/bore.diameter": {"place": {
+        "dimensions": {"d:f:hole:f174/bore.diameter": {"place": {
             "view": "side", "pinned": true, "offset": [elbow[0] - tip[0], elbow[1] - tip[1]]
         }}}
     }))
@@ -625,7 +625,7 @@ fn a_label_across_an_axis_end_trims_the_overrun() {
     let d = p
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:hole:17/bore.diameter")
+        .find(|d| d.id == "d:f:hole:f174/bore.diameter")
         .unwrap();
     let placed = d.placed.as_ref().unwrap();
     let [elbow, end] = placed.lines[1];
@@ -641,7 +641,7 @@ fn a_label_across_an_axis_end_trims_the_overrun() {
     let axis = v
         .line_work
         .iter()
-        .find(|w| w.id == "ink:v:side:f:hole:13")
+        .find(|w| w.id == "ink:v:side:f:hole:f130")
         .unwrap();
     let (a, b) = (axis.curves[0].start(), axis.curves[0].end());
     assert!((a[0] - b[0]).abs() < 1e-9, "a vertical axis");
@@ -649,7 +649,7 @@ fn a_label_across_an_axis_end_trims_the_overrun() {
     let holes = draftwright::bridge::holes::read(&analysis);
     let h = holes
         .iter()
-        .find_map(|(f, h)| (f.id == "f:hole:13").then_some(h.as_ref().unwrap()))
+        .find_map(|(f, h)| (f.id == "f:hole:f130").then_some(h.as_ref().unwrap()))
         .unwrap();
     let centre = [0, 1, 2].map(|k| (analysis.envelope[0][k] + analysis.envelope[1][k]) / 2.0);
     let projected =
@@ -870,7 +870,7 @@ fn a_bore_concentric_with_a_round_outline_is_not_located_from_its_tangent() {
     let bore = p
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:hole:1/bore.diameter")
+        .find(|d| d.id == "d:f:hole:f10/bore.diameter")
         .unwrap();
     assert!(
         bore.basis
@@ -896,7 +896,7 @@ fn a_bore_concentric_with_a_round_outline_is_not_located_from_its_tangent() {
     // v0.2.3 (#123) adds two coaxial recesses: their coincident locations share
     // one dimension per axis (ARCH0009-6), whose first ID is now a face groove.
     // The explicit origin must still put every bore/recess coordinate on paper.
-    for feature in ["f:hole:1", "f:face_groove:1", "f:face_groove:2"] {
+    for feature in ["f:hole:f10", "f:face_groove:f2", "f:face_groove:f9"] {
         for axis in ["x", "y"] {
             let id = format!("d:{feature}/location.length.{axis}");
             let owner = p.dimensions.iter().find(|d| d.id == id).or_else(|| {
@@ -1103,7 +1103,7 @@ fn a_turned_part_with_a_stepped_bore_draws_its_profile_as_a_half_section() {
     let ring_dim = p
         .dimensions
         .iter()
-        .find(|q| q.id == "d:f:boss:1/boss.diameter")
+        .find(|q| q.id == "d:f:boss:f12/boss.diameter")
         .unwrap()
         .placed
         .as_ref()
@@ -1122,8 +1122,8 @@ fn a_turned_part_with_a_stepped_bore_draws_its_profile_as_a_half_section() {
     assert!((line[0][k] - axis) * (line[1][k] - axis) < 0.0, "{line:?}");
     // The rings' heights: witnesses from the cut half.
     for id in [
-        "d:f:boss:1/boss_height.length",
-        "d:f:boss:2/boss_height.length",
+        "d:f:boss:f12/boss_height.length",
+        "d:f:boss:f16/boss_height.length",
     ] {
         let q = p.dimensions.iter().find(|q| q.id == id).unwrap();
         for w in &q.placed.as_ref().unwrap().lines[..2] {
@@ -1141,7 +1141,7 @@ fn a_turned_part_with_a_stepped_bore_draws_its_profile_as_a_half_section() {
         .sheet
         .items
         .iter_mut()
-        .find(|i| i.name == "d:f:boss:1/boss.diameter")
+        .find(|i| i.name == "d:f:boss:f12/boss.diameter")
         .unwrap();
     assert_eq!(drawn.lines.len(), 2);
     for e in &mut drawn.lines[0] {
@@ -1191,7 +1191,7 @@ fn the_spec_forces_or_forbids_a_half_section() {
     let ring = p
         .dimensions
         .iter()
-        .find(|q| q.id == "d:f:boss:1/boss.diameter")
+        .find(|q| q.id == "d:f:boss:f12/boss.diameter")
         .unwrap();
     assert_eq!(ring.placed.as_ref().unwrap().lines.len(), 3);
     let (_, p, d) = drawing_with(

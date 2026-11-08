@@ -21,7 +21,7 @@ fn blank() -> &'static (Part, Analysis) {
     PART.get_or_init(|| model::analyse_native(&fixture("gear_blank.step")).unwrap())
 }
 fn declaration() -> Value {
-    json!({"on":"f:turned_body:1", "frame":{"origin":[0,0,0],"axis":"z"}, "tooth_count":13,
+    json!({"on":"f:turned_body:f0", "frame":{"origin":[0,0,0],"axis":"z"}, "tooth_count":13,
         "module":1.25, "pressure_angle":20, "profile_shift":0, "face_width":10,
         "tooth_thickness":1.9634954084936207, "tooth_thickness_tolerance":[-0.03,0.01],
         "flank_tolerance_class":7})
@@ -243,7 +243,7 @@ fn gear_anchors_and_editor_preserve_authored_intent() {
         )
         .is_err()
     );
-    for anchor in ["face:0", "top", "f:turned_body:1"] {
+    for anchor in ["face:0", "top", "f:turned_body:f0"] {
         let mut s = s.clone();
         s.gears[0].on = anchor.into();
         assert!(model::plan(a, &s).is_ok(), "{anchor}");

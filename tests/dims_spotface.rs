@@ -249,7 +249,7 @@ fn outer_counterbore_steps_are_each_stated_once() {
     let d = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:hole:1/bore.diameter")
+        .find(|d| d.id == "d:f:hole:f2/bore.diameter")
         .unwrap();
     let text = d
         .terms

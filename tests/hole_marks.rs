@@ -274,7 +274,7 @@ fn a_frame_on_split_bores_attaches_to_their_callout() {
     // legitimately use its own rim when a frame cannot fit beneath its mark.
     let spec: Spec = serde_json::from_value(serde_json::json!({
         "sheet":{"size":"A0"},
-        "dimensions":{"d:f:hole:14/bore.diameter":{"place":{"side":"above","lane":4}}}
+        "dimensions":{"d:f:hole:f42/bore.diameter":{"place":{"side":"above","lane":4}}}
     }))
     .unwrap();
     let plan = model::plan_recovered(&a, &spec).unwrap();
@@ -843,7 +843,7 @@ fn cylinder_frame_placement_is_overridable() {
 fn ctc05_without_size_dimensions_uses_two_radial_rim_leaders() {
     let a = ctc05();
     let spec: Spec = serde_json::from_value(serde_json::json!({"dimensions": {
-        "d:f:turned_step:2/step.diameter": {"omit": true},
+        "d:f:turned_step:f10/step.diameter": {"omit": true},
         "d:f:turned_step:3/step.diameter": {"omit": true},
     }}))
     .unwrap();
@@ -916,7 +916,7 @@ fn ctc_axis_repairs_preserve_stc09s_own_hole_attachment() {
         let callout = p
             .dimensions
             .iter()
-            .find(|d| d.id == "d:f:hole:21/bore.diameter")
+            .find(|d| d.id == "d:f:hole:f80/bore.diameter")
             .unwrap();
         let holes: Vec<&str> = callout
             .measurements
@@ -924,7 +924,7 @@ fn ctc_axis_repairs_preserve_stc09s_own_hole_attachment() {
             .filter(|m| m.parameter == "bore.diameter")
             .map(|m| m.feature.as_str())
             .collect();
-        assert_eq!(holes, ["f:hole:21", "f:hole:22"]);
+        assert_eq!(holes, ["f:hole:f80", "f:hole:f82"]);
         let b = callout.placed.as_ref().unwrap().label_box;
         assert_eq!(placed.label_box[0], b[0]);
         assert!(placed.label_box[1] >= b[3] && placed.label_box[1] - b[3] < 1.0);

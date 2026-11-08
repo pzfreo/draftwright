@@ -192,7 +192,7 @@ fn mark(text: &str, claims: &[(&str, &str)]) -> Mark {
 #[test]
 fn the_part_owns_the_hole_requirements_and_only_the_drawn_ink_earns_them() {
     let (part, analysis) = analysed("plate");
-    let callout = "d:f:hole_pattern:1/bore.diameter";
+    let callout = "d:f:hole_pattern:f6/bore.diameter";
     let lint_of = |plan: &Plan| holes_only(lint::lint(&analysis, &drawn(&part, &analysis, plan)));
 
     let full = model::plan(&analysis, &Spec::default()).unwrap();

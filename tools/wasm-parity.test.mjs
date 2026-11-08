@@ -348,7 +348,7 @@ test('a huge view gutter returns a refusal instead of aborting WASM', () => {
 test('group callout members match native and the dragged arrow follows the nearest member', () => {
   const part = 'tests/fixtures/samples/editor-plate.step';
   const name = 'editor-plate.step';
-  const id = 'd:f:hole_pattern:1/bore.diameter';
+  const id = 'd:f:hole_pattern:f6/bore.diameter';
   const engine = new Engine(name, readFileSync(new URL(`../${part}`, import.meta.url)));
   try {
     const count = engine.planCount();
@@ -394,7 +394,7 @@ test('openSpec retains stale dimension edits, migrates printer settings and sets
   const direct = new Engine('mounting_plate.step', bytes);
   try {
     const dimensions = {
-      'd:f:hole:4/bore.diameter': { omit: true }, 'd:f:hole:1/bore.diameter': { omit: true } };
+      'd:f:hole:f9/bore.diameter': { omit: true }, 'd:f:hole:1/bore.diameter': { omit: true } };
     const saved = JSON.stringify({ sheet: { preferred_printer: 'A3' }, dimensions });
     const before = engine.plan();
     invalid(() => engine.setSpec(saved), /preferred_printer.*preferred_max_size/);
@@ -406,7 +406,7 @@ test('openSpec retains stale dimension edits, migrates printer settings and sets
     assert.equal(opened.spec.sheet.preferred_max_size, 'A3');
     const plan = unappliedDimension(engine, 'dimensions/d:f:hole:1~1bore.diameter');
     assert.ok(!plan.dimensions.some(dimension => dimension.id === 'd:f:hole:1/bore.diameter'));
-    assert.ok(plan.omitted.some(item => item.id === 'd:f:hole:4/bore.diameter'
+    assert.ok(plan.omitted.some(item => item.id === 'd:f:hole:f9/bore.diameter'
       && item.state.kind === 'omitted_by_user'), 'the live dimension omit is applied');
     // A fresh engine proves setSpec validates the same stale entry; this is not a no-op.
     direct.setSpec(JSON.stringify({ sheet: { preferred_max_size: 'A3' }, dimensions }));
@@ -507,8 +507,8 @@ test('openSpec migration report has native parity', () => {
 
 test('openSpec feature and ladder maps have native parity', () => {
   const cases = [
-    {name: 'mounting_plate.step', part: 'tests/fixtures/parts/mounting_plate.step', spec: 'spec1.json', old: 'f:hole:4', now: 'f:hole:f9'},
-    {name: 'stepped_block.step', part: 'tests/fixtures/recognition/steps/stepped_block.step', spec: 'spec2.json', old: 'step_height.length.h10', now: 'step_height.length.f6'},
+    {name: 'mounting_plate.step', part: 'tests/fixtures/parts/mounting_plate.step', spec: 'spec1.json', old: 'f:hole:f9', now: 'f:hole:f9'},
+    {name: 'stepped_block.step', part: 'tests/fixtures/recognition/steps/stepped_block.step', spec: 'spec2.json', old: 'step_height.length.f6', now: 'step_height.length.f6'},
   ];
   for (const item of cases) {
     const spec = JSON.parse(readFileSync(new URL(`../tests/fixtures/stable_ids/${item.spec}`, import.meta.url)));

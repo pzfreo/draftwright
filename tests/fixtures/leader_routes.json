@@ -76,7 +76,7 @@
             "section": 0,
             "text_extension": 0
           },
-          "d:f:boss:5/boss.diameter": {
+          "d:f:boss:f41/boss.diameter": {
             "cutting_plane": 0,
             "elbow_outline": false,
             "head_extension": 0,
@@ -111,7 +111,7 @@
             "section": 0,
             "text_extension": 0
           },
-          "d:f:boss:6/boss.diameter": {
+          "d:f:boss:f43/boss.diameter": {
             "cutting_plane": 0,
             "elbow_outline": false,
             "head_extension": 0,
@@ -430,7 +430,7 @@
             "section": 0,
             "text_extension": 0
           },
-          "d:f:boss:5/boss.diameter": {
+          "d:f:boss:f41/boss.diameter": {
             "cutting_plane": 0,
             "elbow_outline": false,
             "head_extension": 0,
@@ -465,7 +465,7 @@
             "section": 0,
             "text_extension": 0
           },
-          "d:f:boss:6/boss.diameter": {
+          "d:f:boss:f43/boss.diameter": {
             "cutting_plane": 0,
             "elbow_outline": false,
             "head_extension": 0,
@@ -1862,7 +1862,7 @@
         "section": 0,
         "text_extension": 0
       },
-      "d:f:paired_ramp_step:2/ramp_angle.angle": {
+      "d:f:paired_ramp_step:f3/ramp_angle.angle": {
         "cutting_plane": 0,
         "elbow_outline": false,
         "head_extension": 0,
@@ -1897,7 +1897,7 @@
         "section": 0,
         "text_extension": 0
       },
-      "d:f:paired_ramp_step:3/ramp_angle.angle": {
+      "d:f:paired_ramp_step:f7/ramp_angle.angle": {
         "cutting_plane": 0,
         "elbow_outline": false,
         "head_extension": 0,
@@ -4618,7 +4618,7 @@
         "section": 0,
         "text_extension": 0
       },
-      "d:f:boss:5/boss.diameter": {
+      "d:f:boss:f41/boss.diameter": {
         "cutting_plane": 0,
         "elbow_outline": false,
         "head_extension": 0,
@@ -4653,7 +4653,7 @@
         "section": 0,
         "text_extension": 0
       },
-      "d:f:boss:6/boss.diameter": {
+      "d:f:boss:f43/boss.diameter": {
         "cutting_plane": 0,
         "elbow_outline": false,
         "head_extension": 0,

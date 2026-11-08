@@ -195,7 +195,7 @@ pub struct OpenedSpec {
 /// A saved Spec's entry that [`Session::open_spec`] left out.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SetAside {
-    /// The entry's escaped Spec path, as an [`Op`] names it (`dimensions/d:f:hole:1~1bore.diameter`).
+    /// The entry's escaped Spec path, as an [`Op`] names it (`dimensions/d:f:hole:f6~1bore.diameter`).
     pub path: String,
     /// The entry, as the Spec read in its current form has it.
     pub entry: Value,

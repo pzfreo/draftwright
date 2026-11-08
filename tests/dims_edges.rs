@@ -123,7 +123,7 @@ fn a_turned_fillet_reads_in_the_profile_and_is_never_guessed_turned() {
     let plan = planned("turned", &json, &Spec::default());
     let c = callouts(&plan);
     assert_eq!(c.len(), 1, "{:?}", labels(&plan));
-    assert_eq!(c[0].id, "d:f:fillet:1/fillet.radius");
+    assert_eq!(c[0].id, "d:f:fillet:f1/fillet.radius");
     assert_eq!(c[0].label, "4× R0.8");
     assert_eq!(c[0].measurements.len(), 4);
     assert!(c[0].basis.contains("profile"), "{}", c[0].basis);

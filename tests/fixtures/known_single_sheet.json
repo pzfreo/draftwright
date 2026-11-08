@@ -2549,7 +2549,7 @@
       "d:f:plate:1/thickness.length",
       "d:envelope/depth.length",
       "d:envelope/height.length",
-      "d:step_level/step_height.length.h19_56"
+      "d:step_level/step_height.length.f23"
     ],
     "refused": "There is no dimension \"d:f:section_recess:5/location_pocket.location.x\" on this part."
   },
@@ -2567,7 +2567,7 @@
       "d:f:plate:1/thickness.length",
       "d:envelope/depth.length",
       "d:envelope/height.length",
-      "d:step_level/step_height.length.h19_56"
+      "d:step_level/step_height.length.f23"
     ],
     "refused": "There is no dimension \"d:f:section_recess:5/location_pocket.location.y\" on this part."
   },
@@ -3000,8 +3000,8 @@
       "d:envelope/depth.length",
       "d:envelope/height.length",
       "d:envelope/width.length",
-      "d:step_level/step_height.length.h13_54",
-      "d:step_level/step_height.length.h1_842"
+      "d:step_level/step_height.length.f30",
+      "d:step_level/step_height.length.f31"
     ],
     "refused": "There is no dimension \"d:f:section_recess:4/location_pocket.x\" on this part."
   },

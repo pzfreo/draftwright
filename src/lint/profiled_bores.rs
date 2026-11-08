@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn a_double_d_bore_is_called_out_with_its_diameter_and_across_flats() {
         let both = ["bore.diameter", "profile_across_flats.length"];
-        let id = "f:double_d_bore:1";
+        let id = "f:double_d_bore:f6";
         let a = part("double_d_bore", bore([0.0, 0.0, 5.0]));
         assert!(coverage(&a, &[mark("⌀10 THRU DOUBLE-D 7.2 A/F", id, &both)]).is_empty());
         let found = coverage(&a, &[mark("⌀10 THRU", id, &both[..1])]);

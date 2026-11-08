@@ -27,7 +27,7 @@
 //! owner's; here a claim on the ladder (`step_level`), a plate or the overall extents (`envelope`)
 //! must state the leg's length, or the part of the extent it leaves, as an annotation does.
 //! Python also matches each claim's drawn span to the interval; lint's marks carry no span, and
-//! the ladder's parameters name their value (`step_height.length.h10`), so the value stands in.
+//! the ladder's parameters name their value (`step_height.length.f6`), so the value stands in.
 
 use serde_json::Value;
 
@@ -157,7 +157,7 @@ pub(crate) fn leg_span(
 pub type Alternatives = (String, Vec<Vec<Term>>);
 
 /// One term of an alternative statement of a leg: an annotation claiming *parameter* (or one of
-/// the ladder's parameters under it, `step_height.length.h10`) on *feature*, whose text states
+/// the ladder's parameters under it, `step_height.length.f6`) on *feature*, whose text states
 /// *value*.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Term {
@@ -404,7 +404,7 @@ mod tests {
             "binding": { "source_sha256": "", "part": "test", "face_count": 2, "loader": "test" },
             "envelope": [[0.0, 0.0, 0.0], [100.0, 100.0, 10.0]],
             "features": [{
-                "id": "f:through_step:1", "kind": "through_step", "faces": [0, 1],
+                "id": "f:through_step:f9", "kind": "through_step", "faces": [0, 1],
                 "parameters": record,
                 "fingerprint": { "version": "test", "family": "through_steps",
                                  "subtype": "ThroughStep", "sizes": {},
@@ -447,7 +447,7 @@ mod tests {
             view: Some("v:plan".into()),
             text: text.into(),
             claims: vec![Claim {
-                feature: "f:through_step:1".into(),
+                feature: "f:through_step:f6".into(),
                 parameter: format!("through_step_leg.length.{axis}"),
             }],
         };

@@ -22,7 +22,7 @@ The fixture is `tests/fixtures/samples/editor-plate.step`, byte-identical to
 No editor checkout is needed. The placement tests now also use local fixtures
 instead of their former editor-checkout fallback.
 
-At A3, 1:1, pin `d:f:hole_pattern:1/bore.diameter` with
+At A3, 1:1, pin `d:f:hole_pattern:f6/bore.diameter` with
 `{"view":"plan","side":"right","lane":4,"along":"middle","pinned":true}`.
 This extends only the plan's right band. Pin the plan above front at gap 15:
 

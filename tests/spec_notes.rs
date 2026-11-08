@@ -188,9 +188,9 @@ fn a_default_finish_is_drawn_beside_the_title_block() {
 fn m6_on_the_plate_hole_pattern_prints_on_its_callout() {
     let (part, a) = plate();
     let base = model::plan_recovered(&a, &Spec::default()).unwrap();
-    let id = "d:f:hole_pattern:1/bore.diameter";
+    let id = "d:f:hole_pattern:f6/bore.diameter";
     assert_eq!(dimension(&base, id).label, "4× ⌀6 THRU");
-    let s = spec(json!({"features": {"f:hole_pattern:1": {"thread": {"designation": "M6"}}}}));
+    let s = spec(json!({"features": {"f:hole_pattern:f6": {"thread": {"designation": "M6"}}}}));
     let plan = model::plan_recovered(&a, &s).unwrap();
     let callout = dimension(&plan, id);
     assert_eq!(callout.label, "4× M6 THRU\n⌀6 THRU");
@@ -219,13 +219,13 @@ fn m6_on_the_plate_hole_pattern_prints_on_its_callout() {
     // too small for its hole is reported, not drawn.
     let plan = model::plan_recovered(
         &a,
-        &spec(json!({"features": {"f:hole_pattern:1": {"thread": {"designation": "M6x1-6H", "length": 4}}}})),
+        &spec(json!({"features": {"f:hole_pattern:f6": {"thread": {"designation": "M6x1-6H", "length": 4}}}})),
     )
     .unwrap();
     assert_eq!(dimension(&plan, id).label, "4× M6-6H ↧ 4\n⌀6 THRU");
     let plan = model::plan_recovered(
         &a,
-        &spec(json!({"features": {"f:hole:1": {"thread": {"designation": "M6"}}}})),
+        &spec(json!({"features": {"f:hole:f6": {"thread": {"designation": "M6"}}}})),
     )
     .unwrap();
     let refused = problems(&plan, "pmi_not_lowered");
@@ -233,7 +233,7 @@ fn m6_on_the_plate_hole_pattern_prints_on_its_callout() {
     assert_eq!(refused[0].severity, "error");
     assert_eq!(
         refused[0].refs.first().map(String::as_str),
-        Some("spec:features/f:hole:1/thread")
+        Some("spec:features/f:hole:f6/thread")
     );
     assert!(
         refused[0].refs.len() > 1,
@@ -242,14 +242,14 @@ fn m6_on_the_plate_hole_pattern_prints_on_its_callout() {
     assert!(
         refused[0]
             .message
-            .contains("features/f:hole_pattern:1/thread"),
+            .contains("features/f:hole_pattern:f6/thread"),
         "{}",
         refused[0].message
     );
     assert_eq!(dimension(&plan, id).label, "4× ⌀6 THRU");
     let plan = model::plan_recovered(
         &a,
-        &spec(json!({"features": {"f:hole_pattern:1": {"thread": {"designation": "M3"}}}})),
+        &spec(json!({"features": {"f:hole_pattern:f6": {"thread": {"designation": "M3"}}}})),
     )
     .unwrap();
     let refused = problems(&plan, "pmi_not_lowered");
@@ -266,12 +266,12 @@ fn m10_and_a_knurl_on_the_spindle_print_after_their_diameters() {
     let (part, a) = spindle();
     assert!(a.pmi.is_none(), "the sample spindle carries no PMI");
     let s = spec(json!({"features": {
-        "f:turned_step:1": {"thread": {"designation": "M10", "length": 15}},
+        "f:turned_step:f0": {"thread": {"designation": "M10", "length": 15}},
         "f:turned_step:3": {"knurl": {"pattern": "diamond", "pitch": 0.8}}
     }}));
     let plan = model::plan_recovered(&a, &s).unwrap();
     assert_eq!(
-        dimension(&plan, "d:f:turned_step:1/step.diameter").label,
+        dimension(&plan, "d:f:turned_step:f0/step.diameter").label,
         "M10; 15 MIN FULL THREAD"
     );
     // The ø24 step's diameter is the overall diameter's, which prints its knurl.
@@ -287,8 +287,8 @@ fn m10_and_a_knurl_on_the_spindle_print_after_their_diameters() {
     let plan = model::plan_recovered(
         &a,
         &spec(json!({"features": {
-            "f:turned_step:2": {"thread": {"designation": "M16"}},
-            "f:turned_step:1": {"thread": {"designation": "M10", "length": 40}},
+            "f:turned_step:f6": {"thread": {"designation": "M16"}},
+            "f:turned_step:f0": {"thread": {"designation": "M10", "length": 40}},
             "f:hole:1": {"thread": {"designation": "M5", "length": 12}}
         }})),
     )
@@ -348,7 +348,7 @@ fn a_thread_and_a_knurl_on_bosses_print_on_their_diameter_callouts() {
 fn a_feature_note_and_a_sheet_note_are_drawn() {
     let (part, a) = spindle();
     let s = spec(json!({
-        "features": {"f:hole:1": {"note": "DRILL AND TAP AFTER HARDENING"}},
+        "features": {"f:hole:f6": {"note": "DRILL AND TAP AFTER HARDENING"}},
         "notes": [{"id": "n:1", "text": "BREAK ALL SHARP EDGES"}]
     }));
     let plan = model::plan_recovered(&a, &s).unwrap();
@@ -356,10 +356,10 @@ fn a_feature_note_and_a_sheet_note_are_drawn() {
     assert_eq!(labels.len(), 1);
     let note = labels[0];
     assert_eq!(note.cells, ["DRILL AND TAP AFTER HARDENING"]);
-    assert_eq!(note.source, "spec:features/f:hole:1/note");
+    assert_eq!(note.source, "spec:features/f:hole:f6/note");
     assert!(note.basis.starts_with("spec-authored"), "{}", note.basis);
     assert!(note.placed.is_some());
-    let hole = a.features.iter().find(|f| f.id == "f:hole:1").unwrap();
+    let hole = a.features.iter().find(|f| f.id == "f:hole:f6").unwrap();
     assert_eq!(note.faces, hole.faces);
     assert_eq!(plan.notes.len(), 1);
     assert_eq!(plan.notes[0].rows, ["1  BREAK ALL SHARP EDGES"]);
@@ -392,7 +392,7 @@ fn spec_finish_threads_and_knurls_win_over_step_pmi_with_a_problem() {
     );
     let s = spec(json!({
         "features": {
-            "f:turned_step:3": {"knurl": {"pattern": "straight", "pitch": 1.0}},
+            "f:turned_step:f9": {"knurl": {"pattern": "straight", "pitch": 1.0}},
             "f:hole:1": {"thread": {"designation": "M5x0.8-6H", "length": 8}}
         },
         "sheet": {"default_finish": {"ra": 1.6, "removal": "required"}}
@@ -431,7 +431,7 @@ fn spec_finish_threads_and_knurls_win_over_step_pmi_with_a_problem() {
             ),
             (
                 "manufacturing_requirement:#947",
-                "spec:features/f:turned_step:3/knurl"
+                "spec:features/f:turned_step:f9/knurl"
             ),
         ]
     );
@@ -465,7 +465,7 @@ fn unknown_ids_and_unreadable_entries_are_refused() {
         "{}",
         e.message
     );
-    assert_eq!(e.choices[0], "f:hole_pattern:1");
+    assert_eq!(e.choices[0], "f:hole_pattern:f6");
     let e = model::plan_recovered(
         &a,
         &spec(json!({"faces": {"underside": {"finish": {"ra": 0.8}}}})),
@@ -478,7 +478,7 @@ fn unknown_ids_and_unreadable_entries_are_refused() {
     );
     let e = model::plan_recovered(
         &a,
-        &spec(json!({"features": {"f:hole:1": {"knurl": {"pattern": "straight", "pitch": 0.8}}}})),
+        &spec(json!({"features": {"f:hole:f6": {"knurl": {"pattern": "straight", "pitch": 0.8}}}})),
     )
     .unwrap_err();
     assert!(e.message.contains("takes no knurl"), "{}", e.message);
@@ -490,7 +490,7 @@ fn unknown_ids_and_unreadable_entries_are_refused() {
     );
     assert_eq!(e.choices, ["any", "required", "prohibited"]);
     let e = refused(
-        json!([{"op": "set", "path": "features/f:hole:1/thread", "value": {"designation": "1/4-20 UNC"}}]),
+        json!([{"op": "set", "path": "features/f:hole:f6/thread", "value": {"designation": "1/4-20 UNC"}}]),
     );
     assert!(
         e.message.contains("not an ISO metric thread"),
@@ -498,7 +498,7 @@ fn unknown_ids_and_unreadable_entries_are_refused() {
         e.message
     );
     let e = refused(
-        json!([{"op": "set", "path": "features/f:hole:1/thread", "value": {"designation": "M13"}}]),
+        json!([{"op": "set", "path": "features/f:hole:f6/thread", "value": {"designation": "M13"}}]),
     );
     assert!(
         e.message.contains("no ISO 261 coarse pitch"),
@@ -509,21 +509,21 @@ fn unknown_ids_and_unreadable_entries_are_refused() {
         json!([{"op": "set", "path": "features/f:turned_step:1/knurl", "value": {"pattern": "spiral", "pitch": 1}}]),
     );
     assert_eq!(e.choices, ["straight", "diamond"]);
-    let e = refused(json!([{"op": "set", "path": "features/f:hole:1/note", "value": "  "}]));
+    let e = refused(json!([{"op": "set", "path": "features/f:hole:f6/note", "value": "  "}]));
     assert!(e.message.contains("empty"), "{}", e.message);
     // What reads is kept, as written.
     let s = model::edit(
         &Spec::default(),
         &json!([
             {"op": "set", "path": "faces/top/finish", "value": {"ra": 0.8}},
-            {"op": "set", "path": "features/f:hole:1/thread", "value": {"designation": "M5 LH", "length": 8}},
+            {"op": "set", "path": "features/f:hole:f6/thread", "value": {"designation": "M5 LH", "length": 8}},
             {"op": "set", "path": "sheet/default_finish", "value": {"ra": 3.2}}
         ]),
     )
     .unwrap();
     let v = serde_json::to_value(&s).unwrap();
     assert_eq!(v["faces"]["top"]["finish"]["ra"], 0.8);
-    assert_eq!(v["features"]["f:hole:1"]["thread"]["designation"], "M5 LH");
+    assert_eq!(v["features"]["f:hole:f6"]["thread"]["designation"], "M5 LH");
     assert_eq!(v["sheet"]["default_finish"]["ra"], 3.2);
 }
 
@@ -673,7 +673,7 @@ fn specify_thread_designation_refines_its_marked_requirement_and_retains_length(
     );
     let s = spec(json!({"features": {
         "f:hole:1": {"thread": {"designation": "M5-6H"}},
-        "f:turned_step:3": {"knurl": {"pattern": "straight", "pitch": 1.0}}
+        "f:turned_step:f9": {"knurl": {"pattern": "straight", "pitch": 1.0}}
     }}));
     let plan = model::plan_recovered(&a, &s).unwrap();
     let refined = problems(&plan, "spec_refines_pmi");
@@ -768,8 +768,8 @@ fn string_post_face_finishes_stay_on_a4_and_reach_a_trimmed_cylinder_head_on() {
     let (part, a) = model::analyse_native(&corpus.join("gramel/string_post.step")).unwrap();
     let plain = model::plan_recovered(&a, &Spec::default()).unwrap();
     let s = spec(json!({"features": {
-        "f:turned_step:1": {"finish": {"ra": 0.8}},
-        "f:turned_step:4": {"finish": {"ra": 1.6}}
+        "f:turned_step:f0": {"finish": {"ra": 0.8}},
+        "f:turned_step:f10": {"finish": {"ra": 1.6}}
     }}));
     let finished = model::plan_recovered(&a, &s).unwrap();
     assert_eq!(finished.sheet.size, plain.sheet.size);
@@ -823,9 +823,9 @@ fn string_post_face_finishes_stay_on_a4_and_reach_a_trimmed_cylinder_head_on() {
 #[test]
 fn a_thread_length_whose_callout_is_omitted_is_reported_not_lost() {
     let (_part, a) = plate();
-    let id = "d:f:hole_pattern:1/bore.diameter";
+    let id = "d:f:hole_pattern:f6/bore.diameter";
     let s = spec(json!({
-        "features": {"f:hole_pattern:1": {"thread": {"designation": "M6x1-6H", "length": 4}}},
+        "features": {"f:hole_pattern:f6": {"thread": {"designation": "M6x1-6H", "length": 4}}},
         "dimensions": {id: {"omit": true}}
     }));
     let plan = model::plan_recovered(&a, &s).unwrap();
@@ -836,7 +836,7 @@ fn a_thread_length_whose_callout_is_omitted_is_reported_not_lost() {
     // And the thread the Spec authored is reported as not drawn.
     let lost = problems(&plan, "pmi_not_drawn");
     assert_eq!(lost.len(), 1, "{:?}", plan.problems);
-    assert_eq!(lost[0].refs, ["spec:features/f:hole_pattern:1/thread"]);
+    assert_eq!(lost[0].refs, ["spec:features/f:hole_pattern:f6/thread"]);
 }
 
 /// LINT-hole_coverage-thread_and_profile, the authored half (draftwright's `thread.depth`, a
@@ -846,10 +846,10 @@ fn a_thread_length_whose_callout_is_omitted_is_reported_not_lost() {
 #[test]
 fn a_spec_threads_depth_on_its_holes_is_required_by_lint() {
     let (part, a) = plate();
-    let id = "d:f:hole_pattern:1/bore.diameter";
+    let id = "d:f:hole_pattern:f6/bore.diameter";
     let plan = model::plan_recovered(
         &a,
-        &spec(json!({"features": {"f:hole_pattern:1": {"thread": {"designation": "M6x1-6H", "length": 4}}}})),
+        &spec(json!({"features": {"f:hole_pattern:f6": {"thread": {"designation": "M6x1-6H", "length": 4}}}})),
     )
     .unwrap();
     assert_eq!(dimension(&plan, id).label, "4× M6-6H ↧ 4\n⌀6 THRU");
@@ -867,7 +867,7 @@ fn a_spec_threads_depth_on_its_holes_is_required_by_lint() {
             found
                 .iter()
                 .any(|f| f.starts_with("pmi_source_text_mismatch")
-                    && f.contains("spec:features/f:hole_pattern:1/thread")),
+                    && f.contains("spec:features/f:hole_pattern:f6/thread")),
             "{old:?}: {found:?}"
         );
     }

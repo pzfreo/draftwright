@@ -562,10 +562,10 @@ mod tests {
             .group
         };
         assert_eq!(
-            feature("f:section_recess:1"),
+            feature("f:section_recess:f6"),
             feature("f:section_recess:999")
         );
-        assert_ne!(feature("f:section_recess:1"), feature("f:through_step:1"));
+        assert_ne!(feature("f:section_recess:f6"), feature("f:through_step:1"));
         let requirements = |roles: &[&str]| {
             labels(
                 "hole_requirement_missing",

@@ -402,9 +402,9 @@ fn non_hole_pins_keep_the_settled_schedule_and_isometric_frame() {
         })
         .unwrap();
     let ops: Vec<_> = [
-        "d:f:slot:3/slot_width.length",
+        "d:f:slot:f213/slot_width.length",
         radius.id.as_str(),
-        "d:f:slot:4/location_slot.length",
+        "d:f:slot:f220/location_slot.length",
     ]
     .iter()
     .map(|id| serde_json::json!({"op":"set","path":format!("dimensions/{}/place",draftwright::items::key(id)),"value":{"pinned":true}}))
@@ -507,9 +507,9 @@ fn held_labels_do_not_remove_the_canonical_schedule() {
     let base = cache::default_plan(&analysis, true);
     assert_eq!(tables(&base)[0]["id"], "hole_schedule_front");
     let ops: Vec<_> = [
-        "d:step_level/step_height.length.h218_024",
-        "d:f:polygonal_boss:1/polygon_across_flats.length",
-        "d:f:hole:8/location.length.y",
+        "d:step_level/step_height.length.f46",
+        "d:f:polygonal_boss:f235/polygon_across_flats.length",
+        "d:f:hole:f188/location.length.y",
     ]
     .iter()
     .map(|id| serde_json::json!({"op":"set","path":format!("dimensions/{}/place",draftwright::items::key(id)),"value":{"pinned":true}}))
@@ -612,7 +612,7 @@ fn the_cgb245_view_pin_reproducer_keeps_its_schedule() {
                 <= base.sheet.page[k] - draftwright::layout::margin()
         );
     }
-    let mut ops: Vec<_> = ["d:envelope/height.length", "d:f:slot:1/location_slot.length", "d:f:slot:1/slot_length.length", "d:f:slot:1/slot_width.length", "d:step_level/step_height.length.h13_226", "d:step_level/step_height.length.h9_226"].iter().map(|id| serde_json::json!({"op":"set", "path":format!("dimensions/{}/place",draftwright::items::key(id)), "value":{"pinned":true}})).collect();
+    let mut ops: Vec<_> = ["d:envelope/height.length", "d:f:slot:1/location_slot.length", "d:f:slot:1/slot_length.length", "d:f:slot:1/slot_width.length", "d:step_level/step_height.length.f407", "d:step_level/step_height.length.f128"].iter().map(|id| serde_json::json!({"op":"set", "path":format!("dimensions/{}/place",draftwright::items::key(id)), "value":{"pinned":true}})).collect();
     // Pin each view at the gap the default layout reports (as the editor does), so the
     // default gutter is replayed rather than replaced by an explicit zero.
     let area = |id: &str| base.views.iter().find(|v| v.id == id).unwrap().area;
@@ -1276,13 +1276,13 @@ fn a_profile_radius_and_view_pin_keep_the_recovered_hole_schedule() {
     let base = cache::default_plan(&analysis, true);
     let mut spec = Spec::default();
     for id in [
-        "d:f:slot:3/location_slot_across.length",
-        "d:f:slot:2/slot_end_radius.radius",
-        "d:f:cylindrical_profile:11/cylindrical_profile.radius",
-        "d:f:slot:1/location_slot.length",
-        "d:f:section_recess:1/seat_diameter.diameter",
+        "d:f:slot:f213/location_slot_across.length",
+        "d:f:slot:f152/slot_end_radius.radius",
+        "d:f:cylindrical_profile:f210/cylindrical_profile.radius",
+        "d:f:slot:f117/location_slot.length",
+        "d:f:section_recess:f156/seat_diameter.diameter",
         "d:envelope/width.length",
-        "d:f:plate:1/thickness.length",
+        "d:f:plate:f1/thickness.length",
     ] {
         assert!(
             base.dimensions

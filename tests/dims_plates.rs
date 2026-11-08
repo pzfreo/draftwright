@@ -131,7 +131,7 @@ fn thicknesses(name: &str) {
             "v:side",
             "the flange is exposed in the L profile"
         );
-        let underside = "d:step_level/step_height.length.h7_168";
+        let underside = "d:step_level/step_height.length.f4";
         assert!(
             !plan.dimensions.iter().any(|d| d.id == underside),
             "no 7.2 + 4.4 = 11.6 chain"
@@ -167,7 +167,7 @@ fn thicknesses(name: &str) {
             hidden_plan
                 .dimensions
                 .iter()
-                .any(|d| d.id == "d:step_level/step_height.length.h7_168")
+                .any(|d| d.id == "d:step_level/step_height.length.f4")
         );
     }
     let drawing = model::render(
@@ -311,7 +311,7 @@ fn m10060_states_its_plate_thickness_once() {
             .iter()
             .any(|m| m.parameter == "thickness.length")
     }));
-    let shoulder = "d:step_level/step_position.length.y19_256";
+    let shoulder = "d:step_level/step_position.length.f3_1";
     assert!(
         plan.dimensions
             .iter()
@@ -325,7 +325,7 @@ fn m10060_states_its_plate_thickness_once() {
     assert!(
         plan.omitted
             .iter()
-            .any(|o| o.id == "d:f:plate:1/thickness.length"
+            .any(|o| o.id == "d:f:plate:f5/thickness.length"
                 && matches!(&o.state, State::Covered { by } if by == shoulder))
     );
 }

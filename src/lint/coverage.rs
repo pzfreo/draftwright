@@ -842,7 +842,7 @@ mod tests {
 
     fn site(at: [f64; 3], axis: usize) -> Site {
         Site {
-            subject: "f:hole:1".into(),
+            subject: "f:hole:f6".into(),
             axis,
             at,
             patterned: false,
@@ -877,7 +877,7 @@ mod tests {
         use crate::bridge::Feature;
         use crate::output::Claim;
         let f: Feature = serde_json::from_value(serde_json::json!({
-            "id": "f:hole:1", "kind": "hole", "faces": [0],
+            "id": "f:hole:f6", "kind": "hole", "faces": [0],
             "parameters": { "axis": [0.0, 0.0, 1.0], "location": [0.0, 0.0, 0.0],
                             "diameter": 6.0, "bottom": "through" },
             "fingerprint": { "version": "test", "family": "holes", "subtype": "Hole",
@@ -890,13 +890,13 @@ mod tests {
             [0.0, 1.0, 0.0],
             [0.0, 0.0, 1.0],
         ];
-        let holes: BTreeMap<&str, Hole> = [("f:hole:1", Hole::read(&f, &identity).unwrap())].into();
+        let holes: BTreeMap<&str, Hole> = [("f:hole:f6", Hole::read(&f, &identity).unwrap())].into();
         let mark = |text: &str, parameter: &str| Mark {
             name: "m".into(),
             view: None,
             text: text.into(),
             claims: vec![Claim {
-                feature: "f:hole:1".into(),
+                feature: "f:hole:f6".into(),
                 parameter: parameter.into(),
             }],
         };
@@ -976,14 +976,14 @@ mod tests {
         );
         let found = located(&a, &[]);
         assert_eq!(codes(&found), ["feature_not_located"]);
-        assert_eq!(found[0].subjects, ["f:double_d_bore:1"]);
+        assert_eq!(found[0].subjects, ["f:double_d_bore:f6"]);
         assert_eq!(found[0].requirements[0].parameter, "location.length.y");
         let mark = Mark {
             name: "m".into(),
             view: Some("v:side".into()),
             text: "30".into(),
             claims: vec![Claim {
-                feature: "f:double_d_bore:1".into(),
+                feature: "f:double_d_bore:f6".into(),
                 parameter: "location.length.y".into(),
             }],
         };

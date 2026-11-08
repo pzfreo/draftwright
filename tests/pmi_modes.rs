@@ -659,13 +659,13 @@ fn located_once_checks_native_ink_and_rejects_a_broken_witness() {
             d.placed.is_some()
                 && d.measurements
                     .first()
-                    .is_some_and(|m| m.feature == "f:hole:7" && m.parameter == "location.length.x")
+                    .is_some_and(|m| m.feature == "f:hole:f12" && m.parameter == "location.length.x")
         })
         .unwrap();
     let has_gap = |drawing: &draftwright::output::Drawing| {
         draftwright::lint::lint(&a, drawing).iter().any(|i| {
             i.code == "feature_not_located"
-                && i.subjects.contains(&"f:hole:7".into())
+                && i.subjects.contains(&"f:hole:f12".into())
                 && i.id.ends_with("location.length.x")
         })
     };

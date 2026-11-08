@@ -1109,12 +1109,12 @@ mod tests {
         ]);
         let g = groups(&a);
         assert_eq!(g.len(), 2);
-        assert_eq!(g[0].members, ["f:hole:1", "f:hole:2"]);
+        assert_eq!(g[0].members, ["f:hole:f6", "f:hole:2"]);
         assert_eq!(g[1].members, ["f:hole:3"]);
         // One callout for the pair leaves the opposed hole unstated.
         let pair = mark(
             "2× ⌀6.6 THRU",
-            &[("f:hole:1", "bore.diameter"), ("f:hole:2", "bore.diameter")],
+            &[("f:hole:f6", "bore.diameter"), ("f:hole:2", "bore.diameter")],
         );
         assert_eq!(
             found(&a, &[pair]),
@@ -1124,11 +1124,11 @@ mod tests {
             ]
         );
         // Claiming one of the pair, it counts that one only (ISSUE-1143-b).
-        let one = mark("2× ⌀6.6 THRU", &[("f:hole:1", "bore.diameter")]);
+        let one = mark("2× ⌀6.6 THRU", &[("f:hole:f6", "bore.diameter")]);
         assert_eq!(
             found(&a, &[one]),
             [
-                "hole_requirement_missing f:hole:1+f:hole:2 grouping.count",
+                "hole_requirement_missing f:hole:f6+f:hole:2 grouping.count",
                 "hole_requirement_missing f:hole:3 bore.diameter",
                 "hole_requirement_missing f:hole:3 bore.through"
             ]
@@ -1136,11 +1136,11 @@ mod tests {
         // A callout claiming all three but printing "3×" states no group's quantity.
         let all = mark(
             "3× ⌀6.6 THRU",
-            &[("f:hole:1", "bore.diameter"), ("f:hole:3", "bore.diameter")],
+            &[("f:hole:f6", "bore.diameter"), ("f:hole:3", "bore.diameter")],
         );
         assert_eq!(
             found(&a, &[all]),
-            ["hole_requirement_missing f:hole:1+f:hole:2 grouping.count"]
+            ["hole_requirement_missing f:hole:f6+f:hole:2 grouping.count"]
         );
     }
 
@@ -1250,7 +1250,7 @@ mod tests {
         circle.push(bore);
         let mut a = part(&circle);
         let bolt_circle = |members: Vec<String>| {
-            json!({ "id": "f:hole_pattern:1", "arrangement": "bolt_circle", "members": members,
+            json!({ "id": "f:hole_pattern:f6", "arrangement": "bolt_circle", "members": members,
                     "faces": [], "parameters": { "center": [50.0, 50.0, 10.0], "diameter": 40.0 } })
         };
         let recognition = |members: Vec<String>| {

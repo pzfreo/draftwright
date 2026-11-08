@@ -8180,9 +8180,9 @@ mod tests {
         assert!(a.features.iter().all(|f| f.kind != "section_recess"));
         // Its two obround slots are congruent, so a slot callout would state their ends: one is
         // split from the callout, so each keeps its own radius leader.
-        split_slot(&mut a, "f:slot:2");
+        split_slot(&mut a, "f:slot:f21");
         let plan = crate::model::plan_recovered(&a, &crate::model::Spec::default()).unwrap();
-        let id = "d:f:slot:1/slot_end_radius.radius";
+        let id = "d:f:slot:f13/slot_end_radius.radius";
         let d = plan.dimensions.iter().find(|d| d.id == id).unwrap();
         let p = d.placed.as_ref().unwrap();
         let v = plan.views.iter().find(|v| v.id == d.view).unwrap();
@@ -8305,8 +8305,8 @@ mod tests {
             .flat_map(|(j, p)| p.lines[..2].iter().map(move |s| (j, *s)))
             .collect();
         for (id, contacts) in [
-            ("d:f:turned_step:1/step.diameter", (0, 0)),
-            ("d:f:turned_step:2/step.diameter", (0, 0)),
+            ("d:f:turned_step:f0/step.diameter", (0, 0)),
+            ("d:f:turned_step:f6/step.diameter", (0, 0)),
         ] {
             let callout = plan
                 .dimensions

@@ -694,7 +694,7 @@ fn an_unproved_bevel_corner_cannot_replace_the_proven_notch_depth() {
     // v0.4.2 withholds this virtual corner: the existing bevel claim does not prove
     // the depth's witness stations. Keep the independently measured depth explicit.
     assert!(a.features.iter().any(|f| {
-        f.id == "f:chamfer:1"
+        f.id == "f:chamfer:f3"
             && f.parameters
                 .get("corner")
                 .is_some_and(serde_json::Value::is_null)
@@ -705,7 +705,7 @@ fn an_unproved_bevel_corner_cannot_replace_the_proven_notch_depth() {
     assert!(
         p.dimensions
             .iter()
-            .filter(|d| d.id == "d:f:chamfer:1/chamfer.length")
+            .filter(|d| d.id == "d:f:chamfer:f3/chamfer.length")
             .all(|d| !d
                 .measurements
                 .iter()
@@ -716,7 +716,7 @@ fn an_unproved_bevel_corner_cannot_replace_the_proven_notch_depth() {
         !p.omitted
             .iter()
             .any(|d| d.id.contains("/notch_depth.length.")
-                && matches!(&d.state, State::Covered { by } if by == "d:f:chamfer:1/chamfer.length"))
+                && matches!(&d.state, State::Covered { by } if by == "d:f:chamfer:f3/chamfer.length"))
     );
     let drawing = model::render(
         &part,
@@ -740,7 +740,7 @@ fn an_unproved_bevel_corner_cannot_replace_the_proven_notch_depth() {
     );
     let q = model::plan_recovered(
         &a,
-        &parse(json!({"dimensions":{"d:f:chamfer:1/chamfer.length":{"omit":true}}})),
+        &parse(json!({"dimensions":{"d:f:chamfer:f3/chamfer.length":{"omit":true}}})),
     )
     .unwrap();
     assert!(
@@ -784,7 +784,7 @@ fn notch_dimensions_leave_the_boss_leader_clear_of_hidden_ink_and_witnesses() {
     let boss = p
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:boss:1/boss.diameter")
+        .find(|d| d.id == "d:f:boss:f51/boss.diameter")
         .unwrap();
     let route = &boss.placed.as_ref().unwrap().lines;
     let geometry = model::render_geometry(&part, &a, &p, &mut Default::default()).unwrap();

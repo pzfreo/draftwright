@@ -33,7 +33,7 @@ fn a_valid_candidate_crossing_two_views_is_rejected_even_when_the_planner_return
     let hole = analysis
         .features
         .iter_mut()
-        .find(|f| f.id == "f:hole:1")
+        .find(|f| f.id == "f:hole:f13")
         .unwrap();
     hole.parameters["location"][1] = serde_json::json!(-60.0);
     hole.parameters["location"][2] = serde_json::json!(120.0);

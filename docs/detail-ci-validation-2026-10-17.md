@@ -11,7 +11,7 @@ detail requests remain effective. The regression pins each of 10046's five dimen
 compares measurements, annotation ink and view geometry against the canonical drawing.
 
 The string_post own-span gate now protects the retained 1 mm terminal-band length,
-`d:f:turned_step:3/step.length`. The inspection-end baseline replaced the old 1.1 mm chain
+`d:f:turned_step:f9/step.length`. The inspection-end baseline replaced the old 1.1 mm chain
 link; this short span still exercises locality beside its own arrow tips. The check explains
 the replacement and retains the same detachment threshold.
 

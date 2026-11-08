@@ -13,7 +13,7 @@
   "python": "2 hole(s) have no locating dimension",
   "rust": null,
   "verdict": "rust-correct",
-  "reason": "draftwright's sheet locates the two ø10 holes at (±182, 72.249) along x (m_locx0, m_locx8) but not along y: no location.y fact names them and no witness lies within 0.6 mm of their projected y (tests/fixtures/lint_coverage/python.json.gz). The port's drawing locates both along y too (d:f:hole:1/location.length.y, 156.4, claims f:hole:1 and f:hole:2), so lint finds every hole located."
+  "reason": "draftwright's sheet locates the two ø10 holes at (±182, 72.249) along x (m_locx0, m_locx8) but not along y: no location.y fact names them and no witness lies within 0.6 mm of their projected y (tests/fixtures/lint_coverage/python.json.gz). The port's drawing locates both along y too (d:f:hole:f8/location.length.y, 156.4, claims f:hole:f8 and f:hole:f9), so lint finds every hole located."
  },
  {
   "part": "connector109",

@@ -1,7 +1,7 @@
 # Boss leader repair after the native-recess merge
 
 The quality output at `f704b88b` reproduces both CI failures on 10020:
-`d:f:boss:1/boss.diameter` gains one hidden-edge crossing and one
+`d:f:boss:f51/boss.diameter` gains one hidden-edge crossing and one
 arrowhead/extension contact. The boss leader leaves upward and left through the
 hidden-line bundle, instead of using main's clear route to the right.
 

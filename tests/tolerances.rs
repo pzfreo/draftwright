@@ -340,7 +340,7 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
             .any(|p| p.code == "tolerance_withheld" && p.subjects.contains(&hole.into()))
     );
     assert!(class_only.dimensions.iter().any(|d| d.placed.is_some()));
-    assert!(!label(&class_only, "d:f:hole_pattern:1/bore.diameter").contains("K7"));
+    assert!(!label(&class_only, "d:f:hole_pattern:f6/bore.diameter").contains("K7"));
     let p = model::plan(
         &a,
         &spec(json!({"sheet":{"fit_deviations":true}, "features":{hole:{"fit":"K7"}}})),
@@ -351,11 +351,11 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
             .iter()
             .any(|p| p.code == "tolerance_withheld" && p.subjects.contains(&hole.into()))
     );
-    assert!(!label(&p, "d:f:hole_pattern:1/bore.diameter").contains("K7"));
+    assert!(!label(&p, "d:f:hole_pattern:f6/bore.diameter").contains("K7"));
     // A single boss has a unique callout, so a valid class outside the table prints.
     let (_, boss) = analysed("boss_circle");
-    let p = model::plan(&boss, &spec(json!({"features":{"f:boss:1":{"fit":"m9"}}}))).unwrap();
-    assert!(label(&p, "d:f:boss:1/boss.diameter").contains("m9"));
+    let p = model::plan(&boss, &spec(json!({"features":{"f:boss:f0":{"fit":"m9"}}}))).unwrap();
+    assert!(label(&p, "d:f:boss:f0/boss.diameter").contains("m9"));
     assert!(
         !p.problems
             .iter()
@@ -363,10 +363,10 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     );
     let p = model::plan(
         &boss,
-        &spec(json!({"sheet":{"fit_deviations":true}, "features":{"f:boss:1":{"fit":"m9"}}})),
+        &spec(json!({"sheet":{"fit_deviations":true}, "features":{"f:boss:f0":{"fit":"m9"}}})),
     )
     .unwrap();
-    assert!(label(&p, "d:f:boss:1/boss.diameter").contains("m9"));
+    assert!(label(&p, "d:f:boss:f0/boss.diameter").contains("m9"));
     assert!(
         p.problems
             .iter()
@@ -380,7 +380,7 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     assert!(e.choices.contains(&hole.to_string()), "{e}");
     // A size that has a tolerance and a fit is told to take one.
     let e = refused(json!({
-        "dimensions": { "d:f:hole_pattern:1/bore.diameter": { "tolerance": "±0.1" } },
+        "dimensions": { "d:f:hole_pattern:f6/bore.diameter": { "tolerance": "±0.1" } },
         "features": { hole: { "fit": "H7" } }
     }));
     assert!(e.message.contains("one or the other"), "{e}");
@@ -407,16 +407,16 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
     let (_, b) = analysed("boss_circle");
     let e = model::plan(
         &b,
-        &spec(json!({ "features": { "f:boss:1": { "fit": "H7" } } })),
+        &spec(json!({ "features": { "f:boss:f0": { "fit": "H7" } } })),
     )
     .unwrap_err();
     assert!(e.message.starts_with("\"H7\" reads as \"h7\""), "{e}");
     let plan = model::plan(
         &b,
-        &spec(json!({ "features": { "f:boss:1": { "fit": "h7" } } })),
+        &spec(json!({ "features": { "f:boss:f0": { "fit": "h7" } } })),
     )
     .unwrap();
-    assert_eq!(label(&plan, "d:f:boss:1/boss.diameter"), "ø12 h7");
+    assert_eq!(label(&plan, "d:f:boss:f0/boss.diameter"), "ø12 h7");
 }
 
 /// Nothing the spec authors is dropped in silence: a tolerance on a dimension the plan leaves
@@ -424,33 +424,33 @@ fn a_band_that_cannot_be_read_or_applied_is_refused() {
 #[test]
 fn a_band_on_what_the_plan_leaves_out_is_reported() {
     let (_, a) = analysed("plate");
-    let callout = "d:f:hole_pattern:1/bore.diameter";
+    let callout = "d:f:hole_pattern:f6/bore.diameter";
     let s = spec(json!({
         "dimensions": {
             "d:envelope/width.length": { "omit": true, "tolerance": "±0.1" },
             (callout): { "omit": true }
         },
-        "features": { "f:hole:1": { "fit": "H7" } }
+        "features": { "f:hole:f6": { "fit": "H7" } }
     }));
     let plan = model::plan(&a, &s).unwrap();
     assert_eq!(
         codes(&plan, "tolerance_not_shown"),
         [
             "p:tolerance_not_shown:d:envelope/width.length",
-            "p:tolerance_not_shown:f:hole:1"
+            "p:tolerance_not_shown:f:hole:f6"
         ]
     );
     // An authored set that does not list the callout leaves the fit unstated too.
     let s = spec(json!({
         "dimension_source": "authored",
         "dimensions": { "d:envelope/width.length": { "tolerance": "±0.1" } },
-        "features": { "f:hole:1": { "fit": "H7" } }
+        "features": { "f:hole:f6": { "fit": "H7" } }
     }));
     let plan = model::plan(&a, &s).unwrap();
     assert_eq!(label(&plan, "d:envelope/width.length"), "60 ±0.1");
     assert_eq!(
         codes(&plan, "tolerance_not_shown"),
-        ["p:tolerance_not_shown:f:hole:1"]
+        ["p:tolerance_not_shown:f:hole:f6"]
     );
 }
 
@@ -462,8 +462,8 @@ fn only_the_authored_bands_appear() {
     let s = spec(json!({
         "dimensions": { "d:envelope/height.length": { "tolerance": "+0.2 -0.1" } },
         "features": {
-            "f:hole:1": { "fit": "H7" }, "f:hole:2": { "fit": "H7" },
-            "f:hole:3": { "fit": "H7" }, "f:hole:4": { "fit": "H7" }
+            "f:hole:f6": { "fit": "H7" }, "f:hole:f7": { "fit": "H7" },
+            "f:hole:f8": { "fit": "H7" }, "f:hole:f9": { "fit": "H7" }
         }
     }));
     let bare = model::plan(&a, &Spec::default()).unwrap();
@@ -474,7 +474,7 @@ fn only_the_authored_bands_appear() {
         let mut terms = b.terms.clone();
         match d.id.as_str() {
             "d:envelope/height.length" => terms.insert(1, "+0.2 -0.1".into()),
-            "d:f:hole_pattern:1/bore.diameter" => terms.insert(2, "H7".into()),
+            "d:f:hole_pattern:f6/bore.diameter" => terms.insert(2, "H7".into()),
             _ => {
                 assert!(b.default && d.default && d.from_spec.is_empty(), "{}", d.id);
                 assert_eq!(b.basis, d.basis);
@@ -484,7 +484,7 @@ fn only_the_authored_bands_appear() {
         assert_eq!(b.measurements, d.measurements);
     }
     assert_eq!(
-        label(&plan, "d:f:hole_pattern:1/bore.diameter"),
+        label(&plan, "d:f:hole_pattern:f6/bore.diameter"),
         "4× ⌀6 H7 THRU"
     );
 }
@@ -494,16 +494,16 @@ fn only_the_authored_bands_appear() {
 #[test]
 fn fits_from_another_revision_are_kept_inactive() {
     let (_, a) = analysed("plate");
-    let mut s = spec(json!({ "features": { "f:hole:1": { "fit": "H7" } } }));
+    let mut s = spec(json!({ "features": { "f:hole:f6": { "fit": "H7" } } }));
     let (_, other) = analysed("two_grids");
     s.binding = Some(other.binding.clone());
     let plan = model::plan(&a, &s).unwrap();
     assert_eq!(
-        label(&plan, "d:f:hole_pattern:1/bore.diameter"),
+        label(&plan, "d:f:hole_pattern:f6/bore.diameter"),
         "4× ⌀6 THRU"
     );
     let p = problem(&plan, "p:spec_entries_inactive:part").unwrap();
-    assert!(p.refs.contains(&"f:hole:1".to_string()));
+    assert!(p.refs.contains(&"f:hole:f6".to_string()));
     assert_eq!(plan.spec.features, s.features);
 }
 
@@ -517,17 +517,17 @@ fn an_edited_band_survives_the_round_trip_through_every_format() {
         &json!([
             { "op": "set", "path": "sheet/fit_deviations", "value": true },
             { "op": "set", "path": "dimensions/d:envelope~1width.length/tolerance", "value": "±0.05" },
-            { "op": "set", "path": "features/f:hole:1/fit", "value": "H7" },
-            { "op": "set", "path": "features/f:hole:2/fit", "value": "H7" },
-            { "op": "set", "path": "features/f:hole:3/fit", "value": "H7" },
-            { "op": "set", "path": "features/f:hole:4/fit", "value": "H7" },
+            { "op": "set", "path": "features/f:hole:f6/fit", "value": "H7" },
+            { "op": "set", "path": "features/f:hole:f7/fit", "value": "H7" },
+            { "op": "set", "path": "features/f:hole:f8/fit", "value": "H7" },
+            { "op": "set", "path": "features/f:hole:f9/fit", "value": "H7" },
         ]),
     )
     .unwrap();
     let plan = model::plan(&a, &edited).unwrap();
     assert_eq!(label(&plan, "d:envelope/width.length"), "60 ±0.05");
     assert_eq!(
-        label(&plan, "d:f:hole_pattern:1/bore.diameter"),
+        label(&plan, "d:f:hole_pattern:f6/bore.diameter"),
         "4× ⌀6 H7 +0.012\n0 THRU"
     );
     // The sheet hides fit limits when asked: the class alone, as draftwright prints it.
@@ -539,7 +539,7 @@ fn an_edited_band_survives_the_round_trip_through_every_format() {
     assert_eq!(
         label(
             &model::plan(&a, &hidden).unwrap(),
-            "d:f:hole_pattern:1/bore.diameter"
+            "d:f:hole_pattern:f6/bore.diameter"
         ),
         "4× ⌀6 H7 THRU"
     );
@@ -603,7 +603,7 @@ fn a_toleranced_height_keeps_its_own_dimension() {
     }
     b.parameters.insert("location".into(), top.into());
     b.parameters.insert("height".into(), (hi[1] - lo[1]).into());
-    let id = "d:f:boss:1/boss_height.length";
+    let id = "d:f:boss:f6/boss_height.length";
     let heights = |plan: &Plan| {
         plan.dimensions
             .iter()
@@ -630,17 +630,17 @@ fn a_generated_diameter_accepts_a_class_without_optional_deviations() {
     let (_, a) = analysed("plate");
     let p = model::plan(
         &a,
-        &spec(json!({"dimensions":{"d:f:hole_pattern:1/bore.diameter":{"fit":"N9"}}})),
+        &spec(json!({"dimensions":{"d:f:hole_pattern:f6/bore.diameter":{"fit":"N9"}}})),
     )
     .unwrap();
-    assert!(label(&p, "d:f:hole_pattern:1/bore.diameter").contains("N9"));
+    assert!(label(&p, "d:f:hole_pattern:f6/bore.diameter").contains("N9"));
     assert!(
         !p.problems
             .iter()
             .any(|p| p.code == "fit_deviations_unavailable")
     );
     let contradictory = spec(
-        json!({"dimensions":{"d:f:hole_pattern:1/bore.diameter":{"fit":"N9"}}, "features":{"f:hole:1":{"fit":"H7"}}}),
+        json!({"dimensions":{"d:f:hole_pattern:f6/bore.diameter":{"fit":"N9"}}, "features":{"f:hole:f6":{"fit":"H7"}}}),
     );
     assert!(
         model::plan(&a, &contradictory)
@@ -648,14 +648,14 @@ fn a_generated_diameter_accepts_a_class_without_optional_deviations() {
             .message
             .contains("conflicting")
     );
-    let unreadable = spec(json!({"features":{"f:hole:1":{"fit":"ſ9"}}}));
+    let unreadable = spec(json!({"features":{"f:hole:f6":{"fit":"ſ9"}}}));
     assert!(model::plan(&a, &unreadable).is_err());
 }
 
 #[test]
 fn dimension_fits_refuse_locations_and_pitches_but_keep_feature_sizes() {
     let (_, a) = model::analyse_native(&fixture("parts/scattered_holes.step")).unwrap();
-    let id = "d:f:hole:2/location.length.y";
+    let id = "d:f:hole:f7/location.length.y";
     let e = model::plan_recovered(&a, &spec(json!({"dimensions":{id:{"fit":"H7"}}}))).unwrap_err();
     assert!(
         e.message.contains("feature of size") && e.message.contains(id),

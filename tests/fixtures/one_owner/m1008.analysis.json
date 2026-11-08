@@ -52,7 +52,7 @@
     "subtype": "BossRecord",
     "version": "draftwright-bridge/2"
    },
-   "id": "f:boss:1",
+   "id": "f:boss:f15",
    "kind": "boss",
    "parameters": {
     "axis": [
@@ -96,7 +96,7 @@
     "subtype": "HoleRecord",
     "version": "draftwright-bridge/2"
    },
-   "id": "f:hole:1",
+   "id": "f:hole:f13",
    "kind": "hole",
    "parameters": {
     "axis": [

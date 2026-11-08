@@ -99,7 +99,7 @@ mod tests {
             view: Some("v:plan".into()),
             text: text.into(),
             claims: vec![Claim {
-                feature: "f:circular_blind_step:1".into(),
+                feature: "f:circular_blind_step:f6".into(),
                 parameter: parameter.into(),
             }],
         };

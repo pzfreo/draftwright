@@ -124,7 +124,7 @@ fn crowded_h7_hole_label_clears_the_dimension_stack() {
     let plan = model::plan_recovered(&a, &spec).unwrap();
     clear_label(
         &plan,
-        "d:f:hole_pattern:1/bore.diameter",
+        "d:f:hole_pattern:f5/bore.diameter",
         "3× ⌀14 H7 +0.018\n0 THRU",
     );
 }
@@ -136,13 +136,13 @@ fn asymmetric_band_label_clears_the_dimension_stack() {
         .unwrap()
         .1;
     let spec: Spec = serde_json::from_value(serde_json::json!({
-        "dimensions": { "d:f:hole_pattern:1/bore.diameter": { "tolerance": "+0.03 -0.0" } }
+        "dimensions": { "d:f:hole_pattern:f77/bore.diameter": { "tolerance": "+0.03 -0.0" } }
     }))
     .unwrap();
     let plan = model::plan_recovered(&a, &spec).unwrap();
     clear_label(
         &plan,
-        "d:f:hole_pattern:1/bore.diameter",
+        "d:f:hole_pattern:f77/bore.diameter",
         "4× ⌀35 +0.03 0 THRU",
     );
     let mut on = spec.clone();
@@ -151,7 +151,7 @@ fn asymmetric_band_label_clears_the_dimension_stack() {
     let label = |p: &Plan| {
         p.dimensions
             .iter()
-            .find(|d| d.id == "d:f:hole_pattern:1/bore.diameter")
+            .find(|d| d.id == "d:f:hole_pattern:f77/bore.diameter")
             .unwrap()
             .label
             .clone()

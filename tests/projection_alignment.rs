@@ -52,7 +52,7 @@ fn legacy_alignments_keep_their_edge_and_gap() {
 fn lopsided(view: &str, projection: &str, sheets: bool) -> Value {
     let mut value = json!({"sheet":{"size":"A3","scale":"1:1","projection":projection}});
     value["dimensions"] = if view == "plan" {
-        json!({"d:f:hole_pattern:1/bore.diameter":{"place":{"view":"plan","side":"right","lane":4,"along":"middle","pinned":true}}})
+        json!({"d:f:hole_pattern:f6/bore.diameter":{"place":{"view":"plan","side":"right","lane":4,"along":"middle","pinned":true}}})
     } else {
         json!({"d:envelope/depth.length":{"place":{"view":"side","side":"above","lane":4,"along":"middle","pinned":true}}})
     };

@@ -461,7 +461,7 @@ fn rescue_hole_table_reports_its_printed_three_place_nominal_limit() {
     let (part, mut a) = analysed("scattered_holes");
     let mut changed = 0;
     for f in &mut a.features {
-        if f.id == "f:hole:10" {
+        if f.id == "f:hole:f15" {
             f.parameters.insert("diameter".into(), json!(5.000003));
             changed += 1;
         }

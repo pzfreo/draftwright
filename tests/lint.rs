@@ -1717,7 +1717,7 @@ fn review_finds_the_plates_holes_stated_by_its_own_callout() {
     let review = draftwright::api::review(&step, Some(&features), &model::Spec::default()).unwrap();
     assert!(review.lint.is_empty(), "{:#?}", review.lint);
 
-    let callout = "d:f:hole_pattern:1/bore.diameter";
+    let callout = "d:f:hole_pattern:f6/bore.diameter";
     let mut spec = model::Spec::default();
     spec.dimensions.entry(callout.into()).or_default().omit = true;
     let review = draftwright::api::review(&step, Some(&features), &spec).unwrap();
@@ -1796,7 +1796,7 @@ fn a_countersunk_hole_is_called_out_and_its_callout_satisfies_lint() {
     );
     assert_eq!(
         found,
-        ["hole_requirement_unverifiable f:hole:1 countersink.angle"]
+        ["hole_requirement_unverifiable f:hole:f6 countersink.angle"]
     );
 }
 
@@ -1874,7 +1874,7 @@ fn lint_reads_the_drawings_annotations() {
             approved_text: None,
             coordinate_origin: None,
             satisfies: Vec::new(),
-            name: "d:f:hole:1/bore.diameter@v:plan".into(),
+            name: "d:f:hole:f6/bore.diameter@v:plan".into(),
             view: Some("v:plan".into()),
             runs: vec![drawing.text.len() - 1],
             claims: holes

@@ -58,7 +58,7 @@
     "subtype": "CircularBlindStep",
     "version": "draftwright-bridge/2"
    },
-   "id": "f:circular_blind_step:1",
+   "id": "f:circular_blind_step:f10",
    "kind": "circular_blind_step",
    "parameters": {
     "axis": "z",
@@ -125,7 +125,7 @@
     "subtype": "CircularBlindStep",
     "version": "draftwright-bridge/2"
    },
-   "id": "f:circular_blind_step:2",
+   "id": "f:circular_blind_step:f21",
    "kind": "circular_blind_step",
    "parameters": {
     "axis": "y",
@@ -246,7 +246,7 @@
  "principal_profiles": [],
  "product_name": "Open CASCADE STEP translator 7.4 10",
  "profile_arcs": {
-  "f:circular_blind_step:1": [
+  "f:circular_blind_step:f10": [
    {
     "centre": [
      0.0,
@@ -288,7 +288,7 @@
     ]
    }
   ],
-  "f:circular_blind_step:2": [
+  "f:circular_blind_step:f21": [
    {
     "centre": [
      10.137418667605,

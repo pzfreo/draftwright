@@ -427,15 +427,15 @@ fn session_edits_remove_and_restore_the_caption_in_items_and_furniture() {
 }
 
 /// The saved sm-hanger specs predate quiddity-rust v0.2.2 (#120), which makes the R7 blend
-/// `f:blend:10` a fillet, counted with the others on one `14× R7` callout, `d:f:fillet:9` (the
-/// `16× R7` callout was `d:f:fillet:3`). In v0.2.3 (#127), concave fillets move this
-/// same convex presenter to `d:f:fillet:16`. Their two radius entries become that one.
+/// `f:blend:10` a fillet, counted with the others on one `14× R7` callout, `d:f:fillet:f30` (the
+/// `16× R7` callout was `d:f:fillet:f14`). In v0.2.3 (#127), concave fillets move this
+/// same convex presenter to `d:f:fillet:f53`. Their two radius entries become that one.
 fn hanger_renumbered(mut spec: model::Spec) -> model::Spec {
     let fillet = spec.dimensions.remove("d:f:fillet:3/fillet.radius");
     let blend = spec.dimensions.remove("d:f:blend:10/blend.radius");
     if let Some(entry) = fillet.or(blend) {
         spec.dimensions
-            .insert("d:f:fillet:16/fillet.radius".into(), entry);
+            .insert("d:f:fillet:f53/fillet.radius".into(), entry);
     }
     spec
 }

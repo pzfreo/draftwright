@@ -148,8 +148,8 @@ fn grooves_and_flats_match_draftwrights_sheets() {
         let want: &[&str] = if name == "connector109" {
             // The counted callout keeps its first groove's ID (#220).
             &[
-                "d:f:groove:1/groove.length",
-                "d:f:groove:2/groove.length",
+                "d:f:groove:f214/groove.length",
+                "d:f:groove:f217/groove.length",
                 "d:f:flat:1/flat.length",
             ]
         } else {
@@ -293,7 +293,7 @@ fn flats_of_different_sizes_print_decimals_that_tell_them_apart() {
 
 /// A groove or flat whose record cannot be stated is reported (`feature_not_dimensioned`), never
 /// dropped, and the others are still called out. (The bridge numbers string_post's records 3
-/// and 2 as `f:flat:1` and `f:flat:2`.)
+/// and 2 as `f:flat:f11` and `f:flat:f13`.)
 #[test]
 fn a_record_that_cannot_be_stated_is_reported() {
     let Some(plan) = planned("string_post", |i, r| {
@@ -309,7 +309,7 @@ fn a_record_that_cannot_be_stated_is_reported() {
     assert!(items(&plan).is_empty());
     assert_eq!(
         codes(&plan, "feature_not_dimensioned"),
-        ["f:flat:1", "f:flat:2"]
+        ["f:flat:1", "f:flat:f13"]
     );
     let messages: Vec<&str> = plan
         .problems
@@ -325,7 +325,7 @@ fn a_record_that_cannot_be_stated_is_reported() {
         ]
     );
 
-    // connector109's grooves are records 6, 7 and 8; the bridge numbers record 7 `f:groove:3`.
+    // connector109's grooves are records 6, 7 and 8; the bridge numbers record 7 `f:groove:f316`.
     let plan = planned("connector109", |i, r| {
         if i == 7 {
             r["record"].as_object_mut().unwrap().remove("width");
@@ -341,7 +341,7 @@ fn a_record_that_cannot_be_stated_is_reported() {
     // Without the groove's width no band's ownership can be decided, so every turned step is
     // reported too (src/dims/turned.rs), none guessed.
     let mut reported: Vec<String> = (1..=7).map(|i| format!("f:turned_step:{i}")).collect();
-    reported.push("f:groove:3".into());
+    reported.push("f:groove:f316".into());
     assert_eq!(codes(&plan, "feature_not_dimensioned"), reported);
 }
 
@@ -391,21 +391,21 @@ fn grm02_interrupted_flat_is_one_feature_without_across_flats_wording() {
     );
     let flats: Vec<_> = a.features.iter().filter(|f| f.kind == "flat").collect();
     assert_eq!(flats.len(), 1);
-    assert_eq!(flats[0].id, "f:flat:1");
+    assert_eq!(flats[0].id, "f:flat:f2");
     assert_eq!(flats[0].faces, [2, 6]);
     assert_eq!(flats[0].parameters["opposed"], false);
     let plan = model::plan(&a, &Spec::default()).unwrap();
     let width = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:slot:1/slot_width.length")
+        .find(|d| d.id == "d:f:slot:f4/slot_width.length")
         .unwrap();
     assert_eq!(width.value, 4.75);
     assert_eq!(width.label, "4.75");
     let flat = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:flat:1/flat.length")
+        .find(|d| d.id == "d:f:flat:f2/flat.length")
         .unwrap();
     assert_eq!(flat.value, 7.4);
     assert_eq!(flat.label, "7.4");
@@ -419,7 +419,7 @@ fn grm02_drawn_height_or_axis_location_states_the_single_flat() {
     let (part, a) = model::analyse_native(&path).unwrap();
     let mut spec = Spec::default();
     spec.dimensions
-        .entry("d:f:flat:1/flat.length".into())
+        .entry("d:f:flat:f2/flat.length".into())
         .or_default()
         .omit = true;
     for omit_height in [false, true] {
@@ -433,7 +433,7 @@ fn grm02_drawn_height_or_axis_location_states_the_single_flat() {
                 .problems
                 .iter()
                 .any(|p| p.code == "feature_not_dimensioned"
-                    && p.subjects.contains(&"f:flat:1".into())),
+                    && p.subjects.contains(&"f:flat:f2".into())),
             "{:#?}",
             plan.problems
         );
@@ -451,9 +451,9 @@ fn grm02_drawn_height_or_axis_location_states_the_single_flat() {
         assert!(issues.is_empty(), "{issues:?}");
     }
     spec.dimensions
-        .entry("d:f:hole:1/location.length.z".into())
+        .entry("d:f:hole:f14/location.length.z".into())
         .or_default()
         .omit = true;
     let missing = model::plan(&a, &spec).unwrap();
-    assert!(missing.problems.iter().any(|p| p.code == "feature_not_dimensioned" && p.subjects.contains(&"f:flat:1".into())));
+    assert!(missing.problems.iter().any(|p| p.code == "feature_not_dimensioned" && p.subjects.contains(&"f:flat:f2".into())));
 }

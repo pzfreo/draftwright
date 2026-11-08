@@ -2,27 +2,27 @@
   "python_sheets": [
     {
       "part": "cgb245",
-      "subject": "f:hole:8",
+      "subject": "f:hole:f16",
       "group": "2× ø5 THRU at (0.000, -29.719, -7.737)",
       "parameter": "bore.diameter",
       "python": "hole_requirement_unverifiable",
       "rust": null,
       "verdict": "rust-correct",
-      "reason": "hc_plan2 prints \"2× ⌀5 THRU\" and claims bore.diameter of hole@(182.000,-29.719,-6.737), which joins exactly to f:hole:8 of this two-hole group, so the sheet states the diameter, THRU and the quantity. Python reports the group unverifiable because its own recognition-to-IR join found no owner (\"which no IR feature claimed\"), not because the sheet lacks the callout. Python's finding also covers the group's two location requirements, which the port's lint does not check yet."
+      "reason": "hc_plan2 prints \"2× ⌀5 THRU\" and claims bore.diameter of hole@(182.000,-29.719,-6.737), which joins exactly to f:hole:f16 of this two-hole group, so the sheet states the diameter, THRU and the quantity. Python reports the group unverifiable because its own recognition-to-IR join found no owner (\"which no IR feature claimed\"), not because the sheet lacks the callout. Python's finding also covers the group's two location requirements, which the port's lint does not check yet."
     },
     {
       "part": "cgb245",
-      "subject": "f:hole:8",
+      "subject": "f:hole:f16",
       "group": "2× ø5 THRU at (0.000, -29.719, -7.737)",
       "parameter": "bore.through",
       "python": "hole_requirement_unverifiable",
       "rust": null,
       "verdict": "rust-correct",
-      "reason": "hc_plan2 prints \"2× ⌀5 THRU\" and claims bore.diameter of hole@(182.000,-29.719,-6.737), which joins exactly to f:hole:8 of this two-hole group, so the sheet states the diameter, THRU and the quantity. Python reports the group unverifiable because its own recognition-to-IR join found no owner (\"which no IR feature claimed\"), not because the sheet lacks the callout. Python's finding also covers the group's two location requirements, which the port's lint does not check yet."
+      "reason": "hc_plan2 prints \"2× ⌀5 THRU\" and claims bore.diameter of hole@(182.000,-29.719,-6.737), which joins exactly to f:hole:f16 of this two-hole group, so the sheet states the diameter, THRU and the quantity. Python reports the group unverifiable because its own recognition-to-IR join found no owner (\"which no IR feature claimed\"), not because the sheet lacks the callout. Python's finding also covers the group's two location requirements, which the port's lint does not check yet."
     },
     {
       "part": "cgb245",
-      "subject": "f:hole:8",
+      "subject": "f:hole:f16",
       "group": "2× ø5 THRU at (0.000, -29.719, -7.737)",
       "parameter": "grouping.count",
       "python": "hole_requirement_unverifiable",
@@ -32,7 +32,7 @@
     },
     {
       "part": "cgb245",
-      "subject": "f:hole:9",
+      "subject": "f:hole:f17",
       "group": "4× ø5 THRU at (0.000, -4.271, -10.387)",
       "parameter": "bore.diameter",
       "python": "hole_requirement_unverifiable",
@@ -42,7 +42,7 @@
     },
     {
       "part": "cgb245",
-      "subject": "f:hole:9",
+      "subject": "f:hole:f17",
       "group": "4× ø5 THRU at (0.000, -4.271, -10.387)",
       "parameter": "bore.through",
       "python": "hole_requirement_unverifiable",
@@ -52,7 +52,7 @@
     },
     {
       "part": "cgb245",
-      "subject": "f:hole:9",
+      "subject": "f:hole:f17",
       "group": "4× ø5 THRU at (0.000, -4.271, -10.387)",
       "parameter": "grouping.count",
       "python": "hole_requirement_unverifiable",
@@ -62,7 +62,7 @@
     },
     {
       "part": "spool132",
-      "subject": "f:hole:8",
+      "subject": "f:hole:f57",
       "group": "12× ø8 THRU at (0.000, 0.000, 110.500)",
       "parameter": "bore.diameter",
       "python": "hole_requirement_unverifiable",
@@ -72,7 +72,7 @@
     },
     {
       "part": "spool132",
-      "subject": "f:hole:8",
+      "subject": "f:hole:f57",
       "group": "12× ø8 THRU at (0.000, 0.000, 110.500)",
       "parameter": "bore.through",
       "python": "hole_requirement_unverifiable",
@@ -82,7 +82,7 @@
     },
     {
       "part": "spool132",
-      "subject": "f:hole:8",
+      "subject": "f:hole:f57",
       "group": "12× ø8 THRU at (0.000, 0.000, 110.500)",
       "parameter": "grouping.count",
       "python": "hole_requirement_unverifiable",
@@ -92,7 +92,7 @@
     },
     {
       "part": "spool132",
-      "subject": "f:hole:20",
+      "subject": "f:hole:f73",
       "group": "12× ø8 THRU at (0.000, 0.000, 2.500)",
       "parameter": "bore.diameter",
       "python": "hole_requirement_unverifiable",
@@ -102,7 +102,7 @@
     },
     {
       "part": "spool132",
-      "subject": "f:hole:20",
+      "subject": "f:hole:f73",
       "group": "12× ø8 THRU at (0.000, 0.000, 2.500)",
       "parameter": "bore.through",
       "python": "hole_requirement_unverifiable",
@@ -112,7 +112,7 @@
     },
     {
       "part": "spool132",
-      "subject": "f:hole:20",
+      "subject": "f:hole:f73",
       "group": "12× ø8 THRU at (0.000, 0.000, 2.500)",
       "parameter": "grouping.count",
       "python": "hole_requirement_unverifiable",
@@ -172,7 +172,7 @@
     },
     {
       "part": "m10046",
-      "subject": "f:section_recess:4",
+      "subject": "f:section_recess:f29",
       "group": "section_recess [] at (22.963, 5.279, 7.691)",
       "parameter": "location_pocket.x",
       "python": null,
@@ -182,7 +182,7 @@
     },
     {
       "part": "m10046",
-      "subject": "f:section_recess:4",
+      "subject": "f:section_recess:f29",
       "group": "section_recess [] at (22.963, 5.279, 7.691)",
       "parameter": "location_pocket.z",
       "python": null,
@@ -192,7 +192,7 @@
     },
     {
       "part": "cgb245",
-      "subject": "f:hole:1",
+      "subject": "f:hole:f8",
       "group": "4× ø7 THRU at (0.000, 19.214, -13.387)",
       "parameter": "grouping.count",
       "python": null,
@@ -202,7 +202,7 @@
     },
     {
       "part": "cgb245",
-      "subject": "f:hole:3",
+      "subject": "f:hole:f10",
       "group": "2× ø6 THRU at (0.000, 17.405, -11.387)",
       "parameter": "grouping.count",
       "python": null,
@@ -212,7 +212,7 @@
     },
     {
       "part": "cgb245",
-      "subject": "f:hole:4",
+      "subject": "f:hole:f11",
       "group": "4× ø10 THRU at (0.000, -18.171, -6.387)",
       "parameter": "grouping.count",
       "python": null,
@@ -252,7 +252,7 @@
     },
     {
       "part": "hanger",
-      "subject": "f:hole:1",
+      "subject": "f:hole:f69",
       "group": "2× ø10 THRU at (0.000, 0.000, 79.992)",
       "parameter": "grouping.count",
       "python": null,
@@ -302,7 +302,7 @@
     },
     {
       "part": "cgb245",
-      "subject": "f:slot:1",
+      "subject": "f:slot:f13",
       "group": "slot [end_radius=3, length=14.97, width=6] at (103.445, -33.822, -16.387)",
       "parameter": "location_slot_across.length",
       "python": null,
@@ -312,7 +312,7 @@
     },
     {
       "part": "cgb245",
-      "subject": "f:slot:2",
+      "subject": "f:slot:f21",
       "group": "slot [end_radius=3, length=14.97, width=6] at (-103.445, -33.822, -16.387)",
       "parameter": "location_slot_across.length",
       "python": null,
@@ -506,7 +506,7 @@
     {
       "part": "oriented_slots",
       "sheet": "python",
-      "subject": "f:oriented_slot:1",
+      "subject": "f:oriented_slot:f6",
       "python": null,
       "rust": "oriented_slot_requirement_missing",
       "count": 2,
@@ -516,7 +516,7 @@
     {
       "part": "oriented_slots",
       "sheet": "python",
-      "subject": "f:oriented_slot:2",
+      "subject": "f:oriented_slot:f10",
       "python": null,
       "rust": "oriented_slot_requirement_missing",
       "count": 2,
@@ -526,7 +526,7 @@
     {
       "part": "oriented_slots",
       "sheet": "python",
-      "subject": "f:oriented_slot:3",
+      "subject": "f:oriented_slot:f14",
       "python": null,
       "rust": "oriented_slot_requirement_missing",
       "count": 2,

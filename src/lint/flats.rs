@@ -258,21 +258,21 @@ mod tests {
             face(1.2, -1.0, [2.804, 10.004]),
         ]);
         assert_eq!(groups(&a).len(), 1);
-        assert!(coverage(&a, &[mark("2.4 A/F", &["f:flat:2"])]).is_empty());
+        assert!(coverage(&a, &[mark("2.4 A/F", &["f:flat:f13"])]).is_empty());
         let issues = coverage(&a, &[]);
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].code, "flat_requirement_missing");
-        assert_eq!(issues[0].subjects, ["f:flat:1", "f:flat:2"]);
+        assert_eq!(issues[0].subjects, ["f:flat:f11", "f:flat:f13"]);
         assert_eq!(
             issues[0].message,
-            "flat f:flat:1 and f:flat:2 2.4 A/F, stock along (1, 0, 0), at (6.404, -1.2, 0) and \
+            "flat f:flat:f11 and f:flat:f13 2.4 A/F, stock along (1, 0, 0), at (6.404, -1.2, 0) and \
              (6.404, 1.2, 0): requirement flat.length (2.4 A/F) is not stated on the sheet"
         );
-        let misprinted = coverage(&a, &[mark("2.5 A/F", &["f:flat:1"])]);
+        let misprinted = coverage(&a, &[mark("2.5 A/F", &["f:flat:f11"])]);
         assert_eq!(misprinted[0].code, "flat_requirement_unverifiable");
 
         let b = part(&[face(-1.2, 1.0, [2.804, 10.004]), face(1.2, 1.0, [0.0, 2.0])]);
-        let found: Vec<(String, Vec<String>)> = coverage(&b, &[mark("2.4 A/F", &["f:flat:1"])])
+        let found: Vec<(String, Vec<String>)> = coverage(&b, &[mark("2.4 A/F", &["f:flat:f11"])])
             .into_iter()
             .map(|i| (i.code, i.subjects))
             .collect();
@@ -280,12 +280,12 @@ mod tests {
             found,
             [(
                 "flat_requirement_missing".to_string(),
-                vec!["f:flat:2".to_string()]
+                vec!["f:flat:f13".to_string()]
             )]
         );
         // A record without its stock cannot be grouped or checked.
         let c = part(&[json!({ "across": 2.4, "axis": "x" })]);
-        let issues = coverage(&c, &[mark("2.4 A/F", &["f:flat:1"])]);
+        let issues = coverage(&c, &[mark("2.4 A/F", &["f:flat:f11"])]);
         assert_eq!(issues[0].code, "flat_requirement_unverifiable");
     }
 }

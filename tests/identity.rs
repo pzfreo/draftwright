@@ -521,7 +521,7 @@ fn version_1_specs_migrate_and_plan_identically() {
                 .unwrap();
             let entry = spec
                 .dimensions
-                .remove("d:f:fillet:1/fillet.radius@front")
+                .remove("d:f:fillet:f3/fillet.radius@front")
                 .unwrap();
             spec.dimensions.insert(format!("{}@front", d.id), entry);
         }

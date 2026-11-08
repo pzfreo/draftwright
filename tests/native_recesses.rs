@@ -748,7 +748,7 @@ fn recess_locations_do_not_send_an_existing_ramp_leader_through_extra_hidden_edg
         .iter()
         .filter(|d| d.placed.is_some())
         .flat_map(|d| &d.measurements)
-        .filter(|m| m.feature == "f:section_recess:2")
+        .filter(|m| m.feature == "f:section_recess:f18")
         .collect();
     for parameter in [
         "pocket_width.length",
@@ -771,7 +771,7 @@ fn native_seat_locations_share_the_joint_solve_with_their_form_leader() {
     let Some(root) = corpus::dir() else { return };
     let (_, a) = model::analyse_native(&root.join("nist/nist_ftc_09_asme1_rd.stp")).unwrap();
     let p = model::plan_recovered(&a, &Spec::default()).unwrap();
-    let location = "d:f:section_recess:2/seat_location.location.x";
+    let location = "d:f:section_recess:f103/seat_location.location.x";
     let d = p.dimensions.iter().find(|d| d.id == location).unwrap();
     assert!(d.placed.is_some());
     assert!((d.value - 39.6).abs() < 1e-9);
@@ -788,7 +788,7 @@ fn native_seat_locations_share_the_joint_solve_with_their_form_leader() {
         .iter()
         .filter(|d| d.placed.is_some())
         .flat_map(|d| &d.measurements)
-        .filter(|m| m.feature == "f:section_recess:2")
+        .filter(|m| m.feature == "f:section_recess:f103")
         .collect();
     for parameter in [
         "seat_diameter.diameter",

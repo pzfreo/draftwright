@@ -228,7 +228,7 @@ one pass; detail captions also have their own text-clearance check.
 An authored detail is a view entry, for example:
 
 ```json
-{"views":{"detail_c":{"detail":{"around":"f:turned_step:3","scale_factor":5}}}}
+{"views":{"detail_c":{"detail":{"around":"f:turned_step:f20","scale_factor":5}}}}
 ```
 
 `scale_factor` is an exact multiple of sheet scale (default 2, greater than 1). Without
@@ -2034,7 +2034,7 @@ item 1, stream K1b; Python draftwright's `Sheet.finish`, `thread`, `knurl`, `not
 "faces":    { "top": { "finish": { "ra": 0.8, "removal": "required" } } },
 "features": { "f:hole_pattern:1": { "thread": { "designation": "M6" } },
               "f:turned_step:1":  { "thread": { "designation": "M10", "length": 15 } },
-              "f:turned_step:3":  { "knurl": { "pattern": "diamond", "pitch": 0.8 } },
+              "f:turned_step:f20":  { "knurl": { "pattern": "diamond", "pitch": 0.8 } },
               "f:hole:1":         { "note": "DRILL AND TAP AFTER HARDENING" } },
 "notes":    [ { "id": "n:1", "text": "BREAK ALL SHARP EDGES" } ]
 ```

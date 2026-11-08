@@ -1278,7 +1278,7 @@ pub(crate) mod tests {
 
     fn feature(record: Value) -> Feature {
         serde_json::from_value(json!({
-            "id": "f:section_recess:1", "kind": "section_recess", "faces": [1, 2, 3],
+            "id": "f:section_recess:f5", "kind": "section_recess", "faces": [1, 2, 3],
             "parameters": record,
             "fingerprint": { "version": "test", "family": "section_recesses",
                              "subtype": "SectionRecess", "sizes": {},

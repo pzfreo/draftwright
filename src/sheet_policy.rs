@@ -2633,7 +2633,7 @@ mod tests {
             let refusal = minimum_reduction_opening(&a, &after, &base).unwrap_err();
             assert_eq!(
                 refusal,
-                "reduction refused: dimensioned boss f:boss:1 is 1.296 paper mm, below 1.5 mm"
+                "reduction refused: dimensioned boss f:boss:f25 is 1.296 paper mm, below 1.5 mm"
             );
         });
     }
@@ -3800,7 +3800,7 @@ mod tests {
         let slot = p
             .dimensions
             .iter()
-            .find(|d| d.id == "d:f:slot:3/slot_length.length")
+            .find(|d| d.id == "d:f:slot:f102/slot_length.length")
             .unwrap()
             .placed
             .as_ref()

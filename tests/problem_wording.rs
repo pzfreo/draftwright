@@ -67,7 +67,7 @@ fn spec(v: Value) -> Spec {
 #[test]
 fn the_plates_extension_crossing_reads_in_drawing_language() {
     let (_, a) = cache::native(&fixture("parts/mounting_plate.step"));
-    let pitch = "d:f:hole_pattern:1/grid_pitch.length.col";
+    let pitch = "d:f:hole_pattern:f6/grid_pitch.length.col";
     let s = spec(json!({ "dimensions": { pitch: { "place": { "side": "above" } } } }));
     let plan = model::plan_recovered(&a, &s).unwrap();
     let p = plan
@@ -77,7 +77,7 @@ fn the_plates_extension_crossing_reads_in_drawing_language() {
             p.code == "extension_through_feature" && p.subjects.first().is_some_and(|s| s == pitch)
         })
         .unwrap_or_else(|| panic!("no extension crossing for {pitch}: {:#?}", plan.problems));
-    assert_eq!(p.subjects, [pitch, "f:hole:4"]);
+    assert_eq!(p.subjects, [pitch, "f:hole:f9"]);
     assert_eq!(
         p.message,
         "The second extension line of 2× 30 crosses the ⌀8 hole."
@@ -236,7 +236,7 @@ fn specs(part: &str, base: &Plan) -> Vec<(String, Spec)> {
             "thread and knurl override".into(),
             spec(json!({"features": {
                 "f:hole:1": {"thread": {"designation": "M5-6H", "length": 8}},
-                "f:turned_step:3": {"knurl": {"pattern": "straight", "pitch": 1.0}}
+                "f:turned_step:f9": {"knurl": {"pattern": "straight", "pitch": 1.0}}
             }})),
         ));
     }
@@ -244,12 +244,12 @@ fn specs(part: &str, base: &Plan) -> Vec<(String, Spec)> {
         specs.push((
             "pitch above".into(),
             spec(json!({ "dimensions": {
-                "d:f:hole_pattern:1/grid_pitch.length.col": { "place": { "side": "above" } } } })),
+                "d:f:hole_pattern:f6/grid_pitch.length.col": { "place": { "side": "above" } } } })),
         ));
         specs.push((
             "fit, callout omitted".into(),
-            spec(json!({ "features": { "f:hole:4": { "fit": "H7" } },
-                         "dimensions": { "d:f:hole:4/bore.diameter": { "omit": true } } })),
+            spec(json!({ "features": { "f:hole:f9": { "fit": "H7" } },
+                         "dimensions": { "d:f:hole:f9/bore.diameter": { "omit": true } } })),
         ));
     }
     specs
@@ -389,7 +389,7 @@ fn no_problem_message_carries_an_internal_id() {
         .iter_mut()
         .find(|r| r.kind == "internal_thread")
         .unwrap();
-    let diagnostic = "unsupported manufacturing_requirement:#925 at features/f:hole:1/thread";
+    let diagnostic = "unsupported manufacturing_requirement:#925 at features/f:hole:f3/thread";
     requirement.blockers.push(diagnostic.into());
     let lint = draftwright::lint::pmi_coverage::coverage(&a, &[]);
     let lowered: Vec<_> = lint

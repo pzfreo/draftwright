@@ -559,15 +559,15 @@ mod tests {
             identity.clone(),
             &[("boss", boss(44.729, 44.729))],
         );
-        let height = [mark("m_boss_h", "44.7", "f:boss:1", "boss_height.length")];
+        let height = [mark("m_boss_h", "44.7", "f:boss:f6", "boss_height.length")];
         assert_eq!(
             states(&a, &height),
             ["x Missing []", "y Missing []", "z Placed [\"m_boss_h\"]"]
         );
-        let wrong = [mark("m_boss_h", "44", "f:boss:1", "boss_height.length")];
+        let wrong = [mark("m_boss_h", "44", "f:boss:f6", "boss_height.length")];
         assert_eq!(states(&a, &wrong)[2], "z Missing []");
         let short = part(envelope, identity, &[("boss", boss(44.729, 42.729))]);
-        let height = [mark("m_boss_h", "42.7", "f:boss:1", "boss_height.length")];
+        let height = [mark("m_boss_h", "42.7", "f:boss:f6", "boss_height.length")];
         assert_eq!(states(&short, &height)[2], "z Missing []");
     }
 }

@@ -59,7 +59,7 @@ for name in parts:
     if name == "1000":
         assert next(d for d in plan["dimensions"] if d["id"] == "d:f:plate:1/thickness.length")["view"] == "v:plan"
     if name == "10038":
-        assert not any(d["id"] == "d:step_level/step_height.length.h7_168" for d in plan["dimensions"]), "10038: redundant underside closes a chain"
+        assert not any(d["id"] == "d:step_level/step_height.length.f4" for d in plan["dimensions"]), "10038: redundant underside closes a chain"
         assert next(d for d in plan["dimensions"] if d["id"] == "d:f:plate:1/thickness.length")["view"] == "v:side"
     if name == "10007":
         assert direct == 0, "10007: ladder intervals must not close dimension chains"

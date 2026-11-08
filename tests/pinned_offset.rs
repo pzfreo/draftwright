@@ -373,14 +373,14 @@ fn offset_members_expose_the_projected_arc_span() {
     // Its two obround slots are congruent: one is split from their slot callout, so slot 1
     // keeps the radius leader whose arc span this test reads.
     let spec: Spec =
-        serde_json::from_value(json!({"features": {"f:slot:2": {"split": true}}})).unwrap();
+        serde_json::from_value(json!({"features": {"f:slot:f21": {"split": true}}})).unwrap();
     let s = Session::open(
         &corpus.join("cadgenbench_inputs/cgb245.step"),
         api::Features::Native,
         spec,
     )
     .unwrap();
-    let id = "d:f:slot:1/slot_end_radius.radius";
+    let id = "d:f:slot:f13/slot_end_radius.radius";
     let at = s.callout_offset(id).unwrap();
     let p = s
         .plan()
@@ -514,7 +514,7 @@ fn a_retained_session_scope_plans_an_offset_pin_and_its_bare_pin_alike() {
     let part = dir.join("nist/nist_ftc_06_asme1_rd.stp");
     let open = || Session::open(&part, api::Features::Native, Spec::default()).unwrap();
     let base = open();
-    let id = "d:f:boss:6/boss.diameter";
+    let id = "d:f:boss:f43/boss.diameter";
     let at = base.callout_offset(id).unwrap();
     let place = format!("dimensions/{}/place", key(id));
     // Another worker has already planned the same requests: the process-wide caches hold
@@ -561,7 +561,7 @@ fn pinning_a_view_at_its_own_place_keeps_the_ctc03_schedule() {
     let part = dir.join("nist/nist_ctc_03_asme1_rc.stp");
     let open = |spec: Spec| {
         let (p, mut a) = draftwright::model::analyse_native(&part).unwrap();
-        corpus::split_slot(&mut a, "f:slot:2");
+        corpus::split_slot(&mut a, "f:slot:f66");
         Session::new(p, a, spec).unwrap()
     };
     let base = open(Spec::default());

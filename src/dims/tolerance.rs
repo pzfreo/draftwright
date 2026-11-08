@@ -1002,7 +1002,7 @@ mod tests {
             turning: None,
         };
         let mut spec = Spec::default();
-        for f in ["f:boss:1", "f:hole:1"] {
+        for f in ["f:boss:1", "f:hole:f6"] {
             spec.features.insert(
                 f.into(),
                 serde_json::from_value(serde_json::json!({"fit": "H7"})).unwrap(),
@@ -1011,9 +1011,9 @@ mod tests {
         let boss = want("d:f:boss:1/boss.diameter", "boss.diameter", &["f:boss:1"]);
         assert_eq!(authored(&spec, &boss), Some(("fit", true)));
         let mixed = want(
-            "d:f:hole:1/bore.diameter",
+            "d:f:hole:f6/bore.diameter",
             "bore.diameter",
-            &["f:hole:1", "f:hole:2"],
+            &["f:hole:f6", "f:hole:f7"],
         );
         assert_eq!(authored(&spec, &mixed), Some(("fit", false)));
         let step = want(
@@ -1036,14 +1036,14 @@ mod tests {
                 .join("tests/fixtures/parts/plate.step"),
         )
         .unwrap();
-        let id = "d:f:hole:1/bore.diameter";
+        let id = "d:f:hole:f6/bore.diameter";
         let want = |terms: &[&str]| Want {
             id: id.into(),
             views: vec!["plan"],
             value: 6.0,
             terms: terms.iter().map(|t| t.to_string()).collect(),
             measurements: vec![super::super::Measurement {
-                feature: "f:hole:1".into(),
+                feature: "f:hole:f6".into(),
                 parameter: "bore.diameter".into(),
                 value: 6.0,
             }],

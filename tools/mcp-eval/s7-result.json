@@ -32,18 +32,18 @@
           "condition": {
             "type": "no_problems",
             "about": [
-              "f:hole_pattern:1/bore.diameter",
-              "f:hole:4/bore.diameter",
-              "f:hole:7/bore.diameter"
+              "f:hole_pattern:f6/bore.diameter",
+              "f:hole:f9/bore.diameter",
+              "f:hole:f12/bore.diameter"
             ]
           },
           "pass": false,
           "why": [
-            "problem annotation_outside_area: d:f:hole_pattern:1/bore.diameter (6× ⌀6.6 THRU (2×3)) runs up to 25.8 mm past the area reserved for the v:plan view and its bands; it may crowd what lies beyond.",
-            "problem annotation_outside_area: d:f:hole:4/bore.diameter (⌀8 THRU) runs up to 13.7 mm past the area reserved for the v:plan view and its bands; it may crowd what lies beyond.",
-            "problem annotation_outside_area: d:f:hole:7/bore.diameter (⌀4.2 THRU) runs up to 24.3 mm past the area reserved for the v:plan view and its bands; it may crowd what lies beyond.",
-            "problem annotation_leader_crossing: The leader of d:f:hole_pattern:1/bore.diameter (6× ⌀6.6 THRU (2×3)) crosses a line of d:f:hole:4/location.length.y (30).",
-            "problem annotation_leader_crossing: The leader of d:f:hole:4/bore.diameter (⌀8 THRU) crosses a line of d:f:hole:4/location.length.y (30)."
+            "problem annotation_outside_area: d:f:hole_pattern:f6/bore.diameter (6× ⌀6.6 THRU (2×3)) runs up to 25.8 mm past the area reserved for the v:plan view and its bands; it may crowd what lies beyond.",
+            "problem annotation_outside_area: d:f:hole:f9/bore.diameter (⌀8 THRU) runs up to 13.7 mm past the area reserved for the v:plan view and its bands; it may crowd what lies beyond.",
+            "problem annotation_outside_area: d:f:hole:f12/bore.diameter (⌀4.2 THRU) runs up to 24.3 mm past the area reserved for the v:plan view and its bands; it may crowd what lies beyond.",
+            "problem annotation_leader_crossing: The leader of d:f:hole_pattern:f6/bore.diameter (6× ⌀6.6 THRU (2×3)) crosses a line of d:f:hole:f9/location.length.y (30).",
+            "problem annotation_leader_crossing: The leader of d:f:hole:f9/bore.diameter (⌀8 THRU) crosses a line of d:f:hole:f9/location.length.y (30)."
           ]
         }
       ],

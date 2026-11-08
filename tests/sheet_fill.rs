@@ -309,7 +309,7 @@ fn ctc03_valid_complete_sheet_beats_invalid_seed_despite_material_crossings() {
     // from their slot callout, so the plan recovered from it has the first's items. The split
     // one is now dimensioned by its end centres, so its length, end radius and low-end location
     // are left out of the seed below.
-    corpus::split_slot(&mut a, "f:slot:2");
+    corpus::split_slot(&mut a, "f:slot:f66");
     use std::io::Read as _;
     let mut bytes = Vec::new();
     flate2::read::GzDecoder::new(
@@ -334,7 +334,7 @@ fn ctc03_valid_complete_sheet_beats_invalid_seed_despite_material_crossings() {
     });
     first.dimensions.retain(|d| {
         !d.measurements.iter().all(|m| {
-            m.feature == "f:slot:2"
+            m.feature == "f:slot:f66"
                 && matches!(
                     m.parameter.as_str(),
                     "slot_length.length" | "slot_end_radius.radius" | "location_slot.length"
@@ -352,7 +352,7 @@ fn ctc03_valid_complete_sheet_beats_invalid_seed_despite_material_crossings() {
     assert!(p.dimensions.iter().any(|d| {
         d.measurements
             .iter()
-            .any(|m| m.feature == "f:slot:2" && m.parameter == "slot_centres.length")
+            .any(|m| m.feature == "f:slot:f66" && m.parameter == "slot_centres.length")
     }));
     assert!(!p.problems.iter().any(|p| matches!(
         p.code.as_str(),
@@ -670,7 +670,7 @@ fn a_part_needing_large_paper_at_full_size_keeps_large_paper() {
     // Its congruent slots 1 and 2, called out together, drop the slot radius leader that kept
     // A2 at 1:2 from being clean, and the part fits A2 at 1:2 (the default drawing now): slot 2
     // is split from their callout so this guard keeps reading the full-size large-paper case.
-    corpus::split_slot(&mut a, "f:slot:2");
+    corpus::split_slot(&mut a, "f:slot:f82");
     let p = model::plan_recovered(
         &a,
         &serde_json::from_value(serde_json::json!({"sheet":{"preferred_max_size":"A0"}})).unwrap(),

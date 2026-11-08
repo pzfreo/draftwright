@@ -52,7 +52,7 @@ fn read(name: &str, json: &Value) -> Result<Vec<bridge::Feature>, String> {
 fn holes_carry_their_faces_sizes_axis_position_and_pattern() {
     let a = analysed("plate");
     let ids: Vec<_> = a.features.iter().map(|f| f.id.as_str()).collect();
-    assert_eq!(ids, ["f:hole:1", "f:hole:2", "f:hole:3", "f:hole:4"]);
+    assert_eq!(ids, ["f:hole:f6", "f:hole:f7", "f:hole:f8", "f:hole:f9"]);
     let mut at = Vec::new();
     for (f, face) in a.features.iter().zip(6..) {
         assert_eq!(f.kind, "hole");
@@ -94,8 +94,8 @@ fn turned_features_are_in_the_parts_frame() {
             ("f:fillet:2", vec![2], 39.6),
             ("f:fillet:3", vec![5], 40.4),
             ("f:fillet:4", vec![7], 69.6),
-            ("f:turned_step:1", vec![0], 20.0),
-            ("f:turned_step:2", vec![6], 55.0),
+            ("f:turned_step:f0", vec![0], 20.0),
+            ("f:turned_step:f6", vec![6], 55.0),
         ]
     );
     for f in &a.features {
@@ -206,7 +206,7 @@ fn refusals_and_evidence_are_not_features() {
     json["quiddity"]["derived"]["hole_patterns"] = serde_json::json!([]);
     let (r, features) = read_all(&json).unwrap();
     let ids: Vec<_> = features.iter().map(|f| f.id.as_str()).collect();
-    assert_eq!(ids, ["f:hole:1", "f:hole:2"]);
+    assert_eq!(ids, ["f:hole:f6", "f:hole:f7"]);
     assert_eq!(features[0].faces, [8]);
     assert_eq!(r.refusals.len(), 1);
     assert_eq!(r.refusals[0].subtype, "SectionRecessRefusal");
@@ -325,14 +325,14 @@ fn neighbourhoods_describe_how_a_feature_meets_the_part() {
             .neighbourhood
     };
     assert_eq!(
-        of("f:fillet:1"),
+        of("f:fillet:f1"),
         &["torus>out:cylinder:smooth", "torus>out:plane:smooth"]
     );
     assert_eq!(
-        of("f:turned_step:1"),
+        of("f:turned_step:f0"),
         &["cylinder>out:torus:smooth", "cylinder>out:torus:smooth"]
     );
-    assert_ne!(of("f:fillet:1"), of("f:turned_step:1"));
+    assert_ne!(of("f:fillet:f1"), of("f:turned_step:f0"));
 }
 
 /// quiddity reports a rectangle of four as width and height, and an N×M lattice (RectGrid) as
@@ -389,7 +389,7 @@ fn slot_patterns_are_features_naming_their_member_slots() {
     let ids: Vec<_> = features.iter().map(|f| f.id.as_str()).collect();
     assert_eq!(
         ids,
-        ["f:slot:1", "f:slot:2", "f:slot:3", "f:slot_pattern:1"]
+        ["f:slot:f6", "f:slot:f10", "f:slot:f14", "f:slot_pattern:f6"]
     );
     let p = &features[3];
     assert_eq!(p.kind, "slot_pattern");
@@ -397,7 +397,7 @@ fn slot_patterns_are_features_naming_their_member_slots() {
     // quiddity's order of its members, by their IDs: its record's `slots` were their records.
     assert_eq!(
         p.parameters["slots"],
-        serde_json::json!(["f:slot:3", "f:slot:2", "f:slot:1"])
+        serde_json::json!(["f:slot:f14", "f:slot:f10", "f:slot:f6"])
     );
     assert_eq!(p.parameters["pitch"], 25.0);
     assert_eq!(
@@ -418,7 +418,7 @@ fn slot_patterns_are_features_naming_their_member_slots() {
     let (_, _, json) = slot_fixture("slot_grid");
     let (_, features) = read_slots("slot_grid", &json).unwrap();
     let p = features.iter().find(|f| f.kind == "slot_pattern").unwrap();
-    assert_eq!(p.id, "f:slot_pattern:1");
+    assert_eq!(p.id, "f:slot_pattern:f6");
     assert_eq!(p.fingerprint.subtype, "SlotGrid");
     assert_eq!(p.parameters["slots"].as_array().unwrap().len(), 6);
     assert_eq!(

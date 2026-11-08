@@ -1160,7 +1160,7 @@ mod tests {
             let mut on = p.centre;
             on[p.depth_axis] = 0.;
             let mut band = a.features[0].clone();
-            band.id = "f:turned_step:1".into();
+            band.id = "f:turned_step:f0".into();
             band.kind = "turned_step".into();
             band.parameters = serde_json::json!({"axis":"x","lo":45.,"hi":55.,"diameter":20.,"profile":{"axis_origin":on}}).as_object().unwrap().clone();
             a.features.push(band);
@@ -1210,11 +1210,11 @@ mod tests {
             located,
             [
                 (
-                    "d:f:section_recess:1/location_pocket.location.x".to_string(),
+                    "d:f:section_recess:f99/location_pocket.location.x".to_string(),
                     50.0
                 ),
                 (
-                    "d:f:section_recess:1/location_pocket.location.y".to_string(),
+                    "d:f:section_recess:f99/location_pocket.location.y".to_string(),
                     50.0
                 ),
             ]
@@ -1270,12 +1270,12 @@ mod tests {
         let (w, problems) = planned(&a);
         assert_eq!(
             problems.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
-            ["p:location_on_datum:f:section_recess:1/x"]
+            ["p:location_on_datum:f:section_recess:f99/x"]
         );
         assert_eq!(w.len(), 2, "{w:?}");
         assert_eq!(
             (w[1].id.as_str(), w[1].value),
-            ("d:f:section_recess:1/location_pocket.location.y", 40.0)
+            ("d:f:section_recess:f99/location_pocket.location.y", 40.0)
         );
     }
 }

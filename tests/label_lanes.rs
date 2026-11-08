@@ -89,7 +89,7 @@ fn a_moved_label_keeps_clear_of_strokes_it_never_touched() {
         return;
     };
     assert_eq!(
-        strokes_near(&p, "d:f:turned_step:1/step_position.length"),
+        strokes_near(&p, "d:f:turned_step:f0/step_position.length"),
         Vec::<String>::new()
     );
 }
@@ -139,7 +139,7 @@ fn stc09_slot_length_stays_beside_its_peer_and_gdt_corridors() {
     let mut a = model::analyse_native(&path).unwrap().1;
     // Its slots 1 and 2 are congruent, so one slot callout would state them: slot 2 is split
     // from the callout, so slot 1 keeps the length that is slot 3's peer here.
-    corpus::split_slot(&mut a, "f:slot:2");
+    corpus::split_slot(&mut a, "f:slot:f98");
     let p = model::plan_recovered(&a, &Spec::default()).unwrap();
     let placed = |id: &str| {
         p.dimensions
@@ -150,8 +150,8 @@ fn stc09_slot_length_stays_beside_its_peer_and_gdt_corridors() {
             .as_ref()
             .unwrap()
     };
-    let slot = placed("d:f:slot:3/slot_length.length");
-    let peer = placed("d:f:slot:1/slot_length.length");
+    let slot = placed("d:f:slot:f102/slot_length.length");
+    let peer = placed("d:f:slot:f94/slot_length.length");
     assert!(
         (slot.arrows[0][0][1] - peer.arrows[0][0][1]).abs() <= 14.0 + 1e-6,
         "a slot must remain within the next lane of its neighbouring size"
@@ -167,7 +167,7 @@ fn stc09_slot_length_stays_beside_its_peer_and_gdt_corridors() {
     // The 63.5 location sat clear outside its arrow; a move may not butt its text against
     // the perpendicularity frame's leader (x = 154.40 against a box from 154.44).
     assert_eq!(
-        strokes_near(&p, "d:f:hole:23/location.length.x"),
+        strokes_near(&p, "d:f:hole:f84/location.length.x"),
         Vec::<String>::new(),
         "a moved label must keep 1 mm from a GD&T leader it never touched"
     );
@@ -185,7 +185,7 @@ fn precise_labels_keep_their_span_after_the_final_inventory_settles() {
         ),
         (
             "cadgenbench_inputs/cgb207.step",
-            vec![("d:step_level/step_height.length.h12_001", "12.001")],
+            vec![("d:step_level/step_height.length.f156", "12.001")],
         ),
     ] {
         let Some(p) = plan(file) else { return };

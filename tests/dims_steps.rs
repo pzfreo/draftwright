@@ -162,14 +162,14 @@ fn golden_rectangular_through_step_states_both_legs_along_its_run() {
     let leg = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:through_step:1/through_step_leg.length.x")
+        .find(|d| d.id == "d:f:through_step:f6/through_step_leg.length.x")
         .unwrap();
     assert_eq!(leg.measurements.len(), 1);
-    assert_eq!(leg.measurements[0].feature, "f:through_step:1");
+    assert_eq!(leg.measurements[0].feature, "f:through_step:f6");
     assert_eq!(leg.measurements[0].parameter, "through_step_leg.length.x");
     assert!((leg.measurements[0].value - 15.0).abs() < 1e-9);
     assert!(
-        codes(&plan, "f:through_step:1").is_empty(),
+        codes(&plan, "f:through_step:f6").is_empty(),
         "{:#?}",
         plan.problems
     );
@@ -195,7 +195,7 @@ fn golden_circular_blind_step_is_one_radius_and_depth_callout() {
     let d = &plan
         .dimensions
         .iter()
-        .find(|d| d.id.starts_with("d:f:circular_blind_step:1/"))
+        .find(|d| d.id.starts_with("d:f:circular_blind_step:f6/"))
         .unwrap();
     assert_eq!(d.kind, "callout");
     let m: Vec<(&str, f64)> = d
@@ -210,7 +210,7 @@ fn golden_circular_blind_step_is_one_radius_and_depth_callout() {
             ("circular_step_depth.length", 25.0)
         ]
     );
-    assert!(codes(&plan, "f:circular_blind_step:1").is_empty());
+    assert!(codes(&plan, "f:circular_blind_step:f6").is_empty());
 }
 
 /// quiddity's golden_paired_ramp_step: one `2× 51.3° × 25 RUN` callout where the V is seen, as
@@ -231,7 +231,7 @@ fn golden_paired_ramp_step_is_one_angle_and_run_callout() {
     let d = &plan
         .dimensions
         .iter()
-        .find(|d| d.id.starts_with("d:f:paired_ramp_step:1/"))
+        .find(|d| d.id.starts_with("d:f:paired_ramp_step:f6/"))
         .unwrap();
     let m: Vec<&str> = d
         .measurements
@@ -239,7 +239,7 @@ fn golden_paired_ramp_step_is_one_angle_and_run_callout() {
         .map(|m| m.parameter.as_str())
         .collect();
     assert_eq!(m, ["ramp_angle.angle", "ramp_run.length"]);
-    assert!(codes(&plan, "f:paired_ramp_step:1").is_empty());
+    assert!(codes(&plan, "f:paired_ramp_step:f6").is_empty());
 }
 
 /// quiddity's golden_plates_pads_levels_and_slanted_steps: the end wall's step along y is a
@@ -268,19 +268,19 @@ fn golden_plates_pads_levels_ladder_leaves_the_base_plates_top_to_the_plate() {
     assert_eq!(
         leg.state,
         draftwright::items::State::Covered {
-            by: "d:f:plate:1/thickness.length".into()
+            by: "d:f:plate:f2/thickness.length".into()
         }
     );
     assert!(
         leg.basis
-            .ends_with("dependencies: d:f:plate:1/thickness.length, d:envelope/height.length")
+            .ends_with("dependencies: d:f:plate:f2/thickness.length, d:envelope/height.length")
     );
     let ladder = items(&plan, &LADDER);
     assert_eq!(
         ladder,
         strs(&[
-            ("step_height.length.h16", "front", "16"),
-            ("step_height.length.h32", "front", "32"),
+            ("step_height.length.f14", "front", "16"),
+            ("step_height.length.f20", "front", "32"),
         ])
     );
     let f = facts_of("plates_pads_levels_and_slanted_steps");
@@ -320,8 +320,8 @@ fn a_through_step_the_ladder_states_is_left_to_it() {
     assert_eq!(
         ladder,
         strs(&[
-            ("step_height.length.h10", "front", "10"),
-            ("step_position.length.x20", "plan", "20"),
+            ("step_height.length.f6", "front", "10"),
+            ("step_position.length.f7", "plan", "20"),
         ])
     );
     assert_eq!(
@@ -331,7 +331,7 @@ fn a_through_step_the_ladder_states_is_left_to_it() {
     let p = plan
         .problems
         .iter()
-        .find(|p| p.subjects == ["f:through_step:1"])
+        .find(|p| p.subjects == ["f:through_step:f6"])
         .expect("the step is reported");
     assert_eq!(
         (p.code.as_str(), p.severity.as_str()),
@@ -372,7 +372,7 @@ fn a_uniform_staircase_is_one_counted_rise() {
     assert_eq!(
         items(&plan, &LADDER),
         strs(&[
-            ("step_height.length.h10", "front", "10"),
+            ("step_height.length.f6", "front", "10"),
             ("step_height.length.h16", "front", "16"),
             ("step_height.length.h5", "front", "5"),
         ])
@@ -417,7 +417,7 @@ fn an_unreadable_step_is_reported() {
     let plan = model::plan(&a, &Spec::default()).unwrap();
     assert!(items(&plan, &STEPS).is_empty());
     assert_eq!(
-        codes(&plan, "f:paired_ramp_step:1"),
+        codes(&plan, "f:paired_ramp_step:f6"),
         ["feature_not_dimensioned"]
     );
 
@@ -431,7 +431,7 @@ fn an_unreadable_step_is_reported() {
     let plan = model::plan(&a, &Spec::default()).unwrap();
     assert!(items(&plan, &STEPS).is_empty());
     assert_eq!(
-        codes(&plan, "f:through_step:1"),
+        codes(&plan, "f:through_step:f6"),
         ["feature_not_dimensioned"]
     );
 }
@@ -444,14 +444,14 @@ fn an_unreadable_step_is_reported() {
 fn a_rungs_id_names_its_height_not_its_rank() {
     let mut a = fixture("plates_pads_levels_and_slanted_steps");
     let spec: Spec = serde_json::from_value(serde_json::json!({
-        "dimensions": { "d:step_level/step_height.length.h16": { "omit": true } }
+        "dimensions": { "d:step_level/step_height.length.f14": { "omit": true } }
     }))
     .unwrap();
     let plan = model::plan(&a, &spec).unwrap();
     assert_eq!(items(&plan, &LADDER), strs(&[]));
     for id in [
-        "d:step_level/step_height.length.h16",
-        "d:step_level/step_height.length.h32",
+        "d:step_level/step_height.length.f14",
+        "d:step_level/step_height.length.f20",
     ] {
         assert!(plan.omitted.iter().any(|o| o.id == id), "{id}");
     }
@@ -462,7 +462,7 @@ fn a_rungs_id_names_its_height_not_its_rank() {
     let plan = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(
         items(&plan, &LADDER),
-        strs(&[("step_height.length.h32", "front", "32")])
+        strs(&[("step_height.length.f20", "front", "32")])
     );
     let plan = model::plan(&a, &spec).unwrap();
     assert!(
@@ -473,12 +473,12 @@ fn a_rungs_id_names_its_height_not_its_rank() {
     assert_eq!(plan.spec.dimensions, spec.dimensions);
     assert_eq!(
         items(&plan, &LADDER),
-        strs(&[("step_height.length.h32", "front", "32")])
+        strs(&[("step_height.length.f20", "front", "32")])
     );
     assert!(
         plan.dimensions
             .iter()
-            .any(|d| d.id == "d:step_level/step_height.length.h32" && d.placed.is_some())
+            .any(|d| d.id == "d:step_level/step_height.length.f20" && d.placed.is_some())
     );
 }
 
@@ -565,9 +565,9 @@ fn ftc06_shoulders_and_heights_match_draftwrights_sheet() {
     assert_eq!(
         positions,
         strs(&[
-            ("step_position.length.x136_525", "plan", "136.525"),
-            ("step_position.length.x168_275", "plan", "168.275"),
-            ("step_position.length.y46_99", "side", "46.99"),
+            ("step_position.length.f17_0", "plan", "136.525"),
+            ("step_position.length.f17_1", "plan", "168.275"),
+            ("step_position.length.f17_2", "side", "46.99"),
         ])
     );
     let mut heights = shown(&items(&plan, &["step_height"]));
@@ -580,7 +580,7 @@ fn ftc06_shoulders_and_heights_match_draftwrights_sheet() {
     let level = shared
         .measurements
         .iter()
-        .find(|m| m.feature == "step_level" && m.parameter == "step_height.length.h38_1")
+        .find(|m| m.feature == "step_level" && m.parameter == "step_height.length.f11")
         .unwrap();
     heights.push((
         shared.view.trim_start_matches("v:").into(),
@@ -590,7 +590,7 @@ fn ftc06_shoulders_and_heights_match_draftwrights_sheet() {
     theirs.retain(|(v, _)| v == "front");
     assert_eq!(theirs.len(), 3);
     // The top slab and overall height convey the underside without a closed chain.
-    let underside = "d:step_level/step_height.length.h215_9";
+    let underside = "d:step_level/step_height.length.f5";
     let covered = plan.omitted.iter().find(|o| o.id == underside).unwrap();
     let draftwright::items::State::Covered { by } = &covered.state else {
         panic!("{covered:?}");

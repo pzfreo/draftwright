@@ -922,14 +922,14 @@ mod tests {
         assert_eq!(
             names,
             [
-                "f:slot:1 slot_width.length",
-                "f:slot:1 slot_length.length",
-                "f:slot:1 slot_end_radius.radius",
-                "f:slot:1 location_slot.length",
-                "f:slot:1 location_slot_across.length",
-                "f:slot:2 slot_width.length",
-                "f:slot:2 slot_length.length",
-                "f:slot:2 location_slot.length"
+                "f:slot:f13 slot_width.length",
+                "f:slot:f13 slot_length.length",
+                "f:slot:f13 slot_end_radius.radius",
+                "f:slot:f13 location_slot.length",
+                "f:slot:f13 location_slot_across.length",
+                "f:slot:f21 slot_width.length",
+                "f:slot:f21 slot_length.length",
+                "f:slot:f21 location_slot.length"
             ]
         );
         assert_eq!(
@@ -946,15 +946,15 @@ mod tests {
             }],
         };
         let marks = [
-            mark("6", "f:slot:1", "slot_width.length"),
-            mark("15.0", "f:slot:1", "slot_length.length"),
-            mark("2× R3", "f:slot:1", "slot_end_radius.radius"),
-            mark("79.1", "f:slot:1", "location_slot.length"),
-            mark("6", "f:slot:2", "slot_width.length"),
-            mark("15.1", "f:slot:2", "slot_length.length"),
+            mark("6", "f:slot:f13", "slot_width.length"),
+            mark("15.0", "f:slot:f13", "slot_length.length"),
+            mark("2× R3", "f:slot:f13", "slot_end_radius.radius"),
+            mark("79.1", "f:slot:f13", "location_slot.length"),
+            mark("6", "f:slot:f21", "slot_width.length"),
+            mark("15.1", "f:slot:f21", "slot_length.length"),
             // The transverse locations are independent requirements too (#319).
-            mark("50.181", "f:slot:1", "location_slot_across.length"),
-            mark("50.181", "f:slot:2", "location_slot_across.length"),
+            mark("50.181", "f:slot:f13", "location_slot_across.length"),
+            mark("50.181", "f:slot:f21", "location_slot_across.length"),
         ];
         let found: Vec<String> = coverage(&a, &marks)
             .into_iter()
@@ -1036,11 +1036,11 @@ mod tests {
         assert!(a.features.iter().all(|f| !grouped(&a, f)));
         let missing = |text: &str| -> Vec<String> {
             let marks = [Mark {
-                name: "m:f:slot:1:location_slot.length".into(),
+                name: "m:f:slot:f19:location_slot.length".into(),
                 view: Some("v:plan".into()),
                 text: text.into(),
                 claims: vec![Claim {
-                    feature: "f:slot:1".into(),
+                    feature: "f:slot:f19".into(),
                     parameter: "location_slot.length".into(),
                 }],
             }];
@@ -1053,17 +1053,17 @@ mod tests {
         assert_eq!(
             missing("10"),
             [
-                "slot_requirement_missing f:slot:3",
-                "slot_requirement_missing f:slot:4"
+                "slot_requirement_missing f:slot:f27",
+                "slot_requirement_missing f:slot:f31"
             ]
         );
         assert_eq!(
             missing("11"),
             [
-                "slot_requirement_unverifiable f:slot:1",
-                "slot_requirement_unverifiable f:slot:2",
-                "slot_requirement_missing f:slot:3",
-                "slot_requirement_missing f:slot:4"
+                "slot_requirement_unverifiable f:slot:f19",
+                "slot_requirement_unverifiable f:slot:f23",
+                "slot_requirement_missing f:slot:f27",
+                "slot_requirement_missing f:slot:f31"
             ]
         );
     }
@@ -1106,20 +1106,20 @@ mod tests {
         };
         let group = |text: &str| {
             mark(
-                "d:f:slot:1/slot_width.length",
+                "d:f:slot:f8/slot_width.length",
                 text,
                 &[
-                    ("f:slot:1", "slot_width.length"),
-                    ("f:slot:2", "slot_width.length"),
-                    ("f:slot:1", "slot_length.length"),
-                    ("f:slot:2", "slot_length.length"),
+                    ("f:slot:f8", "slot_width.length"),
+                    ("f:slot:f12", "slot_width.length"),
+                    ("f:slot:f8", "slot_length.length"),
+                    ("f:slot:f12", "slot_length.length"),
                 ],
             )
         };
         let found = |marks: &[Mark]| -> Vec<String> {
             coverage(&a, marks)
                 .into_iter()
-                .filter(|i| ["f:slot:1", "f:slot:2"].contains(&i.subjects[0].as_str()))
+                .filter(|i| ["f:slot:f8", "f:slot:f12"].contains(&i.subjects[0].as_str()))
                 .map(|i| {
                     format!(
                         "{} {} {}",
@@ -1129,11 +1129,11 @@ mod tests {
                 .collect()
         };
         let located = [
-            mark("a", "13.75", &[("f:slot:1", "location_slot.length")]),
-            mark("b", "20", &[("f:slot:2", "location_slot.length")]),
+            mark("a", "13.75", &[("f:slot:f8", "location_slot.length")]),
+            mark("b", "20", &[("f:slot:f12", "location_slot.length")]),
             // Keep the complete fixture located across as well as along (#319).
-            mark("c", "10", &[("f:slot:1", "location_slot_across.length")]),
-            mark("d", "5", &[("f:slot:2", "location_slot_across.length")]),
+            mark("c", "10", &[("f:slot:f8", "location_slot_across.length")]),
+            mark("d", "5", &[("f:slot:f12", "location_slot_across.length")]),
         ];
         let mut marks = located.to_vec();
         marks.push(group("2× SLOT 4.5 × 7.5"));
@@ -1142,7 +1142,7 @@ mod tests {
         marks[0].text = "10".into();
         assert_eq!(
             found(&marks),
-            ["slot_requirement_unverifiable f:slot:1 location_slot.length"]
+            ["slot_requirement_unverifiable f:slot:f8 location_slot.length"]
         );
         // A counted width and length state the size but not the ends, and a sheet without a slot
         // callout locates each slot by its low end (as draftwright's does), not its centre.
@@ -1151,10 +1151,10 @@ mod tests {
         assert_eq!(
             found(&marks),
             [
-                "slot_requirement_missing f:slot:1 slot_end_radius.radius",
-                "slot_requirement_unverifiable f:slot:1 location_slot.length",
-                "slot_requirement_missing f:slot:2 slot_end_radius.radius",
-                "slot_requirement_unverifiable f:slot:2 location_slot.length"
+                "slot_requirement_missing f:slot:f8 slot_end_radius.radius",
+                "slot_requirement_unverifiable f:slot:f8 location_slot.length",
+                "slot_requirement_missing f:slot:f12 slot_end_radius.radius",
+                "slot_requirement_unverifiable f:slot:f12 location_slot.length"
             ]
         );
     }

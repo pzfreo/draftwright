@@ -644,7 +644,7 @@ fn a_hex_pocket_needs_a_regular_hexagon_and_keeps_each_claim() {
         .filter(|(f, _)| !found.iter().any(|(id, ..)| id == f))
         .collect();
     assert_eq!(own, 12);
-    assert_eq!(conveyed, [("step_level", "step_height.length.h1_9")]);
+    assert_eq!(conveyed, [("step_level", "step_height.length.f110")]);
     for (id, ..) in &found {
         for parameter in ["polygon_across_flats.length", "pocket_depth.length"] {
             assert!(
@@ -894,13 +894,13 @@ fn omitting(omit: &[&str]) -> Spec {
 #[test]
 fn removing_a_hole_location_or_its_callout_is_reported() {
     let (part, analysis) = analysed("single_hole");
-    let callout = "d:f:hole:1/bore.diameter";
-    let [x, y] = ["x", "y"].map(|k| format!("d:f:hole:1/location.length.{k}"));
+    let callout = "d:f:hole:f6/bore.diameter";
+    let [x, y] = ["x", "y"].map(|k| format!("d:f:hole:f6/location.length.{k}"));
     let full = model::plan(&analysis, &Spec::default()).unwrap();
     let labels: BTreeSet<(&str, &str)> = full
         .dimensions
         .iter()
-        .filter(|d| d.id.starts_with("d:f:hole:1/"))
+        .filter(|d| d.id.starts_with("d:f:hole:f6/"))
         .map(|d| (d.id.as_str(), d.label.as_str()))
         .collect();
     assert_eq!(
@@ -921,21 +921,21 @@ fn removing_a_hole_location_or_its_callout_is_reported() {
     let (found, issues) = lint_of(&omitting(&[&x]));
     assert_eq!(
         found,
-        BTreeSet::from(["feature_not_located f:hole:1 location.length.x".to_string()])
+        BTreeSet::from(["feature_not_located f:hole:f6 location.length.x".to_string()])
     );
     let located = issues
         .iter()
         .find(|i| i.code == "feature_not_located")
         .unwrap();
     assert_eq!(located.message, "1 hole(s) have no locating dimension");
-    assert_eq!(located.subjects, ["f:hole:1"]);
+    assert_eq!(located.subjects, ["f:hole:f6"]);
 
     let (found, _) = lint_of(&omitting(&[&x, &y]));
     assert_eq!(
         found,
         BTreeSet::from([
-            "feature_not_located f:hole:1 location.length.x".to_string(),
-            "feature_not_located f:hole:1 location.length.y".to_string(),
+            "feature_not_located f:hole:f6 location.length.x".to_string(),
+            "feature_not_located f:hole:f6 location.length.y".to_string(),
         ])
     );
 
@@ -943,9 +943,9 @@ fn removing_a_hole_location_or_its_callout_is_reported() {
     assert_eq!(
         found,
         BTreeSet::from([
-            "feature_not_dimensioned f:hole:1 bore.diameter".to_string(),
-            "hole_requirement_missing f:hole:1 bore.diameter".to_string(),
-            "hole_requirement_missing f:hole:1 bore.through".to_string(),
+            "feature_not_dimensioned f:hole:f6 bore.diameter".to_string(),
+            "hole_requirement_missing f:hole:f6 bore.diameter".to_string(),
+            "hole_requirement_missing f:hole:f6 bore.through".to_string(),
         ])
     );
     assert!(issues.iter().any(|i| i.code == "feature_not_dimensioned"
@@ -971,7 +971,7 @@ fn removing_a_hole_location_or_its_callout_is_reported() {
 #[test]
 fn prose_and_descriptive_tables_cannot_silence_coverage() {
     let (part, analysis) = analysed("counterbored_block");
-    let callout = "d:f:hole:1/bore.diameter";
+    let callout = "d:f:hole:f6/bore.diameter";
     let full = model::plan(&analysis, &Spec::default()).unwrap();
     assert_eq!(
         full.dimensions
@@ -990,9 +990,9 @@ fn prose_and_descriptive_tables_cannot_silence_coverage() {
     let (_, drawing) = drawn(&bare);
     let missing = findings(&analysis, &drawing);
     for wanted in [
-        "hole_requirement_missing f:hole:1 counterbore.diameter",
-        "hole_requirement_missing f:hole:1 counterbore.depth",
-        "feature_not_dimensioned f:hole:1 counterbore.diameter",
+        "hole_requirement_missing f:hole:f6 counterbore.diameter",
+        "hole_requirement_missing f:hole:f6 counterbore.depth",
+        "feature_not_dimensioned f:hole:f6 counterbore.diameter",
     ] {
         assert!(missing.contains(wanted), "{wanted}: {missing:?}");
     }
@@ -1051,7 +1051,7 @@ fn a_planar_reading_cannot_certify_a_curved_pocket() {
     let drawing = model::render(&part, &analysis, &plan, &font()).unwrap();
     let pocket = |f: &BTreeSet<String>| -> BTreeSet<String> {
         f.iter()
-            .filter(|s| s.contains("f:section_recess:1"))
+            .filter(|s| s.contains("f:section_recess:f1"))
             .cloned()
             .collect()
     };
@@ -1063,7 +1063,7 @@ fn a_planar_reading_cannot_certify_a_curved_pocket() {
         .iter_mut()
         .find(|a| {
             a.name
-                .starts_with("d:f:section_recess:1/pocket_width.length")
+                .starts_with("d:f:section_recess:f1/pocket_width.length")
         })
         .unwrap();
     let max = a
@@ -1080,7 +1080,7 @@ fn a_planar_reading_cannot_certify_a_curved_pocket() {
     assert!(
         found
             .iter()
-            .any(|f| f.ends_with(" f:section_recess:1 pocket_max_depth.length")),
+            .any(|f| f.ends_with(" f:section_recess:f1 pocket_max_depth.length")),
         "{found:?}"
     );
     assert!(
@@ -1124,7 +1124,7 @@ fn retained_leader_crossings_have_no_clear_route(path: &Path) {
         // Its two congruent obround slots, called out together, take the slot radius leaders
         // that kept crossings here: slot 2 is split from their callout to keep the historical
         // routing fixture, whose crossings make this check not vacuous.
-        corpus::split_slot(&mut analysis, "f:slot:2");
+        corpus::split_slot(&mut analysis, "f:slot:f21");
     }
     let plan = model::plan_recovered(
         &analysis,
@@ -1166,7 +1166,7 @@ fn retained_leader_crossings_have_no_clear_route(path: &Path) {
         assert!(
             plan.dimensions
                 .iter()
-                .any(|d| d.id == "d:f:slot:1/slot_end_radius.radius" && d.placed.is_some())
+                .any(|d| d.id == "d:f:slot:f13/slot_end_radius.radius" && d.placed.is_some())
         );
         return;
     }
@@ -1201,7 +1201,7 @@ fn retained_leader_crossings_have_no_clear_route(path: &Path) {
 
 #[test]
 fn offset_pocket_tangent_presentations_measure_the_actual_cylinder() {
-    let id = "d:f:section_recess:1/pocket_width.length";
+    let id = "d:f:section_recess:f3/pocket_width.length";
     let (part, a) = analysed("curved_offset");
     for (choice, value) in [("tangent_depth", 12.), ("far_extreme", 28.)] {
         let spec: Spec = serde_json::from_value(

@@ -2,7 +2,7 @@
   "name": "prismatic.step",
   "part": "tests/fixtures/parts/prismatic.step",
   "steps": [
-    {"edit":"chain locations","action":"fragments","ops":[{"op":"set","path":"dimension_schemes/inspection","value":{"scheme":"chain","axis":"x","view":"plan","targets":["f:fillet:1","f:fillet:3"]}}]},
+    {"edit":"chain locations","action":"fragments","ops":[{"op":"set","path":"dimension_schemes/inspection","value":{"scheme":"chain","axis":"x","view":"plan","targets":["f:fillet:f2","f:fillet:f7"]}}]},
     {"edit":"preview high baseline","action":"preview","ops":[{"op":"set","path":"dimension_schemes/inspection/scheme","value":"baseline"},{"op":"set","path":"dimension_schemes/inspection/from","value":"max"}]},
     {"edit":"undo scheme","action":"undo"},
     {"edit":"redo scheme","action":"redo"},

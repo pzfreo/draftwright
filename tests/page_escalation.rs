@@ -501,8 +501,8 @@ fn wrapped_counterbores_keep_the_existing_short_leader_budget() {
     let baseline: serde_json::Value =
         serde_json::from_str(include_str!("fixtures/leader_routes.json")).unwrap();
     for id in [
-        "d:f:hole:5/bore.diameter",
-        "d:f:hole_pattern:2/bore.diameter",
+        "d:f:hole:f59/bore.diameter",
+        "d:f:hole_pattern:f65/bore.diameter",
     ] {
         let d = plan.dimensions.iter().find(|d| d.id == id).unwrap();
         assert_eq!(d.label.lines().count(), 2);
@@ -569,8 +569,8 @@ fn composed_corridors_clear_a_previously_overlapping_off_part_fixture() {
         .as_array_mut()
         .unwrap()
         .iter_mut()
-        .find(|f| f["id"] == "f:hole:1")
-        .expect("1004 has f:hole:1");
+        .find(|f| f["id"] == "f:hole:f13")
+        .expect("1004 has f:hole:f13");
     hole["parameters"]["location"][1] = json!(-60.0);
     hole["parameters"]["location"][2] = json!(120.0);
     let analysis: Analysis = serde_json::from_value(json).unwrap();

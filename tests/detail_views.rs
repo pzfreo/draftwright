@@ -24,7 +24,7 @@ fn string_post_prefers_complete_larger_principals_without_a_detail() {
     );
     assert!(plan.views.iter().all(|v| v.detail.is_none()));
     assert!(plan.dimensions.iter().any(|d| d.view == "v:front"
-        && d.id == "d:f:turned_step:3/step.length"
+        && d.id == "d:f:turned_step:f9/step.length"
         && d.placed.is_some()));
     let dir = corpus::dir().unwrap();
     let (part, _) = model::analyse_native(&dir.join("gramel/string_post.step")).unwrap();
@@ -69,7 +69,7 @@ fn a_constrained_main_scale_keeps_the_complete_head_crop_and_sheet_scale_iso() {
     assert!(d.bounds[0][2] <= 13.8 && d.bounds[1][2] >= 14.8);
     assert!(
         plan.dimensions.iter().any(|d| d.view == v.id
-            && d.id == "d:f:turned_step:3/step.length"
+            && d.id == "d:f:turned_step:f9/step.length"
             && d.placed.is_some())
     );
     assert_eq!(
@@ -154,7 +154,7 @@ fn an_omitted_detail_seed_cannot_leak_into_an_ordinary_candidate() {
     assert!(
         p.dimensions
             .iter()
-            .any(|d| d.id == "d:f:turned_step:3/step.length"
+            .any(|d| d.id == "d:f:turned_step:f9/step.length"
                 && d.view == "v:front"
                 && d.placed.is_some())
     );
@@ -323,16 +323,16 @@ fn a_plain_part_has_no_stray_detail() {
 #[test]
 fn saved_chain_ids_and_tolerances_still_resolve() {
     let Some(a) = string_post() else { return };
-    let spec:Spec=serde_json::from_value(json!({"dimensions":{"d:f:turned_step:1/step.length":{"tolerance":"±0.05"},"d:f:turned_step:3/step.length":{"tolerance":"±0.02"}}})).unwrap();
+    let spec:Spec=serde_json::from_value(json!({"dimensions":{"d:f:turned_step:f0/step.length":{"tolerance":"±0.05"},"d:f:turned_step:f9/step.length":{"tolerance":"±0.02"}}})).unwrap();
     let p = model::plan_recovered(&a, &spec).unwrap();
     assert!(
         p.dimensions
             .iter()
-            .any(|d| d.id == "d:f:turned_step:3/step.length" && d.view == "v:front")
+            .any(|d| d.id == "d:f:turned_step:f9/step.length" && d.view == "v:front")
     );
     for (id, tol) in [
-        ("d:f:turned_step:1/step.length", "±0.05"),
-        ("d:f:turned_step:3/step.length", "±0.02"),
+        ("d:f:turned_step:f0/step.length", "±0.05"),
+        ("d:f:turned_step:f9/step.length", "±0.02"),
     ] {
         assert!(
             p.dimensions
@@ -407,7 +407,7 @@ fn crowded_prismatic_rungs_and_y_chains_use_their_own_camera_and_scale() {
 #[test]
 fn an_authored_a_reserves_its_letter_before_the_automatic_section() {
     let Some(a) = string_post() else { return };
-    let s:Spec=serde_json::from_value(json!({"sheet":{"size":"A3","scale":"2:1"},"views":{"detail_a":{"detail":{"around":"f:turned_step:3","scale_factor":5}}}})).unwrap();
+    let s:Spec=serde_json::from_value(json!({"sheet":{"size":"A3","scale":"2:1"},"views":{"detail_a":{"detail":{"around":"f:turned_step:f9","scale_factor":5}}}})).unwrap();
     let p = model::plan(&a, &s).unwrap();
     assert!(p.views.iter().any(|v| v.id == "v:detail_a"));
     assert!(
@@ -426,7 +426,7 @@ fn omitting_an_automatic_detail_does_not_rename_it() {
     assert!(
         p.dimensions
             .iter()
-            .any(|d| d.id == "d:f:turned_step:3/step.length" && d.view == "v:front")
+            .any(|d| d.id == "d:f:turned_step:f9/step.length" && d.view == "v:front")
     );
 }
 
@@ -524,7 +524,7 @@ fn authored_from_uses_the_parent_camera_projection_and_marker() {
     )
     .unwrap();
     for source in ["plan", "side"] {
-        let p = model::plan(&a, &authored(json!("f:hole:1"), Some(source))).unwrap();
+        let p = model::plan(&a, &authored(json!("f:hole:f6"), Some(source))).unwrap();
         let v = detail_view(&p);
         let parent = p
             .views
@@ -566,7 +566,7 @@ fn authored_from_uses_the_parent_camera_projection_and_marker() {
 #[test]
 fn edge_on_members_and_missing_source_views_are_refused_by_name() {
     let (_, a) = fixture("mounting_plate");
-    for around in [json!("top"), json!(["f:hole:1", "top"])] {
+    for around in [json!("top"), json!(["f:hole:f6", "top"])] {
         let error = model::plan(&a, &authored(around, Some("front"))).unwrap_err();
         assert!(
             error.message.contains("top")
@@ -577,17 +577,17 @@ fn edge_on_members_and_missing_source_views_are_refused_by_name() {
         );
     }
     for source in ["iso", "section_aa", "missing"] {
-        let e = model::plan(&a, &authored(json!("f:hole:1"), Some(source))).unwrap_err();
+        let e = model::plan(&a, &authored(json!("f:hole:f6"), Some(source))).unwrap_err();
         assert!(
-            e.message.contains(source) && e.message.contains("f:hole:1"),
+            e.message.contains(source) && e.message.contains("f:hole:f6"),
             "{}",
             e.message
         );
     }
-    let mut s = authored(json!("f:hole:1"), Some("plan"));
+    let mut s = authored(json!("f:hole:f6"), Some("plan"));
     s.views.get_mut("plan").unwrap().omit = true;
     let e = model::plan(&a, &s).unwrap_err();
-    assert!(e.message.contains("v:plan") && e.message.contains("f:hole:1"));
+    assert!(e.message.contains("v:plan") && e.message.contains("f:hole:f6"));
 }
 
 #[test]
@@ -616,7 +616,7 @@ fn list_crop_is_the_union_of_the_existing_member_crops() {
 #[test]
 fn mixed_face_feature_lists_choose_the_most_visible_view_and_record_it() {
     let (_, a) = fixture("mounting_plate");
-    let s = authored(json!(["f:hole:1", "top", "bottom", "front"]), None);
+    let s = authored(json!(["f:hole:f6", "top", "bottom", "front"]), None);
     let p = model::plan(&a, &s).unwrap();
     let v = detail_view(&p);
     assert_eq!(v.detail.as_ref().unwrap().source_view, "v:plan");
@@ -628,7 +628,7 @@ fn mixed_face_feature_lists_choose_the_most_visible_view_and_record_it() {
     // Member order cannot change the winner.
     let p = model::plan(
         &a,
-        &authored(json!(["front", "bottom", "top", "f:hole:1"]), None),
+        &authored(json!(["front", "bottom", "top", "f:hole:f6"]), None),
     )
     .unwrap();
     assert_eq!(
@@ -641,7 +641,7 @@ fn mixed_face_feature_lists_choose_the_most_visible_view_and_record_it() {
 fn every_list_member_must_exist_and_empty_lists_are_refused() {
     let (_, a) = fixture("turned");
     for id in ["f:turned_step:999", "face:99999", "unknown"] {
-        let e = model::plan(&a, &authored(json!(["f:turned_step:1", id]), None)).unwrap_err();
+        let e = model::plan(&a, &authored(json!(["f:turned_step:f0", id]), None)).unwrap_err();
         assert!(e.message.contains(id), "{}", e.message);
     }
     assert!(
@@ -667,8 +667,8 @@ fn saved_string_and_list_specs_round_trip_through_json_and_a_drawing() {
         .position(|f| f.surface.as_deref() == Some("plane") && f.axis == Some(2))
         .unwrap();
     for around in [
-        json!("f:hole:1"),
-        json!(["f:hole:1", format!("face:{top}")]),
+        json!("f:hole:f6"),
+        json!(["f:hole:f6", format!("face:{top}")]),
     ] {
         let mut s = authored(around.clone(), Some("plan"));
         s.binding = Some(a.binding.clone());
@@ -686,8 +686,8 @@ fn saved_string_and_list_specs_round_trip_through_json_and_a_drawing() {
 #[test]
 fn a_groove_and_its_neighboring_shoulder_keep_both_model_crops() {
     let (_, a) = fixture("k5/groove-compound");
-    let groove = "f:groove:1";
-    let shoulder = "f:turned_step:3";
+    let groove = "f:groove:f3";
+    let shoulder = "f:turned_step:f5";
     let p = model::plan(&a, &authored(json!([groove, shoulder]), Some("front"))).unwrap();
     let union = detail_view(&p).detail.as_ref().unwrap();
     for id in [groove, shoulder] {
@@ -702,7 +702,7 @@ fn section_parent_reuses_the_section_projection_without_duplicating_furniture() 
     let Some(a) = string_post() else { return };
     let dir = corpus::dir().unwrap();
     let (part, _) = model::analyse_native(&dir.join("gramel/string_post.step")).unwrap();
-    let p = model::plan(&a, &authored(json!("f:turned_step:3"), Some("section_aa"))).unwrap();
+    let p = model::plan(&a, &authored(json!("f:turned_step:f9"), Some("section_aa"))).unwrap();
     let v = detail_view(&p);
     let parent = p.views.iter().find(|v| v.id == "v:section_aa").unwrap();
     assert!(parent.cut.is_some());
@@ -761,9 +761,9 @@ fn sheet_centre_lines_in_a_head_detail_are_aligned_and_clipped() {
     let Some(a) = string_post() else { return };
     for settings in [
         json!({"sheet":{"size":"A3","scale":"2:1","centre_lines":true},
-               "views":{"detail_a":{"detail":{"around":"f:turned_step:3","scale_factor":5}}}}),
+               "views":{"detail_a":{"detail":{"around":"f:turned_step:f9","scale_factor":5}}}}),
         json!({"sheet":{"size":"A3","scale":"2:1"},
-               "views":{"detail_a":{"centre_lines":true,"detail":{"around":"f:turned_step:3","scale_factor":5}}}}),
+               "views":{"detail_a":{"centre_lines":true,"detail":{"around":"f:turned_step:f9","scale_factor":5}}}}),
     ] {
         let p = model::plan(&a, &serde_json::from_value(settings).unwrap()).unwrap();
         let v = p.views.iter().find(|v| v.id == "v:detail_a").unwrap();
@@ -806,7 +806,7 @@ fn sheet_centre_lines_in_a_head_detail_are_aligned_and_clipped() {
 #[test]
 fn a_detail_caption_is_drawn_in_its_reserved_crop_slot() {
     let (part, a) = fixture("mounting_plate");
-    let mut p = model::plan(&a, &authored(json!("f:hole:1"), Some("plan"))).unwrap();
+    let mut p = model::plan(&a, &authored(json!("f:hole:f6"), Some("plan"))).unwrap();
     let v = p.views.iter_mut().find(|v| v.id == "v:detail_c").unwrap();
     let d = v.detail.as_mut().unwrap();
     // Include blank paper below the silhouette, so the ink and crop anchors differ.
@@ -837,7 +837,7 @@ fn a_detail_caption_is_drawn_in_its_reserved_crop_slot() {
 #[test]
 fn unavailable_detail_warning_uses_the_drawings_scale_notation() {
     let (part, a) = fixture("mounting_plate");
-    let mut s = authored(json!("f:hole:1"), Some("plan"));
+    let mut s = authored(json!("f:hole:f6"), Some("plan"));
     s.sheet.size = Some("A4".into());
     s.sheet.scale = Some("1:5".into());
     s.views

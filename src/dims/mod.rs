@@ -6138,7 +6138,7 @@ mod tests {
                 .join("tests/fixtures/parts/plate.step"),
         )
         .unwrap();
-        let id = "d:f:hole_pattern:1/bore.diameter";
+        let id = "d:f:hole_pattern:f6/bore.diameter";
         for side in ["left", "right"] {
             let mut spec: Spec = serde_json::from_value(serde_json::json!({
                 "dimensions": {id: {"place": {"view": "plan", "side": side}}}
@@ -6358,7 +6358,7 @@ mod tests {
         assert_eq!(profiles.len(), 1);
         assert_eq!(profiles[0].2, "2× R203.2");
         assert_eq!(profiles[0].3, ["cylindrical_profile.radius"; 2]);
-        let fillets = own(&ws, "f:fillet:1");
+        let fillets = own(&ws, "f:fillet:f1");
         assert_eq!(fillets.len(), 1);
         assert_eq!(fillets[0].2, "2× R3");
     }
@@ -6407,7 +6407,7 @@ mod tests {
         });
         let a = block(&[("annular_groove", &[3, 4, 5], groove.clone())]);
         let (wants, problems, _) = wants_uncached(&a, &Spec::default());
-        let mut got = own(&wants, "f:annular_groove:1");
+        let mut got = own(&wants, "f:annular_groove:f7");
         got.sort();
         assert_eq!(
             got,
@@ -6439,7 +6439,7 @@ mod tests {
         assert!(
             problems
                 .iter()
-                .all(|p| !p.subjects.contains(&"f:annular_groove:1".to_string()))
+                .all(|p| !p.subjects.contains(&"f:annular_groove:f7".to_string()))
         );
         assert!(stated_by(&a, &a.features[0]).is_empty());
 
@@ -6457,7 +6457,7 @@ mod tests {
             ),
         ]);
         let (wants, ..) = wants_uncached(&walled, &Spec::default());
-        assert!(own(&wants, "f:annular_groove:1").is_empty());
+        assert!(own(&wants, "f:annular_groove:f7").is_empty());
         let by = stated_by(&walled, &walled.features[0]);
         assert_eq!(
             by,
@@ -6482,9 +6482,9 @@ mod tests {
             serde_json::from_value(serde_json::json!({"dimensions": {id: {"omit": true}}}))
                 .unwrap();
         let (steered, ..) = pmi_policy::wants(&walled, &spec);
-        assert_eq!(own(&steered, "f:annular_groove:1").len(), 3);
+        assert_eq!(own(&steered, "f:annular_groove:f7").len(), 3);
         let (default, ..) = pmi_policy::wants(&walled, &Spec::default());
-        assert!(own(&default, "f:annular_groove:1").is_empty());
+        assert!(own(&default, "f:annular_groove:f7").is_empty());
     }
 
     /// #233: a V channel is called out along its run and its trough located across it; one

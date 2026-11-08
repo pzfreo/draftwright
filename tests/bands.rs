@@ -190,7 +190,7 @@ fn demand_groups_holes_by_established_patterns() {
     assert!(
         grid.holes
             .iter()
-            .all(|h| h.pattern.as_deref() == Some("f:hole_pattern:1"))
+            .all(|h| h.pattern.as_deref() == Some("f:hole_pattern:f6"))
     );
     assert_eq!(callouts(&a), ["4× ⌀6 THRU"]);
 

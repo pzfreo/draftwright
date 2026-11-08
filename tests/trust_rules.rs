@@ -542,18 +542,18 @@ fn dimension_ids_are_derived_and_a_bare_role_warns_without_applying() {
     );
 
     let (_, analysis) = analysed_with("plate", &json);
-    let spec = omitting(&["d:f:hole_pattern:1/bore"]);
+    let spec = omitting(&["d:f:hole_pattern:f6/bore"]);
     let plan = model::plan(&analysis, &spec).unwrap();
     assert!(plan.problems.iter().any(|p| {
         p.code == "dimension_edit_unapplied"
             && p.subjects
-                .contains(&"dimensions/d:f:hole_pattern:1~1bore".into())
+                .contains(&"dimensions/d:f:hole_pattern:f6~1bore".into())
     }));
     assert_eq!(plan.spec.dimensions, spec.dimensions);
     assert!(
         plan.dimensions
             .iter()
-            .any(|d| { d.id == "d:f:hole_pattern:1/bore.diameter" && d.placed.is_some() })
+            .any(|d| { d.id == "d:f:hole_pattern:f6/bore.diameter" && d.placed.is_some() })
     );
 }
 

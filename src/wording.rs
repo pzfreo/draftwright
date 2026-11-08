@@ -78,7 +78,7 @@ pub fn feature_id(a: &Analysis, id: &str) -> String {
     kind_of(id)
 }
 
-/// A feature named from its ID's kind alone (`f:hole_pattern:1` is `the hole pattern`), where
+/// A feature named from its ID's kind alone (`f:hole_pattern:f6` is `the hole pattern`), where
 /// no Analysis is at hand.
 pub fn kind_of(id: &str) -> String {
     match id.strip_prefix("f:").and_then(|s| s.split(':').next()) {
@@ -241,10 +241,10 @@ mod tests {
     #[test]
     fn ids_are_found_and_words_are_not() {
         assert_eq!(
-            carries_id("The extension of d:f:hole_pattern:1/grid_pitch.length.col (2× 30)."),
-            Some("d:f:hole_pattern:1/grid_pitch.length.col")
+            carries_id("The extension of d:f:hole_pattern:f6/grid_pitch.length.col (2× 30)."),
+            Some("d:f:hole_pattern:f6/grid_pitch.length.col")
         );
-        assert_eq!(carries_id("It crosses f:hole:4."), Some("f:hole:4"));
+        assert_eq!(carries_id("It crosses f:hole:f9."), Some("f:hole:f9"));
         assert_eq!(carries_id("over the v:plan view"), Some("v:plan"));
         assert_eq!(carries_id("set sheet/title/tolerance, 2× 30 at 2:1"), None);
         assert_eq!(carries_id("Section A–A, the ⌀6.6 hole: R3 at d: 5"), None);

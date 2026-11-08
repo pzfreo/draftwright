@@ -123,7 +123,7 @@ fn tools_explain_their_operations_without_source_and_fit_schema_budget() {
             .unwrap()
     };
     for term in [
-        "features/f:hole:1/fit",
+        "features/f:hole:f6/fit",
         "±T",
         "views/iso/omit",
         "sheet/title/number",

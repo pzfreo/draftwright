@@ -39,7 +39,7 @@ fn leaders_across_their_own_view_are_reported() {
     // Its two obround slots are congruent, so one slot callout would state them: the second is
     // split from the callout, so the first keeps the radius leader this test reads (the split
     // one is dimensioned by its end centres, with no radius).
-    corpus::split_slot(&mut analysis, "f:slot:2");
+    corpus::split_slot(&mut analysis, "f:slot:f21");
     let automatic = model::plan_recovered(&analysis, &Spec::default()).unwrap();
     // Local slot witnesses now let the automatic callout stay beside its slot.
     // Keep testing the diagnostic with a deliberately authored long route.
@@ -48,12 +48,12 @@ fn leaders_across_their_own_view_are_reported() {
         automatic
             .dimensions
             .iter()
-            .any(|d| d.id == "d:f:slot:1/slot_end_radius.radius" && d.placed.is_some())
+            .any(|d| d.id == "d:f:slot:f13/slot_end_radius.radius" && d.placed.is_some())
     );
     let spec = model::edit(
         &Spec::default(),
         &serde_json::json!([{
-            "op":"set", "path":"dimensions/d:f:slot:1~1slot_end_radius.radius/place",
+            "op":"set", "path":"dimensions/d:f:slot:f13~1slot_end_radius.radius/place",
             "value":{"view":"plan", "side":"above", "lane":0, "along":"middle", "pinned":true}
         }]),
     )
@@ -61,7 +61,7 @@ fn leaders_across_their_own_view_are_reported() {
     let p = model::plan_recovered(&analysis, &spec).unwrap();
     let mut across = found(&p, "leader_across_view");
     across.sort();
-    assert_eq!(across, [["d:f:slot:1/slot_end_radius.radius", "v:plan"]]);
+    assert_eq!(across, [["d:f:slot:f13/slot_end_radius.radius", "v:plan"]]);
     for d in p
         .dimensions
         .iter()
@@ -86,7 +86,7 @@ fn leaders_ending_on_hidden_edges_are_reported() {
         ),
         (
             "gramel/string_post.step",
-            "d:f:flat:1/flat.length",
+            "d:f:flat:f11/flat.length",
             "v:plan",
         ),
     ] {

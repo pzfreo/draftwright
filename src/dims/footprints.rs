@@ -905,7 +905,7 @@ mod tests {
             "schema":crate::model::ANALYSIS_SCHEMA,
             "binding":{"source_sha256":"test","part":"test","face_count":1,"loader":"test"},
             "envelope":[[-10.0,-10.0,-10.0],[10.0,10.0,10.0]],"iso_bounds":[0.0,0.0,0.0,0.0],
-            "features":[{"id":"f:hole:1","kind":"hole","faces":[0],
+            "features":[{"id":"f:hole:f1","kind":"hole","faces":[0],
                 "parameters":{"axis":[0.0,0.0,1.0],"location":[2.0,0.0,3.0],"diameter":4.0,"depth":6.0,"bottom":"flat"},
                 "fingerprint":{"version":"test","family":"holes","subtype":"HoleRecord","sizes":{},"axis":[0.0,0.0,1.0],
                     "position":[2.0,0.0,0.0],"neighbourhood":[]}}]
@@ -943,24 +943,24 @@ mod tests {
         ];
         let owner = Measurement {
             feature: "step_level".into(),
-            parameter: "step_height.length.h248_787".into(),
+            parameter: "step_height.length.f140".into(),
             value: level.z - a.envelope[0][2],
         };
         assert!(
             f.crossed_extension(shaft, &[])
-                .contains("f:section_recess:5")
+                .contains("f:section_recess:f124")
         );
         let owned = f.crossed_extension(shaft, std::slice::from_ref(&owner));
-        assert!(!owned.contains("f:section_recess:5"));
+        assert!(!owned.contains("f:section_recess:f124"));
         assert!(
-            owned.contains("f:hole:10"),
+            owned.contains("f:hole:f26"),
             "an unrelated crossed hole remains reported"
         );
         let mut other = owner;
         other.value += 1.;
         assert!(
             f.crossed_extension(shaft, &[other])
-                .contains("f:section_recess:5")
+                .contains("f:section_recess:f124")
         );
     }
 
@@ -974,9 +974,9 @@ mod tests {
         assert!(matches!(p.features[0].shape, Shape::Circle(_, 4.0)));
         assert!(matches!(f.features[0].shape, Shape::Box(_)));
         let shaft = [front.page([-2.0, 0.0, 2.0]), front.page([6.0, 0.0, 2.0])];
-        assert!(f.crossed(shaft, &[]).contains("f:hole:1"));
+        assert!(f.crossed(shaft, &[]).contains("f:hole:f1"));
         let outside = [front.page([-2.0, 0.0, 4.0]), front.page([6.0, 0.0, 4.0])];
-        assert!(!f.crossed(outside, &[]).contains("f:hole:1"));
+        assert!(!f.crossed(outside, &[]).contains("f:hole:f1"));
     }
 
     #[test]

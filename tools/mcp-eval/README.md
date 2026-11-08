@@ -126,7 +126,7 @@ from `item_options`. This narrower interpretation is recorded as overturnable in
 `docs/next-session.md`; a passing grid would not establish relocation quality.
 
 E2 reduces discovery calls: `inspect_part` includes a bounded `key_items` index and
-accepts `problem_filter`, for example `{"feature":"f:slot:1"}`, to return a paged
+accepts `problem_filter`, for example `{"feature":"f:slot:f4"}`, to return a paged
 `problem_page` during registration. `list_problems` accepts the same feature filter;
 default problem rows include corrective ops, so `detail` is only needed for explanations.
 `item_options.settable` gives escaped Spec paths, accepted choices/ranges and tolerance

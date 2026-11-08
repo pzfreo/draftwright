@@ -132,12 +132,12 @@ fn slot_chain_keeps_overall_and_functional_length_without_closure() {
     assert!(
         p.dimensions
             .iter()
-            .any(|d| d.id == "d:f:slot:1/slot_length.length" && d.label == "19.08")
+            .any(|d| d.id == "d:f:slot:f5/slot_length.length" && d.label == "19.08")
     );
     assert!(
         !p.dimensions
             .iter()
-            .any(|d| d.id == "d:f:slot:1/location_slot.length" && !d.label.starts_with('('))
+            .any(|d| d.id == "d:f:slot:f5/location_slot.length" && !d.label.starts_with('('))
     );
     let floor = p
         .dimensions
@@ -145,19 +145,19 @@ fn slot_chain_keeps_overall_and_functional_length_without_closure() {
         .find(|d| {
             d.measurements
                 .iter()
-                .any(|m| m.feature == "step_level" && m.parameter == "step_height.length.h5_133")
+                .any(|m| m.feature == "step_level" && m.parameter == "step_height.length.f6")
         })
         .unwrap();
-    assert_eq!(floor.id, "d:f:slot:1/location_slot.length");
+    assert_eq!(floor.id, "d:f:slot:f5/location_slot.length");
     assert_eq!(floor.label, "(5.134)");
-    assert!(p.omitted.iter().any(|d| d.id == "d:step_level/step_height.length.h5_133"
+    assert!(p.omitted.iter().any(|d| d.id == "d:step_level/step_height.length.f6"
         && matches!(&d.state, draftwright::items::State::Covered { by } if by == &floor.id)));
-    let spec = model::edit(&references(), &json!([{"op":"set", "path":"dimensions/d:f:slot:1~1location_slot.length/omit", "value":true}])).unwrap();
+    let spec = model::edit(&references(), &json!([{"op":"set", "path":"dimensions/d:f:slot:f5~1location_slot.length/omit", "value":true}])).unwrap();
     let p = model::plan(&a, &spec).unwrap();
     let floor = p
         .dimensions
         .iter()
-        .find(|d| d.id == "d:step_level/step_height.length.h5_133")
+        .find(|d| d.id == "d:step_level/step_height.length.f6")
         .unwrap();
     assert_eq!(
         // The restored geometric floor is 5.133; the slot-centre reference above is 5.1335.
@@ -265,7 +265,7 @@ fn wall_witness_avoids_the_hole_centreline() {
     let d = p
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:plate:1/thickness.length")
+        .find(|d| d.id == "d:f:plate:f83/thickness.length")
         .unwrap();
     assert_eq!(d.label, "2× 9.297");
     assert_eq!(d.view, "v:plan");
@@ -428,11 +428,11 @@ fn shoulders_on_slot_walls_are_references_when_the_slot_is_stated() {
         "20.877"
     );
     assert_eq!(
-        label(&p, "d:step_level/step_position.length.y18_61"),
+        label(&p, "d:step_level/step_position.length.f5"),
         "(18.61)"
     );
     assert_eq!(
-        label(&p, "d:step_level/step_position.length.y23_144"),
+        label(&p, "d:step_level/step_position.length.f7"),
         "(23.144)"
     );
     let issues = lint::check(&a, &marks(&p));
@@ -446,17 +446,17 @@ fn shoulders_on_slot_walls_are_references_when_the_slot_is_stated() {
     let spec = model::edit(&references(), &json!([{"op":"set", "path":"dimensions/d:f:slot:1~1location_slot_across.length/omit", "value":true}])).unwrap();
     let p = model::plan(&a, &spec).unwrap();
     assert_eq!(
-        label(&p, "d:step_level/step_position.length.y18_61"),
+        label(&p, "d:step_level/step_position.length.f5"),
         "18.61"
     );
     assert_eq!(
-        label(&p, "d:step_level/step_position.length.y23_144"),
+        label(&p, "d:step_level/step_position.length.f7"),
         "(23.144)"
     );
     // The same rule on z ladders (FTC-09's slots, FTC-10's 12.5 + 50 = 62.5).
     let p = model::plan(&native("nist/nist_ftc_09_asme1_rd.stp"), &references()).unwrap();
     assert_eq!(
-        label(&p, "d:step_level/step_height.length.h41_275"),
+        label(&p, "d:step_level/step_height.length.f81"),
         "(41.275)"
     );
     let p = model::plan(&native("nist/nist_ftc_10_asme1_rb.stp"), &references()).unwrap();
@@ -492,12 +492,12 @@ fn a_plate_between_a_shoulder_and_the_box_is_not_stated_again() {
     assert!(
         !p.dimensions
             .iter()
-            .any(|d| d.id == "d:f:plate:1/thickness.length")
+            .any(|d| d.id == "d:f:plate:f5/thickness.length")
     );
     assert!(
         p.omitted
             .iter()
-            .any(|d| d.id == "d:f:plate:1/thickness.length")
+            .any(|d| d.id == "d:f:plate:f5/thickness.length")
     );
     let issues = lint::check(&a, &marks(&p));
     assert!(
@@ -568,9 +568,9 @@ fn demo_bracket_references_are_optional_and_accounted_for() {
                         || matches!(
                             d.id.as_str(),
                             "d:envelope/height.length"
-                                | "d:f:slot:1/slot_width.length"
-                                | "d:f:slot:1/location_slot_across.length"
-                                | "d:f:boss:1/boss_height.length"
+                                | "d:f:slot:f12/slot_width.length"
+                                | "d:f:slot:f12/location_slot_across.length"
+                                | "d:f:boss:f10/boss_height.length"
                         ))
             })
             .map(|d| (d.value, d.label.clone()))
@@ -775,11 +775,11 @@ fn covered_by(p: &Plan, id: &str) -> String {
 fn ftc09_states_a_seat_on_a_face_level_once() {
     let a = trimmed("ftc09");
     let p = model::plan(&a, &Spec::default()).unwrap();
-    let seat = owners(&p, "f:section_recess:3", "seat_location.location.z");
+    let seat = owners(&p, "f:section_recess:f107", "seat_location.location.z");
     assert_eq!(seat.len(), 1);
-    assert_eq!(seat[0].0, "d:step_level/step_height.length.h128_1");
+    assert_eq!(seat[0].0, "d:step_level/step_height.length.f106");
     assert_eq!(
-        covered_by(&p, "d:f:section_recess:3/seat_location.location.z"),
+        covered_by(&p, "d:f:section_recess:f107/seat_location.location.z"),
         seat[0].0
     );
 }
@@ -906,12 +906,12 @@ fn redundancy_codes(a: &Analysis, marks: &[Mark]) -> Vec<String> {
 fn m10063_a_rung_on_its_pockets_floor_is_conveyed_by_the_pocket_callout() {
     let a = trimmed("m10063");
     let p = model::plan(&a, &Spec::default()).unwrap();
-    let rung = "d:step_level/step_height.length.h24_518";
+    let rung = "d:step_level/step_height.length.f39";
     let callout = "d:f:section_recess:3/pocket_width.length";
     assert!(!p.dimensions.iter().any(|d| d.id == rung));
     assert_eq!(covered_by(&p, rung), callout);
     assert_eq!(
-        owners(&p, "step_level", "step_height.length.h24_518"),
+        owners(&p, "step_level", "step_height.length.f39"),
         vec![(
             callout.to_string(),
             "3.304 × 6.278 × 24.518 DEEP".to_string()
@@ -923,14 +923,14 @@ fn m10063_a_rung_on_its_pockets_floor_is_conveyed_by_the_pocket_callout() {
     twice.push(mark(
         rung,
         "24.518",
-        &[("step_level", "step_height.length.h24_518")],
+        &[("step_level", "step_height.length.f39")],
     ));
     // Reported by its repeated claim and by its repeated support planes.
     let mut found = redundancy_codes(&a, &twice);
     found.dedup();
     assert_eq!(
         found,
-        ["l:duplicate_measurement:step_level/step_height.length.h24_518"]
+        ["l:duplicate_measurement:step_level/step_height.length.f39"]
     );
 }
 
@@ -942,11 +942,11 @@ fn m10063_a_rung_on_its_pockets_floor_is_conveyed_by_the_pocket_callout() {
 #[test]
 fn m10020_rungs_on_a_located_pockets_walls_yield_to_its_location_and_size() {
     let a = trimmed("m10020");
-    let location = "d:f:section_recess:5/location_pocket.z";
-    let callout = "d:f:section_recess:5/pocket_width.length";
+    let location = "d:f:section_recess:f35/location_pocket.z";
+    let callout = "d:f:section_recess:f35/pocket_width.length";
     let walls = [
-        "d:step_level/step_height.length.h10_898",
-        "d:step_level/step_height.length.h12_898",
+        "d:step_level/step_height.length.f36",
+        "d:step_level/step_height.length.f38",
     ];
     let p = model::plan(&a, &Spec::default()).unwrap();
     for id in walls {
@@ -970,25 +970,25 @@ fn m10020_rungs_on_a_located_pockets_walls_yield_to_its_location_and_size() {
         mark(
             location,
             "11.898",
-            &[("f:section_recess:5", "location_pocket.z")],
+            &[("f:section_recess:f35", "location_pocket.z")],
         ),
         mark(
             "authored:widths",
             "2× 2",
             &[
-                ("f:section_recess:1", "pocket_width.length"),
-                ("f:section_recess:5", "pocket_width.length"),
+                ("f:section_recess:f8", "pocket_width.length"),
+                ("f:section_recess:f35", "pocket_width.length"),
             ],
         ),
         mark(
             walls[1],
             "12.898",
-            &[("step_level", "step_height.length.h12_898")],
+            &[("step_level", "step_height.length.f38")],
         ),
     ];
     assert_eq!(
         redundancy_codes(&a, &counted),
-        ["l:closed_dimension_chain:step_level/step_height.length.h12_898"]
+        ["l:closed_dimension_chain:step_level/step_height.length.f38"]
     );
 }
 
@@ -1014,11 +1014,11 @@ fn a_rung_closed_by_a_rung_and_a_plate_without_a_label_stays_controlling() {
         assert!(
             p.dimensions
                 .iter()
-                .any(|d| d.id == "d:f:section_recess:5/pocket_width.length")
+                .any(|d| d.id == "d:f:section_recess:f35/pocket_width.length")
         );
         for (id, label) in [
-            ("d:step_level/step_height.length.h17_961", "17.961"),
-            ("d:step_level/step_height.length.h26_685", "26.685"),
+            ("d:step_level/step_height.length.f28", "17.961"),
+            ("d:step_level/step_height.length.f55", "26.685"),
             ("d:f:plate:1/thickness.length", "8.724"),
         ] {
             let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
@@ -1055,8 +1055,8 @@ fn findings(a: &Analysis, marks: &[Mark], codes: &[&str]) -> Vec<String> {
 #[test]
 fn h275_through_step_legs_yield_to_the_plates_and_overalls_that_state_them() {
     let a = trimmed("h275");
-    let x = "d:f:through_step:1/through_step_leg.length.x";
-    let y = "d:f:through_step:1/through_step_leg.length.y";
+    let x = "d:f:through_step:f7/through_step_leg.length.x";
+    let y = "d:f:through_step:f7/through_step_leg.length.y";
     let p = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(covered_by(&p, x), "d:f:plate:1/thickness.length");
     assert_eq!(covered_by(&p, y), "d:f:plate:2/thickness.length");
@@ -1105,11 +1105,11 @@ fn h275_through_step_legs_yield_to_the_plates_and_overalls_that_state_them() {
     drawn.push(mark(
         x,
         "9.353",
-        &[("f:through_step:1", "through_step_leg.length.x")],
+        &[("f:through_step:f7", "through_step_leg.length.x")],
     ));
     assert_eq!(
         findings(&a, &drawn, &codes),
-        ["l:closed_dimension_chain:f:through_step:1/through_step_leg.length.x"]
+        ["l:closed_dimension_chain:f:through_step:f7/through_step_leg.length.x"]
     );
 }
 
@@ -1147,7 +1147,7 @@ fn h274_a_leg_from_a_face_level_to_the_top_yields_to_the_rung_and_the_overall() 
 fn h483_a_rung_a_circular_step_depth_closes_is_a_reference() {
     let a = trimmed("h483");
     let rung = "d:step_level/step_height.length.h6_495";
-    let callout = "d:f:circular_blind_step:1/circular_step_radius.radius";
+    let callout = "d:f:circular_blind_step:f6/circular_step_radius.radius";
     let p = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(covered_by(&p, rung), "d:envelope/height.length");
     assert_eq!(shown(&p, callout), ("R2 × 18.243 DEEP".to_string(), false));
@@ -1204,7 +1204,7 @@ fn h265_a_rung_on_a_hex_pockets_floor_is_conveyed_by_its_callout() {
 fn r11512_a_rung_a_blind_slot_depth_closes_is_a_reference() {
     let a = trimmed("r11512");
     let rung = "d:step_level/step_height.length.h8_189";
-    let callout = "d:f:section_recess:1/rectangular_blind_slot_width.length";
+    let callout = "d:f:section_recess:f5/rectangular_blind_slot_width.length";
     let p = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(covered_by(&p, rung), "d:envelope/height.length");
     let codes = ["duplicate_measurement", "closed_dimension_chain"];
@@ -1224,12 +1224,12 @@ fn r11512_a_rung_a_blind_slot_depth_closes_is_a_reference() {
 #[test]
 fn m1008_a_boss_height_a_flat_hole_depth_states_is_conveyed_by_the_hole_callout() {
     let a = trimmed("m1008");
-    let boss = "d:f:boss:1/boss_height.length";
-    let callout = "d:f:hole:1/bore.diameter";
+    let boss = "d:f:boss:f15/boss_height.length";
+    let callout = "d:f:hole:f13/bore.diameter";
     let p = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(covered_by(&p, boss), callout);
     assert_eq!(
-        owners(&p, "f:boss:1", "boss_height.length"),
+        owners(&p, "f:boss:f15", "boss_height.length"),
         [(callout.to_string(), "⌀2.895 ↧ 9.67".to_string())]
     );
     let codes = [
@@ -1247,7 +1247,7 @@ fn m1008_a_boss_height_a_flat_hole_depth_states_is_conveyed_by_the_hole_callout(
     let mut other = two
         .features
         .iter()
-        .find(|f| f.id == "f:hole:1")
+        .find(|f| f.id == "f:hole:f13")
         .unwrap()
         .clone();
     other.id = "f:hole:2".into();
@@ -1257,7 +1257,7 @@ fn m1008_a_boss_height_a_flat_hole_depth_states_is_conveyed_by_the_hole_callout(
         mark(
             "h1",
             "⌀2.895 ↧ 9.67",
-            &[("f:hole:1", "bore.diameter"), ("f:hole:1", "bore.depth")],
+            &[("f:hole:f13", "bore.diameter"), ("f:hole:f13", "bore.depth")],
         ),
         mark(
             "h2",
@@ -1268,9 +1268,9 @@ fn m1008_a_boss_height_a_flat_hole_depth_states_is_conveyed_by_the_hole_callout(
     let codes = ["duplicate_measurement", "closed_dimension_chain"];
     assert!(findings(&two, &callouts, &codes).is_empty());
     let mut again = callouts.to_vec();
-    again.push(mark(boss, "9.67", &[("f:boss:1", "boss_height.length")]));
+    again.push(mark(boss, "9.67", &[("f:boss:f15", "boss_height.length")]));
     assert_eq!(
         findings(&two, &again, &codes),
-        ["l:duplicate_measurement:f:boss:1/boss_height.length"]
+        ["l:duplicate_measurement:f:boss:f15/boss_height.length"]
     );
 }
