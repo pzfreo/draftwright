@@ -240,7 +240,7 @@ context margins. Face crops use the faces' attachment bounds. The Spec contains 
 only: no crop coordinates are authored.
 
 ```json
-{"views":{"detail_c":{"detail":{"from":"side","around":["f:groove:1","f:turned_step:f10"],"scale_factor":3}}}}
+{"views":{"detail_c":{"detail":{"from":"side","around":["f:groove:f214","f:turned_step:f10"],"scale_factor":3}}}}
 ```
 
 Optional `from` selects an existing principal or section view ID without the `v:` prefix,
@@ -373,7 +373,7 @@ face fingerprints, never measured sizes or page coordinates:
 ```json
 {
   "features": {
-    "f:boss:1": { "reclassify": "turned_step" },
+    "f:boss:f0": { "reclassify": "turned_step" },
     "f:hole:f61": { "suppress": true },
     "f:hole_pattern:f99": { "split": true },
     "f:hole_pattern:mounting": {
@@ -1776,7 +1776,7 @@ ISO 21771-2:2025, ISO 53:1998, ISO 54:1996 and ISO 1328-1:2013):
 
 ```json
 {"gears": [{
-  "on": "f:boss:1",
+  "on": "f:boss:f0",
   "frame": {"origin": [0, 0, 0], "axis": "z"},
   "tooth_count": 13, "module": 1.25, "pressure_angle": 20,
   "profile_shift": 0, "face_width": 10,
