@@ -622,7 +622,15 @@ fn every_planned_dimension_can_be_addressed() {
                 if i.starts_with(heights) {
                     return Some(heights.to_string());
                 }
-                i.strip_prefix("d:step_level/step_position.length.")
+                // Axis labels belong to geometry, not the face-based ID spelling.
+                // The public migration map recovers the original axis-group vocabulary.
+                let original = plan
+                    .ids
+                    .iter()
+                    .find_map(|(old, new)| (new == i).then_some(old.as_str()))
+                    .unwrap_or(i);
+                original
+                    .strip_prefix("d:step_level/step_position.length.")
                     .and_then(|r| r.get(..1))
                     .map(|axis| format!("d:step_level/step_position.length.{axis}"))
             };
