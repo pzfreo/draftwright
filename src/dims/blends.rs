@@ -16,6 +16,10 @@ const GENERAL_COUNT: usize = 5;
 pub(crate) use crate::lint::blends::{RADIUS_TABLE, RELIEF_NOTE};
 type ViewSites<'a> = BTreeMap<(&'static str, usize), Vec<([f64; 3], &'a Feature)>>;
 
+fn drawing_order(f: &Feature) -> &str {
+    f.legacy_id.as_deref().unwrap_or(&f.id)
+}
+
 fn groups(a: &Analysis) -> Vec<Vec<&Feature>> {
     let pocket_corners = crate::lint::pockets::pattern_corner_blends(a);
     let mut groups = BTreeMap::<String, Vec<&Feature>>::new();
@@ -30,7 +34,7 @@ fn groups(a: &Analysis) -> Vec<Vec<&Feature>> {
     }
     let mut out: Vec<_> = groups.into_values().collect();
     for group in &mut out {
-        group.sort_by(|a, b| a.id.cmp(&b.id));
+        group.sort_by(|a, b| drawing_order(a).cmp(drawing_order(b)));
     }
     out.sort_by(|a, b| {
         radius(a[0])
@@ -38,7 +42,7 @@ fn groups(a: &Analysis) -> Vec<Vec<&Feature>> {
             .unwrap()
             // Invariant: groups contains only features with a successfully read radius.
             .total_cmp(&radius(b[0]).unwrap())
-            .then(a[0].id.cmp(&b[0].id))
+            .then(drawing_order(a[0]).cmp(drawing_order(b[0])))
     });
     out
 }
@@ -713,4 +717,35 @@ pub(crate) fn tabulate_obstructed(
         problems.retain(|p| !p.subjects.contains(&d.id) || !leader_problem(&p.code));
     }
     Some(RadiusTable { rows, table })
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    #[test]
+    fn a_new_id_spelling_keeps_the_same_counted_radius_representative() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/mounting_plate.step");
+        let (_, mut a) = crate::model::analyse_native(&path).unwrap();
+        let mut first = a.features[0].clone();
+        first.kind = "blend".into();
+        first.id = "f:blend:f7".into();
+        first.legacy_id = Some("f:blend:1".into());
+        first.faces = vec![7];
+        first
+            .parameters
+            .insert("radius".into(), serde_json::json!(0.25));
+        let mut second = first.clone();
+        second.id = "f:blend:f14".into();
+        second.legacy_id = Some("f:blend:2".into());
+        second.faces = vec![14];
+        a.features = vec![first, second];
+        let groups = groups(&a);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(
+            groups[0].iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
+            ["f:blend:f7", "f:blend:f14"]
+        );
+    }
 }
