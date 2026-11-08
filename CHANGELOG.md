@@ -17,10 +17,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Fixed
 
-- Translate settled projection assemblies into vacant same-sheet space when a
-  generated dimension overflows an explicit paper/scale pair. Preserve authored
-  placements, routes and scale; CTC-01 keeps A3 1:5 and its placed 510 dimension
-  without a page-fit warning or scale-change fix (#331).
+- Translate overflowing projection rows into vacant same-sheet space at an
+  explicit paper/scale pair, keeping unrelated rows and controls fixed. Preserve
+  authored placements, routes and scale; CTC-01 keeps A3 1:5 and its placed 510
+  dimension without a page-fit warning or scale-change fix (#331).
 
 - Keep generated hole-tag prose in sync with final labels; retain legacy numbering
   when collision evidence is missing, restore recorded row order exactly, and

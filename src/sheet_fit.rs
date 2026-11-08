@@ -1909,6 +1909,18 @@ pub(crate) fn reserve_linear_corridors(
             .filter(|(_, v)| v.id != "v:iso")
             .map(|(i, _)| i)
             .collect();
+        if settled_overflow && let Some(top) = index("v:plan") {
+            // The plan view is free along the projection column. Settle that
+            // row first, retaining the front/side row and its unrelated controls.
+            // A later whole-assembly correction is needed only if other rows
+            // also overflow. All annotation contacts are rechecked below.
+            let area = plan.views[top].area;
+            let minimum = margin() - area[1];
+            let maximum = plan.sheet.page[1] - margin() - area[3];
+            if minimum <= maximum {
+                shifts[top][1] = 0.0_f64.clamp(minimum, maximum);
+            }
+        }
         let lower = [0, 1].map(|k| {
             group
                 .iter()

@@ -2224,9 +2224,17 @@ fn gdt_move_reports_name_the_item_and_dimension_placement_once() {
         .collect();
     assert_eq!(
         reports.len(),
-        3,
-        "only the three real datum moves, not the eight drifting frames/labels"
+        1,
+        "only datum A moves; the finished plan row keeps B/C and unrelated controls fixed"
     );
+    for id in ["pmi:datum.datum:f75,76:t=C", "pmi:datum.datum:f89,90:t=B"] {
+        let old = before.plan.gdt.iter().find(|g| g.id == id).unwrap();
+        let new = after.plan.gdt.iter().find(|g| g.id == id).unwrap();
+        assert!(paper_close(
+            old.placed.as_ref().unwrap().label_box,
+            new.placed.as_ref().unwrap().label_box,
+        ));
+    }
     assert!(reports.iter().all(|p| {
         after
             .plan
