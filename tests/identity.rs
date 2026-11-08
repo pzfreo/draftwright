@@ -521,7 +521,7 @@ fn version_1_specs_migrate_and_plan_identically() {
                 .unwrap();
             let entry = spec
                 .dimensions
-                .remove("d:f:fillet:f3/fillet.radius@front")
+                .remove("d:f:fillet:1/fillet.radius@front")
                 .unwrap();
             spec.dimensions.insert(format!("{}@front", d.id), entry);
         }
@@ -542,6 +542,14 @@ fn version_1_specs_migrate_and_plan_identically() {
             // version 2 spec.
             let mut v2 = renamed(&serde_json::to_value(&spec).unwrap(), &ids);
             v2["schema"] = model::SPEC_SCHEMA.into();
+            if part == "plate" {
+                let pattern = v2["features"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("f:hole_pattern:1")
+                    .unwrap();
+                v2["features"]["f:hole_pattern:f6"] = pattern;
+            }
             let v2: Spec = serde_json::from_value(v2).unwrap();
             serde_json::to_value(api::plan_from(&step, features, &v2).unwrap()).unwrap()
         } else {
@@ -622,6 +630,23 @@ fn version_1_specs_migrate_and_plan_identically() {
         if REPLANNED.contains(&part) {
             expected = without_typed_state(expected);
         }
+        // The canonical current-Spec oracle has no read-time migrations. Keep the new
+        // report in the full comparison with independently stated saved-input expectations.
+        expected["migrated"] = if part == "plate" {
+            json!([
+                {"path":"dimensions/d:envelope~1height.length@side", "from":"d:envelope/height.length@side", "to":"d:envelope/height.length"},
+                {"path":"dimensions/d:envelope~1width.length@plan", "from":"d:envelope/width.length@plan", "to":"d:envelope/width.length"},
+                {"path":"features/f:hole_pattern:1", "from":"f:hole_pattern:1", "to":"f:hole_pattern:f6"}
+            ])
+        } else {
+            assert_eq!(part, "bracket_positions");
+            let pmi = format!("d:{}/linear.basic", ids["dimension:#31409"]);
+            json!([
+                {"path":"dimensions/d:envelope~1depth.length@plan", "from":"d:envelope/depth.length@plan", "to":"d:envelope/depth.length"},
+                {"path":"dimensions/d:f:fillet:f23~1fillet.radius@front", "from":"d:f:fillet:f23/fillet.radius@front", "to":"d:f:fillet:f23/fillet.radius"},
+                {"path":"dimensions/d:pmi:dimension:#31409~1linear.basic@plan", "from":"d:pmi:dimension:#31409/linear.basic@plan", "to":pmi}
+            ])
+        };
         let mut got = without_typed_state(serde_json::to_value(&plan).unwrap());
         for p in [&mut expected, &mut got] {
             // A problem's subjects and its references (S2) are what 0.1.0-alpha.1's subjects
