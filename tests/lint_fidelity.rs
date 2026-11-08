@@ -626,3 +626,59 @@ fn datum_departure_is_square_before_any_bend_and_frame_interior_stays_strict() {
     let border = datum(10.);
     assert!(found(&check(border), "leader_line_through_text").is_empty());
 }
+
+#[test]
+fn explicit_reference_precision_suppresses_only_the_rounding_advisory() {
+    for (label, precision, advisory) in [
+        ("(38.6)", Some(1), false),
+        ("(38.6)", None, true),
+        ("38.6", Some(1), true),
+    ] {
+        let mut drawing = sheet(1.0, Vec::new(), vec![(linear(100.0, 138.641), label)]);
+        if let Some(precision) = precision {
+            drawing
+                .sheet
+                .precision
+                .insert(drawing.sheet.items[0].name.clone(), precision);
+        }
+        let issues = structural::check(&drawing);
+        assert_eq!(
+            !found(&issues, "nominal_rounded").is_empty(),
+            advisory,
+            "{label}"
+        );
+        assert!(found(&issues, "label_vs_measured").is_empty());
+        drawing.text[0].text = "(50.0)".into();
+        assert!(!found(&structural::check(&drawing), "label_vs_measured").is_empty());
+    }
+}
+
+#[test]
+fn reference_brackets_preserve_the_displayed_mm_and_inch_precision() {
+    for (label, exact, nearby) in [
+        ("(25.125)", 25.125, 25.126),
+        ("(0.375 INCH)", 0.375 * 25.4, 0.376 * 25.4),
+        ("(0.375) INCH", 0.375 * 25.4, 0.376 * 25.4),
+    ] {
+        for measured in [exact, nearby] {
+            let issues = structural::check(&sheet(
+                1.0,
+                Vec::new(),
+                vec![(linear(100.0, 100.0 + measured), label)],
+            ));
+            assert!(
+                fidelity(&issues).is_empty(),
+                "{label} at {measured}: {issues:?}"
+            );
+        }
+        let wrong = structural::check(&sheet(
+            1.0,
+            Vec::new(),
+            vec![(linear(100.0, 100.0 + exact * 1.1), label)],
+        ));
+        assert!(
+            !found(&wrong, "label_vs_measured").is_empty(),
+            "{label}: {wrong:?}"
+        );
+    }
+}

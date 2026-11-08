@@ -6,6 +6,12 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+### Fixed
+
+- Keep the general-tolerance remedy local to the title block, without pinning paper, scale
+  or layout. Honour deliberate reference precision, including bracketed mm and inch labels
+  (#299).
+
 ## 0.2.13 (2026-11-08)
 
 On quiddity-rust 0.4.9, now from crates.io (was 0.4.8 from a git tag). This release makes
