@@ -257,7 +257,9 @@ fn controlling(
                 ((kept[j].0.value * 1e6).round() as i64)
                     .cmp(&((kept[i].0.value * 1e6).round() as i64)),
             )
-            .then(kept[i].0.id.cmp(&kept[j].0.id))
+            .then_with(|| {
+                super::presentation_id(a, &kept[i].0).cmp(&super::presentation_id(a, &kept[j].0))
+            })
     });
     // Stream K6 (ADR4-U1): a boss standing on a face level closes a chain with that level's
     // ladder rung and the overall height, all measured from the part's base (boss_circle: the 9
@@ -634,7 +636,10 @@ fn rungs_on_compound_labels(
     ladder.sort_by(|x, y| {
         (y.1.hi - y.1.lo)
             .total_cmp(&(x.1.hi - x.1.lo))
-            .then(kept[x.0].0.id.cmp(&kept[y.0].0.id))
+            .then_with(|| {
+                super::presentation_id(a, &kept[x.0].0)
+                    .cmp(&super::presentation_id(a, &kept[y.0].0))
+            })
     });
     let mut live: Vec<(Span, usize)> = ladder.iter().map(|&(i, s)| (s, i)).collect();
     for (i, s) in ladder {
@@ -724,9 +729,9 @@ fn longest_member(
         .copied()
         .filter(|&j| j != total && free(j) && length(j) > length(i) + TOL)
         .max_by(|&x, &y| {
-            length(x)
-                .total_cmp(&length(y))
-                .then(kept[y].0.id.cmp(&kept[x].0.id))
+            length(x).total_cmp(&length(y)).then_with(|| {
+                super::presentation_id(a, &kept[y].0).cmp(&super::presentation_id(a, &kept[x].0))
+            })
         });
     let Some(pick) = pick else {
         return (i, route);
