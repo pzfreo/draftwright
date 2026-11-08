@@ -493,7 +493,8 @@ fn reason_codes_do_not_depend_on_the_order_of_refusals() {
     // The plate has no section, so no detail can be taken from one.
     let mut s = plate();
     assert!(s.plan().views.iter().all(|v| v.id != "v:section_aa"));
-    let from = json!({"detail": {"around": "f:hole:f9", "from": "section_aa", "scale_factor": 3.0}});
+    let from =
+        json!({"detail": {"around": "f:hole:f9", "from": "section_aa", "scale_factor": 3.0}});
     let e = s
         .set_spec(&spec(json!({"views": {"detail_b": from}})))
         .unwrap_err();

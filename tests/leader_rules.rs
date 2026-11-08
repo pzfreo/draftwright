@@ -993,7 +993,11 @@ fn recovered_ftc09_keeps_a1_and_perpendicular_witnesses() {
     let (part, mut a) = cache::native(&path);
     // Its congruent slots 1 and 2, called out together, drop the slot radius leader whose
     // crowding made this case: slot 2 is split from their callout (`features/<id>/split`).
-    let slot = a.features.iter_mut().find(|f| f.id == "f:slot:f82").unwrap();
+    let slot = a
+        .features
+        .iter_mut()
+        .find(|f| f.id == "f:slot:f82")
+        .unwrap();
     slot.parameters.insert(
         draftwright::lint::slots::ALONE.into(),
         serde_json::Value::Bool(true),

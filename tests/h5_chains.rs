@@ -427,10 +427,7 @@ fn shoulders_on_slot_walls_are_references_when_the_slot_is_stated() {
         label(&p, "d:f:slot:1/location_slot_across.length"),
         "20.877"
     );
-    assert_eq!(
-        label(&p, "d:step_level/step_position.length.f5"),
-        "(18.61)"
-    );
+    assert_eq!(label(&p, "d:step_level/step_position.length.f5"), "(18.61)");
     assert_eq!(
         label(&p, "d:step_level/step_position.length.f7"),
         "(23.144)"
@@ -445,20 +442,14 @@ fn shoulders_on_slot_walls_are_references_when_the_slot_is_stated() {
     // Without the centre line only the farther shoulder closes the chain.
     let spec = model::edit(&references(), &json!([{"op":"set", "path":"dimensions/d:f:slot:1~1location_slot_across.length/omit", "value":true}])).unwrap();
     let p = model::plan(&a, &spec).unwrap();
-    assert_eq!(
-        label(&p, "d:step_level/step_position.length.f5"),
-        "18.61"
-    );
+    assert_eq!(label(&p, "d:step_level/step_position.length.f5"), "18.61");
     assert_eq!(
         label(&p, "d:step_level/step_position.length.f7"),
         "(23.144)"
     );
     // The same rule on z ladders (FTC-09's slots, FTC-10's 12.5 + 50 = 62.5).
     let p = model::plan(&native("nist/nist_ftc_09_asme1_rd.stp"), &references()).unwrap();
-    assert_eq!(
-        label(&p, "d:step_level/step_height.length.f81"),
-        "(41.275)"
-    );
+    assert_eq!(label(&p, "d:step_level/step_height.length.f81"), "(41.275)");
     let p = model::plan(&native("nist/nist_ftc_10_asme1_rb.stp"), &references()).unwrap();
     assert_eq!(label(&p, "d:step_level/step_height.length.h62_5"), "(62.5)");
 }
@@ -1257,7 +1248,10 @@ fn m1008_a_boss_height_a_flat_hole_depth_states_is_conveyed_by_the_hole_callout(
         mark(
             "h1",
             "⌀2.895 ↧ 9.67",
-            &[("f:hole:f13", "bore.diameter"), ("f:hole:f13", "bore.depth")],
+            &[
+                ("f:hole:f13", "bore.diameter"),
+                ("f:hole:f13", "bore.depth"),
+            ],
         ),
         mark(
             "h2",

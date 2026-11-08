@@ -890,7 +890,8 @@ mod tests {
             [0.0, 1.0, 0.0],
             [0.0, 0.0, 1.0],
         ];
-        let holes: BTreeMap<&str, Hole> = [("f:hole:f6", Hole::read(&f, &identity).unwrap())].into();
+        let holes: BTreeMap<&str, Hole> =
+            [("f:hole:f6", Hole::read(&f, &identity).unwrap())].into();
         let mark = |text: &str, parameter: &str| Mark {
             name: "m".into(),
             view: None,

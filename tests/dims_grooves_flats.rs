@@ -455,5 +455,9 @@ fn grm02_drawn_height_or_axis_location_states_the_single_flat() {
         .or_default()
         .omit = true;
     let missing = model::plan(&a, &spec).unwrap();
-    assert!(missing.problems.iter().any(|p| p.code == "feature_not_dimensioned" && p.subjects.contains(&"f:flat:f2".into())));
+    assert!(
+        missing.problems.iter().any(
+            |p| p.code == "feature_not_dimensioned" && p.subjects.contains(&"f:flat:f2".into())
+        )
+    );
 }

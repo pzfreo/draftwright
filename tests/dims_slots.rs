@@ -1131,7 +1131,12 @@ fn a_slot_split_by_the_spec_is_dimensioned_by_its_end_centres() {
         .find(|d| d.label.contains("SLOT"))
         .unwrap();
     assert_eq!(callout.label, "2× SLOT 6 × 20");
-    assert!(callout.measurements.iter().all(|m| m.feature != "f:slot:f10"));
+    assert!(
+        callout
+            .measurements
+            .iter()
+            .all(|m| m.feature != "f:slot:f10")
+    );
     assert_eq!(claims(&plan, "slot_width.length"), ["6"]);
     // 20 long with R3 ends: centres 14 apart.
     assert_eq!(claims(&plan, "slot_centres.length"), ["14"]);

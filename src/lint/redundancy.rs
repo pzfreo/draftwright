@@ -62,6 +62,11 @@ pub(crate) fn path(edges: &[(Span, usize)], target: Span) -> Option<Vec<usize>> 
 }
 
 pub(crate) fn level_span(a: &Analysis, parameter: &str) -> Option<Span> {
+    let map = crate::dims::levels::legacy_ids(a);
+    let parameter = map
+        .iter()
+        .find(|(_, new)| *new == parameter)
+        .map_or(parameter, |(old, _)| old.as_str());
     let h: f64 = parameter
         .strip_prefix("step_height.length.h")?
         .replace('_', ".")
@@ -76,6 +81,11 @@ pub(crate) fn level_span(a: &Analysis, parameter: &str) -> Option<Span> {
 
 /// A ladder shoulder `step_position.length.<axis><position>`, measured from the part's box.
 pub(crate) fn position_span(a: &Analysis, parameter: &str) -> Option<Span> {
+    let map = crate::dims::levels::legacy_ids(a);
+    let parameter = map
+        .iter()
+        .find(|(_, new)| *new == parameter)
+        .map_or(parameter, |(old, _)| old.as_str());
     let word = parameter.strip_prefix("step_position.length.")?;
     let k = ["x", "y", "z"].iter().position(|x| word.starts_with(x))?;
     let v: f64 = word[1..].replace('_', ".").parse().ok()?;

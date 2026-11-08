@@ -2751,9 +2751,10 @@ fn unavailable_named_section_keeps_automatic_cut_and_uses_requested_label() {
         .find(|v| v.id == original.id)
         .expect("retain automatic section");
     assert_eq!(retained.cut, original.cut);
-    assert!(p.plan.problems.iter().any(
-        |p| p.code == "section_not_shown" && p.message.contains("section B through f:fillet:f17")
-    ));
+    assert!(
+        p.plan.problems.iter().any(|p| p.code == "section_not_shown"
+            && p.message.contains("section B through f:fillet:f17"))
+    );
     s["views"] = json!({"plan":{}, "section_bb":{"omit":true}, "sections":[{"id":"B", "through":"f:section_recess:1"}]});
     let omitted = planned(SHAFT, &s);
     let warning = omitted

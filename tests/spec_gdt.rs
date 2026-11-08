@@ -341,8 +341,12 @@ fn edits_author_datums_and_controls_and_refuse_what_cannot_be_drawn() {
 fn the_session_offers_datum_and_control_paths_on_a_feature() {
     let (part, a) = plate();
     let session = draftwright::Session::new(part, a, Spec::default()).unwrap();
-    let options =
-        serde_json::to_value(session.options("d:f:hole_pattern:f6/bore.diameter").unwrap()).unwrap();
+    let options = serde_json::to_value(
+        session
+            .options("d:f:hole_pattern:f6/bore.diameter")
+            .unwrap(),
+    )
+    .unwrap();
     let settable = &options["settable"];
     assert_eq!(
         settable["features/f:hole_pattern:f6/datum"]["forms"],

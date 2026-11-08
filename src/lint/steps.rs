@@ -242,19 +242,25 @@ pub fn alternatives(analysis: &Analysis, f: &Feature) -> Vec<Alternatives> {
     let mut out = Vec::new();
     for (k, a, b) in spans {
         let extent = Term::new("envelope", EXTENTS[k], hi[k] - lo[k]);
-        let ladder = if k == 2 {
-            "step_height.length"
-        } else {
-            "step_position.length"
+        let ladder = |at: f64| {
+            if k == 2 && analysis.level_supports.iter().any(|s| !s.faces.is_empty()) {
+                crate::dims::levels::height_parameter(analysis, at)
+            } else if k < 2 && analysis.risers.iter().any(|r| !r.faces.is_empty()) {
+                crate::dims::levels::position_parameter(analysis, k, at)
+            } else if k == 2 {
+                "step_height.length".into()
+            } else {
+                "step_position.length".into()
+            }
         };
         let mut alts = Vec::new();
         // A level's height from the base, or a shoulder's position from the box.
         if near(a, lo[k]) {
-            alts.push(vec![Term::new("step_level", ladder, b - lo[k])]);
+            alts.push(vec![Term::new("step_level", &ladder(b), b - lo[k])]);
         }
         if near(b, hi[k]) {
             alts.push(vec![
-                Term::new("step_level", ladder, a - lo[k]),
+                Term::new("step_level", &ladder(a), a - lo[k]),
                 extent.clone(),
             ]);
         }

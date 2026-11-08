@@ -657,9 +657,9 @@ fn located_once_checks_native_ink_and_rejects_a_broken_witness() {
         .iter()
         .find(|d| {
             d.placed.is_some()
-                && d.measurements
-                    .first()
-                    .is_some_and(|m| m.feature == "f:hole:f12" && m.parameter == "location.length.x")
+                && d.measurements.first().is_some_and(|m| {
+                    m.feature == "f:hole:f12" && m.parameter == "location.length.x"
+                })
         })
         .unwrap();
     let has_gap = |drawing: &draftwright::output::Drawing| {

@@ -1114,7 +1114,10 @@ mod tests {
         // One callout for the pair leaves the opposed hole unstated.
         let pair = mark(
             "2× ⌀6.6 THRU",
-            &[("f:hole:f6", "bore.diameter"), ("f:hole:2", "bore.diameter")],
+            &[
+                ("f:hole:f6", "bore.diameter"),
+                ("f:hole:2", "bore.diameter"),
+            ],
         );
         assert_eq!(
             found(&a, &[pair]),
@@ -1136,7 +1139,10 @@ mod tests {
         // A callout claiming all three but printing "3×" states no group's quantity.
         let all = mark(
             "3× ⌀6.6 THRU",
-            &[("f:hole:f6", "bore.diameter"), ("f:hole:3", "bore.diameter")],
+            &[
+                ("f:hole:f6", "bore.diameter"),
+                ("f:hole:3", "bore.diameter"),
+            ],
         );
         assert_eq!(
             found(&a, &[all]),

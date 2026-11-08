@@ -294,7 +294,11 @@ fn a_lone_rib_owns_four_uncounted_requirements() {
         })
         .collect();
     assert_eq!(dimensions.len(), 4);
-    assert!(dimensions.iter().all(|d| d.placed.is_some()
-        && !d.label.contains('×')
-        && d.measurements.iter().all(|m| m.feature == "f:gusset_rib:f7")));
+    assert!(dimensions.iter().all(|d| {
+        d.placed.is_some()
+            && !d.label.contains('×')
+            && d.measurements
+                .iter()
+                .all(|m| m.feature == "f:gusset_rib:f7")
+    }));
 }

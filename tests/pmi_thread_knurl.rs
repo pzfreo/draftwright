@@ -170,7 +170,10 @@ fn several_long_requirements_refer_to_the_manufacturing_requirements_table() {
     .unwrap();
     let drawing_py = captured("thumbwheel_thread_knurl");
     for (source, id) in [
-        ("manufacturing_requirement:#689", "d:f:hole:f12/bore.diameter"),
+        (
+            "manufacturing_requirement:#689",
+            "d:f:hole:f12/bore.diameter",
+        ),
         (
             "manufacturing_requirement:#722",
             "d:f:turned_step:f9/step.diameter",
