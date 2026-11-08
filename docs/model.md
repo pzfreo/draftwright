@@ -62,7 +62,7 @@ edited.
   "frame": { "origin": [0, 0, 0], "axes": [[1, 0, 0], [0, 1, 0], [0, 0, 1]] },
   "envelope": { "min": [0, 0, 0], "max": [28.8, 32.3, 44.7] },
   "features": [
-    { "id": "f:hole:3", "kind": "hole", "faces": [12, 13],
+    { "id": "f:hole:f12", "kind": "hole", "faces": [12, 13],
       "parameters": { "diameter": 8.1, "depth": "through" },
       "fingerprint": { "…": "quiddity's revision-stable signature, see Rebinding" } }
   ],
@@ -240,7 +240,7 @@ context margins. Face crops use the faces' attachment bounds. The Spec contains 
 only: no crop coordinates are authored.
 
 ```json
-{"views":{"detail_c":{"detail":{"from":"side","around":["f:groove:1","f:turned_step:2"],"scale_factor":3}}}}
+{"views":{"detail_c":{"detail":{"from":"side","around":["f:groove:1","f:turned_step:f10"],"scale_factor":3}}}}
 ```
 
 Optional `from` selects an existing principal or section view ID without the `v:` prefix,
@@ -299,9 +299,9 @@ mention takes its default.
                          "gap": 10, "align": "middle", "pinned": true } },
     "side": { "omit": true }
   },
-  "features": { "f:hole:3": { "fit": "H7" } },
+  "features": { "f:hole:f12": { "fit": "H7" } },
   "dimensions": {
-    "d:f:hole:3/bore.diameter": { "tolerance": "±0.05" },
+    "d:f:hole:f12/bore.diameter": { "tolerance": "±0.05" },
     "d:envelope/width.length": {
       "place": { "view": "front", "side": "above", "lane": 1,
                  "along": "middle", "pinned": true }
@@ -316,7 +316,7 @@ mention takes its default.
 ```
 
 `views/sections` requests a longitudinal section through named geometry, for example
-`"sections": [{"id": "A", "through": "f:section_recess:1"}]`. IDs are distinct
+`"sections": [{"id": "A", "through": "f:section_recess:f133"}]`. IDs are distinct
 letters A–H. When drawable, the first request replaces the automatic section, using a
 front-facing plane through a z-axis hole or a z-depth pocket running along x. The plan records
 the cut and the applied Spec path. A pocket section carries its measured width and
@@ -374,10 +374,10 @@ face fingerprints, never measured sizes or page coordinates:
 {
   "features": {
     "f:boss:1": { "reclassify": "turned_step" },
-    "f:hole:9": { "suppress": true },
-    "f:hole_pattern:1": { "split": true },
+    "f:hole:f61": { "suppress": true },
+    "f:hole_pattern:f99": { "split": true },
     "f:hole_pattern:mounting": {
-      "pattern": { "arrangement": "grid", "members": ["f:hole:1", "f:hole:2", "f:hole:3", "f:hole:5", "f:hole:6", "f:hole:8"] }
+      "pattern": { "arrangement": "grid", "members": ["f:hole:f21", "f:hole:f26", "f:hole:f12", "f:hole:f41", "f:hole:f46", "f:hole:f56"] }
     }
   },
   "feature_declarations": [
@@ -805,8 +805,8 @@ Each entry owns a station network on a **part-frame** axis. For example:
 {
   "dimension_schemes": {
     "inspection": {"scheme": "baseline", "axis": "z", "view": "front", "from": "max"},
-    "mounts": {"scheme": "chain", "axis": "x", "targets": ["f:hole_pattern:1"], "view": "plan"},
-    "drilling": {"scheme": "ordinate", "axis": "y", "targets": ["f:hole:1", "f:hole:3"],
+    "mounts": {"scheme": "chain", "axis": "x", "targets": ["f:hole_pattern:f99"], "view": "plan"},
+    "drilling": {"scheme": "ordinate", "axis": "y", "targets": ["f:hole:f21", "f:hole:f12"],
                  "view": "plan", "from": "face:v1:<fingerprint>"}
   }
 }
@@ -825,7 +825,7 @@ An incompatible carrier for an already located target is refused with its compat
 
 A hole or slot pattern expands to its physical members. A turned step expands to both its
 shoulders. Other feature IDs select their position; a feature proving one transverse planar
-face can also name that datum plane. `start:f:turned_step:1` and `end:f:turned_step:1`
+face can also name that datum plane. `start:f:turned_step:f1` and `end:f:turned_step:f1`
 select a band's low and high shoulder. `from` accepts the same station references, or
 `min`/`max` for the two ends of the part along the chosen axis; absent means `min`.
 A face must be planar and perpendicular to the measuring axis; a cylinder axis or straight
@@ -1087,12 +1087,12 @@ or unsupported-feature warnings, and an authored omission is not an ownerless di
   "views": [ { "id": "v:front", "direction": [0, -1, 0], "at": [120, 180], "default": true,
                "basis": "front shows the most features" } ],
   "dimensions": [
-    { "id": "d:f:hole:3/diameter", "view": "v:plan", "value": 8.1, "label": "ø8.1 H7",
+    { "id": "d:f:hole:f12/diameter", "view": "v:plan", "value": 8.1, "label": "ø8.1 H7",
       "from_spec": ["fit"], "default": false, "basis": "a hole's size is called out where it is seen end-on",
       "state": { "kind": "shown" }, "rebind": "carried" }
   ],
   "omitted": [
-    { "id": "d:f:pocket:1/depth", "label": "↧ 5", "basis": "authored: the spec omits it",
+    { "id": "d:f:pocket:f133/depth", "label": "↧ 5", "basis": "authored: the spec omits it",
       "state": { "kind": "omitted_by_user" } }
   ],
   "problems": [
@@ -1298,9 +1298,9 @@ basis, placed, reference?, determined_by?}`:
 - **Turned step lengths** on a whole connected multi-step profile use a baseline from one
   inspection end. A PMI planar datum or PMI shoulder lengths retain precedence (#33);
   otherwise the larger end diameter selects the end, with the low station breaking a tie.
-  Independent profiles retain a chain of `d:f:turned_step:<n>/step.length`.
+  Independent profiles retain a chain of `d:f:turned_step:f<lowest face>/step.length`.
   In a baseline the band at the datum keeps its `step.length`, each further shoulder is
-  `d:f:turned_step:<n>/step_position.length` (the distance from the datum to the shoulder that
+  `d:f:turned_step:f<lowest face>/step_position.length` (the distance from the datum to the shoulder that
   ends band `n`), and the overall length is the last rung (it also claims the last band's
   `step_position.length`), so no rung is reference. The other bands' `step.length` items stay
   in the inventory (a spec may name them) and are `covered` by the rung locating their band,
@@ -1336,18 +1336,18 @@ basis, placed, reference?, determined_by?}`:
   Location witnesses use the box’s outward silhouette; `place/side` overrides the
   automatic side through the existing per-dimension placement intent.
 
-- **Raised pads** (`src/dims/pads.rs`, stream K5): `d:f:pad:<n>/pad_width.length` and
+- **Raised pads** (`src/dims/pads.rs`, stream K5): `d:f:pad:f<lowest face>/pad_width.length` and
   `pad_length.length` between the pad's own edges, `pad_height.length` as a callout `5 HIGH`, and
   `location_pad.location.x|y` (a pad along z) or `location_pad.<axis>` from the part's corner to
   its centre, all in the view that looks down on it; a direction on the datum is an info
   `location_on_datum`.
 - **Free-direction slots** (`src/dims/oriented_slots.rs`, stream K5): one callout
-  `d:f:oriented_slot:<n>/oriented_slot_width.length`, `ORIENTED SLOT 2 WIDE × 4.5 LONG`, claiming
+  `d:f:oriented_slot:f<lowest face>/oriented_slot_width.length`, `ORIENTED SLOT 2 WIDE × 4.5 LONG`, claiming
   width and length, in the view along the slot's dominant run axis, its leader to the slot's rim;
   equal slots in one view share a counted callout.
 - **Hole callouts** in draftwright's grammar (`4× ⌀10 THRU ⌴ ⌀16 ↧ 5 (2×2)`), in the view that
   looks along the hole. Identical holes drilled the same way are grouped and counted; quiddity's
-  hole patterns (kept by the bridge in `recognition.patterns` as `f:hole_pattern:<n>`) are called
+  hole patterns (kept by the bridge in `recognition.patterns` as `f:hole_pattern:f<lowest face>`) are called
   out as grids `(r×c)` or bolt circles `EQ SP ON øD BC` (five or more members), or as linear
   patterns. THRU is the feature's fact (`bottom: through`). A spotface is stated with ASME
   Y14.5-2018's spotface symbol, the counterbore symbol with SF inside (`⌴SF` in the text, drawn as
@@ -1558,7 +1558,7 @@ basis, placed, reference?, determined_by?}`:
     entries are kept inactive like the other feature-keyed entries.
 
 Plate and wall thicknesses (`src/dims/plates.rs`, ISSUE-1373-a) are ordinary
-`d:f:plate:<n>/thickness.length` items: z slabs on the front-left strip, y walls
+`d:f:plate:f<lowest face>/thickness.length` items: z slabs on the front-left strip, y walls
 above the side view and x walls below front. Equal thicknesses on one recognised
 body share a counted statement with every slab's claim. Proven envelope, step,
 turned-band and channel statements may cover an item; supporting polygonal slabs
@@ -1978,7 +1978,7 @@ A part whose STEP carries no AP242 PMI can still carry datums and feature contro
 
 ```json
 "faces":    { "bottom": { "datum": "A" } },
-"features": { "f:hole_pattern:1": { "controls": [
+"features": { "f:hole_pattern:f99": { "controls": [
   { "characteristic": "position", "tolerance": 0.1, "datums": ["A"] } ] } }
 ```
 
@@ -2032,10 +2032,10 @@ item 1, stream K1b; Python draftwright's `Sheet.finish`, `thread`, `knurl`, `not
 ```json
 "sheet":    { "default_finish": { "ra": 3.2 }, "title": { "tolerance": "ISO 2768-m" } },
 "faces":    { "top": { "finish": { "ra": 0.8, "removal": "required" } } },
-"features": { "f:hole_pattern:1": { "thread": { "designation": "M6" } },
-              "f:turned_step:1":  { "thread": { "designation": "M10", "length": 15 } },
+"features": { "f:hole_pattern:f99": { "thread": { "designation": "M6" } },
+              "f:turned_step:f1":  { "thread": { "designation": "M10", "length": 15 } },
               "f:turned_step:f20":  { "knurl": { "pattern": "diamond", "pitch": 0.8 } },
-              "f:hole:1":         { "note": "DRILL AND TAP AFTER HARDENING" } },
+              "f:hole:f21":         { "note": "DRILL AND TAP AFTER HARDENING" } },
 "notes":    [ { "id": "n:1", "text": "BREAK ALL SHARP EDGES" } ]
 ```
 
@@ -2288,7 +2288,7 @@ fingerprints with complete keys from the Analysis):
   exact model-space records. A usable key has exactly one record. Plane, cylinder and sphere
   faces, straight B-rep edges and topological vertices are available. `axis:<key from Analysis.edge_ink.references>` (prefix the complete cylindrical face key
   with `axis:`, giving `axis:face:v1:<sha256>`, never `axis:face:face:v1:…`)
-  selects a cylinder's axis; `axis:f:hole:3` selects the common cylinder axis of a recognized
+  selects a cylinder's axis; `axis:f:hole:f12` selects the common cylinder axis of a recognized
   feature, refusing a feature with several axes. Prefer the face spelling when saving across
   revisions. Index-based `face:12`, `edge:12`, and page-coordinate references are not accepted.
   Older Analyses lacking evidence still plan their defaults; authoring requires analysing again.
@@ -2375,8 +2375,8 @@ calls.
 **`edit` operations** are small and addressed by path:
 
 ```json
-[ { "op": "set", "path": "features/f:hole:3/fit", "value": "H7" },
-  { "op": "remove", "path": "dimensions/d:f:pocket:1~1depth/omit" },
+[ { "op": "set", "path": "features/f:hole:f12/fit", "value": "H7" },
+  { "op": "remove", "path": "dimensions/d:f:pocket:f133~1depth/omit" },
   { "op": "add", "path": "notes", "value": { "text": "DEBURR" } } ]
 ```
 
@@ -2443,7 +2443,7 @@ reads it back from any of the three.
 
 | Item | Form | Stable across |
 | --- | --- | --- |
-| Feature | `f:<kind>:<n>`, derived from its faces | the same file |
+| Feature | `f:<kind>:f<lowest face>`, with a local suffix on shared anchors | the same file |
 | Dimension | `d:<feature>/<parameter>`; never the view, which is the item's `view` | the same file, whichever view carries it and whatever the sheet or scale; carried to revisions through its feature |
 | Sheet | `sheet` | always |
 | View | `v:<name>` | always |
@@ -2927,7 +2927,7 @@ remains required. Missing or ambiguous face evidence never deduplicates by scala
 The differences and verdicts are recorded in `tests/fixtures/known_blends.json`.
 
 Precision is a display policy in `precision`, a map from measurement IDs such as
-`d:envelope/width.length` or `d:f:hole:1/counterbore.depth` to decimal places (0–15).
+`d:envelope/width.length` or `d:f:hole:f21/counterbore.depth` to decimal places (0–15).
 It retains trailing zeroes in the label and its measured reservation, without changing the
 nominal or tolerance. Conflicting explicit policies for a shared printed term are refused;
 they require separate dimension owners. Without a policy, formatting is unchanged.
@@ -2959,7 +2959,7 @@ coordinates or measured values are stored in the Spec. These additive fields wor
       "text": {"prefix": "2×", "suffix": "TYP"},
       "style": "reference"
     },
-    "d:f:hole:3/bore.diameter": {
+    "d:f:hole:f12/bore.diameter": {
       "text": {"template": "{value} AFTER PLATING"},
       "style": "basic"
     }
