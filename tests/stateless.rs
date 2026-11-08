@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 fn scratch(name: &str) -> Cache {
-    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("s7-{name}"));
+    let root =
+        Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("s7-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     Cache::new(root)
 }
