@@ -22,6 +22,30 @@ All notable changes to draftwright-rust are recorded here, in the style of
 - `openSpec` includes `migrated: [{path, from, to}]` and `ids: {old: new}` alongside
   `spec` and `set_aside`; the editor can migrate external saved references too.
 
+## 0.2.14 (2026-11-08)
+
+Still on quiddity-rust 0.4.9. An explicit paper and scale pair is kept by moving an
+overflowing view row into free space on the sheet; the title-block tolerance fix no longer pins
+the paper, scale or layout; and a bracketed reference dimension is no longer flagged for rounding.
+
+Existing drawings change only where a paper and scale pair was set and a view row overflowed:
+in the corpus, three CTC-01 variants lose an off-sheet annotation and a page-fit warning, and
+two of them also lose two GD&T-moved reports because datums B and C now stay put.
+Callers that apply fixes see one change: the title-block tolerance fix is now a single local
+`set sheet/title/tolerance` op, where it used to also pin the paper, scale and layout.
+
+### Fixed
+
+- Translate overflowing projection rows into vacant same-sheet space at an
+  explicit paper/scale pair, keeping unrelated rows and controls fixed. Preserve
+  authored placements, routes and scale; CTC-01 keeps A3 1:5 and its placed 510
+  dimension without a page-fit warning or scale-change fix (#331). Retain existing
+  carriers when the finished assembly cannot fit at the requested pair.
+
+- Keep the general-tolerance remedy local to the title block, without pinning paper, scale
+  or layout. Honour deliberate reference precision, including bracketed mm and inch labels
+  (#299).
+
 ## 0.2.13 (2026-11-08)
 
 On quiddity-rust 0.4.9, now from crates.io (was 0.4.8 from a git tag). This release makes

@@ -1650,6 +1650,25 @@ fn reserve_bounds(
     }
 }
 
+/// Whether a movable explicit pair needs correction for printed linear ink.
+/// Used by the live solve and its bounded placement-only comparison.
+pub(crate) fn can_settle_explicit_overflow(plan: &Plan) -> bool {
+    plan.spec.sheet.size.is_some()
+        && plan.spec.sheet.scale.is_some()
+        && plan.spec.sheet.keep_layout != Some(true)
+        && !crate::model::dimension_text_edited(&plan.spec)
+        && !plan.spec.views.values().any(|v| v.place.is_some())
+        && !crate::placement_intent::has_pins(&plan.spec)
+        && plan.dimensions.iter().any(|d| {
+            d.kind == "linear"
+                && crate::dims::ink_box(d).is_some_and(|b| {
+                    (0..2).any(|k| {
+                        b[k] < margin() - 1e-6 || b[k + 2] > plan.sheet.page[k] - margin() + 1e-6
+                    })
+                })
+        })
+}
+
 /// Final compose-then-pack pass for settled linear ink (ISSUE-563-b). Use the
 /// complete placement inventory so omitting a dimension does not change a pin's
 /// frame. Moving a view block transports its already settled routes unchanged.
@@ -1805,7 +1824,13 @@ pub(crate) fn reserve_linear_corridors(
                 || b[3] > plan.sheet.page[1] - margin() + 1e-6
         })
     });
-    let free = (explicit_lane
+    // A fixed paper/scale pair still permits its unpinned projection assembly
+    // to use vacant paper. In particular, an authored dimension must not freeze
+    // a generated peer outside the frame (#331). Only actual printed overflow
+    // unlocks this correction; empty estimated bands do not move a fitting pair.
+    let settled_overflow = !automatic_pair && can_settle_explicit_overflow(plan);
+    let mut free = (explicit_lane
+        || settled_overflow
         || (!crate::placement_intent::has_pins(&plan.spec)
             && (automatic_pair
                 || plan.spec.sheet.size.is_none()
@@ -1822,13 +1847,19 @@ pub(crate) fn reserve_linear_corridors(
             .filter(|(_, v)| matches!(v.id.as_str(), "v:front" | "v:plan"))
             .map(|(i, _)| i)
             .collect();
-        if let (Some(front), Some(top)) = (index("v:front"), index("v:plan")) {
+        // A finished explicit pair only needs rigid transport. Reopening its
+        // estimated gaps would move already clear GD&T toward page furniture.
+        if let (Some(front), Some(top)) = (index("v:front"), index("v:plan"))
+            && !settled_overflow
+        {
             let (below, above) = if first { (top, front) } else { (front, top) };
             let gap = (old[above].1[1] - old[below].1[3]).max(0.0);
             let extra = (plan.views[below].area[3] + gap - plan.views[above].area[1]).max(0.0);
             shifts[top][1] += if first { -extra } else { extra };
         }
-        if let Some(side) = index("v:side") {
+        if let Some(side) = index("v:side")
+            && !settled_overflow
+        {
             let edge = column
                 .iter()
                 .map(|&i| {
@@ -1886,17 +1917,59 @@ pub(crate) fn reserve_linear_corridors(
             .filter(|(_, v)| v.id != "v:iso")
             .map(|(i, _)| i)
             .collect();
+        if settled_overflow && let Some(top) = index("v:plan") {
+            // The plan view is free along the projection column. Settle that
+            // row first, retaining the front/side row and its unrelated controls.
+            // A later whole-assembly correction is needed only if other rows
+            // also overflow. All annotation contacts are rechecked below.
+            let area = plan.views[top].area;
+            let minimum = margin() - area[1];
+            let maximum = plan.sheet.page[1] - margin() - area[3];
+            if minimum <= maximum {
+                shifts[top][1] = 0.0_f64.clamp(minimum, maximum);
+            }
+        }
         let lower = [0, 1].map(|k| {
             group
                 .iter()
                 .map(|&i| plan.views[i].area[k] + shifts[i][k])
                 .fold(f64::INFINITY, f64::min)
         });
-        let lift = lower.map(|v| (margin() - v).max(0.0));
+        let lift = [0, 1].map(|k| {
+            let minimum = margin() - lower[k];
+            if settled_overflow {
+                let upper = group
+                    .iter()
+                    .map(|&i| plan.views[i].area[k + 2] + shifts[i][k])
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let maximum = plan.sheet.page[k] - margin() - upper;
+                if minimum <= maximum {
+                    // The nearest rigid translation preserves projection alignment,
+                    // authored sides/lanes and every settled witness/leader route.
+                    return 0.0_f64.clamp(minimum, maximum);
+                }
+            }
+            minimum.max(0.0)
+        });
         for &i in &group {
             for k in 0..2 {
                 shifts[i][k] += lift[k];
             }
+        }
+        // Borrow vacant paper only when the finished assembly can actually fit.
+        // A genuinely oversized fixed pair must retain its established carriers:
+        // a partial correction can drive clear lines through neighbouring views.
+        if settled_overflow
+            && group.iter().any(|&i| {
+                (0..2).any(|k| {
+                    plan.views[i].area[k] + shifts[i][k] < margin() - 1e-6
+                        || plan.views[i].area[k + 2] + shifts[i][k]
+                            > plan.sheet.page[k] - margin() + 1e-6
+                })
+            })
+        {
+            shifts.fill([0.0; 2]);
+            free = false;
         }
         // A whole projection assembly can clear page furniture by a rigid lift.
         // Its settled dimensions and control frames keep their relative positions.
@@ -1913,7 +1986,8 @@ pub(crate) fn reserve_linear_corridors(
                     .then_some(title[3] + 1.0 - a[1] - d[1])
             })
             .fold(0.0, f64::max);
-        if raise > 0.0
+        if free
+            && raise > 0.0
             && group.iter().all(|&i| {
                 plan.views[i].area[3] + shifts[i][1] + raise <= plan.sheet.page[1] - margin()
             })
