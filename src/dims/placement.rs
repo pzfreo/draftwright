@@ -763,7 +763,7 @@ pub(super) fn owners(
     super::holes::consolidate(analysis, &mut kept, &mut given, &mut omitted);
     super::recesses::consolidate(analysis, &mut kept, &mut given, &mut omitted);
     super::plates::share(analysis, &mut kept, &mut given, &mut omitted);
-    super::share(&mut kept, &mut given, &mut omitted);
+    super::share(analysis, &mut kept, &mut given, &mut omitted);
     super::redundancy::consolidate(analysis, spec, &mut kept, &mut given, &mut omitted);
     let index: BTreeMap<&str, usize> = items
         .iter()

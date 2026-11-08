@@ -15,6 +15,14 @@ pub struct Scheme {
     pub from: Option<String>,
 }
 
+/// A scheme station is identified by its stable reference, never its measured position.
+pub(crate) fn item_id(name: &str, station: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(station.as_bytes());
+    let token: String = hash[..8].iter().map(|b| format!("{b:02x}")).collect();
+    format!("d:scheme:{name}/{token}")
+}
+
 pub(crate) fn invalid(message: impl Into<String>) -> Invalid {
     Invalid {
         path: None,

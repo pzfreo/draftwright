@@ -19,8 +19,8 @@
 //! [`READ`] are known but not taken here: they still come through the bridge.
 //!
 //! What comes out is draftwright's own ([`Feature`], [`HolePattern`]); no quiddity object crosses
-//! (ADR3-6). IDs are draftwright's (`f:<kind>:<n>`, `f:hole_pattern:<n>`, ranked by faces within
-//! their kind, as [`super::read`] ranks them), and so are fingerprints
+//! (ADR3-6). IDs are draftwright's (`f:<kind>:f<lowest face>`, with a local suffix only
+//! on shared lowest faces). The provisional rank is retained as `legacy_id`, and so are fingerprints
 //! ([`super::FINGERPRINT_VERSION`]): the document's own `<family>/<index>` IDs and quiddity's
 //! fingerprints are not adopted (who owns fingerprints is an open question).
 //!

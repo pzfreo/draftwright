@@ -436,7 +436,7 @@ pub struct Spec {
     /// Placement and omission of semantic PMI frames, datums, labels and part notes, by stable ID.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub annotations: BTreeMap<String, crate::placement_intent::AnnotationSpec>,
-    /// Per feature, by its ID (`f:<kind>:<n>`).
+    /// Per feature, by its ID (`f:<kind>:f<face>`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub features: BTreeMap<String, FeatureSpec>,
     /// Features authored from stable face fingerprints; sizes are read from Analysis evidence.

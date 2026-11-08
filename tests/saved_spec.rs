@@ -614,3 +614,34 @@ fn spec2_ladder_ids_migrate_and_unmapped_keys_are_preserved() {
     assert_eq!(problems.len(), 2);
     assert!(problems.iter().all(|p| p.severity == "info"));
 }
+
+#[test]
+fn spec2_scheme_station_digests_migrate_with_their_feature_references() {
+    let s = plate();
+    let saved = spec(json!({
+        "schema":"draftwright.spec/2",
+        "dimension_schemes":{"holes-y":{"scheme":"baseline","axis":"y","targets":["f:hole:4"]}},
+        "dimensions":{"d:scheme:holes-y/23c244b80eadd066":{"tolerance":"±0.1"}}
+    }));
+    let migrated = model::migrate(&saved, s.analysis()).unwrap();
+    let new = "d:scheme:holes-y/815e90212c4e661b".to_owned();
+    assert_eq!(migrated.dimensions[&new].tolerance.as_deref(), Some("±0.1"));
+    assert_eq!(migrated.dimension_schemes["holes-y"].targets, ["f:hole:f9"]);
+    assert!(
+        !migrated
+            .dimensions
+            .contains_key("d:scheme:holes-y/23c244b80eadd066")
+    );
+    let mut session = plate();
+    let opened = session
+        .open_spec(&serde_json::to_string(&saved).unwrap())
+        .unwrap();
+    assert_eq!(opened.ids["d:scheme:holes-y/23c244b80eadd066"], new);
+    assert!(
+        opened
+            .migrated
+            .iter()
+            .any(|m| m.from == "d:scheme:holes-y/23c244b80eadd066" && m.to == new)
+    );
+    assert!(opened.set_aside.is_empty());
+}

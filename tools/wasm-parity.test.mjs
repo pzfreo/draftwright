@@ -509,9 +509,13 @@ test('openSpec feature and ladder maps have native parity', () => {
   const cases = [
     {name: 'mounting_plate.step', part: 'tests/fixtures/parts/mounting_plate.step', spec: 'spec1.json', old: 'f:hole:4', now: 'f:hole:f9'},
     {name: 'stepped_block.step', part: 'tests/fixtures/recognition/steps/stepped_block.step', spec: 'spec2.json', old: 'step_height.length.h10', now: 'step_height.length.f6'},
+    {name: 'mounting_plate.step', part: 'tests/fixtures/parts/mounting_plate.step',
+      document: {schema: 'draftwright.spec/2', dimension_schemes: {'holes-y': {scheme: 'baseline', axis: 'y', targets: ['f:hole:4']}},
+        dimensions: {'d:scheme:holes-y/23c244b80eadd066': {tolerance: '±0.1'}}},
+      old: 'd:scheme:holes-y/23c244b80eadd066', now: 'd:scheme:holes-y/815e90212c4e661b'},
   ];
   for (const item of cases) {
-    const spec = JSON.parse(readFileSync(new URL(`../tests/fixtures/stable_ids/${item.spec}`, import.meta.url)));
+    const spec = item.document ?? JSON.parse(readFileSync(new URL(`../tests/fixtures/stable_ids/${item.spec}`, import.meta.url)));
     const engine = new Engine(item.name, readFileSync(new URL(`../${item.part}`, import.meta.url)));
     try {
       const opened = JSON.parse(engine.openSpec(JSON.stringify(spec)));

@@ -68,6 +68,15 @@ pub(crate) fn presentation_key<'a>(a: &'a Analysis, id: &'a str) -> &'a str {
         .iter()
         .find(|f| f.id == id)
         .and_then(|f| f.legacy_id.as_deref())
+        .or_else(|| {
+            a.recognition
+                .as_ref()?
+                .patterns
+                .iter()
+                .find(|p| p.id == id)?
+                .legacy_id
+                .as_deref()
+        })
         .unwrap_or(id)
 }
 
@@ -307,7 +316,24 @@ pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
         error.choices = SPEC_SCHEMAS.iter().map(|s| (*s).into()).collect();
         return Err(error);
     }
-    let ids = ids(a);
+    let mut ids = ids(a);
+    // Scheme IDs digest their station references. Recover both spellings exactly from
+    // the same station-ID map, including refs expanded from automatic patterns.
+    let stations: Vec<_> = ids
+        .iter()
+        .filter(|(old, _)| old.starts_with("f:"))
+        .map(|(o, n)| (o.clone(), n.clone()))
+        .collect();
+    for name in spec.dimension_schemes.keys() {
+        for (old, new) in &stations {
+            for prefix in ["", "start:", "end:", "axis:"] {
+                ids.insert(
+                    crate::dimension_scheme::item_id(name, &format!("{prefix}{old}")),
+                    crate::dimension_scheme::item_id(name, &format!("{prefix}{new}")),
+                );
+            }
+        }
+    }
     let mut out = crate::model::migrate_v1(spec, a)?;
     let mut migrated = Vec::new();
     if spec.schema != SPEC_SCHEMA {

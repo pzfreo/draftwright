@@ -4,7 +4,7 @@
 //! quiddity matches the two parts (`quiddity::correspondence::correspond`): it aligns them and
 //! classifies each recognised feature and face as carried, adapted, ambiguous, orphaned or new.
 //! draftwright reads its own feature IDs through that match (a feature is the quiddity record with
-//! the same faces, in the same file), then rebinds the Spec: every `f:<kind>:<n>` and
+//! the same faces, in the same file), then rebinds the Spec: every `f:<kind>:f<face>` and
 //! `face:<n>` in an entry's key or values, and every face embedded in an ID
 //! (`profile_angle.angle.f12`), names what it named before. quiddity does not match edges, so
 //! an embedded edge (`:e3`) carries only when every face carried as it was. An entry is carried
@@ -416,7 +416,7 @@ impl Matching {
         }
     }
 
-    /// What an old ID (`f:<kind>:<n>`, `face:<n>`, or an embedded `f<n>.<m>` or `e<n>`) names
+    /// What an old ID (`f:<kind>:f<face>`, `face:<n>`, or an embedded `f<n>.<m>` or `e<n>`) names
     /// now; an ID the old part did not have (one the Spec declares itself) is left as it is.
     fn bind(&self, id: &str) -> Bind {
         let numbered = |l: &&str| l.starts_with(|c: char| c.is_ascii_digit());

@@ -1929,7 +1929,7 @@ fn lanes_uncached(
     if let Ok(mut given) = tolerance::apply(analysis, spec, &mut kept, &omitted, &mut problems) {
         holes::consolidate(analysis, &mut kept, &mut given, &mut omitted);
         plates::share(analysis, &mut kept, &mut given, &mut omitted);
-        share_statements(&mut kept, &mut given, &mut omitted, true);
+        share_statements(analysis, &mut kept, &mut given, &mut omitted, true);
         let before_pmi = omitted.len();
         share_pmi(
             analysis,
@@ -3208,7 +3208,7 @@ fn plan_inventory_ordered(
         holes::consolidate(analysis, &mut defaults, &mut nominal, &mut unused);
         recesses::consolidate(analysis, &mut defaults, &mut nominal, &mut unused);
         plates::share(analysis, &mut defaults, &mut nominal, &mut unused);
-        share_statements(&mut defaults, &mut nominal, &mut unused, true);
+        share_statements(analysis, &mut defaults, &mut nominal, &mut unused, true);
         share_pmi(
             analysis,
             spec.sheet.references == Some(true),
@@ -3313,7 +3313,7 @@ fn plan_inventory_ordered(
     holes::consolidate(analysis, &mut kept, &mut given, &mut omitted);
     recesses::consolidate(analysis, &mut kept, &mut given, &mut omitted);
     plates::share(analysis, &mut kept, &mut given, &mut omitted);
-    share_statements(&mut kept, &mut given, &mut omitted, true);
+    share_statements(analysis, &mut kept, &mut given, &mut omitted, true);
     let before_pmi = omitted.len();
     share_pmi(
         analysis,
@@ -4684,11 +4684,12 @@ const SHARED: [(&str, bool); 6] = [
 // Lane ownership uses same-family sharing. New cross-family statements retain their original
 // reservations, so consolidating their ink does not move unrelated items.
 fn share(
+    analysis: &Analysis,
     kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
 ) {
-    share_statements(kept, given, omitted, false);
+    share_statements(analysis, kept, given, omitted, false);
 }
 
 /// The correlated set a dimension belongs to (ARCH0015-2): the height ladder's rungs (its counted
@@ -4851,6 +4852,7 @@ fn presentation_id(a: &Analysis, w: &Want) -> String {
 /// claims every member's measurement and, for a counted size, prints their number (`2× 6`).
 /// Each other moves to *omitted*, `conveyed by` the survivor. *given* stays aligned with *kept*.
 fn share_statements(
+    analysis: &Analysis,
     kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
@@ -4926,10 +4928,9 @@ fn share_statements(
     let mut gone = BTreeSet::new();
     for (s, mut members) in groups.into_iter().filter(|(_, m)| m.len() > 1) {
         members.sort_by(|&x, &y| {
-            kept[x]
-                .1
-                .cmp(&kept[y].1)
-                .then_with(|| kept[x].0.id.cmp(&kept[y].0.id))
+            kept[x].1.cmp(&kept[y].1).then_with(|| {
+                presentation_id(analysis, &kept[x].0).cmp(&presentation_id(analysis, &kept[y].0))
+            })
         });
         // Invariant: The group was filtered to at least two members before split_first.
         let (winner, losers) = members.split_first().expect("a group of two or more");
@@ -6219,7 +6220,7 @@ mod tests {
     fn shared(mut kept: Vec<Kept>) -> Shared {
         let mut given = vec![Vec::new(); kept.len()];
         let mut omitted = Vec::new();
-        share(&mut kept, &mut given, &mut omitted);
+        share(&block(&[]), &mut kept, &mut given, &mut omitted);
         assert_eq!(given.len(), kept.len());
         (
             kept.iter()

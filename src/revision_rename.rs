@@ -64,7 +64,7 @@ pub(crate) fn rename_value<E>(
     })
 }
 
-/// The span of the next `f:<kind>:<n>` or `face:<n>` in *s*, or of a face or edge list embedded
+/// The span of the next `f:<kind>:f<face>` or `face:<n>` in *s*, or of a face or edge list embedded
 /// in an ID after `.` or `:` (`profile_angle.angle.f12`, `outer_profile:f12:e3:e4`, `:f3.4`).
 pub(crate) fn next_id(s: &str) -> Option<(usize, usize)> {
     let b = s.as_bytes();

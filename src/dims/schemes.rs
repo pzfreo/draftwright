@@ -4,7 +4,6 @@ use crate::{
     dimension_scheme::invalid,
     model::{Analysis, Invalid, Spec},
 };
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) type Covered = BTreeMap<String, String>;
@@ -222,9 +221,8 @@ pub(super) fn apply(
         }
         let mut generated = Vec::new();
         for ((from, p), (to, q)) in pairs {
-            let hash = Sha256::digest(to.as_bytes());
-            let token: String = hash[..8].iter().map(|b| format!("{b:02x}")).collect();
-            let id = format!("d:scheme:{name}/{token}");
+            let id = crate::dimension_scheme::item_id(name, &to);
+            let token = id.rsplit('/').next().expect("scheme ID has a token");
             let value = if d.scheme == "ordinate" {
                 q[k] - p[k]
             } else {

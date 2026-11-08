@@ -678,7 +678,7 @@ mod tests {
     fn sub_micron_row_noise_does_not_override_printed_column_order() {
         let (a, p) = fixture();
         let mut points = [(0, 20., 0.), (1, 10., 0.0005), (2, 0., 0.002)];
-        reading_order(&a, &mut points, &p.hole_tables[0].rows);
+        reading_order(a, &mut points, &p.hole_tables[0].rows);
         assert_eq!(points.map(|p| p.0), [1, 0, 2]);
     }
 

@@ -2516,7 +2516,8 @@ including when empty):
 `migrated` reports each changed key or string value, with `from` and `to` strings and its
 RFC 6901 escaped path in the saved document, without a leading slash. A changed key's path
 uses its old spelling. Nested arrays use numeric indices. Schema changes alone are not ID
-migrations. `ids` is an object of exact old-ID → new-ID string pairs: automatic features,
+migrations. Scheme station IDs contain a digest of their stable station reference; migration
+also maps the exact old and new digest IDs for every scheme, so saved placement edits survive. `ids` is an object of exact old-ID → new-ID string pairs: automatic features,
 hole patterns, ladder parameters, and the plan's composed dimension and problem IDs. It
 includes current mappings even for a spec/3 open with no migrated entries. Callers can use
 these pairs for accepted problem IDs and other lists held outside the Spec; the same token
