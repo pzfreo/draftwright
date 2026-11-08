@@ -241,7 +241,7 @@ fn ftc06_bosses_are_counted_called_out_and_their_heights_stated() {
         shared
             .measurements
             .iter()
-            .any(|m| m.feature == "step_level" && m.parameter == "step_height.length.h38_1")
+            .any(|m| m.feature == "step_level" && m.parameter == "step_height.length.f11")
     );
     let bosses = of_kind(&a, "boss");
     for d in plan.dimensions.iter().filter(|d| {
@@ -451,7 +451,7 @@ fn ctc01_hex_boss_states_its_size_across_flats_and_its_height() {
         again
             .omitted
             .iter()
-            .any(|o| o.id.contains("polygonal_boss:1/boss_height"))
+            .any(|o| o.id.contains("polygonal_boss:f61/boss_height"))
     );
 }
 

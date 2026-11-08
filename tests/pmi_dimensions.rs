@@ -785,7 +785,7 @@ fn holes_of_different_requirements_are_called_out_apart() {
     assert!(
         plan.dimensions
             .iter()
-            .any(|d| d.id.contains("hole_pattern:f77/grid_pitch"))
+            .any(|d| d.id.contains("hole_pattern:f71/grid_pitch"))
     );
 }
 
