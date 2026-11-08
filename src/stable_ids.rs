@@ -179,12 +179,19 @@ pub fn ids(a: &Analysis) -> BTreeMap<String, String> {
     ids
 }
 
-fn version(s: &str) -> Vec<u64> {
-    s.split('.').map(|n| n.parse().unwrap_or(0)).collect()
+// The cutoff is a stable release. A prerelease of its core is still within
+// the window; any larger release core (including its prereleases) is beyond it.
+fn release_version(s: &str) -> Vec<u64> {
+    s.split(['-', '+'])
+        .next()
+        .unwrap_or(s)
+        .split('.')
+        .map(|n| n.parse().expect("Cargo package version core"))
+        .collect()
 }
 fn refusal(schema: &str, current: &str) -> Option<String> {
     (matches!(schema, "draftwright.spec/1" | "draftwright.spec/2")
-        && version(current) > version(LAST_LEGACY_SPEC_READER)).then(|| format!(
+        && release_version(current) > release_version(LAST_LEGACY_SPEC_READER)).then(|| format!(
         "This Spec is {schema}, which draftwright {current} no longer reads: it reads only draftwright.spec/3, whose feature and step IDs are named by faces rather than by rank or measured value. Convert it once with draftwright {LAST_LEGACY_SPEC_READER}, the last release that reads spec/2: run `draftwright plan PART.step --spec FILE` and keep the `spec` it prints. Then open the converted Spec here."
     ))
 }
@@ -439,6 +446,17 @@ mod tests {
         assert!(result.migrated.is_empty());
         assert!(result.unmapped.is_empty());
         assert!(!result.ids.contains_key("f:declared:123"));
+    }
+
+    #[test]
+    fn stable_cutoff_compares_prereleases_by_their_release_core() {
+        assert!(refusal("draftwright.spec/2", "0.3.9-alpha.1").is_none());
+        assert!(refusal("draftwright.spec/2", "0.3.9+build.1").is_none());
+        for v in ["0.3.10-alpha.1", "0.3.10+build.1", "0.4.0-dev.1"] {
+            let message = refusal("draftwright.spec/2", v).unwrap();
+            assert!(message.contains(&format!("draftwright {v} no longer reads")));
+            assert!(message.contains("draftwright 0.3.9, the last release"));
+        }
     }
 
     #[test]

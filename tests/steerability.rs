@@ -2333,7 +2333,7 @@ fn steer_331_finished_sheet_fits() {
         assert_eq!(p.plan.sheet.size, "A3");
         assert_eq!(p.plan.sheet.scale, "1:5");
         for (id, value) in [
-            ("d:f:hole_pattern:2/grid_pitch.length.col", 650.),
+            ("d:f:hole_pattern:f71/grid_pitch.length.col", 650.),
             ("d:envelope/notch_location_x.length.f97_e104_e108", 510.),
         ] {
             assert!(dim(&p.plan, id).is_some_and(|d| (d.value - value).abs() < 1e-5));

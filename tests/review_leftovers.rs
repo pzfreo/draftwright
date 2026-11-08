@@ -10,8 +10,7 @@ use draftwright::model::{self, Plan, Spec};
 /// same convex presenter to `d:f:fillet:f53`. Their two radius entries become that one.
 fn hanger_renumbered(mut spec: Spec) -> Spec {
     let fillet = spec.dimensions.remove("d:f:fillet:f14/fillet.radius");
-    let blend = spec.dimensions.remove("d:f:blend:10/blend.radius");
-    if let Some(entry) = fillet.or(blend) {
+    if let Some(entry) = fillet {
         spec.dimensions
             .insert("d:f:fillet:f53/fillet.radius".into(), entry);
     }

@@ -6,6 +6,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+### Changed
+
 - Automatic feature and hole-pattern IDs now use `f:<kind>:f<lowest face>`, with local
   suffixes only on a shared lowest face. Ladder heights and shoulder positions use their
   supporting faces, so resizing or inserting unrelated geometry does not rename items.
@@ -14,10 +16,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
   `legacy_id` values on recognised features and hole patterns. Spec reads use an exact
   whole-document identity map, with `migrated: [{path, from, to}]` and `ids: {old: new}`
   on plans and session/browser `openSpec` replies. Colliding renamed keys are refused.
-- `draftwright.spec/3` migration retains unknown keys. Specs `/1` and `/2` remain readable
+- `draftwright.spec/3` migration retains unmapped ID keys. Specs `/1` and `/2` remain readable
   through 0.3.9; later releases explain conversion using that last compatible release.
 
-### WASM API
+### Added
 
 - `openSpec` includes `migrated: [{path, from, to}]` and `ids: {old: new}` alongside
   `spec` and `set_aside`; the editor can migrate external saved references too.

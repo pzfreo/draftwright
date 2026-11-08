@@ -2219,7 +2219,7 @@ leader along the silhouette would lie on the part's edge (ISO 128-22), so the pl
 a hard blocker.
 
 **IDs and views.** A dimension's ID names what it measures, never the view that carries it
-(`draftwright.spec/2`; version 1 added `@<view>`). The view is the item's `view`. Omitting that
+(`draftwright.spec/3`; version 1 added `@<view>`). The view is the item's `view`. Omitting that
 view moves the dimension to its next view under the same ID (the basis says so), and so does a
 change of sheet or scale. The spec may choose the view, `dimensions/<id>/place/view` (the earlier
 `dimensions/<id>/view` is still read) (`front`,
@@ -2519,7 +2519,7 @@ uses its old spelling. Nested arrays use numeric indices. Schema changes alone a
 migrations. Scheme station IDs contain a digest of their stable station reference; migration
 also maps the exact old and new digest IDs for every scheme, so saved placement edits survive. `ids` is an object of exact old-ID → new-ID string pairs: automatic features,
 hole patterns, ladder parameters, and the plan's composed dimension and problem IDs. It
-includes current mappings even for a spec/3 open with no migrated entries. Callers can use
+is the whole current legacy map on every open, including a spec/3 open with no migrated entries; it is not restricted to changed or referenced keys. Callers can use
 these pairs for accepted problem IDs and other lists held outside the Spec; the same token
 substitution composes embedded references. Unknown keys are never mapped speculatively.
 
@@ -2951,7 +2951,7 @@ features need their own explicit claims.
 
 Wording is authored under the existing stable dimension or annotation ID. No page
 coordinates or measured values are stored in the Spec. These additive fields work in
-`draftwright.spec/2`; saved Specs without them retain their automatic labels and layout.
+`draftwright.spec/3`; saved Specs without them retain their automatic labels and layout.
 
 ```json
 {

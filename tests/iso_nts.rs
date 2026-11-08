@@ -430,8 +430,7 @@ fn session_edits_remove_and_restore_the_caption_in_items_and_furniture() {
 /// same convex presenter to `d:f:fillet:16`. Their two radius entries become that one.
 fn hanger_renumbered(mut spec: model::Spec) -> model::Spec {
     let fillet = spec.dimensions.remove("d:f:fillet:f14/fillet.radius");
-    let blend = spec.dimensions.remove("d:f:blend:10/blend.radius");
-    if let Some(entry) = fillet.or(blend) {
+    if let Some(entry) = fillet {
         spec.dimensions
             .insert("d:f:fillet:f53/fillet.radius".into(), entry);
     }
