@@ -1,6 +1,6 @@
 [package]
 name = "draftwright"
-version = "0.2.13"
+version = "0.2.14"
 edition = "2024"
 autotests = false
 license = "AGPL-3.0-only"
