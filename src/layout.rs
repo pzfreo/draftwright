@@ -1599,17 +1599,31 @@ pub fn choose(
     }
     let is_portrait = match req.orientation {
         crate::model::Orientation::Portrait => true,
-        crate::model::Orientation::Auto => req.size[2] > req.size[0] * 1.2 || req.size[1] > req.size[0] * 1.2,
+        crate::model::Orientation::Auto => {
+            req.size[2] > req.size[0] * 1.2 || req.size[1] > req.size[0] * 1.2
+        }
         crate::model::Orientation::Landscape => false,
     };
     let page_dim = |w: f64, h: f64| if is_portrait { [h, w] } else { [w, h] };
     let (mut candidates, packed): (Vec<(f64, [f64; 2])>, bool) = match (scale, page) {
         (None, Some(p)) => (SCALES.iter().map(|s| (*s, p)).collect(), true),
-        (Some(s), None) => (PAGES.iter().map(|(_, w, h)| (s, page_dim(*w, *h))).collect(), true),
-        _ => (LADDER.iter().map(|(s, n)| {
-            let (_, w, h) = PAGES.iter().find(|p| p.0 == *n).expect("ladder sheet");
-            (*s, page_dim(*w, *h))
-        }).collect(), false),
+        (Some(s), None) => (
+            PAGES
+                .iter()
+                .map(|(_, w, h)| (s, page_dim(*w, *h)))
+                .collect(),
+            true,
+        ),
+        _ => (
+            LADDER
+                .iter()
+                .map(|(s, n)| {
+                    let (_, w, h) = PAGES.iter().find(|p| p.0 == *n).expect("ladder sheet");
+                    (*s, page_dim(*w, *h))
+                })
+                .collect(),
+            false,
+        ),
     };
     if page.is_none()
         && let Some(max) = req.max_page

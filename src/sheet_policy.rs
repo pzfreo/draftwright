@@ -258,7 +258,11 @@ impl Estimate {
     fn shortfall(&self, size: &str, max: usize, scale: f64) -> Option<String> {
         // Invariant: Candidates select paper names from the fixed PAGES table.
         let (_, raw_w, raw_h) = layout::PAGES.iter().find(|p| p.0 == size).unwrap();
-        let (w, h) = if self.is_portrait { (*raw_h, *raw_w) } else { (*raw_w, *raw_h) };
+        let (w, h) = if self.is_portrait {
+            (*raw_h, *raw_w)
+        } else {
+            (*raw_w, *raw_h)
+        };
         let available = [w - 2.0 * layout::margin(), h - 2.0 * layout::margin()];
         let at = model::scale_name(scale);
         let frame = format!(
@@ -3344,6 +3348,7 @@ mod tests {
             first_blocks: 0,
             scale: 1.0,
             aligned: true,
+            is_portrait: false,
         };
         // An outline-only test would accept A4 at 1:10. A fixed-width
         // annotation reservation exceeds it even with additional sheets.
@@ -3369,6 +3374,7 @@ mod tests {
             first_blocks: 1,
             scale: 1.0,
             aligned: true,
+            is_portrait: false,
         };
         assert!(!estimate(vec![vec![whole]]).fits("A2", 1, 1.0));
         assert!(estimate(vec![vec![whole, split]]).fits("A2", 1, 1.0));
@@ -3392,6 +3398,7 @@ mod tests {
             first_blocks: 1,
             scale: 1.0,
             aligned: true,
+            is_portrait: false,
         };
         // Total area and every individual side fit A3. The tall schedule
         // forces both aligned projections beside it; their widths do not.
@@ -3420,6 +3427,7 @@ mod tests {
             first_blocks: 0,
             scale: 1.0,
             aligned: true,
+            is_portrait: false,
         };
         assert!(
             estimate
@@ -3482,6 +3490,7 @@ mod tests {
             first_blocks: 0,
             scale: 1.0,
             aligned: true,
+            is_portrait: false,
         };
         // Even at the smallest readable scale the fixed band exceeds A4's 271 mm (277 mm inside
         // the frame, less the 3 mm frame gutter on each side).
@@ -3523,6 +3532,7 @@ mod tests {
             first_blocks: 0,
             scale: 1.0,
             aligned: true,
+            is_portrait: false,
         };
         // A4's drawable width inside the 3 mm frame gutter.
         assert_eq!(at_limit(271.0).scale("A4", 1, 1.0), Some(1.0));

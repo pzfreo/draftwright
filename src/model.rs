@@ -3855,8 +3855,13 @@ fn recover_candidates(
                 let [env_lo, env_hi] = analysis.envelope;
                 let is_portrait = spec.sheet.orientation == Some(Orientation::Portrait)
                     || (spec.sheet.orientation == Some(Orientation::Auto)
-                        && (env_hi[2] - env_lo[2] > (env_hi[0] - env_lo[0]) * 1.2 || env_hi[1] - env_lo[1] > (env_hi[0] - env_lo[0]) * 1.2));
-                let (w, h) = if is_portrait { (raw_h, raw_w) } else { (raw_w, raw_h) };
+                        && (env_hi[2] - env_lo[2] > (env_hi[0] - env_lo[0]) * 1.2
+                            || env_hi[1] - env_lo[1] > (env_hi[0] - env_lo[0]) * 1.2));
+                let (w, h) = if is_portrait {
+                    (raw_h, raw_w)
+                } else {
+                    (raw_w, raw_h)
+                };
                 if first
                     .views
                     .iter()
