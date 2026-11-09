@@ -1,4 +1,4 @@
-# Source: pzfreo/draftwright origin/main @ 586628b96db6779454d499c7d92d37f1aa8f1df9 (docs/adr/0001-0005 + docs/adr/archive/*.md)
+# Source: pzfreo/draftwright-python origin/main @ 586628b96db6779454d499c7d92d37f1aa8f1df9 (docs/adr/0001-0005 + docs/adr/archive/*.md)
 # Rules catalogue: ADR invariants and decision-level rules.
 #   id ADR<n>-<k>   live ADR n, numbered invariant k
 #   id ADR<n>-D<k>  live ADR n, decision-level rule stated in the Decision/Boundaries text (not numbered there)

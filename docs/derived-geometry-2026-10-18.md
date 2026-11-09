@@ -1,6 +1,6 @@
 # Derived PMI geometry, 2026-10-18
 
-Draftwright side of [#99](https://github.com/pzfreo/draftwright-rust/issues/99).
+Draftwright side of [#99](https://github.com/pzfreo/draftwright/issues/99).
 Both kernel dependencies consume merge commit
 `6ab5f29df418a06ee26e86ce1f7b010b653e1ade` through Cargo. No kernel checkout was
 edited or vendored. Return the pins to a tag at the next quiddity release.

@@ -2,7 +2,7 @@
 
 This catalogue lists what the Python draftwright learnt, in drafting terms rather than code, so the
 port can track what it owes ([plan](../plan.md); ADR R4 will cite it). It was extracted from
-pzfreo/draftwright at `586628b96db6779454d499c7d92d37f1aa8f1df9`.
+pzfreo/draftwright-python at `586628b96db6779454d499c7d92d37f1aa8f1df9`.
 
 | File | Source | Entries | Drafting | Trust | Spec | Machinery |
 | --- | --- | --- | --- | --- | --- | --- |

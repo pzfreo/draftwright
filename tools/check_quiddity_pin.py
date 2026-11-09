@@ -130,7 +130,7 @@ def main():
     parser.add_argument("--manifest", type=Path, default=ROOT / "Cargo.toml")
     parser.add_argument("--sibling", default=SIBLING)
     parser.add_argument("--release", help="on mismatch, append a Kernel note to this release tag")
-    parser.add_argument("--repo", default="pzfreo/draftwright-rust", help="repository for --release")
+    parser.add_argument("--repo", default="pzfreo/draftwright", help="repository for --release")
     args = parser.parse_args()
     try:
         local = kernel_pins(args.manifest.read_text())
