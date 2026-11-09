@@ -6,8 +6,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
-- CLI-only maturin wheels carrying both `draftwright` and `draftwright-mcp`; PyPI publishing
-  is pending. GitHub URLs target `pzfreo/draftwright` after the repository rename.
+- CLI-only maturin wheels carrying both `draftwright` and `draftwright-mcp`, with a
+  tag/Cargo/wheel version agreement guard. GitHub URLs target `pzfreo/draftwright`.
 - The common Python CLI form `draftwright part.step [options]` renders natively, with explicit
   migration guidance for unsupported options. See `docs/cli-migration.md` for defaults.
 - Both commands report the engine and linked quiddity-rust versions; the MCP adapter now

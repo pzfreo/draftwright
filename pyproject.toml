@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "draftwright"
-# PyPI publishing is pending. Local wheels use Cargo's version (maturin's default).
+# One version for Cargo, release tags and wheels (maturin's default).
 dynamic = ["version"]
 description = "Rust engineering drawing CLI, superseding Python draftwright (0.4.x, 0.5.0rc)."
 readme = "README.md"

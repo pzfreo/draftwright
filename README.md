@@ -22,8 +22,8 @@ With a Rust toolchain (edition 2024, Rust 1.85 or later):
 cargo install draftwright  # installs draftwright and draftwright-mcp
 ```
 
-PyPI publishing is pending. Once it starts, install both `draftwright` and `draftwright-mcp`
-without Rust using either:
+Install both `draftwright` and `draftwright-mcp` without Rust using either
+(PyPI publishing begins with 0.6.0):
 
 ```sh
 uv tool install draftwright
@@ -33,7 +33,7 @@ pipx install draftwright
 This CLI-only package replaces the old Python `draftwright` (0.4.x and 0.5.0rc).
 Users of its Python API should pin `draftwright<0.6` for now; a small Python API is planned.
 
-Until PyPI publishing starts, each [GitHub release](https://github.com/pzfreo/draftwright/releases) has
+Alternatively, each [GitHub release](https://github.com/pzfreo/draftwright/releases) has
 ready-built archives for macOS (Apple silicon), Linux x86_64 and Windows x86_64.
 
 Generate shell completions with `draftwright completions <shell>` (bash, zsh, fish,
