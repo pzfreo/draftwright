@@ -39,12 +39,18 @@ for macOS Intel/Apple silicon, manylinux 2_28 x86_64/aarch64 and Windows x86_64.
 sdist: these installs should not unexpectedly require Rust on unsupported platforms.
 The wheel workflow also runs for relevant main pushes and PRs; a manual run on main can
 request publishing with `publish: true` and an explicit `tag`, such as `v0.6.0`.
-`tools/check_wheel_versions.py` checks both Cargo manifests and all downloaded wheels
-before the trusted-publishing action runs; a missing/invalid tag, absent wheels or any version
-mismatch fails the job. Versions before 0.6.0 are ineligible for PyPI publication.
+Dispatch and release builds check out that tag, including in the publish job. GitHub
+prereleases are not published. Each wheel artifact includes its build commit in a separate
+provenance directory; this directory is checked but never uploaded to PyPI.
+`tools/check_wheel_versions.py` checks that the tag exists, HEAD and every wheel's build
+commit match the tag's commit, and both Cargo manifests and all downloaded wheels agree
+before the trusted-publishing action runs. A missing/invalid tag, absent wheels or provenance,
+or any commit/version mismatch fails the job. Versions before 0.6.0 are ineligible for PyPI publication.
 `python3 tools/test_wheel_versions.py -v` exercises the guard's
-success and refusal paths. No version mapping is used.
+success and refusal paths, including annotated tags. Publishing runs for the same tag are
+serialized; existing PyPI files are skipped on reruns. No version mapping is used.
 
 Trusted publishing uses owner `pzfreo`, repository `draftwright`, workflow `publish.yml`,
-environment `pypi`. The existing PyPI trusted publisher matches without any PyPI change. The publish action obtains an OIDC token (`id-token: write`); no stored token or
+environment `pypi`. The existing trusted publisher should match after the rename — check it
+on pypi.org. The publish action obtains an OIDC token (`id-token: write`); no stored token or
 TestPyPI job is used. Build jobs have only read access. A local check must never publish.

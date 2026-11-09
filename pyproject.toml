@@ -19,7 +19,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/pzfreo/draftwright"
+Homepage = "https://draftwright.io"
 Repository = "https://github.com/pzfreo/draftwright"
 Issues = "https://github.com/pzfreo/draftwright/issues"
 Releases = "https://github.com/pzfreo/draftwright/releases"

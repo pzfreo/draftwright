@@ -19,8 +19,24 @@ class WheelVersions(unittest.TestCase):
         self.dist.mkdir()
         self.manifest("Cargo.toml", "0.6.0")
         self.manifest("crates/draftwright-wasm/Cargo.toml", "0.6.0")
+        self.git("init", "-q")
+        self.git("config", "user.name", "Wheel guard test")
+        self.git("config", "user.email", "wheel-test@example.invalid")
+        self.git("config", "commit.gpgsign", "false")
+        self.git("config", "tag.gpgsign", "false")
+        self.git("add", "Cargo.toml", "crates")
+        self.git("commit", "-qm", "Release fixture")
+        self.git("tag", "v0.6.0")
+        self.git("tag", "v0.6.1")
+        self.commit = self.git("rev-parse", "HEAD").stdout.strip()
+        self.provenance = self.root / "provenance"
+        self.provenance.mkdir()
         self.wheel("linux", "0.6.0")
         self.wheel("macos", "0.6.0")
+
+    def git(self, *args):
+        return subprocess.run(["git", *args], cwd=self.root, check=True,
+                              capture_output=True, text=True)
 
     def manifest(self, name, version):
         path = self.root / name
@@ -34,10 +50,14 @@ class WheelVersions(unittest.TestCase):
                 f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n\n",
             )
 
-    def run_guard(self, tag="v0.6.0", dist=None):
+        (self.provenance / f"draftwright-0.6.0-py3-none-{platform}.whl.commit").write_text(
+            self.commit + "\n"
+        )
+
+    def run_guard(self, tag="v0.6.0", dist=None, provenance=None):
         return subprocess.run(
             [sys.executable, str(GUARD), "--tag", tag, "--root", str(self.root),
-             "--dist", str(dist or self.dist)],
+             "--dist", str(dist or self.dist), "--provenance", str(provenance or self.provenance)],
             capture_output=True, text=True,
         )
 
@@ -50,6 +70,29 @@ class WheelVersions(unittest.TestCase):
         result = self.run_guard()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("2 wheel(s) 0.6.0: they agree", result.stdout)
+
+    def test_annotated_tag_match(self):
+        self.git("tag", "-f", "-a", "v0.6.0", "-m", "Release")
+        result = self.run_guard()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_tag(self):
+        self.refused(self.run_guard("v0.6.2"), "refs/tags/v0.6.2^{commit}")
+
+    def test_checkout_is_not_the_tag_commit(self):
+        (self.root / "source.txt").write_text("newer main code")
+        self.git("add", "source.txt")
+        self.git("commit", "-qm", "Newer main")
+        self.refused(self.run_guard(), "checked-out commit")
+
+    def test_one_wheel_built_from_the_wrong_commit(self):
+        (self.provenance / "draftwright-0.6.0-py3-none-macos.whl.commit").write_text("0" * 40)
+        self.refused(self.run_guard(), "built commit")
+
+    def test_missing_build_provenance(self):
+        empty = self.root / "no-provenance"
+        empty.mkdir()
+        self.refused(self.run_guard(provenance=empty), "missing build provenance")
 
     def test_tag_mismatch(self):
         self.refused(self.run_guard("v0.6.1"), "Cargo.toml 0.6.0: they must agree")
