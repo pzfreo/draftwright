@@ -43,9 +43,17 @@ cargo install draftwright        # installs draftwright and draftwright-mcp
 Without Rust, download a ready-built archive for macOS (Apple silicon), Linux x86_64 or
 Windows x86_64 from the [latest release](https://github.com/pzfreo/draftwright/releases/latest).
 
-On PyPI, `draftwright` is still the original
+From 0.6.0, the same two commands install from PyPI without Rust:
+
+```sh
+uv tool install draftwright      # or: pipx install draftwright
+```
+
+Until then, `draftwright` on PyPI is still the original
 [Python implementation](https://github.com/pzfreo/draftwright-python) (0.4.x, no longer
-developed); from 0.6.0 `pip install draftwright` installs this command-line tool instead.
+developed). The PyPI package is command-line only: if you use the old Python API, pin
+`draftwright<0.6` for now. The old command form `draftwright part.step [options]` still renders
+a drawing; see [CLI migration](docs/cli-migration.md) for the options it keeps.
 
 Shell completion: `draftwright completions zsh` (or `bash`, `fish`, `powershell`, `elvish`)
 prints a completion script; see [docs/engine.md](docs/engine.md#using-it) for where to put it.

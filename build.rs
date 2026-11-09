@@ -3,6 +3,8 @@ mod build_support;
 fn main() {
     let root = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let files = build_support::inputs(&root).expect("engine fingerprint inputs");
+    // A dependency checkout need not carry a lockfile; also watch for one being created.
+    println!("cargo:rerun-if-changed=Cargo.lock");
     // Directory watches also catch newly added and removed source/assets.
     for directory in ["src", "schemas", "fonts"] {
         println!("cargo:rerun-if-changed={directory}");
