@@ -390,8 +390,8 @@ fn the_command_line_completes_and_refuses_bad_usage() {
     }
     for usage in [
         &["completions", "tcsh"][..],
+        &["--bogus"],
         &[],
-        &["bogus"],
         &["render", "part.step"],
         &["plan"],
         &["analyse", "part.step", "--unknown"],
@@ -414,5 +414,162 @@ fn the_command_line_completes_and_refuses_bad_usage() {
             .unwrap()
             .contains("is not a part's index"),
         "{e}"
+    );
+}
+
+#[test]
+fn bare_form_renders_a_fixture_and_preserves_the_common_spec_fields() {
+    let dir = scratch("bare-form");
+    let (code, result) = run(&[
+        fixture("parts/plate.step").to_str().unwrap(),
+        "--out-dir",
+        dir.to_str().unwrap(),
+        "--title",
+        "Mounting plate",
+        "--number",
+        "D-42",
+        "--material",
+        "Steel",
+        "--drawn-by",
+        "Paul",
+        "--revision",
+        "B",
+        "--date",
+        "2026-11-09",
+        "--company",
+        "Example",
+        "--approved-by",
+        "Reviewer",
+        "--tolerance",
+        "ISO 2768-m",
+        "--scale",
+        "0.5",
+        "--frame",
+    ]);
+    assert_eq!(code, Some(0), "{result}");
+    assert_eq!(result["written"].as_array().unwrap().len(), 2);
+    assert!(
+        std::fs::read(dir.join("plate.pdf"))
+            .unwrap()
+            .starts_with(b"%PDF-")
+    );
+    let svg = dir.join("plate.svg");
+    assert!(std::fs::read_to_string(&svg).unwrap().contains("<svg"));
+    let (code, spec) = run(&["spec", svg.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "{spec}");
+    for (key, value) in [
+        ("title", "Mounting plate"),
+        ("number", "D-42"),
+        ("material", "Steel"),
+        ("drawn_by", "Paul"),
+        ("revision", "B"),
+        ("date", "2026-11-09"),
+        ("company", "Example"),
+        ("approved_by", "Reviewer"),
+        ("tolerance", "ISO 2768-m"),
+    ] {
+        assert_eq!(spec["sheet"]["title"][key], value, "{spec}");
+    }
+    assert_eq!(spec["sheet"]["scale"], "1:2", "{spec}");
+}
+
+#[test]
+fn bare_form_refuses_old_options_with_migration_guidance() {
+    for (option, hint) in [
+        ("--document-type", "sheet.title.document_type"),
+        ("--sheet", "sheet.title.sheet"),
+        ("--margin-left", "no Rust equivalent"),
+        ("--margin-right", "no Rust equivalent"),
+        ("--margin-top", "no Rust equivalent"),
+        ("--margin-bottom", "no Rust equivalent"),
+        ("--title-block-width", "no Rust equivalent"),
+        ("--projection", "sheet.projection"),
+        ("--projection-symbol", "no Rust equivalent"),
+        ("--no-projection-symbol", "no Rust equivalent"),
+        ("--text-position", "no Rust equivalent"),
+        ("--text-orientation", "no Rust equivalent"),
+        ("--leader-region", "no Rust equivalent"),
+        ("--annotation-layout", "no Rust equivalent"),
+        ("--zones", "sheet.zones"),
+        ("--scale-policy", "no Rust equivalent"),
+        ("--page", "sheet.size"),
+        ("--script", "no Rust equivalent"),
+        ("--style", "no Rust equivalent"),
+        ("--pmi", "pmi"),
+        ("--format", "render --formats"),
+        ("-f", "render --formats"),
+        ("--no-report", "no Rust equivalent"),
+        ("--no-progress", "no Rust equivalent"),
+        ("--verbose", "no Rust equivalent"),
+        ("-v", "no Rust equivalent"),
+        ("--install-completion", "completions <shell>"),
+        ("--show-completion", "completions <shell>"),
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_draftwright"))
+            .args(["part.step", option])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2), "{option}");
+        let stderr = String::from_utf8(out.stderr).unwrap();
+        assert!(stderr.contains(option) && stderr.contains(hint), "{stderr}");
+        assert!(out.stdout.is_empty());
+    }
+    // A missing bare path is accepted syntactically, then refused by the engine.
+    let (code, error) = run(&["bogus"]);
+    assert_eq!(code, Some(2), "{error}");
+    assert!(!error["error"]["message"].as_str().unwrap().is_empty());
+}
+
+#[test]
+fn a_file_named_render_requires_dot_slash_and_renders_with_it() {
+    let dir = scratch("subcommand-path");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::copy(fixture("parts/plate.step"), dir.join("render")).unwrap();
+    let invoke = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_draftwright"))
+            .current_dir(&dir)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let subcommand = invoke(&["render"]);
+    assert_eq!(subcommand.status.code(), Some(2));
+    let stderr = String::from_utf8(subcommand.stderr).unwrap();
+    assert!(stderr.contains("<STEP>"), "{stderr}");
+    let bare = invoke(&["./render", "--out", "drawing"]);
+    assert!(
+        bare.status.success(),
+        "{}",
+        String::from_utf8_lossy(&bare.stdout)
+    );
+    assert!(dir.join("drawing.svg").is_file());
+    assert!(dir.join("drawing.pdf").is_file());
+}
+
+#[test]
+fn both_commands_report_engine_and_linked_quiddity_and_mcp_has_help() {
+    for bin in [
+        env!("CARGO_BIN_EXE_draftwright"),
+        env!("CARGO_BIN_EXE_draftwright-mcp"),
+    ] {
+        let out = Command::new(bin).arg("--version").output().unwrap();
+        assert!(out.status.success());
+        let version = String::from_utf8(out.stdout).unwrap();
+        assert!(version.contains(env!("CARGO_PKG_VERSION")), "{version}");
+        let quiddity = env!("DRAFTWRIGHT_QUIDDITY_VERSION");
+        assert!(
+            version.contains(&format!("quiddity-rust {quiddity}")),
+            "{version}"
+        );
+    }
+    let out = Command::new(env!("CARGO_BIN_EXE_draftwright-mcp"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("Usage: draftwright-mcp")
     );
 }

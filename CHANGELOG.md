@@ -4,6 +4,15 @@ All notable changes to draftwright-rust are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- CLI-only maturin wheels carrying both `draftwright` and `draftwright-mcp`; PyPI publishing
+  is pending. GitHub URLs target `pzfreo/draftwright` after the repository rename.
+- The common Python CLI form `draftwright part.step [options]` renders natively, with explicit
+  migration guidance for unsupported options. See `docs/cli-migration.md` for defaults.
+- Both commands report the engine and linked quiddity-rust versions; the MCP adapter now
+  supports `--help`.
+
 ## 0.2.15 (2026-11-09)
 
 Still on quiddity-rust 0.4.9. Automatic item IDs are now anchored on faces, so resizing a part

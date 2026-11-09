@@ -68,7 +68,14 @@ use serde_json::{Value, json};
 /// The service's protocol version, given by `hello`.
 const PROTOCOL: u32 = 1;
 
+#[path = "shared/compat.rs"]
+mod compat;
+#[path = "shared/version.rs"]
+mod version;
+
 const AFTER_HELP: &str = "Discovery: schemas/spec.json, docs/model.md and docs/mcp.md ship in the release.
+Bare render: draftwright part.step [--title TITLE] [--out STEM | --out-dir DIR].
+Subcommand names take priority: use ./render for a file named render.
 JSON-lines serve: {\"op\":\"hello\"} lists operations; spec_schema and item_options use the MCP argument shapes.";
 
 /// The command line. Values are kept as text and checked by [`run`], so a bad `--part` or
@@ -77,7 +84,7 @@ JSON-lines serve: {\"op\":\"hello\"} lists operations; spec_schema and item_opti
 #[derive(Parser)]
 #[command(
     name = "draftwright",
-    version,
+    version = version::VERSION,
     about = "draftwright — engineering drawings from STEP",
     after_help = AFTER_HELP,
     subcommand_required = true,
@@ -134,11 +141,18 @@ enum Command {
         /// the output stem (out.svg, out.pdf, …)
         #[arg(
             short = 'o',
+            long = "out",
             value_name = "STEM",
-            required = true,
+            required_unless_present = "out_dir",
+            conflicts_with = "out_dir",
             allow_hyphen_values = true
         )]
         output: Option<String>,
+        /// Output directory, using the STEP filename as the stem
+        #[arg(long)]
+        out_dir: Option<String>,
+        #[command(flatten)]
+        sheet: compat::SheetOptions,
         /// the formats written, of svg, pdf and png
         #[arg(long, value_name = "LIST", default_value = "svg,pdf")]
         formats: String,
@@ -245,6 +259,9 @@ struct Given {
     formats: Option<String>,
     dpi: Option<String>,
     title: Option<String>,
+    sheet: compat::SheetOptions,
+    out_dir: Option<String>,
+    bare: bool,
 }
 
 impl Given {
@@ -262,7 +279,11 @@ impl Given {
 }
 
 fn main() -> ExitCode {
-    let (name, given) = match Cli::parse().command {
+    let args: Vec<_> = std::env::args_os().collect();
+    if compat::is_bare(&args) {
+        return finish("render", &compat::parse(args));
+    }
+    let (name, given) = match Cli::parse_from(args).command {
         Command::Completions { shell } => {
             clap_complete::generate(
                 shell,
@@ -297,12 +318,16 @@ fn main() -> ExitCode {
             step,
             drawing,
             output,
+            out_dir,
+            sheet,
             formats,
             dpi,
         } => (
             "render",
             Given {
                 output,
+                out_dir,
+                sheet,
                 formats: Some(formats),
                 dpi,
                 ..Given::drawing(vec![step], drawing)
@@ -374,7 +399,11 @@ fn main() -> ExitCode {
             },
         ),
     };
-    match run(name, &given) {
+    finish(name, &given)
+}
+
+fn finish(name: &str, given: &Given) -> ExitCode {
+    match run(name, given) {
         Ok(out) => {
             println!("{}", serde_json::to_string_pretty(&out).expect("JSON"));
             ExitCode::SUCCESS
@@ -406,10 +435,33 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
             .map(String::as_str)
             .ok_or_else(|| Error::invalid(format!("{command} needs a STEP file")))
     };
-    let spec = match &given.spec {
+    let mut spec = match &given.spec {
         Some(path) => read_json(path)?,
         None => Value::Null,
     };
+    if command == "render" {
+        let mut typed = if spec.is_null() {
+            Spec::default()
+        } else {
+            serde_json::from_value(spec)
+                .map_err(|e| Error::invalid(format!("the spec is not valid: {e}")))?
+        };
+        given.sheet.apply(&mut typed)?;
+        spec = json_of(&typed);
+    }
+    let render_output = if command == "render" && (given.bare || given.out_dir.is_some()) {
+        Some(compat::output(
+            arg(1)?,
+            given.output.as_deref(),
+            given.out_dir.as_deref(),
+        ))
+    } else {
+        given.output.as_ref().map(std::path::PathBuf::from)
+    };
+    if let Some(dir) = given.out_dir.as_deref() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| Error::failed(format!("cannot create {dir}: {e}")))?;
+    }
     let features = given.features.as_deref();
     let analysis = match &given.analysis {
         Some(path) => read_json(path)?,
@@ -433,9 +485,9 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
         ));
     }
     let output = || {
-        given
-            .output
-            .as_deref()
+        render_output
+            .as_ref()
+            .and_then(|p| p.to_str())
             .ok_or_else(|| Error::invalid("render needs -o <output stem>"))
     };
     let formats = || {
