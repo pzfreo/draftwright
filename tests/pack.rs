@@ -15,6 +15,224 @@ fn small() -> &'static Pack {
     PACK.get_or_init(|| pack::build(&fixture("pack-small.step.gz"), &PackSpec::default()).unwrap())
 }
 
+fn copies() -> &'static Pack {
+    static PACK: OnceLock<Pack> = OnceLock::new();
+    PACK.get_or_init(|| pack::build(&fixture("pack-copies.step.gz"), &PackSpec::default()).unwrap())
+}
+
+#[test]
+fn independent_products_and_repeated_placements_share_one_list_item_and_drawing() {
+    let step = fixture("pack-copies.step.gz");
+    let bytes = draftwright::model::read_step_file(&step).unwrap();
+    let file = draftwright::haecceity::step::StepFile::read(&bytes).unwrap();
+    assert_eq!(file.parts.len(), 8);
+    assert_eq!(
+        file.parts.iter().map(|p| p.placements.len()).sum::<usize>(),
+        9
+    );
+    let pack = copies();
+    assert_eq!(pack.report.rows.len(), 4);
+    assert_eq!(pack.report.rows.iter().map(|r| r.qty).sum::<usize>(), 9);
+    let bolts = pack
+        .report
+        .rows
+        .iter()
+        .find(|r| r.name == "M3×8 hex bolt")
+        .unwrap();
+    assert_eq!(bolts.qty, 4);
+    assert_eq!(bolts.products.len(), 4);
+    assert_eq!(bolts.part_indices.len(), 4);
+    assert_eq!(bolts.supply, Supply::Buy);
+    assert!(bolts.sheets.is_empty());
+    let longer = pack
+        .report
+        .rows
+        .iter()
+        .find(|r| r.name == "M3×10 hex bolt")
+        .unwrap();
+    assert_eq!(longer.qty, 1);
+    assert_eq!(longer.products, ["M3×10 hex bolt"]);
+    assert_ne!(bolts.item, longer.item);
+
+    let plate = pack
+        .report
+        .rows
+        .iter()
+        .find(|r| r.name == "Plate MK II (60mm)")
+        .unwrap();
+    assert_eq!(plate.qty, 3); // two placements of #1 plus the independent #2
+    assert_eq!(plate.part_indices.len(), 2);
+    assert_eq!(plate.supply, Supply::Make);
+    assert_eq!(plate.sheets.len(), 1);
+    assert_eq!(pack.report.pages, 3); // GA, enclosure, one plate drawing
+    assert!(pack.report.rows.iter().all(|r| r.error.is_none()));
+    let drawing = &pack.drawings[plate.sheets[0] - 1];
+    for (field, value) in [
+        ("pack_item", plate.item.to_string()),
+        ("pack_qty", "3".into()),
+    ] {
+        let cell = drawing
+            .sheet
+            .fields
+            .iter()
+            .find(|c| c.field == field)
+            .unwrap()
+            .cell;
+        assert!(drawing.text.iter().any(|r| r.text == value
+            && r.at[0] >= cell[0]
+            && r.at[0] <= cell[2]
+            && r.at[1] >= cell[1]
+            && r.at[1] <= cell[3]));
+    }
+    check_ga(pack, &step); // PDF list cells, merged item references and source-owned balloons
+    assert!(pack.pdf().starts_with(b"%PDF-"));
+}
+
+#[test]
+fn copies_csv_contains_one_row_per_merged_item_with_total_quantities() {
+    let pack = copies();
+    let csv = pack.report.csv();
+    let lines: Vec<_> = csv.lines().collect();
+    assert_eq!(lines.len(), 5);
+    for row in &pack.report.rows {
+        // All fields are quoted; these fixture values contain no commas/quotes.
+        let cells: Vec<_> = lines
+            .iter()
+            .skip(1)
+            .find(|line| line.starts_with(&format!("\"{}\",", row.item)))
+            .unwrap()
+            .split(',')
+            .map(|c| c.trim_matches('"'))
+            .collect();
+        assert_eq!(cells[1], row.name);
+        assert_eq!(cells[2], row.products.join("; "));
+        assert_eq!(cells[3], row.qty.to_string());
+        assert_eq!(
+            cells[4],
+            if row.supply == Supply::Buy {
+                "buy"
+            } else {
+                "make"
+            }
+        );
+        assert_eq!(
+            cells[6],
+            row.sheets
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+    }
+}
+
+#[test]
+fn each_stated_bom_fact_splits_congruent_products_but_equal_facts_merge() {
+    use draftwright::haecceity::{p21::Document, step::StepFile};
+    let bytes = draftwright::model::read_step_file(&fixture("pack-copies.step.gz")).unwrap();
+    let file = StepFile::read(&bytes).unwrap();
+    let doc = Document::parse(bytes.clone()).unwrap();
+    let first_id = doc.ids().max().unwrap() + 1;
+    let original = String::from_utf8(bytes).unwrap();
+    let mut spec = PackSpec::default();
+    spec.ga.include = Some(false);
+    // Suppress individual drawing work; grouping still uses the file's facts.
+    for p in &file.parts {
+        spec.parts.insert(
+            p.name.clone(),
+            PartSpec {
+                supply: Some(Supply::Buy),
+                ..Default::default()
+            },
+        );
+    }
+    let target = file
+        .parts
+        .iter()
+        .find(|p| p.name == "M3×8 hex bolt #2")
+        .unwrap();
+    let property = |owner: u64, id: u64, field: &str, value: &str| {
+        if field == "material" {
+            format!("#{id}=MATERIAL_DESIGNATION('{value}',(#{owner}));\n")
+        } else {
+            format!(
+                "#{id}=PROPERTY_DEFINITION('specify bom','',#{owner});\n\
+                #{}=PROPERTY_DEFINITION_REPRESENTATION(#{id},#{});\n\
+                #{}=REPRESENTATION('',(#{}),#{});\n\
+                #{}=REPRESENTATION_CONTEXT('','');\n\
+                #{}=DESCRIPTIVE_REPRESENTATION_ITEM('{field}','{value}');\n",
+                id + 1,
+                id + 2,
+                id + 2,
+                id + 4,
+                id + 3,
+                id + 3,
+                id + 4
+            )
+        }
+    };
+    let add = |entities: &str| {
+        original.replace(
+            "ENDSEC;\nEND-ISO-10303-21;",
+            &format!("{entities}ENDSEC;\nEND-ISO-10303-21;"),
+        )
+    };
+    for (field, value) in [
+        ("part_number", "ISO-4017-M3x8"),
+        ("description", "Stated bolt"),
+        ("revision", "B"),
+        ("make_buy", "made"),
+        ("material", "Steel"),
+        ("optional", "yes"),
+        ("stock", "from stock"),
+    ] {
+        let entities = property(target.product_definition, first_id, field, value);
+        let changed = pack::build_bytes("copies.step", add(&entities).as_bytes(), &spec).unwrap();
+        assert_eq!(changed.report.rows.len(), 5, "{field}");
+        assert_eq!(
+            changed.report.rows.iter().map(|r| r.qty).sum::<usize>(),
+            9,
+            "{field}"
+        );
+        let separate = changed
+            .report
+            .rows
+            .iter()
+            .find(|r| r.products == [target.name.clone()])
+            .unwrap();
+        assert_eq!(separate.qty, 1, "{field}");
+        let remaining = changed
+            .report
+            .rows
+            .iter()
+            .find(|r| r.products.len() == 3)
+            .unwrap();
+        assert_eq!(remaining.qty, 3, "{field}");
+        assert!(!remaining.products.contains(&target.name), "{field}");
+
+        let same: String = file
+            .parts
+            .iter()
+            .filter(|p| p.name.starts_with("M3×8 hex bolt #"))
+            .enumerate()
+            .map(|(n, p)| property(p.product_definition, first_id + 5 * n as u64, field, value))
+            .collect();
+        let equal = pack::build_bytes("copies.step", add(&same).as_bytes(), &spec).unwrap();
+        assert_eq!(equal.report.rows.len(), 4, "equal {field}");
+        assert_eq!(
+            equal
+                .report
+                .rows
+                .iter()
+                .find(|r| r.products.len() == 4)
+                .unwrap()
+                .qty,
+            4,
+            "equal {field}"
+        );
+    }
+}
+
 #[test]
 fn translated_hex_bolts_merge_with_a_display_stem_and_a_geometry_finding() {
     let step = fixture("pack-hex-bolts.step.gz");

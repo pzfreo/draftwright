@@ -509,32 +509,97 @@ impl Metadata {
             .filter(|_| self.part_number_is_explicit)
     }
 
-    /// Names and occurrence location labels do not prevent legacy shape grouping.
-    /// Stated BOM identities and manufacturing facts do.
+    /// The seven stated BOM facts used by Specify 0.1.14's `same_as` rule.
+    /// Names, defaults, exporter ids, find numbers and other metadata do not
+    /// assert that congruent products are different items.
     pub(crate) fn compatible(&self, other: &Self) -> bool {
-        let mut a = self.clone();
-        let mut b = other.clone();
-        a.name = None;
-        b.name = None;
-        a.occurrence_references.clear();
-        b.occurrence_references.clear();
-        a.product_ids.clear();
-        b.product_ids.clear();
-        // Raw source diagnostics and proposed numbers do not assert identity.
-        a.file_make_buy = None;
-        b.file_make_buy = None;
-        a.part_number_suggestion = None;
-        b.part_number_suggestion = None;
-        a.suggested_fields.remove("part_number_suggestion");
-        b.suggested_fields.remove("part_number_suggestion");
-        // PRODUCT.id alone is a raw exporter fact, not part-number evidence.
-        if !a.part_number_is_explicit {
-            a.part_number = None;
+        fn stated<'a, T>(row: &Metadata, field: &str, value: &'a Option<T>) -> Option<&'a T> {
+            value
+                .as_ref()
+                .filter(|_| !row.suggested_fields.contains(field))
         }
-        if !b.part_number_is_explicit {
-            b.part_number = None;
+        fn supply(row: &Metadata) -> Option<&String> {
+            // Native NOT_KNOWN is retained separately to allow supply guesses
+            // in drawings, but is still a stated fact when comparing products.
+            stated(row, "make_buy", &row.make_buy).or(row.file_make_buy.as_ref())
         }
-        a == b
+        stated(self, "part_number", &self.part_number).filter(|_| self.part_number_is_explicit)
+            == stated(other, "part_number", &other.part_number)
+                .filter(|_| other.part_number_is_explicit)
+            && stated(self, "description", &self.description)
+                == stated(other, "description", &other.description)
+            && stated(self, "revision", &self.revision)
+                == stated(other, "revision", &other.revision)
+            && supply(self) == supply(other)
+            && stated(self, "material", &self.material)
+                == stated(other, "material", &other.material)
+            && stated(self, "optional", &self.optional)
+                == stated(other, "optional", &other.optional)
+            && stated(self, "stock", &self.stock) == stated(other, "stock", &other.stock)
+    }
+}
+
+#[cfg(test)]
+mod grouping_tests {
+    use super::Metadata;
+
+    #[test]
+    fn only_stated_bom_facts_decide_compatibility() {
+        let empty = Metadata::default();
+        let mut exported = Metadata {
+            process: Some(crate::process::Process::Fdm),
+            name: Some("Different name #2".into()),
+            part_number: Some("RAW-PRODUCT-ID".into()),
+            product_ids: vec!["RAW-PRODUCT-ID".into()],
+            part_number_suggestion: Some("Proposed number".into()),
+            item_number: Some(42),
+            categories: vec!["part".into()],
+            classifications: vec!["catalogue".into()],
+            occurrence_references: vec!["location 2".into()],
+            ..Metadata::default()
+        };
+        assert!(empty.compatible(&exported));
+        assert!(exported.compatible(&empty));
+        exported.description = Some("Default description".into());
+        exported.revision = Some("Default revision".into());
+        exported.make_buy = Some("bought".into());
+        exported.material = Some("Default material".into());
+        exported.optional = Some(false);
+        exported.stock = Some("from stock".into());
+        exported.suggested_fields = [
+            "description",
+            "revision",
+            "make_buy",
+            "material",
+            "optional",
+            "stock",
+        ]
+        .map(String::from)
+        .into();
+        assert!(empty.compatible(&exported));
+        assert!(exported.compatible(&empty));
+        // An explicitly stated false is different from an unstated optional flag.
+        exported.suggested_fields.remove("optional");
+        assert!(!empty.compatible(&exported));
+    }
+
+    #[test]
+    fn native_unknown_supply_is_a_fact_even_when_a_default_fills_the_display() {
+        let native = Metadata {
+            file_make_buy: Some("not known".into()),
+            ..Metadata::default()
+        };
+        let suggested = Metadata {
+            make_buy: Some("made".into()),
+            suggested_fields: ["make_buy".into()].into(),
+            ..native.clone()
+        };
+        assert!(native.compatible(&suggested));
+        assert!(!native.compatible(&Metadata::default()));
+        assert!(!native.compatible(&Metadata {
+            make_buy: Some("made".into()),
+            ..Metadata::default()
+        }));
     }
 }
 

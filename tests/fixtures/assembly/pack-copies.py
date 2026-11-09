@@ -47,7 +47,7 @@ entries = [
 ]
 for name, shape, positions in entries:
     label = tool.AddShape(shape.wrapped, False)
-    TDataStd_Name.Set_s(label, TCollection_ExtendedString(name))
+    TDataStd_Name.Set_s(label, TCollection_ExtendedString(name, True))
     for position in positions:
         transform = gp_Trsf()
         transform.SetTranslation(gp_Vec(*position))
