@@ -102,6 +102,28 @@ fn engine_inputs_ignore_stray_files_but_include_source_and_assets() {
 }
 
 #[test]
+fn engine_fingerprints_work_without_a_dependency_lockfile() {
+    let scratch = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("engine-without-lock-{}", std::process::id()));
+    for directory in ["src", "schemas", "fonts"] {
+        std::fs::create_dir_all(scratch.join(directory)).unwrap();
+    }
+    for file in ["Cargo.toml", "build.rs", "build_support.rs", "src/lib.rs"] {
+        std::fs::write(scratch.join(file), "input").unwrap();
+    }
+    let files = build_support::inputs(&scratch).unwrap();
+    assert!(!files.contains(&"Cargo.lock".into()));
+    let without_lock = build_support::fingerprint(&scratch, &files).unwrap();
+    std::fs::write(scratch.join("Cargo.lock"), "resolved dependencies").unwrap();
+    let files = build_support::inputs(&scratch).unwrap();
+    assert!(files.contains(&"Cargo.lock".into()));
+    assert_ne!(
+        without_lock,
+        build_support::fingerprint(&scratch, &files).unwrap()
+    );
+}
+
+#[test]
 fn tools_explain_their_operations_without_source_and_fit_schema_budget() {
     let cache = draftwright::stateless::Cache::new("unused");
     let reply = draftwright::mcp::reply(

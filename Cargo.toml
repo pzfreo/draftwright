@@ -6,7 +6,7 @@ autotests = false
 license = "AGPL-3.0-only"
 description = "Automated technical drawings from STEP B-rep: a Rust port of draftwright."
 repository = "https://github.com/pzfreo/draftwright"
-homepage = "https://github.com/pzfreo/draftwright"
+homepage = "https://draftwright.io"
 readme = "README.md"
 keywords = ["cad", "step", "technical-drawing", "drafting", "manufacturing"]
 categories = ["science", "command-line-utilities", "graphics"]
@@ -52,7 +52,6 @@ flate2 = "1.1.10"
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 
 [build-dependencies]
-toml = "0.9"
 sha2 = "0.11.0"
 
 [workspace]

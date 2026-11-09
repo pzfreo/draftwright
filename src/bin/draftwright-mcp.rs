@@ -275,7 +275,7 @@ fn main() {
     match args.as_slice() {
         [] => {}
         [arg] if arg == "--version" || arg == "-V" => {
-            println!("draftwright-mcp {}", version::VERSION);
+            println!("draftwright-mcp {}", version::version());
             return;
         }
         [arg] if arg == "--help" || arg == "-h" => {

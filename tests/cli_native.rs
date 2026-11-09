@@ -556,7 +556,9 @@ fn both_commands_report_engine_and_linked_quiddity_and_mcp_has_help() {
         assert!(out.status.success());
         let version = String::from_utf8(out.stdout).unwrap();
         assert!(version.contains(env!("CARGO_PKG_VERSION")), "{version}");
-        let quiddity = env!("DRAFTWRIGHT_QUIDDITY_VERSION");
+        let capabilities: Value =
+            serde_json::from_str(&quiddity::file_api::capabilities()).unwrap();
+        let quiddity = capabilities["package"]["version"].as_str().unwrap();
         assert!(
             version.contains(&format!("quiddity-rust {quiddity}")),
             "{version}"

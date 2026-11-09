@@ -84,7 +84,7 @@ JSON-lines serve: {\"op\":\"hello\"} lists operations; spec_schema and item_opti
 #[derive(Parser)]
 #[command(
     name = "draftwright",
-    version = version::VERSION,
+    version = version::version(),
     about = "draftwright — engineering drawings from STEP",
     after_help = AFTER_HELP,
     subcommand_required = true,

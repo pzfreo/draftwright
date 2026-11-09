@@ -69,7 +69,7 @@ impl SheetOptions {
 }
 
 #[derive(Parser)]
-#[command(name = "draftwright", version = super::version::VERSION, args_override_self = true,
+#[command(name = "draftwright", version = super::version::version(), args_override_self = true,
     about = "Render a STEP file using the common Python CLI options",
     after_help = "Subcommand names take priority over file names. Use ./render for a file named render.\nFor more controls use draftwright render --help and --spec.")]
 struct Bare {
