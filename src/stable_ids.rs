@@ -327,6 +327,38 @@ fn rank_key(v: &Value) -> Option<String> {
     }
 }
 
+// JSON serializes non-finite floats as null. Required numeric fields then fail
+// deserialization, but optional numbers would silently become None. Reject those
+// typed inputs before any whole-document rename can erase the author's value.
+fn finite_optional_numbers(spec: &Spec) -> Result<(), Invalid> {
+    let check = |path: String, number: Option<f64>| {
+        if number.is_some_and(|n| !n.is_finite()) {
+            let mut error = invalid(format!("{path} must be finite."));
+            error.path = Some(path);
+            Err(error)
+        } else {
+            Ok(())
+        }
+    };
+    check("iso_scale_factor".into(), spec.iso_scale_factor)?;
+    check("sheet/view_gutter".into(), spec.sheet.view_gutter)?;
+    check("sheet/frame_gutter".into(), spec.sheet.frame_gutter)?;
+    for (name, view) in &spec.views {
+        if let Some(broken) = &view.broken {
+            check(format!("views/{}/broken/gap", escape(name)), broken.gap)?;
+        }
+    }
+    for (id, feature) in &spec.features {
+        if let Some(thread) = &feature.thread {
+            check(
+                format!("features/{}/thread/length", escape(id)),
+                thread.length,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
     crate::geometry_ids::with(a, || migrate_indexed(spec, a))
 }
@@ -343,6 +375,7 @@ fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
         error.choices = SPEC_SCHEMAS.iter().map(|s| (*s).into()).collect();
         return Err(error);
     }
+    finite_optional_numbers(spec)?;
     if matches!(
         spec.schema.as_str(),
         "draftwright.spec/1" | "draftwright.spec/2"
@@ -482,6 +515,63 @@ mod tests {
         assert!(result.migrated.is_empty());
         assert!(result.unmapped.is_empty());
         assert!(!result.ids.contains_key("f:declared:123"));
+    }
+
+    #[test]
+    fn migration_refuses_nonfinite_optional_numbers_instead_of_erasing_them() {
+        let a: Analysis = serde_json::from_str(include_str!(
+            "../tests/fixtures/identity/m10020.analysis7.json"
+        ))
+        .unwrap();
+        for schema in [
+            "draftwright.spec/1",
+            "draftwright.spec/2",
+            "draftwright.spec/3",
+        ] {
+            for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                for path in [
+                    "iso_scale_factor",
+                    "sheet/view_gutter",
+                    "sheet/frame_gutter",
+                    "views/front/broken/gap",
+                    "features/f:declared:thread/thread/length",
+                ] {
+                    let mut s: Spec = serde_json::from_value(serde_json::json!({"schema":schema,
+                        "views":{"front":{"broken":{"gap":6.}}},
+                        "features":{"f:declared:thread":{"thread":{"designation":"M6","length":10.}}}
+                    })).unwrap();
+                    match path {
+                        "iso_scale_factor" => s.iso_scale_factor = Some(value),
+                        "sheet/view_gutter" => s.sheet.view_gutter = Some(value),
+                        "sheet/frame_gutter" => s.sheet.frame_gutter = Some(value),
+                        "views/front/broken/gap" => {
+                            s.views
+                                .get_mut("front")
+                                .unwrap()
+                                .broken
+                                .as_mut()
+                                .unwrap()
+                                .gap = Some(value)
+                        }
+                        _ => {
+                            s.features
+                                .get_mut("f:declared:thread")
+                                .unwrap()
+                                .thread
+                                .as_mut()
+                                .unwrap()
+                                .length = Some(value)
+                        }
+                    }
+                    let error = migrate(&s, &a)
+                        .err()
+                        .expect("non-finite authored value must be refused");
+                    assert_eq!(error.path.as_deref(), Some(path));
+                    assert!(error.message.contains(path), "{error}");
+                    assert_eq!(s.schema, schema);
+                }
+            }
+        }
     }
 
     #[test]
