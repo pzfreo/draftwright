@@ -41,6 +41,15 @@ def outline():
     }), 'description': 'Outline. Call spec_schema {} for the full Spec and get_spec spec_read schemas; item_options gives valid edit paths and choices.'}
 
 
+def pictorial_fields():
+    """Shared per-view vocabulary for the on-demand and private validation schemas."""
+    return optional({
+        'style': {**enum('wireframe', 'shaded'), 'description': 'Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations.'},
+        'colour': {**arr({**I, 'maximum': 255}, minItems=3, maxItems=3), 'description': 'Pictorial base sRGB colour; default [184,196,204].'},
+        'direction': {**arr({**N, 'minimum': -1000000, 'maximum': 1000000}, minItems=3, maxItems=3), 'description': 'Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1].'},
+    })
+
+
 def document():
     """Full draft-2020-12 author Spec, including the get_spec read shape."""
     line = optional({k: B for k in ('hidden', 'centre_marks', 'centre_lines',
@@ -100,7 +109,7 @@ def document():
                        **optional({'from': {'type': 'string', 'pattern': r'^(front|plan|side|section_([a-h])\2)(?![\s\S])'},
                                    'scale_factor': {'type': 'number', 'exclusiveMinimum': 1}})}, ('around',)),
         'break': obj({'axis': enum('x','y','z'), 'remove': arr(N, minItems=2, maxItems=2), 'gap': {**N, 'exclusiveMinimum': 0, 'description': 'Retained gap in paper mm at every scale; default 6.'}, 'aligned': B}),
-        'view': obj({**line, **optional({'break': ref('break'), 'half_section': {**B, 'description': 'ISO 128-50 half section on a profile view of a part turned whole: true forces it, false forbids it; unset draws it automatically when a coaxial hole steps inside (counterbore, spotface or countersink).'}, 'sheet': SHEET, 'place': ref('view_place'), 'detail': ref('detail')}), 'omit': B}),
+        'view': obj({**line, **pictorial_fields(), **optional({'break': ref('break'), 'half_section': {**B, 'description': 'ISO 128-50 half section on a profile view of a part turned whole: true forces it, false forbids it; unset draws it automatically when a coaxial hole steps inside (counterbore, spotface or countersink).'}, 'sheet': SHEET, 'place': ref('view_place'), 'detail': ref('detail')}), 'omit': B}),
         'note': obj({'id': S, 'text': S}, ('id', 'text')),
         'table': obj({'id': S, 'rows': arr(arr({'type': ['string', 'number']})),
                       'sheet': nullable(SHEET), 'prefer': nullable(enum('tr', 'tl', 'br', 'bl'))}, ('id', 'rows')),

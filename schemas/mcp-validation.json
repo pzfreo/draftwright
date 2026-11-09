@@ -142,6 +142,56 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "style": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "wireframe",
+                        "shaded"
+                      ],
+                      "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "colour": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial base sRGB colour; default [184,196,204]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1000000,
+                        "maximum": 1000000
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "break": {
                   "type": [
                     "object",
@@ -509,6 +559,56 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "style": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "wireframe",
+                        "shaded"
+                      ],
+                      "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "colour": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial base sRGB colour; default [184,196,204]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1000000,
+                        "maximum": 1000000
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "break": {
                   "type": [
                     "object",
@@ -964,6 +1064,56 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "style": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "wireframe",
+                        "shaded"
+                      ],
+                      "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "colour": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial base sRGB colour; default [184,196,204]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1000000,
+                        "maximum": 1000000
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "break": {
                   "type": [
                     "object",
@@ -1320,6 +1470,56 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "style": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "wireframe",
+                        "shaded"
+                      ],
+                      "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "colour": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial base sRGB colour; default [184,196,204]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1000000,
+                        "maximum": 1000000
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "break": {
                   "type": [
                     "object",
@@ -1694,6 +1894,56 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "style": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "wireframe",
+                        "shaded"
+                      ],
+                      "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "colour": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial base sRGB colour; default [184,196,204]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1000000,
+                        "maximum": 1000000
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "break": {
                   "type": [
                     "object",
@@ -2046,6 +2296,56 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "style": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "wireframe",
+                        "shaded"
+                      ],
+                      "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "colour": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial base sRGB colour; default [184,196,204]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1000000,
+                        "maximum": 1000000
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "break": {
                   "type": [
                     "object",
@@ -2445,6 +2745,56 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "style": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "wireframe",
+                        "shaded"
+                      ],
+                      "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "colour": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial base sRGB colour; default [184,196,204]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1000000,
+                        "maximum": 1000000
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "break": {
                   "type": [
                     "object",
@@ -2848,6 +3198,56 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "style": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "wireframe",
+                        "shaded"
+                      ],
+                      "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "colour": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial base sRGB colour; default [184,196,204]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1000000,
+                        "maximum": 1000000
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "break": {
                   "type": [
                     "object",
@@ -3232,6 +3632,56 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "style": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "wireframe",
+                        "shaded"
+                      ],
+                      "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "colour": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial base sRGB colour; default [184,196,204]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1000000,
+                        "maximum": 1000000
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "break": {
                   "type": [
                     "object",
@@ -3588,6 +4038,56 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "style": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "wireframe",
+                        "shaded"
+                      ],
+                      "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "colour": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial base sRGB colour; default [184,196,204]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1000000,
+                        "maximum": 1000000
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "break": {
                   "type": [
                     "object",
@@ -3935,6 +4435,56 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "style": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "wireframe",
+                        "shaded"
+                      ],
+                      "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "colour": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial base sRGB colour; default [184,196,204]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1000000,
+                        "maximum": 1000000
+                      },
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "break": {
                   "type": [
                     "object",
