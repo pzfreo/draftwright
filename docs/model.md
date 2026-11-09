@@ -2550,6 +2550,12 @@ Specs `/1` and `/2` are accepted through **0.2.24**, the tenth release starting 
 From 0.2.25 (including 0.2.25-alpha.1) they are refused with the approved conversion instructions: run
 `draftwright plan PART.step --spec FILE` with 0.2.24 and keep the `spec` it prints. The
 single cutoff is `stable_ids::LAST_LEGACY_SPEC_READER`; there is no permanent migrate command.
+A spec/1 or spec/2 containing rank-keyed feature entries cannot be migrated using
+analysis/2–7: those analyses lack the exact face identity map. Opening it is refused,
+without promoting its saved schema. Re-analyse the STEP with a current engine and
+reopen the original saved Spec. Available `ids` mappings are applied idempotently on
+every read, including spec/3, so an already promoted document can recover old keys.
+
 Spec/1 additionally drops `@<view>` from dimension keys and maps old PMI instance names to
 record identities when the file binding permits it, as before. `edit` has no Analysis and
 preserves the incoming version until the Spec is read for planning.
