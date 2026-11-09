@@ -1,0 +1,102 @@
+name: crates.io
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'build.rs'
+      - 'build_support.rs'
+      - 'fonts/**'
+      - 'schemas/**'
+      - 'docs/finding-impact.md'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'LICENSE'
+      - '.github/workflows/crates.yml'
+  # A published GitHub release publishes draftwright to crates.io: the maintainer's release is
+  # the approval. A pre-release is not published (a crates.io version can be yanked but never
+  # removed); a manual run can.
+  release:
+    types: [published]
+  # Publishes an earlier release from its tag. Each run needs the maintainer's word.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag to publish, e.g. v0.2.15
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crates-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Packages the crate as crates.io would build it, so a packaging break shows before a release.
+  package:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo publish --dry-run --locked -p draftwright
+
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'release' && !github.event.release.prerelease)
+    runs-on: ubuntu-latest
+    # crates.io trusted publishing: the crate trusts this repository, this workflow and this
+    # environment, and the job mints a short-lived token; no token is stored.
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - run: rustup toolchain install
+      - name: The tag is the crate version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "draftwright") | .version')
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG, draftwright $version: they must agree"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      # A version already on crates.io is skipped, so a rerun or a backfill publishes only what
+      # is missing.
+      - name: What crates.io lacks
+        id: missing
+        run: |
+          status=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' \
+            -H 'User-Agent: pzfreo/draftwright-rust release workflow' \
+            "https://crates.io/api/v1/crates/draftwright/$VERSION")
+          if [ "$status" = 200 ]; then
+            echo "draftwright $VERSION is already on crates.io: skipped"
+            echo "publish=" >> "$GITHUB_OUTPUT"
+          elif [ "$status" = 404 ]; then
+            echo "publish=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::crates.io answered $status for draftwright $VERSION"
+            exit 1
+          fi
+      - name: Mint a crates.io token
+        if: steps.missing.outputs.publish == 'yes'
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - name: Publish
+        if: steps.missing.outputs.publish == 'yes'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --locked -p draftwright
