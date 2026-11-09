@@ -398,7 +398,9 @@ fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
             &ids,
         )
         .map_err(invalid)?;
-        out = serde_json::from_value(value).expect("renaming strings preserves Spec structure");
+        // Typed callers can construct values rejected by custom deserializers.
+        // Migration must return their validation error rather than panic.
+        out = serde_json::from_value(value).map_err(|error| invalid(error.to_string()))?;
     }
     out.schema = SPEC_SCHEMA.into();
     let unmapped = unmapped(&serde_json::to_value(&out).expect("Spec serializes"), a);
