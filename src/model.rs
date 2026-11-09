@@ -686,6 +686,9 @@ pub struct SheetSpec {
     /// `n:m`, from ISO 5455's series.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scale: Option<String>,
+    /// Sheet orientation: `landscape` (default), `portrait`, or `auto`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orientation: Option<Orientation>,
     /// Dimension-line spacing: unset uses normal 10/7 mm lanes and falls back to compact
     /// 7/5.5 mm on the same sheet before a smaller scale or larger paper; `normal` forbids
     /// that fallback and `compact` uses compact lanes directly.
@@ -717,6 +720,19 @@ pub struct SheetSpec {
     /// symbol beside the title block, as an AP242 one on the part is drawn ([`crate::spec_notes`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_finish: Option<crate::spec_notes::FinishSpec>,
+}
+
+/// Sheet orientation (`SheetSpec::orientation`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Orientation {
+    /// Width >= Height (standard ISO 216 landscape).
+    #[default]
+    Landscape,
+    /// Height > Width (swapped dimensions for slender vertical parts).
+    Portrait,
+    /// Automatically choose orientation based on part aspect ratio.
+    Auto,
 }
 
 /// Sheet-wide dimension-line spacing ([`SheetSpec::dimension_spacing`]).
@@ -3835,7 +3851,12 @@ fn recover_candidates(
                 }
                 // A view larger than the usable paper cannot be repaired by annotation placement.
                 // Reject it before running the finished solver (especially important on dense PMI).
-                let (_, w, h) = layout::PAGES[i];
+                let (_, raw_w, raw_h) = layout::PAGES[i];
+                let [env_lo, env_hi] = analysis.envelope;
+                let is_portrait = spec.sheet.orientation == Some(Orientation::Portrait)
+                    || (spec.sheet.orientation == Some(Orientation::Auto)
+                        && (env_hi[2] - env_lo[2] > (env_hi[0] - env_lo[0]) * 1.2 || env_hi[1] - env_lo[1] > (env_hi[0] - env_lo[0]) * 1.2));
+                let (w, h) = if is_portrait { (raw_h, raw_w) } else { (raw_w, raw_h) };
                 if first
                     .views
                     .iter()
@@ -6509,7 +6530,13 @@ fn plan_with_presentation(
             layout::PAGES
                 .iter()
                 .find(|(n, ..)| n == s)
-                .map(|(_, w, h)| [*w, *h])
+                .map(|(_, w, h)| {
+                    if spec.sheet.orientation == Some(Orientation::Portrait) {
+                        [*h, *w]
+                    } else {
+                        [*w, *h]
+                    }
+                })
                 .ok_or_else(|| {
                     invalid(
                         format!("{s:?} is not a sheet size."),
@@ -6635,6 +6662,7 @@ fn plan_with_presentation(
         .iter()
         .map(|(name, b)| (name.clone(), b.axis, b.remove[1] - b.remove[0], b.paper_gap))
         .collect();
+    request.orientation = spec.sheet.orientation.unwrap_or_default();
     request.aligned = aligned;
     request.automatic_pair = automatic_pair;
     request.candidate_arrangement = candidate_arrangement;
@@ -6813,7 +6841,7 @@ fn plan_with_presentation(
     let page_name = |page: [f64; 2]| {
         layout::PAGES
             .iter()
-            .find(|(_, w, h)| [*w, *h] == page)
+            .find(|(_, w, h)| [*w, *h] == page || [*h, *w] == page)
             .map_or_else(|| format!("{}x{}", page[0], page[1]), |p| p.0.into())
     };
     let size = page_name(pick.page);

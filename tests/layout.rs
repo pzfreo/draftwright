@@ -104,6 +104,7 @@ fn request(c: &Value) -> Request {
     assert_eq!(c["convention"], "third", "first angle is not ported");
     Request {
         max_page: None,
+        orientation: draftwright::model::Orientation::Landscape,
         automatic_pair: false,
         candidate_arrangement: None,
         aligned: Vec::new(),
@@ -516,4 +517,36 @@ fn capped_automatic_ladder_keeps_its_standard_reduction_tail() {
     assert_eq!(pick.page, [420.0, 297.0]);
     assert!(pick.scale >= 0.02, "{}", pick.scale);
     assert!(pick.fallback.is_none());
+}
+
+#[test]
+fn portrait_orientation_swaps_dimensions_and_fits_tall_part() {
+    let spec: draftwright::model::Spec = serde_json::from_value(serde_json::json!({
+        "sheet": {
+            "size": "A4",
+            "orientation": "portrait"
+        }
+    }))
+    .unwrap();
+    assert_eq!(
+        spec.sheet.orientation,
+        Some(draftwright::model::Orientation::Portrait)
+    );
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (_part, a) =
+        draftwright::model::analyse(&root.join("tests/fixtures/parts/plate.step")).unwrap();
+    let plan = draftwright::model::plan(&a, &spec).unwrap();
+
+    assert_eq!(plan.sheet.page, [210.0, 297.0]);
+    assert_eq!(plan.sheet.size, "A4");
+
+    let width = draftwright::layout::title_block_width(plan.sheet.page[0]);
+    assert_eq!(width, 120.0);
+    assert!(plan.sheet.title_block[2] <= 210.0);
+    assert!(plan.sheet.title_block[0] >= 0.0);
+
+    let zones = draftwright::sheets::zones(plan.sheet.page);
+    assert_eq!(zones.columns, 4);
+    assert_eq!(zones.rows, 6);
 }

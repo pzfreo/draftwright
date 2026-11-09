@@ -48,8 +48,11 @@ pub struct CrossRef {
 pub fn zones(page: [f64; 2]) -> Zones {
     let (columns, rows) = layout::PAGES
         .iter()
-        .position(|(_, w, h)| [*w, *h] == page)
-        .map(|i| [(6, 4), (8, 6), (12, 8), (16, 12), (24, 16)][i])
+        .position(|(_, w, h)| [*w, *h] == page || [*h, *w] == page)
+        .map(|i| {
+            let (c, r) = [(6, 4), (8, 6), (12, 8), (16, 12), (24, 16)][i];
+            if page[0] < page[1] { (r, c) } else { (c, r) }
+        })
         .unwrap_or_else(|| {
             (
                 ((page[0] / 100.0).round() as u32 * 2).max(2),
@@ -1862,12 +1865,17 @@ fn separate_views_inner(
         adjusted.captions.retain(|c| c.view != "v:iso");
     }
     let source = &adjusted;
-    let (_, w, h) = layout::PAGES.iter().find(|p| p.0 == size)?;
+    let (_, raw_w, raw_h) = layout::PAGES.iter().find(|p| p.0 == size)?;
+    let (w, h) = if source.sheet.page[0] < source.sheet.page[1] {
+        (*raw_h, *raw_w)
+    } else {
+        (*raw_w, *raw_h)
+    };
     let mut plan = source.clone();
     let page_delta = [w - source.sheet.page[0], h - source.sheet.page[1]];
     plan.sheet.size = size.into();
-    plan.sheet.page = [*w, *h];
-    let width = layout::title_block_width(*w);
+    plan.sheet.page = [w, h];
+    let width = layout::title_block_width(w);
     plan.sheet.title_block[0] = w - layout::TB_CLEAR - width;
     plan.sheet.title_block[2] = w - layout::TB_CLEAR;
     let title_delta = [

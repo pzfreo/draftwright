@@ -1244,6 +1244,21 @@
             }
           ]
         },
+        "orientation": {
+          "anyOf": [
+            {
+              "enum": [
+                "landscape",
+                "portrait",
+                "auto"
+              ],
+              "description": "Sheet orientation: landscape (default), portrait (for slender vertical parts), or auto."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "dimension_spacing": {
           "anyOf": [
             {

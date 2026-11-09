@@ -132,6 +132,7 @@ pub fn title_block_width(page_w: f64) -> f64 {
     if page_w <= 297.0 { 120.0 } else { 150.0 }
 }
 
+#[allow(dead_code)]
 fn sheet(name: &str) -> [f64; 2] {
     // Invariant: LADDER names only entries in the fixed PAGES array.
     let (_, w, h) = PAGES.iter().find(|p| p.0 == name).expect("a ladder sheet");
@@ -681,6 +682,8 @@ impl Principals {
 pub struct Request {
     /// Largest paper index for automatic page/scale choice.
     pub max_page: Option<usize>,
+    /// Sheet orientation preference (Landscape, Portrait, Auto).
+    pub orientation: crate::model::Orientation,
     /// Internal automatic page/scale trials may compare arrangements.
     pub automatic_pair: bool,
     pub candidate_arrangement: Option<Arrangement>,
@@ -719,6 +722,7 @@ impl Request {
     pub fn new(size: [f64; 3], views: Principals, include_iso: bool) -> Self {
         Request {
             max_page: None,
+            orientation: crate::model::Orientation::Landscape,
             automatic_pair: false,
             candidate_arrangement: None,
             size,
@@ -1593,10 +1597,19 @@ pub fn choose(
         let fallback = (!fit(s, p, preferred, true)).then_some(Fallback::Uncertain);
         return pick(s, p, preferred, fallback);
     }
+    let is_portrait = match req.orientation {
+        crate::model::Orientation::Portrait => true,
+        crate::model::Orientation::Auto => req.size[2] > req.size[0] * 1.2 || req.size[1] > req.size[0] * 1.2,
+        crate::model::Orientation::Landscape => false,
+    };
+    let page_dim = |w: f64, h: f64| if is_portrait { [h, w] } else { [w, h] };
     let (mut candidates, packed): (Vec<(f64, [f64; 2])>, bool) = match (scale, page) {
         (None, Some(p)) => (SCALES.iter().map(|s| (*s, p)).collect(), true),
-        (Some(s), None) => (PAGES.iter().map(|(_, w, h)| (s, [*w, *h])).collect(), true),
-        _ => (LADDER.iter().map(|(s, n)| (*s, sheet(n))).collect(), false),
+        (Some(s), None) => (PAGES.iter().map(|(_, w, h)| (s, page_dim(*w, *h))).collect(), true),
+        _ => (LADDER.iter().map(|(s, n)| {
+            let (_, w, h) = PAGES.iter().find(|p| p.0 == *n).expect("ladder sheet");
+            (*s, page_dim(*w, *h))
+        }).collect(), false),
     };
     if page.is_none()
         && let Some(max) = req.max_page
