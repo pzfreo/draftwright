@@ -345,7 +345,7 @@ fn finite_optional_numbers(spec: &Spec) -> Result<(), Invalid> {
     check("sheet/frame_gutter".into(), spec.sheet.frame_gutter)?;
     for (name, view) in &spec.views {
         if let Some(broken) = &view.broken {
-            check(format!("views/{}/broken/gap", escape(name)), broken.gap)?;
+            check(format!("views/{}/break/gap", escape(name)), broken.gap)?;
         }
     }
     for (id, feature) in &spec.features {
@@ -426,14 +426,13 @@ fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
         }
         let original = serde_json::to_value(spec).expect("Spec serializes");
         changes(&original, "", &map, &mut migrated);
-        let value = crate::revision_rename::rename_spec(
-            &serde_json::to_value(&out).expect("Spec serializes"),
-            &ids,
-        )
-        .map_err(invalid)?;
-        // Typed callers can construct values rejected by custom deserializers.
-        // Migration must return their validation error rather than panic.
-        out = serde_json::from_value(value).map_err(|error| invalid(error.to_string()))?;
+        let before = serde_json::to_value(&out).expect("Spec serializes");
+        let value = crate::revision_rename::rename_spec(&before, &ids).map_err(invalid)?;
+        // Apply the map on every schema, but preserve typed values and their ordinary
+        // validation (including structured choices) when the rename changes nothing.
+        if value != before {
+            out = serde_json::from_value(value).map_err(|error| invalid(error.to_string()))?;
+        }
     }
     out.schema = SPEC_SCHEMA.into();
     let unmapped = unmapped(&serde_json::to_value(&out).expect("Spec serializes"), a);
@@ -533,18 +532,18 @@ mod tests {
                     "iso_scale_factor",
                     "sheet/view_gutter",
                     "sheet/frame_gutter",
-                    "views/front/broken/gap",
+                    "views/front/break/gap",
                     "features/f:declared:thread/thread/length",
                 ] {
                     let mut s: Spec = serde_json::from_value(serde_json::json!({"schema":schema,
-                        "views":{"front":{"broken":{"gap":6.}}},
+                        "views":{"front":{"break":{"gap":6.}}},
                         "features":{"f:declared:thread":{"thread":{"designation":"M6","length":10.}}}
                     })).unwrap();
                     match path {
                         "iso_scale_factor" => s.iso_scale_factor = Some(value),
                         "sheet/view_gutter" => s.sheet.view_gutter = Some(value),
                         "sheet/frame_gutter" => s.sheet.frame_gutter = Some(value),
-                        "views/front/broken/gap" => {
+                        "views/front/break/gap" => {
                             s.views
                                 .get_mut("front")
                                 .unwrap()
