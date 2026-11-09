@@ -8,6 +8,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Changed
 
+- Seeded pin choices and tie-breaks use projected geometry and numeric measurements,
+  not item ID strings; the same seeds select the same physical items after renaming.
+
 - Ladder IDs use a level's own plane faces even without an eligible witness support;
   coordinate names remain only for genuinely faceless evidence. Live fallback keys are
   not reported as unmigrated. Internal drawing order and axis/span lookup are independent

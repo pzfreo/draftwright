@@ -498,6 +498,31 @@ class RandomPins(unittest.TestCase):
         if 'side' in spec.get('views',{}):
             self.assertEqual(spec['views']['side']['place']['align'],'projection')
 
+    def test_pin_geometry_ignores_numeric_json_spelling_and_negative_zero(self):
+        self.assertEqual(quality.pin_geometry(dict(value=1, placed=dict(lines=[[[0, 1], [2, 3]]]))),
+                         quality.pin_geometry(dict(value=1.0, placed=dict(lines=[[[-0.0, 1.0], [2.0, 3.0]]]))))
+
+    def test_pin_selection_ignores_every_output_id_and_input_order(self):
+        import copy
+        plan = self.plan()
+        plan['dimensions'] = [
+            dict(id=f'd:old:{n}', kind='linear', value=10+n, view='v:front',
+                 placed=dict(lines=[[[n, 0], [n, 10]]], label_box=[n, 0, n+1, 1]))
+            for n in range(12)]
+        renamed = copy.deepcopy(plan)
+        renames = {d['id']: f'd:renamed:{100-n}' for n, d in enumerate(renamed['dimensions'])}
+        renames.update({'pmi:a': 'pmi:renamed'})
+        for d in renamed['dimensions'] + renamed['gdt']:
+            d['id'] = renames[d['id']]
+        renamed['dimensions'].reverse()
+        renamed['gdt'].reverse()
+        renamed['views'].reverse()
+        for seed in (1, 2, 3):
+            for count in (1, 3, 8):
+                expected = quality.random_pins(plan, 'part', seed, count)[1]
+                actual = quality.random_pins(renamed, 'part', seed, count)[1]
+                self.assertEqual(actual, [renames.get(i, i) for i in expected])
+
     def test_off_sheet_measurement_includes_pinned_views(self):
         plan = self.plan()
         plan['sheet'] = {'scale': '1:1'}
