@@ -64,6 +64,19 @@ pub(crate) fn check(spec: &Spec) -> Result<(), Invalid> {
             ));
         }
     }
+    if spec.views.get("iso_below").is_some_and(|s| !s.omit)
+        && (spec
+            .views
+            .get("iso")
+            .is_some_and(|s| s.place.is_some() || s.sheet.is_some_and(|n| n > 1))
+            || spec
+                .sheets
+                .as_ref()
+                .and_then(|s| s.max)
+                .is_some_and(|n| n > 1))
+    {
+        return Err(crate::model::invalid("Paired pictorials use the automatic single-sheet iso zone; remove the iso placement/sheet assignment or omit iso_below.", &[]).at("views", "iso_below"));
+    }
     for (id, d) in &spec.dimensions {
         let view = d
             .place
@@ -114,7 +127,11 @@ pub(crate) fn record(spec: &Spec, views: &mut [PlannedView]) {
 }
 
 /// Called before annotation planning. Both pictorials share the existing unannotated iso zone.
-pub(crate) fn configure(a: &Analysis, spec: &Spec, views: &mut [PlannedView]) {
+pub(crate) fn configure(
+    a: &Analysis,
+    spec: &Spec,
+    views: &mut [PlannedView],
+) -> Result<(), Invalid> {
     let pair = views.iter().any(|v| v.id == "v:iso") && views.iter().any(|v| v.id == "v:iso_below");
     for v in views
         .iter_mut()
@@ -138,11 +155,18 @@ pub(crate) fn configure(a: &Analysis, spec: &Spec, views: &mut [PlannedView]) {
         }
         let camera = View::new(v.direction, v.up).expect("validated pictorial camera");
         let (size, _) = crate::model::extent(a, &camera);
-        v.scale = v
+        let fit_scale = v
             .scale
             .min((v.area[2] - v.area[0] - 4.) / size[0])
             .min((v.area[3] - v.area[1] - 10.) / size[1])
             .max(1e-6);
+        if v.id == "v:iso" && spec.iso_scale_factor.is_some() && fit_scale < v.scale - 1e-9 {
+            return Err(crate::model::invalid(
+                "The authored iso scale does not fit the pictorial camera/paired zone; enlarge the paper, omit iso_below or remove iso_scale_factor.",
+                &[],
+            ));
+        }
+        v.scale = fit_scale;
         v.at = [
             (v.area[0] + v.area[2]) / 2.,
             (v.area[1] + v.area[3]) / 2. + 3.,
@@ -157,6 +181,7 @@ pub(crate) fn configure(a: &Analysis, spec: &Spec, views: &mut [PlannedView]) {
                 .push(format!("views/{}/direction", v.id.trim_start_matches("v:")));
         }
     }
+    Ok(())
 }
 
 fn shade(normal: P, camera: &View, colour: [u8; 3]) -> [u8; 3] {
@@ -413,7 +438,11 @@ pub(crate) fn layers(id: &str, polygons: &[Polygon]) -> Vec<Layer> {
         if let Some(last) = layers.last_mut()
             && last.style.colour == p.colour
         {
-            last.items.push(item);
+            // One compound fill per consecutive colour run avoids antialias seams on
+            // shared coplanar boundaries and repeats less SVG/PDF path furniture.
+            if let (Some(Item::Face(wires)), Item::Face(more)) = (last.items.last_mut(), item) {
+                wires.extend(more);
+            }
         } else {
             layers.push(Layer {
                 name: format!("shaded-{}-{}", id.trim_start_matches("v:"), layers.len()),
@@ -491,6 +520,29 @@ mod tests {
         assert!(ordered(input.clone(), [0., 0., 1.], 1e-9).unwrap().len() > 3);
         check_visibility(input.clone());
         check_visibility(input.into_iter().rev().collect());
+    }
+    #[test]
+    fn bsp_orders_a_noninterpenetrating_visibility_cycle() {
+        let strip = |xy: [[f64; 2]; 4], z: fn(f64, f64) -> f64| {
+            let points: Vec<P> = xy.into_iter().map(|[x, y]| [x, y, z(x, y)]).collect();
+            let normal = unit(cross(sub(points[1], points[0]), sub(points[2], points[0]))).unwrap();
+            Patch { points, normal }
+        };
+        // Three thin strips overlap only near the corners of a triangle. A is behind B
+        // at the right corner, B behind C at the top, and C behind A at the left.
+        let a = strip(
+            [[-2.2, -0.15], [2.2, -0.15], [2.2, 0.15], [-2.2, 0.15]],
+            |_, _| 0.,
+        );
+        let b = strip(
+            [[-0.15, 1.85], [1.85, -0.15], [2.15, 0.15], [0.15, 2.15]],
+            |x, _| x - 1.,
+        );
+        let c = strip(
+            [[-2.15, 0.15], [-1.85, -0.15], [0.15, 1.85], [-0.15, 2.15]],
+            |_, y| y - 1.,
+        );
+        check_visibility(vec![a, b, c]);
     }
     #[test]
     fn painter_handles_concave_depth_ranges() {

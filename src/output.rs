@@ -827,6 +827,11 @@ impl Drawing {
             let rgb = format!("rgb({},{},{})", st.colour[0], st.colour[1], st.colour[2]);
             let fill = if st.fill { rgb.clone() } else { "none".into() };
             let stroke = if st.width == 0. { "none" } else { &rgb };
+            let facet_edges = if layer.name.starts_with("shaded-") {
+                " shape-rendering=\"crispEdges\""
+            } else {
+                ""
+            };
             let dash = st.dash.map_or(String::new(), |pattern| {
                 format!(
                     " stroke-dasharray=\"{}\"",
@@ -839,7 +844,7 @@ impl Drawing {
             });
             let _ = writeln!(
                 s,
-                "    <g fill=\"{fill}\" stroke=\"{stroke}\" stroke-width=\"{}\" id=\"{}\"{dash}>",
+                "    <g fill=\"{fill}\" stroke=\"{stroke}\" stroke-width=\"{}\" id=\"{}\"{dash}{facet_edges}>",
                 num(st.width),
                 layer.name
             );

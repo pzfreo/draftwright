@@ -651,8 +651,11 @@ into two fitted, unannotated slots when both are present. Each uses the same set
 }}
 ```
 
-Omit either slot with `omit: true`. `iso_below` has no independent `place` or `sheet`;
-place the iso to move their shared reservation. Reduced pictorials carry an NTS caption.
+Omit either slot with `omit: true`. `iso_below` uses the automatic single-sheet iso zone:
+independent `place`/`sheet`,
+an iso placement or assignment to another sheet, and multi-sheet allocation are refused
+while it is shown. An authored `iso_scale_factor` must still fit exactly. Reduced
+pictorials carry an NTS caption.
 Shaded pictorials always suppress hidden ink, centre furniture, conventional threads,
 knurls and dimensions, regardless of inherited line-work switches. Session view options
 expose style, colour and direction through the same Spec edit path (including undo/redo).
@@ -661,6 +664,8 @@ SVG and PDF contain vector filled polygons, with the view's HLR visible sharp an
 silhouette edges on top; PNG rasterises that same drawing. Tessellation uses chordal
 deflection 0.1% of the envelope diagonal and angular deflection 0.3 rad. Adjacent
 coplanar triangles merge into convex patches within each B-rep face, preserving holes.
+Consecutive equal-colour patches share compound fill paths. Facet fills rasterise without
+partial edge coverage to avoid white seams; the HLR outlines retain antialiasing.
 A binary space partition splits crossing patches and visibility cycles before painting
 back to front; it does not sort entire faces by average depth. Numerical coplanarity
 uses 1e-9 of the envelope diagonal (minimum 1e-9 mm). There is no approximate ordering

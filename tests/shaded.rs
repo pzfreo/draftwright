@@ -52,7 +52,10 @@ fn shaded_iso_is_vector_coloured_and_has_only_visible_hlr_edges() {
     assert!(!svg.contains("<image"));
     assert!(svg.find("id=\"shaded-iso-").unwrap() < svg.find("id=\"part\"").unwrap());
     let pdf = d.pdf(&|name| (name == "IBMPlexMono-Regular.ttf").then(|| api::MONO.to_vec()));
-    assert!(!pdf.windows(14).any(|w| w == b"/Subtype /Image"));
+    assert!(
+        !pdf.windows(b"/Subtype /Image".len())
+            .any(|w| w == b"/Subtype /Image")
+    );
 }
 #[test]
 fn underside_is_optional_and_shares_the_pictorial_zone() {
@@ -60,7 +63,7 @@ fn underside_is_optional_and_shares_the_pictorial_zone() {
     let base = model::plan(&a, &Spec::default()).unwrap();
     assert!(base.views.iter().all(|v| v.id != "v:iso_below"));
     let spec=serde_json::from_value(json!({"views":{"iso":{"style":"shaded"},"iso_below":{"style":"shaded","direction":[-1,1,-1]}}})).unwrap();
-    let p = model::plan(&a, &spec).unwrap();
+    let p = model::plan_recovered(&a, &spec).unwrap();
     let top = p.views.iter().find(|v| v.id == "v:iso").unwrap();
     let bottom = p.views.iter().find(|v| v.id == "v:iso_below").unwrap();
     assert!(top.area[2] < bottom.area[0]);

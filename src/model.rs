@@ -7101,7 +7101,7 @@ fn plan_with_presentation(
             }
         })
         .collect();
-    crate::shaded::configure(analysis, spec, &mut views);
+    crate::shaded::configure(analysis, spec, &mut views)?;
     for v in &mut views {
         if let Some(b) = breaks.get(v.id.trim_start_matches("v:")) {
             let scaled = b.at_scale(v.scale);
