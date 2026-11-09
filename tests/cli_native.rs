@@ -575,3 +575,68 @@ fn both_commands_report_engine_and_linked_quiddity_and_mcp_has_help() {
             .contains("Usage: draftwright-mcp")
     );
 }
+
+#[test]
+fn help_is_a_subcommand_and_extra_paths_do_not_get_python_option_hints() {
+    let out = Command::new(env!("CARGO_BIN_EXE_draftwright"))
+        .arg("help")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("Usage: draftwright")
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_draftwright"))
+        .args(["rendr", "x.step"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("unexpected argument 'x.step'"), "{stderr}");
+    assert!(!stderr.contains("Python option"), "{stderr}");
+}
+
+#[test]
+fn mcp_client_arguments_are_ignored_while_stdio_remains_live() {
+    use std::io::Write;
+    use std::process::Stdio;
+    for args in [
+        vec!["--unknown"],
+        vec!["--transport", "stdio", "ignored-value"],
+    ] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_draftwright-mcp"))
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(
+            child.stdin.take().unwrap(),
+            "{}",
+            json!({
+                "jsonrpc": "2.0", "id": 42, "method": "tools/list"
+            })
+        )
+        .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(out.stderr.is_empty());
+        let reply: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(reply["id"], 42);
+        assert!(
+            reply["result"]["tools"].as_array().unwrap().len() > 5,
+            "{reply}"
+        );
+    }
+}

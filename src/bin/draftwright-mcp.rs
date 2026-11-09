@@ -284,10 +284,8 @@ fn main() {
             );
             return;
         }
-        _ => {
-            eprintln!("error: unexpected arguments; use draftwright-mcp --help");
-            std::process::exit(2);
-        }
+        // Existing MCP client configurations may carry arguments this adapter ignores.
+        _ => {}
     }
     let stdout = std::io::stdout();
     for line in std::io::stdin().lock().lines() {

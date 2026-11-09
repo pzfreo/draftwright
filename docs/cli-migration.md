@@ -35,7 +35,9 @@ Differences from Python's help/defaults (checked against the old CLI on 2026-11-
 - Rust always frames the sheet and defaults to ISO zones. Python defaults to no frame or zones.
   `--frame` requests that existing Rust behaviour; it adds no separate Spec field.
 - A positive numeric scale is honoured under Rust's Spec scale and layout rules. It does not
-  invoke Python's `--scale-policy fallback`; invalid/nonfinite/nonpositive factors are refused.
+  invoke Python's `--scale-policy fallback`. Ratios have at most six decimal places, with
+  trailing zeros removed; factors needing longer ratios (such as `0.3`) are refused with a
+  clean-ratio message. Invalid, nonfinite, nonpositive and overflowing factors are refused.
 - Native recognition, PMI and automatic paper/layout follow Rust defaults, including its
   supported paper sizes. They do not reproduce Python's off-by-default PMI or layout algorithms.
 

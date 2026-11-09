@@ -53,19 +53,40 @@ impl SheetOptions {
             }
         }
         if let Some(scale) = self.scale {
-            if !scale.is_finite() || scale <= 0.0 {
-                return Err(Error::invalid("--scale must be a finite positive number"));
-            }
-            spec.sheet.scale = Some(if scale >= 1.0 {
-                format!("{scale}:1")
-            } else {
-                format!("1:{}", 1.0 / scale)
-            });
+            spec.sheet.scale = Some(scale_ratio(scale)?);
         }
         // SheetSpec has no frame switch: its renderer always draws the ISO frame. Accepting
         // --frame therefore requests the existing behaviour, including its clearance.
         Ok(())
     }
+}
+
+/// Avoid printing binary reciprocal noise or silently rounding authored scales.
+fn scale_ratio(scale: f64) -> Result<String, Error> {
+    if !scale.is_finite() || scale <= 0.0 {
+        return Err(Error::invalid("--scale must be a finite positive number"));
+    }
+    let ratio = if scale >= 1.0 { scale } else { scale.recip() };
+    let unclean = || {
+        Error::invalid(
+            "--scale must give a clean finite n:1 or 1:n ratio with at most six decimal places",
+        )
+    };
+    if !ratio.is_finite() {
+        return Err(unclean());
+    }
+    let text = format!("{ratio:.6}");
+    let clean: f64 = text.parse().map_err(|_| unclean())?;
+    // Permit floating-point representation noise, not a change in the requested scale.
+    if (clean - ratio).abs() > ratio * f64::EPSILON * 8.0 {
+        return Err(unclean());
+    }
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    Ok(if scale >= 1.0 {
+        format!("{text}:1")
+    } else {
+        format!("1:{text}")
+    })
 }
 
 #[derive(Parser)]
@@ -89,10 +110,9 @@ pub(super) fn is_bare(args: &[std::ffi::OsString]) -> bool {
         return false;
     };
     let first = first.to_string_lossy();
-    if Cli::command()
-        .get_subcommands()
-        .any(|c| c.get_name() == first)
-    {
+    let mut command = Cli::command();
+    command.build(); // Clap adds its help subcommand during build.
+    if command.get_subcommands().any(|c| c.get_name() == first) {
         return false;
     }
     // Top-level help and version still describe the subcommand interface. Other leading
@@ -104,6 +124,7 @@ pub(super) fn parse(args: Vec<std::ffi::OsString>) -> Given {
     let bare = Bare::try_parse_from(args).unwrap_or_else(|mut error| {
         if let Some(clap::error::ContextValue::String(option)) =
             error.get(clap::error::ContextKind::InvalidArg)
+            && option.starts_with('-')
         {
             let option = option.split('=').next().unwrap_or(option);
             let hint = match option {
@@ -193,7 +214,14 @@ mod tests {
             assert_eq!(a, b, "{option}");
             assert_eq!(a.sheet.title[key], "value", "{option}");
         }
-        for (value, expected) in [("5", "5:1"), ("0.5", "1:2")] {
+        for (value, expected) in [
+            ("5", "5:1"),
+            ("0.5", "1:2"),
+            ("0.8", "1:1.25"),
+            ("2.5", "2.5:1"),
+            ("0.3333333333333333", "1:3"),
+            ("0.00001", "1:100000"),
+        ] {
             let bare = Bare::try_parse_from(args(&["part.step", "--scale", value])).unwrap();
             let mut spec = Spec::default();
             bare.sheet.apply(&mut spec).unwrap();
@@ -208,6 +236,15 @@ mod tests {
         let mut spec = Spec::default();
         bare.sheet.apply(&mut spec).unwrap();
         assert_eq!(spec, Spec::default()); // The renderer always frames this Spec.
+    }
+
+    #[test]
+    fn scales_that_need_long_or_infinite_ratios_are_refused() {
+        for scale in [0.3, 0.14, 1.1234567, 1e-320] {
+            let error = scale_ratio(scale).unwrap_err();
+            assert!(error.message.contains("clean finite"), "{error:?}");
+            assert!(error.message.contains("six decimal places"), "{error:?}");
+        }
     }
 
     #[test]
@@ -230,7 +267,15 @@ mod tests {
 
     #[test]
     fn subcommands_always_win_and_dot_slash_selects_a_path() {
-        for command in Cli::command().get_subcommands() {
+        let mut built = Cli::command();
+        built.build();
+        assert!(
+            built
+                .get_subcommands()
+                .any(|command| command.get_name() == "help")
+        );
+        assert!(!is_bare(&args(&["help"])));
+        for command in built.get_subcommands() {
             assert!(!is_bare(&args(&[command.get_name()])));
             assert!(is_bare(&args(&[&format!("./{}", command.get_name())])));
         }

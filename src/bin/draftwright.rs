@@ -88,7 +88,6 @@ JSON-lines serve: {\"op\":\"hello\"} lists operations; spec_schema and item_opti
     about = "draftwright — engineering drawings from STEP",
     after_help = AFTER_HELP,
     subcommand_required = true,
-    disable_help_subcommand = true,
     args_override_self = true
 )]
 struct Cli {
