@@ -41,6 +41,10 @@ editor migration.
 A drawing is three JSON documents: the Analysis, the Spec and the Plan. Five stateless
 operations work on them (`docs/model.md`, ADR R1). Every command prints JSON.
 
+The planned 0.2.15 release writes `draftwright.spec/3`. Specs `/1` and `/2` remain readable
+through 0.2.24; 0.2.25 and its prereleases refuse them with conversion instructions using
+0.2.24. Cargo package versions remain 0.2.14 until the release commit.
+
 On the command line, `analyse`, `plan`, `render` and `review` take the part's features from
 Rust quiddity's recognition, run on the part (`src/bridge/native.rs`); the Analysis names it
 (`recognition.recogniser`, `quiddity-rust <version> (quiddity-rust/recognition/3)`).

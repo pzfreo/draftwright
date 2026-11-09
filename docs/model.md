@@ -2546,9 +2546,9 @@ substitution composes embedded references. Unknown keys are never mapped specula
 The browser method returns this object as a JSON string. The editor and MCP should persist
 the returned Spec and apply `ids` to their external saved references.
 
-Specs `/1` and `/2` are accepted through **0.3.9**, the tenth release starting at 0.3.0.
-From 0.3.10 they are refused with the approved conversion instructions: run
-`draftwright plan PART.step --spec FILE` with 0.3.9 and keep the `spec` it prints. The
+Specs `/1` and `/2` are accepted through **0.2.24**, the tenth release starting at 0.2.15.
+From 0.2.25 (including 0.2.25-alpha.1) they are refused with the approved conversion instructions: run
+`draftwright plan PART.step --spec FILE` with 0.2.24 and keep the `spec` it prints. The
 single cutoff is `stable_ids::LAST_LEGACY_SPEC_READER`; there is no permanent migrate command.
 Spec/1 additionally drops `@<view>` from dimension keys and maps old PMI instance names to
 record identities when the file binding permits it, as before. `edit` has no Analysis and

@@ -12,7 +12,7 @@ All notable changes to draftwright-rust are recorded here, in the style of
   coordinate names remain only for genuinely faceless evidence. Live fallback keys are
   not reported as unmigrated. Internal drawing order and axis/span lookup are independent
   of legacy Spec aliases. The stable compatibility cutoff also applies to later-core
-  prereleases such as 0.3.10-alpha.1.
+  prereleases such as 0.2.25-alpha.1.
 
 - Automatic feature and hole-pattern IDs now use `f:<kind>:f<lowest face>`, with local
   suffixes only on a shared lowest face. Ladder heights and shoulder positions use their
@@ -22,8 +22,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
   `legacy_id` values on recognised features and hole patterns. Spec reads use an exact
   whole-document identity map, with `migrated: [{path, from, to}]` and `ids: {old: new}`
   on plans and session/browser `openSpec` replies. Colliding renamed keys are refused.
-- `draftwright.spec/3` migration retains unmapped ID keys. Specs `/1` and `/2` remain readable
-  through 0.3.9; later releases explain conversion using that last compatible release.
+- Shipping in 0.2.15, `draftwright.spec/3` migration retains unmapped ID keys. Specs `/1` and `/2` remain readable
+  through 0.2.24; later releases explain conversion using that last compatible release.
 
 ### Added
 
