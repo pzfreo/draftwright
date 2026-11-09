@@ -2280,6 +2280,96 @@ pub(crate) fn label_gap(lines: &[[P; 2]], label: [f64; 4]) -> Option<f64> {
     Some(along.hypot(across))
 }
 
+/// Adds table head handles (group code 5 or 105) and owner pointers (group code 330) to DXF
+/// tables that AutoCAD R2004+ requires for error-free loading.
+fn fix_dxf_table_handles(raw: &[u8]) -> Vec<u8> {
+    let Ok(text) = std::str::from_utf8(raw) else {
+        return raw.to_vec();
+    };
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut handseed: u32 = 0x100;
+    for (idx, l) in lines.iter().enumerate() {
+        if l.trim_end_matches('\r').trim() == "$HANDSEED" && idx + 2 < lines.len() {
+            let val_str = lines[idx + 2].trim_end_matches('\r').trim();
+            if let Ok(v) = u32::from_str_radix(val_str, 16) {
+                handseed = v;
+            }
+            break;
+        }
+    }
+
+    let mut next_handle = handseed.max(0x2000);
+    let start_handle = next_handle;
+    let mut out = String::with_capacity(text.len() + 1024);
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim_end_matches('\r').trim();
+        out.push_str(line);
+        if i + 1 < lines.len() {
+            out.push('\n');
+        }
+        if trimmed == "TABLE"
+            && i > 0
+            && lines[i - 1].trim_end_matches('\r').trim() == "0"
+            && i + 2 < lines.len()
+            && lines[i + 1].trim_end_matches('\r').trim() == "2"
+        {
+            let _table_name = lines[i + 2]
+                .trim_end_matches('\r')
+                .trim()
+                .to_ascii_uppercase();
+            out.push_str(lines[i + 1]);
+            out.push('\n');
+            out.push_str(lines[i + 2]);
+            out.push('\n');
+            i += 3;
+            if i < lines.len() {
+                let code = lines[i].trim_end_matches('\r').trim();
+                if code != "5" && code != "105" {
+                    let handle_code = "    5";
+                    let handle_hex = format!("{:X}", next_handle);
+                    next_handle += 1;
+                    let nl = if line.ends_with('\r') { "\r\n" } else { "\n" };
+                    out.push_str(handle_code);
+                    out.push_str(nl);
+                    out.push_str(&handle_hex);
+                    out.push_str(nl);
+                    out.push_str("  330");
+                    out.push_str(nl);
+                    out.push('0');
+                    out.push_str(nl);
+                }
+            }
+            continue;
+        }
+        i += 1;
+    }
+
+    if next_handle > start_handle {
+        let mut update_handseed = || -> Option<()> {
+            let pos = out.find("$HANDSEED")?;
+            let nl_after_tag = out[pos..].find('\n')?;
+            let after_tag = pos + nl_after_tag + 1;
+            let nl_after_code = out[after_tag..].find('\n')?;
+            let after_code = after_tag + nl_after_code + 1;
+            let nl_after_val = out[after_code..].find('\n')?;
+            let is_crlf = out[after_code..after_code + nl_after_val].ends_with('\r');
+            let new_val = format!("{:X}", next_handle);
+            let replacement = if is_crlf {
+                format!("{new_val}\r")
+            } else {
+                new_val
+            };
+            out.replace_range(after_code..after_code + nl_after_val, &replacement);
+            Some(())
+        };
+        let _ = update_handseed();
+    }
+
+    out.into_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2670,84 +2760,4 @@ mod tests {
             Curve::from(&nurbs(0.0, 1.0))
         );
     }
-}
-
-/// Adds table head handles (group code 5 or 105) and owner pointers (group code 330) to DXF
-/// tables that AutoCAD R2004+ requires for error-free loading.
-fn fix_dxf_table_handles(raw: &[u8]) -> Vec<u8> {
-    let Ok(text) = std::str::from_utf8(raw) else {
-        return raw.to_vec();
-    };
-    let lines: Vec<&str> = text.split('\n').collect();
-    let mut handseed: u32 = 0x100;
-    for (idx, l) in lines.iter().enumerate() {
-        if l.trim_end_matches('\r').trim() == "$HANDSEED" && idx + 2 < lines.len() {
-            let val_str = lines[idx + 2].trim_end_matches('\r').trim();
-            if let Ok(v) = u32::from_str_radix(val_str, 16) {
-                handseed = v;
-            }
-            break;
-        }
-    }
-
-    let mut next_handle = handseed.max(0x2000);
-    let start_handle = next_handle;
-    let mut out = String::with_capacity(text.len() + 1024);
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        let trimmed = line.trim_end_matches('\r').trim();
-        out.push_str(line);
-        if i + 1 < lines.len() {
-            out.push('\n');
-        }
-        if trimmed == "TABLE" && i > 0 && lines[i - 1].trim_end_matches('\r').trim() == "0" {
-            if i + 2 < lines.len() && lines[i + 1].trim_end_matches('\r').trim() == "2" {
-                let _table_name = lines[i + 2].trim_end_matches('\r').trim().to_ascii_uppercase();
-                out.push_str(lines[i + 1]);
-                out.push('\n');
-                out.push_str(lines[i + 2]);
-                out.push('\n');
-                i += 3;
-                if i < lines.len() {
-                    let code = lines[i].trim_end_matches('\r').trim();
-                    if code != "5" && code != "105" {
-                        let handle_code = "    5";
-                        let handle_hex = format!("{:X}", next_handle);
-                        next_handle += 1;
-                        let nl = if line.ends_with('\r') { "\r\n" } else { "\n" };
-                        out.push_str(handle_code);
-                        out.push_str(nl);
-                        out.push_str(&handle_hex);
-                        out.push_str(nl);
-                        out.push_str("  330");
-                        out.push_str(nl);
-                        out.push_str("0");
-                        out.push_str(nl);
-                    }
-                }
-                continue;
-            }
-        }
-        i += 1;
-    }
-
-    if next_handle > start_handle {
-        if let Some(pos) = out.find("$HANDSEED") {
-            if let Some(nl_after_tag) = out[pos..].find('\n') {
-                let after_tag = pos + nl_after_tag + 1;
-                if let Some(nl_after_code) = out[after_tag..].find('\n') {
-                    let after_code = after_tag + nl_after_code + 1;
-                    if let Some(nl_after_val) = out[after_code..].find('\n') {
-                        let is_crlf = out[after_code..after_code + nl_after_val].ends_with('\r');
-                        let new_val = format!("{:X}", next_handle);
-                        let replacement = if is_crlf { format!("{new_val}\r") } else { new_val };
-                        out.replace_range(after_code..after_code + nl_after_val, &replacement);
-                    }
-                }
-            }
-        }
-    }
-
-    out.into_bytes()
 }

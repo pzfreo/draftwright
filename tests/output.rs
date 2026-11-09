@@ -441,16 +441,36 @@ fn dxf_linetypes_and_table_handles_are_valid() {
     let d = dxf::Drawing::load(&mut std::io::Cursor::new(&dxf_bytes)).expect("loads valid DXF");
 
     // Check that ISO 128 and AutoCAD standard linetypes are registered
-    let linetypes: std::collections::HashSet<String> =
-        d.line_types().map(|lt| lt.name.to_ascii_uppercase()).collect();
-    assert!(linetypes.contains("CENTRE"), "missing CENTRE: {linetypes:?}");
-    assert!(linetypes.contains("CENTER"), "missing CENTER: {linetypes:?}");
-    assert!(linetypes.contains("DASHED"), "missing DASHED: {linetypes:?}");
-    assert!(linetypes.contains("HIDDEN"), "missing HIDDEN: {linetypes:?}");
-    assert!(linetypes.contains("PHANTOM"), "missing PHANTOM: {linetypes:?}");
+    let linetypes: std::collections::HashSet<String> = d
+        .line_types()
+        .map(|lt| lt.name.to_ascii_uppercase())
+        .collect();
+    assert!(
+        linetypes.contains("CENTRE"),
+        "missing CENTRE: {linetypes:?}"
+    );
+    assert!(
+        linetypes.contains("CENTER"),
+        "missing CENTER: {linetypes:?}"
+    );
+    assert!(
+        linetypes.contains("DASHED"),
+        "missing DASHED: {linetypes:?}"
+    );
+    assert!(
+        linetypes.contains("HIDDEN"),
+        "missing HIDDEN: {linetypes:?}"
+    );
+    assert!(
+        linetypes.contains("PHANTOM"),
+        "missing PHANTOM: {linetypes:?}"
+    );
 
     // Check that hidden layer uses DASHED linetype
-    let hidden = d.layers().find(|l| l.name == "hidden").expect("hidden layer exists");
+    let hidden = d
+        .layers()
+        .find(|l| l.name == "hidden")
+        .expect("hidden layer exists");
     assert_eq!(hidden.line_type_name.to_ascii_uppercase(), "DASHED");
 
     // Check that all tables have head handles (group code 5)
@@ -460,16 +480,16 @@ fn dxf_linetypes_and_table_handles_are_valid() {
         if line.trim_end_matches('\r').trim() == "TABLE"
             && i > 0
             && lines[i - 1].trim_end_matches('\r').trim() == "0"
+            && i + 3 < lines.len()
+            && lines[i + 1].trim_end_matches('\r').trim() == "2"
         {
-            if i + 3 < lines.len() && lines[i + 1].trim_end_matches('\r').trim() == "2" {
-                let code = lines[i + 3].trim_end_matches('\r').trim();
-                assert_eq!(
-                    code,
-                    "5",
-                    "Table head missing group 5 handle for table {}",
-                    lines[i + 2].trim()
-                );
-            }
+            let code = lines[i + 3].trim_end_matches('\r').trim();
+            assert_eq!(
+                code,
+                "5",
+                "Table head missing group 5 handle for table {}",
+                lines[i + 2].trim()
+            );
         }
     }
 }
