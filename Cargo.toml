@@ -5,6 +5,12 @@ edition = "2024"
 autotests = false
 license = "AGPL-3.0-only"
 description = "Automated technical drawings from STEP B-rep: a Rust port of draftwright."
+repository = "https://github.com/pzfreo/draftwright-rust"
+homepage = "https://draftwright.io"
+readme = "README.md"
+keywords = ["cad", "step", "technical-drawing", "drafting", "manufacturing"]
+categories = ["science", "command-line-utilities", "graphics"]
+include = ["/src", "/build.rs", "/build_support.rs", "/fonts", "/schemas", "/docs/finding-impact.md", "/README.md", "/CHANGELOG.md", "/LICENSE", "/CLA.md"]
 
 [[bin]]
 name = "draftwright"

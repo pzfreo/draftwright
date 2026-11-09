@@ -14,10 +14,21 @@ what Python draftwright produces, and every difference has a verdict (rust-corre
 equivalent, undetermined or not-applicable) in a known-differences list under
 `tests/fixtures/` (`known_*.json`).
 
+## Installing
+
+With a Rust toolchain (edition 2024, Rust 1.85 or later):
+
+```
+cargo install draftwright  # installs draftwright and draftwright-mcp
+```
+
+Without Rust, each [GitHub release](https://github.com/pzfreo/draftwright-rust/releases) has
+ready-built archives for macOS (Apple silicon), Linux x86_64 and Windows x86_64.
+
 ## Building
 
-The toolchain is pinned in `rust-toolchain.toml`. haecceity and Rust quiddity come by git from
-the public `pzfreo/quiddity`, pinned in `Cargo.lock`, so no secret is needed.
+The toolchain is pinned in `rust-toolchain.toml`. haecceity and quiddity come from crates.io,
+pinned in `Cargo.lock`.
 
 ```
 cargo build --release      # target/release/draftwright and target/release/draftwright-mcp
