@@ -1,7 +1,9 @@
 //! File-stated BOM facts. This reader uses the same P21 document access as PMI UDAs;
-//! it does not recognise shapes, allocate numbers, or interpret saved interview answers.
+//! it does not recognise shapes or allocate numbers. Only the saved `part.process`
+//! answer is read, to resolve manufacturing process before pack grouping.
 use std::collections::{BTreeMap, BTreeSet};
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use haecceity::p21::{self, Attribute as A, Document, RawEntity};
 use haecceity::step::PartDefinition;
 use serde::{Deserialize, Serialize};
@@ -215,9 +217,6 @@ fn properties(doc: &Document, owner: u64, row: &mut Metadata) {
                 row.material = Some(name.clone());
             }
         }
-        if term(&set) == "specify process" && attrs(doc, owner, "PRODUCT_DEFINITION").is_some() {
-            apply_process(&values, row);
-        }
         apply_items(&values, term(&set) == "specify bom", row);
     }
 }
@@ -226,14 +225,11 @@ fn apply_process(values: &BTreeMap<String, A>, row: &mut Metadata) {
     let Some(process) = values
         .get("manufacturing_process")
         .and_then(text)
-        .and_then(|v| serde_json::from_value(serde_json::Value::String(v)).ok())
+        .and_then(|v| process_value(&v))
     else {
         return;
     };
-    let suggested = values
-        .get("default.manufacturing_process")
-        .and_then(boolean)
-        == Some(true);
+    let suggested = process_default(values);
     if row.process.is_none() || !suggested {
         row.process = Some(process);
         if suggested {
@@ -242,6 +238,163 @@ fn apply_process(values: &BTreeMap<String, A>, row: &mut Metadata) {
             row.suggested_fields.remove("process");
         }
     }
+}
+
+fn process_default(values: &BTreeMap<String, A>) -> bool {
+    values
+        .get("default.manufacturing_process")
+        .is_some_and(|v| {
+            matches!(v, A::Enum(s) if s == "T")
+                || text(v).is_some_and(|s| s.eq_ignore_ascii_case("true"))
+        })
+}
+
+fn process_value(value: &str) -> Option<crate::process::Process> {
+    use crate::process::Process;
+    Some(match value.trim().to_ascii_lowercase().as_str() {
+        "machined" => Process::Machined,
+        "3d printed: fdm" => Process::Fdm,
+        "3d printed: resin" => Process::Resin,
+        "3d printed: powder" => Process::Powder,
+        "3d printed: metal" => Process::Metal,
+        "sheet metal" => Process::SheetMetal,
+        "moulded" => Process::Moulded,
+        "cast" => Process::Cast,
+        _ => return None,
+    })
+}
+
+/// Specify's process::read precedence: its last unmarked answer, the first
+/// foreign statement, then its last marked suggestion. Product-level only.
+fn file_process(doc: &Document, pd: u64, shape: u64) -> Option<(crate::process::Process, bool)> {
+    let (mut answered, mut file, mut suggested) = (None, None, None);
+    for owner in [pd, shape] {
+        // Property order is record order, rather than STEP entity-number order.
+        let mut properties: Vec<_> = doc.referrers(owner).iter().copied().collect();
+        properties.sort_by_key(|&id| doc.span(id).map(|s| s.start));
+        for id in properties {
+            if link(doc, id, "PROPERTY_DEFINITION", 2) != Some(owner) {
+                continue;
+            }
+            let set = at(doc, id, "PROPERTY_DEFINITION", 0).unwrap_or_default();
+            let values = items(doc, id);
+            let process = |key: &str| {
+                values
+                    .get(key)
+                    .and_then(text)
+                    .and_then(|s| process_value(&s))
+            };
+            if let Some(value) = process("manufacturing_process") {
+                if set != "specify process" {
+                    file.get_or_insert(value);
+                } else if process_default(&values) {
+                    suggested = Some(value);
+                } else {
+                    answered = Some(value);
+                }
+            } else if set == "specify process"
+                && let Some(value) = process("specify_process")
+            {
+                // OCCT rewrites a set to one item named after it, losing its
+                // default marker. Specify treats that as a foreign statement.
+                file.get_or_insert(value);
+            }
+        }
+    }
+    answered
+        .or(file)
+        .map(|p| (p, false))
+        .or_else(|| suggested.map(|p| (p, true)))
+}
+
+/// Read only Specify's part.process answer, not feature/face answers. Match its
+/// resume::stored_in framing: schemas 1..3; first legacy frame wins, a later
+/// provenance-scoped frame replaces it (even if it has no process answer).
+fn answered_processes(doc: &Document) -> BTreeMap<u64, crate::process::Process> {
+    fn stored_text(doc: &Document, id: u64) -> Option<String> {
+        if let Some(a) = attrs(doc, id, "DESCRIPTIVE_REPRESENTATION_ITEM") {
+            return a.get(1).and_then(text);
+        }
+        let a = attrs(doc, id, "COMPOUND_REPRESENTATION_ITEM")?;
+        let A::Typed { type_name, value } = a.get(1)? else {
+            return None;
+        };
+        if type_name != "LIST_REPRESENTATION_ITEM" {
+            return None;
+        }
+        let A::List(children) = value.as_ref() else {
+            return None;
+        };
+        if children.is_empty() {
+            return None;
+        }
+        let mut joined = String::new();
+        for child in children {
+            let a = attrs(doc, reference(child)?, "DESCRIPTIVE_REPRESENTATION_ITEM")?;
+            if a.first().and_then(text).as_deref() != Some("haecceity text chunk/1") {
+                return None;
+            }
+            joined.push_str(&a.get(1).and_then(text)?);
+        }
+        Some(joined)
+    }
+    let mut records: Vec<_> = doc
+        .ids()
+        .filter(|&id| {
+            matches!(doc.get(id), Some(RawEntity::Simple { name, attributes, .. })
+                if matches!(name.as_str(), "DESCRIPTIVE_REPRESENTATION_ITEM" | "COMPOUND_REPRESENTATION_ITEM")
+                    && matches!(attributes.first(), Some(A::String(s)) if s == "pmi-assist answers"))
+        })
+        .collect();
+    records.sort_by_key(|&id| doc.span(id).map(|s| s.start));
+    let mut answers = BTreeMap::new();
+    for id in records {
+        let Some(payload) = stored_text(doc, id)
+            .and_then(|s| STANDARD.decode(s).ok())
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        else {
+            continue;
+        };
+        let schema = match &payload["schema"] {
+            serde_json::Value::Bool(b) => Some(f64::from(u8::from(*b))),
+            value => value.as_f64(),
+        };
+        if !schema.is_some_and(|s| [1., 2., 3.].contains(&s)) || !payload["answers"].is_object() {
+            continue;
+        }
+        let part = match payload.get("part") {
+            None => Some(0),
+            Some(serde_json::Value::Bool(b)) => Some(u64::from(*b)),
+            Some(value) => value.as_u64(),
+        };
+        let Some(part) = part else { continue };
+        // Answers accept the exact offered enum, unlike foreign file text.
+        let process = serde_json::from_value::<crate::process::Process>(
+            payload["answers"]["part.process"].clone(),
+        )
+        .ok();
+        if payload["pmi_scope"] == "specify-core:written:v1" {
+            answers.insert(part, process);
+        } else {
+            answers.entry(part).or_insert(process);
+        }
+    }
+    if !answers.values().any(Option::is_some) {
+        return BTreeMap::new();
+    }
+    // Callers may request just one definition from an assembly. Stored indexes
+    // always address the original file's definitions, never that subset.
+    haecceity::step::read_part_definitions(doc.bytes())
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, d)| {
+            Some((
+                d.product_definition,
+                answers.get(&(i as u64)).copied().flatten()?,
+            ))
+        })
+        .collect()
 }
 
 fn apply_items(values: &BTreeMap<String, A>, overrides: bool, row: &mut Metadata) {
@@ -388,9 +541,24 @@ pub(crate) fn accounts_for(doc: &Document, id: u64, definitions: &[PartDefinitio
 /// Read only metadata for the supplied leaf definitions. Reverse references keep
 /// the work proportional to their properties, rather than scanning per leaf.
 pub fn read(doc: &Document, definitions: &[PartDefinition]) -> Vec<Metadata> {
+    let answers = answered_processes(doc);
     definitions
         .iter()
-        .map(|d| read_definition(doc, d.product_definition, d.shape, &d.name))
+        .map(|d| {
+            let mut row = read_definition(doc, d.product_definition, d.shape, &d.name);
+            if let Some(&process) = answers.get(&d.product_definition) {
+                row.process = Some(process);
+                row.suggested_fields.remove("process");
+            }
+            // Specify's process::of has no process for an explicitly bought part.
+            if row.make_buy.as_deref() == Some("bought")
+                && !row.suggested_fields.contains("make_buy")
+            {
+                row.process = None;
+                row.suggested_fields.remove("process");
+            }
+            row
+        })
         .collect()
 }
 
@@ -487,6 +655,12 @@ fn read_definition(doc: &Document, pd: u64, shape: u64, name: &str) -> Metadata 
     for owner in occurrences {
         properties(doc, owner, &mut row);
     }
+    if let Some((process, suggested)) = file_process(doc, pd, shape) {
+        row.process = Some(process);
+        if suggested {
+            row.suggested_fields.insert("process".into());
+        }
+    }
     row.categories = row
         .categories
         .into_iter()
@@ -509,7 +683,9 @@ impl Metadata {
             .filter(|_| self.part_number_is_explicit)
     }
 
-    /// The seven stated BOM facts used by Specify 0.1.14's `same_as` rule.
+    /// The stated BOM facts used by Specify 0.1.14's `same_as` rule, plus
+    /// manufacturing process: Paul's decision, "Process counts". Congruent
+    /// parts made by different stated processes require separate drawings.
     /// Names, defaults, exporter ids, find numbers and other metadata do not
     /// assert that congruent products are different items.
     pub(crate) fn compatible(&self, other: &Self) -> bool {
@@ -536,6 +712,7 @@ impl Metadata {
             && stated(self, "optional", &self.optional)
                 == stated(other, "optional", &other.optional)
             && stated(self, "stock", &self.stock) == stated(other, "stock", &other.stock)
+            && stated(self, "process", &self.process) == stated(other, "process", &other.process)
     }
 }
 
@@ -547,7 +724,6 @@ mod grouping_tests {
     fn only_stated_bom_facts_decide_compatibility() {
         let empty = Metadata::default();
         let mut exported = Metadata {
-            process: Some(crate::process::Process::Fdm),
             name: Some("Different name #2".into()),
             part_number: Some("RAW-PRODUCT-ID".into()),
             product_ids: vec!["RAW-PRODUCT-ID".into()],
@@ -566,6 +742,7 @@ mod grouping_tests {
         exported.material = Some("Default material".into());
         exported.optional = Some(false);
         exported.stock = Some("from stock".into());
+        exported.process = Some(crate::process::Process::Fdm);
         exported.suggested_fields = [
             "description",
             "revision",
@@ -573,11 +750,16 @@ mod grouping_tests {
             "material",
             "optional",
             "stock",
+            "process",
         ]
         .map(String::from)
         .into();
         assert!(empty.compatible(&exported));
         assert!(exported.compatible(&empty));
+        // Paul's "Process counts": only defaulted/guessed process is ignored.
+        exported.suggested_fields.remove("process");
+        assert!(!empty.compatible(&exported));
+        exported.suggested_fields.insert("process".into());
         // An explicitly stated false is different from an unstated optional flag.
         exported.suggested_fields.remove("optional");
         assert!(!empty.compatible(&exported));

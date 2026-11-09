@@ -20,6 +20,303 @@ fn copies() -> &'static Pack {
     PACK.get_or_init(|| pack::build(&fixture("pack-copies.step.gz"), &PackSpec::default()).unwrap())
 }
 
+fn process_property(owner: u64, id: u64, set: &str, value: &str, default: bool) -> String {
+    let marker = if default {
+        format!(",#{}", id + 5)
+    } else {
+        String::new()
+    };
+    format!(
+        "#{id}=PROPERTY_DEFINITION('{set}','',#{owner});\n\
+        #{}=PROPERTY_DEFINITION_REPRESENTATION(#{id},#{});\n\
+        #{}=REPRESENTATION('',(#{}{marker}),#{});\n\
+        #{}=REPRESENTATION_CONTEXT('','');\n\
+        #{}=DESCRIPTIVE_REPRESENTATION_ITEM('manufacturing_process','{value}');\n\
+        #{}=DESCRIPTIVE_REPRESENTATION_ITEM('default.manufacturing_process','true');\n",
+        id + 1,
+        id + 2,
+        id + 2,
+        id + 4,
+        id + 3,
+        id + 3,
+        id + 4,
+        id + 5
+    )
+}
+
+fn process_answer(part: usize, id: u64, process: &str, scoped: bool, chunked: bool) -> String {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let mut payload = json!({"schema":3,"part":part,"answers":{"part.process":process}});
+    if scoped {
+        payload["pmi_scope"] = json!("specify-core:written:v1");
+    }
+    let encoded = STANDARD.encode(serde_json::to_vec(&payload).unwrap());
+    if chunked {
+        let (a, b) = encoded.split_at(encoded.len() / 2);
+        format!(
+            "#{id}=COMPOUND_REPRESENTATION_ITEM('pmi-assist answers',LIST_REPRESENTATION_ITEM((#{},#{})));\n\
+            #{}=DESCRIPTIVE_REPRESENTATION_ITEM('haecceity text chunk/1','{a}');\n\
+            #{}=DESCRIPTIVE_REPRESENTATION_ITEM('haecceity text chunk/1','{b}');\n",
+            id + 1,
+            id + 2,
+            id + 1,
+            id + 2
+        )
+    } else {
+        format!("#{id}=DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers','{encoded}');\n")
+    }
+}
+
+fn process_fixture() -> (
+    String,
+    Vec<draftwright::haecceity::step::PartDefinition>,
+    PackSpec,
+) {
+    let bytes = draftwright::model::read_step_file(&fixture("pack-small.step.gz")).unwrap();
+    let file = draftwright::haecceity::step::StepFile::read(&bytes).unwrap();
+    let mut spec = PackSpec::default();
+    spec.ga.include = Some(false);
+    for p in &file.parts {
+        spec.parts.insert(
+            p.name.clone(),
+            PartSpec {
+                supply: Some(if p.name.starts_with("pin ") {
+                    Supply::Make
+                } else {
+                    Supply::Buy
+                }),
+                ..Default::default()
+            },
+        );
+    }
+    (String::from_utf8(bytes).unwrap(), file.parts, spec)
+}
+
+fn process_build(source: &str, records: &str, spec: &PackSpec) -> Pack {
+    let source = source.replace(
+        "ENDSEC;\nEND-ISO-10303-21;",
+        &format!("{records}ENDSEC;\nEND-ISO-10303-21;"),
+    );
+    pack::build_bytes("processes.step", source.as_bytes(), spec).unwrap()
+}
+
+#[test]
+fn process_counts_for_congruent_made_items_and_drawings() {
+    use draftwright::process::Process;
+    let (source, defs, spec) = process_fixture();
+    for (second, count) in [("machined", 2), ("3D printed: FDM", 1)] {
+        let records = process_property(
+            defs[1].product_definition,
+            9000,
+            "specify process",
+            "3D printed: FDM",
+            false,
+        ) + &process_property(
+            defs[2].product_definition,
+            9010,
+            "specify process",
+            second,
+            false,
+        );
+        let pack = process_build(&source, &records, &spec);
+        let made: Vec<_> = pack
+            .report
+            .rows
+            .iter()
+            .filter(|r| r.supply == Supply::Make)
+            .collect();
+        assert_eq!(made.len(), count);
+        assert_eq!(pack.drawings.len(), count);
+        assert_eq!(made.iter().map(|r| r.qty).sum::<usize>(), 2);
+        assert!(
+            made.iter()
+                .all(|r| r.error.is_none() && r.sheets.len() == 1)
+        );
+        if count == 2 {
+            assert_ne!(made[0].item, made[1].item);
+            assert_ne!(made[0].sheets, made[1].sheets);
+            assert_eq!(made[0].bom.process, Some(Process::Fdm));
+            assert_eq!(made[1].bom.process, Some(Process::Machined));
+            assert!(made.iter().all(|r| r.qty == 1 && r.products.len() == 1));
+        } else {
+            assert_eq!(made[0].products, ["pin A", "pin B"]);
+            assert_eq!(made[0].qty, 2);
+            assert_eq!(made[0].bom.process, Some(Process::Fdm));
+        }
+        for row in made {
+            let svg = pack.drawings[row.sheets[0] - 1].svg();
+            assert!(svg.contains(&format!(">{}<", row.qty)));
+            assert_eq!(row.sources["process"], pack::ValueSource::File);
+        }
+    }
+}
+
+#[test]
+fn answered_part_process_overrides_file_for_grouping_and_made_sheets() {
+    use draftwright::{bom, haecceity::p21::Document, process::Process};
+    let (source, defs, spec) = process_fixture();
+    for (first_file, answer, count, process) in [
+        ("3D printed: FDM", "machined", 1, Process::Machined),
+        ("machined", "3D printed: FDM", 2, Process::Fdm),
+    ] {
+        // A current resumed answer overrides both a file statement and a marked
+        // suggestion. Exercise haecceity's ordered/chunked answer form too.
+        for (default, chunked) in [(false, false), (true, true)] {
+            let records = process_property(
+                defs[1].product_definition,
+                9000,
+                "specify process",
+                first_file,
+                default,
+            ) + &process_property(
+                defs[2].product_definition,
+                9010,
+                "specify process",
+                "machined",
+                false,
+            ) + &process_answer(1, 9020, answer, false, chunked);
+            let pack = process_build(&source, &records, &spec);
+            assert_eq!(pack.drawings.len(), count);
+            let row = pack
+                .report
+                .rows
+                .iter()
+                .find(|r| r.products.iter().any(|p| p == "pin A"))
+                .unwrap();
+            assert_eq!(row.bom.process, Some(process));
+            assert_eq!(row.sources["process"], pack::ValueSource::File);
+            assert_eq!(row.qty, if count == 1 { 2 } else { 1 });
+            let source = source.replace(
+                "ENDSEC;\nEND-ISO-10303-21;",
+                &format!("{records}ENDSEC;\nEND-ISO-10303-21;"),
+            );
+            let doc = Document::parse(source.into_bytes()).unwrap();
+            // Single-definition drawing reads must use the original part index.
+            let metadata = bom::read(&doc, std::slice::from_ref(&defs[1]));
+            assert_eq!(metadata[0].process, Some(process));
+            assert!(!metadata[0].suggested_fields.contains("process"));
+            let drawing = &pack.drawings[row.sheets[0] - 1];
+            assert_eq!(
+                drawing.text.iter().any(|r| r.text.contains("0.3")),
+                process == Process::Fdm
+            );
+        }
+    }
+}
+
+#[test]
+fn process_defaults_and_classifications_do_not_split_congruent_parts() {
+    let (source, defs, spec) = process_fixture();
+    // Differing accepted suggestions have source default in Specify, so neither
+    // becomes an identity fact. A default and no process are equivalent too.
+    for second in [None, Some("machined")] {
+        let mut records = process_property(
+            defs[1].product_definition,
+            9000,
+            "specify process",
+            "3D printed: FDM",
+            true,
+        );
+        if let Some(second) = second {
+            records += &process_property(
+                defs[2].product_definition,
+                9010,
+                "specify process",
+                second,
+                true,
+            );
+        }
+        let pack = process_build(&source, &records, &spec);
+        let pins = pack
+            .report
+            .rows
+            .iter()
+            .find(|r| r.products == ["pin A", "pin B"])
+            .unwrap();
+        assert_eq!(pins.qty, 2);
+        assert_eq!(pins.sources["process"], pack::ValueSource::Suggested);
+        assert_eq!(pack.drawings.len(), 1);
+    }
+    let records = format!(
+        "#9000=CLASS('3D printing: filament','');\n\
+        #9001=CLASSIFICATION_ROLE('classification',$);\n\
+        #9002=APPLIED_CLASSIFICATION_ASSIGNMENT(#9000,#9001,(#{}));\n",
+        defs[1].product_definition
+    );
+    let pack = process_build(&source, &records, &spec);
+    let pins = pack
+        .report
+        .rows
+        .iter()
+        .find(|r| r.products == ["pin A", "pin B"])
+        .unwrap();
+    assert_eq!(pins.qty, 2);
+    assert_eq!(pins.sources["process"], pack::ValueSource::Guess);
+    assert_eq!(pins.bom.process, Some(draftwright::process::Process::Fdm));
+    assert_eq!(pack.drawings.len(), 1);
+}
+
+#[test]
+fn process_file_precedence_and_saved_frame_selection_match_specify() {
+    use draftwright::{bom, haecceity::p21::Document, process::Process};
+    let (source, defs, _) = process_fixture();
+    let base = process_property(
+        defs[1].product_definition,
+        9000,
+        "specify process",
+        "machined",
+        true,
+    ) + &process_property(
+        defs[1].shape,
+        9010,
+        "Exporter process",
+        " 3D PRINTED: FDM ",
+        false,
+    );
+    for (extra, expected) in [
+        (String::new(), Process::Fdm), // foreign statement wins over a suggestion
+        (
+            process_property(
+                defs[1].product_definition,
+                9020,
+                "specify process",
+                "cast",
+                false,
+            ),
+            Process::Cast,
+        ),
+        (
+            process_answer(1, 9020, "moulded", false, false)
+                + &process_answer(1, 9030, "machined", false, false),
+            Process::Moulded,
+        ), // first legacy frame
+        (
+            process_answer(1, 9020, "moulded", false, false)
+                + &process_answer(1, 8000, "machined", true, true),
+            Process::Machined,
+        ), // later scoped frame, lower entity id
+        (
+            process_answer(1, 9020, "not a process", false, false),
+            Process::Fdm,
+        ),
+        (
+            "#9020=DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers','not base64');\n".into(),
+            Process::Fdm,
+        ),
+    ] {
+        let source = source.replace(
+            "ENDSEC;\nEND-ISO-10303-21;",
+            &format!("{base}{extra}ENDSEC;\nEND-ISO-10303-21;"),
+        );
+        let doc = Document::parse(source.into_bytes()).unwrap();
+        let row = bom::read(&doc, std::slice::from_ref(&defs[1]))
+            .pop()
+            .unwrap();
+        assert_eq!(row.process, Some(expected));
+        assert!(!row.suggested_fields.contains("process"));
+    }
+}
+
 #[test]
 fn independent_products_and_repeated_placements_share_one_list_item_and_drawing() {
     let step = fixture("pack-copies.step.gz");
