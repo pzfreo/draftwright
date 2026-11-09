@@ -301,8 +301,8 @@ fn each_axis_of_a_location_is_its_own_measurement() {
     let plan = model::plan(analysis, &Spec::default()).unwrap();
     let full = ids(&plan);
     for gone in [
-        "d:f:hole:5/location.length.x",
-        "d:f:hole_pattern:1/location.length.y",
+        "d:f:hole:f11/location.length.x",
+        "d:f:hole_pattern:f7/location.length.y",
     ] {
         let left = ids(&model::plan(analysis, &omitting(&[gone])).unwrap());
         let mut expected = full.clone();
@@ -671,7 +671,7 @@ fn equal_diameters_on_different_features_are_stated_apart() {
     };
     assert_eq!(
         ledger(&analysis, &marks),
-        ["f:turned_step:1 Placed", "f:turned_step:2 Placed"]
+        ["f:turned_step:f0 Placed", "f:turned_step:f6 Placed"]
     );
     let od = |plan: &Plan| -> Vec<String> {
         let d = plan
@@ -686,7 +686,7 @@ fn equal_diameters_on_different_features_are_stated_apart() {
     };
     assert_eq!(
         od(plan),
-        ["envelope/od.diameter", "f:turned_step:1/step.diameter"]
+        ["envelope/od.diameter", "f:turned_step:f0/step.diameter"]
     );
     // Two bands of the largest diameter: the overall diameter stands for neither.
     let mut twin = analysis.clone();
@@ -718,17 +718,17 @@ fn equal_diameters_on_different_features_are_stated_apart() {
         .collect();
     assert_eq!(
         ledger(&twin, &od_mark),
-        ["f:turned_step:1 Missing", "f:turned_step:2 Missing"]
+        ["f:turned_step:f0 Missing", "f:turned_step:f6 Missing"]
     );
     // The twins' diameters have their own callout instead, one for the two (equal bands along z).
     let d = twin_plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:turned_step:1/step.diameter")
+        .find(|d| d.id == "d:f:turned_step:f0/step.diameter")
         .unwrap();
     assert_eq!(d.label, "2× ø30");
     let members: Vec<&str> = d.measurements.iter().map(|m| m.feature.as_str()).collect();
-    assert_eq!(members, ["f:turned_step:1", "f:turned_step:2"]);
+    assert_eq!(members, ["f:turned_step:f0", "f:turned_step:f6"]);
 }
 
 /// ISSUE-1518-a, in part: a rear view is never added automatically, and one asked for is
@@ -1202,10 +1202,10 @@ fn eccentric_cylinders_are_not_one_turned_profile() {
     assert_eq!(
         bands(&plan),
         [
-            item("f:turned_step:1", "step.diameter", "ø30"),
-            item("f:turned_step:1", "step.length", "40"),
-            item("f:turned_step:2", "step.diameter", "ø16"),
-            item("f:turned_step:2", "step_position.length", "70"),
+            item("f:turned_step:f0", "step.diameter", "ø30"),
+            item("f:turned_step:f0", "step.length", "40"),
+            item("f:turned_step:f6", "step.diameter", "ø16"),
+            item("f:turned_step:f6", "step_position.length", "70"),
         ]
     );
 
@@ -1213,7 +1213,7 @@ fn eccentric_cylinders_are_not_one_turned_profile() {
     let step = eccentric
         .features
         .iter_mut()
-        .find(|f| f.id == "f:turned_step:2")
+        .find(|f| f.id == "f:turned_step:f6")
         .unwrap();
     step.parameters["profile"]["axis_origin"] = json!([0.0, 2.0, 0.0]);
     let plan = model::plan(&eccentric, &Spec::default()).unwrap();
@@ -1225,16 +1225,16 @@ fn eccentric_cylinders_are_not_one_turned_profile() {
     assert_eq!(
         bands(&plan),
         [
-            item("f:turned_step:1", "step.diameter", "ø30"),
-            item("f:turned_step:1", "step.length", "40"),
-            item("f:turned_step:2", "step.diameter", "ø16"),
-            item("f:turned_step:2", "step.length", "30"),
+            item("f:turned_step:f0", "step.diameter", "ø30"),
+            item("f:turned_step:f0", "step.length", "40"),
+            item("f:turned_step:f6", "step.diameter", "ø16"),
+            item("f:turned_step:f6", "step.length", "30"),
         ]
     );
     assert!(
         plan.dimensions
             .iter()
-            .any(|d| d.id == "d:f:turned_step:1/step.diameter")
+            .any(|d| d.id == "d:f:turned_step:f0/step.diameter")
     );
 }
 
@@ -1477,7 +1477,7 @@ fn every_authored_tolerance_reaches_the_label_that_claims_it() {
 /// port dimensions no step levels on main).
 #[test]
 fn a_jittered_pattern_claims_no_pitch_tolerance() {
-    let pitch = "d:f:hole_pattern:1/pitch.length";
+    let pitch = "d:f:hole_pattern:f6/pitch.length";
     let even = fixture_plan("two_grids", &tolerances(&[(pitch, "±0.05")]));
     assert_eq!(dimension(&even, pitch).label, "2× 10 ±0.05");
 
@@ -1490,7 +1490,7 @@ fn a_jittered_pattern_claims_no_pitch_tolerance() {
     let middle = jittered
         .features
         .iter_mut()
-        .find(|f| f.id == "f:hole:2")
+        .find(|f| f.id == "f:hole:f7")
         .unwrap();
     let z = middle.parameters["location"][2].as_f64().unwrap();
     middle.parameters["location"][2] = json!(z + 0.3);
@@ -1498,13 +1498,13 @@ fn a_jittered_pattern_claims_no_pitch_tolerance() {
     assert!(
         plan.dimensions
             .iter()
-            .all(|d| !d.id.starts_with("d:f:hole_pattern:1/")),
+            .all(|d| !d.id.starts_with("d:f:hole_pattern:f6/")),
         "the uneven pattern is still called out as one"
     );
     let single = plan
         .dimensions
         .iter()
-        .find(|d| hole_callout(d) && d.measurements.iter().any(|m| m.feature == "f:hole:2"))
+        .find(|d| hole_callout(d) && d.measurements.iter().any(|m| m.feature == "f:hole:f7"))
         .unwrap();
     assert!(
         single.basis.contains("not evenly spaced"),
@@ -1653,7 +1653,7 @@ fn a_toleranced_height_is_not_handed_to_an_untoleranced_extent() {
 #[test]
 fn a_callouts_room_is_measured_from_the_text_it_draws() {
     let font = font();
-    let id = "d:f:hole_pattern:1/bore.diameter";
+    let id = "d:f:hole_pattern:f6/bore.diameter";
     let width = |plan: &Plan| {
         let d = dimension(plan, id);
         let b = d.placed.as_ref().unwrap().label_box;
@@ -1680,7 +1680,7 @@ fn a_callouts_room_is_measured_from_the_text_it_draws() {
 #[test]
 fn an_authored_magnitude_is_never_rounded() {
     let font = font();
-    let id = "d:f:hole_pattern:1/bore.diameter";
+    let id = "d:f:hole_pattern:f6/bore.diameter";
     let bare = fixture_plan("plate", &Spec::default());
     for (authored, printed) in [
         ("±0.02", "±0.02"),
@@ -1996,7 +1996,7 @@ fn a_rungs_witnesses_stand_on_its_levels_support() {
     for (name, analysis, plan) in planned() {
         let [lo, hi] = analysis.envelope;
         for d in &plan.dimensions {
-            if !d.id.starts_with("d:step_level/step_height.length.h") {
+            if !d.id.starts_with("d:step_level/step_height.length.f") {
                 continue;
             }
             let (Some(p), Some(v)) = (&d.placed, plan.views.iter().find(|v| v.id == d.view)) else {
@@ -2076,6 +2076,7 @@ fn a_shoulder_on_the_box_is_reported_not_drawn() {
         ("x", &[0.0][..])
     );
     let on_box = |axis: &str, at: f64| model::Riser {
+        faces: Vec::new(),
         axis: axis.into(),
         positions: vec![at],
         ..wall.clone()
@@ -2101,7 +2102,7 @@ fn a_shoulder_on_the_box_is_reported_not_drawn() {
     assert_eq!(
         shoulders(&plan),
         [(
-            "d:step_level/step_position.length.x20".to_string(),
+            "d:step_level/step_position.length.f7".to_string(),
             "20".to_string()
         )]
     );
@@ -2123,7 +2124,7 @@ fn a_shoulder_on_the_box_is_reported_not_drawn() {
         .filter(|n| n.name.contains("/step_position."))
         .map(|n| n.name.as_str())
         .collect();
-    assert_eq!(drawn, ["d:step_level/step_position.length.x20"]);
+    assert_eq!(drawn, ["d:step_level/step_position.length.f7"]);
 
     for (axis, at, view) in [("x", lo[0], "plan"), ("y", lo[1], "side")] {
         a.risers = vec![on_box(axis, at)];
@@ -2437,7 +2438,7 @@ fn grm05_automatic_recovery_keeps_rendered_centre_ink_inside_the_page() {
             .sheet
             .items
             .iter()
-            .any(|i| i.name == "ink:v:plan:f:turned_step:1")
+            .any(|i| i.name == "ink:v:plan:f:turned_step:f0")
     );
     for item in drawing
         .sheet

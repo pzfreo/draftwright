@@ -841,6 +841,8 @@ pub(crate) fn pattern<'a>(
         .filter_map(|s| s.as_str().map(str::to_string))
         .collect();
     Some(std::borrow::Cow::Owned(crate::bridge::HolePattern {
+        presentation_order: None,
+        legacy_id: None,
         id: f.id.clone(),
         arrangement: if f.parameters.contains_key("col_pitch") {
             "grid"

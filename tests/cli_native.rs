@@ -133,7 +133,7 @@ fn without_features_the_command_line_recognises_with_rust_quiddity() {
         .filter(|f| f["kind"] == "hole")
         .map(|f| f["id"].as_str().unwrap())
         .collect();
-    assert_eq!(holes, ["f:hole:1", "f:hole:2", "f:hole:3", "f:hole:4"]);
+    assert_eq!(holes, ["f:hole:f6", "f:hole:f7", "f:hole:f8", "f:hole:f9"]);
     assert_eq!(a["recognition"]["patterns"][0]["arrangement"], "grid");
 }
 

@@ -167,9 +167,9 @@ test('scripted sheet change follows the committed tolerance and omission', async
     batches.push(ops);
     await Promise.resolve();
     committed = true;
-  }, 'd:f:turned_step:1/step.diameter');
+  }, 'd:f:turned_step:f2/step.diameter');
   assert.deepEqual(batches.map(ops => ops.map(op => op.path)), [
-    ['dimensions/d:f:turned_step:1~1step.diameter/tolerance', 'views/iso/omit'],
+    ['dimensions/d:f:turned_step:f2~1step.diameter/tolerance', 'views/iso/omit'],
     ['sheet/size', 'sheet/scale'],
   ]);
   await assert.rejects(keepIntent(async () => { throw new Error('first commit refused'); }, 'd:test'), /first commit refused/);

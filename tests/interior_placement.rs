@@ -301,7 +301,7 @@ fn an_occluded_native_boss_diameter_uses_its_visible_profile() {
     let d = p
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:boss:1/boss.diameter")
+        .find(|d| d.id == "d:f:boss:f21/boss.diameter")
         .unwrap();
     assert_eq!(d.view, "v:front");
     assert_eq!(d.label, "4× ø44.45");

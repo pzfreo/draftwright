@@ -1,6 +1,6 @@
 {
   "dimensions": {
-    "d:f:hole_pattern:1/bore.diameter": {
+    "d:f:hole_pattern:f77/bore.diameter": {
       "tolerance": "+0.03 -0.0"
     }
   }

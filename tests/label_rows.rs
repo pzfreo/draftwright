@@ -9,7 +9,7 @@ fn plate_rows_follow_automatic_frames_widths_and_explicit_pins() {
     let path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/mounting_plate.step");
     let mut session = Session::open(&path, api::Features::Native, Spec::default()).unwrap();
-    let id = "d:f:hole_pattern:1/bore.diameter";
+    let id = "d:f:hole_pattern:f6/bore.diameter";
     let original = session
         .plan()
         .dimensions
@@ -115,7 +115,7 @@ fn plate_rows_follow_automatic_frames_widths_and_explicit_pins() {
     session
         .apply(
             &[draftwright::items::Op::set(
-                "dimensions/d:f:hole:7~1bore.diameter/tolerance",
+                "dimensions/d:f:hole:f12~1bore.diameter/tolerance",
                 json!("±1234.5678"),
             )],
             true,
@@ -145,7 +145,7 @@ fn stateless_editor_can_read_rows_without_a_session() {
     assert_eq!(
         rows,
         session
-            .label_rows("d:f:hole_pattern:1/bore.diameter")
+            .label_rows("d:f:hole_pattern:f6/bore.diameter")
             .unwrap()["v:plan"]
     );
     let bytes = serde_json::to_value(&plan).unwrap();

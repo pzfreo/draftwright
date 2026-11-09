@@ -552,7 +552,7 @@ fn one_pmi_axis_does_not_cover_an_unrelated_coincident_hole_axis() {
         .iter()
         .filter(|d| !d.id.starts_with("d:pmi:"))
         .flat_map(|d| &d.measurements)
-        .any(|m| m.feature == "f:hole:4" && m.parameter == "location.length.y");
+        .any(|m| m.feature == "f:hole:f9" && m.parameter == "location.length.y");
     assert!(engine, "the unrelated ⌀8 hole still needs its y location");
 }
 #[test]
@@ -657,15 +657,15 @@ fn located_once_checks_native_ink_and_rejects_a_broken_witness() {
         .iter()
         .find(|d| {
             d.placed.is_some()
-                && d.measurements
-                    .first()
-                    .is_some_and(|m| m.feature == "f:hole:7" && m.parameter == "location.length.x")
+                && d.measurements.first().is_some_and(|m| {
+                    m.feature == "f:hole:f12" && m.parameter == "location.length.x"
+                })
         })
         .unwrap();
     let has_gap = |drawing: &draftwright::output::Drawing| {
         draftwright::lint::lint(&a, drawing).iter().any(|i| {
             i.code == "feature_not_located"
-                && i.subjects.contains(&"f:hole:7".into())
+                && i.subjects.contains(&"f:hole:f12".into())
                 && i.id.ends_with("location.length.x")
         })
     };
@@ -699,13 +699,13 @@ fn datum_rebased_plane_location_also_states_its_coincident_plate_thickness() {
         let owner = p
             .dimensions
             .iter()
-            .find(|d| d.id == "d:step_level/step_height.length.h50")
+            .find(|d| d.id == "d:step_level/step_height.length.f2")
             .unwrap();
         assert_eq!(owner.label, "50");
         assert!(owner.basis.contains("measured from datum A"));
         for (feature, parameter) in [
-            ("step_level", "step_height.length.h50"),
-            ("f:plate:1", "thickness.length"),
+            ("step_level", "step_height.length.f2"),
+            ("f:plate:f2", "thickness.length"),
         ] {
             let claims: Vec<_> = p
                 .dimensions
@@ -720,7 +720,7 @@ fn datum_rebased_plane_location_also_states_its_coincident_plate_thickness() {
             assert_eq!(claims[0].id, owner.id);
         }
         assert!(p.omitted.iter().any(|d| {
-            d.id == "d:f:plate:1/thickness.length"
+            d.id == "d:f:plate:f2/thickness.length"
                 && matches!(&d.state, draftwright::items::State::Covered { by } if by == &owner.id)
         }));
         let placed = owner.placed.as_ref().unwrap();

@@ -1,0 +1,7 @@
+{
+  "schema": "draftwright.spec/2",
+  "dimensions": {
+    "d:step_level/step_height.length.h10": {"omit": true},
+    "d:step_level/step_position.length.x20": {"omit": true}
+  }
+}

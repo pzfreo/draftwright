@@ -3,7 +3,7 @@ use draftwright::model::{self, Analysis, Plan, Spec};
 use serde_json::json;
 use std::path::Path;
 
-const ID: &str = "d:f:hole_pattern:1/bore.diameter";
+const ID: &str = "d:f:hole_pattern:f6/bore.diameter";
 
 fn plate() -> Analysis {
     model::analyse_native(
@@ -39,7 +39,7 @@ fn above_and_below_left_drag_puts_text_left_of_bend() {
 fn crossing_pin_keeps_bend_and_label_and_reports_features() {
     let a = plate();
     // The central bore's vertical leader crosses the pattern's upper middle hole.
-    let id = "d:f:hole:4/bore.diameter";
+    let id = "d:f:hole:f9/bore.diameter";
     let p = pinned(&a, id, "above", 0.5);
     let view = p.views.iter().find(|v| v.id == "v:plan").unwrap();
     let ink = p
@@ -132,8 +132,8 @@ fn above_left_pin_keeps_parallel_location_dimensions_readable() {
             };
             let callout = ink(ID);
             assert!(callout.label_box[2] < callout.lines[0][1][0]);
-            let short = ink("d:f:hole:4/location.length.x");
-            let long = ink("d:f:hole:7/location.length.x");
+            let short = ink("d:f:hole:f9/location.length.x");
+            let long = ink("d:f:hole:f12/location.length.x");
             let short_line = short.lines[2];
             let long_line = long.lines[2];
             assert!(

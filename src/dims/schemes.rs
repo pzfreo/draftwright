@@ -4,7 +4,6 @@ use crate::{
     dimension_scheme::invalid,
     model::{Analysis, Invalid, Spec},
 };
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) type Covered = BTreeMap<String, String>;
@@ -21,6 +20,8 @@ fn anchor(a: &Analysis, w: &Want, p: [f64; 3], k: usize) -> Option<String> {
     for m in &w.measurements {
         let mut members = BTreeSet::new();
         if expand(a, &m.feature, &mut members).is_ok() {
+            let mut members: Vec<_> = members.into_iter().collect();
+            members.sort_by_cached_key(|r| crate::geometry_ids::station_key(a, r));
             keys.extend(members);
         }
         keys.extend([
@@ -191,6 +192,10 @@ pub(super) fn apply(
             ("front", _) => (0, true),
             _ => (1, true),
         };
+        let station_keys: BTreeMap<_, _> = sites
+            .iter()
+            .map(|(r, _)| (r.clone(), crate::geometry_ids::station_key(a, r)))
+            .collect();
         sites.sort_by(|a, b| {
             a.1[k]
                 .total_cmp(&b.1[k])
@@ -201,7 +206,7 @@ pub(super) fn apply(
                         a.1[cross].total_cmp(&b.1[cross])
                     }
                 })
-                .then(a.0.cmp(&b.0))
+                .then(station_keys[&a.0].cmp(&station_keys[&b.0]))
         });
         sites.dedup_by(|a, b| (a.1[k] - b.1[k]).abs() < 1e-6);
         if sites.len() < 2 {
@@ -222,9 +227,9 @@ pub(super) fn apply(
         }
         let mut generated = Vec::new();
         for ((from, p), (to, q)) in pairs {
-            let hash = Sha256::digest(to.as_bytes());
-            let token: String = hash[..8].iter().map(|b| format!("{b:02x}")).collect();
-            let id = format!("d:scheme:{name}/{token}");
+            let id =
+                crate::dimension_scheme::item_id(name, &crate::geometry_ids::station_key(a, &to));
+            let token = id.rsplit('/').next().expect("scheme ID has a token");
             let value = if d.scheme == "ordinate" {
                 q[k] - p[k]
             } else {
@@ -555,4 +560,62 @@ fn complete_ownership(
         }
     }
     Ok(problems)
+}
+
+#[cfg(test)]
+mod station_identity_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn coincident_station_witness_and_digest_survive_reference_renaming() {
+        let mut a: Analysis = serde_json::from_str(include_str!(
+            "../../tests/fixtures/identity/m10020.analysis7.json"
+        ))
+        .unwrap();
+        a.recognition = None;
+        let mut first = a.features[0].clone();
+        first.kind = "slot".into();
+        first.id = "f:slot:f3".into();
+        first.faces = vec![3];
+        first.fingerprint.position = a.envelope[0];
+        first.fingerprint.position[0] += 10.;
+        let mut second = first.clone();
+        second.id = "f:slot:f9".into();
+        second.faces = vec![9];
+        a.features = vec![first, second];
+        let run = |a: &Analysis| {
+            let s: Spec = serde_json::from_value(json!({"dimension_schemes":{"station":{
+                "scheme":"baseline", "axis":"x", "view":"plan", "from":"min",
+                "targets":a.features.iter().map(|f| f.id.clone()).collect::<Vec<_>>()
+            }}}))
+            .unwrap();
+            let mut wants = vec![];
+            apply(a, &s, &mut wants).unwrap();
+            assert_eq!(wants.len(), 1);
+            let w = &wants[0];
+            let witness = w
+                .measurements
+                .iter()
+                .find(|m| m.parameter.starts_with("scheme_witness."))
+                .unwrap();
+            let faces = a
+                .features
+                .iter()
+                .find(|f| f.id == witness.feature)
+                .unwrap()
+                .faces
+                .clone();
+            let Shape::Linear { a, b, axis, .. } = w.shape else {
+                panic!("linear scheme");
+            };
+            (w.id.clone(), faces, a, b, axis, w.value)
+        };
+        let before = run(&a);
+        assert_eq!(before.1, vec![3]);
+        // Reverse lexical order while retaining exactly the same physical stations.
+        a.features[0].id = "z-last".into();
+        a.features[1].id = "a-first".into();
+        assert_eq!(run(&a), before);
+    }
 }

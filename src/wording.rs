@@ -78,7 +78,7 @@ pub fn feature_id(a: &Analysis, id: &str) -> String {
     kind_of(id)
 }
 
-/// A feature named from its ID's kind alone (`f:hole_pattern:1` is `the hole pattern`), where
+/// A feature named from its ID's kind alone (`f:hole_pattern:f6` is `the hole pattern`), where
 /// no Analysis is at hand.
 pub fn kind_of(id: &str) -> String {
     match id.strip_prefix("f:").and_then(|s| s.split(':').next()) {

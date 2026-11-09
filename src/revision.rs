@@ -4,7 +4,7 @@
 //! quiddity matches the two parts (`quiddity::correspondence::correspond`): it aligns them and
 //! classifies each recognised feature and face as carried, adapted, ambiguous, orphaned or new.
 //! draftwright reads its own feature IDs through that match (a feature is the quiddity record with
-//! the same faces, in the same file), then rebinds the Spec: every `f:<kind>:<n>` and
+//! the same faces, in the same file), then rebinds the Spec: every `f:<kind>:f<face>` and
 //! `face:<n>` in an entry's key or values, and every face embedded in an ID
 //! (`profile_angle.angle.f12`), names what it named before. quiddity does not match edges, so
 //! an embedded edge (`:e3`) carries only when every face carried as it was. An entry is carried
@@ -17,6 +17,7 @@
 //! each view's visible edges in the part's own coordinates (so views that moved on the sheet
 //! still compare). The comparison is drawn over the new drawing in colour ([`Revised::marked`]).
 
+use crate::revision_rename::{next_id, rename_value};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 
@@ -415,7 +416,7 @@ impl Matching {
         }
     }
 
-    /// What an old ID (`f:<kind>:<n>`, `face:<n>`, or an embedded `f<n>.<m>` or `e<n>`) names
+    /// What an old ID (`f:<kind>:f<face>`, `face:<n>`, or an embedded `f<n>.<m>` or `e<n>`) names
     /// now; an ID the old part did not have (one the Spec declares itself) is left as it is.
     fn bind(&self, id: &str) -> Bind {
         let numbered = |l: &&str| l.starts_with(|c: char| c.is_ascii_digit());
@@ -475,19 +476,8 @@ impl Matching {
     }
 
     fn rename_value(&self, v: &Value) -> Result<Value, (String, Bind)> {
-        Ok(match v {
-            Value::String(s) => Value::String(self.rename(s)?),
-            Value::Array(a) => Value::Array(
-                a.iter()
-                    .map(|x| self.rename_value(x))
-                    .collect::<Result<_, _>>()?,
-            ),
-            Value::Object(o) => Value::Object(
-                o.iter()
-                    .map(|(k, x)| Ok((self.rename(k)?, self.rename_value(x)?)))
-                    .collect::<Result<Map<_, _>, _>>()?,
-            ),
-            other => other.clone(),
+        rename_value(v, &|s| self.rename(s), &|s| {
+            (s, Bind::Ambiguous(Vec::new()))
         })
     }
 
@@ -683,52 +673,6 @@ impl Matching {
         }
         out
     }
-}
-
-/// The span of the next `f:<kind>:<n>` or `face:<n>` in *s*, or of a face or edge list embedded
-/// in an ID after `.` or `:` (`profile_angle.angle.f12`, `outer_profile:f12:e3:e4`, `:f3.4`).
-fn next_id(s: &str) -> Option<(usize, usize)> {
-    let b = s.as_bytes();
-    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
-    let digit = |k: usize| k < b.len() && b[k].is_ascii_digit();
-    let mut i = 0;
-    while i < b.len() {
-        // An edge also follows a face with `_` (`profile_angle.angle.f97_e92_e96`).
-        let after = |c: u8| matches!(c, b'.' | b':') || (c == b'_' && b[i] == b'e');
-        if i > 0 && after(b[i - 1]) && matches!(b[i], b'f' | b'e') && digit(i + 1) {
-            let mut j = i + 1;
-            while digit(j) || (j < b.len() && b[j] == b'.' && digit(j + 1)) {
-                j += 1;
-            }
-            if j == b.len() || !b[j].is_ascii_alphanumeric() {
-                return Some((i, j));
-            }
-        }
-        let (face, feature) = (b[i..].starts_with(b"face:"), b[i..].starts_with(b"f:"));
-        if (i == 0 || !word(b[i - 1])) && (face || feature) {
-            let mut j = i + if face { 5 } else { 2 };
-            if feature {
-                let kind = j;
-                while j < b.len() && (b[j].is_ascii_lowercase() || b[j] == b'_') {
-                    j += 1;
-                }
-                if j == kind || j >= b.len() || b[j] != b':' {
-                    i += 1;
-                    continue;
-                }
-                j += 1;
-            }
-            let digits = j;
-            while j < b.len() && b[j].is_ascii_digit() {
-                j += 1;
-            }
-            if j > digits && (j == b.len() || !word(b[j])) {
-                return Some((i, j));
-            }
-        }
-        i += 1;
-    }
-    None
 }
 
 /// A JSON pointer's path as written: `~1` is `/`, `~0` is `~`.
@@ -1395,6 +1339,25 @@ mod tests {
             records: BTreeMap::new(),
             same_faces,
         }
+    }
+
+    #[test]
+    fn face_anchored_features_are_single_tokens() {
+        let s = "d:f:hole:f21/bore.diameter|f:section_recess:f146_2 face:9";
+        let mut rest = s;
+        let mut found = Vec::new();
+        while let Some((a, b)) = next_id(rest) {
+            found.push(&rest[a..b]);
+            rest = &rest[b..];
+        }
+        assert_eq!(found, ["f:hole:f21", "f:section_recess:f146_2", "face:9"]);
+        let mut m = matching(true);
+        m.features
+            .insert("f:hole:f21".into(), Bind::To("f:hole:f77".into()));
+        assert_eq!(
+            m.rename("d:f:hole:f21/bore.diameter"),
+            Ok("d:f:hole:f77/bore.diameter".into())
+        );
     }
 
     #[test]

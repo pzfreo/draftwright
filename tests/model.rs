@@ -310,7 +310,7 @@ fn feature_entries_from_another_revision_are_kept_inactive() {
     let (_, plate) =
         model::analyse_with(&part("plate.step"), Some(&recognition.join("plate.json"))).unwrap();
     let (_, other) = model::analyse(&part("prismatic.step")).unwrap();
-    let hole = "d:f:hole_pattern:1/bore.diameter";
+    let hole = "d:f:hole_pattern:f6/bore.diameter";
     let gone = "d:f:hole:9/bore.diameter";
     let envelope = "d:envelope/width.length";
     let spec: Spec = serde_json::from_value(json!({

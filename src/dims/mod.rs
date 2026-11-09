@@ -1929,7 +1929,7 @@ fn lanes_uncached(
     if let Ok(mut given) = tolerance::apply(analysis, spec, &mut kept, &omitted, &mut problems) {
         holes::consolidate(analysis, &mut kept, &mut given, &mut omitted);
         plates::share(analysis, &mut kept, &mut given, &mut omitted);
-        share_statements(&mut kept, &mut given, &mut omitted, true);
+        share_statements(analysis, &mut kept, &mut given, &mut omitted, true);
         let before_pmi = omitted.len();
         share_pmi(
             analysis,
@@ -3206,9 +3206,9 @@ fn plan_inventory_ordered(
         bosses::consolidate(analysis, &mut defaults, &mut unused);
         let mut nominal = vec![Vec::new(); defaults.len()];
         holes::consolidate(analysis, &mut defaults, &mut nominal, &mut unused);
-        recesses::consolidate(&mut defaults, &mut nominal, &mut unused);
+        recesses::consolidate(analysis, &mut defaults, &mut nominal, &mut unused);
         plates::share(analysis, &mut defaults, &mut nominal, &mut unused);
-        share_statements(&mut defaults, &mut nominal, &mut unused, true);
+        share_statements(analysis, &mut defaults, &mut nominal, &mut unused, true);
         share_pmi(
             analysis,
             spec.sheet.references == Some(true),
@@ -3228,13 +3228,13 @@ fn plan_inventory_ordered(
                 .iter()
                 .filter(|u| {
                     matches!(&u.state, State::Covered { by }
-                        if correlated_set(by) != correlated_set(&u.id))
+                        if correlated_set(analysis, by) != correlated_set(analysis, &u.id))
                 })
                 .map(|u| u.id.as_str())
                 .collect()
         })
         .unwrap_or_default();
-    let (with_set, set_problems) = correlated_sets(spec, &wants, &conveyed);
+    let (with_set, set_problems) = correlated_sets(analysis, spec, &wants, &conveyed);
     problems.extend(set_problems);
     for ((w, view), along) in wants.into_iter().zip(chosen.iter().copied()).zip(end_on) {
         let entry = spec.dimensions.get(&w.id);
@@ -3311,9 +3311,9 @@ fn plan_inventory_ordered(
     precision::labels(spec, kept.iter_mut().map(|(w, ..)| w))?;
     let mut given = tolerance::apply(analysis, spec, &mut kept, &omitted, &mut problems)?;
     holes::consolidate(analysis, &mut kept, &mut given, &mut omitted);
-    recesses::consolidate(&mut kept, &mut given, &mut omitted);
+    recesses::consolidate(analysis, &mut kept, &mut given, &mut omitted);
     plates::share(analysis, &mut kept, &mut given, &mut omitted);
-    share_statements(&mut kept, &mut given, &mut omitted, true);
+    share_statements(analysis, &mut kept, &mut given, &mut omitted, true);
     let before_pmi = omitted.len();
     share_pmi(
         analysis,
@@ -4684,25 +4684,30 @@ const SHARED: [(&str, bool); 6] = [
 // Lane ownership uses same-family sharing. New cross-family statements retain their original
 // reservations, so consolidating their ink does not move unrelated items.
 fn share(
+    analysis: &Analysis,
     kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
 ) {
-    share_statements(kept, given, omitted, false);
+    share_statements(analysis, kept, given, omitted, false);
 }
 
 /// The correlated set a dimension belongs to (ARCH0015-2): the height ladder's rungs (its counted
 /// rise among them), or the ladder's shoulders along one axis. None for any other dimension: a
 /// turned profile's chain is not one, since omitting one link of a chain is ordinary drafting
 /// and its baseline already restores a band's length when a rung is omitted (#33).
-fn correlated_set(id: &str) -> Option<&str> {
+fn correlated_set(analysis: &Analysis, id: &str) -> Option<&'static str> {
     const HEIGHTS: &str = "d:step_level/step_height.length";
     if id.starts_with(HEIGHTS) {
         return Some(HEIGHTS);
     }
-    let rest = id.strip_prefix("d:step_level/step_position.length.")?;
-    let axis = rest.get(..1).filter(|a| ["x", "y", "z"].contains(a))?;
-    Some(&id[..id.len() - rest.len() + axis.len()])
+    let parameter = id.strip_prefix("d:step_level/")?;
+    match analysis.ladder_axis(parameter)? {
+        0 => Some("d:step_level/step_position.length.x"),
+        1 => Some("d:step_level/step_position.length.y"),
+        2 => Some("d:step_level/step_position.length.z"),
+        _ => None,
+    }
 }
 
 /// Stream K6 (ARCH0015-2): a correlated set (the step-height ladder, the shoulders along an
@@ -4716,6 +4721,7 @@ fn correlated_set(id: &str) -> Option<&str> {
 /// set) is not approved by the set: it stays with its owner, conveyed or not authored as main's
 /// authored-set parity decides.
 fn correlated_sets(
+    analysis: &Analysis,
     spec: &Spec,
     wants: &[Want],
     conveyed: &BTreeSet<&str>,
@@ -4726,7 +4732,7 @@ fn correlated_sets(
         if !auto && conveyed.contains(w.id.as_str()) {
             continue;
         }
-        if let Some(set) = correlated_set(&w.id) {
+        if let Some(set) = correlated_set(analysis, &w.id) {
             sets.entry(set).or_default().push(&w.id);
         }
     }
@@ -4817,6 +4823,20 @@ fn correlated_sets(
     (spread, problems)
 }
 
+/// Stable presentation ordering while recognized public identities change spelling.
+fn presentation_id(a: &Analysis, w: &Want) -> String {
+    w.measurements.first().map_or_else(
+        || w.id.clone(),
+        |m| {
+            w.id.replacen(
+                &m.feature,
+                &crate::geometry_ids::presentation_key(a, &m.feature),
+                1,
+            )
+        },
+    )
+}
+
 /// One span, one dimension (ARCH0009-6): kept items stating the same [`SHARED`] size or
 /// datum distance across the same span (the same view and axis, raw ends within 0.01 mm,
 /// and the same label and basic status, so different stated sizes or bands never collapse).
@@ -4827,6 +4847,7 @@ fn correlated_sets(
 /// claims every member's measurement and, for a counted size, prints their number (`2× 6`).
 /// Each other moves to *omitted*, `conveyed by` the survivor. *given* stays aligned with *kept*.
 fn share_statements(
+    analysis: &Analysis,
     kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
@@ -4901,12 +4922,7 @@ fn share_statements(
     }
     let mut gone = BTreeSet::new();
     for (s, mut members) in groups.into_iter().filter(|(_, m)| m.len() > 1) {
-        members.sort_by(|&x, &y| {
-            kept[x]
-                .1
-                .cmp(&kept[y].1)
-                .then_with(|| kept[x].0.id.cmp(&kept[y].0.id))
-        });
+        members.sort_by_cached_key(|&x| (kept[x].1, presentation_id(analysis, &kept[x].0)));
         // Invariant: The group was filtered to at least two members before split_first.
         let (winner, losers) = members.split_first().expect("a group of two or more");
         let owner = kept[*winner].0.id.clone();
@@ -6128,7 +6144,7 @@ mod tests {
                 .join("tests/fixtures/parts/plate.step"),
         )
         .unwrap();
-        let id = "d:f:hole_pattern:1/bore.diameter";
+        let id = "d:f:hole_pattern:f6/bore.diameter";
         for side in ["left", "right"] {
             let mut spec: Spec = serde_json::from_value(serde_json::json!({
                 "dimensions": {id: {"place": {"view": "plan", "side": side}}}
@@ -6195,7 +6211,7 @@ mod tests {
     fn shared(mut kept: Vec<Kept>) -> Shared {
         let mut given = vec![Vec::new(); kept.len()];
         let mut omitted = Vec::new();
-        share(&mut kept, &mut given, &mut omitted);
+        share(&block(&[]), &mut kept, &mut given, &mut omitted);
         assert_eq!(given.len(), kept.len());
         (
             kept.iter()

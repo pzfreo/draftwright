@@ -24,7 +24,7 @@ fixture = Path(__file__).resolve().parents[1] / 'tests/fixtures/pmi/step/nist_st
 step = args.out / 'stc09.stp'
 step.write_bytes(gzip.decompress(fixture.read_bytes()))
 spec = args.out / 'text-edit.spec.json'
-spec.write_text(json.dumps({'dimensions': {'d:f:slot:3/slot_length.length': {'tolerance': '±0.1'}}}))
+spec.write_text(json.dumps({'dimensions': {'d:f:slot:f102/slot_length.length': {'tolerance': '±0.1'}}}))
 report = {}
 for case, extra in [('default', []), ('text-edit', ['--spec', str(spec.resolve())])]:
     timings = {'before': [], 'after': []}

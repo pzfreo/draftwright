@@ -17,7 +17,7 @@ and knurls. JSON example:
 {
   "sheet": {"callouts": {"style": "auto"}},
   "features": {
-    "f:turned_step:1": {"callouts": {"style": "full"}}
+    "f:turned_step:f0": {"callouts": {"style": "full"}}
   }
 }
 ```

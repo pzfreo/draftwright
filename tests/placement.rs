@@ -282,15 +282,14 @@ fn ids(plan: &Plan) -> Vec<&str> {
 
 /// The correlated set (ARCH0015-2) a dimension belongs to: the step-height ladder, or the
 /// ladder's shoulders along one axis, as `dims::correlated_set` reads its ID.
-fn ladder_set(id: &str) -> Option<&str> {
-    const HEIGHTS: &str = "d:step_level/step_height.length";
-    if id.starts_with(HEIGHTS) {
-        return Some(HEIGHTS);
+fn ladder_set(analysis: &Analysis, id: &str) -> Option<String> {
+    if id.starts_with("d:step_level/step_height.length") {
+        return Some("heights".into());
     }
-    let rest = id.strip_prefix("d:step_level/step_position.length.")?;
-    rest.get(..1)
-        .filter(|a| ["x", "y", "z"].contains(a))
-        .map(|_| &id[..id.len() - rest.len() + 1])
+    let parameter = id.strip_prefix("d:step_level/")?;
+    analysis
+        .ladder_axis(parameter)
+        .map(|axis| format!("shoulders:{axis}"))
 }
 
 /// The placed items by ID.
@@ -387,7 +386,9 @@ fn omitting_one_dimension_moves_no_other() {
                     .iter()
                     .copied()
                     .filter(|i| {
-                        i != gone && ladder_set(gone).is_some_and(|s| ladder_set(i) == Some(s))
+                        i != gone
+                            && ladder_set(analysis, gone)
+                                .is_some_and(|s| ladder_set(analysis, i).as_ref() == Some(&s))
                     })
                     .collect();
                 let whole = |id: &str| {
@@ -609,7 +610,7 @@ fn omitting_one_dimension_moves_no_other() {
                             if let Some(slab) = slab
                                 && d.measurements.iter().any(|m| {
                                     m.feature == "step_level"
-                                        && m.parameter.starts_with("step_height.length.h")
+                                        && m.parameter.starts_with("step_height.length.f")
                                 })
                             {
                                 let slab = draftwright::lint::plates::read(analysis, slab).unwrap();
@@ -1095,7 +1096,7 @@ fn a_callout_that_does_not_fit_its_lane_goes_beside_its_view() {
     let d = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:hole_pattern:1/bore.diameter")
+        .find(|d| d.id == "d:f:hole_pattern:f17/bore.diameter")
         .unwrap();
     let p = d.placed.as_ref().unwrap();
     let b = p.label_box;
@@ -1127,14 +1128,17 @@ fn a_location_that_fits_on_neither_side_shares_a_held_lane() {
         // Slot n in a view.
         // Nothing off the sheet; no stranded slot location left to chain.
         ("nist/nist_ftc_08_asme1_rc.stp", &[][..]),
-        ("nist/nist_ftc_09_asme1_rd.stp", &["1@front", "3@front"][..]),
+        (
+            "nist/nist_ftc_09_asme1_rd.stp",
+            &["f78@front", "f86@front"][..],
+        ),
     ] {
         let (_, mut analysis) = model::analyse_native(&dir.join(file)).unwrap();
         if !slots.is_empty() {
             // FTC-09's slots 1 and 2 are congruent, so one slot callout would state them and
             // each would be located by its centre: slot 2 is split from the callout, so slot 1
             // keeps the low-end location and length whose lanes this test reads.
-            corpus::split_slot(&mut analysis, "f:slot:2");
+            corpus::split_slot(&mut analysis, "f:slot:f82");
         }
         let plan = api::plan_analysed(
             &analysis,

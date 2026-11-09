@@ -161,6 +161,7 @@ catalogue! {
     "hole_table_escalated" => Advisory, Code, "A hole table replaced crowded individual callouts.";
     "hole_table_tag_order_retained" => Advisory, Code, "Legacy tags retain the finished geometry when spatial relabelling would collide or detach a row leader.";
     "hole_table_unavailable" => Decision, Code, "An explicit table request was not met; individual dimensions remain.";
+    "id_not_migrated" => Advisory, Code, "A saved legacy identity has no exact current match; its key and intent are retained.";
     "interior_void" => Advisory, Feature, "A factual inventory of an internal cavity; its faces do not establish a hole opening.";
     "iso_layout_overflow" => Readability, Code, "The requested isometric scale exceeds its reserved layout area.";
     "iso_projection_empty" => Incomplete, Code, "The requested isometric view has no projected geometry.";

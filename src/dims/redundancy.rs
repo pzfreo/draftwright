@@ -238,26 +238,22 @@ fn controlling(
     let mut order: Vec<_> = (0..kept.len())
         .filter(|i| !gone.contains(i) && interval(a, &kept[*i].0).is_some())
         .collect();
-    order.sort_by(|&i, &j| {
-        let rank = |i: usize| {
-            let w = &kept[i].0;
-            if crate::dims::is_envelope_extent(&w.id) {
-                0
-            } else if leg(w) {
-                4
-            } else if w.id.contains("step_level") || w.id.contains("/location") {
-                3
-            } else {
-                2
-            }
+    order.sort_by_cached_key(|&i| {
+        let w = &kept[i].0;
+        let rank = if crate::dims::is_envelope_extent(&w.id) {
+            0
+        } else if leg(w) {
+            4
+        } else if w.id.contains("step_level") || w.id.contains("/location") {
+            3
+        } else {
+            2
         };
-        rank(i)
-            .cmp(&rank(j))
-            .then(
-                ((kept[j].0.value * 1e6).round() as i64)
-                    .cmp(&((kept[i].0.value * 1e6).round() as i64)),
-            )
-            .then(kept[i].0.id.cmp(&kept[j].0.id))
+        (
+            rank,
+            std::cmp::Reverse((w.value * 1e6).round() as i64),
+            super::presentation_id(a, w),
+        )
     });
     // Stream K6 (ADR4-U1): a boss standing on a face level closes a chain with that level's
     // ladder rung and the overall height, all measured from the part's base (boss_circle: the 9
@@ -271,7 +267,7 @@ fn controlling(
             ladder_span(a, &kept[i].0)
                 .filter(|_| {
                     kept[i].0.measurements.iter().any(|m| {
-                        m.feature == "step_level" && m.parameter.starts_with("step_height.length.h")
+                        m.feature == "step_level" && m.parameter.starts_with("step_height.length.")
                     })
                 })
                 .map(|(s, _)| s)
@@ -416,7 +412,7 @@ fn controlling(
         }
         let Some((s, rebased)) = ladder_span(a, &kept[i].0).filter(|_| {
             kept[i].0.measurements.iter().any(|m| {
-                m.feature == "step_level" && m.parameter.starts_with("step_height.length.h")
+                m.feature == "step_level" && m.parameter.starts_with("step_height.length.")
             })
         }) else {
             continue;
@@ -622,7 +618,7 @@ fn rungs_on_compound_labels(
                 && !references.values().any(|by| by.contains(&w.id))
                 && w.measurements.iter().any(|m| {
                     m.feature == "step_level"
-                        && (m.parameter.starts_with("step_height.length.h")
+                        && (m.parameter.starts_with("step_height.length.")
                             || m.parameter.starts_with("step_position.length."))
                 })
         })
@@ -631,10 +627,11 @@ fn rungs_on_compound_labels(
             _ => None,
         })
         .collect();
-    ladder.sort_by(|x, y| {
-        (y.1.hi - y.1.lo)
-            .total_cmp(&(x.1.hi - x.1.lo))
-            .then(kept[x.0].0.id.cmp(&kept[y.0].0.id))
+    ladder.sort_by_cached_key(|x| {
+        (
+            std::cmp::Reverse(crate::geometry_ids::coordinate_order(x.1.hi - x.1.lo)),
+            super::presentation_id(a, &kept[x.0].0),
+        )
     });
     let mut live: Vec<(Span, usize)> = ladder.iter().map(|&(i, s)| (s, i)).collect();
     for (i, s) in ladder {
@@ -723,10 +720,11 @@ fn longest_member(
         .iter()
         .copied()
         .filter(|&j| j != total && free(j) && length(j) > length(i) + TOL)
-        .max_by(|&x, &y| {
-            length(x)
-                .total_cmp(&length(y))
-                .then(kept[y].0.id.cmp(&kept[x].0.id))
+        .max_by_key(|&j| {
+            (
+                crate::geometry_ids::coordinate_order(length(j)),
+                std::cmp::Reverse(super::presentation_id(a, &kept[j].0)),
+            )
         });
     let Some(pick) = pick else {
         return (i, route);

@@ -35,8 +35,9 @@ const FORBIDDEN: [&str; 14] = [
 ];
 
 /// The `crate::` paths lint may use.
-const ALLOWED: [&str; 11] = [
+const ALLOWED: [&str; 13] = [
     "crate::model::Analysis",
+    "crate::model::dimension_geometry::Reference",
     "crate::bridge",
     "crate::pmi",
     "crate::pmi_lowering",
@@ -47,6 +48,7 @@ const ALLOWED: [&str; 11] = [
     "crate::remedy_scope",
     "crate::finding",
     "crate::quiddity_evidence",
+    "crate::geometry_ids",
 ];
 
 /// *source* with its comments and string and character literals blanked out.
@@ -196,6 +198,8 @@ fn module_violations() -> Vec<(String, Vec<String>)> {
     files.push(dir.parent().unwrap().join("radius.rs"));
     // Finding labels read only codes, severity and structured cause metadata.
     files.push(dir.parent().unwrap().join("finding.rs"));
+    // Ladder identities are pure functions of Analysis face evidence; audit them too.
+    files.push(dir.parent().unwrap().join("geometry_ids.rs"));
     files
         .into_iter()
         .filter(|p| p.file_name().unwrap() != "guard.rs")
@@ -224,6 +228,7 @@ mod tests {
     fn the_guard_catches_what_it_should() {
         let bad = [
             "use crate::model::Plan;",
+            "use crate::model::dimension_geometry::check;",
             "use crate::model::{Analysis, Spec};",
             "fn f(p: &Plan) {}",
             "let s = drawing.spec.clone();",

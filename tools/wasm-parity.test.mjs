@@ -348,7 +348,7 @@ test('a huge view gutter returns a refusal instead of aborting WASM', () => {
 test('group callout members match native and the dragged arrow follows the nearest member', () => {
   const part = 'tests/fixtures/samples/editor-plate.step';
   const name = 'editor-plate.step';
-  const id = 'd:f:hole_pattern:1/bore.diameter';
+  const id = 'd:f:hole_pattern:f6/bore.diameter';
   const engine = new Engine(name, readFileSync(new URL(`../${part}`, import.meta.url)));
   try {
     const count = engine.planCount();
@@ -394,7 +394,7 @@ test('openSpec retains stale dimension edits, migrates printer settings and sets
   const direct = new Engine('mounting_plate.step', bytes);
   try {
     const dimensions = {
-      'd:f:hole:4/bore.diameter': { omit: true }, 'd:f:hole:1/bore.diameter': { omit: true } };
+      'd:f:hole:f9/bore.diameter': { omit: true }, 'd:f:hole:f6/bore.diameter': { omit: true } };
     const saved = JSON.stringify({ sheet: { preferred_printer: 'A3' }, dimensions });
     const before = engine.plan();
     invalid(() => engine.setSpec(saved), /preferred_printer.*preferred_max_size/);
@@ -404,14 +404,14 @@ test('openSpec retains stale dimension edits, migrates printer settings and sets
     assert.deepEqual(opened.spec, JSON.parse(engine.spec()));
     assert.deepEqual(opened.spec.dimensions, dimensions);
     assert.equal(opened.spec.sheet.preferred_max_size, 'A3');
-    const plan = unappliedDimension(engine, 'dimensions/d:f:hole:1~1bore.diameter');
-    assert.ok(!plan.dimensions.some(dimension => dimension.id === 'd:f:hole:1/bore.diameter'));
-    assert.ok(plan.omitted.some(item => item.id === 'd:f:hole:4/bore.diameter'
+    const plan = unappliedDimension(engine, 'dimensions/d:f:hole:f6~1bore.diameter');
+    assert.ok(!plan.dimensions.some(dimension => dimension.id === 'd:f:hole:f6/bore.diameter'));
+    assert.ok(plan.omitted.some(item => item.id === 'd:f:hole:f9/bore.diameter'
       && item.state.kind === 'omitted_by_user'), 'the live dimension omit is applied');
     // A fresh engine proves setSpec validates the same stale entry; this is not a no-op.
     direct.setSpec(JSON.stringify({ sheet: { preferred_max_size: 'A3' }, dimensions }));
     assert.deepEqual(JSON.parse(direct.spec()), opened.spec);
-    assert.deepEqual(unappliedDimension(direct, 'dimensions/d:f:hole:1~1bore.diameter'), plan);
+    assert.deepEqual(unappliedDimension(direct, 'dimensions/d:f:hole:f6~1bore.diameter'), plan);
     const unknownView = JSON.stringify({ ...opened.spec, views: { ...opened.spec.views, gone: { omit: true } } });
     const refusal = (() => { try { engine.setSpec(unknownView); } catch (e) { return JSON.parse(e); } })();
     assert.equal(refusal.code, 'invalid');
@@ -420,7 +420,7 @@ test('openSpec retains stale dimension edits, migrates printer settings and sets
     const recovered = JSON.parse(engine.openSpec(unknownView));
     assert.deepEqual(recovered.set_aside, [{ path: 'views/gone', entry: { omit: true }, reason_code: 'no_view' }]);
     assert.deepEqual(recovered.spec, opened.spec);
-    assert.deepEqual(unappliedDimension(engine, 'dimensions/d:f:hole:1~1bore.diameter'), plan);
+    assert.deepEqual(unappliedDimension(engine, 'dimensions/d:f:hole:f6~1bore.diameter'), plan);
     assert.deepEqual(JSON.parse(specOps(JSON.stringify({ schema: 'a', x: { 'b/c': 1, d: 1 } }), JSON.stringify({ schema: 'b', x: { 'b/c': [2] } }))),
       [{ op: 'set', path: 'x/b~1c', value: [2] }, { op: 'remove', path: 'x/d' }]);
     invalid(() => specOps('{', '{}'));
@@ -483,4 +483,50 @@ test('Pack: gzip assembly, native equality, pages, transactional rebuild and dis
   } finally { pack.free(); }
   invalid(() => new Pack(part, bytes, '{"schema":"wrong"}'));
   invalid(() => listParts('bad.step', new Uint8Array([1, 2, 3])));
+});
+
+// Migration packets are the browser editor's contract; compare native and WASM structurally.
+test('openSpec migration report has native parity', () => {
+  const replay = JSON.parse(readFileSync(new URL('../tests/fixtures/wasm/prismatic.json', import.meta.url)));
+  const engine = new Engine(replay.name, readFileSync(new URL(`../${replay.part}`, import.meta.url)));
+  try {
+    const dimension = JSON.parse(engine.plan()).dimensions.find(d => d.id.startsWith('d:envelope/'));
+    assert.ok(dimension);
+    const old = `${dimension.id}@front`;
+    const spec = {schema: 'draftwright.spec/1', dimensions: {[old]: {omit: true}}};
+    const opened = JSON.parse(engine.openSpec(JSON.stringify(spec)));
+    assert.deepEqual(opened.migrated, [{path: `dimensions/${old.replaceAll('/', '~1')}`, from: old, to: dimension.id}]);
+    assert.equal(typeof opened.ids, 'object');
+    const native = spawnSync(process.env.DRAFTWRIGHT_WASM_REFERENCE ?? 'target/release/examples/wasm_reference', [], {
+      cwd: root, input: JSON.stringify({...replay, steps: [{edit: 'migration', action: 'open_spec', spec}]}), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    });
+    assert.equal(native.status, 0, native.stderr);
+    assert.deepEqual(opened, JSON.parse(native.stdout.trim().split('\n').at(-1)));
+  } finally { engine.free(); }
+});
+
+test('openSpec feature and ladder maps have native parity', () => {
+  const cases = [
+    {name: 'mounting_plate.step', part: 'tests/fixtures/parts/mounting_plate.step', spec: 'spec1.json', old: 'f:hole:4', now: 'f:hole:f9'},
+    {name: 'stepped_block.step', part: 'tests/fixtures/recognition/steps/stepped_block.step', spec: 'spec2.json', old: 'step_height.length.h10', now: 'step_height.length.f6'},
+    {name: 'mounting_plate.step', part: 'tests/fixtures/parts/mounting_plate.step',
+      document: {schema: 'draftwright.spec/2', dimension_schemes: {'holes-y': {scheme: 'baseline', axis: 'y', targets: ['f:hole:4']}},
+        dimensions: {'d:scheme:holes-y/23c244b80eadd066': {tolerance: '±0.1'}}},
+      old: 'd:scheme:holes-y/23c244b80eadd066', now: 'd:scheme:holes-y/815e90212c4e661b'},
+  ];
+  for (const item of cases) {
+    const spec = item.document ?? JSON.parse(readFileSync(new URL(`../tests/fixtures/stable_ids/${item.spec}`, import.meta.url)));
+    const engine = new Engine(item.name, readFileSync(new URL(`../${item.part}`, import.meta.url)));
+    try {
+      const opened = JSON.parse(engine.openSpec(JSON.stringify(spec)));
+      assert.equal(opened.ids[item.old], item.now);
+      assert.ok(opened.migrated.length > 0);
+      assert.deepEqual(opened.set_aside, []);
+      const native = spawnSync(process.env.DRAFTWRIGHT_WASM_REFERENCE ?? 'target/release/examples/wasm_reference', [], {
+        cwd: root, input: JSON.stringify({...item, steps: [{edit: 'migration', action: 'open_spec', spec}]}), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+      });
+      assert.equal(native.status, 0, native.stderr);
+      assert.deepEqual(opened, JSON.parse(native.stdout.trim().split('\n').at(-1)));
+    } finally { engine.free(); }
+  }
 });

@@ -44,7 +44,7 @@ fn absent_corrections_borrow_the_inventory_and_keep_default_bytes() {
             .contains("feature_declarations")
     );
     let explicit = spec(
-        json!({"feature_declarations":[],"features":{"f:hole:1":{"suppress":false,"split":false}}}),
+        json!({"feature_declarations":[],"features":{"f:hole:f6":{"suppress":false,"split":false}}}),
     );
     let mut explicit = model::plan_recovered(&a, &explicit).unwrap();
     explicit.spec = p.spec.clone();
@@ -306,11 +306,11 @@ fn bad_references_conflicting_actions_and_false_patterns_are_refused() {
     let (_, a) = plate();
     for value in [
         json!({"features":{"f:hole:missing":{"suppress":true}}}),
-        json!({"features":{"f:hole_pattern:1":{"pattern":{"arrangement":"linear","members":["f:hole:1","f:hole:2"]}}}}),
-        json!({"features":{"f:hole:1":{"suppress":true,"reclassify":"boss"}}}),
-        json!({"features":{"f:hole:1":{"split":true}}}),
-        json!({"features":{"f:hole_pattern:bad":{"pattern":{"arrangement":"linear","members":["f:hole:1","f:hole:1"]}}}}),
-        json!({"features":{"f:hole_pattern:bad":{"pattern":{"arrangement":"linear","members":["f:hole:1","f:hole:999"]}}}}),
+        json!({"features":{"f:hole_pattern:f6":{"pattern":{"arrangement":"linear","members":["f:hole:f6","f:hole:f7"]}}}}),
+        json!({"features":{"f:hole:f6":{"suppress":true,"reclassify":"boss"}}}),
+        json!({"features":{"f:hole:f6":{"split":true}}}),
+        json!({"features":{"f:hole_pattern:bad":{"pattern":{"arrangement":"linear","members":["f:hole:f6","f:hole:f6"]}}}}),
+        json!({"features":{"f:hole_pattern:bad":{"pattern":{"arrangement":"linear","members":["f:hole:f6","f:hole:999"]}}}}),
     ] {
         let e = model::plan_recovered(&a, &spec(value)).unwrap_err();
         assert!(
@@ -330,7 +330,7 @@ fn bad_references_conflicting_actions_and_false_patterns_are_refused() {
             .contains("principal axis")
     );
     assert!(
-        serde_json::from_value::<Spec>(json!({"features":{"f:hole:1":{"reclassify":"dragon"}}}))
+        serde_json::from_value::<Spec>(json!({"features":{"f:hole:f6":{"reclassify":"dragon"}}}))
             .is_err()
     );
     assert!(model::edit(&Spec::default(),&json!([{"op":"add","path":"feature_declarations","value":{"id":"bad","kind":"hole","faces":[]}}])).is_err());
@@ -740,7 +740,7 @@ fn a_missed_boss_uses_its_named_negative_end_and_the_same_height_planner() {
     );
     let mut conflict = s.clone();
     conflict.features.insert(
-        "f:boss:1".into(),
+        "f:boss:f6".into(),
         serde_json::from_value(json!({"fit":"g6"})).unwrap(),
     );
     assert!(
@@ -780,7 +780,7 @@ fn a_missed_boss_uses_its_named_negative_end_and_the_same_height_planner() {
 }
 
 #[test]
-fn saved_corrections_rebind_members_fits_and_measurement_policies_when_ranks_change() {
+fn saved_corrections_rebind_members_fits_and_measurement_policies_when_ids_change() {
     let (_, a) = plate();
     let members = a.recognition.as_ref().unwrap().patterns[0].members.clone();
     let outside = a
@@ -804,9 +804,16 @@ fn saved_corrections_rebind_members_fits_and_measurement_policies_when_ranks_cha
     for f in &mut again.features {
         let old = f.id.clone();
         f.id = format!(
-            "{}:{}",
+            "{}:f{}",
             old.rsplit_once(':').unwrap().0,
-            old.rsplit_once(':').unwrap().1.parse::<usize>().unwrap() + 100
+            old.rsplit_once(':')
+                .unwrap()
+                .1
+                .strip_prefix('f')
+                .unwrap()
+                .parse::<usize>()
+                .unwrap()
+                + 100
         );
         renamed.insert(old, f.id.clone());
     }
@@ -995,7 +1002,7 @@ fn a_local_planar_pocket_mouth_below_a_higher_boss_is_proved_by_the_edge_graph()
 fn removing_a_group_field_restores_defaults_while_another_correction_remains() {
     let (_, a) = plate();
     let s = spec(
-        json!({"features":{"f:hole:4":{"suppress":true},"f:hole_pattern:pair":{"pattern":{"arrangement":"linear","members":["f:hole:1","f:hole:2"]}}}}),
+        json!({"features":{"f:hole:f9":{"suppress":true},"f:hole_pattern:pair":{"pattern":{"arrangement":"linear","members":["f:hole:f6","f:hole:f7"]}}}}),
     );
     let p = model::plan_recovered(&a, &s).unwrap();
     let removed = model::edit(
@@ -1020,5 +1027,5 @@ fn removing_a_group_field_restores_defaults_while_another_correction_remains() {
             .iter()
             .all(|c| c.id != "f:hole_pattern:pair")
     );
-    assert!(restored.spec.features["f:hole:4"].suppress);
+    assert!(restored.spec.features["f:hole:f9"].suppress);
 }

@@ -1,5 +1,5 @@
 {
- "schema": "draftwright.spec/2",
+ "schema": "draftwright.spec/3",
  "sheet": {
   "scale": "1:1",
   "size": "A4",
@@ -13,12 +13,12 @@
    "axis": "x",
    "from": "min",
    "targets": [
-    "f:hole:1",
-    "f:hole:2",
-    "f:hole:3",
-    "f:hole:4",
-    "f:hole:5",
-    "f:slot:1"
+    "f:hole:f20",
+    "f:hole:f21",
+    "f:hole:f22",
+    "f:hole:f23",
+    "f:hole:f24",
+    "f:slot:f39"
    ]
   },
   "holes-y": {
@@ -26,16 +26,16 @@
    "axis": "y",
    "from": "min",
    "targets": [
-    "f:hole:1",
-    "f:hole:2",
-    "f:hole:3",
-    "f:hole:4",
-    "f:hole:5"
+    "f:hole:f20",
+    "f:hole:f21",
+    "f:hole:f22",
+    "f:hole:f23",
+    "f:hole:f24"
    ]
   }
  },
  "dimensions": {
-  "d:f:slot:1/slot_width.length": {
+  "d:f:slot:f39/slot_width.length": {
    "place": {
     "along": "middle",
     "lane": 0,
@@ -43,7 +43,7 @@
     "view": "plan"
    }
   },
-  "d:scheme:holes-y/bee123019a8ada36": {
+  "d:scheme:holes-y/2570099f4863f42c": {
    "place": {
     "along": "middle",
     "lane": 1,
@@ -51,7 +51,7 @@
     "view": "plan"
    }
   },
-  "d:scheme:holes-y/23c244b80eadd066": {
+  "d:scheme:holes-y/b692eed9eed9c9df": {
    "place": {
     "along": "middle",
     "lane": 1,
@@ -59,7 +59,7 @@
     "view": "plan"
    }
   },
-  "d:f:hole_pattern:1/bore.diameter": {
+  "d:f:hole_pattern:f20/bore.diameter": {
    "place": {
     "along": "outside",
     "lane": 0,

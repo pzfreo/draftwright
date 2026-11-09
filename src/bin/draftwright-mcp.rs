@@ -25,7 +25,7 @@ for all defaults. Use the spec from the plan or the edit tool's result. Shape: {
 \"DWG-001\", \"material\": \"6082-T6\"}}, \"views\": {\"iso\": {\"omit\": true}}, \
 \"dimension_source\": \"auto\", \"dimensions\": {\"d:envelope/width.length\": {\"omit\": \
 true}, \"d:envelope/height.length\": {\"tolerance\": \"±0.05\"}}, \"features\": \
-{\"f:hole:1\": {\"fit\": \"H7\"}, \"f:hole_pattern:1\": {\"controls\": [{\"characteristic\": \
+{\"f:hole:f6\": {\"fit\": \"H7\"}, \"f:hole_pattern:f6\": {\"controls\": [{\"characteristic\": \
 \"position\", \"tolerance\": 0.1, \"datums\": [\"A\"]}]}}, \"faces\": {\"bottom\": {\"datum\": \
 \"A\"}}, \"notes\": [{\"id\": \"n:1\", \"text\": \"BREAK ALL SHARP \
 EDGES\"}], \"tables\": [{\"id\": \"t:1\", \"rows\": [[\"REV\", \"DESCRIPTION\"], [\"A\", \

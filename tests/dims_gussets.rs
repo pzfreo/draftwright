@@ -115,7 +115,7 @@ fn transverse_view_is_group_intent_and_must_show_thickness_true() {
     let (_, a) = fixture("mirror");
     let mut spec = Spec::default();
     spec.features
-        .entry("f:gusset_rib_pattern:1".into())
+        .entry("f:gusset_rib_pattern:f7".into())
         .or_default()
         .gusset_view = Some("plan".into());
     let p = model::plan_recovered(&a, &spec).unwrap();
@@ -134,7 +134,7 @@ fn transverse_view_is_group_intent_and_must_show_thickness_true() {
         );
     }
     spec.features
-        .get_mut("f:gusset_rib_pattern:1")
+        .get_mut("f:gusset_rib_pattern:f7")
         .unwrap()
         .gusset_view = Some("side".into());
     assert!(model::plan_recovered(&a, &spec).is_err());
@@ -282,7 +282,7 @@ fn pmi_thickness_wins_and_first_fills_only_missing_gusset_sizes() {
 fn a_lone_rib_owns_four_uncounted_requirements() {
     let (_, mut a) = fixture("mirror");
     a.features
-        .retain(|f| !f.kind.starts_with("gusset") || f.id == "f:gusset_rib:1");
+        .retain(|f| !f.kind.starts_with("gusset") || f.id == "f:gusset_rib:f7");
     let p = model::plan_recovered(&a, &Spec::default()).unwrap();
     let dimensions: Vec<_> = p
         .dimensions
@@ -294,7 +294,11 @@ fn a_lone_rib_owns_four_uncounted_requirements() {
         })
         .collect();
     assert_eq!(dimensions.len(), 4);
-    assert!(dimensions.iter().all(|d| d.placed.is_some()
-        && !d.label.contains('×')
-        && d.measurements.iter().all(|m| m.feature == "f:gusset_rib:1")));
+    assert!(dimensions.iter().all(|d| {
+        d.placed.is_some()
+            && !d.label.contains('×')
+            && d.measurements
+                .iter()
+                .all(|m| m.feature == "f:gusset_rib:f7")
+    }));
 }

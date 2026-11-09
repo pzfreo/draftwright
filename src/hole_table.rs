@@ -2156,7 +2156,7 @@ mod tests {
                 .join("tests/fixtures/parts/mounting_plate.step"),
         )
         .unwrap();
-        let spec = serde_json::from_value(serde_json::json!({"sheet":{"size":"A2","scale":"1:2"},"views":{"detail_c":{"detail":{"around":"f:hole:1","from":"plan","scale_factor":2}}}})).unwrap();
+        let spec = serde_json::from_value(serde_json::json!({"sheet":{"size":"A2","scale":"1:2"},"views":{"detail_c":{"detail":{"around":"f:hole:f6","from":"plan","scale_factor":2}}}})).unwrap();
         let p = crate::model::plan(&a, &spec).unwrap();
 
         let v = p.views.iter().find(|v| v.id == "v:detail_c").unwrap();
@@ -2905,10 +2905,11 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                 });
             }
         }
-        rows.sort_by(|a, b| {
-            a.cells[1]
-                .cmp(&b.cells[1])
-                .then_with(|| a.feature.cmp(&b.feature))
+        rows.sort_by_cached_key(|r| {
+            (
+                r.cells[1].clone(),
+                crate::geometry_ids::presentation_key(analysis, &r.feature).into_owned(),
+            )
         });
         let mut group = 0;
         let mut number = 0;

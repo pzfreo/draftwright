@@ -4,6 +4,33 @@ All notable changes to draftwright-rust are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+
+- Automatic feature and hole-pattern IDs use `f:<kind>:f<lowest face>`, with local
+  suffixes only on a shared lowest face. Ladder IDs use supporting or level plane
+  faces; coordinate names remain only where the analysis has no face evidence.
+- `draftwright.analysis/8` records level-support and riser faces, optional feature
+  and hole-pattern `legacy_id`, and geometric `presentation_order` so renaming IDs
+  preserves drawing order. Seeded layout choices also use geometry.
+- Shipping in 0.2.15, `draftwright.spec/3` uses exact whole-document identity
+  migration. Older engines cannot read spec/3. Specs /1 and /2 remain readable
+  through 0.2.24; later releases explain conversion with that compatible release.
+- Opening a rank-keyed spec/1 or spec/2 with an analysis older than /8 is refused:
+  re-analyse the STEP with a current engine and reopen the original saved Spec.
+  Available identity mappings also recover old keys in already promoted spec/3 files.
+- Pinned isometrics retain compact occupied bands, and hole schedules reserve
+  datum-mark corridors when retrying placement.
+
+### Added
+
+- Plans and session/browser `openSpec` replies expose `migrated: [{path, from, to}]`
+  and `ids: {old: new}`. `ids` contains the whole current legacy map on every open.
+- The informational `id_not_migrated` problem identifies saved ID keys without an
+  exact current mapping. Those unmapped keys are retained; colliding renamed keys
+  are refused.
+
 ## 0.2.14 (2026-11-08)
 
 Still on quiddity-rust 0.4.9. An explicit paper and scale pair is kept by moving an

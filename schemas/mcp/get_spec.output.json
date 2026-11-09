@@ -12,7 +12,8 @@
             "schema": {
               "enum": [
                 "draftwright.spec/1",
-                "draftwright.spec/2"
+                "draftwright.spec/2",
+                "draftwright.spec/3"
               ]
             },
             "part": {
@@ -22,50 +23,11 @@
                 "null"
               ]
             },
-            "binding": {
-              "type": [
-                "object",
-                "null"
-              ]
-            },
-            "sheet": {
-              "$ref": "#/A"
-            },
-            "balloons": {
-              "$ref": "#/A"
-            },
             "iso_scale_factor": {
               "type": [
                 "number",
                 "null"
               ]
-            },
-            "sheets": {
-              "type": [
-                "object",
-                "null"
-              ]
-            },
-            "views": {
-              "$ref": "#/A"
-            },
-            "dimensions": {
-              "$ref": "#/A"
-            },
-            "annotations": {
-              "$ref": "#/A"
-            },
-            "features": {
-              "$ref": "#/A"
-            },
-            "faces": {
-              "$ref": "#/A"
-            },
-            "dimension_schemes": {
-              "$ref": "#/A"
-            },
-            "precision": {
-              "$ref": "#/A"
             },
             "dimension_source": {
               "enum": [
@@ -80,43 +42,36 @@
                 "ignore"
               ]
             },
-            "process": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "origin": {
-              "$ref": "#/A"
-            },
             "hole_table": {
               "enum": [
                 "auto",
                 "always",
                 "never"
               ]
+            }
+          },
+          "additionalProperties": false,
+          "description": "Outline. Call spec_schema {} for the full Spec and get_spec spec_read schemas; item_options gives valid edit paths and choices.",
+          "patternProperties": {
+            "^(sheet|balloons|views|dimensions|annotations|features|faces|dimension_schemes|precision|origin)$(?!\n)": {
+              "type": "object"
             },
-            "envelope_tolerance": {
+            "^(process|envelope_tolerance)$(?!\n)": {
               "type": [
                 "string",
                 "null"
               ]
             },
-            "notes": {
+            "^(notes|tables|gears|feature_declarations)$(?!\n)": {
               "type": "array"
             },
-            "tables": {
-              "type": "array"
-            },
-            "gears": {
-              "type": "array"
-            },
-            "feature_declarations": {
-              "type": "array"
+            "^(binding|sheets)$(?!\n)": {
+              "type": [
+                "object",
+                "null"
+              ]
             }
-          },
-          "additionalProperties": false,
-          "description": "Typed outline only. Call spec_schema {} for the full Spec and get_spec spec_read schemas; item_options gives valid edit paths and choices."
+          }
         }
       },
       "additionalProperties": false,
@@ -156,8 +111,5 @@
       ],
       "maxProperties": 1
     }
-  ],
-  "A": {
-    "type": "object"
-  }
+  ]
 }

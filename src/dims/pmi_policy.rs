@@ -181,7 +181,7 @@ fn location_role(p: &str) -> bool {
     p.starts_with("location")
         || p.starts_with("seat_location.")
         || p.starts_with("step_position.length")
-        || p.starts_with("step_height.length.h")
+        || p.starts_with("step_height.length.")
 }
 fn selected_origins(a: &Analysis, s: &Spec) -> ([Option<(f64, String)>; 3], Vec<Problem>) {
     let mut selected: [Option<(f64, String)>; 3] = [None, None, None];

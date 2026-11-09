@@ -296,6 +296,10 @@ fn drawing_marks(drawing: &Drawing, witnesses: bool) -> Vec<Mark> {
 /// passes the Analysis with them merged into its PMI reading ([`crate::spec_gdt::effective`]), as
 /// [`crate::api::review`] does.
 pub fn lint(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
+    crate::geometry_ids::with(analysis, || lint_indexed(analysis, drawing))
+}
+
+fn lint_indexed(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
     let mut marks = drawing_marks(drawing, false);
     location::conveyed_boss_locations(analysis, &mut marks);
     location::drawn_constraints(analysis, drawing, &mut marks);
@@ -601,11 +605,27 @@ pub fn lint_sheets(analysis: &Analysis, drawings: &[Drawing]) -> Vec<LintIssue> 
 
 /// Every ported rule's findings on a drawing whose annotations are *marks*.
 pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
-    let verified: Vec<_> = marks
+    crate::geometry_ids::with(analysis, || check_indexed(analysis, marks))
+}
+
+fn check_indexed(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
+    let mut verified: Vec<_> = marks
         .iter()
         .filter(|m| blends::verified_row(analysis, m))
         .cloned()
         .collect();
+    // Captured drawings can still carry exact legacy ladder claims. Resolve them
+    // from geometry evidence before judging the unchanged printed text.
+    for mark in &mut verified {
+        for claim in &mut mark.claims {
+            if claim.feature == "step_level"
+                && let Some(current) =
+                    crate::geometry_ids::claim_parameter(analysis, &claim.parameter)
+            {
+                claim.parameter = current;
+            }
+        }
+    }
     let printed = &verified;
     let (mut extra, scheme_issues) = schemes::evidence(analysis, printed);
     extra.extend(location::evidence(analysis, printed));

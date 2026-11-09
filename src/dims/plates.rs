@@ -163,7 +163,7 @@ pub(super) fn consolidate(a: &Analysis, kept: &mut Vec<Kept>, omitted: &mut Vec<
                 }
                 if rung.measurements.iter().any(|m| {
                     m.feature == "step_level"
-                        && m.parameter.starts_with("step_height.length.h")
+                        && m.parameter.starts_with("step_height.length.")
                         && (m.value - (lo[2] - a.envelope[0][2])).abs() <= 1e-3
                 }) {
                     omitted.push(Omitted {
@@ -224,12 +224,7 @@ pub(super) fn share(
         if group.len() < 2 {
             continue;
         }
-        group.sort_by(|x, y| {
-            kept[*x]
-                .1
-                .cmp(&kept[*y].1)
-                .then(kept[*x].0.id.cmp(&kept[*y].0.id))
-        });
+        group.sort_by_cached_key(|&x| (kept[x].1, super::presentation_id(a, &kept[x].0)));
         let winner = group[0];
         let by = kept[winner].0.id.clone();
         let count = group.len();

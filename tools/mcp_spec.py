@@ -24,7 +24,7 @@ def mapping(shape): return {'type': 'object', 'additionalProperties': shape}
 def outline():
     """An explicit top-level contract, independent of all nested Spec definitions."""
     return {**obj({
-        'schema': enum('draftwright.spec/1', 'draftwright.spec/2'),
+        'schema': enum('draftwright.spec/1', 'draftwright.spec/2', 'draftwright.spec/3'),
         'part': {'type': ['string', 'integer', 'null']},
         'binding': {'type': ['object', 'null']}, 'sheet': {'type': 'object'}, 'balloons': {'type':'object'},
         'iso_scale_factor': {'type': ['number', 'null']},
@@ -38,7 +38,7 @@ def outline():
         'hole_table': enum('auto', 'always', 'never'),
         'envelope_tolerance': {'type': ['string', 'null']},
         **{k: {'type': 'array'} for k in ('notes', 'tables', 'gears', 'feature_declarations')},
-    }), 'description': 'Typed outline only. Call spec_schema {} for the full Spec and get_spec spec_read schemas; item_options gives valid edit paths and choices.'}
+    }), 'description': 'Outline. Call spec_schema {} for the full Spec and get_spec spec_read schemas; item_options gives valid edit paths and choices.'}
 
 
 def document():
@@ -117,7 +117,7 @@ def document():
         definitions[name]['properties']['fit'] = {'description': 'ISO 286 fit class. Prints independently of the supported numerical-deviation table; unavailable requested deviations warn without invented values.', **field}
     definitions['balloon_override'] = obj({'suppress': B, 'position': nullable(arr(N,minItems=2,maxItems=2))})
     definitions['balloon_settings'] = obj({'occurrences': B, 'items': mapping(ref('balloon_override'))})
-    props = {'schema': enum('draftwright.spec/1', 'draftwright.spec/2'),
+    props = {'schema': enum('draftwright.spec/1', 'draftwright.spec/2', 'draftwright.spec/3'),
              'part': {'description': 'Part identity from draftwright parts: persistent key (preferred) or numeric index. Acts like --part; conflicting command/request selectors are refused. A saved Analysis must already contain this part.', **nullable({'anyOf': [{**S, 'minLength': 1}, I]})},
              'binding': nullable(ref('binding')), 'sheet': ref('sheet'),
              'balloons': ref('balloon_settings'),

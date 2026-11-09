@@ -5,8 +5,8 @@
     "label": "31.75",
     "rotation": 90,
     "items": [
-      "d:f:slot:2/slot_length.length",
-      "d:f:slot:4/slot_length.length"
+      "d:f:slot:f152/slot_length.length",
+      "d:f:slot:f220/slot_length.length"
     ],
     "verdict": "identical-features",
     "draftwright": "m_slot1_length '31.8' and m_slot2_length '31.8' in the plan, one per slot (y = -46.4 and +46.4).",
@@ -18,8 +18,8 @@
     "label": "85",
     "rotation": 0,
     "items": [
-      "d:f:rectangular_through_notch:1/notch_width.length",
-      "d:f:rectangular_through_notch:2/notch_width.length"
+      "d:f:rectangular_through_notch:f31/notch_width.length",
+      "d:f:rectangular_through_notch:f37/notch_width.length"
     ],
     "verdict": "identical-features",
     "draftwright": "The legacy sheet did not dimension these rectangular through-notches; the native reader now publishes both cuts.",
@@ -31,8 +31,8 @@
     "label": "350",
     "rotation": 90,
     "items": [
-      "d:f:hole_pattern:1/grid_pitch.length.row",
-      "d:f:rectangular_through_notch:1/location.length.y"
+      "d:f:hole_pattern:f77/grid_pitch.length.row",
+      "d:f:rectangular_through_notch:f31/location.length.y"
     ],
     "verdict": "distinct-quantities",
     "draftwright": "The existing 350 mm corner-hole row pitch remains; the newly dimensioned through-notch mouths also need their location.",

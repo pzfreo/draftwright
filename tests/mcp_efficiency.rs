@@ -75,7 +75,7 @@ fn summary_points_to_live_task_items_within_wire_budget() {
             assert!(keys.iter().any(|i| i["id"] == "d:envelope/width.length"));
         }
         if part == "m10127" {
-            assert!(keys.iter().any(|i| i["id"] == "d:f:hole:1/bore.diameter"));
+            assert!(keys.iter().any(|i| i["id"] == "d:f:hole:f3/bore.diameter"));
         }
     }
 }
@@ -86,10 +86,10 @@ fn options_list_valid_hole_fits_and_every_dimension_field() {
     let result = call(
         &cache,
         "item_options",
-        query(&summary, "d:f:hole:1/bore.diameter"),
+        query(&summary, "d:f:hole:f3/bore.diameter"),
     );
     let fields = &result["settable"];
-    let fits = fields["features/f:hole:1/fit"]["choices"]
+    let fits = fields["features/f:hole:f3/fit"]["choices"]
         .as_array()
         .expect("hole fit choices");
     assert_eq!(fits.len(), 21);
@@ -99,7 +99,7 @@ fn options_list_valid_hole_fits_and_every_dimension_field() {
         call(
             &cache,
             "preview_ops",
-            json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"ops":[{"op":"set","path":"features/f:hole:1/fit","value":fit}]}),
+            json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"ops":[{"op":"set","path":"features/f:hole:f3/fit","value":fit}]}),
         );
     }
     for field in [
@@ -114,13 +114,13 @@ fn options_list_valid_hole_fits_and_every_dimension_field() {
     ] {
         assert!(
             fields
-                .get(format!("dimensions/d:f:hole:1~1bore.diameter/{field}"))
+                .get(format!("dimensions/d:f:hole:f3~1bore.diameter/{field}"))
                 .is_some(),
             "{field}"
         );
     }
     assert_eq!(
-        fields["dimensions/d:f:hole:1~1bore.diameter/tolerance"]["forms"],
+        fields["dimensions/d:f:hole:f3~1bore.diameter/tolerance"]["forms"],
         json!(["±T", "+U -L"])
     );
 }
@@ -167,7 +167,7 @@ fn options_explain_sheet_and_bare_view_keys() {
 fn refusals_give_valid_choices_and_an_executable_corrected_op() {
     let (cache, summary) = open("refusals", "m10127");
     for bad in [
-        json!({"op":"set","path":"dimensions/d:f:hole:1~1bore.diameter/tolerance","value":"H7"}),
+        json!({"op":"set","path":"dimensions/d:f:hole:f3~1bore.diameter/tolerance","value":"H7"}),
         json!({"op":"set","path":"dimensions/d:envelope~1width.length/tolerance","value":{"symmetric":0.02}}),
         json!({"op":"set","path":"views/v:iso/omit","value":true}),
         json!({"op":"set","path":"sheet/title/drawing_number","value":"DW-0001"}),
@@ -190,7 +190,7 @@ fn refusals_give_valid_choices_and_an_executable_corrected_op() {
         &cache,
         "preview_ops",
         json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"ops":[
-            {"op":"set","path":"dimensions/d:f:hole:1~1bore.diameter/fit","value":"H7"}
+            {"op":"set","path":"dimensions/d:f:hole:f3~1bore.diameter/fit","value":"H7"}
         ]}),
     );
     assert!(
@@ -200,7 +200,7 @@ fn refusals_give_valid_choices_and_an_executable_corrected_op() {
             .iter()
             .any(|e| {
                 let item = &e["item"];
-                item["id"] == "d:f:hole:1/bore.diameter"
+                item["id"] == "d:f:hole:f3/bore.diameter"
                     && item["state"]["kind"] == "shown"
                     && item["label"].as_str().is_some_and(|s| s.contains("H7"))
             })
@@ -222,8 +222,8 @@ fn one_feature_problem_query_returns_all_member_fixes() {
         &cache,
         "apply_ops",
         json!({"part_ref":summary["part_ref"], "parent":summary["spec_version"], "ops":[
-            {"op":"set", "path":"dimensions/d:f:slot:1~1slot_length.length/place", "value":{"side":"below", "lane":99, "pinned":true}},
-            {"op":"set", "path":"dimensions/d:f:slot:1~1slot_width.length/place", "value":{"side":"left", "lane":99, "pinned":true}}
+            {"op":"set", "path":"dimensions/d:f:slot:f4~1slot_length.length/place", "value":{"side":"below", "lane":99, "pinned":true}},
+            {"op":"set", "path":"dimensions/d:f:slot:f4~1slot_width.length/place", "value":{"side":"left", "lane":99, "pinned":true}}
         ]}),
     );
     let version = &edited["spec_version"];
@@ -235,7 +235,7 @@ fn one_feature_problem_query_returns_all_member_fixes() {
             "list_problems",
             json!({
                 "part_ref":summary["part_ref"], "spec_version":version,
-                "filter":{"feature":"f:slot:1"}, "cursor":cursor
+                "filter":{"feature":"f:slot:f4"}, "cursor":cursor
             }),
         );
         for row in result["items"].as_array().unwrap() {
@@ -329,7 +329,7 @@ fn one_feature_problem_query_returns_all_member_fixes() {
 fn verbose_feature_problem_stays_actionable_and_can_be_cleared() {
     let (cache, summary) = open("actionable-feature", "ctc01");
     let query = json!({"part_ref":summary["part_ref"],
-        "spec_version":summary["spec_version"],"problem_filter":{"feature":"f:slot:1"}});
+        "spec_version":summary["spec_version"],"problem_filter":{"feature":"f:slot:f4"}});
     let inspected = call(&cache, "inspect_part", query);
     let rows = inspected["problem_page"]["items"].as_array().unwrap();
     assert_eq!(rows.len(), 1);
@@ -341,7 +341,7 @@ fn verbose_feature_problem_stays_actionable_and_can_be_cleared() {
         row["subjects"]
             .as_array()
             .unwrap()
-            .contains(&json!("f:slot:1"))
+            .contains(&json!("f:slot:f4"))
     );
     let mut ops = row["fix"]
         .as_array()
@@ -400,7 +400,7 @@ fn verbose_feature_problem_stays_actionable_and_can_be_cleared() {
         &cache,
         "list_problems",
         json!({"part_ref":summary["part_ref"],
-        "spec_version":applied["spec_version"],"filter":{"feature":"f:slot:1"}}),
+        "spec_version":applied["spec_version"],"filter":{"feature":"f:slot:f4"}}),
     );
     assert_eq!(remaining["total"], 0, "{remaining}");
     let delta: Value = serde_json::from_slice(
@@ -421,12 +421,12 @@ fn inspection_batches_a_filtered_problem_page_with_registration() {
     let result = call(
         &cache,
         "inspect_part",
-        json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"problem_filter":{"feature":"f:slot:1"}}),
+        json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"problem_filter":{"feature":"f:slot:f4"}}),
     );
     let problems = call(
         &cache,
         "list_problems",
-        json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"filter":{"feature":"f:slot:1"}}),
+        json!({"part_ref":summary["part_ref"],"spec_version":summary["spec_version"],"filter":{"feature":"f:slot:f4"}}),
     );
     assert_eq!(result["problem_page"], problems);
     let actual: Vec<Value> = result["problem_page"]["items"]
@@ -751,7 +751,7 @@ fn crossing_remedies_are_scoped_and_ordered_in_mcp_rows() {
                     let local = row["id"]
                         .as_str()
                         .unwrap()
-                        .contains("d:f:hole:1/location.length.z");
+                        .contains("d:f:hole:f73/location.length.z");
                     // CTC-01 plans no radius-centre table (its 4× R25 leader is not
                     // obstructed), so no row is a table carrier and every first offer is local
                     // (on alpha.12 only the front-view hole location's was).
@@ -852,7 +852,7 @@ fn an_oversized_trade_keeps_the_finding_inline_and_the_remedy_lossless() {
     let description = "Trade-off: adds an extension crossing. ".repeat(100);
     let row = json!({"id":"p:example", "code":"extension_through_feature",
         "severity":"warning", "impact":"readability", "group":"extension-path",
-        "subjects":["d:example", "f:slot:1"], "fix":ops,
+        "subjects":["d:example", "f:slot:f4"], "fix":ops,
         "fixes":[{"scope":"local", "description":description, "ops":ops}]});
     let page = mcp::page(&cache, vec![row.clone()], &json!({})).unwrap();
     let inline = &page["items"][0];

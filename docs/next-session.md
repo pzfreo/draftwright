@@ -1243,7 +1243,7 @@ improvement plan and questions are the current work. Still open from before it:
     `own_drawings` entries the new callouts resolve (`string_post flat_requirement_missing` 1;
     `connector109 flat_requirement_missing` 1 and `groove_requirement_missing` 6, checked with
     `LINT_OWN_ALL=1`). With d-placement's settling, connector109's grooves add no ink overlap
-    but 3 `annotation_off_sheet` (`d:f:groove:2`, `d:f:groove:3`, and the chamfer callout pushed
+    but 3 `annotation_off_sheet` (`d:f:groove:f217`, `d:f:groove:f316`, and the chamfer callout pushed
     out past them; 1 → 4) and 3 `annotation_outside_area` (5 → 8), all below the front view,
     recorded rust-wrong in `known_placement.json` with the front/plan band question.
   - lint keys a flat by its record's raw `stock_span` (as draftwright's lint does), the planner by
@@ -1326,7 +1326,7 @@ improvement plan and questions are the current work. Still open from before it:
   - Not ported: draftwright's legibility gate (`_classify_steps`: withhold a rung shorter than
     its arrows, drop one too close to the last and escalate to a detail view); a correlated set
     addressed by one ID (ARCH0015-2 stays pending: each rung and shoulder is its own item, named
-    by its own value to the thousandth, `step_height.length.h16`, `step_position.length.x136_525`,
+    by its own value to the thousandth, `step_height.length.h16`, `step_position.length.f17_0`,
     never by its rank, so a level a revision adds renames no other rung (ADR4-6); a spec can
     still omit one rung);
     draftwright's channel absorption into the ladder (`_step_level_owns_channel`); lint's
@@ -4578,7 +4578,7 @@ widening the footprint or rerouting GD&T is deferred.
 - cgb245: `d:f:slot:3/slot_length.length`.
 - nist_ctc_02_asme1_rc: `d:f:hole_pattern:1/pitch.length`, `d:f:hole_pattern:4/pitch.length`.
 - nist_ctc_03_asme1_rc: `d:f:slot:2/slot_width.length`.
-- nist_ctc_04_asme1_rd: `d:f:hole_pattern:1/pitch.length`, `d:f:hole_pattern:10/pitch.length`, `d:f:hole_pattern:6/pitch.length`.
+- nist_ctc_04_asme1_rd: `d:f:hole_pattern:1/pitch.length`, `d:f:hole_pattern:f95/pitch.length`, `d:f:hole_pattern:6/pitch.length`.
 - nist_ftc_06_asme1_rd: `d:f:boss:5/boss_height.length`, `d:f:boss:6/boss_height.length`.
 - nist_ftc_07_asme1_rd: `d:f:plate:1/thickness.length`.
 - nist_ftc_08_asme1_rc: `d:f:slot:2/slot_width.length`, `d:f:slot:3/slot_width.length`.

@@ -117,10 +117,10 @@ if args.current:
                     str(root / 'docs/status-2026-10-10.md'), str(after / 'baseline.json')], check=True)
     plan = json.loads((after / 'stc09.plan.json').read_text())
     dimensions = {d['id']: d for d in plan['dimensions']}
-    slot = dimensions['d:f:slot:3/slot_length.length']['placed']
+    slot = dimensions['d:f:slot:f102/slot_length.length']['placed']
     # Slots 1 and 2 are congruent and now share one `2× SLOT` callout, so slot 3's length is
     # held against the innermost lane on its side of the front view instead of slot 1's length.
-    view = dimensions['d:f:slot:3/slot_length.length']['view']
+    view = dimensions['d:f:slot:f102/slot_length.length']['view']
     lanes = [d['placed']['arrows'][0][0][1] for d in plan['dimensions']
              if d.get('placed') and d['kind'] == 'linear' and d.get('view') == view
              and d['placed']['rotation'] == slot['rotation'] and d['placed']['arrows'][0][0][1] < slot['lines'][0][0][1]]

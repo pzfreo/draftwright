@@ -187,7 +187,7 @@
     "label": "ø10",
     "count": 1,
     "verdict": "equivalent",
-    "reason": "The ø10 band's diameter (f:turned_step:2). grm03 is turned whole about x, so the port's overall diameter ø10 (envelope od.diameter) states it and claims its step.diameter, as draftwright's dim_od does for the one band of a part's largest diameter (_share_unique_outer_diameter); draftwright has no rotational feature for grm03, prints the size across the axis as a plain height '10', and so leads the band's ø10 on its own (m_dia_x1). Both sheets state the band's diameter once."
+    "reason": "The ø10 band's diameter (f:turned_step:f3). grm03 is turned whole about x, so the port's overall diameter ø10 (envelope od.diameter) states it and claims its step.diameter, as draftwright's dim_od does for the one band of a part's largest diameter (_share_unique_outer_diameter); draftwright has no rotational feature for grm03, prints the size across the axis as a plain height '10', and so leads the band's ø10 on its own (m_dia_x1). Both sheets state the band's diameter once."
   },
   {
     "part": "m1000",
@@ -507,7 +507,7 @@
     "label": "6",
     "count": 2,
     "verdict": "rust-correct",
-    "reason": "cgb245's two obround slots (f:slot:1, f:slot:2, 6 wide) lie across the same span in y (one witness span, 172.2 to 184.6 mm on the page in both): the port states their width once, counted, claiming both (src/dims/mod.rs::share), as draftwright's own shared slot width does (_slot_shared_width_key in annotations/_slots.py: 'Quantify one size statement for that span'; ftc08's sheet prints '2× 15.2' so). draftwright skips the rule here only because a plan-view width along y takes immediate placement, which 'does not share the corridor dedup' (_render_slot_dimensions): a placement mechanism, not a drafting rule, so its sheet states the one span twice. rust-correct: the same quantity once (ARCH0009-6; the maintainer's directive of 2026-10-09)."
+    "reason": "cgb245's two obround slots (f:slot:f13, f:slot:f21, 6 wide) lie across the same span in y (one witness span, 172.2 to 184.6 mm on the page in both): the port states their width once, counted, claiming both (src/dims/mod.rs::share), as draftwright's own shared slot width does (_slot_shared_width_key in annotations/_slots.py: 'Quantify one size statement for that span'; ftc08's sheet prints '2× 15.2' so). draftwright skips the rule here only because a plan-view width along y takes immediate placement, which 'does not share the corridor dedup' (_render_slot_dimensions): a placement mechanism, not a drafting rule, so its sheet states the one span twice. rust-correct: the same quantity once (ARCH0009-6; the maintainer's directive of 2026-10-09)."
   },
   {
     "part": "ftc06",
@@ -557,7 +557,7 @@
     "label": "ø130.9",
     "count": 1,
     "verdict": "rust-correct",
-    "reason": "One span, one dimension (E3, ARCH0009-6): connector109's boss at z=139.42 has diameter 130.94, already stated by the overall diameter. The captured Python sheet repeats it as m_dia_z3 and dim_od (tests/fixtures/sheets/connector109.json.gz). The port's d:envelope/od.diameter now claims f:boss:4/boss.diameter and draws one ø130.9 across the same radial stations; the boss's length and the smaller diameters remain separate. Different bands stay separate, and omitting the overall diameter promotes the boss's own statement (no longer under test: its test left with connector109's removal from the survey)."
+    "reason": "One span, one dimension (E3, ARCH0009-6): connector109's boss at z=139.42 has diameter 130.94, already stated by the overall diameter. The captured Python sheet repeats it as m_dia_z3 and dim_od (tests/fixtures/sheets/connector109.json.gz). The port's d:envelope/od.diameter now claims f:boss:f169/boss.diameter and draws one ø130.9 across the same radial stations; the boss's length and the smaller diameters remain separate. Different bands stay separate, and omitting the overall diameter promotes the boss's own statement (no longer under test: its test left with connector109's removal from the survey)."
   },
   {
     "part": "ftc06",
@@ -3197,7 +3197,7 @@
     "label": "2× SLOT 6 × 14.97",
     "count": 1,
     "verdict": "rust-correct",
-    "reason": "Dimensioned as slots (the slot-callout change, dw-examples nema17-bracket review): cgb245's two obround slots f:slot:1 and f:slot:2 are congruent (6 wide, 14.97 long, ends R3, both seen in the plan), so one `2× SLOT 6 × 14.97` callout states both widths and both lengths, where draftwright's sheet states each slot's width and length separately ('6', '15.0' twice) with an R3 leader per slot. One statement per congruent group, as draftwright already prints for a recognised slot pattern (render_slot_patterns' `N× SLOT W × L`); quiddity gives these two no slot_pattern, so the port groups them itself."
+    "reason": "Dimensioned as slots (the slot-callout change, dw-examples nema17-bracket review): cgb245's two obround slots f:slot:f13 and f:slot:f21 are congruent (6 wide, 14.97 long, ends R3, both seen in the plan), so one `2× SLOT 6 × 14.97` callout states both widths and both lengths, where draftwright's sheet states each slot's width and length separately ('6', '15.0' twice) with an R3 leader per slot. One statement per congruent group, as draftwright already prints for a recognised slot pattern (render_slot_patterns' `N× SLOT W × L`); quiddity gives these two no slot_pattern, so the port groups them itself."
   },
   {
     "part": "cgb245",
@@ -3227,7 +3227,7 @@
     "label": "2× R3",
     "count": 2,
     "verdict": "rust-correct",
-    "reason": "The ends are full-round (R3, half the 6 width), which the `N× SLOT W × L` callout that states this slot (`2× SLOT 6 × 14.97`, f:slot:1 and f:slot:2) implies (ISO 129-1 states a slot by its width and length; a full radius is not dimensioned again). draftwright's sheet adds a `2× R` leader; the port omits it as the slot-callout change decides, and lint accepts the ends from a SLOT callout claiming the width, never from a bare width."
+    "reason": "The ends are full-round (R3, half the 6 width), which the `N× SLOT W × L` callout that states this slot (`2× SLOT 6 × 14.97`, f:slot:f13 and f:slot:f21) implies (ISO 129-1 states a slot by its width and length; a full radius is not dimensioned again). draftwright's sheet adds a `2× R` leader; the port omits it as the slot-callout change decides, and lint accepts the ends from a SLOT callout claiming the width, never from a bare width."
   },
   {
     "part": "slot_array",

@@ -137,12 +137,12 @@ fn plate_evidence_is_claimed_printed_and_typed() {
     let mut turned = part(vec![
         plate("x", 0.0, 3.0),
         feature(
-            "f:turned_step:1",
+            "f:turned_step:f0",
             "turned_step",
             json!({"axis":"x","lo":0,"hi":3,"diameter":10,"profile":{"axis":"x","axis_origin":[0,5,5],"body_key":[30,0,0,50,20,20,8000,2400]}}),
         ),
     ]);
-    let length = [mark("f:turned_step:1", "step.length", "3")];
+    let length = [mark("f:turned_step:f0", "step.length", "3")];
     assert_eq!(codes(&turned, &length), ["plate_requirement_missing"]);
     turned.features[1].parameters["profile"]["body_key"] =
         turned.features[0].parameters["body_key"].clone();

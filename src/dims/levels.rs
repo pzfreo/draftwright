@@ -9,19 +9,18 @@
 //!   a level whose every support is a side-facing pad's edge, the floor of an edge-open pocket
 //!   cut along z, and the corner of a through step dimensioned as one ([`ownership`]). A part
 //!   with turned steps has no ladder.
-//! - **Heights** are `step_height.length.h<height>` (16 → `h16`, 12.5 → `h12_5`), base to level, each a linear
+//! - **Heights** are `step_height.length.f<lowest support face>`, base to level, each a linear
 //!   dimension whose witnesses stand on the level's support (its faces' largest x and smallest y;
 //!   the part's box when it has none), the shortest innermost. Three or more equal rises (within
 //!   10 %) are one `N× rise`, `step_height.length` (`_step_repeat`), counting the rise to the top
 //!   when it matches too.
 //! - **Shoulders** are quiddity's risers projected onto the levels (`project_step_shoulders`: a
 //!   wall's foot on a level, a ramp's ends on levels or the part's top or bottom), less those at
-//!   a through step's leg; each is `step_position.length.<axis><position>` (`x42_5`) from the
+//!   a through step's leg; each is `step_position.length.f<lowest riser face>` (local suffixes on a shared face) from the
 //!   part's box, in the plan (x) or the side (y). One standing exactly on the box is not a
 //!   distance (`_is_zero_step_position`): it is reported, not drawn. Equal shoulders are stated once
 //!   (draftwright draws each riser's).
-//! - Each rung and shoulder is its own item and measurement, discriminated by its own value
-//!   (to the thousandth), never by its rank among its siblings, so a level a revision adds
+//! - Each rung and shoulder is its own item and measurement, anchored on its supporting faces, never on its measured value or a rank among siblings, so a level a revision adds
 //!   renames no other rung (ADR4-6). draftwright addresses each set as one (`step_height.length`,
 //!   `step_position.length`; ARCH0015-2, not ported).
 //!
@@ -70,6 +69,7 @@ pub(crate) fn evidence(part: &haecceity::Part) -> (Vec<LevelSupport>, Vec<Riser>
             let inside = b.min[2] + margin < level.z && level.z < b.max[2] - margin;
             let (x, y) = (level.x_span, level.y_span);
             inside.then_some(LevelSupport {
+                faces,
                 z: level.z,
                 x_span: [x.0, x.1],
                 y_span: [y.0, y.1],
@@ -79,6 +79,7 @@ pub(crate) fn evidence(part: &haecceity::Part) -> (Vec<LevelSupport>, Vec<Riser>
     let risers = recognise_risers(part)
         .into_iter()
         .map(|r| Riser {
+            faces: r.faces,
             vertical: r.vertical,
             axis: r.axis.to_string(),
             positions: r.positions,
@@ -345,18 +346,7 @@ fn thousandths(z: f64) -> i64 {
     (z * 1e3).round() as i64
 }
 
-/// A value to the thousandth as an ID word: 16 → `16`, 12.5 → `12_5`, -3.25 → `m3_25`.
-fn word(v: f64) -> String {
-    let t = thousandths(v);
-    let (sign, t) = if t < 0 { ("m", -t) } else { ("", t) };
-    let frac = format!("{:03}", t % 1000);
-    let frac = frac.trim_end_matches('0');
-    if frac.is_empty() {
-        format!("{sign}{}", t / 1000)
-    } else {
-        format!("{sign}{}_{frac}", t / 1000)
-    }
-}
+use crate::geometry_ids::{height_parameter, position_parameter};
 
 fn near(z: f64, zs: &[f64]) -> bool {
     zs.iter().any(|o| (z - o).abs() < NEAR)
@@ -677,7 +667,9 @@ pub(super) fn ownership<'a>(cx: &Context<'a>) -> Ownership<'a> {
             (s, owners)
         })
         .collect();
-    lowered.sort_by(|a, b| a.feature.id.cmp(&b.feature.id));
+    lowered.sort_by_cached_key(|s| {
+        crate::geometry_ids::presentation_key(a, &s.feature.id).into_owned()
+    });
 
     // The ladder: the levels no other owner states, and the shoulders between them.
     let through_zs = owned_levels(&lowered, lo[2]);
@@ -802,7 +794,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
     } else {
         for &z in &o.levels {
             out.push(height(
-                format!("step_height.length.h{}", word(z - base)),
+                height_parameter(a, z),
                 z - base,
                 vec![fmt(z - base)],
                 rung(z),
@@ -832,7 +824,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         }
         let mut b = lo;
         b[k] = at;
-        let parameter = format!("step_position.length.{}{}", AXES[k], word(value));
+        let parameter = position_parameter(a, k, at);
         out.push(Want {
             id: super::want_id(FEATURE, &parameter),
             views: vec![view],

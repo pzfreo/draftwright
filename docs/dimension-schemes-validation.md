@@ -85,7 +85,7 @@ automatic presentation, on A4 at 1:1. The chain connects adjacent stations, rath
 repeating distances from the end: 20, 30, 30 and 15, including both intervals of the counted
 grid. Its extra strips cause the ordinary fill/layout policy to select A3 at 2:1 instead of
 A4 at 1:1; no large paper or second sheet is needed. The mounting plate has the same one
-`leader_centerline_overlap` warning on `d:f:hole:4/bore.diameter` before and after; it is
+`leader_centerline_overlap` warning on `d:f:hole:f9/bore.diameter` before and after; it is
 still reported. The turned and ordinate pairs have zero findings before and after.
 All six PNGs were opened and visually reviewed after the final production build. Labels,
 arrow directions, origin rings, physical member witnesses and surviving automatic owners

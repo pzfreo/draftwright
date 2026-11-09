@@ -84,7 +84,7 @@ fn double_d_planner_states_both_roles_in_any_flat_direction_and_never_invents_th
             );
             assert!(d.placed.is_some());
             assert!(!p.problems.iter().any(|p| p.code == "dimensions_not_ported"
-                && p.subjects.contains(&"f:double_d_bore:1".into())));
+                && p.subjects.contains(&"f:double_d_bore:f6".into())));
             assert!(
                 !lint::check(&a, &marks(&a))
                     .iter()
@@ -153,7 +153,7 @@ fn a_second_countersink_seat_is_unverifiable_without_recounting_the_bore() {
     }));
     assert!(
         !found.iter().any(|i| i.code.starts_with("hole_requirement_")
-            && i.subjects.contains(&"f:countersink:2".into()))
+            && i.subjects.contains(&"f:countersink:f7".into()))
     );
     assert!(!found.iter().any(|i| {
         i.code.starts_with("hole_requirement_")

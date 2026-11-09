@@ -743,7 +743,12 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             .unwrap_or(usize::MAX)
     };
     for ((view, k, _), mut owners) in by {
-        owners.sort_by_key(|(o, _)| (rank(o), o.clone()));
+        owners.sort_by_key(|(o, _)| {
+            (
+                rank(o),
+                crate::geometry_ids::presentation_key(analysis, o).into_owned(),
+            )
+        });
         owners.dedup_by(|a, b| a.0 == b.0);
         let (first, p) = &owners[0];
         let d = p[k] - lo[k];
@@ -1238,7 +1243,13 @@ pub(super) fn consolidate(
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
 ) {
-    merge(kept, given, omitted, |w| rank(analysis, w));
+    merge(
+        kept,
+        given,
+        omitted,
+        |w| rank(analysis, w),
+        |w| super::presentation_id(analysis, w),
+    );
 }
 
 fn merge(
@@ -1246,6 +1257,7 @@ fn merge(
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
     rank: impl Fn(&Want) -> Option<u8>,
+    key: impl Fn(&Want) -> String,
 ) {
     // The span each location measures: its view, axis, raw ends on that axis, label, and whether
     // it is a default (its label then the planner's own, not a precision the spec states).
@@ -1299,7 +1311,7 @@ fn merge(
             let order = |i: usize| (rank(&kept[i].0), !kept[i].1);
             order(y)
                 .cmp(&order(x))
-                .then_with(|| kept[x].0.id.cmp(&kept[y].0.id))
+                .then_with(|| key(&kept[x].0).cmp(&key(&kept[y].0)))
         });
         // Invariant: The group was filtered to at least two members before split_first.
         let (winner, losers) = members.split_first().expect("a group of two or more");
@@ -1385,15 +1397,21 @@ mod tests {
     fn merged(mut kept: Vec<Kept>) -> (Vec<String>, Vec<(String, String)>) {
         let mut given = vec![Vec::new(); kept.len()];
         let mut omitted = Vec::new();
-        merge(&mut kept, &mut given, &mut omitted, |w| {
-            let m = &w.measurements[0];
-            match m.parameter.as_str() {
-                p if p.starts_with("location.length.") && m.feature.contains("boss") => Some(1),
-                p if p.starts_with("location.length.") => Some(2),
-                "location_slot_across.length" => Some(0),
-                _ => None,
-            }
-        });
+        merge(
+            &mut kept,
+            &mut given,
+            &mut omitted,
+            |w| {
+                let m = &w.measurements[0];
+                match m.parameter.as_str() {
+                    p if p.starts_with("location.length.") && m.feature.contains("boss") => Some(1),
+                    p if p.starts_with("location.length.") => Some(2),
+                    "location_slot_across.length" => Some(0),
+                    _ => None,
+                }
+            },
+            |w| w.id.clone(),
+        );
         assert_eq!(given.len(), kept.len());
         let owner = |b: &str| b["conveyed by ".len()..b.find(": ").unwrap()].to_string();
         (

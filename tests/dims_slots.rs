@@ -122,10 +122,10 @@ fn cgb245_slots_state_width_length_end_radius_and_location() {
     assert_eq!(
         stated,
         [
-            ("f:slot:1", "slot_length.length"),
-            ("f:slot:1", "slot_width.length"),
-            ("f:slot:2", "slot_length.length"),
-            ("f:slot:2", "slot_width.length"),
+            ("f:slot:f13", "slot_length.length"),
+            ("f:slot:f13", "slot_width.length"),
+            ("f:slot:f21", "slot_length.length"),
+            ("f:slot:f21", "slot_width.length"),
         ]
     );
     assert_eq!(
@@ -241,7 +241,7 @@ fn ftc06_bosses_are_counted_called_out_and_their_heights_stated() {
         shared
             .measurements
             .iter()
-            .any(|m| m.feature == "step_level" && m.parameter == "step_height.length.h38_1")
+            .any(|m| m.feature == "step_level" && m.parameter == "step_height.length.f11")
     );
     let bosses = of_kind(&a, "boss");
     for d in plan.dimensions.iter().filter(|d| {
@@ -320,7 +320,7 @@ fn slot_and_boss_items_can_be_omitted_by_id() {
         .map(|d| d.id.clone())
         .collect();
     // Its diameter; its height is conveyed by the hole callout on whose floor it stands (ADR1-8).
-    assert_eq!(ids, ["d:f:boss:1/boss.diameter"]);
+    assert_eq!(ids, ["d:f:boss:f4/boss.diameter"]);
     let mut spec = Spec::default();
     spec.dimensions.insert(
         ids[0].clone(),
@@ -350,7 +350,7 @@ fn equal_widths_across_a_view_share_one_counted_dimension() {
         f.parameters.insert("long_axis".into(), "y".into());
         f.parameters.insert("width_axis".into(), "z".into());
     }
-    corpus::split_slot(&mut a, "f:slot:2");
+    corpus::split_slot(&mut a, "f:slot:f21");
     let plan = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(
         items(&plan, "slot_width"),
@@ -451,7 +451,7 @@ fn ctc01_hex_boss_states_its_size_across_flats_and_its_height() {
         again
             .omitted
             .iter()
-            .any(|o| o.id.contains("polygonal_boss:1/boss_height"))
+            .any(|o| o.id.contains("polygonal_boss:f61/boss_height"))
     );
 }
 
@@ -657,7 +657,7 @@ fn a_boss_height_between_the_parts_own_faces_is_the_overall_extents() {
         .unwrap();
     assert_eq!(
         (callout.id.as_str(), callout.label.as_str()),
-        ("d:f:hole:2/bore.diameter", "⌀12.990 ↧ 5.73")
+        ("d:f:hole:f8/bore.diameter", "⌀12.990 ↧ 5.73")
     );
     // Flush with both faces of the part, its height is the overall depth's: one fact, one owner.
     let [lo, hi] = a.envelope;
@@ -755,10 +755,10 @@ fn a_slot_pattern_is_called_out_once_with_its_pitches_and_centre() {
     assert_eq!(
         of_pattern,
         [
-            ("d:f:slot_pattern:1/slot_width.length", "3× SLOT 6 × 20"),
-            ("d:f:slot_pattern:1/pitch.length", "2× 25"),
-            ("d:f:slot_pattern:1/location_slot_pattern.length.x", "60"),
-            ("d:f:slot_pattern:1/location_slot_pattern.length.y", "30"),
+            ("d:f:slot_pattern:f6/slot_width.length", "3× SLOT 6 × 20"),
+            ("d:f:slot_pattern:f6/pitch.length", "2× 25"),
+            ("d:f:slot_pattern:f6/location_slot_pattern.length.x", "60"),
+            ("d:f:slot_pattern:f6/location_slot_pattern.length.y", "30"),
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
@@ -776,8 +776,8 @@ fn a_slot_pattern_is_called_out_once_with_its_pitches_and_centre() {
     assert_eq!(
         stated,
         [
-            ("f:slot_pattern:1", "slot_width.length", 6.0),
-            ("f:slot_pattern:1", "slot_length.length", 20.0),
+            ("f:slot_pattern:f6", "slot_width.length", 6.0),
+            ("f:slot_pattern:f6", "slot_length.length", 20.0),
         ]
     );
     for d in plan
@@ -813,11 +813,11 @@ fn a_slot_pattern_is_called_out_once_with_its_pitches_and_centre() {
     assert_eq!(
         of_pattern,
         [
-            ("d:f:slot_pattern:1/slot_width.length", "6× SLOT 8 × 24"),
-            ("d:f:slot_pattern:1/grid_pitch.length.col", "30"),
-            ("d:f:slot_pattern:1/grid_pitch.length.row", "2× 40"),
-            ("d:f:slot_pattern:1/location_slot_pattern.length.x", "80"),
-            ("d:f:slot_pattern:1/location_slot_pattern.length.y", "50"),
+            ("d:f:slot_pattern:f6/slot_width.length", "6× SLOT 8 × 24"),
+            ("d:f:slot_pattern:f6/grid_pitch.length.col", "30"),
+            ("d:f:slot_pattern:f6/grid_pitch.length.row", "2× 40"),
+            ("d:f:slot_pattern:f6/location_slot_pattern.length.x", "80"),
+            ("d:f:slot_pattern:f6/location_slot_pattern.length.y", "50"),
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
@@ -834,7 +834,7 @@ fn a_slot_pattern_that_does_not_hold_together_is_reported_and_its_slots_dimensio
     let p = plan
         .problems
         .iter()
-        .find(|p| p.subjects == ["f:slot_pattern:1"])
+        .find(|p| p.subjects == ["f:slot_pattern:f6"])
         .unwrap();
     assert_eq!(p.code, "feature_not_dimensioned");
     assert!(
@@ -923,7 +923,7 @@ fn slots_at_the_same_distance_across_share_one_location() {
     assert!(
         plan.problems
             .iter()
-            .any(|p| p.code == "feature_not_dimensioned" && p.subjects == ["f:slot_pattern:1"])
+            .any(|p| p.code == "feature_not_dimensioned" && p.subjects == ["f:slot_pattern:f6"])
     );
     assert_eq!(
         across(&plan),
@@ -947,7 +947,7 @@ fn a_slot_pattern_is_located_across_its_slots_by_its_centre() {
     let x = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:slot_pattern:1/location_slot_pattern.length.x")
+        .find(|d| d.id == "d:f:slot_pattern:f6/location_slot_pattern.length.x")
         .unwrap();
     assert_eq!(x.label, "60");
     // Its slots run along y and are 6 wide in x: x is across them.
@@ -975,8 +975,8 @@ fn ctc01_hex_boss_location_is_conveyed_by_its_hole_grid() {
     };
     for (axis, label) in [("x", "400"), ("y", "225")] {
         let stated = in_plan(&plan, label);
-        let grid = format!("d:f:hole_pattern:1/location.length.{axis}");
-        let boss = format!("d:f:polygonal_boss:1/location.length.{axis}");
+        let grid = format!("d:f:hole_pattern:f77/location.length.{axis}");
+        let boss = format!("d:f:polygonal_boss:f61/location.length.{axis}");
         assert_eq!(
             stated,
             std::slice::from_ref(&grid),
@@ -1034,7 +1034,9 @@ fn congruent_lone_slots_are_dimensioned_as_slots_located_by_their_centres() {
             .map(|m| m.feature.as_str())
             .collect();
         claimed.sort();
-        assert_eq!(claimed, of_kind(&a, "slot"), "{parameter}");
+        let mut expected = of_kind(&a, "slot");
+        expected.sort();
+        assert_eq!(claimed, expected, "{parameter}");
     }
     assert!(
         slots
@@ -1101,7 +1103,7 @@ fn a_slot_split_by_the_spec_is_dimensioned_by_its_end_centres() {
             .filter(|d| {
                 d.measurements
                     .iter()
-                    .any(|m| m.feature == "f:slot:2" && m.parameter == parameter)
+                    .any(|m| m.feature == "f:slot:f10" && m.parameter == parameter)
             })
             .map(|d| d.label.clone())
             .collect()
@@ -1112,7 +1114,7 @@ fn a_slot_split_by_the_spec_is_dimensioned_by_its_end_centres() {
         plan.views
             .iter()
             .flat_map(|v| &v.line_work)
-            .filter(|w| w.kind == "cross" && w.id.contains(":f:slot:2:end"))
+            .filter(|w| w.kind == "cross" && w.id.contains(":f:slot:f10:end"))
             .count()
     };
 
@@ -1122,7 +1124,7 @@ fn a_slot_split_by_the_spec_is_dimensioned_by_its_end_centres() {
     assert_eq!(end_marks(&unsplit), 0);
 
     let spec: Spec =
-        serde_json::from_value(serde_json::json!({"features": {"f:slot:2": {"split": true}}}))
+        serde_json::from_value(serde_json::json!({"features": {"f:slot:f10": {"split": true}}}))
             .unwrap();
     let plan = model::plan_recovered(&a, &spec).unwrap();
     let callout = plan
@@ -1131,7 +1133,12 @@ fn a_slot_split_by_the_spec_is_dimensioned_by_its_end_centres() {
         .find(|d| d.label.contains("SLOT"))
         .unwrap();
     assert_eq!(callout.label, "2× SLOT 6 × 20");
-    assert!(callout.measurements.iter().all(|m| m.feature != "f:slot:2"));
+    assert!(
+        callout
+            .measurements
+            .iter()
+            .all(|m| m.feature != "f:slot:f10")
+    );
     assert_eq!(claims(&plan, "slot_width.length"), ["6"]);
     // 20 long with R3 ends: centres 14 apart.
     assert_eq!(claims(&plan, "slot_centres.length"), ["14"]);
@@ -1139,7 +1146,7 @@ fn a_slot_split_by_the_spec_is_dimensioned_by_its_end_centres() {
     assert!(claims(&plan, "slot_end_radius.radius").is_empty());
     assert_eq!(end_marks(&plan), 2);
     // Its low end's centre is located from the part's box, R3 in from the low end.
-    let f = a.features.iter().find(|f| f.id == "f:slot:2").unwrap();
+    let f = a.features.iter().find(|f| f.id == "f:slot:f10").unwrap();
     let o = draftwright::lint::slots::outline(&a, f).unwrap();
     let located = plan
         .dimensions
@@ -1147,7 +1154,7 @@ fn a_slot_split_by_the_spec_is_dimensioned_by_its_end_centres() {
         .find(|d| {
             d.measurements
                 .iter()
-                .any(|m| m.feature == "f:slot:2" && m.parameter == "location_slot.length")
+                .any(|m| m.feature == "f:slot:f10" && m.parameter == "location_slot.length")
         })
         .expect("the low end's centre located");
     assert!((located.value - (o.ends[0] + 3.0 - a.envelope[0][o.long])).abs() < 1e-6);
@@ -1157,7 +1164,7 @@ fn a_slot_split_by_the_spec_is_dimensioned_by_its_end_centres() {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/recognition/slot_patterns");
     let (part, _) = model::analyse(&dir.join("slot_array.step")).unwrap();
     let mut split = a.clone();
-    corpus::split_slot(&mut split, "f:slot:2");
+    corpus::split_slot(&mut split, "f:slot:f10");
     let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &split, &plan, &font).unwrap();
     let missing: Vec<_> = draftwright::lint::lint(&split, &drawing)
@@ -1178,7 +1185,7 @@ fn keyhole_slots_are_not_called_out_together() {
     let a = model::analyse_native(&dir.join("nist/nist_ftc_08_asme1_rc.stp"))
         .unwrap()
         .1;
-    let keyholes = ["f:slot:2", "f:slot:4"];
+    let keyholes = ["f:slot:f152", "f:slot:f220"];
     let bare = draftwright::lint::slots::without_recesses(&a);
     assert!(bare.features.iter().all(|f| f.kind != "section_recess"));
     for analysis in [&a, &bare] {

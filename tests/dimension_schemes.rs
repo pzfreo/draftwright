@@ -349,7 +349,7 @@ fn fingerprints_survive_reload_and_generated_owners_accept_tolerance_precision_a
     s.binding = Some(a.binding.clone());
     s.binding.as_mut().unwrap().source_sha256 = "old-revision".into();
     assert!(model::plan_recovered(&a, &s).is_ok());
-    s.dimension_schemes.get_mut("width").unwrap().targets = vec!["f:hole:1".into()];
+    s.dimension_schemes.get_mut("width").unwrap().targets = vec!["f:hole:f6".into()];
     assert!(
         model::plan_recovered(&a, &s)
             .unwrap_err()

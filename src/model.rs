@@ -35,25 +35,28 @@ use crate::title_block::{self, TitleCell};
 /// horizontal face levels (`levels`), version 4 their supports and the step risers
 /// (`level_supports`, `risers`), version 5 the families the recogniser did not give
 /// (`unrecognised`), version 6 the principal boundary faces' loops lint's profile check reads
-/// (`principal_profiles`), version 7 the part's AP242 PMI (`pmi`).
-pub const ANALYSIS_SCHEMA: &str = "draftwright.analysis/7";
-/// The analyses [`plan`] reads: this version, and versions 2 to 6 (it reads them with none of
+/// (`principal_profiles`), version 7 the part's AP242 PMI (`pmi`), and version 8 the
+/// supporting faces of ladder evidence and optional legacy feature identities.
+pub const ANALYSIS_SCHEMA: &str = "draftwright.analysis/8";
+/// The analyses [`plan`] reads: this version, and versions 2 to 7 (it reads them with none of
 /// what they lack).
-pub const ANALYSIS_SCHEMAS: [&str; 6] = [
+pub const ANALYSIS_SCHEMAS: [&str; 7] = [
     "draftwright.analysis/2",
     "draftwright.analysis/3",
     "draftwright.analysis/4",
     "draftwright.analysis/5",
     "draftwright.analysis/6",
+    "draftwright.analysis/7",
     ANALYSIS_SCHEMA,
 ];
 /// Version 2 names a dimension by what it measures, `d:<feature>/<parameter>` (version 1 added
 /// the view that carries it, `@<view>`), and a PMI item by its record's semantic identity
 /// (version 1 by its Part 21 instance, `pmi:<category>:#<n>`); the carrying view is the entry's
 /// `view`. A version 1 spec is read through [`migrate`].
-pub const SPEC_SCHEMA: &str = "draftwright.spec/2";
-/// The specs [`plan`] reads: this version, and version 1 through [`migrate`].
-pub const SPEC_SCHEMAS: [&str; 2] = ["draftwright.spec/1", SPEC_SCHEMA];
+pub const SPEC_SCHEMA: &str = "draftwright.spec/3";
+/// Version 3 anchors feature and ladder IDs on faces. Versions 1 and 2 are read through
+/// [`migrate`] until [`crate::stable_ids::LAST_LEGACY_SPEC_READER`].
+pub const SPEC_SCHEMAS: [&str; 3] = ["draftwright.spec/1", "draftwright.spec/2", SPEC_SCHEMA];
 pub const PLAN_SCHEMA: &str = "draftwright.plan/1";
 
 /// Which file, and which reading of it, a document was made from.
@@ -348,6 +351,8 @@ pub struct Unrecognised {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LevelSupport {
+    #[serde(default)]
+    pub faces: Vec<usize>,
     pub z: f64,
     pub x_span: [f64; 2],
     pub y_span: [f64; 2],
@@ -360,6 +365,8 @@ pub struct LevelSupport {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Riser {
+    #[serde(default)]
+    pub faces: Vec<usize>,
     pub vertical: bool,
     pub axis: String,
     pub positions: Vec<f64>,
@@ -429,7 +436,7 @@ pub struct Spec {
     /// Placement and omission of semantic PMI frames, datums, labels and part notes, by stable ID.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub annotations: BTreeMap<String, crate::placement_intent::AnnotationSpec>,
-    /// Per feature, by its ID (`f:<kind>:<n>`).
+    /// Per feature, by its ID (`f:<kind>:f<face>`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub features: BTreeMap<String, FeatureSpec>,
     /// Features authored from stable face fingerprints; sizes are read from Analysis evidence.
@@ -830,6 +837,10 @@ pub struct ViewSpec {
 /// What the sheet will say.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Plan {
+    #[serde(default)]
+    pub migrated: Vec<crate::stable_ids::Migrated>,
+    #[serde(default)]
+    pub ids: BTreeMap<String, String>,
     /// Authored recognition changes, including suppression with no resulting annotation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recognition_corrections: Vec<crate::recognition_corrections::Applied>,
@@ -4495,7 +4506,9 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(analysis, spec, || {
+    let migration = crate::stable_ids::migrate(spec, analysis)?;
+    let spec = &migration.spec;
+    let result = crate::decision_overrides::boundary(analysis, spec, || {
         let plan = crate::bom::with_titles(analysis, spec, || {
             layout::with_gutter(
                 spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
@@ -4513,6 +4526,10 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
             )
         })?;
         retain_unapplied_edits(analysis, plan, plan_recovered)
+    });
+    result.map(|mut plan| {
+        migration.report(&mut plan);
+        plan
     })
 }
 
@@ -5180,9 +5197,14 @@ fn install_selection_form(
     if crate::hole_table::install(analysis, &mut scheduled, selection) {
         return Ok(Some(scheduled));
     }
-    if !crate::hole_table::slot_callout_takes_origin(analysis, &first, selection) {
+    if !crate::placement_intent::has_pins(&first.spec)
+        && !crate::hole_table::slot_callout_takes_origin(analysis, &first, selection)
+    {
         return Ok(None);
     }
+    // A retained view pin re-solves the remaining annotations in fixed frames.
+    // Any of them can occupy the schedule's datum-mark corridor, not only a SLOT
+    // callout. Give the canonical schedule one bounded solve with its origin held.
     let mut reserved = selection.clone();
     reserved.reserve_origins = true;
     let mut scheduled = plan(&reserved)?;
@@ -5300,13 +5322,19 @@ fn schedule_recovered(
 /// the dimensions, which on most parts keeps a larger scale, but where the dimensions run on
 /// past it an item can find no place (nist_stc_09 e4 at 1:1: 13 frames across the plan).
 pub fn plan_escalated(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(analysis, spec, || {
+    let migration = crate::stable_ids::migrate(spec, analysis)?;
+    let spec = &migration.spec;
+    let result = crate::decision_overrides::boundary(analysis, spec, || {
         crate::bom::with_titles(analysis, spec, || {
             let mut plan = plan_escalated_layout(analysis, spec)?;
             crate::characteristics::apply(analysis, &mut plan);
             crate::hole_exits::report(analysis, &mut plan);
             Ok(plan)
         })
+    });
+    result.map(|mut plan| {
+        migration.report(&mut plan);
+        plan
     })
 }
 
@@ -5582,7 +5610,9 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// drawing's findings. That recovery is [`recover`], applied by [`plan_recovered`], never here:
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    crate::decision_overrides::boundary(analysis, spec, || {
+    let migration = crate::stable_ids::migrate(spec, analysis)?;
+    let spec = &migration.spec;
+    let result = crate::decision_overrides::boundary(analysis, spec, || {
         let plan = crate::bom::with_titles(analysis, spec, || {
             layout::with_gutter(
                 spec.sheet.frame_gutter.unwrap_or(layout::FRAME_GUTTER),
@@ -5598,6 +5628,10 @@ pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
             )
         })?;
         retain_unapplied_edits(analysis, plan, self::plan)
+    });
+    result.map(|mut plan| {
+        migration.report(&mut plan);
+        plan
     })
 }
 
@@ -8297,6 +8331,8 @@ fn plan_with_presentation(
         }
     }
     let mut plan = Plan {
+        migrated: Vec::new(),
+        ids: crate::stable_ids::ids(analysis),
         characteristics: Vec::new(),
         inspection_balloons: Vec::new(),
         recognition_corrections: Vec::new(),
@@ -9325,8 +9361,9 @@ fn retain_short_leaders(analysis: &Analysis, plan: &mut Plan, bare: &Plan) {
     }
 }
 
-/// *spec* as this version reads it (`draftwright.spec/2`): a version 2 spec as it is; a version
-/// 1 spec with each dimension's key rewritten to the form it now has (R1 invariant 9: a change
+/// *spec* as this version reads it (`draftwright.spec/3`), with the exact face-ID map applied
+/// throughout its keys and string references. A version 1 spec additionally has each
+/// dimension's key rewritten to the form it now has (R1 invariant 9: a change
 /// of form is read, never guessed at):
 /// - `d:<feature>/<parameter>@<view>` becomes `d:<feature>/<parameter>`: the view was where the
 ///   plan routed it, not a decision, so the entry does not keep it as its `view`;
@@ -9337,9 +9374,16 @@ fn retain_short_leaders(analysis: &Analysis, plan: &mut Plan, bare: &Plan) {
 ///   kept as it was, for [`plan`] to refuse with the nearest IDs.
 ///
 /// Two keys that come to one are ambiguous, and refused with both as the candidates. Anything
-/// but a version 1 or 2 spec is refused.
+/// but a known schema is refused; old schemas expire at the named legacy-reader cutoff.
 pub fn migrate(spec: &Spec, analysis: &Analysis) -> Result<Spec, Invalid> {
     if spec.schema == SPEC_SCHEMA {
+        return Ok(spec.clone());
+    }
+    crate::stable_ids::migrate(spec, analysis).map(|m| m.spec)
+}
+
+pub(crate) fn migrate_v1(spec: &Spec, analysis: &Analysis) -> Result<Spec, Invalid> {
+    if spec.schema != "draftwright.spec/1" {
         return Ok(spec.clone());
     }
     if !SPEC_SCHEMAS.contains(&spec.schema.as_str()) {

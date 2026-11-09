@@ -60,9 +60,9 @@ fn right_pinned_plate_callouts_clear_other_holes_and_report_no_callout_problem()
     )
     .unwrap();
     let ids = [
-        "d:f:hole_pattern:1/bore.diameter",
-        "d:f:hole:4/bore.diameter",
-        "d:f:hole:7/bore.diameter",
+        "d:f:hole_pattern:f6/bore.diameter",
+        "d:f:hole:f9/bore.diameter",
+        "d:f:hole:f12/bore.diameter",
     ];
     // A pin is never moved: the centre bore takes a clear station (0.4) rather than "middle",
     // which crosses the small right hole and is reported (see placement_intent).
@@ -72,7 +72,7 @@ fn right_pinned_plate_callouts_clear_other_holes_and_report_no_callout_problem()
             "value":{"view":"plan","side":"right","lane":lane,"along":([json!("start"),json!(0.4),json!("end")][lane]),"pinned":true}}])).unwrap();
     }
     let plan = model::plan_recovered(&a, &s).unwrap();
-    let small = a.features.iter().find(|f| f.id == "f:hole:7").unwrap();
+    let small = a.features.iter().find(|f| f.id == "f:hole:f12").unwrap();
     let c = project(&plan, &a, "v:plan", small.fingerprint.position);
     let scale = plan.views.iter().find(|v| v.id == "v:plan").unwrap().scale;
     assert!(!circle_crossing(shaft(&plan, ids[1]), c, 2.1 * scale));
@@ -100,7 +100,7 @@ fn notch_leader_exits_by_a_near_free_edge_instead_of_traversing_the_height() {
     let Some(c) = corpus::dir() else { return };
     let (part, a) = model::analyse_native(&c.join("mfcadpp/10020.step")).unwrap();
     let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
-    let [tip, elbow] = shaft(&plan, "d:f:chamfer:1/chamfer.length");
+    let [tip, elbow] = shaft(&plan, "d:f:chamfer:f3/chamfer.length");
     let v = plan.views.iter().find(|v| v.id == "v:front").unwrap();
     let width = (a.envelope[1][0] - a.envelope[0][0]) * v.scale;
     // Independently count the actual projected straight boundaries, including hidden features.
@@ -149,10 +149,10 @@ fn hex_leader_avoids_the_blind_hole_band_it_previously_crossed() {
     let Some(c) = corpus::dir() else { return };
     let (_, a) = model::analyse_native(&c.join("nist/nist_ctc_01_asme1_rd.stp")).unwrap();
     let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
-    let id = "d:f:polygonal_boss:1/polygon_across_flats.length";
+    let id = "d:f:polygonal_boss:f61/polygon_across_flats.length";
     let [tip, elbow] = shaft(&plan, id);
     // The HEX is on the upper face. Its old downward shaft crossed the bottom outline and
-    // the projected band of f:hole:1; leaving upwards removes that crossing.
+    // the projected band of f:hole:f73; leaving upwards removes that crossing.
     assert!(elbow[1] > tip[1], "{tip:?} -> {elbow:?}");
     assert!(
         !plan
@@ -178,12 +178,12 @@ fn underside_cavity_containment_is_not_a_crossing_and_extensions_are_report_only
     )
     .unwrap();
     let callouts = [
-        "d:f:hole_pattern:2/bore.diameter",
-        "d:f:hole_pattern:3/bore.diameter",
-        "d:f:hole:9/bore.diameter",
-        "d:f:hole:15/bore.diameter",
-        "d:f:hole:17/bore.diameter",
-        "d:f:hole:19/bore.diameter",
+        "d:f:hole_pattern:f157/bore.diameter",
+        "d:f:hole_pattern:f163/bore.diameter",
+        "d:f:hole:f165/bore.diameter",
+        "d:f:hole:f177/bore.diameter",
+        "d:f:hole:f181/bore.diameter",
+        "d:f:hole:f185/bore.diameter",
     ];
     for id in callouts {
         assert!(
@@ -195,7 +195,7 @@ fn underside_cavity_containment_is_not_a_crossing_and_extensions_are_report_only
             !plan
                 .problems
                 .iter()
-                .any(|p| p.code == "leader_through_feature" && p.subjects == [id, "f:slot:1"]),
+                .any(|p| p.code == "leader_through_feature" && p.subjects == [id, "f:slot:f117"]),
             "{id}: {:?}",
             plan.problems
         );

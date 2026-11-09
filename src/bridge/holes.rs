@@ -598,6 +598,8 @@ mod tests {
         let read: Vec<Hole> = fs.iter().map(|f| Hole::read(f, &frame).unwrap()).collect();
         let all: Vec<&Hole> = read.iter().collect();
         let circle = |members: &[&str]| HolePattern {
+            presentation_order: None,
+            legacy_id: None,
             id: "f:hole_pattern:1".into(),
             arrangement: "bolt_circle".into(),
             members: members.iter().map(|m| m.to_string()).collect(),
@@ -698,6 +700,8 @@ mod tests {
             f
         };
         let pattern = |arrangement: &str| HolePattern {
+            presentation_order: None,
+            legacy_id: None,
             id: "f:hole_pattern:1".into(),
             arrangement: arrangement.into(),
             members: vec!["f:hole:1".into(), "f:hole:2".into(), "f:hole:3".into()],

@@ -19,8 +19,8 @@
 //! [`READ`] are known but not taken here: they still come through the bridge.
 //!
 //! What comes out is draftwright's own ([`Feature`], [`HolePattern`]); no quiddity object crosses
-//! (ADR3-6). IDs are draftwright's (`f:<kind>:<n>`, `f:hole_pattern:<n>`, ranked by faces within
-//! their kind, as [`super::read`] ranks them), and so are fingerprints
+//! (ADR3-6). IDs are draftwright's (`f:<kind>:f<lowest face>`, with a local suffix only
+//! on shared lowest faces). The provisional rank is retained as `legacy_id`, and so are fingerprints
 //! ([`super::FINGERPRINT_VERSION`]): the document's own `<family>/<index>` IDs and quiddity's
 //! fingerprints are not adopted (who owns fingerprints is an open question).
 //!
@@ -941,6 +941,8 @@ pub fn read(part: &Part, doc: &RecognitionDocument) -> Result<Native, String> {
             return Err(format!("{} has no ascending faces to anchor it", r.id));
         }
         features.push(Feature {
+            presentation_order: None,
+            legacy_id: None,
             id: String::new(),
             kind: "hole".into(),
             fingerprint: Fingerprint {
@@ -1009,7 +1011,9 @@ pub fn read(part: &Part, doc: &RecognitionDocument) -> Result<Native, String> {
     evidence.sort_by_cached_key(key);
     refusals.sort_by_cached_key(key);
     features.extend(others);
+    crate::geometry_ids::assign_presentation_order(&mut features, &mut patterns);
     super::voids::reconcile(part, &mut features, &mut patterns);
+    crate::stable_ids::anchor(&mut features, &mut patterns)?;
     let (features, others) = features.into_iter().partition(|f| f.kind == "hole");
     Ok(Native {
         recogniser: format!(
@@ -1097,6 +1101,8 @@ fn feature(
         }
     }
     Ok(Feature {
+        presentation_order: None,
+        legacy_id: None,
         id: String::new(),
         kind: super::kind(&r.family),
         fingerprint: Fingerprint {
@@ -1247,6 +1253,10 @@ fn check(record: &Map<String, Value>, record_type: &str) -> Result<(), String> {
 /// slot is in at most one pattern; anything else is refused. Each pattern and its members take
 /// the members' count and pitch as their fingerprint's pattern, as the bridge's do.
 fn name_slot_members(features: &mut [Feature]) -> Result<(), String> {
+    if !features.iter().any(|f| f.kind == "slot_pattern") {
+        return Ok(());
+    }
+    let names = crate::stable_ids::feature_names(features, &[])?;
     let mut used: Vec<usize> = Vec::new();
     for p in 0..features.len() {
         if features[p].kind != "slot_pattern" {
@@ -1254,7 +1264,7 @@ fn name_slot_members(features: &mut [Feature]) -> Result<(), String> {
         }
         let records = match features[p].parameters.get("slots") {
             Some(Value::Array(a)) => a.clone(),
-            _ => return Err(format!("{} has no member slots", features[p].id)),
+            _ => return Err(format!("{} has no member slots", names[p])),
         };
         let mut members = Vec::new();
         for m in &records {
@@ -1271,13 +1281,13 @@ fn name_slot_members(features: &mut [Feature]) -> Result<(), String> {
                 [_] => {
                     return Err(format!(
                         "quiddity puts one slot in a slot pattern twice ({})",
-                        features[p].id
+                        names[p]
                     ));
                 }
                 _ => {
                     return Err(format!(
                         "{}'s member matches {} slots, not one",
-                        features[p].id,
+                        names[p],
                         found.len()
                     ));
                 }
@@ -1287,7 +1297,7 @@ fn name_slot_members(features: &mut [Feature]) -> Result<(), String> {
             .iter()
             .map(|&i| slot_centre(&features[i].parameters))
             .collect::<Option<Vec<_>>>()
-            .ok_or_else(|| format!("{} has a member with no location", features[p].id))?;
+            .ok_or_else(|| format!("{} has a member with no location", names[p]))?;
         let pattern = super::pattern(&centres);
         let ids: Vec<Value> = members
             .iter()

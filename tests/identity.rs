@@ -542,6 +542,14 @@ fn version_1_specs_migrate_and_plan_identically() {
             // version 2 spec.
             let mut v2 = renamed(&serde_json::to_value(&spec).unwrap(), &ids);
             v2["schema"] = model::SPEC_SCHEMA.into();
+            if part == "plate" {
+                let pattern = v2["features"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("f:hole_pattern:1")
+                    .unwrap();
+                v2["features"]["f:hole_pattern:f6"] = pattern;
+            }
             let v2: Spec = serde_json::from_value(v2).unwrap();
             serde_json::to_value(api::plan_from(&step, features, &v2).unwrap()).unwrap()
         } else {
@@ -622,6 +630,23 @@ fn version_1_specs_migrate_and_plan_identically() {
         if REPLANNED.contains(&part) {
             expected = without_typed_state(expected);
         }
+        // The canonical current-Spec oracle has no read-time migrations. Keep the new
+        // report in the full comparison with independently stated saved-input expectations.
+        expected["migrated"] = if part == "plate" {
+            json!([
+                {"path":"dimensions/d:envelope~1height.length@side", "from":"d:envelope/height.length@side", "to":"d:envelope/height.length"},
+                {"path":"dimensions/d:envelope~1width.length@plan", "from":"d:envelope/width.length@plan", "to":"d:envelope/width.length"},
+                {"path":"features/f:hole_pattern:1", "from":"f:hole_pattern:1", "to":"f:hole_pattern:f6"}
+            ])
+        } else {
+            assert_eq!(part, "bracket_positions");
+            let pmi = format!("d:{}/linear.basic", ids["dimension:#31409"]);
+            json!([
+                {"path":"dimensions/d:envelope~1depth.length@plan", "from":"d:envelope/depth.length@plan", "to":"d:envelope/depth.length"},
+                {"path":"dimensions/d:f:fillet:f23~1fillet.radius@front", "from":"d:f:fillet:f23/fillet.radius@front", "to":"d:f:fillet:f23/fillet.radius"},
+                {"path":"dimensions/d:pmi:dimension:#31409~1linear.basic@plan", "from":"d:pmi:dimension:#31409/linear.basic@plan", "to":pmi}
+            ])
+        };
         let mut got = without_typed_state(serde_json::to_value(&plan).unwrap());
         for p in [&mut expected, &mut got] {
             // A problem's subjects and its references (S2) are what 0.1.0-alpha.1's subjects
@@ -828,4 +853,62 @@ fn an_ambiguous_version_1_key_is_refused_with_its_candidates() {
         ["d:envelope/width.length"]
     );
     assert_eq!(model::migrate(&m, &a).unwrap(), m);
+}
+
+#[test]
+fn rank_entries_with_analysis7_require_reanalysis_without_promoting_the_saved_spec() {
+    let old: Analysis =
+        serde_json::from_str(include_str!("fixtures/identity/m10020.analysis7.json")).unwrap();
+    assert_eq!(old.schema, "draftwright.analysis/7");
+    for schema in ["draftwright.spec/1", "draftwright.spec/2"] {
+        let saved: Spec = serde_json::from_value(json!({"schema":schema,
+            "dimensions":{"d:f:section_recess:1/pocket_width.length":{"tolerance":"±0.1"}}}))
+        .unwrap();
+        let before = saved.clone();
+        for error in [
+            model::migrate(&saved, &old).unwrap_err(),
+            model::plan(&old, &saved).unwrap_err(),
+        ] {
+            assert!(error.message.contains("Re-analyse"), "{error}");
+            assert!(error.message.contains(schema), "{error}");
+            assert!(
+                error.message.contains("no spec/3 has been written"),
+                "{error}"
+            );
+        }
+        assert_eq!(saved, before);
+    }
+}
+
+#[test]
+fn reanalysis_recovers_rank_entries_even_if_an_older_reader_already_marked_them_spec3() {
+    let Some(dir) = corpus::dir() else { return };
+    let (_, current) = model::analyse_native(&dir.join("mfcadpp/10020.step")).unwrap();
+    for schema in [
+        "draftwright.spec/1",
+        "draftwright.spec/2",
+        "draftwright.spec/3",
+    ] {
+        let saved: Spec = serde_json::from_value(json!({"schema":schema,
+            "dimensions":{"d:f:section_recess:1/pocket_width.length":{"tolerance":"±0.1"}}}))
+        .unwrap();
+        let result = model::plan(&current, &saved).unwrap();
+        let key = "d:f:section_recess:f8/pocket_width.length";
+        assert_eq!(result.spec.schema, "draftwright.spec/3");
+        assert_eq!(result.spec.dimensions.keys().collect::<Vec<_>>(), [key]);
+        assert_eq!(
+            result.spec.dimensions[key].tolerance.as_deref(),
+            Some("±0.1")
+        );
+        assert_eq!(result.ids["f:section_recess:1"], "f:section_recess:f8");
+        assert!(
+            result
+                .migrated
+                .iter()
+                .any(|m| m.from == "d:f:section_recess:1/pocket_width.length" && m.to == key)
+        );
+        let repeated = model::plan(&current, &result.spec).unwrap();
+        assert_eq!(repeated.spec, result.spec);
+        assert!(repeated.migrated.is_empty());
+    }
 }

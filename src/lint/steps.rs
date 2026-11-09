@@ -27,7 +27,7 @@
 //! owner's; here a claim on the ladder (`step_level`), a plate or the overall extents (`envelope`)
 //! must state the leg's length, or the part of the extent it leaves, as an annotation does.
 //! Python also matches each claim's drawn span to the interval; lint's marks carry no span, and
-//! the ladder's parameters name their value (`step_height.length.h10`), so the value stands in.
+//! the ladder's anchored claims identify the interval, while the printed value verifies it.
 
 use serde_json::Value;
 
@@ -157,7 +157,7 @@ pub(crate) fn leg_span(
 pub type Alternatives = (String, Vec<Vec<Term>>);
 
 /// One term of an alternative statement of a leg: an annotation claiming *parameter* (or one of
-/// the ladder's parameters under it, `step_height.length.h10`) on *feature*, whose text states
+/// the ladder's parameters under it, `step_height.length.f6`) on *feature*, whose text states
 /// *value*.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Term {
@@ -183,7 +183,16 @@ impl Term {
                     && (c.parameter == self.parameter
                         || c.parameter
                             .strip_prefix(self.parameter.as_str())
-                            .is_some_and(|rest| rest.starts_with('.')))
+                            .is_some_and(|rest| rest.starts_with('.'))
+                        || (self.feature == "step_level"
+                            && matches!(
+                                c.parameter.as_str(),
+                                "step_height.length" | "step_position.length"
+                            )
+                            && self
+                                .parameter
+                                .strip_prefix(&c.parameter)
+                                .is_some_and(|rest| rest.starts_with('.'))))
             }) && holes::states(&m.text, self.value)
         })
     }
@@ -242,19 +251,25 @@ pub fn alternatives(analysis: &Analysis, f: &Feature) -> Vec<Alternatives> {
     let mut out = Vec::new();
     for (k, a, b) in spans {
         let extent = Term::new("envelope", EXTENTS[k], hi[k] - lo[k]);
-        let ladder = if k == 2 {
-            "step_height.length"
-        } else {
-            "step_position.length"
+        let ladder = |at: f64| {
+            if k == 2 && analysis.level_supports.iter().any(|s| !s.faces.is_empty()) {
+                crate::geometry_ids::height_parameter(analysis, at)
+            } else if k < 2 && analysis.risers.iter().any(|r| !r.faces.is_empty()) {
+                crate::geometry_ids::position_parameter(analysis, k, at)
+            } else if k == 2 {
+                "step_height.length".into()
+            } else {
+                "step_position.length".into()
+            }
         };
         let mut alts = Vec::new();
         // A level's height from the base, or a shoulder's position from the box.
         if near(a, lo[k]) {
-            alts.push(vec![Term::new("step_level", ladder, b - lo[k])]);
+            alts.push(vec![Term::new("step_level", &ladder(b), b - lo[k])]);
         }
         if near(b, hi[k]) {
             alts.push(vec![
-                Term::new("step_level", ladder, a - lo[k]),
+                Term::new("step_level", &ladder(a), a - lo[k]),
                 extent.clone(),
             ]);
         }
@@ -479,6 +494,26 @@ mod tests {
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].code, "through_step_requirement_unverifiable");
     }
+    #[test]
+    fn face_ladder_terms_keep_captured_generic_claims_and_check_the_value() {
+        for parameter in ["step_height.length", "step_position.length"] {
+            let term = Term::new("step_level", &format!("{parameter}.f6"), 10.);
+            let mark = |parameter: &str, text: &str| Mark {
+                name: "ladder".into(),
+                view: None,
+                text: text.into(),
+                claims: vec![Claim {
+                    feature: "step_level".into(),
+                    parameter: parameter.into(),
+                }],
+            };
+            assert!(term.stated(&[mark(parameter, "10")]));
+            assert!(term.stated(&[mark(&format!("{parameter}.f6"), "10")]));
+            assert!(!term.stated(&[mark(parameter, "11")]));
+            assert!(!term.stated(&[mark(&format!("{parameter}.f7"), "10")]));
+        }
+    }
+
     /// test_framed_step_family_evidence's legacy case, as draftwright's `stepped_block` fixture
     /// cuts it: a 20 × 10 step along y from the top edge of a 40 × 30 × 20 block. Its legs are
     /// stated by the ladder and the overall extents (the level 10 above the base and the height

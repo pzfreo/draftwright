@@ -207,13 +207,13 @@ fn parallel_rows_on_the_same_stations_show_one_pitch() {
     let a = native(&dir, "nist/nist_ctc_02_asme1_rc.stp");
     let plan = model::plan(&a, &Spec::default()).unwrap();
     for (one, other, label) in [
-        ("f:hole_pattern:2", "f:hole_pattern:5", "4× 75"),
-        ("f:hole_pattern:3", "f:hole_pattern:6", "2× 75"),
+        ("f:hole_pattern:f13", "f:hole_pattern:f73", "4× 75"),
+        ("f:hole_pattern:f41", "f:hole_pattern:f101", "2× 75"),
         // quiddity-rust 0.1.1 (accepted for alpha.13) no longer finds the 49.5 linear array
-        // (alpha.8's f:hole_pattern:9, faces 462…), and since #223 the bridge drops quiddity's
+        // (alpha.8's f:hole_pattern:f510, faces 462…), and since #223 the bridge drops quiddity's
         // four uneven three-hole "bolt circles", so the 48 rows on faces 470… and 510… are
         // numbered 7 and 9 (were 9 and 11), and the row on 470…, first by ID, carries the pitch.
-        ("f:hole_pattern:7", "f:hole_pattern:9", "4× 48"),
+        ("f:hole_pattern:f470", "f:hole_pattern:f510", "4× 48"),
     ] {
         let d = claiming(&plan, one, "pitch.length");
         assert_eq!(d.label, label);
@@ -254,20 +254,20 @@ fn slots_sharing_a_width_across_one_span_state_it_once_counted() {
     // The two are congruent, so one slot callout would state both: the second is split from
     // the callout, so each keeps its own size dimensions and the shared width is tested (the
     // split one states its end centres' distance apart in place of its length).
-    corpus::split_slot(&mut a, "f:slot:2");
+    corpus::split_slot(&mut a, "f:slot:f21");
     let plan = model::plan(&a, &Spec::default()).unwrap();
-    let d = claiming(&plan, "f:slot:1", "slot_width.length");
+    let d = claiming(&plan, "f:slot:f13", "slot_width.length");
     assert_eq!(d.label, "2× 6");
-    assert_eq!(claiming(&plan, "f:slot:2", "slot_width.length").id, d.id);
-    let centres = claiming(&plan, "f:slot:2", "slot_centres.length");
+    assert_eq!(claiming(&plan, "f:slot:f21", "slot_width.length").id, d.id);
+    let centres = claiming(&plan, "f:slot:f21", "slot_centres.length");
     assert_ne!(
-        claiming(&plan, "f:slot:1", "slot_length.length").id,
+        claiming(&plan, "f:slot:f13", "slot_length.length").id,
         centres.id
     );
     assert!(plan.dimensions.iter().all(|d| {
         d.measurements
             .iter()
-            .all(|m| m.feature != "f:slot:2" || m.parameter != "slot_length.length")
+            .all(|m| m.feature != "f:slot:f21" || m.parameter != "slot_length.length")
     }));
     let issues = lint::check(&a, &marks(&plan));
     // Lint judges each slot's low end where the planner puts it (the exact centre of its faces
@@ -285,8 +285,8 @@ fn slots_sharing_a_width_across_one_span_state_it_once_counted() {
     assert_eq!(
         slot_findings,
         [
-            "l:slot_requirement_missing:f:slot:1/location_slot_across.length",
-            "l:slot_requirement_missing:f:slot:2/location_slot_across.length",
+            "l:slot_requirement_missing:f:slot:f13/location_slot_across.length",
+            "l:slot_requirement_missing:f:slot:f21/location_slot_across.length",
         ],
         "{issues:?}"
     );
@@ -306,10 +306,10 @@ fn identical_slots_share_one_width_counted() {
     let a = native(&dir, "nist/nist_ctc_03_asme1_rc.stp");
     let plan = model::plan(&a, &Spec::default()).unwrap();
     for parameter in ["slot_width.length", "slot_length.length"] {
-        let d = claiming(&plan, "f:slot:1", parameter);
+        let d = claiming(&plan, "f:slot:f62", parameter);
         assert_eq!(d.label, "2× SLOT 19.05 × 107.95");
         assert!(d.placed.is_some(), "{}", d.id);
-        assert_eq!(claiming(&plan, "f:slot:2", parameter).id, d.id);
+        assert_eq!(claiming(&plan, "f:slot:f66", parameter).id, d.id);
     }
     assert!(
         plan.dimensions
@@ -342,16 +342,16 @@ fn bosses_sharing_a_height_across_one_span_state_it_once_counted() {
     for (file, bosses, label) in [
         (
             "nist/nist_ftc_06_asme1_rd.stp",
-            ["f:boss:1", "f:boss:2", "f:boss:3", "f:boss:4"],
+            ["f:boss:f21", "f:boss:f33", "f:boss:f35", "f:boss:f37"],
             "4× 38.1",
         ),
         (
             "nist/nist_ftc_07_asme1_rd.stp",
             [
-                "f:polygonal_boss:1",
-                "f:polygonal_boss:2",
-                "f:polygonal_boss:3",
-                "f:polygonal_boss:4",
+                "f:polygonal_boss:f235",
+                "f:polygonal_boss:f237",
+                "f:polygonal_boss:f240",
+                "f:polygonal_boss:f241",
             ],
             "4× 2.54",
         ),
@@ -395,12 +395,12 @@ fn a_location_and_a_face_level_on_one_span_are_one_statement() {
     let Some(dir) = corpus::dir() else { return };
     let a = native(&dir, "nist/nist_ftc_10_asme1_rb.stp");
     let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
-    let location = claiming(&plan, "f:hole_pattern:7", "location.length.z");
-    let rung = claiming(&plan, "step_level", "step_height.length.h12_5");
+    let location = claiming(&plan, "f:hole_pattern:f200", "location.length.z");
+    let rung = claiming(&plan, "step_level", "step_height.length.f165");
     assert_eq!(location.id, rung.id);
     assert_eq!(location.label, "12.5");
     assert!(plan.omitted.iter().any(|o| {
-        o.id == "d:step_level/step_height.length.h12_5"
+        o.id == "d:step_level/step_height.length.f165"
             && o.state
                 == draftwright::items::State::Covered {
                     by: location.id.clone(),
@@ -413,7 +413,7 @@ fn a_location_and_a_face_level_on_one_span_are_one_statement() {
         drawn
             .claims
             .iter()
-            .any(|m| m.feature == "step_level" && m.parameter == "step_height.length.h12_5")
+            .any(|m| m.feature == "step_level" && m.parameter == "step_height.length.f165")
     );
 
     let mut spec = Spec::default();
@@ -425,12 +425,12 @@ fn a_location_and_a_face_level_on_one_span_are_one_statement() {
         },
     );
     let without = model::plan_recovered(&a, &spec).unwrap();
-    let rung = claiming(&without, "step_level", "step_height.length.h12_5");
-    assert_eq!(rung.id, "d:step_level/step_height.length.h12_5");
+    let rung = claiming(&without, "step_level", "step_height.length.f165");
+    assert_eq!(rung.id, "d:step_level/step_height.length.f165");
     assert!(
         rung.measurements
             .iter()
-            .all(|m| m.feature != "f:hole_pattern:7")
+            .all(|m| m.feature != "f:hole_pattern:f200")
     );
 }
 
@@ -440,8 +440,8 @@ fn an_authored_location_and_rung_with_equal_bands_share_the_authored_survivor() 
     let a = native(&dir, "nist/nist_ftc_10_asme1_rb.stp");
     let mut spec = Spec::default();
     for id in [
-        "d:f:hole_pattern:7/location.length.z",
-        "d:step_level/step_height.length.h12_5",
+        "d:f:hole_pattern:f200/location.length.z",
+        "d:step_level/step_height.length.f165",
     ] {
         spec.dimensions.insert(
             id.into(),
@@ -453,21 +453,21 @@ fn an_authored_location_and_rung_with_equal_bands_share_the_authored_survivor() 
     }
     let plan = model::plan_recovered(&a, &spec).unwrap();
     assert_eq!(
-        claiming(&plan, "f:hole_pattern:7", "location.length.z").id,
-        claiming(&plan, "step_level", "step_height.length.h12_5").id
+        claiming(&plan, "f:hole_pattern:f200", "location.length.z").id,
+        claiming(&plan, "step_level", "step_height.length.f165").id
     );
-    let d = claiming(&plan, "step_level", "step_height.length.h12_5");
+    let d = claiming(&plan, "step_level", "step_height.length.f165");
     assert_eq!(d.label, "12.5 ±0.1");
     assert!(!d.default);
     // Different requirements must remain distinct statements, even at the same stations.
     spec.dimensions
-        .get_mut("d:step_level/step_height.length.h12_5")
+        .get_mut("d:step_level/step_height.length.f165")
         .unwrap()
         .tolerance = Some("±0.2".into());
     let different = model::plan_recovered(&a, &spec).unwrap();
     assert_ne!(
-        claiming(&different, "f:hole_pattern:7", "location.length.z").id,
-        claiming(&different, "step_level", "step_height.length.h12_5").id
+        claiming(&different, "f:hole_pattern:f200", "location.length.z").id,
+        claiming(&different, "step_level", "step_height.length.f165").id
     );
 }
 
@@ -476,11 +476,11 @@ fn a_counted_boss_height_also_states_its_face_level() {
     let Some(dir) = corpus::dir() else { return };
     let a = native(&dir, "nist/nist_ftc_06_asme1_rd.stp");
     let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
-    let size = claiming(&plan, "f:boss:1", "boss_height.length");
-    let level = claiming(&plan, "step_level", "step_height.length.h38_1");
+    let size = claiming(&plan, "f:boss:f21", "boss_height.length");
+    let level = claiming(&plan, "step_level", "step_height.length.f11");
     assert_eq!(size.id, level.id);
     assert_eq!(size.label, "4× 38.1");
-    for b in ["f:boss:2", "f:boss:3", "f:boss:4"] {
+    for b in ["f:boss:f33", "f:boss:f35", "f:boss:f37"] {
         assert_eq!(claiming(&plan, b, "boss_height.length").id, size.id);
     }
     assert_eq!(

@@ -478,7 +478,7 @@ fn ownerless_occurrences_have_closed_policy_reasons() {
     assert!(
         !p.feature_dispositions
             .iter()
-            .any(|d| d.subject == "f:hole:22")
+            .any(|d| d.subject == "f:hole:f75")
     );
     // A policy record does not erase the existing warning for an unsupported step.
     assert!(

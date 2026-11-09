@@ -854,7 +854,9 @@ fn saved_v1_reference_keys_keep_resolving() {
     let (_, a) = plate();
     let saved: Spec =
         serde_json::from_str(include_str!("fixtures/identity/authored.spec2.json")).unwrap();
+    assert_eq!(saved.schema, "draftwright.spec/2");
     let p = model::plan_recovered(&a, &saved).unwrap();
+    assert_eq!(p.spec.schema, "draftwright.spec/3");
     let d = p
         .dimensions
         .iter()
@@ -1372,8 +1374,8 @@ fn authored_axis_chain_locates_an_unpatterned_hole_without_pmi() {
     .unwrap();
     let x = planes(&a, 0);
     let spec = parse(json!({"dimension_source":"authored", "dimensions": {
-        "d:authored:start": {"between":[x[0].0, "axis:f:hole:1"], "along":"x", "view":"plan"},
-        "d:authored:link": {"between":["axis:f:hole:1", "axis:f:hole:2"], "along":"x", "view":"plan"}
+        "d:authored:start": {"between":[x[0].0, "axis:f:hole:f6"], "along":"x", "view":"plan"},
+        "d:authored:link": {"between":["axis:f:hole:f6", "axis:f:hole:f7"], "along":"x", "view":"plan"}
     }}));
     let font = draftwright::text::Font::new(api::MONO.to_vec()).unwrap();
     for remove in [None, Some("d:authored:start"), Some("d:authored:link")] {
@@ -1389,7 +1391,7 @@ fn authored_axis_chain_locates_an_unpatterned_hole_without_pmi() {
                 .iter()
                 .filter(|i| i.code == "feature_not_located")
                 .flat_map(|i| &i.requirements)
-                .any(|r| r.feature == "f:hole:2" && r.parameter == "location.length.x"),
+                .any(|r| r.feature == "f:hole:f7" && r.parameter == "location.length.x"),
             remove.is_some(),
             "{remove:?}"
         );
@@ -1398,7 +1400,7 @@ fn authored_axis_chain_locates_an_unpatterned_hole_without_pmi() {
                 .iter()
                 .filter(|i| i.code == "feature_not_located")
                 .flat_map(|i| &i.requirements)
-                .any(|r| r.feature == "f:hole:2" && r.parameter == "location.length.y")
+                .any(|r| r.feature == "f:hole:f7" && r.parameter == "location.length.y")
         );
     }
 }
@@ -1411,7 +1413,7 @@ fn an_engine_coordinate_uses_the_axis_instead_of_a_trimmed_face_fingerprint() {
     .unwrap();
     // The STEP's axis is x=-71, 49 from x=-120. A trimmed bore's
     // fingerprint centre need not lie on that analytic axis (CTC-02/FTC-08/FTC-09).
-    let f = a.features.iter_mut().find(|f| f.id == "f:hole:1").unwrap();
+    let f = a.features.iter_mut().find(|f| f.id == "f:hole:f6").unwrap();
     f.fingerprint.position[0] += 0.03;
     for (text, missing) in [("49", false), ("999 ±49", true)] {
         let mark = draftwright::lint::Mark {
@@ -1419,7 +1421,7 @@ fn an_engine_coordinate_uses_the_axis_instead_of_a_trimmed_face_fingerprint() {
             view: Some("v:plan".into()),
             text: text.into(),
             claims: vec![draftwright::output::Claim {
-                feature: "f:hole:1".into(),
+                feature: "f:hole:f6".into(),
                 parameter: "location.length.x".into(),
             }],
         };
@@ -1429,7 +1431,7 @@ fn an_engine_coordinate_uses_the_axis_instead_of_a_trimmed_face_fingerprint() {
                 .iter()
                 .filter(|i| i.code == "feature_not_located")
                 .flat_map(|i| &i.requirements)
-                .any(|r| r.feature == "f:hole:1" && r.parameter == "location.length.x"),
+                .any(|r| r.feature == "f:hole:f6" && r.parameter == "location.length.x"),
             missing
         );
         assert!(
@@ -1437,7 +1439,7 @@ fn an_engine_coordinate_uses_the_axis_instead_of_a_trimmed_face_fingerprint() {
                 .iter()
                 .filter(|i| i.code == "feature_not_located")
                 .flat_map(|i| &i.requirements)
-                .any(|r| r.feature == "f:hole:1" && r.parameter == "location.length.y")
+                .any(|r| r.feature == "f:hole:f6" && r.parameter == "location.length.y")
         );
     }
 }
@@ -1643,14 +1645,14 @@ fn a_slot_end_cylinder_does_not_alias_the_slots_centre() {
         .find(|d| d.id == "d:authored:end")
         .unwrap();
     assert!(d.placed.is_some());
-    let Reference::Vertex { point, .. } = a.dimension_reference("axis:f:slot:1").unwrap() else {
+    let Reference::Vertex { point, .. } = a.dimension_reference("axis:f:slot:f19").unwrap() else {
         panic!("slot centre point");
     };
     assert!((d.value - (point[0] - a.envelope[0][0]).abs()).abs() > 1e-5);
     assert!(
         !d.measurements
             .iter()
-            .any(|m| m.feature == "f:slot:1" && m.parameter == "location.length.x")
+            .any(|m| m.feature == "f:slot:f19" && m.parameter == "location.length.x")
     );
 }
 

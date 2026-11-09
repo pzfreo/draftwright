@@ -1202,7 +1202,7 @@ mod tests {
                 .join("tests/fixtures/parts/mounting_plate.step"),
         )
         .unwrap();
-        let spec = serde_json::from_value(serde_json::json!({"sheet":{"size":"A2","scale":"1:2"},"views":{"detail_c":{"detail":{"around":"f:hole:1","from":"plan","scale_factor":2}}}})).unwrap();
+        let spec = serde_json::from_value(serde_json::json!({"sheet":{"size":"A2","scale":"1:2"},"views":{"detail_c":{"detail":{"around":"f:hole:f6","from":"plan","scale_factor":2}}}})).unwrap();
         let p = crate::model::plan(&a, &spec).unwrap();
         let v = p.views.iter().find(|v| v.id == "v:detail_c").unwrap();
         let bounds = v.detail.as_ref().unwrap().bounds;
@@ -1490,6 +1490,8 @@ mod tests {
         let points: Vec<_> = holes.iter().map(|h| [h.at[0], h.at[1]]).collect();
         let (c, r) = fitted_circle(&points, 1.).unwrap();
         let p = crate::bridge::HolePattern {
+            presentation_order: None,
+            legacy_id: None,
             id: "f:hole_pattern:unproven".into(),
             arrangement: "bolt_circle".into(),
             members: holes.iter().map(|h| h.feature.id.clone()).collect(),

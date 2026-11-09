@@ -139,7 +139,7 @@ fn a_single_thread_prints_its_suffix_on_its_holes_callout() {
     assert_eq!(python, "⌀1.6 ↧ 4 M2 x 0.4-6H RH; 2.5 MIN FULL THREAD");
     assert_eq!(
         claimed(&plan, &a, source),
-        [("d:f:hole:2/bore.diameter", "M2-6H ↧ 2.5\n⌀1.6 ↧ 4")]
+        [("d:f:hole:f17/bore.diameter", "M2-6H ↧ 2.5\n⌀1.6 ↧ 4")]
     );
     assert_eq!(refused(&plan, source), None);
     // One requirement: no table, in draftwright's drawing or the port's.
@@ -170,14 +170,17 @@ fn several_long_requirements_refer_to_the_manufacturing_requirements_table() {
     .unwrap();
     let drawing_py = captured("thumbwheel_thread_knurl");
     for (source, id) in [
-        ("manufacturing_requirement:#689", "d:f:hole:1/bore.diameter"),
+        (
+            "manufacturing_requirement:#689",
+            "d:f:hole:f12/bore.diameter",
+        ),
         (
             "manufacturing_requirement:#722",
-            "d:f:turned_step:4/step.diameter",
+            "d:f:turned_step:f9/step.diameter",
         ),
         (
             "manufacturing_requirement:#749",
-            "d:f:turned_step:1/step.diameter",
+            "d:f:turned_step:f2/step.diameter",
         ),
     ] {
         let expected = match source {
@@ -250,7 +253,7 @@ fn a_requirement_no_one_feature_owns_is_reported_with_draftwrights_reason() {
     };
     // No owner: the tapped hole is not recognised.
     let mut b = a.clone();
-    b.features.retain(|f| f.id != "f:hole:1");
+    b.features.retain(|f| f.id != "f:hole:f12");
     let source = "manufacturing_requirement:#689";
     let (plan, lint) = lint_of(&b);
     let why = refused(&plan, source).unwrap();
@@ -280,7 +283,7 @@ fn a_requirement_no_one_feature_owns_is_reported_with_draftwrights_reason() {
     let mut twin = b
         .features
         .iter()
-        .find(|f| f.id == "f:turned_step:4")
+        .find(|f| f.id == "f:turned_step:f9")
         .unwrap()
         .clone();
     twin.id = "f:turned_step:9".into();
@@ -679,7 +682,7 @@ fn a_threaded_diameter_keeps_its_designation_and_a_plain_one_its_fit() {
     assert!(labels.contains(&"M5-6g"), "{labels:?}");
 
     let (_, a) = external_thread();
-    let id = "d:f:turned_step:1/step.diameter";
+    let id = "d:f:turned_step:f2/step.diameter";
     let spec: Spec = serde_json::from_value(serde_json::json!({
         "schema": "draftwright.spec/2",
         "dimensions": { id: { "tolerance": "+0 -0.1" } }
@@ -865,7 +868,7 @@ fn authored_manufacturing_rows_keep_the_compilers_source_bindings() {
         &serde_json::from_value(serde_json::json!({"sheet":{"callouts":{"style":"note"}}}))
             .unwrap(),
         &serde_json::json!([{
-            "op":"set", "path":"features/f:hole:1/thread",
+            "op":"set", "path":"features/f:hole:f12/thread",
             "value":{"designation":"M2x0.4-6H", "length":2.5}
         }]),
     )
@@ -1044,7 +1047,7 @@ fn structured_full_thread_aliases_must_agree_with_each_other_and_prose() {
 #[test]
 fn spec_and_pmi_threads_share_short_designations_and_one_style_override() {
     let (_, a) = external_thread();
-    let id = "d:f:turned_step:1/step.diameter";
+    let id = "d:f:turned_step:f2/step.diameter";
     let pmi = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(
         pmi.dimensions.iter().find(|d| d.id == id).unwrap().label,
@@ -1055,7 +1058,7 @@ fn spec_and_pmi_threads_share_short_designations_and_one_style_override() {
         ("M10x1-6g LH", "M10 x 1-6g LH"),
     ] {
         let spec: Spec = serde_json::from_value(serde_json::json!({
-            "features":{"f:turned_step:1":{"thread":{"designation":designation}}}
+            "features":{"f:turned_step:f2":{"thread":{"designation":designation}}}
         }))
         .unwrap();
         let plan = model::plan(&a, &spec).unwrap();
@@ -1066,7 +1069,7 @@ fn spec_and_pmi_threads_share_short_designations_and_one_style_override() {
     }
     let note: Spec = serde_json::from_value(serde_json::json!({
         "sheet":{"callouts":{"style":"full"}},
-        "features":{"f:turned_step:1":{"callouts":{"style":"note"}}},
+        "features":{"f:turned_step:f2":{"callouts":{"style":"note"}}},
         "dimensions":{id:{"text":{"template":"{value} AFTER PLATING"}}}
     }))
     .unwrap();
@@ -1174,14 +1177,14 @@ fn auto_moves_a_three_line_knurl_to_its_complete_source_note() {
 fn an_internal_threads_bore_fit_stays_on_its_tapping_drill() {
     let (_, a) = analysed("string_post_tapped");
     let spec: Spec = serde_json::from_value(serde_json::json!({
-        "features":{"f:hole:2":{"fit":"H7"}}
+        "features":{"f:hole:f17":{"fit":"H7"}}
     }))
     .unwrap();
     let plan = model::plan(&a, &spec).unwrap();
     let d = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:hole:2/bore.diameter")
+        .find(|d| d.id == "d:f:hole:f17/bore.diameter")
         .unwrap();
     assert_eq!(d.label, "M2-6H ↧ 2.5\n⌀1.6 H7 ↧ 4");
 }
@@ -1356,7 +1359,7 @@ fn identical_threads_on_distinct_owners_keep_two_callouts() {
     );
     let tap = serde_json::json!({"thread": {"designation": "M12x1.75-6H"}});
     let spec: Spec = serde_json::from_value(
-        serde_json::json!({"features": {"f:hole:1": tap.clone(), "f:hole:2": tap}}),
+        serde_json::json!({"features": {"f:hole:f233": tap.clone(), "f:hole:f234": tap}}),
     )
     .unwrap();
     let plan = model::plan(&a, &spec).unwrap();
@@ -1369,7 +1372,7 @@ fn identical_threads_on_distinct_owners_keep_two_callouts() {
     let ids: Vec<&str> = threaded.iter().map(|t| t.0).collect();
     assert_eq!(
         ids,
-        ["d:f:hole:1/bore.diameter", "d:f:hole:2/bore.diameter"],
+        ["d:f:hole:f233/bore.diameter", "d:f:hole:f234/bore.diameter"],
         "{threaded:?}"
     );
     for (_, label) in &threaded {

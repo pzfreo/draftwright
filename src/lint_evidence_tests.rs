@@ -22,7 +22,7 @@ fn rounded_concentric_centres_locate_only_the_drawn_radial_axes() {
             "solid_count":1, "features":[],
             "recognition": {
                 "recogniser":"test", "frame":[[0.,0.,0.],[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]],
-                "patterns":[{"id":"f:hole_pattern:1", "arrangement":"bolt_circle",
+                "patterns":[{"id":"f:hole_pattern:f6", "arrangement":"bolt_circle",
                     "members":[], "faces":[], "parameters":{"center":[0.0005,0.0005,0.0005], "diameter":12.}}]
             },
             "edge_ink":{"edges":[], "planes":[], "curved":[{
@@ -61,7 +61,7 @@ fn rounded_concentric_centres_locate_only_the_drawn_radial_axes() {
             })
             .collect();
         sheet.items.push(Drawn {
-            name: "ink:v:end:f:hole_pattern:1".into(),
+            name: "ink:v:end:f:hole_pattern:f6".into(),
             kind: Kind::Centreline,
             ink: [-6., -6., 6., 6.],
             label: None,
@@ -85,7 +85,7 @@ fn rounded_concentric_centres_locate_only_the_drawn_radial_axes() {
         };
         let located = concentric_on_drawing(&a, &drawing);
         let axes = located
-            .get("f:hole_pattern:1")
+            .get("f:hole_pattern:f6")
             .expect("rounded centre still concentric");
         assert_eq!(axes.len(), 2);
         for (k, parameter) in [

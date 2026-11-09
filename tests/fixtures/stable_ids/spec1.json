@@ -1,0 +1,4 @@
+{
+  "schema": "draftwright.spec/1",
+  "dimensions": {"d:f:hole:4/bore.diameter@front": {"tolerance": "±0.1"}}
+}

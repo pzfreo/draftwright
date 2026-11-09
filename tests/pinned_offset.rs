@@ -13,7 +13,7 @@ mod corpus;
 #[macro_use]
 mod support;
 
-const ID: &str = "d:f:hole_pattern:1/bore.diameter";
+const ID: &str = "d:f:hole_pattern:f6/bore.diameter";
 
 fn session() -> Session {
     let path =
@@ -373,14 +373,14 @@ fn offset_members_expose_the_projected_arc_span() {
     // Its two obround slots are congruent: one is split from their slot callout, so slot 1
     // keeps the radius leader whose arc span this test reads.
     let spec: Spec =
-        serde_json::from_value(json!({"features": {"f:slot:2": {"split": true}}})).unwrap();
+        serde_json::from_value(json!({"features": {"f:slot:f21": {"split": true}}})).unwrap();
     let s = Session::open(
         &corpus.join("cadgenbench_inputs/cgb245.step"),
         api::Features::Native,
         spec,
     )
     .unwrap();
-    let id = "d:f:slot:1/slot_end_radius.radius";
+    let id = "d:f:slot:f13/slot_end_radius.radius";
     let at = s.callout_offset(id).unwrap();
     let p = s
         .plan()
@@ -430,7 +430,7 @@ fn offset_members_expose_the_projected_arc_span() {
 fn pinning_a_callout_at_its_reported_offset_on_a_multi_sheet_plan_moves_nothing() {
     let Some(dir) = corpus::dir() else { return };
     let part = dir.join("cadgenbench_inputs/cgb243.step.gz");
-    let id = "d:f:boss:1/boss.diameter";
+    let id = "d:f:boss:f86/boss.diameter";
     let open = || Session::open(&part, api::Features::Native, Spec::default()).unwrap();
     let placed = |s: &Session| -> Placed {
         s.plan()
@@ -514,7 +514,7 @@ fn a_retained_session_scope_plans_an_offset_pin_and_its_bare_pin_alike() {
     let part = dir.join("nist/nist_ftc_06_asme1_rd.stp");
     let open = || Session::open(&part, api::Features::Native, Spec::default()).unwrap();
     let base = open();
-    let id = "d:f:boss:6/boss.diameter";
+    let id = "d:f:boss:f43/boss.diameter";
     let at = base.callout_offset(id).unwrap();
     let place = format!("dimensions/{}/place", key(id));
     // Another worker has already planned the same requests: the process-wide caches hold
@@ -561,7 +561,7 @@ fn pinning_a_view_at_its_own_place_keeps_the_ctc03_schedule() {
     let part = dir.join("nist/nist_ctc_03_asme1_rc.stp");
     let open = |spec: Spec| {
         let (p, mut a) = draftwright::model::analyse_native(&part).unwrap();
-        corpus::split_slot(&mut a, "f:slot:2");
+        corpus::split_slot(&mut a, "f:slot:f66");
         Session::new(p, a, spec).unwrap()
     };
     let base = open(Spec::default());
@@ -593,4 +593,55 @@ fn pinning_a_view_at_its_own_place_keeps_the_ctc03_schedule() {
             .collect::<Vec<_>>()
     };
     assert_eq!(ids(s.plan()), ids(canonical));
+}
+
+/// Keep the exact FTC-08 seed-2/one-pin input even when sampling identities change.
+/// Its isometric fitting region must not consume the automatic schedule's gutter.
+#[test]
+fn ftc08_isometric_pin_keeps_the_clear_hole_schedule() {
+    let Some(dir) = corpus::dir() else { return };
+    let (_, analysis) =
+        draftwright::model::analyse_native(&dir.join("nist/nist_ftc_08_asme1_rc.stp")).unwrap();
+    let base = draftwright::model::plan_recovered(&analysis, &Spec::default()).unwrap();
+    let spec: Spec = serde_json::from_value(json!({"views":{"iso":{"place":{
+        "relative_to":"front", "side":"right", "align":"end",
+        "gap":26.878683920197176, "pinned":true
+    }}}}))
+    .unwrap();
+    let pinned = draftwright::model::plan_recovered(&analysis, &spec).unwrap();
+    let ink = |p: &draftwright::model::Plan| {
+        p.problems
+            .iter()
+            .filter(|q| {
+                matches!(
+                    q.code.as_str(),
+                    "annotation_ink_overlap"
+                        | "annotation_over_view"
+                        | "annotation_line_over_view"
+                        | "annotation_leader_crossing"
+                        | "annotation_outside_area"
+                )
+            })
+            .count()
+    };
+    assert_eq!(ink(&base), 0);
+    assert_eq!(ink(&pinned), 0, "pin adds ink: {:#?}", pinned.problems);
+    assert_eq!(base.hole_tables.len(), 1);
+    assert_eq!(pinned.hole_tables.len(), base.hole_tables.len());
+    let rows = |p: &draftwright::model::Plan| {
+        p.hole_tables
+            .iter()
+            .flat_map(|t| &t.rows)
+            .map(|r| r.measurements.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&pinned), rows(&base));
+    assert_eq!(pinned.sheet.size, base.sheet.size);
+    assert_eq!(pinned.sheet.scale, base.sheet.scale);
+    assert!(
+        !pinned
+            .problems
+            .iter()
+            .any(|q| q.code == "hole_table_unavailable")
+    );
 }

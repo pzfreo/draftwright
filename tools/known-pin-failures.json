@@ -1,16 +1,5 @@
 {
   "format": "draftwright.known-pin-failures/1",
-  "note": "Known random-pin NO-GO cells, per part per seed-pins cell; every other part and cell must be GO. Accepted by the maintainer for PR #205 (2026-10-25).",
-  "failures": [
-    {
-      "cell": "1-8",
-      "part": "string_post",
-      "reason": "The generated relation aligns section A-A's top with the front view's, putting it on the title block on main too (view_on_title_block 1 before and after #205); the 3 mm frame gutter shifts its hole centreline onto the title block's scale note (label_centerline_overlap 0 -> 1). Pin replay does not repair a pinned view onto furniture. Tracked in #206."
-    },
-    {
-      "cell": "3-8",
-      "part": "10060",
-      "reason": "#222 drops 10060's empty plan view, so the unpinned drawing goes from A4 1:1 with one annotation_leader_crossing (main's baseline ink 1) to A4 2:1 with none. This cell's random pins name v:side and v:iso, and naming a principal view keeps every view, so the pinned drawing keeps main's sheet, scale and ink count, A4 1:1 with one crossing (ink 0 -> 1 against the improved unpinned drawing; no off-sheet item). The pinned drawing is no worse than main; the pin bar fails only because its reference improved. Accepted in the backlog-4 stack (2026-10-27)."
-    }
-  ]
+  "note": "Known random-pin NO-GO cells, per part per seed-pins cell; every part and cell not listed here must be GO. No current exceptions.",
+  "failures": []
 }

@@ -131,7 +131,7 @@ fn ctc_01s_sides_are_draftwrights() {
 fn ctc_01s_boss_and_holes_on_one_line_are_located_once() {
     let (_, a) = analysed("located_once", "nist_ctc_01_asme1_ap242-e1.stp");
     let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
-    let boss = "d:f:polygonal_boss:1/location.length.y";
+    let boss = "d:f:polygonal_boss:f104/location.length.y";
     assert!(plan.dimensions.iter().all(|d| d.id != boss));
     let by = plan
         .omitted
@@ -165,7 +165,7 @@ fn ctc_01s_boss_and_holes_on_one_line_are_located_once() {
     let unlocated: Vec<_> = plan
         .problems
         .iter()
-        .filter(|p| p.code == "feature_not_located" && p.id.contains("f:polygonal_boss:1/"))
+        .filter(|p| p.code == "feature_not_located" && p.id.contains("f:polygonal_boss:f104/"))
         .map(|p| &p.message)
         .collect();
     assert!(unlocated.is_empty(), "{unlocated:?}");

@@ -152,9 +152,9 @@ fn a_document_of_an_unknown_version_is_refused() {
     older.schema = "draftwright.analysis/2".into();
     assert!(model::plan(&older, &Spec::default()).is_ok());
 
-    let spec: Spec = serde_json::from_value(json!({ "schema": "draftwright.spec/3" })).unwrap();
+    let spec: Spec = serde_json::from_value(json!({ "schema": "draftwright.spec/4" })).unwrap();
     let e = model::plan(&analysis, &spec).unwrap_err();
-    assert!(e.message.contains("draftwright.spec/3"), "{e}");
+    assert!(e.message.contains("draftwright.spec/4"), "{e}");
     assert_eq!(e.choices, model::SPEC_SCHEMAS);
     // Version 1 is read, through the migration.
     let spec: Spec = serde_json::from_value(json!({ "schema": "draftwright.spec/1" })).unwrap();
@@ -165,7 +165,7 @@ fn a_document_of_an_unknown_version_is_refused() {
     // Through the adapters' one entry point, it is the caller's to fix.
     let e = api::call(
         "plan",
-        &json!({ "step": fixture("parts/plate.step"), "spec": { "schema": "draftwright.spec/3" } }),
+        &json!({ "step": fixture("parts/plate.step"), "spec": { "schema": "draftwright.spec/4" } }),
     )
     .unwrap_err();
     assert_eq!(e.code, "invalid", "{e}");
@@ -542,18 +542,18 @@ fn dimension_ids_are_derived_and_a_bare_role_warns_without_applying() {
     );
 
     let (_, analysis) = analysed_with("plate", &json);
-    let spec = omitting(&["d:f:hole_pattern:1/bore"]);
+    let spec = omitting(&["d:f:hole_pattern:f6/bore"]);
     let plan = model::plan(&analysis, &spec).unwrap();
     assert!(plan.problems.iter().any(|p| {
         p.code == "dimension_edit_unapplied"
             && p.subjects
-                .contains(&"dimensions/d:f:hole_pattern:1~1bore".into())
+                .contains(&"dimensions/d:f:hole_pattern:f6~1bore".into())
     }));
     assert_eq!(plan.spec.dimensions, spec.dimensions);
     assert!(
         plan.dimensions
             .iter()
-            .any(|d| { d.id == "d:f:hole_pattern:1/bore.diameter" && d.placed.is_some() })
+            .any(|d| { d.id == "d:f:hole_pattern:f6/bore.diameter" && d.placed.is_some() })
     );
 }
 
@@ -622,9 +622,9 @@ fn every_planned_dimension_can_be_addressed() {
                 if i.starts_with(heights) {
                     return Some(heights.to_string());
                 }
-                i.strip_prefix("d:step_level/step_position.length.")
-                    .and_then(|r| r.get(..1))
-                    .map(|axis| format!("d:step_level/step_position.length.{axis}"))
+                analysis
+                    .ladder_axis(i.strip_prefix("d:step_level/")?)
+                    .map(|axis| format!("shoulders:{axis}"))
             };
             let with: Vec<&str> = all
                 .iter()

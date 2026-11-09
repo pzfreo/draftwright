@@ -1453,7 +1453,7 @@ fn plate_holes_and_grid_are_read_in_the_parts_frame() {
     let (part, doc) = document("plate");
     let n = native::read(&part, &doc).unwrap();
     let ids: Vec<_> = n.holes.iter().map(|f| f.id.as_str()).collect();
-    assert_eq!(ids, ["f:hole:1", "f:hole:2", "f:hole:3", "f:hole:4"]);
+    assert_eq!(ids, ["f:hole:f6", "f:hole:f7", "f:hole:f8", "f:hole:f9"]);
     for (f, face) in n.holes.iter().zip(6..) {
         assert_eq!((f.kind.as_str(), &f.faces), ("hole", &vec![face]));
         assert_eq!(f.fingerprint.version, bridge::FINGERPRINT_VERSION);
@@ -1462,7 +1462,7 @@ fn plate_holes_and_grid_are_read_in_the_parts_frame() {
         assert_eq!((p.count, p.pitch), (4, 20.0));
     }
     assert_eq!(n.patterns.len(), 1);
-    assert_eq!(n.patterns[0].id, "f:hole_pattern:1");
+    assert_eq!(n.patterns[0].id, "f:hole_pattern:f6");
     assert_eq!(n.patterns[0].arrangement, "grid");
     assert_eq!(n.patterns[0].faces, [6, 7, 8, 9]);
     assert!(
@@ -1541,18 +1541,18 @@ fn turned_part_families_are_read_with_draftwrights_ids() {
     assert_eq!(
         got,
         [
-            ("f:fillet:1", "fillet", &[1][..]),
-            ("f:fillet:2", "fillet", &[2]),
-            ("f:fillet:3", "fillet", &[5]),
-            ("f:fillet:4", "fillet", &[7]),
+            ("f:fillet:f1", "fillet", &[1][..]),
+            ("f:fillet:f2", "fillet", &[2]),
+            ("f:fillet:f5", "fillet", &[5]),
+            ("f:fillet:f7", "fillet", &[7]),
             // v0.2.3: whole-body classification co-owns all faces; step records remain.
             (
-                "f:turned_body:1",
+                "f:turned_body:f0",
                 "turned_body",
                 &[0, 1, 2, 3, 4, 5, 6, 7, 8]
             ),
-            ("f:turned_step:1", "turned_step", &[0]),
-            ("f:turned_step:2", "turned_step", &[6]),
+            ("f:turned_step:f0", "turned_step", &[0]),
+            ("f:turned_step:f6", "turned_step", &[6]),
         ]
     );
     for f in &n.features {
@@ -1564,7 +1564,7 @@ fn turned_part_families_are_read_with_draftwrights_ids() {
     let step = n
         .features
         .iter()
-        .find(|f| f.id == "f:turned_step:2")
+        .find(|f| f.id == "f:turned_step:f6")
         .unwrap();
     assert_eq!(
         (
@@ -1758,9 +1758,9 @@ fn oriented_slots_are_read_and_their_pattern_checked() {
     assert_eq!(
         ids,
         [
-            "f:oriented_slot:1",
-            "f:oriented_slot:2",
-            "f:oriented_slot:3"
+            "f:oriented_slot:f6",
+            "f:oriented_slot:f10",
+            "f:oriented_slot:f14"
         ]
     );
     assert!(n.features.iter().all(|f| f.kind != "oriented_slot_pattern"));
@@ -1930,12 +1930,12 @@ fn slot_patterns_name_their_member_slots() {
         .collect();
     assert_eq!((slots.len(), patterns.len()), (3, 1));
     let p = patterns[0];
-    assert_eq!(p.id, "f:slot_pattern:1");
+    assert_eq!(p.id, "f:slot_pattern:f6");
     assert_eq!(p.fingerprint.subtype, "SlotArray");
     // quiddity 0.1.0 orders the members in the part's own frame, which runs the other way.
     assert_eq!(
         p.parameters["slots"],
-        serde_json::json!(["f:slot:3", "f:slot:2", "f:slot:1"])
+        serde_json::json!(["f:slot:f14", "f:slot:f10", "f:slot:f6"])
     );
     for f in slots.iter().copied().chain([p]) {
         let pattern = f.fingerprint.pattern.as_ref().unwrap();
@@ -1983,7 +1983,7 @@ fn slot_patterns_name_their_member_slots() {
         d.records[pattern].parameters["slots"][0] = m.into();
     });
     assert!(
-        e.contains("f:slot_pattern:1's member matches 0 slots"),
+        e.contains("f:slot_pattern:f6's member matches 0 slots"),
         "{e}"
     );
     let e = refused(&|d| {
@@ -2089,7 +2089,7 @@ fn pad_fields_are_checked() {
     let n = native::read(&part, &doc).unwrap();
     let pads: Vec<_> = n.features.iter().filter(|f| f.kind == "pad").collect();
     assert_eq!(pads.len(), 1);
-    assert_eq!(pads[0].id, "f:pad:1");
+    assert_eq!(pads[0].id, "f:pad:f16");
     assert_eq!(pads[0].faces, doc.records[r].faces);
     let edited = |edit: &dyn Fn(&mut Map<String, Value>)| {
         let mut d = doc.clone();
@@ -2480,7 +2480,7 @@ fn a_smooth_hole_at_a_named_metric_size_is_a_possible_thread() {
         |title: &str| serde_json::json!({"schema": schema, "sheet": {"title": {"title": title}}});
     assert_eq!(
         possible(titled("M6x20 mounting plate")),
-        ["f:hole:1", "f:hole:2", "f:hole:3", "f:hole:4"]
+        ["f:hole:f6", "f:hole:f7", "f:hole:f8", "f:hole:f9"]
     );
     // No named size, another size, or a word that only starts with M.
     for title in ["Mounting plate", "M5 plate", "Model 6 plate", "6 mm plate"] {
@@ -2498,10 +2498,10 @@ fn a_smooth_hole_at_a_named_metric_size_is_a_possible_thread() {
         .find(|p| p.code == "possible_thread")
         .unwrap();
     assert_eq!(p.severity, "info");
-    assert!(p.message.contains("features/f:hole_pattern:1/thread"));
+    assert!(p.message.contains("features/f:hole_pattern:f6/thread"));
     let mut spec = titled("M6 plate");
-    spec["features"] = serde_json::json!({"f:hole:1": {"thread": {"designation": "M6"}}});
-    assert_eq!(possible(spec), ["f:hole:2", "f:hole:3", "f:hole:4"]);
+    spec["features"] = serde_json::json!({"f:hole:f6": {"thread": {"designation": "M6"}}});
+    assert_eq!(possible(spec), ["f:hole:f7", "f:hole:f8", "f:hole:f9"]);
 }
 
 /// recognition/6 (quiddity #92) gives a record whose frame is not the file's an `origin` and its

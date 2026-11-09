@@ -460,18 +460,18 @@ fn an_open_channel_draws_one_wall_and_derives_the_other() {
         assert_eq!(
             thicknesses,
             [
-                ("d:f:plate:1/thickness.length", wall),
-                ("d:f:plate:2/thickness.length", "12")
+                ("d:f:plate:f1/thickness.length", wall),
+                ("d:f:plate:f2/thickness.length", "12")
             ],
             "{name}"
         );
         assert!(
             plan.omitted
                 .iter()
-                .any(|o| o.id == "d:f:plate:3/thickness.length"
+                .any(|o| o.id == "d:f:plate:f3/thickness.length"
                     && o.state
                         == draftwright::items::State::Covered {
-                            by: "d:f:plate:1/thickness.length".into()
+                            by: "d:f:plate:f1/thickness.length".into()
                         }),
             "{name}: {:?}",
             plan.omitted

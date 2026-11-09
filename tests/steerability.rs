@@ -33,11 +33,11 @@ fn input(name: &str) -> Value {
         // Main now recognises the two notches. Keep the issue's authored statements,
         // explicitly omitting only their newly generated coincident owners (K6).
         for id in [
-            "d:f:rectangular_through_notch:1/notch_depth.length",
-            "d:f:rectangular_through_notch:2/notch_depth.length",
-            "d:f:rectangular_through_notch:2/location.length.x",
-            "d:f:rectangular_through_notch:1/notch_width.length",
-            "d:f:rectangular_through_notch:2/notch_width.length",
+            "d:f:rectangular_through_notch:f31/notch_depth.length",
+            "d:f:rectangular_through_notch:f37/notch_depth.length",
+            "d:f:rectangular_through_notch:f37/location.length.x",
+            "d:f:rectangular_through_notch:f31/notch_width.length",
+            "d:f:rectangular_through_notch:f37/notch_width.length",
         ] {
             value["dimensions"][id] = json!({"omit":true});
         }
@@ -45,7 +45,7 @@ fn input(name: &str) -> Value {
     value
 }
 fn minimal() -> Value {
-    json!({"schema":"draftwright.spec/2"})
+    json!({"schema":"draftwright.spec/3"})
 }
 fn bytes(name: &str) -> Vec<u8> {
     let path = if name == CTC {
@@ -260,10 +260,10 @@ fn steer_293_inclined_hole() {
     let r = rendered(BRACKET, &p);
     let mut c = Checks::default();
     for code in ["feature_not_located", "feature_not_dimensioned"] {
-        c.want(code, !missing(r, code, "f:hole:2", ""));
+        c.want(code, !missing(r, code, "f:hole:f9", ""));
     }
     let mut note = s;
-    note["features"] = json!({"f:hole:2":{"note":"LOCATED ALONG FLANGE AND ACROSS", "note_satisfies":["location.length.z"]}});
+    note["features"] = json!({"f:hole:f9":{"note":"LOCATED ALONG FLANGE AND ACROSS", "note_satisfies":["location.length.z"]}});
     c.accepts(
         BRACKET,
         &note,
@@ -283,12 +283,12 @@ fn steer_294_distinct_feature_owner() {
     assert!(
         d.measurements
             .iter()
-            .any(|m| m.feature == "f:hole:2" && m.parameter == "location.length.y")
+            .any(|m| m.feature == "f:hole:f9" && m.parameter == "location.length.y")
     );
     assert!(!missing(
         rendered(BRACKET, &p),
         "feature_not_located",
-        "f:hole:2",
+        "f:hole:f9",
         "location.length.y"
     ));
     s["dimensions"]["d:authored:hole2_y_duplicate"] = s["dimensions"]["d:authored:hole2_y"].clone();
@@ -407,7 +407,7 @@ fn steer_297_reference_roles() {
         .filter_map(|edge| edge.reference.as_ref())
         .map(|key| a.dimension_reference(key).unwrap())
         .collect();
-    let plate = "f:plate:1";
+    let plate = "f:plate:f2";
     c.want(
         "reference_membership",
         bottom.membership().features.iter().any(|id| id == plate)
@@ -606,7 +606,7 @@ fn steer_298_agent_discovery() {
         "item_options_operation",
         api::OPERATIONS.contains(&"item_options"),
     );
-    let d = dim(&p.plan, "d:f:hole:1/bore.diameter").unwrap();
+    let d = dim(&p.plan, "d:f:hole:f6/bore.diameter").unwrap();
     let record = serde_json::to_value(d).unwrap();
     c.want(
         "callout_offset",
@@ -797,7 +797,7 @@ fn steer_299_agent_rough_edges() {
     );
     let mut detail = s;
     detail["views"] =
-        json!({"detail_a":{"detail":{"around":"f:hole:2","from":"side","scale_factor":2}}});
+        json!({"detail_a":{"detail":{"around":"f:hole:f9","from":"side","scale_factor":2}}});
     check_detail(BRACKET, &detail, &mut c, "detail_reason");
     // Exercise a real, already-specific source refusal and an accepted roomier crop.
     // These are controls for the acceptance criterion, not more expected failures.
@@ -860,13 +860,13 @@ fn steer_301_authored_pocket() {
         !missing(
             rendered(SHAFT, &p),
             "pocket_requirement_missing",
-            "f:section_recess:1",
+            "f:section_recess:f6",
             "location_pocket.location.x",
         ),
     );
     set_dim(
         &mut s,
-        "d:f:section_recess:1/pocket_width.length",
+        "d:f:section_recess:f6/pocket_width.length",
         json!({"omit":true}),
     );
     set_dim(
@@ -884,7 +884,7 @@ fn steer_301_authored_pocket() {
     for role in ["pocket_width.length", "pocket_length.length"] {
         c.want(
             role,
-            !missing(r, "pocket_requirement_missing", "f:section_recess:1", role),
+            !missing(r, "pocket_requirement_missing", "f:section_recess:f6", role),
         );
     }
     assert!(
@@ -902,7 +902,7 @@ fn steer_301_authored_pocket() {
         missing(
             rendered(SHAFT, &unlocated),
             "pocket_requirement_missing",
-            "f:section_recess:1",
+            "f:section_recess:f6",
             "location_pocket.location.x"
         ),
         "an unstated pocket location must still be reported"
@@ -917,23 +917,23 @@ fn steer_302_axis_origin() {
     s["dimensions"]
         .as_object_mut()
         .unwrap()
-        .remove("d:f:section_recess:1/location_pocket.location.y");
+        .remove("d:f:section_recess:f6/location_pocket.location.y");
     let p = planned(SHAFT, &s);
     let mut c = Checks::default();
     c.want(
         "no_tangent_location",
-        dim(&p.plan, "d:f:section_recess:1/location_pocket.location.y").is_none(),
+        dim(&p.plan, "d:f:section_recess:f6/location_pocket.location.y").is_none(),
     );
     c.want(
         "centred_keyway_located",
         !missing(
             rendered(SHAFT, &p),
             "pocket_requirement_missing",
-            "f:section_recess:1",
+            "f:section_recess:f6",
             "location_pocket.location.y",
         ),
     );
-    s["origin"] = json!({"y":"axis:f:turned_step:2"});
+    s["origin"] = json!({"y":"axis:f:turned_step:f4"});
     if let Some(p) = c.accepts(
         SHAFT,
         &s,
@@ -945,7 +945,7 @@ fn steer_302_axis_origin() {
             !missing(
                 rendered(SHAFT, &p),
                 "pocket_requirement_missing",
-                "f:section_recess:1",
+                "f:section_recess:f6",
                 "location_pocket.location.y",
             ),
         );
@@ -960,13 +960,13 @@ fn steer_303_keyway_fit_and_view() {
         let mut s = input("inline-301");
         set_dim(
             &mut s,
-            "d:f:section_recess:1/pocket_width.length",
+            "d:f:section_recess:f6/pocket_width.length",
             json!({"fit":fit}),
         );
         if let Some(p) = c.accepts(SHAFT, &s, fit, "not in draftwright's table") {
             c.want(
                 fit,
-                dim(&p.plan, "d:f:section_recess:1/pocket_width.length")
+                dim(&p.plan, "d:f:section_recess:f6/pocket_width.length")
                     .is_some_and(|d| d.label.contains(fit)),
             );
         }
@@ -975,7 +975,7 @@ fn steer_303_keyway_fit_and_view() {
     s.as_object_mut().unwrap().remove("views");
     set_dim(
         &mut s,
-        "d:f:section_recess:1/pocket_width.length",
+        "d:f:section_recess:f6/pocket_width.length",
         json!({"omit":true}),
     );
     set_dim(
@@ -997,7 +997,7 @@ fn steer_304_keyway_section() {
     let _baseline = planned(SHAFT, &s);
     let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
     draftwright::mcp::validate(&schema, &s).expect("the unmodified Spec is valid");
-    s["views"]["sections"] = json!([{"id":"A", "through":"f:section_recess:1"}]);
+    s["views"]["sections"] = json!([{"id":"A", "through":"f:section_recess:f6"}]);
     let mut c = Checks::default();
     let p = match serde_json::from_value::<Spec>(s.clone()) {
         Ok(_) => Some(planned(SHAFT, &s)),
@@ -1028,7 +1028,7 @@ fn steer_304_keyway_section() {
                             .any(|v| v.id == d.view && v.cut.is_some())
                         && d.measurements
                             .iter()
-                            .any(|m| m.feature == "f:section_recess:1" && m.parameter == role)
+                            .any(|m| m.feature == "f:section_recess:f6" && m.parameter == role)
                 }),
             );
         }
@@ -1039,7 +1039,7 @@ fn steer_304_keyway_section() {
 #[test]
 fn steer_305_keyway_depth_wording() {
     let p = planned(SHAFT, &input("inline-301"));
-    let d = dim(&p.plan, "d:f:section_recess:1/pocket_width.length").unwrap();
+    let d = dim(&p.plan, "d:f:section_recess:f6/pocket_width.length").unwrap();
     assert!(
         d.measurements
             .iter()
@@ -1131,7 +1131,7 @@ fn steer_308_refusal_boundary() {
     let mut s = input("inline-301");
     set_dim(
         &mut s,
-        "d:f:section_recess:1/pocket_width.length",
+        "d:f:section_recess:f6/pocket_width.length",
         json!({"fit":"N9"}),
     );
     c.accepts(
@@ -1141,8 +1141,7 @@ fn steer_308_refusal_boundary() {
         "not in draftwright's table",
     );
     let mut s = input("inline-293");
-    s["features"] =
-        json!({"f:hole:2":{"note":"LOCATED ALONG FLANGE", "note_satisfies":["location.length.z"]}});
+    s["features"] = json!({"f:hole:f9":{"note":"LOCATED ALONG FLANGE", "note_satisfies":["location.length.z"]}});
     c.accepts(
         BRACKET,
         &s,
@@ -1153,7 +1152,7 @@ fn steer_308_refusal_boundary() {
     let mut bad = input("inline-301");
     set_dim(
         &mut bad,
-        "d:f:section_recess:1/pocket_width.length",
+        "d:f:section_recess:f6/pocket_width.length",
         json!({"text":{"template":"6 × 40 × 3 DEEP"}}),
     );
     assert!(plan_result(SHAFT, &bad).err().unwrap().contains("{value}"));
@@ -1166,7 +1165,7 @@ fn steer_308_refusal_boundary() {
             .contains("no unique z station")
     );
     let mut axis = input("inline-301");
-    axis["origin"] = json!({"y":"axis:f:turned_step:2"});
+    axis["origin"] = json!({"y":"axis:f:turned_step:f4"});
     c.accepts(
         SHAFT,
         &axis,
@@ -1175,7 +1174,7 @@ fn steer_308_refusal_boundary() {
     );
     let mut detail = input("inline-301");
     detail["views"]["detail_a"] =
-        json!({"detail":{"around":"f:section_recess:1","from":"side","scale_factor":2}});
+        json!({"detail":{"around":"f:section_recess:f6","from":"side","scale_factor":2}});
     check_detail(SHAFT, &detail, &mut c, "small_detail_reports_layout");
     let mut unknown = input("inline-301");
     unknown["dimensions"]["d:authored:keyway_start"]["between"][0] = json!("face:v1:missing");
@@ -1257,7 +1256,7 @@ fn steer_310_concentric_pattern() {
             !missing(
                 r,
                 "hole_pattern_requirement_missing",
-                "f:hole_pattern:1",
+                "f:hole_pattern:f5",
                 role,
             ),
         );
@@ -1272,7 +1271,7 @@ fn steer_310_concentric_pattern() {
                 .any(|f| f.code == "hole_pattern_requirement_missing"
                     && f.requirements
                         .iter()
-                        .any(|q| q.feature == "f:hole_pattern:1" && q.parameter == role)),
+                        .any(|q| q.feature == "f:hole_pattern:f0" && q.parameter == role)),
             "an unstated off-axis grid location must still be reported: {role}"
         );
     }
@@ -1283,11 +1282,11 @@ fn steer_310_concentric_pattern() {
 fn steer_311_note_is_local() {
     let mut s = input(FLANGE);
     let before = planned(FLANGE, &s);
-    s["features"] = json!({"f:hole_pattern:1":{"note":"X"}});
+    s["features"] = json!({"f:hole_pattern:f5":{"note":"X"}});
     let after = planned(FLANGE, &s);
     let mut c = Checks::default();
     for role in ["x", "y"] {
-        let id = format!("d:f:hole:3/location.length.{role}");
+        let id = format!("d:f:hole:f7/location.length.{role}");
         assert!(dim(&before.plan, &id).is_none());
         c.want(&id, dim(&after.plan, &id).is_none());
     }
@@ -1297,7 +1296,7 @@ fn steer_311_note_is_local() {
 #[test]
 fn steer_312_pattern_note_in_plan() {
     let mut s = input(FLANGE);
-    s["features"] = json!({"f:hole_pattern:1":{"note":"X","note_satisfies":["location.length.x","location.length.y"]}});
+    s["features"] = json!({"f:hole_pattern:f5":{"note":"X","note_satisfies":["location.length.x","location.length.y"]}});
     let before = planned(FLANGE, &s);
     let id = &before
         .plan
@@ -1322,7 +1321,7 @@ fn steer_312_pattern_note_in_plan() {
             !missing(
                 r,
                 "hole_pattern_requirement_missing",
-                "f:hole_pattern:1",
+                "f:hole_pattern:f5",
                 "",
             ),
         );
@@ -1333,7 +1332,7 @@ fn steer_312_pattern_note_in_plan() {
 #[test]
 fn steer_313_authored_diameter_sign() {
     let mut s = input(FLANGE);
-    s["features"] = json!({"f:hole_pattern:1":{"note":"CONCENTRIC WITH ⌀80"}});
+    s["features"] = json!({"f:hole_pattern:f5":{"note":"CONCENTRIC WITH ⌀80"}});
     let mut c = Checks::default();
     // Refusal of unsupported text is also allowed by the issue. Any other refusal fails.
     match plan_result(FLANGE, &s) {
@@ -1441,7 +1440,7 @@ fn steer_316_authored_not_reference() {
         !missing(
             rendered(BAR, &p),
             "feature_not_located",
-            "f:hole:2",
+            "f:hole:f3",
             "location.length.x",
         ),
     );
@@ -1451,7 +1450,7 @@ fn steer_316_authored_not_reference() {
         .remove("d:authored:hole2_from_shoulder");
     set_dim(
         &mut s,
-        "d:f:hole:2/location.length.x",
+        "d:f:hole:f3/location.length.x",
         json!({"style":"reference"}),
     );
     let p = planned(BAR, &s);
@@ -1460,7 +1459,7 @@ fn steer_316_authored_not_reference() {
         missing(
             rendered(BAR, &p),
             "feature_not_located",
-            "f:hole:2",
+            "f:hole:f3",
             "location.length.x",
         ),
     );
@@ -1485,7 +1484,7 @@ fn steer_317_reference_covers_nothing() {
                     && d.kind == "linear"
                     && (d.value - value).abs() < 1e-5
                     && d.reference == (value == 630.)
-                    && (value != 30. || d.id == "d:f:turned_step:2/step.length")
+                    && (value != 30. || d.id == "d:f:turned_step:f6/step.length")
                     && (value != 630. || d.id == "d:envelope/width.length")
             }),
         );
@@ -1525,12 +1524,12 @@ fn steer_319_table_does_not_locate_slot() {
             && p.plan.views.iter().any(|v| v.id == d.view)
             && d.measurements
                 .iter()
-                .any(|m| m.feature == "f:slot:1" && m.parameter == "location_slot_across.length")
+                .any(|m| m.feature == "f:slot:f19" && m.parameter == "location_slot_across.length")
     });
     let reported = r.lint.iter().any(|f| {
         ["feature_not_located", "slot_requirement_missing"].contains(&f.code.as_str())
             && f.requirements.iter().any(|q| {
-                q.feature == "f:slot:1"
+                q.feature == "f:slot:f19"
                     && ["location_slot_across.length", "location.length.y"]
                         .contains(&q.parameter.as_str())
             })
@@ -1546,7 +1545,7 @@ fn steer_320_slot_centre_reference() {
     set_dim(
         &mut s,
         "d:authored:c",
-        json!({"between":["face:v1:e1167925cb17836ed722c27cd42791984c3f76ceed318488b1bf3052247a3c2e","axis:f:slot:1"],"along":"x","view":"plan"}),
+        json!({"between":["face:v1:e1167925cb17836ed722c27cd42791984c3f76ceed318488b1bf3052247a3c2e","axis:f:slot:f19"],"along":"x","view":"plan"}),
     );
     let mut c = Checks::default();
     if let Some(p) = c.accepts(PLATE, &s, "slot_centre_accepted", "several cylinder axes") {
@@ -1559,7 +1558,7 @@ fn steer_320_slot_centre_reference() {
             !missing(
                 rendered(PLATE, &p),
                 "slot_requirement_missing",
-                "f:slot:1",
+                "f:slot:f19",
                 "location_slot.length",
             ),
         );
@@ -1753,9 +1752,9 @@ fn close(a: [f64; 4], b: [f64; 4]) -> bool {
 fn steer_325_pin_respects_other_placement() {
     let mut s = input(PIVOT);
     let before = planned(PIVOT, &s);
-    s["dimensions"]["d:f:hole:4/bore.diameter"]["place"]["offset"] = json!([-20, -14]);
+    s["dimensions"]["d:f:hole:f13/bore.diameter"]["place"]["offset"] = json!([-20, -14]);
     let after = planned(PIVOT, &s);
-    let id = "d:f:hole_pattern:1/grid_pitch.length.col";
+    let id = "d:f:hole_pattern:f10/grid_pitch.length.col";
     let b = relative_label(&before.plan, id);
     let a = relative_label(&after.plan, id);
     let unchanged = ((a[0] + a[2]) - (b[0] + b[2])).abs() < 1e-6
@@ -1776,9 +1775,9 @@ fn steer_325_pin_respects_other_placement() {
 #[test]
 fn explicit_pitch_and_offset_coexist_using_the_near_hole_row() {
     let mut s = input(PIVOT);
-    s["dimensions"]["d:f:hole:4/bore.diameter"]["place"]["offset"] = json!([-20, -14]);
+    s["dimensions"]["d:f:hole:f13/bore.diameter"]["place"]["offset"] = json!([-20, -14]);
     let p = planned(PIVOT, &s);
-    let id = "d:f:hole_pattern:1/grid_pitch.length.col";
+    let id = "d:f:hole_pattern:f10/grid_pitch.length.col";
     let d = dim(&p.plan, id).unwrap().placed.as_ref().unwrap();
     let v = p.plan.views.iter().find(|v| v.id == "v:plan").unwrap();
     let [lo, hi] = fixture(PIVOT).analysis.envelope;
@@ -1806,8 +1805,8 @@ fn coincident_explicit_lanes_report_displacement_without_refusing_the_drawing() 
     s["dimensions"]
         .as_object_mut()
         .unwrap()
-        .remove("d:f:hole:4/bore.diameter");
-    let pitch = "d:f:hole_pattern:1/grid_pitch.length.col";
+        .remove("d:f:hole:f13/bore.diameter");
+    let pitch = "d:f:hole_pattern:f10/grid_pitch.length.col";
     let width = "d:envelope/width.length";
     for id in [pitch, width] {
         s["dimensions"][id]["place"] = json!({"view":"plan","side":"above","lane":0,"along":0.25});
@@ -1996,7 +1995,7 @@ fn steer_328_slot_location_credit() {
     let s = input(CTC);
     let p = planned(CTC, &s);
     let mut c = Checks::default();
-    for slot in ["f:slot:1", "f:slot:2"] {
+    for slot in ["f:slot:f77", "f:slot:f82"] {
         c.want(
             slot,
             !missing(
@@ -2010,7 +2009,7 @@ fn steer_328_slot_location_credit() {
     let mut authored = s;
     // The two straight slot walls are 205 and 200 from the front face.
     // Together with the printed widths they fix the common centre line.
-    for (slot, coordinate) in [("f:slot:1", -20.), ("f:slot:2", -25.)] {
+    for (slot, coordinate) in [("f:slot:f77", -20.), ("f:slot:f82", -25.)] {
         set_dim(
             &mut authored,
             &format!("d:authored:{}_y", slot.replace(':', "_")),
@@ -2023,14 +2022,14 @@ fn steer_328_slot_location_credit() {
         );
     }
     let p = planned(CTC, &authored);
-    for (slot, value) in [("f:slot:1", 205.), ("f:slot:2", 200.)] {
+    for (slot, value) in [("f:slot:f77", 205.), ("f:slot:f82", 200.)] {
         let id = format!("d:authored:{}_y", slot.replace(':', "_"));
         c.want(
             &format!("placed_{slot}"),
             dim(&p.plan, &id).is_some_and(|d| (d.value - value).abs() < 1e-5),
         );
     }
-    for slot in ["f:slot:1", "f:slot:2"] {
+    for slot in ["f:slot:f77", "f:slot:f82"] {
         c.want(
             &format!("authored_{slot}"),
             !missing(
@@ -2084,15 +2083,15 @@ fn pivot_pin_reference_keeps_peer_placement_and_reports_no_gdt_move() {
     let s = input(PIVOT);
     let after = planned(PIVOT, &s);
     let mut neutral = s.clone();
-    neutral["dimensions"]["d:f:hole:4/bore.diameter"]["place"]
+    neutral["dimensions"]["d:f:hole:f13/bore.diameter"]["place"]
         .as_object_mut()
         .unwrap()
         .remove("offset");
     let before = planned(PIVOT, &neutral);
     assert!(!after.plan.gdt.is_empty());
     assert_eq!(
-        s["dimensions"]["d:f:hole_pattern:1/grid_pitch.length.col"],
-        neutral["dimensions"]["d:f:hole_pattern:1/grid_pitch.length.col"]
+        s["dimensions"]["d:f:hole_pattern:f10/grid_pitch.length.col"],
+        neutral["dimensions"]["d:f:hole_pattern:f10/grid_pitch.length.col"]
     );
     for g in &after.plan.gdt {
         let old = before.plan.gdt.iter().find(|b| b.id == g.id).unwrap();
@@ -2119,7 +2118,7 @@ fn mounting_plate_text_nudge_is_not_displaced_intent_but_shared_lane_is() {
         serde_json::from_slice(&std::fs::read(root().join("mounting-plate.spec.json")).unwrap())
             .unwrap();
     let p = api::plan_analysed(&a, &spec).unwrap();
-    let d = dim(&p, "d:f:slot:1/slot_width.length").unwrap();
+    let d = dim(&p, "d:f:slot:f39/slot_width.length").unwrap();
     let ink = d.placed.as_ref().unwrap();
     let middle = (ink.lines[0][0][0] + ink.lines[1][0][0]) / 2.;
     let text = (ink.label_box[0] + ink.label_box[2]) / 2.;
@@ -2135,7 +2134,7 @@ fn mounting_plate_text_nudge_is_not_displaced_intent_but_shared_lane_is() {
     assert!(p.problems.iter().any(|f| {
         f.code == "placement_displaced"
             && f.subjects
-                .contains(&"d:scheme:holes-y/23c244b80eadd066".into())
+                .contains(&"d:scheme:holes-y/b692eed9eed9c9df".into())
             && f.message.contains("lane")
     }));
 }
@@ -2144,7 +2143,7 @@ fn mounting_plate_text_nudge_is_not_displaced_intent_but_shared_lane_is() {
 fn feature_note_preserves_hole_table_origin() {
     let mut s = input(PLATE);
     let before = planned(PLATE, &s);
-    s["features"] = json!({"f:hole:1":{"note":"X"}});
+    s["features"] = json!({"f:hole:f10":{"note":"X"}});
     let after = planned(PLATE, &s);
     assert!(!before.plan.hole_tables.is_empty());
     for t in &before.plan.hole_tables {
@@ -2334,7 +2333,7 @@ fn steer_331_finished_sheet_fits() {
         assert_eq!(p.plan.sheet.size, "A3");
         assert_eq!(p.plan.sheet.scale, "1:5");
         for (id, value) in [
-            ("d:f:hole_pattern:2/grid_pitch.length.col", 650.),
+            ("d:f:hole_pattern:f71/grid_pitch.length.col", 650.),
             ("d:envelope/notch_location_x.length.f97_e104_e108", 510.),
         ] {
             assert!(dim(&p.plan, id).is_some_and(|d| (d.value - value).abs() < 1e-5));
@@ -2344,7 +2343,7 @@ fn steer_331_finished_sheet_fits() {
     // Keep every dimension and the original A3 1:5. Moving only the 650 below
     // restores the false-warning premise, paired with/without the 510 placement.
     let mut fitting = input(CTC);
-    fitting["dimensions"]["d:f:hole_pattern:2/grid_pitch.length.col"] =
+    fitting["dimensions"]["d:f:hole_pattern:f71/grid_pitch.length.col"] =
         json!({"place":{"side":"below","lane":0}});
     let after = planned(CTC, &fitting);
     fitting["dimensions"]
@@ -2358,7 +2357,7 @@ fn steer_331_finished_sheet_fits() {
             "the false-warning control must actually fit"
         );
         for (id, value) in [
-            ("d:f:hole_pattern:2/grid_pitch.length.col", 650.),
+            ("d:f:hole_pattern:f71/grid_pitch.length.col", 650.),
             ("d:envelope/notch_location_x.length.f97_e104_e108", 510.),
         ] {
             assert!(
@@ -2419,7 +2418,7 @@ fn concentric_pattern_requires_live_round_outline_pitch_circle_and_centre() {
         lint::lint(a, drawing).iter().any(|i| {
             i.code == "hole_pattern_requirement_missing"
                 && i.requirements.iter().any(|r| {
-                    r.feature == "f:hole_pattern:1" && r.parameter.starts_with("location.length.")
+                    r.feature == "f:hole_pattern:f5" && r.parameter.starts_with("location.length.")
                 })
         })
     };
@@ -2434,7 +2433,7 @@ fn concentric_pattern_requires_live_round_outline_pitch_circle_and_centre() {
     drawing
         .sheet
         .items
-        .retain(|i| !i.name.ends_with(":f:hole_pattern:1"));
+        .retain(|i| !i.name.ends_with(":f:hole_pattern:f5"));
     assert!(
         reported(&drawing),
         "a centre mark must identify this pattern"
@@ -2451,7 +2450,7 @@ fn concentric_pattern_requires_live_round_outline_pitch_circle_and_centre() {
         .unwrap()
         .patterns
         .iter_mut()
-        .find(|p| p.id == "f:hole_pattern:1")
+        .find(|p| p.id == "f:hole_pattern:f5")
         .unwrap();
     pattern
         .parameters
@@ -2476,7 +2475,7 @@ fn authored_slot_across_from_far_face_is_credited_without_borrowing_table_cells(
         issues.iter().any(|i| {
             i.code == "slot_requirement_missing"
                 && i.requirements.iter().any(|q| {
-                    q.feature == "f:slot:1" && q.parameter == "location_slot_across.length"
+                    q.feature == "f:slot:f19" && q.parameter == "location_slot_across.length"
                 })
         })
     };
@@ -2492,7 +2491,7 @@ fn authored_slot_across_from_far_face_is_credited_without_borrowing_table_cells(
     assert!(
         a.features
             .iter()
-            .find(|f| f.id == "f:slot:1")
+            .find(|f| f.id == "f:slot:f19")
             .unwrap()
             .faces
             .contains(&face)
@@ -2500,7 +2499,7 @@ fn authored_slot_across_from_far_face_is_credited_without_borrowing_table_cells(
     assert!(
         !across_missing(&r.lint),
         "the far-edge ordinate locates the slot; chain {:?}",
-        lint::location::printed_chain(a, &marks, "f:slot:1", "location_slot_across.length"),
+        lint::location::printed_chain(a, &marks, "f:slot:f19", "location_slot_across.length"),
     );
     assert!(!across_missing(&lint::check(a, &marks)));
     let reduced: Vec<_> = marks
@@ -2550,7 +2549,7 @@ fn spec_part_identity_and_conflicts() {
 
 #[test]
 fn spec_depth_presentation_keeps_measured_terms() {
-    let id = "d:f:section_recess:1/pocket_width.length";
+    let id = "d:f:section_recess:f6/pocket_width.length";
     for (choice, value, role, words) in [
         (
             "tangent_depth",
@@ -2583,7 +2582,7 @@ fn spec_depth_presentation_keeps_measured_terms() {
             !missing(
                 r,
                 "pocket_requirement_missing",
-                "f:section_recess:1",
+                "f:section_recess:f6",
                 "pocket_max_depth.length"
             ),
             "{:?}",
@@ -2658,7 +2657,7 @@ fn spec_depth_presentation_keeps_measured_terms() {
 #[test]
 fn named_section_public_schema_and_geometry() {
     let mut s = input("inline-301");
-    s["views"]["sections"] = json!([{"id":"B", "through":"f:section_recess:1"}]);
+    s["views"]["sections"] = json!([{"id":"B", "through":"f:section_recess:f6"}]);
     let schema: Value = serde_json::from_str(include_str!("../schemas/spec.json")).unwrap();
     draftwright::mcp::validate(&schema, &s).unwrap();
     let inputs: Value =
@@ -2701,7 +2700,7 @@ fn named_section_public_schema_and_geometry() {
             .flat_map(|d| &d.problems)
             .any(|p| p.code == "section_dropped")
     );
-    s["views"]["sections"] = json!([{"id":"A", "through":"f:turned_step:2"}]);
+    s["views"]["sections"] = json!([{"id":"A", "through":"f:turned_step:f4"}]);
     let p = planned(SHAFT, &s);
     assert!(
         p.plan.problems.iter().any(|p| p.code == "section_not_shown"
@@ -2761,7 +2760,7 @@ fn assert_section_fits(name: &str, p: &Planned) {
 #[test]
 fn named_section_with_pinned_dimension_fits_automatic_paper() {
     let mut s = minimal();
-    s["views"] = json!({"plan":{}, "sections":[{"id":"B", "through":"f:section_recess:1"}]});
+    s["views"] = json!({"plan":{}, "sections":[{"id":"B", "through":"f:section_recess:f6"}]});
     s["dimensions"] = json!({"d:envelope/width.length":{"place":{"view":"front", "pinned":true}}});
     let p = planned(SHAFT, &s);
     assert!(
@@ -2791,7 +2790,7 @@ fn unavailable_named_section_keeps_automatic_cut_and_uses_requested_label() {
         .find(|v| v.cut.is_some())
         .expect("automatic enclosure section");
     let mut s = minimal();
-    s["views"] = json!({"sections":[{"id":"B", "through":"f:fillet:1"}]});
+    s["views"] = json!({"sections":[{"id":"B", "through":"f:fillet:f17"}]});
     let p = planned(ENCLOSURE, &s);
     let retained = p
         .plan
@@ -2800,10 +2799,11 @@ fn unavailable_named_section_keeps_automatic_cut_and_uses_requested_label() {
         .find(|v| v.id == original.id)
         .expect("retain automatic section");
     assert_eq!(retained.cut, original.cut);
-    assert!(p.plan.problems.iter().any(
-        |p| p.code == "section_not_shown" && p.message.contains("section B through f:fillet:1")
-    ));
-    s["views"] = json!({"plan":{}, "section_bb":{"omit":true}, "sections":[{"id":"B", "through":"f:section_recess:1"}]});
+    assert!(
+        p.plan.problems.iter().any(|p| p.code == "section_not_shown"
+            && p.message.contains("section B through f:fillet:f17"))
+    );
+    s["views"] = json!({"plan":{}, "section_bb":{"omit":true}, "sections":[{"id":"B", "through":"f:section_recess:f6"}]});
     let omitted = planned(SHAFT, &s);
     let warning = omitted
         .plan
@@ -2818,7 +2818,7 @@ fn unavailable_named_section_keeps_automatic_cut_and_uses_requested_label() {
 #[test]
 fn render_detects_detached_section_depth_witnesses() {
     let mut s = minimal();
-    s["views"] = json!({"plan":{}, "sections":[{"id":"B", "through":"f:section_recess:1"}]});
+    s["views"] = json!({"plan":{}, "sections":[{"id":"B", "through":"f:section_recess:f6"}]});
     let p = planned(SHAFT, &s);
     assert_section_fits(SHAFT, &p);
     for linear in [false, true] {
@@ -3090,7 +3090,7 @@ fn broken_view_explicit_interval_survives_pinned_dimension() {
     s["sheet"].as_object_mut().unwrap().remove("size");
     s["sheet"].as_object_mut().unwrap().remove("scale");
     s["views"]["front"] = json!({"break":{"axis":"x","remove":[100,500],"gap":8,"aligned":true}});
-    s["dimensions"]["d:f:turned_step:1/step.length"] =
+    s["dimensions"]["d:f:turned_step:f0/step.length"] =
         json!({"place":{"view":"front","pinned":true}});
     let p = planned(BAR, &s);
     let v = p.plan.views.iter().find(|v| v.id == "v:front").unwrap();
@@ -3136,7 +3136,7 @@ fn broken_view_without_uniform_span_warns_and_retains_geometry() {
 #[test]
 fn broken_view_uses_local_profile_and_keeps_section_markers_attached() {
     let mut s = minimal();
-    s["views"] = json!({"front":{"break":{"axis":"x","remove":[5,25],"gap":6}}, "plan":{}, "sections":[{"id":"B","through":"f:section_recess:1"}]});
+    s["views"] = json!({"front":{"break":{"axis":"x","remove":[5,25],"gap":6}}, "plan":{}, "sections":[{"id":"B","through":"f:section_recess:f6"}]});
     let p = planned(SHAFT, &s);
     let mut full = s.clone();
     full["views"]["front"]
@@ -3249,7 +3249,7 @@ fn broken_view_never_worsens_partial_sheet_choices() {
         let mut s = minimal();
         s["sheet"] = sheet;
         s["views"] = json!({"front":{"break":{"axis":"x","remove":[5,25],"gap":6}},
-            "plan":{},"sections":[{"id":"B","through":"f:section_recess:1"}]});
+            "plan":{},"sections":[{"id":"B","through":"f:section_recess:f6"}]});
         let broken = planned(SHAFT, &s);
         s["views"]["front"].as_object_mut().unwrap().remove("break");
         let full = planned(SHAFT, &s);

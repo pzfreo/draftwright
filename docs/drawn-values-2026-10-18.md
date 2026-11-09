@@ -335,7 +335,7 @@ Fresh release evidence on 2026-10-19:
   CTC-03 and FTC-10 with precise labels. There are no added hidden/section/cut
   crossings, no length increases beyond the existing 2 mm allowance, and no new
   runs over 2 mm. The two unchanged pre-existing runs are cgb241's
-  `d:f:blend:4/blend.radius` (2.881 mm) and FTC-08's fillet callout (3.275 mm).
+  `d:f:blend:f45/blend.radius` (2.881 mm) and FTC-08's fillet callout (3.275 mm).
 - `tools/check_quality_table.py docs/status-2026-10-10.md …/baseline.json`
   passes all 450 cells: no part is worse. Off-sheet items, view overlaps,
   title-block overlaps, repeated measurements and repeated spans are all zero.

@@ -208,11 +208,13 @@ pub(crate) fn restore(plan: &mut Plan) {
         .retain(|p| p.code != "hole_table_tag_order_retained");
 }
 
-fn reading_order(ordered: &mut [(usize, f64, f64)], rows: &[HoleRow]) {
-    ordered.sort_by(|a, b| {
-        a.2.total_cmp(&b.2)
-            .then_with(|| a.1.total_cmp(&b.1))
-            .then_with(|| rows[a.0].feature.cmp(&rows[b.0].feature))
+fn reading_order(analysis: &Analysis, ordered: &mut [(usize, f64, f64)], rows: &[HoleRow]) {
+    ordered.sort_by_cached_key(|p| {
+        (
+            crate::geometry_ids::coordinate_order(p.2),
+            crate::geometry_ids::coordinate_order(p.1),
+            crate::geometry_ids::presentation_key(analysis, &rows[p.0].feature).into_owned(),
+        )
     });
     // Anchor each row at its lowest Y: no non-transitive pairwise tolerance comparator.
     let mut first = 0;
@@ -220,10 +222,12 @@ fn reading_order(ordered: &mut [(usize, f64, f64)], rows: &[HoleRow]) {
         let end = (first + 1..ordered.len())
             .find(|&j| ordered[j].2 - ordered[first].2 > SAME_ROW)
             .unwrap_or(ordered.len());
-        ordered[first..end].sort_by(|a, b| {
-            a.1.total_cmp(&b.1)
-                .then_with(|| a.2.total_cmp(&b.2))
-                .then_with(|| rows[a.0].feature.cmp(&rows[b.0].feature))
+        ordered[first..end].sort_by_cached_key(|p| {
+            (
+                crate::geometry_ids::coordinate_order(p.1),
+                crate::geometry_ids::coordinate_order(p.2),
+                crate::geometry_ids::presentation_key(analysis, &rows[p.0].feature).into_owned(),
+            )
         });
         first = end;
     }
@@ -258,7 +262,7 @@ fn permute(analysis: &Analysis, plan: &Plan, t: &mut HoleTable) -> bool {
             let p = frame.view.map(h.at);
             ordered.push((i, p[0] - origin[0], p[1] - origin[1]));
         }
-        reading_order(&mut ordered, &t.rows);
+        reading_order(analysis, &mut ordered, &t.rows);
         let rows: Vec<_> = ordered.iter().map(|&(i, _, _)| t.rows[i].clone()).collect();
         let labels: Vec<_> = slots.iter().map(|&i| t.rows[i].tag.clone()).collect();
         for ((&i, mut row), label) in slots.iter().zip(rows).zip(labels) {
@@ -668,9 +672,9 @@ mod tests {
 
     #[test]
     fn sub_micron_row_noise_does_not_override_printed_column_order() {
-        let (_, p) = fixture();
+        let (a, p) = fixture();
         let mut points = [(0, 20., 0.), (1, 10., 0.0005), (2, 0., 0.002)];
-        reading_order(&mut points, &p.hole_tables[0].rows);
+        reading_order(a, &mut points, &p.hole_tables[0].rows);
         assert_eq!(points.map(|p| p.0), [1, 0, 2]);
     }
 

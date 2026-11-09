@@ -68,6 +68,7 @@ fn with_bands(bands: &[(f64, f64, f64)]) -> Analysis {
     for (i, (lo, hi, d)) in bands.iter().enumerate() {
         let mut f = template.clone();
         f.id = format!("f:turned_step:{}", i + 1);
+        f.legacy_id = None;
         f.parameters.insert("lo".into(), json!(lo));
         f.parameters.insert("hi".into(), json!(hi));
         f.parameters.insert("diameter".into(), json!(d));
@@ -159,10 +160,10 @@ fn grm05_states_its_step_diameters_and_lengths_as_draftwright_does() {
         strs(&[
             ("d:envelope/od.diameter", "ø10"),
             ("d:envelope/height.length", "32"),
-            ("d:f:turned_step:2/step.diameter", "ø6.25"),
-            ("d:f:turned_step:3/step.diameter", "ø6"),
-            ("d:f:turned_step:1/step.length", "14"),
-            ("d:f:turned_step:2/step_position.length", "19"),
+            ("d:f:turned_step:f4/step.diameter", "ø6.25"),
+            ("d:f:turned_step:f6/step.diameter", "ø6"),
+            ("d:f:turned_step:f0/step.length", "14"),
+            ("d:f:turned_step:f4/step_position.length", "19"),
         ])
     );
     let od = plan
@@ -177,7 +178,7 @@ fn grm05_states_its_step_diameters_and_lengths_as_draftwright_does() {
         .collect();
     assert_eq!(
         claims,
-        ["envelope/od.diameter", "f:turned_step:1/step.diameter"]
+        ["envelope/od.diameter", "f:turned_step:f0/step.diameter"]
     );
     assert!(
         reported(&plan, "dimensions_not_ported").is_empty()
@@ -321,8 +322,8 @@ fn the_overall_finishes_the_default_baseline_and_a_partial_profile_keeps_its_len
         strs(&[
             ("d:envelope/od.diameter", "ø30"),
             ("d:envelope/height.length", "70"),
-            ("d:f:turned_step:2/step.diameter", "ø16"),
-            ("d:f:turned_step:1/step.length", "40"),
+            ("d:f:turned_step:f6/step.diameter", "ø16"),
+            ("d:f:turned_step:f0/step.length", "40"),
         ])
     );
     let a = with_bands(&[(q(0.0), q(40.0), 30.0)]);
@@ -519,7 +520,7 @@ fn a_band_that_cannot_be_stated_is_reported() {
     let f = a
         .features
         .iter_mut()
-        .find(|f| f.id == "f:turned_step:2")
+        .find(|f| f.id == "f:turned_step:f6")
         .unwrap();
     f.parameters["profile"]
         .as_object_mut()
@@ -528,13 +529,13 @@ fn a_band_that_cannot_be_stated_is_reported() {
     let plan = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(
         reported(&plan, "feature_not_dimensioned"),
-        ["f:turned_step:2"]
+        ["f:turned_step:f6"]
     );
     assert!(reported(&plan, "dimensions_not_ported").is_empty());
     assert!(
         plan.dimensions
             .iter()
-            .any(|d| d.id == "d:f:turned_step:1/step.length")
+            .any(|d| d.id == "d:f:turned_step:f0/step.length")
     );
 
     let mut a = turned();
@@ -557,7 +558,7 @@ fn a_band_that_cannot_be_stated_is_reported() {
     let plan = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(
         reported(&plan, "feature_not_dimensioned"),
-        ["f:turned_step:1", "f:turned_step:2", "f:groove:1"]
+        ["f:turned_step:f0", "f:turned_step:f6", "f:groove:1"]
     );
     assert!(
         !plan
@@ -574,8 +575,8 @@ fn spec_tolerances_and_omissions_reach_the_step_items() {
     let a = turned();
     let mut spec = Spec::default();
     for (id, band) in [
-        ("d:f:turned_step:2/step.length", "±0.05"),
-        ("d:f:turned_step:2/step.diameter", "+0 -0.1"),
+        ("d:f:turned_step:f6/step.length", "±0.05"),
+        ("d:f:turned_step:f6/step.diameter", "+0 -0.1"),
     ] {
         spec.dimensions.insert(
             id.into(),
@@ -587,8 +588,8 @@ fn spec_tolerances_and_omissions_reach_the_step_items() {
     }
     let plan = model::plan(&a, &spec).unwrap();
     for (id, label) in [
-        ("d:f:turned_step:2/step.length", "30 ±0.05"),
-        ("d:f:turned_step:2/step.diameter", "ø16 0 -0.1"),
+        ("d:f:turned_step:f6/step.length", "30 ±0.05"),
+        ("d:f:turned_step:f6/step.diameter", "ø16 0 -0.1"),
     ] {
         let d = plan.dimensions.iter().find(|d| d.id == id).unwrap();
         assert_eq!(d.label, label);
@@ -597,7 +598,7 @@ fn spec_tolerances_and_omissions_reach_the_step_items() {
     }
     let mut spec = Spec::default();
     spec.dimensions.insert(
-        "d:f:turned_step:1/step.length".into(),
+        "d:f:turned_step:f0/step.length".into(),
         DimensionSpec {
             omit: true,
             ..Default::default()
@@ -608,7 +609,7 @@ fn spec_tolerances_and_omissions_reach_the_step_items() {
     assert!(
         less.omitted
             .iter()
-            .any(|o| o.id == "d:f:turned_step:1/step.length")
+            .any(|o| o.id == "d:f:turned_step:f0/step.length")
     );
     for d in &less.dimensions {
         let same = full.dimensions.iter().find(|e| e.id == d.id).unwrap();
@@ -964,7 +965,7 @@ fn a_short_disc_on_z_reads_as_turned() {
         diameter
             .measurements
             .iter()
-            .any(|m| m.feature == "f:turned_body:1"
+            .any(|m| m.feature == "f:turned_body:f0"
                 && m.parameter == "turned_body.diameter"
                 && m.value == 16.0)
     );

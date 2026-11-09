@@ -2,7 +2,7 @@
   {
     "part": "bracket_positions",
     "items": [
-      "d:f:hole:2/location.length.x",
+      "d:f:hole:f234/location.length.x",
       "d:pmi:dimension.linear.basic:f234,262/linear.basic"
     ],
     "kind": "span",
@@ -12,7 +12,7 @@
   {
     "part": "bracket_positions",
     "items": [
-      "d:f:hole:4/location.length.x",
+      "d:f:hole:f236/location.length.x",
       "d:pmi:dimension.linear.basic:f236,262/linear.basic"
     ],
     "kind": "span",
@@ -22,8 +22,8 @@
   {
     "part": "nist_ftc_06_asme1_rd",
     "items": [
-      "d:f:boss:1/boss_height.length",
-      "d:step_level/step_height.length.h38_1"
+      "d:f:boss:f21/boss_height.length",
+      "d:step_level/step_height.length.f11"
     ],
     "kind": "span",
     "verdict": "rust-correct",
@@ -32,8 +32,8 @@
   {
     "part": "nist_ftc_10_asme1_ap242-e2",
     "items": [
-      "d:f:hole_pattern:7/location.length.z",
-      "d:step_level/step_height.length.h12_5"
+      "d:f:hole_pattern:f242/location.length.z",
+      "d:step_level/step_height.length.f155"
     ],
     "kind": "span",
     "verdict": "rust-correct",
@@ -42,8 +42,8 @@
   {
     "part": "nist_ftc_10_asme1_rb",
     "items": [
-      "d:f:hole_pattern:7/location.length.z",
-      "d:step_level/step_height.length.h12_5"
+      "d:f:hole_pattern:f200/location.length.z",
+      "d:step_level/step_height.length.f165"
     ],
     "kind": "span",
     "verdict": "rust-correct",
@@ -62,8 +62,8 @@
   {
     "part": "nist_stc_10_asme1_ap242-e2",
     "items": [
-      "d:f:hole_pattern:4/location.length.z",
-      "d:step_level/step_height.length.h12_5"
+      "d:f:hole_pattern:f64/location.length.z",
+      "d:step_level/step_height.length.f89"
     ],
     "kind": "span",
     "verdict": "rust-correct",

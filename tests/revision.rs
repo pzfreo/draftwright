@@ -21,7 +21,7 @@ fn revised(case: &str, spec: Value) -> Revised {
 }
 
 fn spec(dimensions: Value) -> Value {
-    json!({ "schema": "draftwright.spec/2", "sheet": {}, "dimensions": dimensions })
+    json!({ "schema": "draftwright.spec/3", "sheet": {}, "dimensions": dimensions })
 }
 
 fn label(r: &Revised, id: &str) -> String {
@@ -41,25 +41,25 @@ fn removing_a_hole_carries_the_entries_of_the_holes_that_renumber() {
     let r = revised(
         "hole_removed",
         spec(json!({
-            "d:f:hole:3/bore.diameter": { "tolerance": "+0.1 -0" },
-            "d:f:hole:4/location.length.x": { "tolerance": "±0.05" },
-            "d:f:hole:2/bore.diameter": { "tolerance": "±0.2" },
+            "d:f:hole:f8/bore.diameter": { "tolerance": "+0.1 -0" },
+            "d:f:hole:f9/location.length.x": { "tolerance": "±0.05" },
+            "d:f:hole:f7/bore.diameter": { "tolerance": "±0.2" },
         })),
     );
     assert_eq!(
         r.report.carried_spec["dimensions"],
         json!({
-            "d:f:hole:2/bore.diameter": { "tolerance": "+0.1 -0" },
-            "d:f:hole:3/location.length.x": { "tolerance": "±0.05" },
+            "d:f:hole:f7/bore.diameter": { "tolerance": "+0.1 -0" },
+            "d:f:hole:f8/location.length.x": { "tolerance": "±0.05" },
         })
     );
     assert!(
-        label(&r, "d:f:hole:2/bore.diameter").starts_with("⌀8 +0.1"),
+        label(&r, "d:f:hole:f7/bore.diameter").starts_with("⌀8 +0.1"),
         "the ⌀8 hole keeps its tolerance"
     );
-    assert_eq!(label(&r, "d:f:hole:3/location.length.x"), "40 ±0.05");
+    assert_eq!(label(&r, "d:f:hole:f8/location.length.x"), "40 ±0.05");
     assert_eq!(
-        label(&r, "d:f:hole:3/bore.diameter"),
+        label(&r, "d:f:hole:f8/bore.diameter"),
         "⌀6 THRU",
         "the ⌀6 hole gains nothing"
     );
@@ -72,7 +72,7 @@ fn removing_a_hole_carries_the_entries_of_the_holes_that_renumber() {
         .collect();
     assert_eq!(
         orphaned,
-        ["dimensions/d:f:hole:2/bore.diameter"],
+        ["dimensions/d:f:hole:f7/bore.diameter"],
         "the removed hole's entry is kept aside"
     );
     assert_eq!(r.report.verdict, "decide");
@@ -82,7 +82,7 @@ fn removing_a_hole_carries_the_entries_of_the_holes_that_renumber() {
         .iter()
         .map(|f| (f.class.as_str(), f.old.as_deref()))
         .collect();
-    assert_eq!(gone, [("orphaned", Some("f:hole:2"))]);
+    assert_eq!(gone, [("orphaned", Some("f:hole:f7"))]);
     assert_eq!(r.report.edges.added, 0);
     assert!(
         r.report.edges.removed > 0,
@@ -94,7 +94,7 @@ fn removing_a_hole_carries_the_entries_of_the_holes_that_renumber() {
 fn a_moved_hole_changes_its_location_and_carries_its_tolerance() {
     let r = revised(
         "hole_moved",
-        spec(json!({ "d:f:hole:3/location.length.x": { "tolerance": "±0.1" } })),
+        spec(json!({ "d:f:hole:f8/location.length.x": { "tolerance": "±0.1" } })),
     );
     assert_eq!(r.report.verdict, "ok");
     let changed: Vec<_> = r
@@ -114,7 +114,7 @@ fn a_moved_hole_changes_its_location_and_carries_its_tolerance() {
         changed,
         [(
             "changed",
-            Some("d:f:hole:3/location.length.x"),
+            Some("d:f:hole:f8/location.length.x"),
             Some("40 ±0.1"),
             Some("25 ±0.1")
         )]
@@ -182,7 +182,7 @@ fn symmetric_repeats_are_asked_not_guessed() {
 fn a_turned_part_carries_everything_and_says_so() {
     let r = revised(
         "whole_part_moved",
-        spec(json!({ "d:f:hole:3/location.length.x": { "tolerance": "±0.1" } })),
+        spec(json!({ "d:f:hole:f8/location.length.x": { "tolerance": "±0.1" } })),
     );
     assert!(r.report.alignment.found);
     assert!(r.report.features.is_empty(), "every feature carried");
@@ -202,7 +202,7 @@ fn the_same_file_has_nothing_to_report() {
         &old,
         &old,
         None,
-        &spec(json!({ "d:f:hole:3/location.length.x": { "tolerance": "±0.1" } })),
+        &spec(json!({ "d:f:hole:f8/location.length.x": { "tolerance": "±0.1" } })),
     )
     .unwrap();
     assert_eq!(r.report.verdict, "ok");
@@ -220,7 +220,7 @@ fn the_command_line_writes_the_report_and_the_marked_drawing() {
     std::fs::create_dir_all(dir.parent().unwrap()).unwrap();
     std::fs::write(
         &spec_path,
-        spec(json!({ "d:f:hole:2/bore.diameter": { "tolerance": "±0.2" } })).to_string(),
+        spec(json!({ "d:f:hole:f7/bore.diameter": { "tolerance": "±0.2" } })).to_string(),
     )
     .unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_draftwright"))
@@ -257,7 +257,7 @@ fn the_command_line_writes_the_report_and_the_marked_drawing() {
     let md = std::fs::read_to_string(dir.join("report.md")).unwrap();
     assert!(md.starts_with("### Plate\n\n⚠️"), "{md}");
     assert!(
-        md.contains("`dimensions/d:f:hole:2/bore.diameter` (orphaned)"),
+        md.contains("`dimensions/d:f:hole:f7/bore.diameter` (orphaned)"),
         "{md}"
     );
     assert!(md.contains("![What changed"), "{md}");

@@ -64,7 +64,7 @@ fn flush_hub() -> Analysis {
     serde_json::from_value(json!({"schema":model::ANALYSIS_SCHEMA,
         "binding":{"source_sha256":"","part":"flush_hub","face_count":8,"loader":"test"},
         "envelope":[[0,0,0],[4.5,10,24]],"iso_bounds":[-20,-20,20,20],"solid_count":1,
-        "features":[{"id":"f:boss:1","kind":"boss","faces":[6,7],
+        "features":[{"id":"f:boss:f0","kind":"boss","faces":[6,7],
         "parameters":{"axis":[1,0,0],"location":[4.5,5,8],"diameter":8,"height":4.5},
         "fingerprint":{"version":"test","family":"boss","subtype":"BossRecord","sizes":{},"position":[2.25,5,8],"axis":[1,0,0],"neighbourhood":[]}}]}))
     .unwrap()
@@ -80,7 +80,7 @@ fn flush_hub() -> Analysis {
 #[test]
 fn an_authored_set_keeps_the_owner_that_conveys_a_left_out_measurement() {
     let a = flush_hub();
-    let height = "d:f:boss:1/boss_height.length";
+    let height = "d:f:boss:f0/boss_height.length";
     let width = "d:envelope/width.length";
     let auto = model::plan(&a, &Spec::default()).unwrap();
     let conveyed = auto.omitted.iter().find(|o| o.id == height).unwrap();
@@ -162,8 +162,8 @@ fn ladder(p: &Plan) -> Vec<String> {
 fn a_height_ladder_is_omitted_or_approved_whole() {
     let a = steps_fixture("plates_pads_levels_and_slanted_steps");
     let (h16, h32) = (
-        "d:step_level/step_height.length.h16",
-        "d:step_level/step_height.length.h32",
+        "d:step_level/step_height.length.f14",
+        "d:step_level/step_height.length.f20",
     );
     let full = model::plan(&a, &Spec::default()).unwrap();
     assert_eq!(ladder(&full), [h16, h32]);
@@ -205,8 +205,8 @@ fn a_height_ladder_is_omitted_or_approved_whole() {
 fn a_ladder_omission_never_overrides_a_rung_the_spec_decides() {
     let a = steps_fixture("plates_pads_levels_and_slanted_steps");
     let (h16, h32) = (
-        "d:step_level/step_height.length.h16",
-        "d:step_level/step_height.length.h32",
+        "d:step_level/step_height.length.f14",
+        "d:step_level/step_height.length.f20",
     );
     for own in [json!({"tolerance": "±0.1"}), json!({"omit": false})] {
         let spec: Spec =
@@ -426,31 +426,31 @@ fn a_boss_height_on_a_stated_level_is_a_reference() {
     )
     .unwrap();
     let get = |id: &str| plan.dimensions.iter().find(|d| d.id == id).unwrap();
-    let boss = get("d:f:boss:1/boss_height.length");
+    let boss = get("d:f:boss:f0/boss_height.length");
     assert_eq!((boss.label.as_str(), boss.reference), ("(3)", true));
     assert_eq!(
         boss.determined_by,
         [
-            "d:step_level/step_height.length.h6",
+            "d:step_level/step_height.length.f1",
             "d:envelope/height.length"
         ]
     );
     for id in [
-        "d:step_level/step_height.length.h6",
+        "d:step_level/step_height.length.f1",
         "d:envelope/height.length",
     ] {
         assert!(!get(id).reference, "{id}");
     }
     // Toleranced, the boss height is controlling (reference only for untoleranced ones).
     let spec: Spec = serde_json::from_value(
-        json!({"dimensions": {"d:f:boss:1/boss_height.length": {"tolerance": "±0.1"}}}),
+        json!({"dimensions": {"d:f:boss:f0/boss_height.length": {"tolerance": "±0.1"}}}),
     )
     .unwrap();
     let toleranced = model::plan(&a, &spec).unwrap();
     let boss = toleranced
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:boss:1/boss_height.length")
+        .find(|d| d.id == "d:f:boss:f0/boss_height.length")
         .unwrap();
     assert_eq!((boss.label.as_str(), boss.reference), ("3 ±0.1", false));
 }

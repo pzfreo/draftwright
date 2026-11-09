@@ -97,14 +97,14 @@ fn a_thread_on_a_lone_boss_states_its_diameter() {
         .unwrap();
     let (_, analysis) = model::analyse_native_step(&path, &bytes).unwrap();
     let spec: model::Spec = serde_json::from_value(serde_json::json!({
-        "features": {"f:boss:2": {"thread": {"designation": "M90x2"}}}
+        "features": {"f:boss:f129": {"thread": {"designation": "M90x2"}}}
     }))
     .unwrap();
     let plan = model::plan_recovered(&analysis, &spec).unwrap();
     let boss = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:boss:2/boss.diameter")
+        .find(|d| d.id == "d:f:boss:f129/boss.diameter")
         .expect("the boss's callout is planned");
     assert_eq!(boss.label, "M90 x 2");
     assert!(
@@ -131,7 +131,7 @@ fn a_thread_on_a_lone_boss_states_its_diameter() {
         .collect();
     let unstated: Vec<_> = draftwright::lint::coverage::feature_coverage(&analysis, &marks)
         .into_iter()
-        .filter(|i| i.subjects.iter().any(|s| s == "f:boss:2"))
+        .filter(|i| i.subjects.iter().any(|s| s == "f:boss:f129"))
         .collect();
     assert!(unstated.is_empty(), "{unstated:?}");
 }

@@ -19,6 +19,8 @@ struct Step {
     action: String,
     #[serde(default)]
     ops: Vec<Op>,
+    #[serde(default)]
+    spec: serde_json::Value,
 }
 
 fn emit(edit: &str, spec: &model::Spec, plan: &model::Plan, svg: String) {
@@ -47,6 +49,13 @@ fn main() -> Result<(), api::Error> {
     );
     for step in replay.steps {
         match step.action.as_str() {
+            "open_spec" => {
+                println!(
+                    "{}",
+                    serde_json::to_string(&session.open_spec(&step.spec.to_string())?).unwrap()
+                );
+                continue;
+            }
             "callout_offset" => {
                 println!(
                     "{}",

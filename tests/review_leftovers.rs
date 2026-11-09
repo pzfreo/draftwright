@@ -2,49 +2,32 @@
 #[path = "common/corpus.rs"]
 mod corpus;
 
-use draftwright::model::{self, Analysis, Plan, Spec};
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
-
-fn saved_spec(analysis: &Analysis, prefix: &str) -> Spec {
-    let saved: BTreeMap<String, Vec<Spec>> =
-        serde_json::from_str(include_str!("fixtures/known_single_sheet_specs.json")).unwrap();
-    saved[&analysis.binding.source_sha256]
-        .iter()
-        .find(|spec| {
-            let hash: String = Sha256::digest(serde_json::to_vec(spec).unwrap())
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
-            hash.starts_with(prefix)
-        })
-        .unwrap_or_else(|| panic!("missing spec {prefix}"))
-        .clone()
-}
+use draftwright::model::{self, Plan, Spec};
 
 /// The saved sm-hanger specs predate quiddity-rust v0.2.2 (#120), which makes the R7 blend
-/// `f:blend:10` a fillet, counted with the others on one `14× R7` callout, `d:f:fillet:9` (the
-/// `16× R7` callout was `d:f:fillet:3`). In v0.2.3 (#127), concave fillets move this
-/// same convex presenter to `d:f:fillet:16`. Their two radius entries become that one.
+/// `f:blend:10` a fillet, counted with the others on one `14× R7` callout, `d:f:fillet:f30` (the
+/// `16× R7` callout was `d:f:fillet:f14`). In v0.2.3 (#127), concave fillets move this
+/// same convex presenter to `d:f:fillet:f53`. Their two radius entries become that one.
 fn hanger_renumbered(mut spec: Spec) -> Spec {
-    let fillet = spec.dimensions.remove("d:f:fillet:3/fillet.radius");
-    let blend = spec.dimensions.remove("d:f:blend:10/blend.radius");
-    if let Some(entry) = fillet.or(blend) {
+    let fillet = spec.dimensions.remove("d:f:fillet:f14/fillet.radius");
+    if let Some(entry) = fillet {
         spec.dimensions
-            .insert("d:f:fillet:16/fillet.radius".into(), entry);
+            .insert("d:f:fillet:f53/fillet.radius".into(), entry);
     }
     spec
 }
 
-fn plan(file: &str, prefix: &str) -> Option<Plan> {
+fn plan(file: &str, spec: &Spec) -> Option<Plan> {
     let dir = corpus::dir()?;
     let (_, analysis) = model::analyse_native(&dir.join(file)).unwrap();
-    Some(model::plan_recovered(&analysis, &saved_spec(&analysis, prefix)).unwrap())
+    Some(model::plan_recovered(&analysis, spec).unwrap())
 }
 
 #[test]
 fn adjacent_labels_have_readable_separation() {
-    let Some(plan) = plan("mfcadpp/10127.step", "2f119c6b") else {
+    let spec: Spec =
+        serde_json::from_str(include_str!("fixtures/layout/review-adjacent.spec.json")).unwrap();
+    let Some(plan) = plan("mfcadpp/10127.step", &spec) else {
         return;
     };
     // Follow the same two spans with their faithful nominal labels; keep the gap assertion.
@@ -70,7 +53,9 @@ fn adjacent_labels_have_readable_separation() {
 fn hanger_keeps_its_hole_callout_or_reports_it_by_name() {
     let Some(dir) = corpus::dir() else { return };
     let (_, analysis) = model::analyse_native(&dir.join("ttt_inputs/sm-hanger.step")).unwrap();
-    let spec = hanger_renumbered(saved_spec(&analysis, "85c2add8"));
+    let spec = hanger_renumbered(
+        serde_json::from_str(include_str!("fixtures/layout/review-hanger.spec.json")).unwrap(),
+    );
     let plan = model::plan_recovered(&analysis, &spec).unwrap();
     let hole = plan
         .omitted

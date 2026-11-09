@@ -36,25 +36,25 @@
     {
      "type": "placed",
      "why": [
-      "the Spec has no entry for f:hole_pattern:1/bore.diameter"
+      "the Spec has no entry for f:hole_pattern:f6/bore.diameter"
      ]
     },
     {
      "type": "placed",
      "why": [
-      "the Spec has no entry for f:hole:4/bore.diameter"
+      "the Spec has no entry for f:hole:f9/bore.diameter"
      ]
     },
     {
      "type": "placed",
      "why": [
-      "the Spec has no entry for f:hole:7/bore.diameter"
+      "the Spec has no entry for f:hole:f12/bore.diameter"
      ]
     },
     {
      "type": "dimension",
      "why": [
-      "d:f:hole_pattern:1/bore.diameter@plan's label is not right of v:plan's centre"
+      "d:f:hole_pattern:f6/bore.diameter@plan's label is not right of v:plan's centre"
      ]
     }
    ],

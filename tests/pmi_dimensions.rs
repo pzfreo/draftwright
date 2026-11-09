@@ -664,7 +664,7 @@ fn a_toleranced_bore_annotates_its_callout_and_a_spec_tolerance_wins() {
     let callout = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:hole_pattern:1/bore.diameter")
+        .find(|d| d.id == "d:f:hole_pattern:f0/bore.diameter")
         .unwrap();
     assert_eq!(callout.label, "6× ⌀10 +0.09/0 THRU EQ SP\nON ø90 BC");
     assert!(callout.basis.contains("lower_ap242_hole_tolerances"));
@@ -785,7 +785,7 @@ fn holes_of_different_requirements_are_called_out_apart() {
     assert!(
         plan.dimensions
             .iter()
-            .any(|d| d.id.contains("hole_pattern:2/grid_pitch"))
+            .any(|d| d.id.contains("hole_pattern:f71/grid_pitch"))
     );
 }
 
@@ -890,7 +890,7 @@ fn a_basic_location_of_a_turned_parts_cross_hole_is_boxed() {
     assert!(
         d.measurements
             .iter()
-            .any(|m| m.feature == "f:hole:2" && m.parameter == "location.length.z"),
+            .any(|m| m.feature == "f:hole:f7" && m.parameter == "location.length.z"),
         "{d:?}"
     );
     assert!(
@@ -993,7 +993,7 @@ fn a_turned_profile_is_dimensioned_from_its_datum_end() {
     // the ⌀15 band's length, still plans, and the plan says what conveys it.
     let spec: Spec = serde_json::from_value(json!({
         "schema": "draftwright.spec/2",
-        "dimensions": {"d:f:turned_step:2/step.length": {"place": {
+        "dimensions": {"d:f:turned_step:f6/step.length": {"place": {
             "along": "outside", "lane": 0, "side": "left", "view": "front"}}}
     }))
     .unwrap();
@@ -1002,12 +1002,12 @@ fn a_turned_profile_is_dimensioned_from_its_datum_end() {
     let covered = plan
         .omitted
         .iter()
-        .find(|o| o.id == "d:f:turned_step:2/step.length")
+        .find(|o| o.id == "d:f:turned_step:f6/step.length")
         .unwrap();
     assert!(
         covered
             .basis
-            .contains("d:f:turned_step:2/step_position.length"),
+            .contains("d:f:turned_step:f6/step_position.length"),
         "{}",
         covered.basis
     );
@@ -1263,7 +1263,7 @@ fn an_external_diameter_annotates_the_turned_size_with_its_signs() {
     };
     assert_eq!(label("d:envelope/od.diameter"), "2× ø130 -0.014/-0.039");
     assert_eq!(
-        label("d:f:turned_step:3/step.diameter"),
+        label("d:f:turned_step:f89/step.diameter"),
         "ø70 -0.03/-0.06 OD"
     );
     // bolt_thread_knurl's shank: the turned step's ø6 takes its band, and nothing restates it.
@@ -1271,7 +1271,7 @@ fn an_external_diameter_annotates_the_turned_size_with_its_signs() {
     let d = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:turned_step:3/step.diameter")
+        .find(|d| d.id == "d:f:turned_step:f6/step.diameter")
         .unwrap();
     assert_eq!(d.label, "ø6 0/-0.008");
     assert!(d.basis.contains("lower_ap242_external_diameter_tolerances"));
@@ -1405,7 +1405,7 @@ fn a_span_the_pmi_states_is_drawn_once() {
 #[test]
 fn a_basic_pmi_span_covers_defaults_despite_geometric_roundoff() {
     let (_, a, plan) = planned("bracket_positions");
-    for feature in ["f:hole:2", "f:hole:4"] {
+    for feature in ["f:hole:f234", "f:hole:f236"] {
         let d = plan
             .dimensions
             .iter()
@@ -2065,23 +2065,23 @@ fn datum_general_dimensions_keep_their_authored_baselines_and_characteristics() 
         !plan
             .dimensions
             .iter()
-            .any(|d| d.placed.is_some() && d.id == "d:f:plate:1/thickness.length")
+            .any(|d| d.placed.is_some() && d.id == "d:f:plate:f3/thickness.length")
     );
     assert!(
         !plan
             .dimensions
             .iter()
-            .any(|d| d.placed.is_some() && d.id == "d:f:slot:1/location_slot.length")
+            .any(|d| d.placed.is_some() && d.id == "d:f:slot:f4/location_slot.length")
     );
     assert!(
         !plan
             .dimensions
             .iter()
-            .any(|d| d.placed.is_some() && d.id == "d:f:slot:1/slot_length.length")
+            .any(|d| d.placed.is_some() && d.id == "d:f:slot:f4/slot_length.length")
     );
     assert!(
         !plan.problems.iter().any(|p| p.code == "feature_not_located"
-            && p.subjects.iter().any(|s| s == "f:slot:1")
+            && p.subjects.iter().any(|s| s == "f:slot:f4")
             && p.message.contains(" on x:")),
         "the authored baseline locates the slot end: {:?}",
         plan.problems
@@ -2374,7 +2374,7 @@ fn an_inclined_bore_keeps_its_h11_fit_on_its_proven_callout() {
     );
     let plan = cache::default_plan(&a, true);
     let d = stating(&plan, &a, r).unwrap();
-    assert_eq!(d.id, "d:f:hole:2/bore.diameter");
+    assert_eq!(d.id, "d:f:hole:f9/bore.diameter");
     assert!(d.placed.is_some());
     assert_eq!(d.value, 10.);
     assert!(d.label.contains("H11"), "{d:?}");
@@ -2390,7 +2390,7 @@ fn an_inclined_bore_keeps_its_h11_fit_on_its_proven_callout() {
             .filter(|d| d.placed.is_some()
                 && d.measurements
                     .iter()
-                    .any(|m| m.feature == "f:hole:2" && m.parameter == "bore.diameter"))
+                    .any(|m| m.feature == "f:hole:f9" && m.parameter == "bore.diameter"))
             .count(),
         1
     );
@@ -2443,7 +2443,7 @@ fn authored_slot_ends_preserve_existing_engine_location_proofs() {
             vec!["f:slot:1", "f:slot:2"],
         ),
         ("nist_ctc_01_merge.step", vec!["f:slot:1", "f:slot:2"]),
-        ("nist_stc_09_asme1_ap242-e4.stp", vec!["f:slot:3"]),
+        ("nist_stc_09_asme1_ap242-e4.stp", vec!["f:slot:f102"]),
     ] {
         let bytes =
             gunzip(&std::fs::read(fixtures().join("step").join(format!("{file}.gz"))).unwrap());
@@ -2529,7 +2529,7 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
     assert!(
         d.measurements
             .iter()
-            .any(|m| m.feature == "f:slot:2" && m.parameter == "slot_width.length")
+            .any(|m| m.feature == "f:slot:f82" && m.parameter == "slot_width.length")
     );
     let mut numbered = a.clone();
     if let Some(Reading::Read(report)) = &mut numbered.pmi {
@@ -2682,10 +2682,10 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
     // Ordinary datum-based dimensions are verified from their actual witness
     // ink and drawing frame, including the printed coordinate origin.
     for id in [
-        "f:slot:1",
-        "f:slot:2",
-        "f:rectangular_through_notch:1",
-        "f:rectangular_through_notch:2",
+        "f:slot:f77",
+        "f:slot:f82",
+        "f:rectangular_through_notch:f31",
+        "f:rectangular_through_notch:f37",
     ] {
         assert!(
             !lint
@@ -2698,14 +2698,14 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
     // Removing the drawn 225 ordinate must leave both slot centres unlocated.
     let mut missing = drawing.clone();
     for annotation in &missing.annotations {
-        if annotation.name == "d:f:hole_pattern:1/location.length.y" {
+        if annotation.name == "d:f:hole_pattern:f0/location.length.y" {
             for &run in &annotation.runs {
                 missing.text[run].text.clear();
             }
         }
     }
     let missing_lint = draftwright::lint::lint(&a, &missing);
-    for id in ["f:slot:1", "f:slot:2"] {
+    for id in ["f:slot:f77", "f:slot:f82"] {
         assert!(
             missing_lint
                 .iter()
@@ -2727,8 +2727,8 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
     }
     let unlocated_lint = draftwright::lint::lint(&a, &unlocated);
     for id in [
-        "f:rectangular_through_notch:1",
-        "f:rectangular_through_notch:2",
+        "f:rectangular_through_notch:f31",
+        "f:rectangular_through_notch:f37",
     ] {
         assert!(
             unlocated_lint

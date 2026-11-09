@@ -1,5 +1,5 @@
 {
-  "schema": "draftwright.spec/2",
+  "schema": "draftwright.spec/3",
   "sheet": {
     "size": "A4",
     "scale": "1:1",
@@ -14,7 +14,7 @@
     "plan": {}
   },
   "features": {
-    "f:section_recess:1": {
+    "f:section_recess:f6": {
       "note": "CENTRED ON AXIS",
       "note_satisfies": [
         "location_pocket.location.y"
@@ -22,14 +22,14 @@
     }
   },
   "dimensions": {
-    "d:f:turned_step:2/step_position.length": {
+    "d:f:turned_step:f4/step_position.length": {
       "omit": true
     },
-    "d:f:turned_step:2/step.length": {},
-    "d:f:section_recess:1/location_pocket.location.x": {
+    "d:f:turned_step:f4/step.length": {},
+    "d:f:section_recess:f6/location_pocket.location.x": {
       "omit": true
     },
-    "d:f:section_recess:1/location_pocket.location.y": {
+    "d:f:section_recess:f6/location_pocket.location.y": {
       "omit": true
     },
     "d:authored:keyway_start": {
@@ -42,7 +42,7 @@
     },
     "d:authored:keyway_floor": {
       "between": [
-        "axis:f:turned_step:2",
+        "axis:f:turned_step:f4",
         "face:v1:d302c5c1d8cb44238af5ac0fa9c6ed713e1dec2c30583031f323c1321360e92b"
       ],
       "along": "z",

@@ -762,7 +762,7 @@ impl Footprints {
         owners.iter().any(|m| {
             m.feature == id
                 || (m.feature == "step_level"
-                    && m.parameter.starts_with("step_height.length.h")
+                    && m.parameter.starts_with("step_height.length.")
                     && self
                         .members
                         .get(&format!("step_level/{}", super::key(m.value)))
@@ -943,24 +943,24 @@ mod tests {
         ];
         let owner = Measurement {
             feature: "step_level".into(),
-            parameter: "step_height.length.h248_787".into(),
+            parameter: "step_height.length.f140".into(),
             value: level.z - a.envelope[0][2],
         };
         assert!(
             f.crossed_extension(shaft, &[])
-                .contains("f:section_recess:5")
+                .contains("f:section_recess:f124")
         );
         let owned = f.crossed_extension(shaft, std::slice::from_ref(&owner));
-        assert!(!owned.contains("f:section_recess:5"));
+        assert!(!owned.contains("f:section_recess:f124"));
         assert!(
-            owned.contains("f:hole:10"),
+            owned.contains("f:hole:f26"),
             "an unrelated crossed hole remains reported"
         );
         let mut other = owner;
         other.value += 1.;
         assert!(
             f.crossed_extension(shaft, &[other])
-                .contains("f:section_recess:5")
+                .contains("f:section_recess:f124")
         );
     }
 

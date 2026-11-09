@@ -421,7 +421,7 @@ pub fn alternatives(a: &Analysis, f: &Feature) -> Vec<Vec<Term>> {
                 let h = z - a.envelope[0][2];
                 terms.push(vec![Term::new(
                     "step_level",
-                    &format!("step_height.length.h{}", word(h)),
+                    &crate::geometry_ids::height_parameter(a, z),
                     h,
                 )]);
             }
@@ -466,7 +466,7 @@ pub fn alternatives(a: &Analysis, f: &Feature) -> Vec<Vec<Term>> {
                 let value = t - a.envelope[0][k];
                 Some(vec![Term::new(
                     "step_level",
-                    &format!("step_position.length.{}{}", AXES[k], word(value)),
+                    &crate::geometry_ids::position_parameter(a, k, t),
                     value,
                 )])
             } else {
@@ -521,14 +521,6 @@ pub fn alternatives(a: &Analysis, f: &Feature) -> Vec<Vec<Term>> {
         }
     }
     out
-}
-
-fn word(x: f64) -> String {
-    let s = format!("{x:.3}");
-    s.trim_end_matches('0')
-        .trim_end_matches('.')
-        .replace('-', "m")
-        .replace('.', "_")
 }
 
 fn nominal(text: &str) -> &str {

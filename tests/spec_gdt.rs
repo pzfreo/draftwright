@@ -78,7 +78,7 @@ fn a_datum_on_the_bottom_face_and_a_position_on_the_hole_pattern_are_drawn() {
     assert!(a.pmi.is_none(), "plate.step carries no PMI");
     let s = spec(json!({
         "faces": {"bottom": {"datum": "A"}},
-        "features": {"f:hole_pattern:1": {"controls": [
+        "features": {"f:hole_pattern:f6": {"controls": [
             {"characteristic": "position", "tolerance": 0.1, "datums": ["A"]}
         ]}}
     }));
@@ -171,7 +171,7 @@ fn a_flatness_control_on_a_face_draws_its_frame() {
 fn a_spec_control_that_restates_step_pmi_wins_with_a_problem() {
     let (part, a) = spindle();
     let s = spec(json!({
-        "features": {"f:hole:2": {"controls": [
+        "features": {"f:hole:f7": {"controls": [
             {"characteristic": "position", "tolerance": 0.02, "datums": ["A", "B"]}
         ]}}
     }));
@@ -214,14 +214,14 @@ fn a_spec_control_that_restates_step_pmi_wins_with_a_problem() {
         overrides[0].refs,
         [
             "geometric_tolerance:#918",
-            "spec:features/f:hole:2/controls/0"
+            "spec:features/f:hole:f7/controls/0"
         ]
     );
     assert!(overrides[0].message.contains("0.05"));
     // A datum the spec restates replaces the file's of the same letter.
     let datum = model::plan_recovered(
         &a,
-        &spec(json!({"features": {"f:turned_step:2": {"datum": "B"}}})),
+        &spec(json!({"features": {"f:turned_step:f6": {"datum": "B"}}})),
     )
     .unwrap();
     let b: Vec<_> = gdt(&datum, "datum_feature")
@@ -229,7 +229,7 @@ fn a_spec_control_that_restates_step_pmi_wins_with_a_problem() {
         .filter(|g| g.cells == ["B"])
         .collect();
     assert_eq!(b.len(), 1);
-    assert_eq!(b[0].source, "spec:features/f:turned_step:2/datum");
+    assert_eq!(b[0].source, "spec:features/f:turned_step:f6/datum");
     assert!(
         datum
             .problems
@@ -262,7 +262,7 @@ fn an_unknown_feature_or_face_is_a_clear_error() {
         "{}",
         e.message
     );
-    assert_eq!(e.choices[0], "f:hole_pattern:1");
+    assert_eq!(e.choices[0], "f:hole_pattern:f6");
     let e = model::plan_recovered(&a, &spec(json!({"faces": {"underside": {"datum": "A"}}})))
         .unwrap_err();
     assert!(
@@ -284,14 +284,14 @@ fn an_unknown_feature_or_face_is_a_clear_error() {
 fn edits_author_datums_and_controls_and_refuse_what_cannot_be_drawn() {
     let ops = json!([
         {"op": "set", "path": "faces/bottom/datum", "value": "A"},
-        {"op": "add", "path": "features/f:hole_pattern:1/controls",
+        {"op": "add", "path": "features/f:hole_pattern:f6/controls",
          "value": {"characteristic": "position", "tolerance": 0.1, "datums": ["A"]}}
     ]);
     let s = model::edit(&Spec::default(), &ops).unwrap();
     let v = serde_json::to_value(&s).unwrap();
     assert_eq!(v["faces"]["bottom"]["datum"], "A");
     assert_eq!(
-        v["features"]["f:hole_pattern:1"]["controls"][0]["characteristic"],
+        v["features"]["f:hole_pattern:f6"]["controls"][0]["characteristic"],
         "position"
     );
     let refused = |value: serde_json::Value| {
@@ -341,14 +341,18 @@ fn edits_author_datums_and_controls_and_refuse_what_cannot_be_drawn() {
 fn the_session_offers_datum_and_control_paths_on_a_feature() {
     let (part, a) = plate();
     let session = draftwright::Session::new(part, a, Spec::default()).unwrap();
-    let options =
-        serde_json::to_value(session.options("d:f:hole_pattern:1/bore.diameter").unwrap()).unwrap();
+    let options = serde_json::to_value(
+        session
+            .options("d:f:hole_pattern:f6/bore.diameter")
+            .unwrap(),
+    )
+    .unwrap();
     let settable = &options["settable"];
     assert_eq!(
-        settable["features/f:hole_pattern:1/datum"]["forms"],
+        settable["features/f:hole_pattern:f6/datum"]["forms"],
         json!(["A"])
     );
-    let controls = &settable["features/f:hole_pattern:1/controls"];
+    let controls = &settable["features/f:hole_pattern:f6/controls"];
     assert!(
         controls["fields"]
             .as_array()

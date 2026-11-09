@@ -1,218 +1,218 @@
 [
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:10/bore.diameter",
-    "crossing": "line:d:f:hole:11/location.length.x",
+    "callout": "d:f:hole_pattern:f95/bore.diameter",
+    "crossing": "line:d:f:hole:f21/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:10/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:1/pitch.length",
+    "callout": "d:f:hole_pattern:f95/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f5/pitch.length",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:10/bore.diameter",
-    "crossing": "line:d:f:slot:2/slot_length.length",
+    "callout": "d:f:hole_pattern:f95/bore.diameter",
+    "crossing": "line:d:f:slot:f316/slot_length.length",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:3/bore.diameter",
-    "crossing": "line:d:f:hole:11/location.length.x",
+    "callout": "d:f:hole_pattern:f25/bore.diameter",
+    "crossing": "line:d:f:hole:f21/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:4/bore.diameter",
-    "crossing": "line:d:f:hole:23/location.length.x",
+    "callout": "d:f:hole_pattern:f39/bore.diameter",
+    "crossing": "line:d:f:hole:f45/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:4/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:6/location.length.x",
+    "callout": "d:f:hole_pattern:f39/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f59/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:4/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:6/pitch.length",
+    "callout": "d:f:hole_pattern:f39/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f59/pitch.length",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:4/bore.diameter",
-    "crossing": "line:d:f:slot:4/slot_width.length",
+    "callout": "d:f:hole_pattern:f39/bore.diameter",
+    "crossing": "line:d:f:slot:f346/slot_width.length",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:10/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:2/location.length.x",
+    "callout": "d:f:hole_pattern:f95/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f11/location.length.x",
     "verdict": "rust-wrong",
-    "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing. Came with stream d-quality-merged-lanes (items merged away share their survivor's lane, as draftwright's corridor dedup places no displaced duplicate): the plan's strips are shallower, so d:f:hole:10's and d:f:hole:56's x locations (457, 473.6), which fell through below the plan, now stay in its upper strip, their extension lines running up through the view from the holes near its lower edge, and hole_pattern:2's pitch stays in the left strip; 12 crossings went (among them every one with hole_pattern:2's x location 480, which model::plan placed off the sheet and the escalation dropped, and the two leaders that crossed each other) and 11 came. The strips (dims::placement::strip) give a plan's horizontal dimensions the strip above it and its vertical ones the strip left of it whichever side their feature is nearer; draftwright's own sheet puts these callouts in a column right of the plan, which its Y ladder above the side view leaves free (maintainer question (2) of d-quality-lanes). Re-routed when ctc04's identical slots began sharing one counted width (2× 75, 2× 140, 2026-10-24): two width dimensions fewer reshuffle the ladders, and the joint assignment found these crossings in place of ten others (33 listed → 31)."
+    "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing. Came with stream d-quality-merged-lanes (items merged away share their survivor's lane, as draftwright's corridor dedup places no displaced duplicate): the plan's strips are shallower, so d:f:hole:f19's and d:f:hole:f163's x locations (457, 473.6), which fell through below the plan, now stay in its upper strip, their extension lines running up through the view from the holes near its lower edge, and hole_pattern:2's pitch stays in the left strip; 12 crossings went (among them every one with hole_pattern:2's x location 480, which model::plan placed off the sheet and the escalation dropped, and the two leaders that crossed each other) and 11 came. The strips (dims::placement::strip) give a plan's horizontal dimensions the strip above it and its vertical ones the strip left of it whichever side their feature is nearer; draftwright's own sheet puts these callouts in a column right of the plan, which its Y ladder above the side view leaves free (maintainer question (2) of d-quality-lanes). Re-routed when ctc04's identical slots began sharing one counted width (2× 75, 2× 140, 2026-10-24): two width dimensions fewer reshuffle the ladders, and the joint assignment found these crossings in place of ten others (33 listed → 31)."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:3/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:2/location.length.x",
+    "callout": "d:f:hole_pattern:f25/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f11/location.length.x",
     "verdict": "rust-wrong",
-    "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing. Came with stream d-quality-merged-lanes (items merged away share their survivor's lane, as draftwright's corridor dedup places no displaced duplicate): the plan's strips are shallower, so d:f:hole:10's and d:f:hole:56's x locations (457, 473.6), which fell through below the plan, now stay in its upper strip, their extension lines running up through the view from the holes near its lower edge, and hole_pattern:2's pitch stays in the left strip; 12 crossings went (among them every one with hole_pattern:2's x location 480, which model::plan placed off the sheet and the escalation dropped, and the two leaders that crossed each other) and 11 came. The strips (dims::placement::strip) give a plan's horizontal dimensions the strip above it and its vertical ones the strip left of it whichever side their feature is nearer; draftwright's own sheet puts these callouts in a column right of the plan, which its Y ladder above the side view leaves free (maintainer question (2) of d-quality-lanes). Re-routed when ctc04's identical slots began sharing one counted width (2× 75, 2× 140, 2026-10-24): two width dimensions fewer reshuffle the ladders, and the joint assignment found these crossings in place of ten others (33 listed → 31)."
+    "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features (holes, patterns, slots) and run through the view to the lanes above and beside it (every location from the datum, in the end-on view, ADR1-6); this callout's sites lie among them, so every route out of the view crosses some. The joint assignment took the fewest crossings its bounded inventory offers. draftwright's own ctc04 sheet has 24 leader-line crossings by this test's predicate (measured by stream d-callout-leaders on its drawing; docs/next-session.md), its locations laid out differently. The cause is the ladders' extension lines through the view; reported as annotation_leader_crossing. Came with stream d-quality-merged-lanes (items merged away share their survivor's lane, as draftwright's corridor dedup places no displaced duplicate): the plan's strips are shallower, so d:f:hole:f19's and d:f:hole:f163's x locations (457, 473.6), which fell through below the plan, now stay in its upper strip, their extension lines running up through the view from the holes near its lower edge, and hole_pattern:2's pitch stays in the left strip; 12 crossings went (among them every one with hole_pattern:2's x location 480, which model::plan placed off the sheet and the escalation dropped, and the two leaders that crossed each other) and 11 came. The strips (dims::placement::strip) give a plan's horizontal dimensions the strip above it and its vertical ones the strip left of it whichever side their feature is nearer; draftwright's own sheet puts these callouts in a column right of the plan, which its Y ladder above the side view leaves free (maintainer question (2) of d-quality-lanes). Re-routed when ctc04's identical slots began sharing one counted width (2× 75, 2× 140, 2026-10-24): two width dimensions fewer reshuffle the ladders, and the joint assignment found these crossings in place of ten others (33 listed → 31)."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:10/bore.diameter",
-    "crossing": "label:d:f:slot:3/slot_length.length",
-    "verdict": "rust-wrong",
-    "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
-  },
-  {
-    "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:11/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:6/location.length.x",
+    "callout": "d:f:hole_pattern:f95/bore.diameter",
+    "crossing": "label:d:f:slot:f344/slot_length.length",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:11/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:6/pitch.length",
+    "callout": "d:f:hole_pattern:f98/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f59/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:9/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:6/location.length.x",
+    "callout": "d:f:hole_pattern:f98/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f59/pitch.length",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:9/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:6/pitch.length",
+    "callout": "d:f:hole_pattern:f92/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f59/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole:11/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:5/location.length.x",
+    "callout": "d:f:hole_pattern:f92/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f59/pitch.length",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:10/bore.diameter",
-    "crossing": "line:d:f:hole:1/location.length.x",
+    "callout": "d:f:hole:f21/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f49/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:10/bore.diameter",
-    "crossing": "line:d:f:hole:12/location.length.x",
+    "callout": "d:f:hole_pattern:f95/bore.diameter",
+    "crossing": "line:d:f:hole:f0/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:12/bore.diameter",
-    "crossing": "line:d:f:hole:1/location.length.x",
+    "callout": "d:f:hole_pattern:f95/bore.diameter",
+    "crossing": "line:d:f:hole:f23/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:12/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:1/pitch.length",
+    "callout": "d:f:hole_pattern:f101/bore.diameter",
+    "crossing": "line:d:f:hole:f0/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:12/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:2/location.length.x",
+    "callout": "d:f:hole_pattern:f101/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f5/pitch.length",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:3/bore.diameter",
-    "crossing": "line:d:f:hole:1/location.length.x",
+    "callout": "d:f:hole_pattern:f101/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f11/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:3/bore.diameter",
-    "crossing": "line:d:f:hole:12/location.length.x",
+    "callout": "d:f:hole_pattern:f25/bore.diameter",
+    "crossing": "line:d:f:hole:f0/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:4/bore.diameter",
-    "crossing": "line:d:f:hole:24/location.length.x",
+    "callout": "d:f:hole_pattern:f25/bore.diameter",
+    "crossing": "line:d:f:hole:f23/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:9/bore.diameter",
-    "crossing": "line:d:f:hole:23/location.length.x",
+    "callout": "d:f:hole_pattern:f39/bore.diameter",
+    "crossing": "line:d:f:hole:f47/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:9/bore.diameter",
-    "crossing": "line:d:f:hole:24/location.length.x",
+    "callout": "d:f:hole_pattern:f92/bore.diameter",
+    "crossing": "line:d:f:hole:f45/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:9/bore.diameter",
-    "crossing": "line:d:f:hole_pattern:5/location.length.x",
+    "callout": "d:f:hole_pattern:f92/bore.diameter",
+    "crossing": "line:d:f:hole:f47/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:9/bore.diameter",
-    "crossing": "line:d:f:slot:2/location_slot.length",
+    "callout": "d:f:hole_pattern:f92/bore.diameter",
+    "crossing": "line:d:f:hole_pattern:f49/location.length.x",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:9/bore.diameter",
-    "crossing": "line:d:f:slot:2/slot_length.length",
+    "callout": "d:f:hole_pattern:f92/bore.diameter",
+    "crossing": "line:d:f:slot:f316/location_slot.length",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "ctc04 (native)",
-    "callout": "d:f:hole_pattern:9/bore.diameter",
-    "crossing": "line:d:f:slot:4/slot_width.length",
+    "callout": "d:f:hole_pattern:f92/bore.diameter",
+    "crossing": "line:d:f:slot:f316/slot_length.length",
+    "verdict": "rust-wrong",
+    "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
+  },
+  {
+    "part": "ctc04 (native)",
+    "callout": "d:f:hole_pattern:f92/bore.diameter",
+    "crossing": "line:d:f:slot:f346/slot_width.length",
     "verdict": "rust-wrong",
     "reason": "On ctc04 (native) the plan is crossed by the location ladders' extension lines, which start at the interior features and run through the view to the lanes above and beside it (ADR1-6); this callout's sites lie among them, so every route out of the view crosses some, and the joint assignment takes the fewest its bounded inventory offers. Re-routed with the 3 mm frame gutter (2026-10-25): the plan's strips and lanes moved, and these crossings replace eleven others (the listed total is unchanged). Reported as annotation_leader_crossing."
   },
   {
     "part": "connector109",
-    "callout": "d:f:groove:2/groove.length",
-    "crossing": "line:d:f:boss:3/boss.diameter",
+    "callout": "d:f:groove:f217/groove.length",
+    "crossing": "line:d:f:boss:f160/boss.diameter",
     "verdict": "rust-wrong",
     "reason": "On connector109 the two equal 6 wide grooves are one counted callout since #220 (2× 6 WIDE × ø122, claiming both), and the three ø130.94 lands are the overall diameter's, so the front view's left column loses four crowded callouts and the bounded leader search no longer caps (the previous annotation_leader_search_capped is gone). The counted callout leaves from its first groove's right-hand site, and its leader's root crosses the ø122 boss diameter's extension line where that line runs up the silhouette past the groove. A placement residual at the leader's root: every callout remains drawn, the label is clear, and the sheet is otherwise less crowded than before (scratchpad renders compared)."
   }

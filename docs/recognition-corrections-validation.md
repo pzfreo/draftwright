@@ -7,12 +7,12 @@ The Python declaration implementation was read as a reference; it was not change
 ## Authored intent
 
 The feature entry accepts one of `reclassify`, `suppress`, `split`, or `pattern`.
-For example, `features/f:boss:1/reclassify = "turned_step"`,
-`features/f:hole:9/suppress = true`, and `features/f:hole_pattern:1/split = true`.
+For example, `features/f:boss:f25/reclassify = "turned_step"`,
+`features/f:hole:f9/suppress = true`, and `features/f:hole_pattern:f6/split = true`.
 An authored group is:
 
 ```json
-{"features":{"f:hole_pattern:pair":{"pattern":{"arrangement":"linear","members":["f:hole:1","f:hole:2"]}}}}
+{"features":{"f:hole_pattern:pair":{"pattern":{"arrangement":"linear","members":["f:hole:f6","f:hole:f7"]}}}}
 ```
 
 `arrangement` also accepts `grid` and `bolt_circle`. A missed feature is:

@@ -165,7 +165,7 @@ fn pin_replay_keeps_the_ftc09_schedule_and_its_clearance() {
 
     let spec = serde_json::from_value(
         json!({"sheet":{"size":"A1","references":true},"dimensions":{
-            "d:step_level/step_height.length.h47_625":{"place":{"pinned":true}}
+            "d:step_level/step_height.length.f79":{"place":{"pinned":true}}
         }}),
     )
     .unwrap();
@@ -202,9 +202,9 @@ fn mixed_view_and_item_pins_keep_settled_peers_in_the_guttered_frame() {
         for id in [
             "d:envelope/height.length",
             "d:envelope/depth.length",
-            "d:f:section_recess:2/pocket_width.length",
-            "d:f:paired_ramp_step:1/ramp_angle.angle",
-            "d:f:hole:1/bore.diameter",
+            "d:f:section_recess:f18/pocket_width.length",
+            "d:f:paired_ramp_step:f2/ramp_angle.angle",
+            "d:f:hole:f10/bore.diameter",
         ] {
             spec.dimensions.entry(id.into()).or_default().place =
                 Some(serde_json::from_value(json!({"pinned":true})).unwrap());

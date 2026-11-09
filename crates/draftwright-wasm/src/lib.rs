@@ -141,7 +141,7 @@ impl Session {
             serde_json::from_str(json).map_err(|e| Error::invalid(format!("invalid spec: {e}")))?;
         self.0.set_spec(&spec)
     }
-    /// [`CoreSession::open_spec`], answered as JSON: `{spec, set_aside: [{path, entry, reason_code}]}`.
+    /// [`CoreSession::open_spec`], answered as JSON: `{spec, set_aside: [{path, entry, reason_code}], migrated: [{path, from, to}], ids: {old: new}}`.
     pub fn open_spec_json(&mut self, json: &str) -> Result<String, Error> {
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         Ok(serde_json::to_string(&self.0.open_spec(json)?).expect("opened spec serialises"))
@@ -433,7 +433,7 @@ export interface CalloutOffset {
             self.0.set_spec(json).map_err(js)
         }
         /// Open a saved Spec, setting aside entries the part no longer has:
-        /// `{spec, set_aside: [{path, entry, reason_code}]}`.
+        /// `{spec, set_aside: [{path, entry, reason_code}], migrated: [{path, from, to}], ids: {old: new}}`.
         #[wasm_bindgen(js_name = openSpec)]
         pub fn open_spec(&mut self, json: &str) -> Result<String, JsValue> {
             self.0.open_spec_json(json).map_err(js)
@@ -555,7 +555,7 @@ mod tests {
         )
         .unwrap();
         let options: Value = serde_json::from_str(&s.placement_options_json().unwrap()).unwrap();
-        let id = "d:f:hole_pattern:1/bore.diameter";
+        let id = "d:f:hole_pattern:f6/bore.diameter";
         assert_eq!(options[id]["operation_scopes"]["place"], "local");
         assert_eq!(options["v:iso"]["operation_scopes"]["omit"], "view");
         let snapshot: Value = serde_json::from_str(&s.snapshot().unwrap()).unwrap();
@@ -586,7 +586,7 @@ mod tests {
             include_bytes!("../../../tests/fixtures/samples/editor-plate.step"),
         )
         .unwrap();
-        let id = "d:f:hole_pattern:1/bore.diameter";
+        let id = "d:f:hole_pattern:f6/bore.diameter";
         let before =
             s.0.plan()
                 .dimensions
@@ -660,7 +660,7 @@ mod tests {
         )
         .unwrap();
         let saved = json!({"sheet":{"preferred_printer":"A3"},
-            "dimensions":{"d:f:hole:1/bore.diameter":{"omit":true}}});
+            "dimensions":{"d:f:hole:f6/bore.diameter":{"omit":true}}});
         let refused: Value =
             serde_json::from_str(&error_json(&s.set_spec(&saved.to_string()).unwrap_err()))
                 .unwrap();

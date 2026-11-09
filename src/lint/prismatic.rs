@@ -284,11 +284,16 @@ fn shoulder_coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         if distance.abs() < 1e-6 {
             continue;
         }
+        let parameter = crate::geometry_ids::position_parameter(analysis, k, at);
         let claimed = marks.iter().any(|m| {
             m.claims.iter().any(|c| {
                 if c.feature != "step_level" {
                     return false;
                 }
+                if c.parameter == parameter {
+                    return holes::states(&m.text, distance);
+                }
+                // Older captured drawings still carry value-word claims.
                 let prefix = format!("step_position.length.{}", AXES[k]);
                 let Some(word) = c.parameter.strip_prefix(&prefix) else {
                     return false;
@@ -348,7 +353,6 @@ fn shoulder_coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
         if claimed || channel || bend {
             continue;
         }
-        let parameter = format!("step_position.length.{}{}", AXES[k], distance);
         issues.push(super::uncovered(analysis, "unrecognised_defining_geometry", "step_level", &parameter,
             format!("The recognised {} shoulder at {at} has no stated position on the drawing (distance {distance} from the part's box).", AXES[k])));
     }
@@ -390,6 +394,58 @@ mod tests {
                 format!("{} {}", i.message, r.join(","))
             })
             .collect()
+    }
+
+    #[test]
+    fn shoulder_face_claims_check_the_printed_value_and_survive_resizing() {
+        let mut a = part("pad", json!({}));
+        a.features.clear();
+        a.envelope = [[0., 0., 0.], [100., 100., 10.]];
+        a.levels = vec![0., 10.];
+        a.risers = serde_json::from_value(json!([{
+            "faces":[7], "vertical":true, "axis":"x", "positions":[20.,40.],
+            "other_axis":"y", "other_positions":[], "z_lo":0., "z_hi":10.,
+            "lo_at_envelope":true, "hi_at_envelope":true, "tol":0.001, "body_levels":[0.,10.]
+        }]))
+        .unwrap();
+        let x = mark("step_level", "20", &["step_position.length.f7_0"]);
+        let y = mark("step_level", "40", &["step_position.length.f7_1"]);
+        assert!(shoulder_coverage(&a, &[x.clone(), y]).is_empty());
+        let missing = shoulder_coverage(&a, std::slice::from_ref(&x));
+        assert_eq!(missing.len(), 1);
+        assert_eq!(
+            missing[0].requirements[0].parameter,
+            "step_position.length.f7_1"
+        );
+        assert_eq!(
+            shoulder_coverage(
+                &a,
+                &[x, mark("step_level", "41", &["step_position.length.f7_1"])]
+            )
+            .len(),
+            1
+        );
+        assert!(
+            shoulder_coverage(
+                &a,
+                &[
+                    mark("step_level", "20", &["step_position.length.x20"]),
+                    mark("step_level", "40", &["step_position.length.x40"]),
+                ]
+            )
+            .is_empty()
+        );
+        a.risers[0].positions = vec![25., 45.];
+        assert!(
+            shoulder_coverage(
+                &a,
+                &[
+                    mark("step_level", "25", &["step_position.length.f7_0"]),
+                    mark("step_level", "45", &["step_position.length.f7_1"]),
+                ]
+            )
+            .is_empty()
+        );
     }
 
     /// test_issue_885's case study, one pad: 40 × 18 × 14 high standing on a 22 mm plate at x

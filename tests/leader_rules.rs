@@ -200,7 +200,7 @@ fn a_diameter_tip_touches_the_rim_of_the_hole_it_names() {
             hole("f:hole:1", 2.0, 0.0, 4.0),
             hole("f:hole:2", -6.0, 5.0, 2.0),
             feature(
-                "f:double_d_bore:1",
+                "f:double_d_bore:f6",
                 "double_d_bore",
                 json!({ "axis": [0.0, 0.0, 1.0], "location": [-5.0, -5.0, 10.0],
                         "major_diameter": 6.0, "across_flats": 4.0,
@@ -235,7 +235,7 @@ fn a_diameter_tip_touches_the_rim_of_the_hole_it_names() {
     // ... and fine when it names that hole too (a counted callout tips one member).
     assert!(check(page(-5.0, 5.0), &[bore[0], ("f:hole:2", "bore.diameter")]).is_empty());
     // A double-D: a flat (x = −3, |y + 5| ≤ √5), an arc (the top of the major circle).
-    let dd = [("f:double_d_bore:1", "bore.diameter")];
+    let dd = [("f:double_d_bore:f6", "bore.diameter")];
     assert!(check(page(-3.0, -4.0), &dd).is_empty());
     assert!(check(page(-5.0, -2.0), &dd).is_empty());
     // The major circle where the flat cut it away is blank material.
@@ -646,7 +646,7 @@ fn the_ports_own_callouts_touch_their_targets() {
 #[test]
 fn the_plan_and_lint_agree_on_a_leader_cutting_back_into_the_material() {
     use std::io::Read as _;
-    const ID: &str = "d:f:turned_step:1/step.diameter";
+    const ID: &str = "d:f:turned_step:f13/step.diameter";
     let mut bytes = Vec::new();
     flate2::read::GzDecoder::new(
         std::fs::File::open(fixture("pmi/step/assembly_plate_pin.step.gz")).unwrap(),
@@ -810,7 +810,7 @@ fn hole_location_uses_perpendicular_witnesses_and_rejects_oblique_crossings_1000
     let location = plan
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:hole:1/location.length.y")
+        .find(|d| d.id == "d:f:hole:f8/location.length.y")
         .unwrap();
     assert_eq!(location.view, "v:side");
     let p = location.placed.as_ref().unwrap();
@@ -974,7 +974,7 @@ fn recovered_ctc02_keeps_counted_radius_leaders_on_trimmed_arcs() {
         unverifiable
             .iter()
             // #127 inserts concave rounds before the same drafted R25 group.
-            .all(|n| *n == "d:f:fillet:51/fillet.radius"),
+            .all(|n| *n == "d:f:fillet:f331/fillet.radius"),
         "{unverifiable:?}"
     );
 }
@@ -993,7 +993,11 @@ fn recovered_ftc09_keeps_a1_and_perpendicular_witnesses() {
     let (part, mut a) = cache::native(&path);
     // Its congruent slots 1 and 2, called out together, drop the slot radius leader whose
     // crowding made this case: slot 2 is split from their callout (`features/<id>/split`).
-    let slot = a.features.iter_mut().find(|f| f.id == "f:slot:2").unwrap();
+    let slot = a
+        .features
+        .iter_mut()
+        .find(|f| f.id == "f:slot:f82")
+        .unwrap();
     slot.parameters.insert(
         draftwright::lint::slots::ALONE.into(),
         serde_json::Value::Bool(true),
@@ -1141,7 +1145,7 @@ fn recovered_radius_routes_survive_unrelated_annotation_edits() {
     let (_, a) = model::analyse_native(&path).unwrap();
     for edit in [json!({"omit":true}), json!({"tolerance":"±0.05"})] {
         let spec: Spec = serde_json::from_value(json!({"dimensions":{
-            "d:f:hole_pattern:1/location.length.x": edit
+            "d:f:hole_pattern:f77/location.length.x": edit
         }}))
         .unwrap();
         // Plan the edited document first: locality is not a cache-history policy.
@@ -1401,7 +1405,7 @@ fn a_chamfer_tip_lies_on_its_bevel() {
                 direction,
                 vec![callout(
                     "d:c",
-                    &[("f:chamfer:1", "chamfer.length")],
+                    &[("f:chamfer:f38", "chamfer.length")],
                     tip,
                     [130.0, 110.0],
                 )],
@@ -1410,7 +1414,7 @@ fn a_chamfer_tip_lies_on_its_bevel() {
         )
     };
     let turned = feature(
-        "f:chamfer:1",
+        "f:chamfer:f38",
         "chamfer",
         json!({ "angle": 45.0, "at": [0.0, -4.5, 4.5], "axis": "z", "corner": null,
                 "leg1": 1.0, "leg2": 1.0, "turned": true }),
@@ -1426,7 +1430,7 @@ fn a_chamfer_tip_lies_on_its_bevel() {
         one("chamfer_leader_target_mismatch", "d:c")
     );
     let prismatic = feature(
-        "f:chamfer:1",
+        "f:chamfer:f38",
         "chamfer",
         json!({ "angle": 45.0, "at": [0.0, 9.5, 9.5], "axis": "x", "corner": null,
                 "leg1": 1.0, "leg2": 1.0, "turned": false }),
@@ -1493,18 +1497,18 @@ fn flat_cut_bands_chamfers_and_fillets_lead_to_their_own_faces() {
     for (file, checks) in [
         (
             "gramel/string_post.step",
-            &["d:f:turned_step:4/step.diameter"][..],
+            &["d:f:turned_step:f10/step.diameter"][..],
         ),
         (
             "nist/nist_ctc_05_asme1_rd.stp",
             &[
-                "d:f:turned_step:1/step.diameter",
-                "d:f:chamfer:1/chamfer.length",
+                "d:f:turned_step:f1/step.diameter",
+                "d:f:chamfer:f82/chamfer.length",
             ][..],
         ),
         (
             "nist/nist_ftc_10_asme1_rb.stp",
-            &["d:f:fillet:21/fillet.radius"][..],
+            &["d:f:fillet:f40/fillet.radius"][..],
         ),
         ("cadgenbench_inputs/cgb202.step.gz", &[][..]),
     ] {
@@ -1541,7 +1545,7 @@ fn flat_cut_bands_chamfers_and_fillets_lead_to_their_own_faces() {
             let d = plan
                 .dimensions
                 .iter()
-                .find(|d| d.id == "d:f:turned_step:1/step.diameter")
+                .find(|d| d.id == "d:f:turned_step:f1/step.diameter")
                 .unwrap();
             assert_eq!(
                 d.view, "v:side",
@@ -2061,7 +2065,7 @@ fn a_knurl_note_leads_to_its_knurled_surface() {
         (Spec::default(), "DIAMOND KNURL P1"),
         (
             serde_json::from_value(json!({
-                "features": { "f:turned_step:4": { "knurl": { "pattern": "straight", "pitch": 0.8 } } }
+                "features": { "f:turned_step:f9": { "knurl": { "pattern": "straight", "pitch": 0.8 } } }
             }))
             .unwrap(),
             "STRAIGHT KNURL P0.8",
@@ -2069,7 +2073,7 @@ fn a_knurl_note_leads_to_its_knurled_surface() {
     ] {
         let plan = model::plan(&a, &spec).unwrap();
         let mut drawing = model::render(&part, &a, &plan, &font()).unwrap();
-        let name = "d:f:turned_step:4/step.diameter";
+        let name = "d:f:turned_step:f9/step.diameter";
         let ann = drawing
             .annotations
             .iter()
@@ -2087,7 +2091,7 @@ fn a_knurl_note_leads_to_its_knurled_surface() {
         let step = a
             .features
             .iter()
-            .find(|x| x.id == "f:turned_step:4")
+            .find(|x| x.id == "f:turned_step:f9")
             .unwrap();
         let band = lint::turned::band(&draftwright::bridge::holes::frame(&a), step).unwrap();
         assert!(

@@ -56,7 +56,7 @@ fn session() -> Session {
         },
         "dimensions": {
             "d:envelope/height.length": { "place": { "side": "right", "lane": 1 } },
-            "d:f:turned_step:2/step_position.length": { "place": { "side": "right", "lane": 0 } }
+            "d:f:turned_step:f6/step_position.length": { "place": { "side": "right", "lane": 0 } }
         }
     }))
     .unwrap();
@@ -108,7 +108,7 @@ fn applying_both_proposed_fixes_keeps_the_stack_apart_and_text_on_its_lines() {
         moved,
         [
             "d:envelope/height.length",
-            "d:f:turned_step:2/step_position.length"
+            "d:f:turned_step:f6/step_position.length"
         ],
         "the review sample's two crossings"
     );
@@ -315,7 +315,7 @@ fn ctc01_crossings_offer_local_edits_and_identify_the_sheet_remedy() {
     );
     // CTC-01 plans no radius-centre table (its 4× R25 leader is not obstructed), so no
     // dimension carries one, and every crossing's first offer is a local edit (on alpha.12
-    // only d:f:hole:1/location.length.z's was; the table carriers' were sheet fixes). The rest
+    // only d:f:hole:f73/location.length.z's was; the table carriers' were sheet fixes). The rest
     // of this test checks the table-carrier contract for a plan that has the table.
     if plan.radius_table.is_none() {
         for p in &crossings {
@@ -344,7 +344,7 @@ fn ctc01_crossings_offer_local_edits_and_identify_the_sheet_remedy() {
         let local = fixes
             .iter()
             .find(|f| f.scope() == draftwright::fixes::Scope::Local);
-        if p.subjects[0] != "d:f:hole:1/location.length.z" {
+        if p.subjects[0] != "d:f:hole:f73/location.length.z" {
             assert!(
                 local.is_none(),
                 "table-carrier change cannot promise retention: {p:?}"
@@ -426,13 +426,13 @@ fn ctc01_crossings_offer_local_edits_and_identify_the_sheet_remedy() {
     session.undo().unwrap();
     let hole = crossings
         .iter()
-        .find(|p| p.subjects[0] == "d:f:hole:1/location.length.z")
+        .find(|p| p.subjects[0] == "d:f:hole:f73/location.length.z")
         .unwrap()
         .offered_fixes()[0]
         .clone();
     let slot = crossings
         .iter()
-        .find(|p| p.subjects[0] == "d:f:slot:2/slot_length.length")
+        .find(|p| p.subjects[0] == "d:f:slot:f8/slot_length.length")
         .unwrap()
         .offered_fixes()[0]
         .clone();

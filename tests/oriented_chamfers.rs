@@ -101,8 +101,8 @@ fn ctc01_consumes_bevel_faces_and_sizes_both_notches_without_duplicate_c50() {
         1
     );
     for id in [
-        "d:f:slot:1/slot_width.length",
-        "d:f:slot:2/slot_width.length",
+        "d:f:slot:f4/slot_width.length",
+        "d:f:slot:f8/slot_width.length",
     ] {
         let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
         let ink = d.placed.as_ref().unwrap();
@@ -507,7 +507,7 @@ fn bounded_notches_reserve_acute_arcs_and_leave_dense_general_profiles_alone() {
             assert_eq!(p.sheet.scale, "2:1");
             for (feature, parameters) in [
                 (
-                    "f:section_recess:1",
+                    "f:section_recess:f8",
                     &[
                         "pocket_width.length",
                         "pocket_length.length",
@@ -517,7 +517,7 @@ fn bounded_notches_reserve_acute_arcs_and_leave_dense_general_profiles_alone() {
                     ][..],
                 ),
                 (
-                    "f:section_recess:5",
+                    "f:section_recess:f35",
                     &[
                         "pocket_width.length",
                         "pocket_length.length",
@@ -527,7 +527,7 @@ fn bounded_notches_reserve_acute_arcs_and_leave_dense_general_profiles_alone() {
                     ][..],
                 ),
                 (
-                    "f:section_recess:2",
+                    "f:section_recess:f16",
                     &["polygon_across_flats.length", "pocket_depth.length"][..],
                 ),
             ] {
@@ -694,7 +694,7 @@ fn an_unproved_bevel_corner_cannot_replace_the_proven_notch_depth() {
     // v0.4.2 withholds this virtual corner: the existing bevel claim does not prove
     // the depth's witness stations. Keep the independently measured depth explicit.
     assert!(a.features.iter().any(|f| {
-        f.id == "f:chamfer:1"
+        f.id == "f:chamfer:f3"
             && f.parameters
                 .get("corner")
                 .is_some_and(serde_json::Value::is_null)
@@ -705,7 +705,7 @@ fn an_unproved_bevel_corner_cannot_replace_the_proven_notch_depth() {
     assert!(
         p.dimensions
             .iter()
-            .filter(|d| d.id == "d:f:chamfer:1/chamfer.length")
+            .filter(|d| d.id == "d:f:chamfer:f3/chamfer.length")
             .all(|d| !d
                 .measurements
                 .iter()
@@ -716,7 +716,7 @@ fn an_unproved_bevel_corner_cannot_replace_the_proven_notch_depth() {
         !p.omitted
             .iter()
             .any(|d| d.id.contains("/notch_depth.length.")
-                && matches!(&d.state, State::Covered { by } if by == "d:f:chamfer:1/chamfer.length"))
+                && matches!(&d.state, State::Covered { by } if by == "d:f:chamfer:f3/chamfer.length"))
     );
     let drawing = model::render(
         &part,
@@ -740,7 +740,7 @@ fn an_unproved_bevel_corner_cannot_replace_the_proven_notch_depth() {
     );
     let q = model::plan_recovered(
         &a,
-        &parse(json!({"dimensions":{"d:f:chamfer:1/chamfer.length":{"omit":true}}})),
+        &parse(json!({"dimensions":{"d:f:chamfer:f3/chamfer.length":{"omit":true}}})),
     )
     .unwrap();
     assert!(
@@ -784,7 +784,7 @@ fn notch_dimensions_leave_the_boss_leader_clear_of_hidden_ink_and_witnesses() {
     let boss = p
         .dimensions
         .iter()
-        .find(|d| d.id == "d:f:boss:1/boss.diameter")
+        .find(|d| d.id == "d:f:boss:f51/boss.diameter")
         .unwrap();
     let route = &boss.placed.as_ref().unwrap().lines;
     let geometry = model::render_geometry(&part, &a, &p, &mut Default::default()).unwrap();

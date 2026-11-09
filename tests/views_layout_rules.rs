@@ -543,13 +543,13 @@ fn reserved_location_corridors_choose_witnesses_clear_of_foreign_holes() {
     for (file, id, foreign) in [
         (
             "nist/nist_ftc_06_asme1_rd.stp",
-            "d:f:hole:5/location.length.y",
-            vec!["f:hole:11", "f:hole:12"],
+            "d:f:hole:f59/location.length.y",
+            vec!["f:hole:f106", "f:hole:f108"],
         ),
         (
             "nist/nist_ftc_07_asme1_rd.stp",
-            "d:f:hole:8/location.length.y",
-            vec!["f:hole:5", "f:hole:6", "f:hole:7"],
+            "d:f:hole:f188/location.length.y",
+            vec!["f:hole:f185", "f:hole:f186", "f:hole:f187"],
         ),
     ] {
         let a = model::analyse_native(&corpus::dir().unwrap().join(file))

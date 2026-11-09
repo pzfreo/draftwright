@@ -1036,14 +1036,14 @@ mod tests {
                 .join("tests/fixtures/parts/plate.step"),
         )
         .unwrap();
-        let id = "d:f:hole:1/bore.diameter";
+        let id = "d:f:hole:f6/bore.diameter";
         let want = |terms: &[&str]| Want {
             id: id.into(),
             views: vec!["plan"],
             value: 6.0,
             terms: terms.iter().map(|t| t.to_string()).collect(),
             measurements: vec![super::super::Measurement {
-                feature: "f:hole:1".into(),
+                feature: "f:hole:f6".into(),
                 parameter: "bore.diameter".into(),
                 value: 6.0,
             }],

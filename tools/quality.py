@@ -814,13 +814,49 @@ def table(res):
     print(f"{'TOTAL':32}" + ''.join(f"{sum(r.get(k, 0) for r in res.values() if 'error' not in r):23}" for k in CROSSING_KEYS))
 
 
+def pin_geometry(item, view=None):
+    """Sampling/order facts, deliberately excluding identity, labels and provenance.
+
+    Projected witnesses, arrows and glyph bounds distinguish coincident values;
+    the camera distinguishes the same interval seen in different projections.
+    Quantize paper geometry below the instrument's 1e-6 mm tolerance so JSON
+    float spelling (including negative zero) cannot reshuffle the sample.
+    """
+    def numbers(v):
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return round(v * 1_000_000_000)
+        if isinstance(v, list):
+            return [numbers(x) for x in v]
+        return None
+    placed = item.get('placed') or {}
+    geometry = {k: numbers(placed[k]) for k in (
+        'at', 'box', 'glyph', 'label_at', 'label_box', 'rotation',
+        'lines', 'arrows', 'strokes',
+    ) if k in placed}
+    camera = view or item
+    return json.dumps([
+        item.get('kind'), numbers(item.get('value')),
+        sorted(numbers(m.get('value')) for m in item.get('measurements', [])
+               if isinstance(m.get('value'), (int, float))),
+        numbers(camera.get('direction')), numbers(camera.get('up')),
+        numbers(camera.get('area')), numbers(camera.get('scale')), geometry,
+    ], sort_keys=True, separators=(',', ':'))
+
+
 def random_pins(plan, name, seed, count):
     """Bare annotation pins; view pins use the nearest legal relation to a fixed root."""
-    candidates = [(d["id"], "dimensions", {"pinned": True})
+    by_view = {v['id']: v for v in plan['views']}
+    candidates = [(d["id"], "dimensions", {"pinned": True},
+                   pin_geometry(d, by_view.get(d.get('view'))))
                   for d in plan["dimensions"] if d.get("placed") is not None]
-    candidates += [(g["id"], "annotations", {"pinned": True})
+    candidates += [(g["id"], "annotations", {"pinned": True},
+                    pin_geometry(g, by_view.get(g.get('view'))))
                    for g in plan.get("gdt", []) if g.get("placed") is not None]
-    views = sorted(plan["views"], key=lambda v: (v["id"] != "v:front", v["id"]))
+    # Front-facing geometry is the conventional root; camera/position facts
+    # resolve the other views, independently of their output names.
+    views = sorted(plan["views"], key=lambda v: (
+        v.get('sheet', 1), v.get('direction') != [0, -1, 0],
+        v.get('area', []), pin_geometry(v)))
     roots = {}
     for v in views:
         number = v.get("sheet", 1)
@@ -840,14 +876,15 @@ def random_pins(plan, name, seed, count):
         primary = {"v:front", "v:plan", "v:side"}
         align = "projection" if v["id"] in primary and anchor["id"] in primary else min(offsets, key=lambda slot: abs(offsets[slot]))
         candidates.append((v["id"], "views", {"relative_to": anchor["id"][2:], "side": side,
-                           "gap": max(0, min(1000, gap)), "align": align, "pinned": True}))
-    candidates.sort(key=lambda c: (hashlib.sha256(f"{seed}:{name}:{c[0]}".encode()).digest(), c[0]))
+                           "gap": max(0, min(1000, gap)), "align": align, "pinned": True},
+                           pin_geometry(v)))
+    candidates.sort(key=lambda c: (hashlib.sha256(f"{seed}:{name}:{c[1]}:{c[3]}".encode()).digest(), c[1], c[3]))
     # A part with fewer drawable candidates than requested pins every one of them: removing a
     # redundant dimension (cgb203's repeated `180`, 2026-10-27) must not turn a pin cell into an
     # error, and pinning all candidates is at least as demanding as pinning `count` of them.
     count = min(count, len(candidates))
-    spec = {"schema": "draftwright.spec/2"}
-    for id_, kind, place in candidates[:count]:
+    spec = {"schema": "draftwright.spec/3"}
+    for id_, kind, place, _ in candidates[:count]:
         spec.setdefault(kind, {})[id_[2:] if kind == "views" else id_] = {"place": place}
     return spec, [c[0] for c in candidates[:count]], len(candidates)
 

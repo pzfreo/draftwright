@@ -61,7 +61,7 @@ All JSON arguments/results are **strings**, requiring `JSON.stringify`/`JSON.par
 The other boundary values are names/source hashes (strings), bytes (`Uint8Array`), booleans
 and counts (numbers). Fallible methods throw a **string** containing serialized
 `draftwright::api::Error`: `{ "code": "invalid" | "failed", "message": "...", "choices"?: [...], "path"?: "..." }`.
-`path` is the escaped Spec entry (`dimensions/d:f:hole:1~1bore.diameter`) when the refusal is that
+`path` is the escaped Spec entry (`dimensions/d:f:hole:f6~1bore.diameter`) when the refusal is that
 the part has no such feature, face, dimension, annotation, view or measurement.
 Input checks return refusals before planning or rendering can panic. Edit paths are limited
 to 64 components and view gutters to 0–1189 paper mm (the largest supported sheet width).
