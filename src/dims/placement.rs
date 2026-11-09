@@ -4909,7 +4909,7 @@ fn outlines<'a>(analysis: &Analysis, views: &'a [PlannedView]) -> Vec<(&'a str, 
     views
         .iter()
         .map(|v| {
-            let b = if v.id == "v:iso" {
+            let b = if v.id == "v:iso" && v.direction == crate::model::VIEWS[3].1 {
                 let ib = analysis.drawing_iso_bounds();
                 [
                     v.at[0] + v.scale * ib[0],

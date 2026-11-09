@@ -1584,6 +1584,50 @@
         },
         "omit": {
           "type": "boolean"
+        },
+        "style": {
+          "enum": [
+            "wireframe",
+            "shaded",
+            null
+          ],
+          "description": "Pictorial views (iso, iso_below) only. Absent keeps line drawing. Shaded is opaque vector fill plus visible sharp/silhouette edges; no hidden ink or annotations."
+        },
+        "colour": {
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Pictorial base sRGB colour; default [184,196,204]."
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Pictorial vector towards viewer, nonzero and not parallel to Z; Z stays up. iso defaults [1,-1,1], iso_below [1,-1,-1]."
         }
       },
       "additionalProperties": false

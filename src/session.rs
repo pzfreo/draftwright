@@ -1022,6 +1022,7 @@ impl Session {
             layers: drawing
                 .layers
                 .iter()
+                .filter(|l| !l.name.starts_with("shaded-"))
                 .map(|l| crate::output::Layer {
                     name: l.name.clone(),
                     style: l.style.clone(),
@@ -1045,6 +1046,9 @@ impl Session {
             ) else {
                 return Vec::new();
             };
+            if crate::shaded::enabled(self.spec(), id) {
+                return Vec::new();
+            }
             crate::cosmetic::ink(self.analysis(), m, v)
                 .into_iter()
                 .map(crate::output::Item::Edge)
@@ -1062,6 +1066,7 @@ impl Session {
             if let Some(k) = thin {
                 d.layers[k].items = thin_ink(id);
             }
+            d.layers.extend(crate::shaded::layers(id, &geometry.shaded));
             out.insert(id.clone(), d.svg());
         }
         for (id, item) in &self.state.annotations {
@@ -1116,6 +1121,7 @@ impl Session {
                 .filter(|(id, _)| annotation_on_sheet(id))
                 .map(|(_, a)| a.text.len())
                 .sum();
+            d.layers.retain(|l| !l.name.starts_with("shaded-"));
             d.layers[0].items.drain(..visible);
             d.layers[1].items.drain(..hidden);
             d.layers[2].items.drain(..ink);
@@ -1688,6 +1694,20 @@ fn settable(
         if item.item.kind == "view" {
             for field in crate::linework::FIELDS {
                 fields.insert(format!("{base}/{field}"), choices(json!([false, true])));
+            }
+            if matches!(id.as_str(), "v:iso" | "v:iso_below") {
+                fields.insert(
+                    format!("{base}/style"),
+                    choices(json!(["wireframe", "shaded"])),
+                );
+                fields.insert(
+                    format!("{base}/colour"),
+                    json!({"forms":["[red,green,blue] (integers 0–255)"]}),
+                );
+                fields.insert(
+                    format!("{base}/direction"),
+                    json!({"forms":["[x,y,z] towards viewer; Z up"]}),
+                );
             }
             // A profile view of a turned part may be drawn as a half section ([`crate::half_section`]).
             if matches!(id.as_str(), "v:front" | "v:plan" | "v:side") {
@@ -2399,6 +2419,8 @@ fn difference(old: &State, new: &State, analysis: &Analysis, plans: usize) -> De
                         || a.up != b.up
                         || a.cut != b.cut
                         || a.line_style != b.line_style
+                        || old.plan.spec.views.get(id.trim_start_matches("v:"))
+                            != new.plan.spec.views.get(id.trim_start_matches("v:"))
                 })
             })
             .cloned()

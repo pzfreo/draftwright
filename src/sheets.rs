@@ -834,7 +834,14 @@ pub(crate) fn line_work(analysis: &Analysis, spec: &Spec, views: &mut Vec<Planne
         views.push(marker.clone());
     }
     crate::linework::configure(spec, views);
+    crate::shaded::record(spec, views);
     crate::centrelines::plan(analysis, views);
+    for v in views
+        .iter_mut()
+        .filter(|v| crate::shaded::enabled(spec, &v.id))
+    {
+        v.line_work.clear();
+    }
     if marker.is_some() {
         views.pop();
     }

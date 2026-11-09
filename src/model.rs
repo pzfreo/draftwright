@@ -806,6 +806,15 @@ fn projection_method<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<St
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ViewSpec {
+    /// Pictorial rendering; absent preserves the automatic line drawing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<crate::shaded::ViewStyle>,
+    /// Base sRGB colour, shaded by a fixed camera-relative light.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub colour: Option<[u8; 3]>,
+    /// Towards the viewer; Z remains up. Pictorial views only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<[f64; 3]>,
     /// Line-work intent; absent keeps the view's automatic convention.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hidden: Option<bool>,
@@ -6376,11 +6385,13 @@ fn plan_with_presentation(
     }
     let given = spec;
     let spec = &effective;
+    crate::shaded::check(spec)?;
     let unknown = spec
         .views
         .keys()
         .filter(|name| {
             *name != SECTION
+                && *name != "iso_below"
                 && !spec.views.sections.iter().any(|r| r.view_name() == Some(name.as_str()))
                 && !crate::detail::NAMES.contains(&name.as_str())
                 && !VIEWS.iter().any(|(v, ..)| v == *name)
@@ -6388,6 +6399,7 @@ fn plan_with_presentation(
         .map(|name| {
             let mut names = VIEWS.map(|v| v.0).to_vec();
             names.push(SECTION);
+            names.push("iso_below");
             invalid(
                 if name.starts_with("v:") {
                     // The MCP's bounded correction recognises this established diagnostic.
@@ -6470,7 +6482,7 @@ fn plan_with_presentation(
         });
     let shown = |name: &str| match spec.views.get(name) {
         Some(v) => !v.omit,
-        None => !reduction.as_ref().is_some_and(|r| r.1 == name),
+        None => name != "iso_below" && !reduction.as_ref().is_some_and(|r| r.1 == name),
     };
     let principals = Principals {
         front: shown("front"),
@@ -6662,7 +6674,7 @@ fn plan_with_presentation(
     let mut request = Request::new(
         [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]],
         principals,
-        shown("iso"),
+        shown("iso") || shown("iso_below"),
     );
     let breaks = crate::broken::resolve(analysis, spec, &mut problems);
     request.breaks = breaks
@@ -7022,6 +7034,7 @@ fn plan_with_presentation(
     };
     let mut views: Vec<PlannedView> = VIEWS
         .iter()
+        .chain(std::iter::once(&("iso_below", [1., -1., -1.], [0., 0., 1.])))
         .filter(|(name, ..)| shown(name))
         .map(|(name, direction, up)| {
             let [fv, pv, sv] = g.blocks;
@@ -7088,6 +7101,7 @@ fn plan_with_presentation(
             }
         })
         .collect();
+    crate::shaded::configure(analysis, spec, &mut views);
     for v in &mut views {
         if let Some(b) = breaks.get(v.id.trim_start_matches("v:")) {
             let scaled = b.at_scale(v.scale);
@@ -9655,6 +9669,8 @@ pub struct ProjectionStats {
 /// One view's projected edges on the page, with the bounds of its visible ink.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ViewGeometry {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shaded: Vec<crate::shaded::Polygon>,
     pub visible: Vec<Item>,
     pub hidden: Vec<Item>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -9918,21 +9934,40 @@ impl Projections {
         let (size, centre) = crate::detail::crop_extent(analysis, v);
         // Orientation views carry no hidden edges unless the Spec asks for them
         // (pictorial practice, ISO 128-30 / ASME Y14.3); the others draw them.
-        let hidden = v.line_style.hidden.unwrap_or(v.id != "v:iso");
+        let shaded = crate::shaded::enabled(spec, &v.id);
+        let hidden = !shaded
+            && v.line_style
+                .hidden
+                .unwrap_or(!matches!(v.id.as_str(), "v:iso" | "v:iso_below"));
         let mut key = projection_key(v);
         key.extend(crate::modelled_threads::cache_key(analysis, spec, v));
         key.extend(v.broken.as_ref().map_or_else(Vec::new, |b| b.key()));
-        let placement = bits(&[
+        let mut placement = bits(&[
             &[v.scale, f64::from(v.id == "v:iso"), f64::from(hidden)],
             &centre,
             &v.at,
         ]);
+        placement.push(u64::from(shaded));
+        if shaded {
+            placement.extend(
+                spec.views
+                    .get(v.id.trim_start_matches("v:"))
+                    .and_then(|s| s.colour)
+                    .unwrap_or([184, 196, 204])
+                    .map(u64::from),
+            );
+        }
         if let Some((previous, geometry)) = self.geometry.get(&key)
             && *previous == placement
         {
             return Ok(geometry.clone());
         }
         let mut geometry = ViewGeometry {
+            shaded: if shaded {
+                crate::shaded::render(part, analysis, v, spec)?
+            } else {
+                Vec::new()
+            },
             visible: Vec::new(),
             hidden: Vec::new(),
             breaks: Vec::new(),
@@ -9983,6 +10018,9 @@ impl Projections {
                 None => vec![curve],
             };
             for piece in self.view(part, analysis, source, spec)? {
+                if shaded && (!piece.visible || matches!(piece.class, hlr::Class::Smooth)) {
+                    continue;
+                }
                 let mut moved = piece.clone();
                 moved.points = piece.points.iter().map(|q| place(*q)).collect();
                 moved.exact = piece
@@ -10024,11 +10062,13 @@ impl Projections {
                     })
                     .collect()
             };
-            geometry
-                .visible
-                .extend(clip_items(crate::springs::ink(analysis, source, spec)));
-            geometry.visible.extend(clip_items(thick));
-            geometry.hidden.extend(clip_items(thread_hidden));
+            if !shaded {
+                geometry
+                    .visible
+                    .extend(clip_items(crate::springs::ink(analysis, source, spec)));
+                geometry.visible.extend(clip_items(thick));
+                geometry.hidden.extend(clip_items(thread_hidden));
+            }
         }
         if projection_cut(v).is_some() || v.half_section.is_some() || !hidden {
             geometry.hidden.clear();
@@ -10579,6 +10619,7 @@ fn render_annotations_with_cuts(
     } else {
         crate::pmi_lowering::manufacturing(analysis)
     };
+    let mut shaded_layers = Vec::new();
     let mut thin: Vec<Item> = Vec::new();
     let mut undrawn = BTreeMap::new();
     // Invariant: Session geometry is generated in this same immutable plan view order.
@@ -10593,6 +10634,7 @@ fn render_annotations_with_cuts(
         if rejected_sections.contains_key(&v.id) {
             continue;
         }
+        shaded_layers.extend(crate::shaded::layers(&v.id, &geometry.shaded));
         if geometry.undrawn > 0 {
             undrawn.insert(v.id.clone(), geometry.undrawn);
         }
@@ -10631,7 +10673,11 @@ fn render_annotations_with_cuts(
                 broken: v.broken.as_ref().map(|b| b.geometry.clone()),
             },
         );
-        for w in v.line_work.iter().filter(|w| w.kind != "cutting_plane") {
+        for w in v
+            .line_work
+            .iter()
+            .filter(|w| w.kind != "cutting_plane" && !crate::shaded::enabled(&plan.spec, &v.id))
+        {
             let lines = crate::centrelines::segments(w);
             let ink: Vec<_> = w.curves.iter().cloned().map(Item::Edge).collect();
             if let Some(ink_box) = items_bbox(&ink) {
@@ -10672,7 +10718,9 @@ fn render_annotations_with_cuts(
         if let Some(b) = &v.broken {
             local_thin = b.items(local_thin, crate::detail::crop_extent(analysis, v).1, v);
         }
-        thin.extend(local_thin);
+        if !crate::shaded::enabled(&plan.spec, &v.id) {
+            thin.extend(local_thin);
+        }
         thin.extend(geometry.breaks.into_iter().map(Item::Edge));
         layers[0].items.extend(geometry.visible);
         layers[1].items.extend(geometry.hidden);
@@ -11964,6 +12012,9 @@ fn render_annotations_with_cuts(
                 a.coordinate_origin = Some(origin);
             }
         }
+    }
+    if !shaded_layers.is_empty() {
+        layers.extend(shaded_layers);
     }
     Ok(Drawing {
         page: plan.sheet.page,

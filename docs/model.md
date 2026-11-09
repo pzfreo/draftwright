@@ -625,6 +625,48 @@ dimensions, missing manufacturing requirements and other drawing defects. Automa
 layout and its conservative projected-ink clearance remain in force; hiding edges does
 not relax safety margins or change sheet-size, scale, detail, fit or datum policy.
 
+#### Shaded pictorial views
+
+No pictorial shading is added automatically. Replace the existing iso with one setting:
+
+```json
+{"views":{"iso":{"style":"shaded"}}}
+```
+
+`views/iso/style` accepts `wireframe` (the existing line drawing) or `shaded`.
+Optional `colour: [184,196,204]` supplies the base sRGB colour (three integers 0–255).
+The default is a light muted blue-grey, readable in greyscale. Lighting is fixed relative
+to the camera: upper left, with 35% ambient plus 65% Lambert diffuse illumination.
+Optional `direction: [1,-1,1]` points towards the viewer; Z stays up. A direction must
+be finite, nonzero, and not parallel to Z. These fields apply only to pictorial views.
+
+Request the optional second pictorial view by adding `views/iso_below`. It defaults to
+`direction: [1,-1,-1]`; it shares the iso's reserved area and sheet, splitting that area
+into two fitted, unannotated slots when both are present. Each uses the same settings:
+
+```json
+{"views":{
+  "iso":{"style":"shaded","colour":[184,196,204]},
+  "iso_below":{"style":"shaded","direction":[-1,1,-1]}
+}}
+```
+
+Omit either slot with `omit: true`. `iso_below` has no independent `place` or `sheet`;
+place the iso to move their shared reservation. Reduced pictorials carry an NTS caption.
+Shaded pictorials always suppress hidden ink, centre furniture, conventional threads,
+knurls and dimensions, regardless of inherited line-work switches. Session view options
+expose style, colour and direction through the same Spec edit path (including undo/redo).
+
+SVG and PDF contain vector filled polygons, with the view's HLR visible sharp and
+silhouette edges on top; PNG rasterises that same drawing. Tessellation uses chordal
+deflection 0.1% of the envelope diagonal and angular deflection 0.3 rad. Adjacent
+coplanar triangles merge into convex patches within each B-rep face, preserving holes.
+A binary space partition splits crossing patches and visibility cycles before painting
+back to front; it does not sort entire faces by average depth. Numerical coplanarity
+uses 1e-9 of the envelope diagonal (minimum 1e-9 mm). There is no approximate ordering
+fallback: incomplete/refused tessellation or over 200,000 split fragments refuses the
+render with unresolved face IDs. Textures, transparency and photorealism are unsupported.
+
 #### Sheet allocation (R5, Stage I)
 
 `sheet/preferred_max_size` (`"A4"` through `"A0"`, default `"A3"`) and

@@ -27,7 +27,7 @@ const OVERRIDES: [(&str, &str, &str); 9] = [
     ),
     (
         "view selection",
-        "views/sections; views/<view> keys [omit, half_section, detail, break]",
+        "views/sections; views/<view> keys [omit, half_section, detail, break, style, colour, direction]; optional iso_below shares the iso zone",
         "Named and explicit sections use front-facing planes; cameras and half-section side unavailable (#309)",
     ),
     (

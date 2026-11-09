@@ -141,6 +141,9 @@ yet been tried in a real client.
   views that do not fit) or a dropped hole item is re-planned at other standard scales and
   sheets, and the first valid, complete one is taken (page escalation, `model::recover`). The
   title block, general notes and the spec's corner-block tables are drawn.
+- **Optional vector pictorial shading:** `views/iso/style: "shaded"` replaces the line iso;
+  `views/iso_below` requests a second view from below. Colour and camera direction are
+  per-view settings; see [the Spec reference](model.md#shaded-pictorial-views).
 - **Section A–A** by draftwright's rule, done without a boolean, hatched, with its
   cutting-plane line and caption.
 - **Dimensions,** one planner per family (`src/dims/`): the overall envelope, turned steps,

@@ -108,3 +108,5 @@ mod views_layout_rules;
 
 #[path = "../characteristics.rs"]
 mod characteristics;
+#[path = "../shaded.rs"]
+mod shaded;

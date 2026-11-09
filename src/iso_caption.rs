@@ -52,7 +52,7 @@ pub(crate) fn proxy(c: &PlannedCaption) -> PlannedDimension {
 }
 
 fn view_box(analysis: &Analysis, v: &PlannedView) -> [f64; 4] {
-    if v.id == "v:iso" {
+    if v.id == "v:iso" && v.direction == crate::model::VIEWS[3].1 {
         let b = analysis.drawing_iso_bounds();
         [
             v.at[0] + v.scale * b[0],

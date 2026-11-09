@@ -800,8 +800,13 @@ impl Drawing {
     pub(crate) fn paint_layers(&self) -> impl Iterator<Item = &Layer> {
         self.layers
             .iter()
-            .filter(|l| l.name == "centres")
-            .chain(self.layers.iter().filter(|l| l.name != "centres"))
+            .filter(|l| l.name.starts_with("shaded-"))
+            .chain(self.layers.iter().filter(|l| l.name == "centres"))
+            .chain(
+                self.layers
+                    .iter()
+                    .filter(|l| l.name != "centres" && !l.name.starts_with("shaded-")),
+            )
     }
 
     /// The SVG: a page in millimetres, y up inside a flipping group, one group per layer, then
@@ -821,6 +826,7 @@ impl Drawing {
             let st = &layer.style;
             let rgb = format!("rgb({},{},{})", st.colour[0], st.colour[1], st.colour[2]);
             let fill = if st.fill { rgb.clone() } else { "none".into() };
+            let stroke = if st.width == 0. { "none" } else { &rgb };
             let dash = st.dash.map_or(String::new(), |pattern| {
                 format!(
                     " stroke-dasharray=\"{}\"",
@@ -833,7 +839,7 @@ impl Drawing {
             });
             let _ = writeln!(
                 s,
-                "    <g fill=\"{fill}\" stroke=\"{rgb}\" stroke-width=\"{}\" id=\"{}\"{dash}>",
+                "    <g fill=\"{fill}\" stroke=\"{stroke}\" stroke-width=\"{}\" id=\"{}\"{dash}>",
                 num(st.width),
                 layer.name
             );
@@ -1169,7 +1175,11 @@ impl Drawing {
                             }
                         }
                         if st.fill {
-                            c.fill_nonzero_and_stroke();
+                            if st.width == 0. {
+                                c.fill_nonzero();
+                            } else {
+                                c.fill_nonzero_and_stroke();
+                            }
                         } else {
                             c.stroke();
                         }
