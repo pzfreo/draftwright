@@ -4,32 +4,51 @@ All notable changes to draftwright-rust are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.2.15 (2026-11-09)
+
+Still on quiddity-rust 0.4.9. Automatic item IDs are now anchored on faces, so resizing a part
+or adding unrelated geometry no longer renames features, hole patterns or ladder items, and
+saved references keep pointing at the same geometry.
+
+**This release writes `draftwright.spec/3`.** Engines before 0.2.15 cannot read spec/3, so a
+Spec saved by 0.2.15 does not open in 0.2.14 or earlier. Specs `/1` and `/2` are still read and
+migrated exactly through 0.2.24: each saved ID key is renamed to its face-anchored ID, and plans
+and `openSpec` replies list what was renamed (`migrated`, `ids`). Keys that name no current item
+are kept and reported as `id_not_migrated`. A rank-keyed `/1` or `/2` Spec opened with an
+analysis older than `draftwright.analysis/8` is refused rather than saved unmigrated:
+re-analyse the STEP with this release and reopen the saved Spec. From 0.2.25, `/1` and `/2`
+are refused, with instructions to convert them using 0.2.24.
+
+Drawings do not change: on the 154-part corpus (157 pages) and on 10 saved example Specs
+migrated from /1 and /2, the PDF pages are pixel-identical to 0.2.14 and report the same
+problems. `plan` costs about 0.35% more instructions.
 
 ### Changed
 
 - Automatic feature and hole-pattern IDs use `f:<kind>:f<lowest face>`, with local
   suffixes only on a shared lowest face. Ladder IDs use supporting or level plane
   faces; coordinate names remain only where the analysis has no face evidence.
-- `draftwright.analysis/8` records level-support and riser faces, optional feature
-  and hole-pattern `legacy_id`, and geometric `presentation_order` so renaming IDs
-  preserves drawing order. Seeded layout choices also use geometry.
-- Shipping in 0.2.15, `draftwright.spec/3` uses exact whole-document identity
-  migration. Older engines cannot read spec/3. Specs /1 and /2 remain readable
-  through 0.2.24; later releases explain conversion with that compatible release.
+- `draftwright.analysis/8` records the faces that support each level and step riser,
+  an optional `legacy_id` on features and hole patterns, and a `presentation_order`
+  that keeps the drawing order when IDs are renamed.
+- `draftwright.spec/3`, with exact migration of /1 and /2 Specs (compatibility is
+  explained above).
 - Opening a rank-keyed spec/1 or spec/2 with an analysis older than /8 is refused:
   re-analyse the STEP with a current engine and reopen the original saved Spec.
-  Available identity mappings also recover old keys in already promoted spec/3 files.
-- Pinned isometrics retain compact occupied bands, and hole schedules reserve
-  datum-mark corridors when retrying placement.
 
 ### Added
 
 - Plans and session/browser `openSpec` replies expose `migrated: [{path, from, to}]`
-  and `ids: {old: new}`. `ids` contains the whole current legacy map on every open.
+  and `ids: {old: new}`. `ids` lists every old-to-new rename for this part, not only the
+  keys this Spec used.
 - The informational `id_not_migrated` problem identifies saved ID keys without an
   exact current mapping. Those unmapped keys are retained; colliding renamed keys
   are refused.
+
+### Fixed
+
+- With a pinned isometric view, the hole schedule is no longer dropped or crowded by
+  nearby annotations.
 
 ## 0.2.14 (2026-11-08)
 

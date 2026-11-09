@@ -6,7 +6,7 @@ fully-annotated engineering drawings from STEP B-rep. No OpenCascade: geometry c
 kernel, and features from the Rust port of quiddity, both in
 [quiddity-rust](https://github.com/pzfreo/quiddity).
 
-**Status: 0.2.14** (2026-11-08, on quiddity-rust `0.4.9`). Alpha 1's
+**Status: 0.2.15** (2026-11-09, on quiddity-rust `0.4.9`). Alpha 1's
 gates are in `docs/alpha1.md`; what changed is in `CHANGELOG.md`. It is an
 early release: every drawing reports what it does not state, but drawings are not yet as clean as Python
 draftwright's on dense parts (see "Known limitations"). The port is checked against
@@ -41,9 +41,9 @@ editor migration.
 A drawing is three JSON documents: the Analysis, the Spec and the Plan. Five stateless
 operations work on them (`docs/model.md`, ADR R1). Every command prints JSON.
 
-The planned 0.2.15 release writes `draftwright.spec/3`. Specs `/1` and `/2` remain readable
-through 0.2.24; 0.2.25 and its prereleases refuse them with conversion instructions using
-0.2.24. Cargo package versions remain 0.2.14 until the release commit.
+Since 0.2.15, draftwright writes `draftwright.spec/3`, which earlier engines cannot read. Specs
+`/1` and `/2` are read and migrated through 0.2.24; 0.2.25 and its prereleases refuse them with
+conversion instructions using 0.2.24.
 
 On the command line, `analyse`, `plan`, `render` and `review` take the part's features from
 Rust quiddity's recognition, run on the part (`src/bridge/native.rs`); the Analysis names it
