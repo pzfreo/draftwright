@@ -152,7 +152,7 @@ enum Command {
         #[arg(long)]
         out_dir: Option<String>,
         #[command(flatten)]
-        sheet: compat::SheetOptions,
+        sheet: Box<compat::SheetOptions>,
         /// the formats written, of svg, pdf and png
         #[arg(long, value_name = "LIST", default_value = "svg,pdf")]
         formats: String,
@@ -327,7 +327,7 @@ fn main() -> ExitCode {
             Given {
                 output,
                 out_dir,
-                sheet,
+                sheet: *sheet,
                 formats: Some(formats),
                 dpi,
                 ..Given::drawing(vec![step], drawing)
