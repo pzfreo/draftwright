@@ -8,6 +8,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ### Changed
 
+- Pinned isometrics retain their compact occupied bands at the established scale,
+  and schedule retries reserve datum-mark corridors against all remaining annotations.
+  The FTC-08 isometric pin keeps its clear hole table instead of returning overlapping dimensions.
+
 - Seeded pin choices and tie-breaks use projected geometry and numeric measurements,
   not item ID strings; the same seeds select the same physical items after renaming.
 

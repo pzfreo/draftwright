@@ -536,7 +536,20 @@ pub(crate) fn views(
                                 + factor * (v.at[k] - 0.5 * (a[k] + a[k + 2]))
                         });
                         v.scale *= factor;
-                        v.area = fit;
+                        // At the established scale the settled ink/caption band already fits.
+                        // The larger search rectangle is free room, not occupied ink: keeping
+                        // it as the reservation consumes the adjacent schedule's clearance.
+                        v.area = if factor >= 1.0 - 1e-9 {
+                            let centre = [0, 1].map(|k| 0.5 * (fit[k] + fit[k + 2]));
+                            [
+                                centre[0] - 0.5 * factor * size[0],
+                                centre[1] - 0.5 * factor * size[1],
+                                centre[0] + 0.5 * factor * size[0],
+                                centre[1] + 0.5 * factor * size[1],
+                            ]
+                        } else {
+                            fit
+                        };
                         v.basis += "; isometric ink fitted inside its relative placement region";
                     }
                 }

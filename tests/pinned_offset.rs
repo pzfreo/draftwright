@@ -594,3 +594,54 @@ fn pinning_a_view_at_its_own_place_keeps_the_ctc03_schedule() {
     };
     assert_eq!(ids(s.plan()), ids(canonical));
 }
+
+/// Keep the exact FTC-08 seed-2/one-pin input even when sampling identities change.
+/// Its isometric fitting region must not consume the automatic schedule's gutter.
+#[test]
+fn ftc08_isometric_pin_keeps_the_clear_hole_schedule() {
+    let Some(dir) = corpus::dir() else { return };
+    let (_, analysis) =
+        draftwright::model::analyse_native(&dir.join("nist/nist_ftc_08_asme1_rc.stp")).unwrap();
+    let base = draftwright::model::plan_recovered(&analysis, &Spec::default()).unwrap();
+    let spec: Spec = serde_json::from_value(json!({"views":{"iso":{"place":{
+        "relative_to":"front", "side":"right", "align":"end",
+        "gap":26.878683920197176, "pinned":true
+    }}}}))
+    .unwrap();
+    let pinned = draftwright::model::plan_recovered(&analysis, &spec).unwrap();
+    let ink = |p: &draftwright::model::Plan| {
+        p.problems
+            .iter()
+            .filter(|q| {
+                matches!(
+                    q.code.as_str(),
+                    "annotation_ink_overlap"
+                        | "annotation_over_view"
+                        | "annotation_line_over_view"
+                        | "annotation_leader_crossing"
+                        | "annotation_outside_area"
+                )
+            })
+            .count()
+    };
+    assert_eq!(ink(&base), 0);
+    assert_eq!(ink(&pinned), 0, "pin adds ink: {:#?}", pinned.problems);
+    assert_eq!(base.hole_tables.len(), 1);
+    assert_eq!(pinned.hole_tables.len(), base.hole_tables.len());
+    let rows = |p: &draftwright::model::Plan| {
+        p.hole_tables
+            .iter()
+            .flat_map(|t| &t.rows)
+            .map(|r| r.measurements.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&pinned), rows(&base));
+    assert_eq!(pinned.sheet.size, base.sheet.size);
+    assert_eq!(pinned.sheet.scale, base.sheet.scale);
+    assert!(
+        !pinned
+            .problems
+            .iter()
+            .any(|q| q.code == "hole_table_unavailable")
+    );
+}

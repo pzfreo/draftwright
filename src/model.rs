@@ -5197,9 +5197,14 @@ fn install_selection_form(
     if crate::hole_table::install(analysis, &mut scheduled, selection) {
         return Ok(Some(scheduled));
     }
-    if !crate::hole_table::slot_callout_takes_origin(analysis, &first, selection) {
+    if !crate::placement_intent::has_pins(&first.spec)
+        && !crate::hole_table::slot_callout_takes_origin(analysis, &first, selection)
+    {
         return Ok(None);
     }
+    // A retained view pin re-solves the remaining annotations in fixed frames.
+    // Any of them can occupy the schedule's datum-mark corridor, not only a SLOT
+    // callout. Give the canonical schedule one bounded solve with its origin held.
     let mut reserved = selection.clone();
     reserved.reserve_origins = true;
     let mut scheduled = plan(&reserved)?;
