@@ -448,7 +448,9 @@ pub(crate) fn layers(id: &str, polygons: &[Polygon]) -> Vec<Layer> {
                 name: format!("shaded-{}-{}", id.trim_start_matches("v:"), layers.len()),
                 style: Style {
                     colour: p.colour,
-                    width: 0.,
+                    // Same-colour seam coverage: smaller than the HLR edge by 25×.
+                    // It closes subpixel T-junction gaps in vector/PDF rasterisers.
+                    width: 0.02,
                     dash: None,
                     fill: true,
                     weight: 0,

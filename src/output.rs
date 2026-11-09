@@ -826,7 +826,6 @@ impl Drawing {
             let st = &layer.style;
             let rgb = format!("rgb({},{},{})", st.colour[0], st.colour[1], st.colour[2]);
             let fill = if st.fill { rgb.clone() } else { "none".into() };
-            let stroke = if st.width == 0. { "none" } else { &rgb };
             let facet_edges = if layer.name.starts_with("shaded-") {
                 " shape-rendering=\"crispEdges\""
             } else {
@@ -844,7 +843,7 @@ impl Drawing {
             });
             let _ = writeln!(
                 s,
-                "    <g fill=\"{fill}\" stroke=\"{stroke}\" stroke-width=\"{}\" id=\"{}\"{dash}{facet_edges}>",
+                "    <g fill=\"{fill}\" stroke=\"{rgb}\" stroke-width=\"{}\" id=\"{}\"{dash}{facet_edges}>",
                 num(st.width),
                 layer.name
             );
@@ -1180,11 +1179,7 @@ impl Drawing {
                             }
                         }
                         if st.fill {
-                            if st.width == 0. {
-                                c.fill_nonzero();
-                            } else {
-                                c.fill_nonzero_and_stroke();
-                            }
+                            c.fill_nonzero_and_stroke();
                         } else {
                             c.stroke();
                         }

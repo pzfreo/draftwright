@@ -40,7 +40,7 @@ fn shaded_iso_is_vector_coloured_and_has_only_visible_hlr_edges() {
         .collect();
     assert!(!fills.is_empty());
     assert!(fills.iter().all(|l| l.style.fill
-        && l.style.width == 0.
+        && l.style.width == 0.02
         && l.items.iter().all(|i| matches!(i, Item::Face(_)))));
     assert!(
         d.annotations

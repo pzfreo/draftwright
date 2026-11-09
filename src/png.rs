@@ -136,9 +136,7 @@ impl Drawing {
                         None,
                     );
                 }
-                if st.width > 0. {
-                    pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
-                }
+                pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
             }
         }
         encode(&pixmap, dpi, self.spec.as_deref())

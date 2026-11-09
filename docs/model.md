@@ -665,7 +665,8 @@ silhouette edges on top; PNG rasterises that same drawing. Tessellation uses cho
 deflection 0.1% of the envelope diagonal and angular deflection 0.3 rad. Adjacent
 coplanar triangles merge into convex patches within each B-rep face, preserving holes.
 Consecutive equal-colour patches share compound fill paths. Facet fills rasterise without
-partial edge coverage to avoid white seams; the HLR outlines retain antialiasing.
+partial edge coverage, with 0.02 mm same-colour seam strokes to close subpixel
+T-junction gaps; the HLR outlines retain antialiasing.
 A binary space partition splits crossing patches and visibility cycles before painting
 back to front; it does not sort entire faces by average depth. Numerical coplanarity
 uses 1e-9 of the envelope diagonal (minimum 1e-9 mm). There is no approximate ordering
