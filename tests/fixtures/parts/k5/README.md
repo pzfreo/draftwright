@@ -1,7 +1,7 @@
 # Stream K5 fixtures
 
 Copies, unedited, of Python draftwright's evaluation and case-study STEP files
-(pzfreo/draftwright at `f1a5db9b4490e9b233ae5b7cac1138633929c693`), used by
+(pzfreo/draftwright-python at `f1a5db9b4490e9b233ae5b7cac1138633929c693`), used by
 `tests/completeness_rules.rs` with Rust quiddity's recognition:
 
 | File | draftwright source | What it is (draftwright's fixture README) |

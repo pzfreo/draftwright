@@ -466,7 +466,7 @@ cross-references exist only when m > 1, and `pdf()` is unchanged. The plan schem
 
 **Base branch: `cxg-int/ed`** in `draftwright-editor`, the current integration line (at
 465f928, "Re-pin draftwright to fd08c1d (Stage G)"). It pins draftwright by git revision in the
-workspace `Cargo.toml` (`draftwright = { git = "https://github.com/pzfreo/draftwright-rust", rev
+workspace `Cargo.toml` (`draftwright = { git = "https://github.com/pzfreo/draftwright", rev
 = "…" }`), has no `vendor/` directory, and has `crates/engine/tests/session.rs` and
 `web/smoke.cjs`. The editor's `main` (which vendors alpha.1 under `vendor/draftwright` and has
 no `session.rs`) is not the base and is not changed in Stage I.

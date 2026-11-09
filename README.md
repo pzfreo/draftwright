@@ -1,6 +1,6 @@
 # draftwright-rust
 
-A pure-Rust port of [draftwright](https://github.com/pzfreo/draftwright): automated,
+A pure-Rust port of [draftwright](https://github.com/pzfreo/draftwright-python): automated,
 fully-annotated engineering drawings from STEP B-rep. No OpenCascade: geometry comes from the
 [haecceity](https://github.com/pzfreo/quiddity/tree/prototype/rust-port/crates/haecceity)
 kernel, and features from the Rust port of quiddity, both in
@@ -22,7 +22,7 @@ With a Rust toolchain (edition 2024, Rust 1.85 or later):
 cargo install draftwright  # installs draftwright and draftwright-mcp
 ```
 
-Without Rust, each [GitHub release](https://github.com/pzfreo/draftwright-rust/releases) has
+Without Rust, each [GitHub release](https://github.com/pzfreo/draftwright/releases) has
 ready-built archives for macOS (Apple silicon), Linux x86_64 and Windows x86_64.
 
 ## Building

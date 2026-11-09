@@ -4,7 +4,7 @@ version = "0.2.15"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "Draftwright's live drawing session for browsers."
-repository = "https://github.com/pzfreo/draftwright-rust"
+repository = "https://github.com/pzfreo/draftwright"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

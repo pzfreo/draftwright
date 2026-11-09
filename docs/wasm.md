@@ -123,7 +123,7 @@ For example, after a release carrying these assets exists:
 ```sh
 version=0.1.0-alpha.4 # Replace with the chosen published version.
 asset="draftwright-wasm-${version}.tgz"
-gh release download "v${version}" --repo pzfreo/draftwright-rust \
+gh release download "v${version}" --repo pzfreo/draftwright \
   --pattern "$asset" --pattern "$asset.sha256"
 sha256sum -c "$asset.sha256" # macOS: shasum -a 256 -c "$asset.sha256"
 mkdir -p public/wasm/drawing
