@@ -15,10 +15,10 @@ views on a standard sheet, and tells you anything it could not state. One comman
 system and no OpenCascade.
 
 <p align="center">
-  <img src="docs/images/hero-nist-ctc-01.png" alt="An A3 drawing of NIST test part CTC-01 with plan, front and side views, an isometric view, dimensions, tolerances and GD&T frames" width="100%">
+  <img src="docs/images/hero-nist-ctc-03.png" alt="An A3 drawing of NIST test part CTC-03, a sheet-metal bracket, with plan and elevation views, an isometric view, a hole table, datums and GD&T frames" width="100%">
   <br>
-  <sub>NIST CTC-01, drawn from its AP242 STEP file with only the title set. Every view, dimension,
-  tolerance, datum and frame is placed automatically.</sub>
+  <sub>NIST CTC-03, drawn from its AP242 STEP file with only the title set. Every view, dimension,
+  hole-table entry, datum and GD&amp;T frame is placed automatically.</sub>
 </p>
 
 ## Ways to use it
