@@ -205,7 +205,7 @@ fn release_version(s: &str) -> Vec<u64> {
 fn refusal(schema: &str, current: &str) -> Option<String> {
     (matches!(schema, "draftwright.spec/1" | "draftwright.spec/2")
         && release_version(current) > release_version(LAST_LEGACY_SPEC_READER)).then(|| format!(
-        "This Spec is {schema}, which draftwright {current} no longer reads: it reads only draftwright.spec/3, whose feature and step IDs are named by faces rather than by rank or measured value. Convert it once with draftwright {LAST_LEGACY_SPEC_READER}, the last release that reads spec/2: run `draftwright plan PART.step --spec FILE` and keep the `spec` it prints. Then open the converted Spec here."
+        "This Spec is {schema}, which draftwright {current} no longer reads: it reads only draftwright.spec/3, whose feature and step IDs are named by faces rather than by rank or measured value. Convert it once with draftwright {LAST_LEGACY_SPEC_READER}, the last compatible release: run `draftwright plan PART.step --spec FILE` and keep the `spec` it prints. Then open the converted Spec here."
     ))
 }
 fn invalid(message: String) -> Invalid {
@@ -328,6 +328,30 @@ fn unmapped(v: &Value, a: &Analysis) -> Vec<(String, String)> {
     out
 }
 
+fn rank_key(v: &Value) -> Option<String> {
+    match v {
+        Value::Object(o) => o.iter().find_map(|(key, value)| {
+            let mut rest = key.as_str();
+            while let Some((start, end)) = crate::revision_rename::next_id(rest) {
+                let id = &rest[start..end];
+                if id.starts_with("f:")
+                    && !id.starts_with("f:declared:")
+                    && id
+                        .rsplit(':')
+                        .next()
+                        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+                {
+                    return Some(key.clone());
+                }
+                rest = &rest[end..];
+            }
+            rank_key(value)
+        }),
+        Value::Array(values) => values.iter().find_map(rank_key),
+        _ => None,
+    }
+}
+
 pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
     if let Some(message) = refusal(&spec.schema, env!("CARGO_PKG_VERSION")) {
         return Err(invalid(message));
@@ -339,6 +363,21 @@ pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
         ));
         error.choices = SPEC_SCHEMAS.iter().map(|s| (*s).into()).collect();
         return Err(error);
+    }
+    if matches!(
+        spec.schema.as_str(),
+        "draftwright.spec/1" | "draftwright.spec/2"
+    ) && a
+        .schema
+        .strip_prefix("draftwright.analysis/")
+        .and_then(|v| v.parse::<u32>().ok())
+        .is_some_and(|v| v < 8)
+        && let Some(key) = rank_key(&serde_json::to_value(spec).expect("Spec serializes"))
+    {
+        return Err(invalid(format!(
+            "Cannot migrate {} key {key:?} using {}: it has rank IDs without current face identity evidence. Re-analyse the STEP with a current engine, then open the original {} Spec again. Keep its saved schema; no spec/3 has been written.",
+            spec.schema, a.schema, spec.schema
+        )));
     }
     let mut ids = ids(a);
     // Scheme IDs digest their station references. Recover both spellings exactly from
@@ -360,7 +399,7 @@ pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
     }
     let mut out = crate::model::migrate_v1(spec, a)?;
     let mut migrated = Vec::new();
-    if spec.schema != SPEC_SCHEMA {
+    if spec.schema != SPEC_SCHEMA || !ids.is_empty() {
         let mut map = ids.clone();
         if spec.schema == "draftwright.spec/1" {
             // This is the existing view/PMI migration, composed with the identity map.
@@ -523,7 +562,7 @@ mod tests {
         assert!(refusal("draftwright.spec/2", "0.2.24").is_none());
         assert_eq!(
             refusal("draftwright.spec/2", "0.2.25").unwrap(),
-            "This Spec is draftwright.spec/2, which draftwright 0.2.25 no longer reads: it reads only draftwright.spec/3, whose feature and step IDs are named by faces rather than by rank or measured value. Convert it once with draftwright 0.2.24, the last release that reads spec/2: run `draftwright plan PART.step --spec FILE` and keep the `spec` it prints. Then open the converted Spec here."
+            "This Spec is draftwright.spec/2, which draftwright 0.2.25 no longer reads: it reads only draftwright.spec/3, whose feature and step IDs are named by faces rather than by rank or measured value. Convert it once with draftwright 0.2.24, the last compatible release: run `draftwright plan PART.step --spec FILE` and keep the `spec` it prints. Then open the converted Spec here."
         );
         assert_eq!(
             refusal("draftwright.spec/1", "0.2.25"),

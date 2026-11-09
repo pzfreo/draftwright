@@ -854,7 +854,9 @@ fn saved_v1_reference_keys_keep_resolving() {
     let (_, a) = plate();
     let saved: Spec =
         serde_json::from_str(include_str!("fixtures/identity/authored.spec2.json")).unwrap();
+    assert_eq!(saved.schema, "draftwright.spec/2");
     let p = model::plan_recovered(&a, &saved).unwrap();
+    assert_eq!(p.spec.schema, "draftwright.spec/3");
     let d = p
         .dimensions
         .iter()

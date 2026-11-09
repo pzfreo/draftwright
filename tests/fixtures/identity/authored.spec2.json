@@ -1,5 +1,5 @@
 {
-  "schema": "draftwright.spec/3",
+  "schema": "draftwright.spec/2",
   "binding": {
     "face_count": 10,
     "loader": "haecceity via draftwright 0.1.0-alpha.4",

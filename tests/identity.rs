@@ -854,3 +854,61 @@ fn an_ambiguous_version_1_key_is_refused_with_its_candidates() {
     );
     assert_eq!(model::migrate(&m, &a).unwrap(), m);
 }
+
+#[test]
+fn rank_entries_with_analysis7_require_reanalysis_without_promoting_the_saved_spec() {
+    let old: Analysis =
+        serde_json::from_str(include_str!("fixtures/identity/m10020.analysis7.json")).unwrap();
+    assert_eq!(old.schema, "draftwright.analysis/7");
+    for schema in ["draftwright.spec/1", "draftwright.spec/2"] {
+        let saved: Spec = serde_json::from_value(json!({"schema":schema,
+            "dimensions":{"d:f:section_recess:1/pocket_width.length":{"tolerance":"±0.1"}}}))
+        .unwrap();
+        let before = saved.clone();
+        for error in [
+            model::migrate(&saved, &old).unwrap_err(),
+            model::plan(&old, &saved).unwrap_err(),
+        ] {
+            assert!(error.message.contains("Re-analyse"), "{error}");
+            assert!(error.message.contains(schema), "{error}");
+            assert!(
+                error.message.contains("no spec/3 has been written"),
+                "{error}"
+            );
+        }
+        assert_eq!(saved, before);
+    }
+}
+
+#[test]
+fn reanalysis_recovers_rank_entries_even_if_an_older_reader_already_marked_them_spec3() {
+    let Some(dir) = corpus::dir() else { return };
+    let (_, current) = model::analyse_native(&dir.join("mfcadpp/10020.step")).unwrap();
+    for schema in [
+        "draftwright.spec/1",
+        "draftwright.spec/2",
+        "draftwright.spec/3",
+    ] {
+        let saved: Spec = serde_json::from_value(json!({"schema":schema,
+            "dimensions":{"d:f:section_recess:1/pocket_width.length":{"tolerance":"±0.1"}}}))
+        .unwrap();
+        let result = model::plan(&current, &saved).unwrap();
+        let key = "d:f:section_recess:f8/pocket_width.length";
+        assert_eq!(result.spec.schema, "draftwright.spec/3");
+        assert_eq!(result.spec.dimensions.keys().collect::<Vec<_>>(), [key]);
+        assert_eq!(
+            result.spec.dimensions[key].tolerance.as_deref(),
+            Some("±0.1")
+        );
+        assert_eq!(result.ids["f:section_recess:1"], "f:section_recess:f8");
+        assert!(
+            result
+                .migrated
+                .iter()
+                .any(|m| m.from == "d:f:section_recess:1/pocket_width.length" && m.to == key)
+        );
+        let repeated = model::plan(&current, &result.spec).unwrap();
+        assert_eq!(repeated.spec, result.spec);
+        assert!(repeated.migrated.is_empty());
+    }
+}
