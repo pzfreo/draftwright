@@ -300,6 +300,11 @@ fn process_file_precedence_and_saved_frame_selection_match_specify() {
             Process::Fdm,
         ),
         (
+            process_answer(1, 9020, "moulded", false, false)
+                .replace("'pmi-assist answers','", "'pmi-assist answers',' "),
+            Process::Fdm, // Specify rejects whitespace in a base64 envelope.
+        ),
+        (
             "#9020=DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers','not base64');\n".into(),
             Process::Fdm,
         ),

@@ -312,8 +312,15 @@ fn file_process(doc: &Document, pd: u64, shape: u64) -> Option<(crate::process::
 /// provenance-scoped frame replaces it (even if it has no process answer).
 fn answered_processes(doc: &Document) -> BTreeMap<u64, crate::process::Process> {
     fn stored_text(doc: &Document, id: u64) -> Option<String> {
+        fn literal(value: &A) -> Option<&str> {
+            if let A::String(s) = value {
+                Some(s)
+            } else {
+                None
+            }
+        }
         if let Some(a) = attrs(doc, id, "DESCRIPTIVE_REPRESENTATION_ITEM") {
-            return a.get(1).and_then(text);
+            return a.get(1).and_then(literal).map(str::to_owned);
         }
         let a = attrs(doc, id, "COMPOUND_REPRESENTATION_ITEM")?;
         let A::Typed { type_name, value } = a.get(1)? else {
@@ -331,10 +338,10 @@ fn answered_processes(doc: &Document) -> BTreeMap<u64, crate::process::Process> 
         let mut joined = String::new();
         for child in children {
             let a = attrs(doc, reference(child)?, "DESCRIPTIVE_REPRESENTATION_ITEM")?;
-            if a.first().and_then(text).as_deref() != Some("haecceity text chunk/1") {
+            if a.first().and_then(literal) != Some("haecceity text chunk/1") {
                 return None;
             }
-            joined.push_str(&a.get(1).and_then(text)?);
+            joined.push_str(a.get(1).and_then(literal)?);
         }
         Some(joined)
     }
