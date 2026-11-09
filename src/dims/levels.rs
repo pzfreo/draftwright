@@ -667,9 +667,8 @@ pub(super) fn ownership<'a>(cx: &Context<'a>) -> Ownership<'a> {
             (s, owners)
         })
         .collect();
-    lowered.sort_by(|left, right| {
-        crate::geometry_ids::presentation_key(a, &left.feature.id)
-            .cmp(&crate::geometry_ids::presentation_key(a, &right.feature.id))
+    lowered.sort_by_cached_key(|s| {
+        crate::geometry_ids::presentation_key(a, &s.feature.id).into_owned()
     });
 
     // The ladder: the levels no other owner states, and the shoulders between them.

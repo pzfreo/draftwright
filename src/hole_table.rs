@@ -2905,11 +2905,11 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                 });
             }
         }
-        rows.sort_by(|a, b| {
-            a.cells[1].cmp(&b.cells[1]).then_with(|| {
-                crate::geometry_ids::presentation_key(analysis, &a.feature)
-                    .cmp(&crate::geometry_ids::presentation_key(analysis, &b.feature))
-            })
+        rows.sort_by_cached_key(|r| {
+            (
+                r.cells[1].clone(),
+                crate::geometry_ids::presentation_key(analysis, &r.feature).into_owned(),
+            )
         });
         let mut group = 0;
         let mut number = 0;

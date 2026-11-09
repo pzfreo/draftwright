@@ -4922,11 +4922,7 @@ fn share_statements(
     }
     let mut gone = BTreeSet::new();
     for (s, mut members) in groups.into_iter().filter(|(_, m)| m.len() > 1) {
-        members.sort_by(|&x, &y| {
-            kept[x].1.cmp(&kept[y].1).then_with(|| {
-                presentation_id(analysis, &kept[x].0).cmp(&presentation_id(analysis, &kept[y].0))
-            })
-        });
+        members.sort_by_cached_key(|&x| (kept[x].1, presentation_id(analysis, &kept[x].0)));
         // Invariant: The group was filtered to at least two members before split_first.
         let (winner, losers) = members.split_first().expect("a group of two or more");
         let owner = kept[*winner].0.id.clone();

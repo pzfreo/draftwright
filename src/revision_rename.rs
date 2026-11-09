@@ -5,34 +5,95 @@ use std::collections::BTreeMap;
 /// The same whole-document rename used by revision carrying, with an exact identity map.
 /// Unknown IDs are identity mappings; two object keys reaching one key are refused.
 pub(crate) fn rename_spec(v: &Value, ids: &BTreeMap<String, String>) -> Result<Value, String> {
-    rename_value(v, &|s| Ok::<_, String>(rename_ids(s, ids)), &|s| s)
+    let names = Renamer::new(ids);
+    rename_value(v, &|s| Ok::<_, String>(names.rename(s)), &|s| s)
+}
+
+#[derive(Default)]
+struct Node<'a> {
+    edges: BTreeMap<u8, usize>,
+    replacement: Option<&'a str>,
+}
+
+/// Compile exact aliases once. Each string scans its own token prefixes, never
+/// every alias in the document. Leftmost/longest and ASCII word boundaries are unchanged.
+pub(crate) struct Renamer<'a> {
+    nodes: Vec<Node<'a>>,
+}
+impl<'a> Renamer<'a> {
+    pub(crate) fn new(ids: &'a BTreeMap<String, String>) -> Self {
+        let mut out = Self {
+            nodes: vec![Node::default()],
+        };
+        for (old, new) in ids {
+            if old.is_empty() {
+                continue;
+            }
+            let mut at = 0;
+            for byte in old.bytes() {
+                at = if let Some(&next) = out.nodes[at].edges.get(&byte) {
+                    next
+                } else {
+                    let next = out.nodes.len();
+                    out.nodes.push(Node::default());
+                    out.nodes[at].edges.insert(byte, next);
+                    next
+                };
+            }
+            out.nodes[at].replacement = Some(new);
+        }
+        out
+    }
+    pub(crate) fn rename(&self, s: &str) -> String {
+        let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+        let bytes = s.as_bytes();
+        let mut out = String::new();
+        let mut cursor = 0;
+        let mut copied = 0;
+        while cursor < bytes.len() {
+            if cursor > copied && word(bytes[cursor - 1]) {
+                cursor += s[cursor..]
+                    .chars()
+                    .next()
+                    .expect("character boundary")
+                    .len_utf8();
+                continue;
+            }
+            let mut at = 0;
+            let mut end = cursor;
+            let mut best = None;
+            while end < bytes.len() {
+                let Some(&next) = self.nodes[at].edges.get(&bytes[end]) else {
+                    break;
+                };
+                at = next;
+                end += 1;
+                if let Some(replacement) = self.nodes[at].replacement
+                    && (end == bytes.len() || !word(bytes[end]))
+                {
+                    best = Some((end, replacement));
+                }
+            }
+            if let Some((end, replacement)) = best {
+                out.push_str(&s[copied..cursor]);
+                out.push_str(replacement);
+                cursor = end;
+                copied = end;
+            } else {
+                cursor += s[cursor..]
+                    .chars()
+                    .next()
+                    .expect("character boundary")
+                    .len_utf8();
+            }
+        }
+        out.push_str(&s[copied..]);
+        out
+    }
 }
 
 pub(crate) fn rename_ids(s: &str, ids: &BTreeMap<String, String>) -> String {
-    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
-    let mut out = String::new();
-    let mut rest = s;
-    while !rest.is_empty() {
-        let next = ids
-            .iter()
-            .filter_map(|(old, new)| {
-                rest.match_indices(old.as_str())
-                    .find(|(i, _)| {
-                        (*i == 0 || !rest[..*i].ends_with(word))
-                            && !rest[i + old.len()..].starts_with(word)
-                    })
-                    .map(|(i, _)| (i, old, new))
-            })
-            .min_by(|a, b| a.0.cmp(&b.0).then(b.1.len().cmp(&a.1.len())));
-        let Some((i, old, new)) = next else {
-            out.push_str(rest);
-            break;
-        };
-        out.push_str(&rest[..i]);
-        out.push_str(new);
-        rest = &rest[i + old.len()..];
-    }
-    out
+    Renamer::new(ids).rename(s)
 }
 
 pub(crate) fn rename_value<E>(
@@ -118,4 +179,90 @@ pub(crate) fn next_id(s: &str) -> Option<(usize, usize)> {
         i += 1;
     }
     None
+}
+
+#[cfg(test)]
+mod indexed_tests {
+    use super::*;
+    #[test]
+    fn indexed_aliases_match_the_reference_token_algorithm() {
+        let ids = BTreeMap::from([
+            ("f:hole:1".into(), "f:hole:f8".into()),
+            ("f:hole:10".into(), "f:hole:f9".into()),
+            ("d:f:hole:1/pitch.length".into(), "d:replacement".into()),
+        ]);
+        let names = Renamer::new(&ids);
+        for left in [
+            "",
+            "α",
+            "x",
+            "f:hole:1",
+            "f:hole:10",
+            "d:f:hole:1/pitch.length",
+        ] {
+            for gap in ["", " ", "/", ":", "_", "a", "α"] {
+                for right in [
+                    "",
+                    "α",
+                    "x",
+                    "f:hole:1",
+                    "f:hole:10",
+                    "d:f:hole:1/pitch.length",
+                ] {
+                    let text = format!("{left}{gap}{right}");
+                    assert_eq!(
+                        names.rename(&text),
+                        reference_rename(&text, &ids),
+                        "{text:?}"
+                    );
+                }
+            }
+        }
+    }
+    fn reference_rename(s: &str, ids: &BTreeMap<String, String>) -> String {
+        let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+        let mut out = String::new();
+        let mut rest = s;
+        while !rest.is_empty() {
+            let next = ids
+                .iter()
+                .filter_map(|(old, new)| {
+                    rest.match_indices(old.as_str())
+                        .find(|(i, _)| {
+                            (*i == 0 || !rest[..*i].ends_with(word))
+                                && !rest[i + old.len()..].starts_with(word)
+                        })
+                        .map(|(i, _)| (i, old, new))
+                })
+                .min_by(|a, b| a.0.cmp(&b.0).then(b.1.len().cmp(&a.1.len())));
+            let Some((i, old, new)) = next else {
+                out.push_str(rest);
+                break;
+            };
+            out.push_str(&rest[..i]);
+            out.push_str(new);
+            rest = &rest[i + old.len()..];
+        }
+        out
+    }
+
+    #[test]
+    fn compiled_aliases_keep_longest_tokens_boundaries_and_unicode() {
+        let ids = BTreeMap::from([
+            ("f:hole:1".into(), "f:hole:f8".into()),
+            ("f:hole:10".into(), "f:hole:f9".into()),
+            ("d:f:hole:1/pitch.length".into(), "d:replacement".into()),
+        ]);
+        let names = Renamer::new(&ids);
+        assert_eq!(
+            names.rename("α f:hole:1;f:hole:10 / d:f:hole:1/pitch.length"),
+            "α f:hole:f8;f:hole:f9 / d:replacement"
+        );
+        assert_eq!(
+            names.rename("xf:hole:1 f:hole:11 f:hole:1_suffix"),
+            "xf:hole:1 f:hole:11 f:hole:1_suffix"
+        );
+        assert_eq!(names.rename("f:hole:1/f:hole:10"), "f:hole:f8/f:hole:f9");
+        assert_eq!(names.rename("f:hole:f8"), "f:hole:f8");
+    }
 }

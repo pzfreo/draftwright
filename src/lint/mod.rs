@@ -296,6 +296,10 @@ fn drawing_marks(drawing: &Drawing, witnesses: bool) -> Vec<Mark> {
 /// passes the Analysis with them merged into its PMI reading ([`crate::spec_gdt::effective`]), as
 /// [`crate::api::review`] does.
 pub fn lint(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
+    crate::geometry_ids::with(analysis, || lint_indexed(analysis, drawing))
+}
+
+fn lint_indexed(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
     let mut marks = drawing_marks(drawing, false);
     location::conveyed_boss_locations(analysis, &mut marks);
     location::drawn_constraints(analysis, drawing, &mut marks);
@@ -601,6 +605,10 @@ pub fn lint_sheets(analysis: &Analysis, drawings: &[Drawing]) -> Vec<LintIssue> 
 
 /// Every ported rule's findings on a drawing whose annotations are *marks*.
 pub fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
+    crate::geometry_ids::with(analysis, || check_indexed(analysis, marks))
+}
+
+fn check_indexed(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
     let mut verified: Vec<_> = marks
         .iter()
         .filter(|m| blends::verified_row(analysis, m))

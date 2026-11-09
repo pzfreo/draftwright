@@ -31,21 +31,15 @@ fn groups(a: &Analysis) -> Vec<Vec<&Feature>> {
     }
     let mut out: Vec<_> = groups.into_values().collect();
     for group in &mut out {
-        group.sort_by(|a, b| {
-            crate::geometry_ids::presentation_key(a_analysis, &a.id)
-                .cmp(&crate::geometry_ids::presentation_key(a_analysis, &b.id))
+        group.sort_by_cached_key(|f| {
+            crate::geometry_ids::presentation_key(a_analysis, &f.id).into_owned()
         });
     }
-    out.sort_by(|a, b| {
-        radius(a[0])
-            // Invariant: groups contains only features with a successfully read radius.
-            .unwrap()
-            // Invariant: groups contains only features with a successfully read radius.
-            .total_cmp(&radius(b[0]).unwrap())
-            .then(
-                crate::geometry_ids::presentation_key(a_analysis, &a[0].id)
-                    .cmp(&crate::geometry_ids::presentation_key(a_analysis, &b[0].id)),
-            )
+    out.sort_by_cached_key(|g| {
+        (
+            crate::geometry_ids::coordinate_order(radius(g[0]).expect("validated radius")),
+            crate::geometry_ids::presentation_key(a_analysis, &g[0].id).into_owned(),
+        )
     });
     out
 }

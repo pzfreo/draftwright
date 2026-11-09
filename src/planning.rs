@@ -181,7 +181,7 @@ pub(crate) fn with_retained<T>(analysis: &Analysis, run: impl FnOnce() -> T) -> 
         }))
     });
     let _scope = Scope(previous);
-    run()
+    crate::geometry_ids::with(analysis, run)
 }
 
 struct Scope(Option<Active>);
@@ -206,7 +206,7 @@ pub(crate) fn with<T>(analysis: &Analysis, run: impl FnOnce() -> T) -> T {
         previous
     });
     let _scope = Scope(previous);
-    run()
+    crate::geometry_ids::with(analysis, run)
 }
 
 /// A comparison has different printed wants and layout policy even though its

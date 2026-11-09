@@ -48,6 +48,7 @@ fn complete_ids(plan: &mut Plan) {
         .iter()
         .map(|(o, n)| (n.clone(), o.clone()))
         .collect();
+    let names = crate::revision_rename::Renamer::new(&reverse);
     for id in plan
         .dimensions
         .iter()
@@ -55,52 +56,14 @@ fn complete_ids(plan: &mut Plan) {
         .chain(plan.omitted.iter().map(|d| &d.id))
         .chain(plan.problems.iter().map(|p| &p.id))
     {
-        let old = crate::revision_rename::rename_ids(id, &reverse);
+        let old = names.rename(id);
         if old != *id {
             plan.ids.insert(old, id.clone());
         }
     }
 }
 
-pub(crate) fn feature_names(
-    features: &[crate::bridge::Feature],
-    patterns: &[crate::bridge::HolePattern],
-) -> Result<Vec<String>, String> {
-    let records: Vec<_> = features
-        .iter()
-        .map(|f| (f.kind.as_str(), f.faces.as_slice()))
-        .chain(
-            patterns
-                .iter()
-                .map(|p| ("hole_pattern", p.faces.as_slice())),
-        )
-        .collect();
-    type Anchors<'a> = BTreeMap<(&'a str, usize), Vec<(usize, &'a [usize])>>;
-    let mut groups: Anchors<'_> = BTreeMap::new();
-    for (i, (kind, faces)) in records.iter().enumerate() {
-        let face = faces
-            .iter()
-            .min()
-            .ok_or_else(|| format!("{kind} has no faces to anchor its ID"))?;
-        groups.entry((kind, *face)).or_default().push((i, faces));
-    }
-    let mut names = vec![String::new(); records.len()];
-    for ((kind, face), mut group) in groups {
-        group.sort_by(|a, b| a.1.cmp(b.1));
-        let shared = group.len() > 1;
-        for (n, (i, _)) in group.into_iter().enumerate() {
-            names[i] = format!(
-                "f:{kind}:f{face}{}",
-                if shared {
-                    format!("_{n}")
-                } else {
-                    String::new()
-                }
-            );
-        }
-    }
-    Ok(names)
-}
+pub(crate) use crate::geometry_ids::feature_names;
 
 pub(crate) fn anchor(
     features: &mut [crate::bridge::Feature],
@@ -171,6 +134,10 @@ fn ladder_legacy_ids(a: &Analysis) -> BTreeMap<String, String> {
 }
 
 pub fn ids(a: &Analysis) -> BTreeMap<String, String> {
+    crate::geometry_ids::with(a, || ids_indexed(a))
+}
+
+fn ids_indexed(a: &Analysis) -> BTreeMap<String, String> {
     let mut ids: BTreeMap<_, _> = a
         .features
         .iter()
@@ -222,8 +189,16 @@ fn escape(s: &str) -> String {
 
 /// Report changes to keys and string values, including references nested in arrays.
 fn changes(v: &Value, path: &str, map: &BTreeMap<String, String>, out: &mut Vec<Migrated>) {
+    changes_indexed(v, path, &crate::revision_rename::Renamer::new(map), out);
+}
+fn changes_indexed(
+    v: &Value,
+    path: &str,
+    names: &crate::revision_rename::Renamer<'_>,
+    out: &mut Vec<Migrated>,
+) {
     let mut changed = |s: &str, path: String| {
-        let to = crate::revision_rename::rename_ids(s, map);
+        let to = names.rename(s);
         if s != to {
             out.push(Migrated {
                 path,
@@ -241,7 +216,7 @@ fn changes(v: &Value, path: &str, map: &BTreeMap<String, String>, out: &mut Vec<
                 } else {
                     format!("{path}/{}", escape(k))
                 };
-                let to = crate::revision_rename::rename_ids(k, map);
+                let to = names.rename(k);
                 if *k != to {
                     out.push(Migrated {
                         path: p.clone(),
@@ -249,12 +224,12 @@ fn changes(v: &Value, path: &str, map: &BTreeMap<String, String>, out: &mut Vec<
                         to,
                     });
                 }
-                changes(x, &p, map, out);
+                changes_indexed(x, &p, names, out);
             }
         }
         Value::Array(a) => {
             for (i, x) in a.iter().enumerate() {
-                changes(x, &format!("{path}/{i}"), map, out);
+                changes_indexed(x, &format!("{path}/{i}"), names, out);
             }
         }
         _ => {}
@@ -353,6 +328,10 @@ fn rank_key(v: &Value) -> Option<String> {
 }
 
 pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
+    crate::geometry_ids::with(a, || migrate_indexed(spec, a))
+}
+
+fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
     if let Some(message) = refusal(&spec.schema, env!("CARGO_PKG_VERSION")) {
         return Err(invalid(message));
     }
@@ -520,7 +499,7 @@ mod tests {
             ] {
                 let message = refusal(schema, v).unwrap();
                 assert!(message.contains(&format!("draftwright {v} no longer reads")));
-                assert!(message.contains("draftwright 0.2.24, the last release"));
+                assert!(message.contains("draftwright 0.2.24, the last compatible release"));
                 assert!(refusal("draftwright.spec/3", v).is_none());
             }
         }
