@@ -14,6 +14,10 @@ what Python draftwright produces, and every difference has a verdict (rust-corre
 equivalent, undetermined or not-applicable) in a known-differences list under
 `tests/fixtures/` (`known_*.json`).
 
+The next release is **0.6.0**, using the same version for the GitHub tag, Cargo/crates.io
+and PyPI. The number jumps because PyPI's `draftwright` name already has releases from
+the earlier Python draftwright, up to 0.5.0rc13; the Rust engine takes that name over.
+
 ## Installing
 
 With a Rust toolchain (edition 2024, Rust 1.85 or later):
@@ -53,8 +57,9 @@ A drawing is three JSON documents: the Analysis, the Spec and the Plan. Five sta
 operations work on them (`docs/model.md`, ADR R1). Every command prints JSON.
 
 Since 0.2.15, draftwright writes `draftwright.spec/3`, which earlier engines cannot read. Specs
-`/1` and `/2` are read and migrated through 0.2.24; 0.2.25 and its prereleases refuse them with
-conversion instructions using 0.2.24.
+`/1` and `/2` are read and migrated for ten releases from 0.2.15, through 0.6.8
+(0.2.15, then 0.6.0–0.6.8). From 0.6.9, including its prereleases, they are refused with
+conversion instructions using 0.6.8.
 
 On the command line, `analyse`, `plan`, `render` and `review` take the part's features from
 Rust quiddity's recognition, run on the part (`src/bridge/native.rs`); the Analysis names it
