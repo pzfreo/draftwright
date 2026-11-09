@@ -11,8 +11,8 @@
 **Draftwright turns a 3D STEP file into a complete, dimensioned engineering drawing.** It
 recognises the part's features (holes, patterns, slots, pockets, turned steps, threads),
 decides what to dimension and where, reads tolerances and GD&T from AP242 files, lays out the
-views on a standard sheet, and tells you anything it could not state. One command, no CAD
-system and no OpenCascade.
+views on a standard sheet, and tells you anything it could not state. One Rust binary, one
+command, one repeatable drawing.
 
 <p align="center">
   <img src="docs/images/hero-nist-ctc-03.png" alt="An A3 drawing of NIST test part CTC-03, a sheet-metal bracket, with plan and elevation views, an isometric view, a hole table, datums and GD&T frames" width="100%">
