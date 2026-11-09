@@ -1,1 +1,12 @@
-{"signedContributors": []}
+{
+  "signedContributors": [
+    {
+      "name": "vandang890615",
+      "id": 107316509,
+      "comment_id": 6734778760,
+      "created_at": "2026-11-09T07:36:37Z",
+      "repoId": 1408889022,
+      "pullRequestNo": 369
+    }
+  ]
+}
