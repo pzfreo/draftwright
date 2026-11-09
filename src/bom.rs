@@ -270,7 +270,7 @@ fn file_process(doc: &Document, pd: u64, shape: u64) -> Option<(crate::process::
     let (mut answered, mut file, mut suggested) = (None, None, None);
     for owner in [pd, shape] {
         // Property order is record order, rather than STEP entity-number order.
-        let mut properties: Vec<_> = doc.referrers(owner).iter().copied().collect();
+        let mut properties = doc.referrers(owner).to_vec();
         properties.sort_by_key(|&id| doc.span(id).map(|s| s.start));
         for id in properties {
             if link(doc, id, "PROPERTY_DEFINITION", 2) != Some(owner) {
