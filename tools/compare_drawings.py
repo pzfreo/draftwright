@@ -38,7 +38,8 @@ def cases(corpus, examples, inputs):
             continue
         source = path
         if path.suffix == '.gz':
-            source = inputs / f'{number}-{path.name[:-3]}'
+            source = inputs / str(number) / path.name[:-3]
+            source.parent.mkdir()
             source.write_bytes(gzip.decompress(path.read_bytes()))
         result.append(('default', f'corpus-{number}-{path.stem}', source, None))
     drawings = tomllib.loads((examples / 'drawings.toml').read_text())['drawing']
