@@ -6,6 +6,15 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+The next release is **0.6.0**, with one version for the GitHub tag, Cargo/crates.io and
+PyPI. The number jumps because PyPI's `draftwright` name already has releases from the
+earlier Python draftwright, up to 0.5.0rc13; the Rust engine takes that name over.
+
+Specs `/1` and `/2` are read and migrated for ten releases from 0.2.15, through 0.6.8
+(0.2.15, then 0.6.0–0.6.8). Refusal starts at 0.6.9, including its prereleases such as
+0.6.9-alpha.1. Convert legacy Specs with 0.6.8: run
+`draftwright plan PART.step --spec FILE` and keep the `spec` it prints.
+
 - CLI-only maturin wheels carrying both `draftwright` and `draftwright-mcp`, with a
   tag/Cargo/wheel version agreement guard. GitHub URLs target `pzfreo/draftwright`.
 - The common Python CLI form `draftwright part.step [options]` renders natively, with explicit

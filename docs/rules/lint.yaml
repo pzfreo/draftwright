@@ -1,5 +1,5 @@
 # Rules catalogue: drafting knowledge encoded in draftwright's linting package.
-# Source: pzfreo/draftwright origin/main @ 586628b96db6779454d499c7d92d37f1aa8f1df9
+# Source: pzfreo/draftwright-python origin/main @ 586628b96db6779454d499c7d92d37f1aa8f1df9
 #   src/draftwright/linting/ (read via git show; nothing checked out).
 # Where a coverage module derives its required parameters from an IR feature's parameters(),
 # the parameter vocabulary was read from src/draftwright/model/ir.py / ir_foundation.py and

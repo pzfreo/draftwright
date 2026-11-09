@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// spec/1 and spec/2 are accepted through this release, then refused. Removing support
-/// requires changing this single cutoff; the approved conversion route remains explicit.
-pub const LAST_LEGACY_SPEC_READER: &str = "0.2.24";
+/// spec/1 and spec/2 are accepted for ten releases from 0.2.15, through 0.6.8, then refused.
+/// Changing this single cutoff keeps the approved conversion route explicit.
+pub const LAST_LEGACY_SPEC_READER: &str = "0.6.8";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Migrated {
@@ -576,21 +576,21 @@ mod tests {
     #[test]
     fn stable_cutoff_compares_prereleases_by_their_release_core() {
         for schema in ["draftwright.spec/1", "draftwright.spec/2"] {
-            for v in ["0.2.15", "0.2.24", "0.2.24-alpha.1", "0.2.24+build.1"] {
+            for v in ["0.2.15", "0.6.0", "0.6.8", "0.6.8-alpha.1", "0.6.8+build.1"] {
                 assert!(refusal(schema, v).is_none(), "{schema} at {v}");
             }
             for v in [
-                "0.2.25-alpha.1",
-                "0.2.25",
-                "0.2.25+build.1",
-                "0.3.0-alpha.1",
-                "0.3.0",
-                "0.3.9",
-                "0.4.0-dev.1",
+                "0.6.9-alpha.1",
+                "0.6.9",
+                "0.6.9+build.1",
+                "0.7.0-alpha.1",
+                "0.7.0",
+                "0.7.9",
+                "0.8.0-dev.1",
             ] {
                 let message = refusal(schema, v).unwrap();
                 assert!(message.contains(&format!("draftwright {v} no longer reads")));
-                assert!(message.contains("draftwright 0.2.24, the last compatible release"));
+                assert!(message.contains("draftwright 0.6.8, the last compatible release"));
                 assert!(refusal("draftwright.spec/3", v).is_none());
             }
         }
@@ -629,14 +629,14 @@ mod tests {
 
     #[test]
     fn approved_refusal_and_window() {
-        assert!(refusal("draftwright.spec/2", "0.2.24").is_none());
+        assert!(refusal("draftwright.spec/2", "0.6.8").is_none());
         assert_eq!(
-            refusal("draftwright.spec/2", "0.2.25").unwrap(),
-            "This Spec is draftwright.spec/2, which draftwright 0.2.25 no longer reads: it reads only draftwright.spec/3, whose feature and step IDs are named by faces rather than by rank or measured value. Convert it once with draftwright 0.2.24, the last compatible release: run `draftwright plan PART.step --spec FILE` and keep the `spec` it prints. Then open the converted Spec here."
+            refusal("draftwright.spec/2", "0.6.9").unwrap(),
+            "This Spec is draftwright.spec/2, which draftwright 0.6.9 no longer reads: it reads only draftwright.spec/3, whose feature and step IDs are named by faces rather than by rank or measured value. Convert it once with draftwright 0.6.8, the last compatible release: run `draftwright plan PART.step --spec FILE` and keep the `spec` it prints. Then open the converted Spec here."
         );
         assert_eq!(
-            refusal("draftwright.spec/1", "0.2.25"),
-            refusal("draftwright.spec/2", "0.2.25").map(|s| s.replacen(
+            refusal("draftwright.spec/1", "0.6.9"),
+            refusal("draftwright.spec/2", "0.6.9").map(|s| s.replacen(
                 "draftwright.spec/2",
                 "draftwright.spec/1",
                 1

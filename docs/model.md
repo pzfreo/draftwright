@@ -2546,9 +2546,10 @@ substitution composes embedded references. Unknown keys are never mapped specula
 The browser method returns this object as a JSON string. The editor and MCP should persist
 the returned Spec and apply `ids` to their external saved references.
 
-Specs `/1` and `/2` are accepted through **0.2.24**, the tenth release starting at 0.2.15.
-From 0.2.25 (including 0.2.25-alpha.1) they are refused with the approved conversion instructions: run
-`draftwright plan PART.step --spec FILE` with 0.2.24 and keep the `spec` it prints. The
+Specs `/1` and `/2` are accepted for ten releases from 0.2.15, through 0.6.8
+(0.2.15, then 0.6.0–0.6.8).
+From 0.6.9 (including 0.6.9-alpha.1) they are refused with the approved conversion instructions: run
+`draftwright plan PART.step --spec FILE` with 0.6.8 and keep the `spec` it prints. The
 single cutoff is `stable_ids::LAST_LEGACY_SPEC_READER`; there is no permanent migrate command.
 A spec/1 or spec/2 containing rank-keyed feature entries cannot be migrated using
 analysis/2–7: those analyses lack the exact face identity map. Opening it is refused,

@@ -3,7 +3,7 @@
 Each record states:
 - a decision;
 - what it adopts from, translates, or supersedes in the Python implementation's records
-  (pzfreo/draftwright `docs/adr/`, which stay unedited there as the record of why);
+  (pzfreo/draftwright-python `docs/adr/`, which stay unedited there as the record of why);
 - a numbered list of invariants, each naming the test that fails if it is broken.
 
 As in the Python repo, no record text becomes accepted without the maintainer's sign-off.

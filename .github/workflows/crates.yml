@@ -80,7 +80,7 @@ jobs:
         id: missing
         run: |
           status=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' \
-            -H 'User-Agent: pzfreo/draftwright release workflow (https://github.com/pzfreo/draftwright)' \
+            -H 'User-Agent: pzfreo/draftwright release workflow' \
             "https://crates.io/api/v1/crates/draftwright/$VERSION")
           if [ "$status" = 200 ]; then
             echo "draftwright $VERSION is already on crates.io: skipped"
