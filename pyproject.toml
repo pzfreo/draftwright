@@ -1,0 +1,30 @@
+[build-system]
+requires = ["maturin>=1.16,<2"]
+build-backend = "maturin"
+
+[project]
+name = "draftwright"
+# PyPI publishing is pending. Local wheels use Cargo's version (maturin's default).
+dynamic = ["version"]
+description = "Rust engineering drawing CLI, superseding Python draftwright (0.4.x, 0.5.0rc)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "fonts/LICENSE-*.txt"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Programming Language :: Rust",
+    "Topic :: Multimedia :: Graphics",
+]
+
+[project.urls]
+Homepage = "https://github.com/pzfreo/draftwright"
+Repository = "https://github.com/pzfreo/draftwright"
+Issues = "https://github.com/pzfreo/draftwright/issues"
+Releases = "https://github.com/pzfreo/draftwright/releases"
+
+[tool.maturin]
+bindings = "bin"
+manifest-path = "Cargo.toml"
+strip = true

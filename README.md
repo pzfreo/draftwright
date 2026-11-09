@@ -1,6 +1,6 @@
-# draftwright-rust
+# draftwright
 
-A pure-Rust port of [draftwright](https://github.com/pzfreo/draftwright): automated,
+A pure-Rust port of [Python draftwright](https://github.com/pzfreo/draftwright-python): automated,
 fully-annotated engineering drawings from STEP B-rep. No OpenCascade: geometry comes from the
 [haecceity](https://github.com/pzfreo/quiddity/tree/prototype/rust-port/crates/haecceity)
 kernel, and features from the Rust port of quiddity, both in
@@ -22,8 +22,25 @@ With a Rust toolchain (edition 2024, Rust 1.85 or later):
 cargo install draftwright  # installs draftwright and draftwright-mcp
 ```
 
-Without Rust, each [GitHub release](https://github.com/pzfreo/draftwright-rust/releases) has
+PyPI publishing is pending. Once it starts, install both `draftwright` and `draftwright-mcp`
+without Rust using either:
+
+```sh
+uv tool install draftwright
+pipx install draftwright
+```
+
+This CLI-only package replaces the old Python `draftwright` (0.4.x and 0.5.0rc).
+Users of its Python API should pin `draftwright<0.6` for now; a small Python API is planned.
+
+Until PyPI publishing starts, each [GitHub release](https://github.com/pzfreo/draftwright/releases) has
 ready-built archives for macOS (Apple silicon), Linux x86_64 and Windows x86_64.
+
+Generate shell completions with `draftwright completions <shell>` (bash, zsh, fish,
+powershell or elvish), for example `draftwright completions bash > draftwright.bash`.
+
+The old command form `draftwright part.step [options]` also renders a drawing. See
+[CLI migration](docs/cli-migration.md) for the common options and differences from Python.
 
 ## Building
 

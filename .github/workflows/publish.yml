@@ -1,0 +1,133 @@
+name: Python package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pyproject.toml'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**/Cargo.toml'
+      - 'build.rs'
+      - 'build_support.rs'
+      - 'rust-toolchain.toml'
+      - 'fonts/**'
+      - 'schemas/**'
+      - 'README.md'
+      - 'LICENSE'
+      - '.github/workflows/publish.yml'
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**/Cargo.toml'
+      - 'build.rs'
+      - 'build_support.rs'
+      - 'rust-toolchain.toml'
+      - 'fonts/**'
+      - 'schemas/**'
+      - 'README.md'
+      - 'LICENSE'
+      - '.github/workflows/publish.yml'
+  # A published GitHub release, or a manual run on main, will publish once the version
+  # decision is implemented. The publish job currently refuses every attempt (see TODO).
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the built wheels to PyPI (blocked pending version decision)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-22.04, target: x86_64, manylinux: '2_28' }
+          - { name: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64, manylinux: '2_28' }
+          - { name: macos-arm64, os: macos-latest, target: aarch64-apple-darwin }
+          - { name: macos-x86_64, os: macos-15-intel, target: x86_64-apple-darwin }
+          - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_BUILD_JOBS: '6'
+      RUSTC_WRAPPER: ''
+      # rustc's thin-LTO threads overflow Windows' default stack on step-io (as quiddity).
+      RUST_MIN_STACK: '67108864'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # The toolchain comes from rust-toolchain.toml. Both Cargo binaries go in wheel scripts;
+      # there is no Python extension or Python API.
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+          args: --release --locked --out dist
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv venv --python 3.11 .venv
+      - name: Install this wheel and run both commands from PATH
+        run: |
+          # --no-cache: a cached wheel of the same version would hide this build.
+          uv pip install --python .venv --no-index --no-cache dist/*.whl
+          source .venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}/activate
+          draftwright --version
+          draftwright-mcp --version
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-${{ matrix.name }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  # No sdist: this is a binary distribution for installs without Rust. Source users have
+  # Cargo and the repository; unsupported platforms should not unexpectedly compile Rust.
+  publish:
+    needs: wheels
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == true && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # As in crates.yml (#371), the release tag must equal the engine's Cargo version.
+      # This is independent of the still-undecided PyPI version.
+      - name: The tag is the crate version
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 - <<'PYTHON'
+          import os, tomllib
+          for manifest in ["Cargo.toml", "crates/draftwright-wasm/Cargo.toml"]:
+              with open(manifest, "rb") as source:
+                  version = tomllib.load(source)["package"]["version"]
+              if os.environ["TAG"] != f"v{version}":
+                  raise SystemExit(f"::error::tag {os.environ['TAG']}, {manifest} {version}: they must agree")
+          PYTHON
+      - name: 'TODO: PyPI version agreement — publishing blocked'
+        run: |
+          # TODO(maintainer): decide the PyPI version scheme, implement its agreement guard
+          # against the built wheel metadata, and only then replace this unconditional refusal.
+          # Local wheels retain maturin's default Cargo-derived version. No mapping is assumed.
+          echo '::error::PyPI publishing is pending: the version scheme is undecided. Publishing is blocked until the version-agreement guard is implemented.'
+          exit 1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
