@@ -372,7 +372,7 @@ fn a_uniform_staircase_is_one_counted_rise() {
     assert_eq!(
         items(&plan, &LADDER),
         strs(&[
-            ("step_height.length.h10", "front", "10"),
+            ("step_height.length.f6", "front", "10"),
             ("step_height.length.h16", "front", "16"),
             ("step_height.length.h5", "front", "5"),
         ])
