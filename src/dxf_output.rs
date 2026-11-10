@@ -79,10 +79,19 @@ impl From<&PlannedDimension> for Dimension {
 }
 
 fn number_range(s: &str) -> Option<Range<usize>> {
-    let start = s
-        .char_indices()
-        .find(|(_, c)| c.is_ascii_digit() || matches!(c, '-' | '+'))?
-        .0;
+    let after_count = s.find('×').map_or(0, |at| {
+        let prefix = s[..at].trim().trim_start_matches('(');
+        if !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit()) {
+            at + '×'.len_utf8()
+        } else {
+            0
+        }
+    });
+    let start = after_count
+        + s[after_count..]
+            .char_indices()
+            .find(|(_, c)| c.is_ascii_digit() || matches!(c, '-' | '+'))?
+            .0;
     let end = s[start..]
         .find(|c: char| !c.is_ascii_digit() && !matches!(c, '.' | '-' | '+'))
         .map_or(s.len(), |n| start + n);
@@ -1899,7 +1908,21 @@ mod tests {
 
 #[cfg(test)]
 mod tolerance_tests {
-    use super::deviation_band;
+    use super::{deviation_band, number_range};
+
+    #[test]
+    fn compound_terms_distinguish_repetition_counts_from_measured_values() {
+        for (term, value) in [
+            ("2× 47.625", "47.625"),
+            ("3×72.39", "72.39"),
+            ("2× 143.158°", "143.158"),
+            ("(2× 135°)", "135"),
+            ("4× ⌀6.6 THRU", "6.6"),
+            ("⌀2× 12.593 LONG × 180° ARC", "2"),
+        ] {
+            assert_eq!(&term[number_range(term).unwrap()], value);
+        }
+    }
 
     #[test]
     fn primary_tolerances_include_ap242_slash_bands_and_fits() {
