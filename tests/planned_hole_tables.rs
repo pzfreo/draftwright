@@ -480,7 +480,11 @@ fn table_recess_and_depth_symbols_are_drawn_inside_the_size_cell() {
         .iter()
         .flat_map(|l| &l.items)
         .filter(|i| {
-            let draftwright::output::Item::Edge(draftwright::output::Curve::Line(a, b)) = i else {
+            // These are the same painted drafting-symbol strokes, now linked
+            // to their text run so DXF can omit them in favour of native text.
+            let (draftwright::output::Item::Edge(draftwright::output::Curve::Line(a, b))
+            | draftwright::output::Item::TextStroke(draftwright::output::Curve::Line(a, b), _)) = i
+            else {
                 return false;
             };
             [a, b].iter().all(|p| {
