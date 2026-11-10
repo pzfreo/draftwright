@@ -182,7 +182,7 @@ fn editor_can_pin_either_or_both_pictorials_without_invalidating_the_spec() {
     for (name, anchor, side) in [("iso", "plan", "right"), ("iso_below", "iso", "below")] {
         s.apply(
             &[Op::set(
-                &format!("views/{name}/place"),
+                format!("views/{name}/place"),
                 json!({"relative_to":anchor,"side":side,"gap":5,"pinned":true}),
             )],
             true,
