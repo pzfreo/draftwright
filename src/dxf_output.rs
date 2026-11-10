@@ -1258,7 +1258,9 @@ impl Writer {
         }
         t.tag(75, 0);
         t.tag(76, 1);
-        t.tag(52, 45);
+        // ANSI31 already has a 45° base line; group 52 is the additional
+        // rotation applied when CAD regenerates the named pattern.
+        t.tag(52, 0);
         t.tag(41, crate::section::HATCH_SPACING / 2f64.sqrt() / 3.175);
         t.tag(77, 0);
         t.tag(78, 1);
