@@ -215,6 +215,13 @@ fn a_pictorial_pin_preserves_its_unpinned_ancestor_in_both_directions() {
     for (name, anchor) in [("iso", "iso_below"), ("iso_below", "iso")] {
         let spec = serde_json::from_value(json!({"sheet":{"size":"A2","scale":"1:2"},"views":{"iso":{"style":"shaded"},"iso_below":{"style":"shaded"}}})).unwrap();
         let mut s = Session::open(&path, api::Features::None, spec).unwrap();
+        let original = s
+            .plan()
+            .views
+            .iter()
+            .find(|v| v.id == format!("v:{anchor}"))
+            .unwrap()
+            .clone();
         s.apply(
             &[Op::set(
                 format!("views/{name}/place"),
@@ -231,13 +238,17 @@ fn a_pictorial_pin_preserves_its_unpinned_ancestor_in_both_directions() {
                 .unwrap()
         };
         let (a, b) = (view(name), view(anchor));
-        assert!(
-            (a.area[3] + 5. - b.area[1]).abs() < 1e-6,
-            "{name} relative to {anchor}: {:?} {:?}",
-            a.area,
-            b.area
+        // The iso may fit inside its authored side region; the reference frame itself stays fixed.
+        assert_eq!(b.at, original.at, "{name} moved its anchor {anchor}");
+        assert_eq!(
+            b.scale, original.scale,
+            "{name} rescaled its anchor {anchor}"
         );
-        assert!((a.area[0] + a.area[2] - b.area[0] - b.area[2]).abs() < 1e-6);
+        assert_eq!(
+            b.area, original.area,
+            "{name} changed its anchor reservation {anchor}"
+        );
+        assert!(a.area[3] <= b.area[1] - 5. + 1e-6);
         assert!(
             s.plan()
                 .problems
