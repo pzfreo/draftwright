@@ -4496,6 +4496,7 @@ pub(crate) fn pin_base(spec: &Spec) -> Spec {
     }
     base.views.keep_sections_from(&spec.views);
     base.views.keep_breaks_from(&spec.views);
+    base.views.keep_pictorials_from(&spec.views);
     if spec.dimensions.values().any(|d| d.between.is_some()) {
         base.dimension_source = spec.dimension_source;
         base.dimensions = spec.dimensions.clone();
@@ -5858,6 +5859,7 @@ fn plan_with_presentation(
             unnamed.views.clear();
             unnamed.views.keep_sections_from(&spec.views);
             unnamed.views.keep_breaks_from(&spec.views);
+            unnamed.views.keep_pictorials_from(&spec.views);
             if let Ok(default) = plan_automatic(analysis, &unnamed)
                 && base
                     .views
@@ -5867,6 +5869,7 @@ fn plan_with_presentation(
                 base.views.clear();
                 base.views.keep_sections_from(&spec.views);
                 base.views.keep_breaks_from(&spec.views);
+                base.views.keep_pictorials_from(&spec.views);
             }
         }
         // A multi-sheet request is planned by R5 allocation steps whose sheet-1 spec omits

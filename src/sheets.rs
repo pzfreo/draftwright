@@ -684,6 +684,7 @@ pub(crate) fn reference_views(spec: &Spec) -> crate::sections::Views {
         .into();
     views.keep_sections_from(&spec.views);
     views.keep_breaks_from(&spec.views);
+    views.keep_pictorials_from(&spec.views);
     views
 }
 
