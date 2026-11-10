@@ -192,8 +192,8 @@ yet been tried in a real client.
   silently. Checked record by record against Python draftwright's drawings of 22 AP242 files
   (NIST CTC/FTC/STC models and files written by specify-core and by haecceity's PMI writer):
   every difference has a verdict, and none is rust-wrong.
-- **Output:** SVG, PDF and PNG (`src/output.rs`, `src/png.rs`); DXF is drawn but its export is
-  disabled until it is fixed. The PDF embeds subset
+- **Output:** SVG, PDF, PNG and editable DXF (`src/output.rs`, `src/png.rs`,
+  `src/dxf_output.rs`). The PDF embeds subset
   fonts and carries every label as searchable text, callout symbols included; the SVG carries
   the text too. Every format embeds the Spec, which `draftwright spec` reads back.
 - **Deterministic:** the same input gives the same bytes, run to run and in every time zone
@@ -247,7 +247,9 @@ includes the summary. See [finding impact](finding-impact.md) for all codes and 
   Missing edge evidence, section views and uncertain curved regions cannot prove interior paper.
 - **The rules catalogue** (`docs/rules/`) tracks what Python draftwright learnt; most of its
   rules are still pending.
-- DXF table head handles (ezdxf adds them on audit) are not written.
+- DXF uses owned block records, native text and dimension entities with rendered anonymous
+  blocks. Engineering symbol text uses Unicode and a symbol-font fallback; other annotations
+  remain selectable named groups.
 
 ## Known limitations
 

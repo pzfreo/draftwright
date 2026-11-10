@@ -685,7 +685,9 @@ fn a_value_is_drawn_as_it_is_measured() {
         _ => None,
     };
     for item in &drawing.layers[2].items {
-        let Item::Face(wires) = item else { continue };
+        let (Item::Face(wires) | Item::Glyph(wires, _)) = item else {
+            continue;
+        };
         let Some(p) = first(&wires[0][0]) else {
             continue;
         };

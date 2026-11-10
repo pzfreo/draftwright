@@ -23,24 +23,24 @@ fn fixture(name: &str) -> PathBuf {
 /// `output::bezier_pieces` took the span index past the poles and the render panicked ("range
 /// end index 28 out of range for slice of length 25"). Each stretch is now wrapped into the
 /// domain and drawn, so the part renders in every format with no edge left out.
-/// DXF export is disabled until it is fixed: asking for it is refused before anything is drawn.
+/// Native DXF is an accepted format and embeds the same resumable Spec.
 #[test]
-fn dxf_export_is_disabled() {
-    let e = api::render_from(
-        std::path::Path::new("no-such.step"),
+fn dxf_export_is_editable() {
+    let (_, files) = api::render_from(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step"),
         Features::Native,
         &Spec::default(),
-        &["svg", "dxf"],
+        &["dxf"],
         api::DPI,
     )
-    .unwrap_err();
-    assert_eq!(e.code, "invalid");
+    .unwrap();
+    assert_eq!(files.len(), 1);
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
     assert!(
-        e.message.contains("DXF export is disabled"),
-        "{}",
-        e.message
+        d.entities()
+            .any(|e| matches!(e.specific, dxf::entities::EntityType::RotatedDimension(_)))
     );
-    assert_eq!(e.choices, ["svg", "pdf", "png"]);
+    assert!(d.blocks().any(|b| b.name == "TITLE_BLOCK"));
 }
 
 #[test]

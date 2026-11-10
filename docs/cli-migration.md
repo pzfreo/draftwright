@@ -43,7 +43,7 @@ Differences from Python's help/defaults (checked against the old CLI on 2026-11-
 
 Every other Python option is refused. Where a Rust control exists the error names it:
 `--document-type` and `--sheet` use `render --spec` title fields; `--projection`, `--zones`,
-`--page` and `--pmi` use Spec fields; `--format`/`-f` uses `render --formats` (DXF is disabled);
+`--page` and `--pmi` use Spec fields; `--format`/`-f` uses `render --formats` (including editable DXF);
 completion installation/display uses `draftwright completions <shell>`.
 There is no equivalent CLI option for `--margin-left`, `--margin-right`, `--margin-top`,
 `--margin-bottom`, `--title-block-width`, `--projection-symbol`, `--no-projection-symbol`,

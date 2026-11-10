@@ -67,7 +67,8 @@ fn every_default_says_why_and_the_views_fit_the_sheet_apart() {
                 .iter()
                 .flat_map(|l| l.items.iter())
                 .filter_map(|i| match i {
-                    draftwright::output::Item::Edge(c) => Some(c.start()),
+                    draftwright::output::Item::Edge(c)
+                    | draftwright::output::Item::TextStroke(c, _) => Some(c.start()),
                     _ => None,
                 })
                 .filter(|p| (p[0] - v.at[0]).abs() < w / 2.0 && (p[1] - v.at[1]).abs() < h / 2.0)
@@ -76,7 +77,9 @@ fn every_default_says_why_and_the_views_fit_the_sheet_apart() {
             boxes.push(v.at);
         }
         for p in drawing.layers[1].items.iter().filter_map(|i| match i {
-            draftwright::output::Item::Edge(c) => Some(c.start()),
+            draftwright::output::Item::Edge(c) | draftwright::output::Item::TextStroke(c, _) => {
+                Some(c.start())
+            }
             _ => None,
         }) {
             assert!(

@@ -1,4 +1,4 @@
-//! The port's SVG and DXF against draftwright's, written from the same drawings
+//! The port's SVG against draftwright's, written from the same drawings
 //! (`tools/capture_output.py`): every layer must carry the same style and the same lines, each
 //! side's within `common::TOL` of the other's. (The PDF, rendered and searched, is compared by
 //! `tools/compare_pdf.py`, which needs a PDF renderer.) The text a PDF and an SVG carry is read
@@ -21,24 +21,17 @@ use pdf::{pdf_objects, pdf_text, reference, svg_text, to_unicode};
 use serde_json::{Value, json};
 
 #[test]
-fn svg_and_dxf_match_draftwright() {
+fn svg_matches_draftwright() {
     let mut problems = Vec::new();
     for name in ["m10127", "string_post", "ctc01"] {
         let drawing = common::drawing(&common::load(name));
-        for (kind, theirs, mine) in [
-            (
-                "svg",
-                common::read_svg(
-                    &String::from_utf8(common::gunzip(&format!("{name}.svg.gz"))).unwrap(),
-                ),
-                common::read_svg(&drawing.svg()),
+        for (kind, theirs, mine) in [(
+            "svg",
+            common::read_svg(
+                &String::from_utf8(common::gunzip(&format!("{name}.svg.gz"))).unwrap(),
             ),
-            (
-                "dxf",
-                common::read_dxf(&common::gunzip(&format!("{name}.dxf.gz"))),
-                common::read_dxf(&drawing.dxf()),
-            ),
-        ] {
+            common::read_svg(&drawing.svg()),
+        )] {
             let layers: std::collections::BTreeSet<&String> =
                 theirs.keys().chain(mine.keys()).collect();
             for layer in layers {
@@ -430,4 +423,177 @@ fn general_notes_reach_the_pdf_text_layer() {
         svg.iter().any(|t| t == "1  BREAK ALL SHARP EDGES"),
         "{svg:?}"
     );
+}
+
+/// Native entities replace the old glyph-curve DXF contract. Read with the Rust
+/// crate alone so the normal test suite does not depend on Python or a CAD install.
+#[test]
+fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
+    use draftwright::output::{Curve, Item};
+    use dxf::entities::EntityType as E;
+    let drawing = plate(&|_| {});
+    let bytes = drawing.dxf();
+    assert_eq!(bytes, drawing.dxf(), "deterministic handles and metadata");
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&bytes)).unwrap();
+    let all: Vec<_> = d
+        .entities()
+        .chain(d.blocks().flat_map(|b| b.entities.iter()))
+        .collect();
+    let mut strings = Vec::new();
+    for e in &all {
+        match &e.specific {
+            E::Text(t) => strings.push(t.value.clone()),
+            E::MText(t) => strings.push(t.text.clone()),
+            E::Insert(i) => strings.extend(
+                i.attributes()
+                    .filter(|a| !a.value.is_empty())
+                    .map(|a| a.value.clone()),
+            ),
+            _ => {}
+        }
+    }
+    let escape = |s: &str| {
+        s.replace('×', r"\U+00D7")
+            .replace('⌀', "%%c")
+            .replace('°', "%%d")
+            .replace('±', "%%p")
+    };
+    let mut expected: Vec<_> = drawing
+        .text
+        .iter()
+        .chain(&drawing.sheet.dxf.labels)
+        .map(|r| escape(&r.text))
+        .collect();
+    strings.sort();
+    expected.sort();
+    assert_eq!(
+        strings, expected,
+        "one editable native text entity per run, including attribute values"
+    );
+    let title = d
+        .entities()
+        .find_map(|e| match &e.specific {
+            E::Insert(i) if i.name == "TITLE_BLOCK" => Some(i),
+            _ => None,
+        })
+        .unwrap();
+    let tags: BTreeSet<_> = title
+        .attributes()
+        .map(|a| a.attribute_tag.as_str())
+        .collect();
+    for tag in [
+        "TITLE",
+        "DRAWING_NUMBER",
+        "MATERIAL",
+        "SCALE",
+        "DATE",
+        "REVISION",
+        "DESIGNED_BY",
+    ] {
+        assert!(tags.contains(tag), "{tag}");
+    }
+    assert!(
+        d.blocks()
+            .find(|b| b.name == "TITLE_BLOCK")
+            .unwrap()
+            .entities
+            .iter()
+            .any(|e| matches!(e.specific, E::AttributeDefinition(_)))
+    );
+    for view in &drawing.sheet.views {
+        assert!(d.blocks().any(|b| b.name == view.name.replace(':', "_")));
+    }
+    let mut dimensions = 0;
+    for e in d.entities() {
+        if let E::RotatedDimension(dim) = &e.specific {
+            dimensions += 1;
+            let base = &dim.dimension_base;
+            let style = d
+                .dim_styles()
+                .find(|s| s.name == base.dimension_style_name)
+                .unwrap();
+            let block = d.blocks().find(|b| b.name == base.block_name).unwrap();
+            assert!(block.name.starts_with("*D") && !block.entities.is_empty());
+            let label = block
+                .entities
+                .iter()
+                .find_map(|e| match &e.specific {
+                    E::Text(t) => t.value.parse::<f64>().ok(),
+                    _ => None,
+                })
+                .unwrap();
+            let a = &dim.definition_point_2;
+            let b = &dim.definition_point_3;
+            let angle = dim.rotation_angle.to_radians();
+            let measured = ((b.x - a.x) * angle.cos() + (b.y - a.y) * angle.sin()).abs();
+            assert!(
+                (measured * style.dimension_linear_measurement_scale_factor - label).abs() < 1e-5
+            );
+            assert_eq!(base.text, "<>", "plain values regenerate from geometry");
+        }
+    }
+    assert!(dimensions >= 7);
+    assert!(
+        d.objects()
+            .any(|o| matches!(o.specific, dxf::objects::ObjectType::Group(_)))
+    );
+    for name in [
+        "A-OUTL",
+        "A-HIDN",
+        "A-CNTR",
+        "A-DIMS",
+        "A-TEXT",
+        "A-PMI",
+        "A-HATCH",
+        "A-CUTP",
+        "A-BORD",
+        "Defpoints",
+    ] {
+        assert!(d.layers().any(|l| l.name == name));
+    }
+    for font in [
+        "IBMPlexMono-Regular.ttf",
+        "IBMPlexSansCondensed-Regular.ttf",
+    ] {
+        assert!(d.styles().any(|s| s.primary_font_file_name == font));
+    }
+    // Poison all glyph outlines. No such geometry may appear in the native export.
+    let mut poisoned = drawing.clone();
+    let mut count = 0;
+    for layer in &mut poisoned.layers {
+        for i in &mut layer.items {
+            match i {
+                Item::Glyph(w, _) => {
+                    *w = vec![vec![Curve::Line([9000., 9000.], [9999., 9999.])]];
+                    count += 1;
+                }
+                Item::TextStroke(c, _) => *c = Curve::Line([9000., 9000.], [9999., 9999.]),
+                _ => {}
+            }
+        }
+    }
+    assert!(count > 0);
+    let check = dxf::Drawing::load(&mut std::io::Cursor::new(poisoned.dxf())).unwrap();
+    assert_eq!(
+        all.len(),
+        check.entities().count() + check.blocks().map(|b| b.entities.len()).sum::<usize>()
+    );
+    for e in check
+        .entities()
+        .chain(check.blocks().flat_map(|b| b.entities.iter()))
+    {
+        match &e.specific {
+            E::Line(l) => assert!(
+                [&l.p1, &l.p2]
+                    .iter()
+                    .all(|p| p.x.abs() < 1000. && p.y.abs() < 1000.)
+            ),
+            E::Spline(s) => assert!(
+                s.control_points
+                    .iter()
+                    .all(|p| p.x.abs() < 1000. && p.y.abs() < 1000.)
+            ),
+            _ => {}
+        }
+    }
 }

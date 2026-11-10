@@ -285,7 +285,9 @@ fn prepared_proofs(
                 let (x0, x1, y) = crate::model::cutting_line(analysis, v, &view, cut);
                 let (items, letters) = crate::section::cutting_plane(x0, x1, y);
                 for item in &items {
-                    let crate::output::Item::Face(loops) = item else {
+                    let (crate::output::Item::Face(loops) | crate::output::Item::Glyph(loops, _)) =
+                        item
+                    else {
                         continue;
                     };
                     for c in loops.iter().flatten() {

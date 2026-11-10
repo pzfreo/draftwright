@@ -766,11 +766,11 @@ pub(crate) fn ink(
             *list = std::mem::take(list)
                 .into_iter()
                 .flat_map(|i| match i {
-                    Item::Edge(c) => crate::detail::clip(c, rect)
+                    Item::Edge(c) | Item::TextStroke(c, _) => crate::detail::clip(c, rect)
                         .into_iter()
                         .map(Item::Edge)
                         .collect(),
-                    Item::Face(_) => Vec::new(),
+                    Item::Face(_) | Item::Glyph(_, _) => Vec::new(),
                 })
                 .collect();
         }

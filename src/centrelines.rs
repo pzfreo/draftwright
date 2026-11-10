@@ -889,7 +889,9 @@ pub(crate) fn obstacles(views: &[PlannedView]) -> Vec<PlannedDimension> {
                 // Use the renderer's own wing and filled arrow outlines.
                 let ends = crate::section::cutting_plane_ends(a[0], b[0], a[1]);
                 for item in ends.iter().flatten() {
-                    if let crate::output::Item::Face(loops) = item {
+                    if let crate::output::Item::Face(loops) | crate::output::Item::Glyph(loops, _) =
+                        item
+                    {
                         obstacle
                             .placed
                             .as_mut()

@@ -301,7 +301,7 @@ pub const ARROW: f64 = 2.7;
 pub(crate) const ARROW_HALF: f64 = ARROW / 6.0;
 /// The gap between an extension line and the point it extends from, and how far it runs past
 /// its dimension line (ISO 129-1: about 2 mm).
-const GAP: f64 = 1.0;
+pub(crate) const GAP: f64 = 1.0;
 const OVERSHOOT: f64 = 2.0;
 /// The first dimension line's distance from the view's outline (draftwright's `_STRIP_GAP`) and
 /// the distance between successive parallel lines, at normal spacing.
@@ -5123,8 +5123,17 @@ pub fn render(
         }
         let ink = label_ink(&d.terms, font);
         let f = to_page(p.label_at, p.rotation);
+        let rows = crate::callouts::lines(&d.terms).len();
+        let run_at = |y: f64| {
+            first
+                + ((-y / crate::callouts::line_spacing()).round().max(0.) as usize)
+                    .min(rows.saturating_sub(1))
+        };
         for s in &ink.strokes {
-            items.push(Item::Edge(Curve::Line(f(s[0]), f(s[1]))));
+            items.push(Item::TextStroke(
+                Curve::Line(f(s[0]), f(s[1])),
+                run_at((s[0][1] + s[1][1]) / 2.),
+            ));
         }
         for contours in &ink.glyphs {
             let wires: Vec<Vec<Curve>> = contours
@@ -5141,7 +5150,14 @@ pub fn render(
                 })
                 .collect();
             if !wires.is_empty() {
-                items.push(Item::Face(wires));
+                let (lo, hi) = contours
+                    .iter()
+                    .flatten()
+                    .map(|s| s.at(0.)[1])
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), y| {
+                        (lo.min(y), hi.max(y))
+                    });
+                items.push(Item::Glyph(wires, run_at((lo + hi) / 2.)));
             }
         }
         // A basic dimension's box: its label box, which the plan widened to take it in.

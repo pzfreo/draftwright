@@ -121,13 +121,17 @@ impl Drawing {
                     }
                 };
                 match item {
-                    Item::Edge(curve) => trace(std::slice::from_ref(curve)),
-                    Item::Face(wires) => wires.iter().for_each(|w| trace(w)),
+                    Item::Edge(curve) | Item::TextStroke(curve, _) => {
+                        trace(std::slice::from_ref(curve))
+                    }
+                    Item::Face(wires) | Item::Glyph(wires, _) => {
+                        wires.iter().for_each(|w| trace(w))
+                    }
                 }
                 // A path of no extent (a curve whose ends and poles fall on one grid point) has
                 // nothing to draw.
                 let Some(path) = pb.finish() else { continue };
-                if matches!(item, Item::Face(_)) && st.fill {
+                if matches!(item, Item::Face(_) | Item::Glyph(_, _)) && st.fill {
                     pixmap.fill_path(
                         &path,
                         &paint,

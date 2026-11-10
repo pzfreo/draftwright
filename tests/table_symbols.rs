@@ -67,8 +67,8 @@ fn assert_text_ink(drawing: &Drawing, text: &str, at: [f64; 2]) -> usize {
         .iter()
         .flat_map(|l| &l.items)
         .flat_map(|item| match item {
-            Item::Edge(c) => vec![c],
-            Item::Face(wires) => wires.iter().flatten().collect(),
+            Item::Edge(c) | Item::TextStroke(c, _) => vec![c],
+            Item::Face(wires) | Item::Glyph(wires, _) => wires.iter().flatten().collect(),
         })
         .collect();
     for curve in expected {

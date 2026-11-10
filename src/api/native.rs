@@ -277,12 +277,6 @@ fn rendered(
     formats: &[&str],
     dpi: f64,
 ) -> Result<(Plan, Files), Error> {
-    if formats.contains(&"dxf") {
-        return Err(Error {
-            choices: FORMATS.map(String::from).to_vec(),
-            ..Error::invalid("DXF export is disabled until it is fixed.".to_string())
-        });
-    }
     if let Some(other) = formats.iter().find(|f| !FORMATS.contains(f)) {
         return Err(Error {
             choices: FORMATS.map(String::from).to_vec(),
@@ -315,6 +309,8 @@ fn rendered(
                 };
                 let bytes = if format == "svg" {
                     drawing.svg().into_bytes()
+                } else if format == "dxf" {
+                    drawing.dxf()
                 } else {
                     drawing.png(dpi).map_err(Error::invalid)?
                 };
