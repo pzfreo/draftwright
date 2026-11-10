@@ -577,6 +577,27 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
             let b = &dim.definition_point_3;
             let angle = dim.rotation_angle.to_radians();
             let measured = ((b.x - a.x) * angle.cos() + (b.y - a.y) * angle.sin()).abs();
+            let text = block
+                .entities
+                .iter()
+                .find_map(|e| {
+                    if let E::Text(t) = &e.specific {
+                        Some(t)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            let delta = [
+                base.text_mid_point.x - text.location.x,
+                base.text_mid_point.y - text.location.y,
+            ];
+            let rise = -delta[0] * angle.sin() + delta[1] * angle.cos();
+            assert!(
+                (rise - text.text_height / 2.).abs() < 0.15,
+                "DIMENSION text point is the ink centre, not its baseline"
+            );
+
             assert!(
                 (measured * style.dimension_linear_measurement_scale_factor - label).abs() < 1e-5
             );

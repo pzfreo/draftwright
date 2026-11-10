@@ -306,7 +306,13 @@ impl Writer {
             });
         let height = r.size * cap;
         t.tag(100, if multiline { "AcDbMText" } else { "AcDbText" });
-        t.point(10, r.at);
+        let insertion = if multiline && r.v_align == VAlign::Baseline {
+            let (sin, cos) = r.rotation.to_radians().sin_cos();
+            [r.at[0] - sin * height, r.at[1] + cos * height]
+        } else {
+            r.at
+        };
+        t.point(10, insertion);
         t.tag(40, height);
         let content = if multiline {
             encode_mtext(&r.text)
@@ -332,9 +338,12 @@ impl Writer {
             t.tag(
                 71,
                 match (r.h_align, r.v_align) {
-                    (HAlign::Left, _) => 4,
-                    (HAlign::Center, _) => 5,
-                    (HAlign::Right, _) => 6,
+                    (HAlign::Left, VAlign::Baseline) => 1,
+                    (HAlign::Center, VAlign::Baseline) => 2,
+                    (HAlign::Right, VAlign::Baseline) => 3,
+                    (HAlign::Left, VAlign::Middle) => 4,
+                    (HAlign::Center, VAlign::Middle) => 5,
+                    (HAlign::Right, VAlign::Middle) => 6,
                 },
             );
             t.tag(50, r.rotation.to_radians());
@@ -642,11 +651,8 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             t.tag(280, 0);
             t.tag(2, &w.blocks[block].name);
             t.point(10, if kind <= 1 { points[2] } else { points[0] });
-            let at = a
-                .runs
-                .first()
-                .and_then(|r| drawing.text.get(*r))
-                .map_or(d.placed.as_ref().unwrap().label_at, |r| r.at);
+            let bbox = d.placed.as_ref().expect("placed dimension").label_box;
+            let at = [(bbox[0] + bbox[2]) / 2., (bbox[1] + bbox[3]) / 2.];
             t.point(11, at);
             t.tag(70, kind | 32 | 128);
             t.tag(71, 5);
