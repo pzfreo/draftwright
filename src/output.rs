@@ -1415,7 +1415,7 @@ fn rational_at(poles: &[[f64; 3]], t: f64) -> P {
 
 /// Rational pieces as the polynomial ones SVG and PDF can draw (up to cubics): a piece of equal
 /// weights and at most 4 poles is one already; any other is drawn as chords within 0.1 µm of it.
-fn polynomial(pieces: &[Vec<[f64; 3]>]) -> Vec<Vec<P>> {
+pub(crate) fn polynomial(pieces: &[Vec<[f64; 3]>]) -> Vec<Vec<P>> {
     let mut out = Vec::new();
     for piece in pieces {
         let w = piece[0][2];

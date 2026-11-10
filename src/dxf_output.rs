@@ -221,7 +221,7 @@ impl Writer {
                 }
             }
             _ => {
-                let pieces = match c {
+                let mut pieces = match c {
                     Curve::Beziers(p) => p
                         .iter()
                         .map(|p| p.iter().map(|q| [q[0], q[1], 1.]).collect())
@@ -229,6 +229,14 @@ impl Writer {
                     Curve::Rational(p) => p.clone(),
                     _ => unreachable!(),
                 };
+                // High-order kernel curves exceed common CAD/ezdxf evaluator limits.
+                // Use the painted formats' existing 0.1 µm chord approximation.
+                if pieces.iter().any(|p| p.len() > 11) {
+                    pieces = crate::output::polynomial(&pieces)
+                        .into_iter()
+                        .map(|p| p.into_iter().map(|q| [q[0], q[1], 1.]).collect())
+                        .collect();
+                }
                 let s = crate::output::spline(pieces);
                 t.tag(100, "AcDbSpline");
                 t.tag(70, if s.weight_values.is_empty() { 8 } else { 12 });

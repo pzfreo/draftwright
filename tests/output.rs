@@ -609,14 +609,25 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
         assert!(d.styles().any(|s| s.primary_font_file_name == font));
     }
     // Isolated projected poles are not valid degree-zero DXF splines.
-    let mut with_points=drawing.clone();
+    let mut with_points = drawing.clone();
     with_points.layers[0].items.extend([
-        Item::Edge(Curve::Beziers(vec![vec![[12.,34.]]])),
-        Item::Edge(Curve::Rational(vec![vec![[12.,34.,1.]]])),
+        Item::Edge(Curve::Beziers(vec![vec![[12., 34.]]])),
+        Item::Edge(Curve::Rational(vec![vec![[12., 34., 1.]]])),
+        Item::Edge(Curve::Rational(vec![
+            (0..15)
+                .map(|i| [12. + i as f64, 34. + (i as f64 / 14.).powi(2), 1.])
+                .collect(),
+        ])),
     ]);
-    let parsed=dxf::Drawing::load(&mut std::io::Cursor::new(with_points.dxf())).unwrap();
-    for e in parsed.entities().chain(parsed.blocks().flat_map(|b|b.entities.iter())) {
-        if let E::Spline(s)=&e.specific {assert!(s.degree_of_curve>=1);assert!(s.control_points.len()>s.degree_of_curve as usize);}
+    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(with_points.dxf())).unwrap();
+    for e in parsed
+        .entities()
+        .chain(parsed.blocks().flat_map(|b| b.entities.iter()))
+    {
+        if let E::Spline(s) = &e.specific {
+            assert!((1..=10).contains(&s.degree_of_curve));
+            assert!(s.control_points.len() > s.degree_of_curve as usize);
+        }
     }
     // Poison all glyph outlines. No such geometry may appear in the native export.
     let mut poisoned = drawing.clone();
