@@ -19,6 +19,7 @@ class WheelVersions(unittest.TestCase):
         self.dist.mkdir()
         self.manifest("Cargo.toml", "0.6.0")
         self.manifest("crates/draftwright-wasm/Cargo.toml", "0.6.0")
+        self.manifest("crates/draftwright-py/Cargo.toml", "0.6.0")
         self.git("init", "-q")
         self.git("config", "user.name", "Wheel guard test")
         self.git("config", "user.email", "wheel-test@example.invalid")
@@ -98,7 +99,7 @@ class WheelVersions(unittest.TestCase):
         self.refused(self.run_guard("v0.6.1"), "Cargo.toml 0.6.0: they must agree")
 
     def test_each_cargo_mismatch(self):
-        for manifest in ("Cargo.toml", "crates/draftwright-wasm/Cargo.toml"):
+        for manifest in ("Cargo.toml", "crates/draftwright-wasm/Cargo.toml", "crates/draftwright-py/Cargo.toml"):
             with self.subTest(manifest=manifest):
                 self.manifest(manifest, "0.6.1")
                 self.refused(self.run_guard(), f"{manifest} 0.6.1: they must agree")
@@ -114,7 +115,7 @@ class WheelVersions(unittest.TestCase):
                 self.refused(self.run_guard(tag), "expected vX.Y.Z")
 
     def test_matching_old_release_cannot_start_pypi_publishing(self):
-        for manifest in ("Cargo.toml", "crates/draftwright-wasm/Cargo.toml"):
+        for manifest in ("Cargo.toml", "crates/draftwright-wasm/Cargo.toml", "crates/draftwright-py/Cargo.toml"):
             self.manifest(manifest, "0.2.15")
         for platform in ("linux", "macos"):
             self.wheel(platform, "0.2.15")

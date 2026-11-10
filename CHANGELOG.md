@@ -15,12 +15,38 @@ Specs `/1` and `/2` are read and migrated for ten releases from 0.2.15, through 
 0.6.9-alpha.1. Convert legacy Specs with 0.6.8: run
 `draftwright plan PART.step --spec FILE` and keep the `spec` it prints.
 
-- CLI-only maturin wheels carrying both `draftwright` and `draftwright-mcp`, with a
-  tag/Cargo/wheel version agreement guard. GitHub URLs target `pzfreo/draftwright`.
+- Mixed maturin wheels providing the Python API and both `draftwright` and
+  `draftwright-mcp`, with a tag/Cargo/wheel version agreement guard. GitHub URLs target `pzfreo/draftwright`.
 - The common Python CLI form `draftwright part.step [options]` renders natively, with explicit
   migration guidance for unsupported options. See `docs/cli-migration.md` for defaults.
 - Both commands report the engine and linked quiddity-rust versions; the MCP adapter now
   supports `--help`.
+
+- Add a small Python API to the mixed abi3 wheel: `make_drawing` accepts STEP paths
+  or build123d shapes, maps supported options to the Rust CLI render pipeline, and
+  raises `DraftwrightError` for Rust failures. **Its return value is now
+  `(svg_path, pdf_path)`; there is no DXF export.** Unsupported non-default options
+  raise `TypeError`; removed 0.4 names and submodule imports explain migration and
+  pinning `draftwright<0.6`. See [Python](docs/python.md).
+- Keep both console commands as Python entry points over the same Rust functions
+  used by `cargo install`, with the GIL released and immediate console Ctrl-C.
+  PyO3 lives only in the new unpublished `draftwright-py` workspace crate; the
+  published Rust crate and WASM dependency graphs stay independent of Python.
+
+- Preserve Python 0.4's PMI default: omitted/`None`, `off` and `report` all inventory
+  PMI without annotating it; `annotate` explicitly opts in. Honour `source=` for
+  STEP paths as well as shapes, and reject unreadable source documents. ISO page
+  names retain whitespace trimming and case-insensitive parsing.
+- Visible changes from Python 0.4: no DXF export and a new `(svg_path, pdf_path)`
+  return value; the ISO frame and projection symbol are always drawn, including
+  with `frame=False`; unsupported keywords accept only their old defaults and
+  otherwise raise `TypeError`, as do custom page dimensions. Rust layout/view/scale
+  policies replace the old Python solver. See [the full keyword list](docs/python.md).
+- Preserve `except ImportError` migration fallbacks and attribute probes for removed
+  APIs. Use a dual ImportError/AttributeError subtype where CPython permits it;
+  newer CPython's incompatible exception layouts require separate errors at the
+  import and attribute boundaries. Keep `draftwright.builder.make_drawing` working
+  and cover all 88 archived top-level modules/packages with migration guidance.
 
 ## 0.2.15 (2026-11-09)
 

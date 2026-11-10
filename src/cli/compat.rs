@@ -1,8 +1,8 @@
 //! The common Python CLI subset, shared with `render` so both author the same Spec.
 use std::path::{Path, PathBuf};
 
+use crate::{api::Error, model::Spec};
 use clap::{Args, CommandFactory, Parser};
-use draftwright::{api::Error, model::Spec};
 
 use super::{Cli, Given};
 
@@ -36,6 +36,13 @@ pub(super) struct SheetOptions {
 }
 
 impl SheetOptions {
+    pub(super) fn with_scale(scale: Option<f64>) -> Self {
+        Self {
+            scale,
+            ..Self::default()
+        }
+    }
+
     pub(super) fn apply(&self, spec: &mut Spec) -> Result<(), Error> {
         for (key, value) in [
             ("title", &self.title),
@@ -86,7 +93,7 @@ impl PictorialOptions {
     }
 
     pub(super) fn apply(&self, spec: &mut Spec) -> Result<(), Error> {
-        use draftwright::shaded::ViewStyle;
+        use crate::shaded::ViewStyle;
         if self.colour.is_some() && !self.shaded {
             return Err(Error::invalid("--colour/--color requires --shaded"));
         }
@@ -189,8 +196,8 @@ pub(super) fn is_bare(args: &[std::ffi::OsString]) -> bool {
     !matches!(first.as_ref(), "--help" | "-h" | "--version" | "-V")
 }
 
-pub(super) fn parse(args: Vec<std::ffi::OsString>) -> Given {
-    let bare = Bare::try_parse_from(args).unwrap_or_else(|mut error| {
+pub(super) fn parse(args: Vec<std::ffi::OsString>) -> Result<Given, clap::Error> {
+    let bare = Bare::try_parse_from(args).map_err(|mut error| {
         if let Some(clap::error::ContextValue::String(option)) =
             error.get(clap::error::ContextKind::InvalidArg)
             && option.starts_with('-')
@@ -216,9 +223,9 @@ pub(super) fn parse(args: Vec<std::ffi::OsString>) -> Given {
                 ]),
             );
         }
-        error.exit()
-    });
-    Given {
+        error
+    })?;
+    Ok(Given {
         positionals: vec![bare.step],
         output: bare.out,
         out_dir: bare.out_dir,
@@ -227,7 +234,7 @@ pub(super) fn parse(args: Vec<std::ffi::OsString>) -> Given {
         spec: bare.spec,
         bare: true,
         ..Given::default()
-    }
+    })
 }
 
 pub(super) fn output(step: &str, out: Option<&str>, out_dir: Option<&str>) -> PathBuf {

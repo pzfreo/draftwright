@@ -21,9 +21,13 @@ Pull requests cannot merge until the CLA is signed.
 The repository is `pzfreo/draftwright`; the archived Python implementation is
 `pzfreo/draftwright-python`.
 
-The next release is 0.6.0. The release commit updates the native and WASM Cargo versions
+The next release is 0.6.0. The release commit updates the native, WASM and Python-extension Cargo versions
 together, `Cargo.lock`, README status and CHANGELOG. Wheel packaging lives in the root
-`pyproject.toml`, using maturin's `bindings = "bin"` and dynamic Cargo-derived version.
+`pyproject.toml`, using maturin's `bindings = "pyo3"`, the unpublished
+`crates/draftwright-py` manifest and a dynamic Cargo-derived version. The mixed
+package lives in `python/draftwright`; the extension is `draftwright._native`
+(abi3, Python 3.9+). PyO3 must remain outside the published native crate and WASM
+dependency graphs.
 The Cargo versions remain at the current release until that coordinated release commit.
 There is no separate wheel version to bump: release tag `vX.Y.Z`, Cargo version `X.Y.Z`
 and every wheel's METADATA version `X.Y.Z` must agree. PyPI publishing begins with 0.6.0.
@@ -31,10 +35,11 @@ and every wheel's METADATA version `X.Y.Z` must agree. PyPI publishing begins wi
 Run formatting, strict release workspace/all-target Clippy, library tests and the full
 required-corpus workspace nextest suite before releasing. Build the local wheel with
 `RUSTC_WRAPPER= CARGO_BUILD_JOBS=6 uv tool run maturin build --release --locked`, install it
-in a clean venv, and check both commands and a fixture render. No build outputs are committed.
+in a clean venv, and run `python -m unittest discover -s tests/python -v`.
+Also run those tests with build123d installed to cover shape export and `source=`. No build outputs are committed.
 
 Publishing a GitHub release drives the existing CLI archive, browser WASM and crates.io
-workflows. `.github/workflows/publish.yml` additionally builds and smoke-tests CLI-only wheels
+workflows. `.github/workflows/publish.yml` additionally builds and smoke-tests mixed Python/Rust wheels
 for macOS Intel/Apple silicon, manylinux 2_28 x86_64/aarch64 and Windows x86_64. We omit an
 sdist: these installs should not unexpectedly require Rust on unsupported platforms.
 The wheel workflow also runs for relevant main pushes and PRs; a manual run on main can
@@ -43,7 +48,7 @@ Dispatch and release builds check out that tag, including in the publish job. Gi
 prereleases are not published. Each wheel artifact includes its build commit in a separate
 provenance directory; this directory is checked but never uploaded to PyPI.
 `tools/check_wheel_versions.py` checks that the tag exists, HEAD and every wheel's build
-commit match the tag's commit, and both Cargo manifests and all downloaded wheels agree
+commit match the tag's commit, and all three Cargo manifests and all downloaded wheels agree
 before the trusted-publishing action runs. A missing/invalid tag, absent wheels or provenance,
 or any commit/version mismatch fails the job. Versions before 0.6.0 are ineligible for PyPI publication.
 `python3 tools/test_wheel_versions.py -v` exercises the guard's
