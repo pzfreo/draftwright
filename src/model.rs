@@ -10931,9 +10931,9 @@ fn render_annotations_with_cuts(
                 interior: false,
             });
         }
-        let boundary = crate::dxf_output::clip_loops(boundary, keep);
         sheet.dxf.hatches.push(crate::dxf_output::HatchRegion {
             view: v.id.clone(),
+            clip: Some(keep),
             items: furniture.len()..furniture.len() + ink.len(),
             loops: boundary,
         });
@@ -10961,6 +10961,7 @@ fn render_annotations_with_cuts(
             };
             sheet.dxf.hatches.push(crate::dxf_output::HatchRegion {
                 view: v.id.clone(),
+                clip: None,
                 items: furniture.len()..furniture.len() + f.hatch,
                 loops: f.boundary.clone(),
             });

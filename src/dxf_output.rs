@@ -32,6 +32,7 @@ pub struct Structure {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HatchRegion {
     pub view: String,
+    pub clip: Option<[f64; 4]>,
     pub items: Range<usize>,
     pub loops: Vec<Vec<P>>,
 }
@@ -720,19 +721,17 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
     }
     if let Some(l) = drawing.layers.get(2) {
         for region in &drawing.sheet.dxf.hatches {
-            let closed = !region.loops.is_empty()
-                && region.loops.iter().all(|p| {
-                    p.len() >= 4
-                        && p.first()
-                            .zip(p.last())
-                            .is_some_and(|(a, b)| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-6)
-                });
+            let mut boundary = closed_boundaries(&region.loops);
+            if let Some(rect) = region.clip {
+                boundary = clip_loops(boundary, rect);
+            }
+            let closed = !boundary.is_empty() && !region.items.is_empty();
             let block = w
                 .blocks
                 .iter()
                 .position(|b| b.name == safe_name(&region.view));
             if closed {
-                w.hatch(&region.loops, block);
+                w.hatch(&boundary, block, hatch_phase(&region.loops));
             }
             for i in region.items.clone() {
                 if let Some(item) = l.items.get(i) {
@@ -1160,7 +1159,7 @@ fn dictionary(t: &mut Tags, h: u64, owner: u64) {
 }
 
 impl Writer {
-    fn hatch(&mut self, loops: &[Vec<P>], block: Option<usize>) {
+    fn hatch(&mut self, loops: &[Vec<P>], block: Option<usize>, phase: f64) {
         let (_, mut t) = self.entity("HATCH", HATCH, block);
         t.tag(100, "AcDbHatch");
         t.point(10, [0., 0.]);
@@ -1191,17 +1190,7 @@ impl Writer {
         t.tag(78, 1);
         t.tag(53, 45);
         t.tag(43, 0);
-        let min_y = loops
-            .iter()
-            .flatten()
-            .map(|p| p[1])
-            .fold(f64::INFINITY, f64::min);
-        let max_x = loops
-            .iter()
-            .flatten()
-            .map(|p| p[0])
-            .fold(f64::NEG_INFINITY, f64::max);
-        t.tag(44, min_y - max_x);
+        t.tag(44, phase);
         t.tag(45, 0);
         t.tag(46, crate::section::HATCH_SPACING);
         t.tag(79, 0);
@@ -1310,4 +1299,78 @@ fn with_reactors(tags: &Tags, reactors: &BTreeMap<u64, Vec<u64>>) -> Tags {
 
 fn symbol_font(c: char) -> bool {
     (c as u32) >= 0x2100 && c != '⌀'
+}
+
+fn hatch_phase(loops: &[Vec<P>]) -> f64 {
+    loops
+        .iter()
+        .flatten()
+        .map(|p| p[1])
+        .fold(f64::INFINITY, f64::min)
+        - loops
+            .iter()
+            .flatten()
+            .map(|p| p[0])
+            .fold(f64::NEG_INFINITY, f64::max)
+}
+/// Kernel section curves are individual face intersections, not ordered wires.
+/// Join only unambiguous endpoint chains. An open or branching boundary stays lines.
+fn closed_boundaries(paths: &[Vec<P>]) -> Vec<Vec<P>> {
+    let near = |a: P, b: P| (a[0] - b[0]).hypot(a[1] - b[1]) <= 1e-5;
+    let mut remaining: Vec<_> = paths.iter().filter(|p| p.len() >= 2).cloned().collect();
+    let mut out = Vec::new();
+    while !remaining.is_empty() {
+        let mut chain = remaining.remove(0);
+        while !near(chain[0], *chain.last().unwrap()) {
+            let end = *chain.last().unwrap();
+            let matches: Vec<_> = remaining
+                .iter()
+                .enumerate()
+                .filter_map(|(i, p)| {
+                    if near(end, p[0]) {
+                        Some((i, false))
+                    } else if near(end, *p.last().unwrap()) {
+                        Some((i, true))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let [(i, reverse)] = matches.as_slice() else {
+                return Vec::new();
+            };
+            let mut next = remaining.remove(*i);
+            if *reverse {
+                next.reverse();
+            }
+            chain.extend(next.into_iter().skip(1));
+        }
+        if chain.len() < 4 {
+            return Vec::new();
+        }
+        *chain.last_mut().unwrap() = chain[0];
+        out.push(chain);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn hatch_boundaries_join_reversed_face_intersections_and_reject_open_chains() {
+        let p = vec![
+            vec![[0., 0.], [10., 0.]],
+            vec![[10., 10.], [10., 0.]],
+            vec![[0., 10.], [10., 10.]],
+            vec![[0., 0.], [0., 10.]],
+        ];
+        let loops = closed_boundaries(&p);
+        assert_eq!(loops.len(), 1);
+        assert_eq!(loops[0].len(), 5);
+        assert_eq!(loops[0].first(), loops[0].last());
+        assert!(closed_boundaries(&p[..3]).is_empty());
+        let half = clip_loops(loops, [0., 0., 5., 10.]);
+        assert!(half[0].iter().all(|p| p[0] <= 5.));
+    }
 }
