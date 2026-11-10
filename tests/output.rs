@@ -629,6 +629,36 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
     ] {
         assert!(d.styles().any(|s| s.primary_font_file_name == font));
     }
+    // A leader's sampled rim may be slightly off the analytic circle. Native
+    // dimension definitions still measure the exact bore, rather than that sample.
+    let mut sampled = drawing.clone();
+    let callout = sampled
+        .sheet
+        .dxf
+        .dimensions
+        .values_mut()
+        .find(|d| d.label.contains("THRU"))
+        .unwrap();
+    callout.placed.as_mut().unwrap().arrows[0][0][0] += 0.0001;
+    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(sampled.dxf())).unwrap();
+    let dim = parsed
+        .entities()
+        .find_map(|e| {
+            if let E::DiameterDimension(d) = &e.specific {
+                Some(d)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let a = &dim.dimension_base.definition_point_1;
+    let b = &dim.definition_point_2;
+    let factor = parsed
+        .dim_styles()
+        .find(|s| s.name == dim.dimension_base.dimension_style_name)
+        .unwrap()
+        .dimension_linear_measurement_scale_factor;
+    assert!(((b.x - a.x).hypot(b.y - a.y) * factor - 6.).abs() < 1e-8);
     // Isolated projected poles are not valid degree-zero DXF splines.
     let mut with_points = drawing.clone();
     with_points.layers[0].items.extend([

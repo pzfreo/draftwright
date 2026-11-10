@@ -529,10 +529,17 @@ fn dimension(d: &PlannedDimension, drawing: &Drawing) -> Option<(i32, Vec<P>, f6
         if ((tip[0] - circle.0[0]).hypot(tip[1] - circle.0[1]) - circle.1).abs() > 0.05 {
             return None;
         }
-        let opposite = [2. * circle.0[0] - tip[0], 2. * circle.0[1] - tip[1]];
+        // The leader router samples curved rims; definition points must lie on
+        // the actual circle so a DIMENSION measures its true radius/diameter.
+        let length = (tip[0] - circle.0[0]).hypot(tip[1] - circle.0[1]);
+        if length < 1e-12 {
+            return None;
+        }
+        let rim = [0, 1].map(|k| circle.0[k] + (tip[k] - circle.0[k]) * circle.1 / length);
+        let opposite = [2. * circle.0[0] - rim[0], 2. * circle.0[1] - rim[1]];
         return Some((
             if radial { 4 } else { 3 },
-            vec![if radial { circle.0 } else { opposite }, tip],
+            vec![if radial { circle.0 } else { opposite }, rim],
             1. / frame.scale,
         ));
     }
