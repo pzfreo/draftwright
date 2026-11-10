@@ -640,3 +640,317 @@ fn mcp_client_arguments_are_ignored_while_stdio_remains_live() {
         );
     }
 }
+
+#[test]
+fn pictorial_flags_select_each_view_and_accept_both_hex_spellings() {
+    let step = fixture("parts/plate.step");
+    let step = step.to_str().unwrap();
+    for (flags, top, bottom, colour) in [
+        (vec!["--shaded"], Some("shaded"), None, None),
+        (vec!["--below"], None, Some("wireframe"), None),
+        (
+            vec!["--shaded", "--below"],
+            Some("shaded"),
+            Some("shaded"),
+            None,
+        ),
+        (
+            vec!["--shaded", "--colour", "#b8c4cc"],
+            Some("shaded"),
+            None,
+            Some([184, 196, 204]),
+        ),
+        (
+            vec!["--shaded", "--colour", "A1B2C3"],
+            Some("shaded"),
+            None,
+            Some([161, 178, 195]),
+        ),
+        (
+            vec!["--shaded", "--below", "--color", "0123ab"],
+            Some("shaded"),
+            Some("shaded"),
+            Some([1, 35, 171]),
+        ),
+    ] {
+        let mut args = vec!["plan", step, "--no-features"];
+        args.extend(flags);
+        let (code, plan) = run(&args);
+        assert_eq!(code, Some(0), "{args:?}: {plan}");
+        assert_eq!(plan["spec"]["views"]["iso"]["style"].as_str(), top);
+        assert_eq!(plan["spec"]["views"]["iso_below"]["style"].as_str(), bottom);
+        assert_eq!(
+            plan["views"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v["id"] == "v:iso_below"),
+            bottom.is_some()
+        );
+        if let Some(colour) = colour {
+            assert_eq!(plan["spec"]["views"]["iso"]["colour"], json!(colour));
+            if bottom.is_some() {
+                assert_eq!(plan["spec"]["views"]["iso_below"]["colour"], json!(colour));
+            }
+        }
+    }
+}
+
+#[test]
+fn pictorial_flags_override_spec_and_are_embedded_by_every_cli_form() {
+    let dir = scratch("pictorial-overrides");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("base.json");
+    std::fs::write(&file, json!({
+        "sheet":{"title":{"title":"Base title","number":"D-CLI"}},
+        "views":{"iso":{"style":"wireframe","colour":[9,8,7],"direction":[2.,-1.,1.]},
+                 "iso_below":{"omit":true,"style":"wireframe","colour":[7,8,9],"direction":[-1.,1.,-1.]}}
+    }).to_string()).unwrap();
+    let step = fixture("parts/plate.step");
+    let check = |spec: &Value| {
+        assert_eq!(spec["sheet"]["title"]["title"], "Base title");
+        assert_eq!(spec["sheet"]["title"]["number"], "D-CLI");
+        for name in ["iso", "iso_below"] {
+            assert_eq!(spec["views"][name]["style"], "shaded", "{spec}");
+            assert_eq!(
+                spec["views"][name]["colour"],
+                json!([161, 178, 195]),
+                "{spec}"
+            );
+        }
+        assert_ne!(spec["views"]["iso_below"]["omit"], json!(true));
+        assert_eq!(spec["views"]["iso"]["direction"], json!([2., -1., 1.]));
+        assert_eq!(
+            spec["views"]["iso_below"]["direction"],
+            json!([-1., 1., -1.])
+        );
+    };
+    for form in ["plan", "review", "render", "bare"] {
+        let prefix = dir.join(form);
+        let mut args = if form == "bare" {
+            vec![step.to_str().unwrap(), "--out", prefix.to_str().unwrap()]
+        } else {
+            vec![form, step.to_str().unwrap(), "--no-features"]
+        };
+        if form == "render" {
+            args.extend([
+                "-o",
+                prefix.to_str().unwrap(),
+                "--formats",
+                "svg,pdf,png",
+                "--dpi",
+                "36",
+            ]);
+        }
+        args.extend([
+            "--spec",
+            file.to_str().unwrap(),
+            "--shaded",
+            "--below",
+            "--colour",
+            "#a1B2c3",
+        ]);
+        let (code, result) = run(&args);
+        assert_eq!(code, Some(0), "{form}: {result}");
+        match form {
+            "plan" => check(&result["spec"]),
+            "review" => {
+                let svg = result["svg"].as_str().unwrap();
+                assert!(svg.contains("shaded-iso-view") && svg.contains("shaded-iso_below-view"));
+                let spec = model::embedded_spec(svg.as_bytes()).unwrap().unwrap();
+                check(&serde_json::to_value(spec).unwrap());
+            }
+            _ => {
+                let formats: &[&str] = if form == "bare" {
+                    &["svg", "pdf"]
+                } else {
+                    &["svg", "pdf", "png"]
+                };
+                for format in formats {
+                    let output = prefix.with_extension(format);
+                    let (code, spec) = run(&["spec", output.to_str().unwrap()]);
+                    assert_eq!(code, Some(0), "{output:?}: {spec}");
+                    check(&spec);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn below_requests_lines_and_shaded_alone_keeps_other_view_settings() {
+    let file = scratch("pictorial-selected-views.json");
+    std::fs::write(
+        &file,
+        json!({"views":{
+            "iso":{"style":"wireframe","omit":true,"colour":[9,8,7]},
+            "iso_below":{"style":"shaded","omit":true,"colour":[7,8,9]}
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let step = fixture("parts/plate.step");
+    let base = [
+        "plan",
+        step.to_str().unwrap(),
+        "--no-features",
+        "--spec",
+        file.to_str().unwrap(),
+    ];
+    let mut args = base.to_vec();
+    args.push("--below");
+    let (code, plan) = run(&args);
+    assert_eq!(code, Some(0), "{plan}");
+    assert_eq!(plan["spec"]["views"]["iso"]["style"], "wireframe");
+    assert_eq!(plan["spec"]["views"]["iso"]["omit"], true);
+    assert_eq!(plan["spec"]["views"]["iso_below"]["style"], "wireframe");
+    assert_ne!(plan["spec"]["views"]["iso_below"]["omit"], true);
+    assert!(
+        plan["views"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["id"] == "v:iso_below")
+    );
+    // A style shortcut edits only style/colour, not an authored omission or an unselected view.
+    let mut args = base.to_vec();
+    args.extend(["--shaded", "--colour", "abcdef"]);
+    let (code, plan) = run(&args);
+    assert_eq!(code, Some(0), "{plan}");
+    assert_eq!(plan["spec"]["views"]["iso"]["style"], "shaded");
+    assert_eq!(plan["spec"]["views"]["iso"]["omit"], true);
+    assert_eq!(
+        plan["spec"]["views"]["iso"]["colour"],
+        json!([171, 205, 239])
+    );
+    assert_eq!(
+        plan["spec"]["views"]["iso_below"]["colour"],
+        json!([7, 8, 9])
+    );
+    assert_eq!(plan["spec"]["views"]["iso_below"]["omit"], true);
+}
+
+#[test]
+fn pictorial_colour_errors_are_clear_and_precede_step_io() {
+    for alias in ["--colour", "--color"] {
+        let (code, e) = run(&["plan", "does-not-exist.step", alias, "b8c4cc"]);
+        assert_eq!(code, Some(2), "{e}");
+        assert_eq!(e["error"]["code"], "invalid");
+        assert!(
+            e["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("requires --shaded"),
+            "{e}"
+        );
+        for value in [
+            "123",
+            "#12345",
+            "1234567",
+            "#gggggg",
+            "ééé",
+            "-1",
+            "#12345678",
+        ] {
+            let (code, e) = run(&["plan", "does-not-exist.step", "--shaded", alias, value]);
+            assert_eq!(code, Some(2), "{value}: {e}");
+            assert_eq!(e["error"]["code"], "invalid");
+            assert!(
+                e["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("six hexadecimal digits"),
+                "{e}"
+            );
+        }
+    }
+    let file = scratch("pictorial-already-shaded.json");
+    std::fs::write(&file, r#"{"views":{"iso":{"style":"shaded"}}}"#).unwrap();
+    let (code, e) = run(&[
+        "plan",
+        "does-not-exist.step",
+        "--spec",
+        file.to_str().unwrap(),
+        "--colour",
+        "b8c4cc",
+    ]);
+    assert_eq!(code, Some(2), "{e}");
+    assert!(
+        e["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("requires --shaded")
+    );
+}
+
+#[test]
+fn pictorial_help_lists_flags_and_color_alias_on_every_form() {
+    for args in [
+        vec!["--help"],
+        vec!["render", "--help"],
+        vec!["review", "--help"],
+        vec!["plan", "--help"],
+        vec!["part.step", "--help"],
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_draftwright"))
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let help = String::from_utf8(out.stdout).unwrap();
+        for flag in ["--shaded", "--below", "--colour", "--color"] {
+            assert!(help.contains(flag), "{args:?}: {help}");
+        }
+        assert!(help.contains("Shade the isometric view"), "{help}");
+        assert!(help.contains("Add a view from below"), "{help}");
+    }
+}
+
+#[test]
+fn pictorial_plan_from_analysis_accepts_flags_without_a_step_argument() {
+    let analysis = api::analyse(&fixture("parts/plate.step"), None).unwrap();
+    let file = scratch("pictorial.analysis.json");
+    std::fs::write(&file, serde_json::to_vec(&analysis).unwrap()).unwrap();
+    let (code, plan) = run(&[
+        "plan",
+        "--analysis",
+        file.to_str().unwrap(),
+        "--shaded",
+        "--below",
+        "--color",
+        "#112233",
+    ]);
+    assert_eq!(code, Some(0), "{plan}");
+    for name in ["iso", "iso_below"] {
+        assert_eq!(plan["spec"]["views"][name]["style"], "shaded");
+        assert_eq!(plan["spec"]["views"][name]["colour"], json!([17, 34, 51]));
+    }
+}
+
+#[test]
+fn no_pictorial_flags_keep_cli_output_equal_to_the_default_library_spec() {
+    let step = fixture("parts/plate.step");
+    let prefix = scratch("pictorial-default");
+    let (code, result) = run(&[
+        "render",
+        step.to_str().unwrap(),
+        "--no-features",
+        "-o",
+        prefix.to_str().unwrap(),
+        "--formats",
+        "svg,pdf,png",
+    ]);
+    assert_eq!(code, Some(0), "{result}");
+    let (_, files) = api::render(&step, None, &model::Spec::default(), &api::FORMATS).unwrap();
+    for (format, bytes) in files {
+        assert_eq!(
+            std::fs::read(prefix.with_extension(&format)).unwrap(),
+            bytes,
+            "{format}"
+        );
+    }
+}

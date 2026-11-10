@@ -133,6 +133,9 @@ impl Projections {
             geometry: p.geometry.into_iter().collect(),
             cut_material: p.cut_material.into_iter().collect(),
             hatches: p.hatches.into_iter().collect(),
+            shaded_mesh: None,
+            #[cfg(test)]
+            shaded_fragment_limit: None,
             stats: ProjectionStats::default(),
             dirty: false,
         };

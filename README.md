@@ -62,6 +62,7 @@ prints a completion script; see [docs/engine.md](docs/engine.md#using-it) for wh
 
 ```sh
 draftwright render part.step -o part                     # part.svg and part.pdf
+draftwright render part.step -o part --shaded --below    # shaded views from above and below
 draftwright render part.step -o part --formats pdf,png   # choose formats
 draftwright review part.step                             # the drawing as text, with what it could not state
 ```

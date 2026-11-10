@@ -257,7 +257,7 @@ fn footprints_with_notes(
 ) -> Vec<Rect> {
     let mut out = Vec::new();
     for v in &plan.views {
-        let b = if v.id == "v:iso" {
+        let b = if v.id == "v:iso" && v.direction == crate::model::VIEWS[3].1 {
             let b = analysis.drawing_iso_bounds();
             [
                 v.at[0] + v.scale * b[0],
@@ -866,6 +866,7 @@ pub(crate) fn correct_estimate(analysis: &Analysis, plan: &mut Plan) {
         || crate::model::dimension_text_edited(&plan.spec)
         || plan.spec.iso_scale_factor.is_some()
         || plan.spec.views.contains_key("iso")
+        || plan.spec.views.contains_key("iso_below")
         || !plan.gdt.is_empty()
         || !plan.balloons.is_empty()
         || plan.hole_table.is_some()

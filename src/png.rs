@@ -82,7 +82,10 @@ impl Drawing {
             let mut paint = Paint::default();
             let [r, g, b] = st.colour;
             paint.set_color_rgba8(r, g, b, 255);
-            paint.anti_alias = true;
+            // Adjacent opaque facets share boundaries exactly. Rasterising each with
+            // partial coverage would blend the white page through their shared edge.
+            // The HLR outline over them retains its normal antialiasing.
+            paint.anti_alias = !layer.name.starts_with("shaded-");
             let mut stroke = Stroke {
                 width: (st.width * k) as f32,
                 line_cap: LineCap::Round,

@@ -2201,6 +2201,7 @@ fn pinned(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
         let mut unnamed = base.clone();
         unnamed.views.clear();
         unnamed.views.keep_sections_from(&spec.views);
+        unnamed.views.keep_pictorials_from(&spec.views);
         let published = select(analysis, &unnamed)?;
         if base
             .views

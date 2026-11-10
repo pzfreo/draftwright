@@ -85,6 +85,7 @@ pub mod sheet_policy;
 mod view_gutters;
 
 pub mod iso_caption;
+pub mod shaded;
 
 pub mod detail;
 /// Authored corrections resolved into the ordinary feature inventory.

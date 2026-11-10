@@ -76,6 +76,10 @@ mod version;
 const AFTER_HELP: &str = "Discovery: schemas/spec.json, docs/model.md and docs/mcp.md ship in the release.
 Bare render: draftwright part.step [--title TITLE] [--out STEM | --out-dir DIR].
 Subcommand names take priority: use ./render for a file named render.
+Pictorial options for render, review, plan and bare render:
+  --shaded       Shade the isometric view
+  --below        Add a view from below (shaded with --shaded, otherwise lines)
+  --colour HEX   Set the shaded colour; --color is an alias; requires --shaded
 JSON-lines serve: {\"op\":\"hello\"} lists operations; spec_schema and item_options use the MCP argument shapes.";
 
 /// The command line. Values are kept as text and checked by [`run`], so a bad `--part` or
@@ -131,12 +135,16 @@ enum Command {
         step: Option<String>,
         #[command(flatten)]
         drawing: Drawing,
+        #[command(flatten)]
+        pictorial: compat::PictorialOptions,
     },
     /// write the drawing's files and print what was written, with the problems
     Render {
         step: String,
         #[command(flatten)]
         drawing: Drawing,
+        #[command(flatten)]
+        pictorial: compat::PictorialOptions,
         /// the output stem (out.svg, out.pdf, …)
         #[arg(
             short = 'o',
@@ -164,6 +172,8 @@ enum Command {
         step: String,
         #[command(flatten)]
         drawing: Drawing,
+        #[command(flatten)]
+        pictorial: compat::PictorialOptions,
     },
     /// print a Spec with edit operations applied
     Edit {
@@ -259,6 +269,7 @@ struct Given {
     dpi: Option<String>,
     title: Option<String>,
     sheet: compat::SheetOptions,
+    pictorial: compat::PictorialOptions,
     out_dir: Option<String>,
     bare: bool,
 }
@@ -309,13 +320,32 @@ fn main() -> ExitCode {
         }
         Command::Serve => return serve(),
         Command::Analyse { step, drawing } => ("analyse", Given::drawing(vec![step], drawing)),
-        Command::Plan { step, drawing } => {
-            ("plan", Given::drawing(step.into_iter().collect(), drawing))
-        }
-        Command::Review { step, drawing } => ("review", Given::drawing(vec![step], drawing)),
+        Command::Plan {
+            step,
+            drawing,
+            pictorial,
+        } => (
+            "plan",
+            Given {
+                pictorial,
+                ..Given::drawing(step.into_iter().collect(), drawing)
+            },
+        ),
+        Command::Review {
+            step,
+            drawing,
+            pictorial,
+        } => (
+            "review",
+            Given {
+                pictorial,
+                ..Given::drawing(vec![step], drawing)
+            },
+        ),
         Command::Render {
             step,
             drawing,
+            pictorial,
             output,
             out_dir,
             sheet,
@@ -327,6 +357,7 @@ fn main() -> ExitCode {
                 output,
                 out_dir,
                 sheet: *sheet,
+                pictorial,
                 formats: Some(formats),
                 dpi,
                 ..Given::drawing(vec![step], drawing)
@@ -438,14 +469,18 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
         Some(path) => read_json(path)?,
         None => Value::Null,
     };
-    if command == "render" {
+    if command == "render" || (matches!(command, "plan" | "review") && given.pictorial.requested())
+    {
         let mut typed = if spec.is_null() {
             Spec::default()
         } else {
             serde_json::from_value(spec)
                 .map_err(|e| Error::invalid(format!("the spec is not valid: {e}")))?
         };
-        given.sheet.apply(&mut typed)?;
+        if command == "render" {
+            given.sheet.apply(&mut typed)?;
+        }
+        given.pictorial.apply(&mut typed)?;
         spec = json_of(&typed);
     }
     let render_output = if command == "render" && (given.bare || given.out_dir.is_some()) {

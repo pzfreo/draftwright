@@ -625,6 +625,64 @@ dimensions, missing manufacturing requirements and other drawing defects. Automa
 layout and its conservative projected-ink clearance remain in force; hiding edges does
 not relax safety margins or change sheet-size, scale, detail, fit or datum policy.
 
+#### Shaded pictorial views
+
+No pictorial shading is added automatically. Replace the existing iso with one setting:
+
+```json
+{"views":{"iso":{"style":"shaded"}}}
+```
+
+`views/iso/style` accepts `wireframe` (the existing line drawing) or `shaded`.
+Optional `colour: [184,196,204]` supplies the base sRGB colour (three integers 0–255).
+The default is a light muted blue-grey, readable in greyscale. Lighting is fixed relative
+to the camera: upper left, with 35% ambient plus 65% Lambert diffuse illumination.
+Optional `direction: [1,-1,1]` points towards the viewer; Z stays up. A direction must
+be finite, nonzero, and not parallel to Z. These fields apply only to pictorial views.
+
+Request the optional second pictorial view by adding `views/iso_below`. It defaults to
+`direction: [1,-1,-1]`; it shares the iso's reserved area and sheet, splitting that area
+into two fitted, unannotated slots when both are present. Each uses the same settings:
+
+```json
+{"views":{
+  "iso":{"style":"shaded","colour":[184,196,204]},
+  "iso_below":{"style":"shaded","direction":[-1,1,-1]}
+}}
+```
+
+Omit either slot with `omit: true`. `iso_below` uses the automatic single-sheet iso zone:
+both pictorials may use `place` (including editor pins). An unpinned partner fits
+in the space left by settled view reservations, unless it is an ancestor of the pinned
+view: relative pins hold their anchor frames, including chained pictorial anchors.
+If no space remains, a warning names
+the remedies: move the pinned partner, enlarge the paper, or omit the extra view.
+Assignment to another sheet and multi-sheet allocation are refused while it is shown.
+An authored `iso_scale_factor` must still fit exactly. The existing iso caption stays
+`ISO VIEW (NTS)` when reduced; the underside is `ISO VIEW FROM BELOW (NTS)`.
+A non-isometric custom direction uses `PICTORIAL VIEW (NTS)` or
+`PICTORIAL VIEW FROM BELOW (NTS)`. Both captions use the collision-avoiding iso
+caption planner, including each other's ink, rather than a plain scale note.
+Shaded pictorials always suppress hidden ink, centre furniture, conventional threads,
+knurls and dimensions, regardless of inherited line-work switches. Session view options
+expose style, colour and direction through the same Spec edit path (including undo/redo).
+
+SVG and PDF contain vector filled polygons, with the view's HLR visible sharp and
+silhouette edges on top; PNG rasterises that same drawing. Tessellation uses chordal
+deflection 0.1% of the envelope diagonal and angular deflection 0.3 rad. Adjacent
+coplanar triangles merge into convex patches within each B-rep face, preserving holes.
+Shared-edge adjacency limits merge searches to neighbours.
+Consecutive equal-colour patches share compound fill paths. SVG uses one shaded group
+per view, closed polygon paths, and coordinates rounded to 0.001 mm. The tessellation
+is shared across pictorial cameras in the projection cache. Facet fills rasterise without
+partial edge coverage, with 0.02 mm same-colour seam strokes to close subpixel
+T-junction gaps; the HLR outlines retain antialiasing.
+A binary space partition splits crossing patches and visibility cycles before painting
+back to front; it does not sort entire faces by average depth. Numerical coplanarity
+uses 1e-9 of the envelope diagonal (minimum 1e-9 mm). There is no approximate depth ordering: incomplete/refused tessellation or over 200,000 split fragments keeps
+the requested Spec and drawing, renders that view as ordinary pictorial lines, and
+adds a `shaded_view_unresolved` warning with the reason and affected face IDs. Textures, transparency and photorealism are unsupported.
+
 #### Sheet allocation (R5, Stage I)
 
 `sheet/preferred_max_size` (`"A4"` through `"A0"`, default `"A3"`) and

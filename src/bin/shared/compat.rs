@@ -61,6 +61,70 @@ impl SheetOptions {
     }
 }
 
+/// Pictorial shortcuts shared by the bare form, render, review and plan.
+#[derive(Args, Default)]
+pub(super) struct PictorialOptions {
+    /// Shade the isometric view
+    #[arg(long)]
+    shaded: bool,
+    /// Add a view from below (shaded with --shaded, otherwise lines)
+    #[arg(long)]
+    below: bool,
+    /// Base shaded colour as six hex digits, with optional # (requires --shaded)
+    #[arg(
+        long,
+        visible_alias = "color",
+        value_name = "HEX",
+        allow_hyphen_values = true
+    )]
+    colour: Option<String>,
+}
+
+impl PictorialOptions {
+    pub(super) fn requested(&self) -> bool {
+        self.shaded || self.below || self.colour.is_some()
+    }
+
+    pub(super) fn apply(&self, spec: &mut Spec) -> Result<(), Error> {
+        use draftwright::shaded::ViewStyle;
+        if self.colour.is_some() && !self.shaded {
+            return Err(Error::invalid("--colour/--color requires --shaded"));
+        }
+        let colour = self.colour.as_deref().map(hex_colour).transpose()?;
+        if self.shaded {
+            let iso = spec.views.entry("iso".into()).or_default();
+            iso.style = Some(ViewStyle::Shaded);
+            if let Some(colour) = colour {
+                iso.colour = Some(colour);
+            }
+        }
+        if self.below {
+            let below = spec.views.entry("iso_below".into()).or_default();
+            below.omit = false;
+            below.style = Some(if self.shaded {
+                ViewStyle::Shaded
+            } else {
+                ViewStyle::Wireframe
+            });
+            if let Some(colour) = colour {
+                below.colour = Some(colour);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn hex_colour(value: &str) -> Result<[u8; 3], Error> {
+    let hex = value.strip_prefix('#').unwrap_or(value);
+    if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(Error::invalid(format!(
+            "--colour/--color expects six hexadecimal digits, e.g. '#b8c4cc' or b8c4cc; got {value:?}"
+        )));
+    }
+    // The length and ASCII check above makes these byte boundaries and digits valid.
+    Ok([0, 2, 4].map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("checked hex pair")))
+}
+
 /// Avoid printing binary reciprocal noise or silently rounding authored scales.
 fn scale_ratio(scale: f64) -> Result<String, Error> {
     if !scale.is_finite() || scale <= 0.0 {
@@ -97,6 +161,11 @@ struct Bare {
     step: String,
     #[command(flatten)]
     sheet: SheetOptions,
+    #[command(flatten)]
+    pictorial: PictorialOptions,
+    /// the Spec to use as the base for command-line overrides
+    #[arg(long, value_name = "JSON")]
+    spec: Option<String>,
     /// Output prefix; relative paths use the working directory
     #[arg(long, conflicts_with = "out_dir")]
     out: Option<String>,
@@ -154,6 +223,8 @@ pub(super) fn parse(args: Vec<std::ffi::OsString>) -> Given {
         output: bare.out,
         out_dir: bare.out_dir,
         sheet: bare.sheet,
+        pictorial: bare.pictorial,
+        spec: bare.spec,
         bare: true,
         ..Given::default()
     }

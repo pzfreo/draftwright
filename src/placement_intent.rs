@@ -220,13 +220,13 @@ pub(crate) fn check(s: &Spec) -> Result<(), Invalid> {
                 ));
             }
             if p.relative_to == *name
-                || (!["front", "plan", "side", "iso", "section_aa"]
+                || (!["front", "plan", "side", "iso", "iso_below", "section_aa"]
                     .contains(&p.relative_to.as_str())
                     && !crate::detail::NAMES.contains(&p.relative_to.as_str()))
             {
                 return Err(error(
                     format!("The placement anchor of {name} is not another view."),
-                    ["front", "plan", "side", "iso", "section_aa"]
+                    ["front", "plan", "side", "iso", "iso_below", "section_aa"]
                         .into_iter()
                         .filter(|v| *v != name)
                         .map(String::from)
@@ -498,7 +498,11 @@ pub(crate) fn views(
                 let occupied: Vec<_> = c
                     .views
                     .iter()
-                    .filter(|v| v.id != "v:iso")
+                    .filter(|v| {
+                        v.id != "v:iso"
+                            && !(v.id == "v:iso_below"
+                                && s.views.get("iso_below").is_none_or(|v| v.place.is_none()))
+                    })
                     .map(|v| {
                         if s.views
                             .get(v.id.trim_start_matches("v:"))
@@ -557,6 +561,85 @@ pub(crate) fn views(
             views[i].default = false;
             views[i].basis += "; placed relative to its anchor by the spec";
             resolved.insert(name);
+        }
+    }
+    // Dragging either pictorial leaves its unpinned partner automatic. Find room using
+    // settled peer reservations rather than rejecting a valid editor placement.
+    let mut held_pictorials = BTreeSet::new();
+    for (name, partner) in [("iso_below", "iso"), ("iso", "iso_below")] {
+        if s.views.get(name).is_some_and(|v| v.place.is_some())
+            || !s.views.get(partner).is_some_and(|v| v.place.is_some())
+        {
+            continue;
+        }
+        let Some(i) = views.iter().position(|v| v.id == format!("v:{name}")) else {
+            continue;
+        };
+        // A relative pin also holds its ancestor frames. Moving this partner alone
+        // would silently change the authored gap/alignment of the pinned view.
+        let mut ancestor = partner;
+        let mut held = false;
+        for _ in 0..s.views.len() {
+            let Some(place) = s.views.get(ancestor).and_then(|v| v.place.as_ref()) else {
+                break;
+            };
+            if place.relative_to == name {
+                held = true;
+                break;
+            }
+            ancestor = &place.relative_to;
+        }
+        if held {
+            continue;
+        }
+        let occupied: Vec<_> = views
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, v)| v.area)
+            .chain([sheet.title_block])
+            .chain(obstacles.iter().copied())
+            .collect();
+        let region = [
+            crate::layout::FRAME,
+            crate::layout::FRAME,
+            page[0] - crate::layout::FRAME,
+            page[1] - crate::layout::FRAME,
+        ];
+        let a = views[i].area;
+        let size = [a[2] - a[0], a[3] - a[1]];
+        let fit = crate::layout::largest_empty_rect(region, &occupied, size);
+        if fit[2] > fit[0] && fit[3] > fit[1] && !occupied.iter().any(|b| overlap(fit, *b)) {
+            let factor = ((fit[2] - fit[0]) / size[0])
+                .min((fit[3] - fit[1]) / size[1])
+                .min(1.);
+            if name == "iso" && s.iso_scale_factor.is_some() && factor < 1. - 1e-9 {
+                let mut finding = problem(
+                    &views[i].id,
+                    "pictorial_placement_unresolved",
+                    format!(
+                        "The authored iso_scale_factor does not fit beside the pinned {partner}; move {partner}, enlarge the paper or remove iso_scale_factor."
+                    ),
+                    "iso_scale_factor",
+                );
+                finding.fix = vec![Op::remove("iso_scale_factor")];
+                // Keep the later generic obstacle fitter from shrinking this authored frame.
+                held_pictorials.insert(views[i].id.clone());
+                problems.push(finding);
+                continue;
+            }
+            let v = &mut views[i];
+            let centre = [0, 1].map(|k| (fit[k] + fit[k + 2]) / 2.);
+            v.at = [0, 1].map(|k| centre[k] + factor * (v.at[k] - (a[k] + a[k + 2]) / 2.));
+            v.area = [
+                centre[0] - factor * size[0] / 2.,
+                centre[1] - factor * size[1] / 2.,
+                centre[0] + factor * size[0] / 2.,
+                centre[1] + factor * size[1] / 2.,
+            ];
+            v.scale *= factor;
+        } else {
+            problems.push(problem(&views[i].id, "pictorial_placement_unresolved", format!("No space remains for {name}; move the pinned {partner}, enlarge the paper or omit {name}."), &format!("views/{partner}/place")));
         }
     }
     for (name, v) in &s.views {
@@ -649,6 +732,7 @@ pub(crate) fn views(
         })
         .map(|(n, _)| format!("v:{n}"))
         .collect();
+    fixed.extend(held_pictorials);
     if s.views.values().any(|v| {
         v.place
             .as_ref()
@@ -1143,6 +1227,61 @@ pub(crate) fn held_dimensions(
 mod tests {
     use super::*;
 
+    #[test]
+    fn an_underside_pin_cannot_silently_shrink_an_authored_iso_scale() {
+        let (_, a) = crate::model::analyse_native(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/parts/plate.step"),
+        )
+        .unwrap();
+        let spec: Spec = serde_json::from_value(json!({"views":{"iso_below":{}}})).unwrap();
+        let plan = crate::model::plan(&a, &spec).unwrap();
+        let mut anchor = plan
+            .views
+            .iter()
+            .find(|v| v.id == "v:front")
+            .unwrap()
+            .clone();
+        anchor.area = [35., 70., 45., 80.];
+        anchor.at = [40., 75.];
+        let mut pair: Vec<_> = plan
+            .views
+            .into_iter()
+            .filter(|v| matches!(v.id.as_str(), "v:iso" | "v:iso_below"))
+            .collect();
+        let top = pair.iter_mut().find(|v| v.id == "v:iso").unwrap();
+        top.area = [0., 0., 80., 80.];
+        top.at = [40., 40.];
+        top.scale = 2.;
+        let bottom = pair.iter_mut().find(|v| v.id == "v:iso_below").unwrap();
+        bottom.area = [0., 0., 10., 10.];
+        bottom.at = [5., 5.];
+        pair.push(anchor);
+        let mut spec: Spec = serde_json::from_value(json!({"views":{"iso_below":{"place":{"relative_to":"front","side":"above","gap":0,"pinned":true}}}})).unwrap();
+        let mut sheet = plan.sheet;
+        sheet.page = [100., 100.];
+        sheet.title_block = [5., 5., 95., 65.];
+        for authored in [false, true] {
+            spec.iso_scale_factor = authored.then_some(1.);
+            let mut trial = pair.clone();
+            let mut problems = Vec::new();
+            views(&spec, &mut trial, None, &sheet, &[], &mut problems);
+            let top = trial.iter().find(|v| v.id == "v:iso").unwrap();
+            if authored {
+                assert_eq!(top.scale, 2.);
+                assert!(
+                    problems
+                        .iter()
+                        .any(|p| p.code == "pictorial_placement_unresolved"
+                            && p.message.contains("remove iso_scale_factor")
+                            && p.fix == vec![Op::remove("iso_scale_factor")]
+                            && serde_json::to_value(p).unwrap()["impact"] == "decision")
+                );
+            } else {
+                assert!(top.scale < 2.);
+            }
+        }
+    }
     #[test]
     fn issue109_projection_origin_survives_lopsided_bands_and_obstacle_packing() {
         let sheet: PlannedSheet = serde_json::from_value(json!({

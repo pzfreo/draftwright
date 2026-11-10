@@ -49,6 +49,30 @@ impl Views {
             self.entries.insert(name.clone(), view);
         }
     }
+    /// Pictorial presence/cameras affect the reference frames even when placements
+    /// are withdrawn. In particular, an empty iso_below entry requests a second view.
+    pub(crate) fn keep_pictorials_from(&mut self, source: &Self) {
+        for name in ["iso", "iso_below"] {
+            let Some(view) = source.entries.get(name) else {
+                continue;
+            };
+            if name == "iso_below"
+                || view.style.is_some()
+                || view.colour.is_some()
+                || view.direction.is_some()
+                || (view.omit && source.entries.contains_key("iso_below"))
+            {
+                let mut view = view.clone();
+                // A moved view's omission belongs to one allocator step, not its whole reference.
+                if view.omit && view.sheet.is_some_and(|n| n > 1) {
+                    view.omit = false;
+                }
+                view.place = None;
+                view.sheet = None;
+                self.entries.insert(name.into(), view);
+            }
+        }
+    }
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty() && self.sections.is_empty()
     }

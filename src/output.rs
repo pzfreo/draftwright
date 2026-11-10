@@ -800,8 +800,13 @@ impl Drawing {
     pub(crate) fn paint_layers(&self) -> impl Iterator<Item = &Layer> {
         self.layers
             .iter()
-            .filter(|l| l.name == "centres")
-            .chain(self.layers.iter().filter(|l| l.name != "centres"))
+            .filter(|l| l.name.starts_with("shaded-"))
+            .chain(self.layers.iter().filter(|l| l.name == "centres"))
+            .chain(
+                self.layers
+                    .iter()
+                    .filter(|l| l.name != "centres" && !l.name.starts_with("shaded-")),
+            )
     }
 
     /// The SVG: a page in millimetres, y up inside a flipping group, one group per layer, then
@@ -817,10 +822,58 @@ impl Drawing {
                 j.replace("]]>", "]]]]><![CDATA[>")
             ))
         );
+        let mut shaded_view = None;
         for layer in self.paint_layers() {
+            if let Some(name) = layer.name.strip_prefix("shaded-") {
+                let view = name.rsplit_once('-').expect("shaded colour run").0;
+                if shaded_view != Some(view) {
+                    if shaded_view.is_some() {
+                        s += "    </g>\n";
+                    }
+                    let _ = writeln!(
+                        s,
+                        "    <g id=\"shaded-{view}-view\" stroke-width=\"0.02\" shape-rendering=\"crispEdges\">"
+                    );
+                    shaded_view = Some(view);
+                }
+                let [r, g, b] = layer.style.colour;
+                let mut d = String::new();
+                for item in &layer.items {
+                    if let Item::Face(wires) = item {
+                        for wire in wires {
+                            // Shaded wires are closed polygons. Z supplies the final edge.
+                            for (i, curve) in wire.iter().enumerate() {
+                                let [x, y] = curve.start();
+                                let n = |v: f64| num((v * 1000.).round() / 1000.);
+                                let _ = write!(
+                                    d,
+                                    "{}{},{}",
+                                    if i == 0 { "M" } else { "L" },
+                                    n(x),
+                                    n(y)
+                                );
+                            }
+                            d.push('Z');
+                        }
+                    }
+                }
+                let _ = writeln!(
+                    s,
+                    "      <path fill=\"#{r:02x}{g:02x}{b:02x}\" stroke=\"#{r:02x}{g:02x}{b:02x}\" d=\"{d}\" />"
+                );
+                continue;
+            }
+            if shaded_view.take().is_some() {
+                s += "    </g>\n";
+            }
             let st = &layer.style;
             let rgb = format!("rgb({},{},{})", st.colour[0], st.colour[1], st.colour[2]);
             let fill = if st.fill { rgb.clone() } else { "none".into() };
+            let facet_edges = if layer.name.starts_with("shaded-") {
+                " shape-rendering=\"crispEdges\""
+            } else {
+                ""
+            };
             let dash = st.dash.map_or(String::new(), |pattern| {
                 format!(
                     " stroke-dasharray=\"{}\"",
@@ -833,7 +886,7 @@ impl Drawing {
             });
             let _ = writeln!(
                 s,
-                "    <g fill=\"{fill}\" stroke=\"{rgb}\" stroke-width=\"{}\" id=\"{}\"{dash}>",
+                "    <g fill=\"{fill}\" stroke=\"{rgb}\" stroke-width=\"{}\" id=\"{}\"{dash}{facet_edges}>",
                 num(st.width),
                 layer.name
             );
@@ -850,6 +903,9 @@ impl Drawing {
                 };
                 let _ = writeln!(s, "      {ink}");
             }
+            s += "    </g>\n";
+        }
+        if shaded_view.is_some() {
             s += "    </g>\n";
         }
         s += "  </g>\n";

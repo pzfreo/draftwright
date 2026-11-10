@@ -211,6 +211,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `paired_ramp_step_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |
 | `part_squared_to_axes` | advisory | The part lay a fraction of a degree off the file's axes and is drawn square, in its own frame. |
 | `passage_requirement_unsupported` | incomplete | No supported drawing grammar states this feature requirement. |
+| `pictorial_placement_unresolved` | decision | The authored pictorial placement or scale cannot fit; its intent is retained for a user choice. |
 | `pinned_item_not_drawn` | decision | The requested pin targets an item that is not drawn. |
 | `pinned_reference_chain_changed` | decision | The authored pin conflicts with the recovered reference chain. |
 | `pinned_view_off_sheet` | readability | The explicitly placed view extends outside the drawing area; an error offers removal of its placement. |
@@ -276,6 +277,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `section_recess_requirement_unsupported` | incomplete | No supported drawing grammar states this feature requirement. |
 | `semicircular_blind_slot_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `semicircular_blind_slot_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |
+| `shaded_view_unresolved` | decision | The requested shaded style could not be resolved; ordinary pictorial lines preserve the drawing. |
 | `shape_not_recognised` | incomplete | A recognisable shape among unexplained faces is neither sized nor located. |
 | `sheet_assignment_unused` | advisory | A sheet assignment has no corresponding drawing item. |
 | `sheet_below_smallest_scale` | readability | The sheet uses views below the requested legibility scale. |
