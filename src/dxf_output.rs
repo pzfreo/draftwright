@@ -43,7 +43,7 @@ pub struct Dimension {
 }
 impl From<&PlannedDimension> for Dimension {
     fn from(d: &PlannedDimension) -> Self {
-        let diameter = d.label.contains('⌀')
+        let diameter = d.label.contains(['⌀', 'ø', 'Ø'])
             && d.measurements
                 .iter()
                 .any(|m| m.parameter.contains(".diameter") && (m.value - d.value).abs() < 1e-5);
@@ -444,7 +444,7 @@ fn encode(s: &str) -> String {
     let mut out = String::new();
     for c in s.chars() {
         match c {
-            '⌀' | 'ø' => out.push_str("%%c"),
+            '⌀' | 'ø' | 'Ø' => out.push_str("%%c"),
             '°' => out.push_str("%%d"),
             '±' => out.push_str("%%p"),
             '\n' => out.push_str("\\P"),
@@ -526,9 +526,8 @@ fn dimension(d: &Dimension, drawing: &Drawing) -> Option<(i32, Vec<P>, f64)> {
         if (measure / frame.scale - d.value).abs() > 1e-4 {
             return None;
         }
-        if d.diameter {
-            return Some((3, vec![ends[0], ends[1]], 1. / frame.scale));
-        }
+        // Profile diameters keep the planned linear witnesses and dimension
+        // line. A circular leader below uses the diametric/radial entity types.
         return Some((
             if aligned { 1 } else { 0 },
             vec![ends[0], ends[1], p.arrows[0][0]],
@@ -700,7 +699,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             // on the DIMENSION itself; there is no orphaned MTEXT to lose on a move.
             let numeric = d.label.trim().trim_end_matches('°');
             let numeric = if kind == 3 {
-                numeric.trim_start_matches('⌀')
+                numeric.trim_start_matches(['⌀', 'ø', 'Ø'])
             } else if kind == 4 {
                 numeric.trim_start_matches('R')
             } else {

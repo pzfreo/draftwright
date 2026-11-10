@@ -755,3 +755,64 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
         }
     }
 }
+
+/// Turned-profile labels use the historical slashed-o spelling. It carries the
+/// same diameter semantics and control code as the explicit diameter sign.
+#[test]
+fn turned_profile_diameters_preserve_native_witness_dimensions() {
+    use dxf::entities::EntityType as E;
+    let (plan, files) = draftwright::api::render_from(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/turned.step"),
+        draftwright::api::Features::Native,
+        &Spec::default(),
+        &["dxf"],
+        150.,
+    )
+    .unwrap();
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+    let dim = d
+        .entities()
+        .find_map(|e| {
+            if let E::RotatedDimension(dim) = &e.specific
+                && dim.dimension_base.text == "%%c30"
+            {
+                Some(dim)
+            } else {
+                None
+            }
+        })
+        .expect("the overall turned diameter");
+    let a = &dim.definition_point_2;
+    let b = &dim.definition_point_3;
+    let factor = d
+        .dim_styles()
+        .find(|s| s.name == dim.dimension_base.dimension_style_name)
+        .unwrap()
+        .dimension_linear_measurement_scale_factor;
+    assert!(((a.x - b.x).hypot(a.y - b.y) * factor - 30.).abs() < 1e-6);
+    let block = d
+        .blocks()
+        .find(|b| b.name == dim.dimension_base.block_name)
+        .unwrap();
+    assert!(
+        block
+            .entities
+            .iter()
+            .any(|e| matches!(&e.specific,E::Text(t) if t.value=="%%c30"))
+    );
+    assert_eq!(dim.dimension_base.text, "%%c30");
+    let wanted = plan
+        .dimensions
+        .iter()
+        .find(|d| d.id == "d:envelope/od.diameter")
+        .unwrap()
+        .placed
+        .as_ref()
+        .unwrap()
+        .arrows[0][0];
+    let at = &dim.dimension_base.definition_point_1;
+    assert!(
+        (at.x - wanted[0]).hypot(at.y - wanted[1]) < 1e-10,
+        "the profile dimension line stays where it was drawn"
+    );
+}
