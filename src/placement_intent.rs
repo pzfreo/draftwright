@@ -595,6 +595,19 @@ pub(crate) fn views(
             let factor = ((fit[2] - fit[0]) / size[0])
                 .min((fit[3] - fit[1]) / size[1])
                 .min(1.);
+            if name == "iso" && s.iso_scale_factor.is_some() && factor < 1. - 1e-9 {
+                let mut finding = problem(
+                    &views[i].id,
+                    "pictorial_placement_unresolved",
+                    format!(
+                        "The authored iso_scale_factor does not fit beside the pinned {partner}; move {partner}, enlarge the paper or remove iso_scale_factor."
+                    ),
+                    "iso_scale_factor",
+                );
+                finding.fix = vec![Op::remove("iso_scale_factor")];
+                problems.push(finding);
+                continue;
+            }
             let v = &mut views[i];
             let centre = [0, 1].map(|k| (fit[k] + fit[k + 2]) / 2.);
             v.at = [0, 1].map(|k| centre[k] + factor * (v.at[k] - (a[k] + a[k + 2]) / 2.));
@@ -1193,6 +1206,51 @@ pub(crate) fn held_dimensions(
 mod tests {
     use super::*;
 
+    #[test]
+    fn an_underside_pin_cannot_silently_shrink_an_authored_iso_scale() {
+        let (_, a) = crate::model::analyse_native(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/parts/plate.step"),
+        )
+        .unwrap();
+        let spec: Spec = serde_json::from_value(json!({"views":{"iso_below":{}}})).unwrap();
+        let plan = crate::model::plan(&a, &spec).unwrap();
+        let mut pair: Vec<_> = plan
+            .views
+            .into_iter()
+            .filter(|v| matches!(v.id.as_str(), "v:iso" | "v:iso_below"))
+            .collect();
+        let top = pair.iter_mut().find(|v| v.id == "v:iso").unwrap();
+        top.area = [0., 0., 80., 80.];
+        top.at = [40., 40.];
+        top.scale = 2.;
+        let bottom = pair.iter_mut().find(|v| v.id == "v:iso_below").unwrap();
+        bottom.area = [0., 0., 10., 10.];
+        bottom.at = [5., 5.];
+        let mut spec: Spec = serde_json::from_value(json!({"views":{"iso_below":{"place":{"relative_to":"iso","side":"above","gap":0,"pinned":true}}}})).unwrap();
+        let mut sheet = plan.sheet;
+        sheet.page = [100., 100.];
+        sheet.title_block = [5., 5., 95., 65.];
+        for authored in [false, true] {
+            spec.iso_scale_factor = authored.then_some(1.);
+            let mut trial = pair.clone();
+            let mut problems = Vec::new();
+            views(&spec, &mut trial, None, &sheet, &[], &mut problems);
+            let top = trial.iter().find(|v| v.id == "v:iso").unwrap();
+            if authored {
+                assert_eq!(top.scale, 2.);
+                assert!(
+                    problems
+                        .iter()
+                        .any(|p| p.code == "pictorial_placement_unresolved"
+                            && p.message.contains("remove iso_scale_factor")
+                            && p.fix == vec![Op::remove("iso_scale_factor")])
+                );
+            } else {
+                assert!(top.scale < 2.);
+            }
+        }
+    }
     #[test]
     fn issue109_projection_origin_survives_lopsided_bands_and_obstacle_packing() {
         let sheet: PlannedSheet = serde_json::from_value(json!({
