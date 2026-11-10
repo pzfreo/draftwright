@@ -704,6 +704,7 @@ mod tests {
                 .find(|p| p.code == "shaded_view_unresolved")
                 .unwrap();
             assert_eq!(problem.severity, "warning");
+            assert_eq!(serde_json::to_value(problem).unwrap()["impact"], "decision");
             assert!(problem.message.contains(&warning.reason));
             assert!(drawing.spec.as_ref().unwrap().contains("shaded"));
             let mut replay =

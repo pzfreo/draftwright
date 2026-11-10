@@ -1244,7 +1244,8 @@ mod tests {
                         .iter()
                         .any(|p| p.code == "pictorial_placement_unresolved"
                             && p.message.contains("remove iso_scale_factor")
-                            && p.fix == vec![Op::remove("iso_scale_factor")])
+                            && p.fix == vec![Op::remove("iso_scale_factor")]
+                            && serde_json::to_value(p).unwrap()["impact"] == "decision")
                 );
             } else {
                 assert!(top.scale < 2.);

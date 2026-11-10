@@ -215,6 +215,7 @@ catalogue! {
     "paired_ramp_step_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
     "part_squared_to_axes" => Advisory, Code, "The part lay a fraction of a degree off the file's axes and is drawn square, in its own frame.";
     "passage_requirement_unsupported" => Incomplete, Requirement, "No supported drawing grammar states this feature requirement.";
+    "pictorial_placement_unresolved" => Decision, Code, "The authored pictorial placement or scale cannot fit; its intent is retained for a user choice.";
     "pinned_item_not_drawn" => Decision, Code, "The requested pin targets an item that is not drawn.";
     "pinned_reference_chain_changed" => Decision, Code, "The authored pin conflicts with the recovered reference chain.";
     "pinned_view_off_sheet" => Readability, Code, "The explicitly placed view extends outside the drawing area; an error offers removal of its placement.";
@@ -280,6 +281,7 @@ catalogue! {
     "section_recess_requirement_unsupported" => Incomplete, Requirement, "No supported drawing grammar states this feature requirement.";
     "semicircular_blind_slot_requirement_missing" => Incomplete, Requirement, "The drawing does not state this required feature parameter.";
     "semicircular_blind_slot_requirement_unverifiable" => Incomplete, Requirement, "The drawing does not prove this required feature parameter.";
+    "shaded_view_unresolved" => Decision, Code, "The requested shaded style could not be resolved; ordinary pictorial lines preserve the drawing.";
     "shape_not_recognised" => Incomplete, Shape, "A recognisable shape among unexplained faces is neither sized nor located.";
     "sheet_assignment_unused" => Advisory, Code, "A sheet assignment has no corresponding drawing item.";
     "sheet_below_smallest_scale" => Readability, Code, "The sheet uses views below the requested legibility scale.";
