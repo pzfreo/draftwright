@@ -108,7 +108,7 @@ fn primary_range(d: &PlannedDimension) -> Option<Range<usize>> {
         let Ok(value) = term[n.clone()].parse::<f64>() else {
             continue;
         };
-        if (value - d.value).abs() > 0.000501 {
+        if !printed_value_matches(d.value, value) {
             continue;
         }
         if let Some(at) = d.label.find(term) {
@@ -116,6 +116,17 @@ fn primary_range(d: &PlannedDimension) -> Option<Range<usize>> {
         }
     }
     None
+}
+fn printed_value_matches(nominal: f64, printed: f64) -> bool {
+    (printed - nominal).abs() <= 0.000501
+        // A Spec can request fewer than the default three decimal places.
+        // Rounding the displayed number must not turn it into a fixed override.
+        || (0..=2).any(|precision| {
+            let factor = 10_f64.powi(precision);
+            let value = nominal * factor;
+            (printed - value.round() / factor).abs() < 1e-9
+                || (printed - value.round_ties_even() / factor).abs() < 1e-9
+        })
 }
 #[derive(Clone, Copy, Debug)]
 struct DimStyle {
@@ -1908,7 +1919,17 @@ mod tests {
 
 #[cfg(test)]
 mod tolerance_tests {
-    use super::{deviation_band, number_range};
+    use super::{deviation_band, number_range, printed_value_matches};
+
+    #[test]
+    fn displayed_precision_does_not_freeze_the_measured_primary_value() {
+        for printed in [48., 47.6, 47.63, 47.625] {
+            assert!(printed_value_matches(47.625, printed));
+        }
+        assert!(printed_value_matches(2.5, 2.));
+        assert!(!printed_value_matches(47.625, 47.));
+        assert!(!printed_value_matches(0.2, 0.5));
+    }
 
     #[test]
     fn compound_terms_distinguish_repetition_counts_from_measured_values() {
