@@ -1322,7 +1322,14 @@ fn encode_mtext(s: &str) -> String {
     let mut out = String::new();
     for c in s.chars() {
         if symbol_font(c) {
-            write!(out, "{{\\fArial Unicode MS|b0|i0;\\U+{:04X}}}", c as u32).unwrap();
+            // Flatness and perpendicularity were added after Arial Unicode MS's
+            // Unicode repertoire; keep those two in a math face that has them.
+            let family = if matches!(c, '⏥' | '⟂') {
+                "STIX Two Math"
+            } else {
+                "Arial Unicode MS"
+            };
+            write!(out, "{{\\f{family}|b0|i0;\\U+{:04X}}}", c as u32).unwrap();
         } else {
             match c {
                 '\\' => out.push_str("\\\\"),
