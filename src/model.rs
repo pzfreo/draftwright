@@ -686,7 +686,9 @@ pub struct SheetSpec {
     /// `n:m`, from ISO 5455's series.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scale: Option<String>,
-    /// Sheet orientation: `landscape` (default), `portrait`, or `auto`.
+    /// Sheet orientation: `landscape` (default), `portrait`, or `auto` (tries both
+    /// orientations and selects whichever fits better at a larger scale or on a smaller
+    /// sheet, with landscape as tie-breaker).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orientation: Option<Orientation>,
     /// Dimension-line spacing: unset uses normal 10/7 mm lanes and falls back to compact
@@ -731,7 +733,8 @@ pub enum Orientation {
     Landscape,
     /// Height > Width (swapped dimensions for slender vertical parts).
     Portrait,
-    /// Automatically choose orientation based on part aspect ratio.
+    /// Automatically try both orientations in page/scale search and keep whichever
+    /// fits better at a larger scale or on a smaller sheet (tie goes to landscape).
     Auto,
 }
 
@@ -3852,11 +3855,7 @@ fn recover_candidates(
                 // A view larger than the usable paper cannot be repaired by annotation placement.
                 // Reject it before running the finished solver (especially important on dense PMI).
                 let (_, raw_w, raw_h) = layout::PAGES[i];
-                let [env_lo, env_hi] = analysis.envelope;
-                let is_portrait = spec.sheet.orientation == Some(Orientation::Portrait)
-                    || (spec.sheet.orientation == Some(Orientation::Auto)
-                        && (env_hi[2] - env_lo[2] > (env_hi[0] - env_lo[0]) * 1.2
-                            || env_hi[1] - env_lo[1] > (env_hi[0] - env_lo[0]) * 1.2));
+                let is_portrait = spec.sheet.orientation == Some(Orientation::Portrait);
                 let (w, h) = if is_portrait {
                     (raw_h, raw_w)
                 } else {
@@ -3873,8 +3872,12 @@ fn recover_candidates(
                         if let Some(b) = &v.broken {
                             size[b.axis] -= b.reduction();
                         }
-                        size[0] * scale > w - 2.0 * layout::margin()
-                            || size[1] * scale > h - 2.0 * layout::margin()
+                        let fits_current = size[0] * scale <= w - 2.0 * layout::margin()
+                            && size[1] * scale <= h - 2.0 * layout::margin();
+                        let fits_other = spec.sheet.orientation == Some(Orientation::Auto)
+                            && (size[0] * scale <= h - 2.0 * layout::margin()
+                                && size[1] * scale <= w - 2.0 * layout::margin());
+                        !(fits_current || fits_other)
                     })
                 {
                     tried.push(format!(

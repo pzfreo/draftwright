@@ -46,6 +46,7 @@ spec['properties']['balloons'] = obj({'occurrences': B, 'items': {'type':'object
 spec['properties']['sheet']['properties']['balloons'] = {'enum':['off','all']}
 spec['properties']['sheet']['properties']['keep_layout'] = nullable(B)
 spec['properties']['sheet']['properties']['zones'] = nullable(B)
+spec['properties']['sheet']['properties']['orientation'] = nullable({'enum':['landscape','portrait','auto']})
 spec['properties']['sheet']['properties']['table_columns'] = {'type':'object','additionalProperties':{'type':'integer','minimum':1,'maximum':4}}
 spec['properties']['views']['additionalProperties'] = obj({**line_fields, 'half_section':nullable(B), 'break':nullable(obj({'axis':{'enum':['x','y','z']},'remove':arr(N,minItems=2,maxItems=2),'gap':{**N,'exclusiveMinimum':0,'description':'Retained gap in paper mm at every scale; default 6.'},'aligned':B})), 'detail':nullable(detail)}, extra=True)
 spec['properties']['views']['properties'] = {'sections': arr(obj({

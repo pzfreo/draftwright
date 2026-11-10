@@ -1215,6 +1215,21 @@
             }
           ]
         },
+        "orientation": {
+          "anyOf": [
+            {
+              "enum": [
+                "landscape",
+                "portrait",
+                "auto"
+              ],
+              "description": "Sheet orientation: landscape (default), portrait, or auto (tries both orientations and selects whichever fits better at a larger scale or on a smaller sheet, with landscape as tie-breaker)."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "preferred_max_sheets": {
           "anyOf": [
             {
@@ -1238,21 +1253,6 @@
                 "A0"
               ],
               "description": "Preferred largest paper, default A3. Try single sheets then preferred_max_sheets at this size, then larger paper; exceeding a preference is advisory. Explicit size or scale wins."
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "orientation": {
-          "anyOf": [
-            {
-              "enum": [
-                "landscape",
-                "portrait",
-                "auto"
-              ],
-              "description": "Sheet orientation: landscape (default), portrait (for slender vertical parts), or auto."
             },
             {
               "type": "null"

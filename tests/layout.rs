@@ -550,3 +550,48 @@ fn portrait_orientation_swaps_dimensions_and_fits_tall_part() {
     assert_eq!(zones.columns, 4);
     assert_eq!(zones.rows, 6);
 }
+
+#[test]
+fn tall_part_automatically_selects_portrait_for_better_scale_or_smaller_sheet() {
+    let make_req = |orientation| {
+        let mut r = Request::new([25.0, 25.0, 220.0], Principals::ALL, true);
+        r.orientation = orientation;
+        r
+    };
+    let none = |_: f64| Scaled::default();
+    let auto = layout::AUTOMATIC_ARRANGEMENTS;
+
+    let p_land = layout::choose(
+        &make_req(draftwright::model::Orientation::Landscape),
+        &none,
+        None,
+        None,
+        &auto,
+        None,
+    );
+    let p_auto = layout::choose(
+        &make_req(draftwright::model::Orientation::Auto),
+        &none,
+        None,
+        None,
+        &auto,
+        None,
+    );
+
+    // Auto orientation tries both orientations and selects portrait because it
+    // fits at a larger scale or on a smaller sheet than landscape.
+    assert!(
+        p_auto.page[0] < p_auto.page[1],
+        "Auto orientation must pick portrait (page {:?})",
+        p_auto.page
+    );
+    let auto_area = p_auto.page[0] * p_auto.page[1];
+    let land_area = p_land.page[0] * p_land.page[1];
+    assert!(
+        p_auto.scale > p_land.scale || auto_area < land_area,
+        "Auto orientation must achieve a larger scale ({}) than landscape ({}) or fit on a smaller sheet ({auto_area} < {land_area})",
+        p_auto.scale,
+        p_land.scale,
+    );
+    assert!(p_auto.fallback.is_none());
+}

@@ -114,6 +114,14 @@
                   "all"
                 ]
               },
+              "orientation": {
+                "enum": [
+                  null,
+                  "landscape",
+                  "portrait",
+                  "auto"
+                ]
+              },
               "table_columns": {
                 "type": "object",
                 "additionalProperties": {
@@ -481,6 +489,14 @@
                 "enum": [
                   "off",
                   "all"
+                ]
+              },
+              "orientation": {
+                "enum": [
+                  null,
+                  "landscape",
+                  "portrait",
+                  "auto"
                 ]
               },
               "table_columns": {
@@ -934,6 +950,14 @@
                   "all"
                 ]
               },
+              "orientation": {
+                "enum": [
+                  null,
+                  "landscape",
+                  "portrait",
+                  "auto"
+                ]
+              },
               "table_columns": {
                 "type": "object",
                 "additionalProperties": {
@@ -1287,6 +1311,14 @@
                 "enum": [
                   "off",
                   "all"
+                ]
+              },
+              "orientation": {
+                "enum": [
+                  null,
+                  "landscape",
+                  "portrait",
+                  "auto"
                 ]
               },
               "table_columns": {
@@ -1662,6 +1694,14 @@
                   "all"
                 ]
               },
+              "orientation": {
+                "enum": [
+                  null,
+                  "landscape",
+                  "portrait",
+                  "auto"
+                ]
+              },
               "table_columns": {
                 "type": "object",
                 "additionalProperties": {
@@ -2011,6 +2051,14 @@
                 "enum": [
                   "off",
                   "all"
+                ]
+              },
+              "orientation": {
+                "enum": [
+                  null,
+                  "landscape",
+                  "portrait",
+                  "auto"
                 ]
               },
               "table_columns": {
@@ -2409,6 +2457,14 @@
                 "enum": [
                   "off",
                   "all"
+                ]
+              },
+              "orientation": {
+                "enum": [
+                  null,
+                  "landscape",
+                  "portrait",
+                  "auto"
                 ]
               },
               "table_columns": {
@@ -2813,6 +2869,14 @@
                   "all"
                 ]
               },
+              "orientation": {
+                "enum": [
+                  null,
+                  "landscape",
+                  "portrait",
+                  "auto"
+                ]
+              },
               "table_columns": {
                 "type": "object",
                 "additionalProperties": {
@@ -3196,6 +3260,14 @@
                   "all"
                 ]
               },
+              "orientation": {
+                "enum": [
+                  null,
+                  "landscape",
+                  "portrait",
+                  "auto"
+                ]
+              },
               "table_columns": {
                 "type": "object",
                 "additionalProperties": {
@@ -3551,6 +3623,14 @@
                   "all"
                 ]
               },
+              "orientation": {
+                "enum": [
+                  null,
+                  "landscape",
+                  "portrait",
+                  "auto"
+                ]
+              },
               "table_columns": {
                 "type": "object",
                 "additionalProperties": {
@@ -3895,6 +3975,14 @@
                 "enum": [
                   "off",
                   "all"
+                ]
+              },
+              "orientation": {
+                "enum": [
+                  null,
+                  "landscape",
+                  "portrait",
+                  "auto"
                 ]
               },
               "table_columns": {
