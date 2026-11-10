@@ -29,9 +29,9 @@ def make_drawing(
     CLI's usual suffixes. ``out`` is a stem, defaulting to the STEP path without
     its extension, or ``drawing`` in the working directory for a shape.
 
-    Title fields, numeric scale, ISO page (A4..A0), first/third projection and
-    zones map to the Rust Spec. The renderer always draws a frame and projection
-    symbol. Other old options accept their defaults only; a non-default value
+    Title fields, numeric scale, ISO page (A4..A0), first/third projection,
+    zones, auto_dims and pmi map to the Rust Spec. The renderer always draws a
+    frame and projection symbol. Other old options accept their defaults only; a non-default value
     raises TypeError naming the unsupported keyword. Custom page dimensions
     are likewise unsupported. Rust failures raise DraftwrightError.
 

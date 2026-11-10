@@ -152,6 +152,7 @@ release, are in **[pzfreo/dw-examples](https://github.com/pzfreo/dw-examples)**.
 - [Engine guide](docs/engine.md): building, the full command line, what is and isn't supported,
   known limitations, checking a change
 - [Model and Spec reference](docs/model.md): the Analysis, Spec and Plan, and every setting
+- [Python API and migration](docs/python.md)
 - [MCP and agents](docs/mcp.md)
 - [Browser / WASM package](docs/wasm.md)
 - [Thread callouts](docs/thread-callouts.md) · [Bills of materials](docs/bom.md) ·

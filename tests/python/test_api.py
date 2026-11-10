@@ -75,7 +75,10 @@ class PythonAPI(unittest.TestCase):
         for mode, expected in (("off", "ignore"), ("report", "ignore"), ("annotate", "first")):
             with self.subTest(pmi=mode):
                 svg, _ = self.assert_files(draftwright.make_drawing(
-                    PLATE, out=self.directory / mode, auto_dims=False, pmi=mode,
+                    # A no-PMI part intentionally canonicalizes inactive policies to
+                    # `first` in embedded Specs. Use real PMI to verify this mapping.
+                    ROOT / "tests/fixtures/pmi/step/bolt_thread_knurl.step.gz",
+                    out=self.directory / mode, auto_dims=False, pmi=mode,
                 ))
                 spec = self.spec(svg)
                 self.assertEqual(spec["dimension_source"], "authored")
@@ -153,7 +156,10 @@ class PythonAPI(unittest.TestCase):
         self.assertIn("draftwright", completion)
         self.assertNotIn("_native", completion)
         self.assertEqual(self.command("draftwright", "render", check=False).returncode, 2)
-        self.assertEqual(self.command("draftwright", "render", "missing.step", "-o", "unused", check=False).returncode, 1)
+        self.assertEqual(self.command("draftwright", "render", "missing.step", "-o", "unused", check=False).returncode, 2)
+        self.assertEqual(self.command(
+            "draftwright", "render", str(PLATE), "-o", str(self.directory / "absent" / "out"), check=False,
+        ).returncode, 1)
 
     @unittest.skipUnless(importlib.util.find_spec("build123d"), "build123d is optional")
     def test_build123d_shape_and_source(self):
@@ -192,6 +198,10 @@ class PythonAPI(unittest.TestCase):
                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 try:
                     self.assertEqual(process.stdout.readline().strip(), "ready")
+                    if entry == "mcp":
+                        process.stdin.write('{"jsonrpc":"2.0","id":1,"method":"ping"}\n')
+                        process.stdin.flush()
+                        self.assertEqual(json.loads(process.stdout.readline())["result"], {})
                     time.sleep(0.02)
                     process.send_signal(signal.SIGINT)
                     process.communicate(timeout=5)
