@@ -220,13 +220,13 @@ pub(crate) fn check(s: &Spec) -> Result<(), Invalid> {
                 ));
             }
             if p.relative_to == *name
-                || (!["front", "plan", "side", "iso", "section_aa"]
+                || (!["front", "plan", "side", "iso", "iso_below", "section_aa"]
                     .contains(&p.relative_to.as_str())
                     && !crate::detail::NAMES.contains(&p.relative_to.as_str()))
             {
                 return Err(error(
                     format!("The placement anchor of {name} is not another view."),
-                    ["front", "plan", "side", "iso", "section_aa"]
+                    ["front", "plan", "side", "iso", "iso_below", "section_aa"]
                         .into_iter()
                         .filter(|v| *v != name)
                         .map(String::from)
