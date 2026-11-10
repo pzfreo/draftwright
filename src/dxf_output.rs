@@ -283,14 +283,25 @@ impl Writer {
         t.tag(100, if multiline { "AcDbMText" } else { "AcDbText" });
         t.point(10, r.at);
         t.tag(40, height);
-        t.tag(
-            1,
-            if multiline {
-                encode_mtext(&r.text)
-            } else {
-                encode(&r.text)
-            },
-        );
+        let content = if multiline {
+            encode_mtext(&r.text)
+        } else {
+            encode(&r.text)
+        };
+        if multiline {
+            let parts: Vec<_> = content.as_bytes().chunks(250).collect();
+            for (i, part) in parts.iter().enumerate() {
+                t.tag(
+                    if i + 1 == parts.len() { 1 } else { 3 },
+                    std::str::from_utf8(part).expect("ASCII DXF encoding"),
+                );
+            }
+            if parts.is_empty() {
+                t.tag(1, "");
+            }
+        } else {
+            t.tag(1, content);
+        }
         t.tag(7, style(&r.font));
         if multiline {
             t.tag(
@@ -434,10 +445,10 @@ fn dimension(d: &PlannedDimension, drawing: &Drawing) -> Option<(i32, Vec<P>, f6
         if (measure / frame.scale - d.value).abs() > 1e-4 {
             return None;
         }
-        if d.label.starts_with('⌀')
+        if d.label.contains('⌀')
             && d.measurements
                 .iter()
-                .any(|m| m.parameter.ends_with(".diameter"))
+                .any(|m| m.parameter.contains(".diameter") && (m.value - d.value).abs() < 1e-5)
         {
             return Some((3, vec![ends[0], ends[1]], 1. / frame.scale));
         }
@@ -447,17 +458,22 @@ fn dimension(d: &PlannedDimension, drawing: &Drawing) -> Option<(i32, Vec<P>, f6
             1. / frame.scale,
         ));
     }
-    // A simple radius/diameter leader has a genuine circular definition. Compound
-    // manufacturing callouts retain their leader grammar as a group.
-    if d.measurements.len() == 1
-        && (d.label.starts_with('R') || d.label.starts_with('⌀'))
-        && !d.label.contains('\n')
-    {
-        let radius = if d.label.starts_with('R') {
-            d.value
-        } else {
-            d.value / 2.
-        };
+    // A manufacturing label can override a proven primary radius/diameter.
+    // Its additional requirements stay editable in the same DIMENSION text.
+    let diameter = d.label.contains('⌀')
+        && d.measurements
+            .iter()
+            .any(|m| m.parameter.contains(".diameter") && (m.value - d.value).abs() < 1e-5);
+    let radial = d.terms.iter().any(|t| {
+        t.trim_start_matches('(')
+            .strip_prefix('R')
+            .is_some_and(|n| n.chars().next().is_some_and(|c| c.is_ascii_digit()))
+    }) && d
+        .measurements
+        .iter()
+        .any(|m| m.parameter.contains(".radius") && (m.value - d.value).abs() < 1e-5);
+    if diameter || radial {
+        let radius = if radial { d.value } else { d.value / 2. };
         let tip = p.arrows.first()?[0];
         let view = drawing.sheet.views.iter().find(|v| v.name == d.view)?;
         let circle = view
@@ -481,15 +497,8 @@ fn dimension(d: &PlannedDimension, drawing: &Drawing) -> Option<(i32, Vec<P>, f6
         }
         let opposite = [2. * circle.0[0] - tip[0], 2. * circle.0[1] - tip[1]];
         return Some((
-            if d.label.starts_with('R') { 4 } else { 3 },
-            vec![
-                if d.label.starts_with('R') {
-                    circle.0
-                } else {
-                    opposite
-                },
-                tip,
-            ],
+            if radial { 4 } else { 3 },
+            vec![if radial { circle.0 } else { opposite }, tip],
             1. / frame.scale,
         ));
     }
@@ -914,6 +923,8 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, f64>) -> Ve
         ("$PSLTSCALE", 70, "1"),
         ("$TDCREATE", 40, "2451545"),
         ("$TDUPDATE", 40, "2451545"),
+        ("$TDUCREATE", 40, "2451545"),
+        ("$TDUUPDATE", 40, "2451545"),
     ] {
         out.tag(9, name);
         out.tag(code, value);
@@ -972,14 +983,13 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, f64>) -> Ve
     for (name, weight, linetype) in std::iter::once(("0", 25, "CONTINUOUS")).chain(LAYERS) {
         record(&mut out, "LAYER", w.id(), la, "AcDbLayerTableRecord", name);
         out.tag(62, 7);
-        out.tag(
-            420,
-            match name {
-                HIDDEN => 0x7f7f7f,
-                DIMS | TEXT | PMI | HATCH | CUT => 0x0033b2,
-                _ => 0,
-            },
-        );
+        if let Some(rgb) = match name {
+            HIDDEN => Some(0x7f7f7f),
+            DIMS | TEXT | PMI | HATCH | CUT => Some(0x0033b2),
+            _ => None,
+        } {
+            out.tag(420, rgb);
+        }
         out.tag(6, linetype);
         out.tag(290, if name == "Defpoints" { 0 } else { 1 });
         out.tag(370, weight);

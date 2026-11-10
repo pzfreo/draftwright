@@ -11232,6 +11232,7 @@ fn render_annotations_with_cuts(
                 run,
             });
         }
+        sheet.dxf.furniture.insert(name.clone(), from..dims.len());
         sheet
             .items
             .extend(labelled(name, Kind::Caption, &dims[from..]));
@@ -12031,6 +12032,10 @@ fn render_annotations_with_cuts(
             dims,
             Some(run),
         );
+        sheet
+            .dxf
+            .furniture
+            .insert(caption.id.clone(), from..dims.len());
         sheet
             .items
             .extend(labelled(&caption.id, Kind::Caption, &dims[from..]));

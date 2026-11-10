@@ -503,6 +503,45 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
     for view in &drawing.sheet.views {
         assert!(d.blocks().any(|b| b.name == view.name.replace(':', "_")));
     }
+    // Native blocks retain the original view geometry, before centres/hatch are appended.
+    for view in &drawing.sheet.dxf.views {
+        let block = d
+            .blocks()
+            .find(|b| b.name == view.name.replace(':', "_"))
+            .unwrap();
+        for (item, entity) in drawing.layers[0].items[view.visible.clone()]
+            .iter()
+            .zip(&block.entities)
+        {
+            match (item, &entity.specific) {
+                (Item::Edge(Curve::Line(a, b)), E::Line(line)) => {
+                    assert!((line.p1.x - a[0]).abs() < 1e-10 && (line.p1.y - a[1]).abs() < 1e-10);
+                    assert!((line.p2.x - b[0]).abs() < 1e-10 && (line.p2.y - b[1]).abs() < 1e-10);
+                }
+                (
+                    Item::Edge(Curve::Conic {
+                        centre,
+                        radii,
+                        t0,
+                        t1,
+                        ..
+                    }),
+                    E::Circle(circle),
+                ) => {
+                    assert!((t1 - t0).abs() > std::f64::consts::TAU - 1e-10);
+                    assert!(
+                        (circle.center.x - centre[0]).abs() < 1e-10
+                            && (circle.center.y - centre[1]).abs() < 1e-10
+                    );
+                    assert!((circle.radius - radii[0]).abs() < 1e-10);
+                }
+                (Item::Edge(Curve::Conic { .. }), E::Arc(_) | E::Ellipse(_)) => {}
+                (Item::Edge(Curve::Beziers(_) | Curve::Rational(_)), E::Spline(_)) => {}
+                _ => panic!("view curve changed type: {item:?} -> {:?}", entity.specific),
+            }
+        }
+        assert!(block.entities.len() >= view.visible.len());
+    }
     let mut dimensions = 0;
     for e in d.entities() {
         if let E::RotatedDimension(dim) = &e.specific {

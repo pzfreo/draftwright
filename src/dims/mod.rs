@@ -5150,14 +5150,19 @@ pub fn render(
                 })
                 .collect();
             if !wires.is_empty() {
-                let (lo, hi) = contours
-                    .iter()
-                    .flatten()
-                    .map(|s| s.at(0.)[1])
-                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), y| {
-                        (lo.min(y), hi.max(y))
-                    });
-                items.push(Item::Glyph(wires, run_at((lo + hi) / 2.)));
+                let run = if rows <= 1 {
+                    first
+                } else {
+                    let (lo, hi) = contours
+                        .iter()
+                        .flatten()
+                        .map(|s| s.at(0.)[1])
+                        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), y| {
+                            (lo.min(y), hi.max(y))
+                        });
+                    run_at((lo + hi) / 2.)
+                };
+                items.push(Item::Glyph(wires, run));
             }
         }
         // A basic dimension's box: its label box, which the plan widened to take it in.
