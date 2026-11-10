@@ -440,56 +440,118 @@ fn dxf_linetypes_and_table_handles_are_valid() {
     assert!(!dxf_bytes.is_empty());
     let d = dxf::Drawing::load(&mut std::io::Cursor::new(&dxf_bytes)).expect("loads valid DXF");
 
-    // Check that ISO 128 and AutoCAD standard linetypes are registered
-    let linetypes: std::collections::HashSet<String> = d
+    // 1. Check that each layer's linetype exists in the LTYPE table (or is CONTINUOUS)
+    let registered_linetypes: std::collections::HashSet<String> = d
         .line_types()
         .map(|lt| lt.name.to_ascii_uppercase())
         .collect();
-    assert!(
-        linetypes.contains("CENTRE"),
-        "missing CENTRE: {linetypes:?}"
-    );
-    assert!(
-        linetypes.contains("CENTER"),
-        "missing CENTER: {linetypes:?}"
-    );
-    assert!(
-        linetypes.contains("DASHED"),
-        "missing DASHED: {linetypes:?}"
-    );
-    assert!(
-        linetypes.contains("HIDDEN"),
-        "missing HIDDEN: {linetypes:?}"
-    );
-    assert!(
-        linetypes.contains("PHANTOM"),
-        "missing PHANTOM: {linetypes:?}"
-    );
-
-    // Check that hidden layer uses DASHED linetype
-    let hidden = d
-        .layers()
-        .find(|l| l.name == "hidden")
-        .expect("hidden layer exists");
-    assert_eq!(hidden.line_type_name.to_ascii_uppercase(), "DASHED");
-
-    // Check that all tables have head handles (group code 5)
-    let text = std::str::from_utf8(&dxf_bytes).expect("utf-8 DXF text");
-    let lines: Vec<&str> = text.split('\n').collect();
-    for (i, line) in lines.iter().enumerate() {
-        if line.trim_end_matches('\r').trim() == "TABLE"
-            && i > 0
-            && lines[i - 1].trim_end_matches('\r').trim() == "0"
-            && i + 3 < lines.len()
-            && lines[i + 1].trim_end_matches('\r').trim() == "2"
-        {
-            let code = lines[i + 3].trim_end_matches('\r').trim();
-            assert_eq!(
-                code,
-                "5",
-                "Table head missing group 5 handle for table {}",
-                lines[i + 2].trim()
+    for layer in d.layers() {
+        let lt = layer.line_type_name.to_ascii_uppercase();
+        if lt != "CONTINUOUS" {
+            assert!(
+                registered_linetypes.contains(&lt),
+                "Layer '{}' references unknown linetype '{}'",
+                layer.name,
+                lt
             );
         }
     }
+
+    // 2. Check that only used linetypes are registered (no unused phantom/center/dashed entries)
+    let used_linetypes: std::collections::HashSet<String> = d
+        .layers()
+        .map(|l| l.line_type_name.to_ascii_uppercase())
+        .collect();
+    for registered in &registered_linetypes {
+        if registered == "BYLAYER" || registered == "BYBLOCK" || registered == "CONTINUOUS" {
+            continue;
+        }
+        assert!(
+            used_linetypes.contains(registered),
+            "Registered custom linetype '{}' is not referenced by any layer",
+            registered
+        );
+    }
+    assert!(
+        !registered_linetypes.contains("CENTER"),
+        "Unused CENTER linetype should not be registered"
+    );
+    assert!(
+        !registered_linetypes.contains("DASHED"),
+        "Unused DASHED linetype should not be registered"
+    );
+    assert!(
+        !registered_linetypes.contains("PHANTOM"),
+        "Unused PHANTOM linetype should not be registered"
+    );
+
+    // 3. Hidden layer uses HIDDEN with exact dash pattern [1.5875, -0.79375]
+    if let Some(hidden) = d.layers().find(|l| l.name == "hidden") {
+        assert!(hidden.line_type_name.eq_ignore_ascii_case("HIDDEN"));
+        let lt = d
+            .line_types()
+            .find(|lt| lt.name.eq_ignore_ascii_case("HIDDEN"))
+            .expect("HIDDEN linetype registered");
+        assert_eq!(lt.element_count, 2);
+        assert_eq!(lt.dash_dot_space_lengths, vec![1.5875, -0.79375]);
+    }
+
+    // 4. Centres layer uses CENTRE with exact dash pattern [8.0, -1.5, 0.2, -1.5]
+    if let Some(centres) = d.layers().find(|l| l.name == "centres") {
+        assert!(centres.line_type_name.eq_ignore_ascii_case("CENTRE"));
+        let lt = d
+            .line_types()
+            .find(|lt| lt.name.eq_ignore_ascii_case("CENTRE"))
+            .expect("CENTRE linetype registered");
+        assert_eq!(lt.element_count, 4);
+        assert_eq!(lt.dash_dot_space_lengths, vec![8.0, -1.5, 0.2, -1.5]);
+    }
+
+    // 5. Parse code pairs from written DXF to check table handles and $HANDSEED
+    let text = std::str::from_utf8(&dxf_bytes).expect("utf-8 DXF text");
+    let lines: Vec<&str> = text.split('\n').map(|l| l.trim_end_matches('\r')).collect();
+    let mut pairs = Vec::new();
+    let mut idx = 0;
+    while idx + 1 < lines.len() {
+        if let Ok(code) = lines[idx].trim().parse::<i32>() {
+            pairs.push((code, lines[idx + 1].to_string()));
+            idx += 2;
+        } else {
+            idx += 1;
+        }
+    }
+
+    // Read $HANDSEED
+    let mut handseed: u64 = 0;
+    for (i, p) in pairs.iter().enumerate() {
+        if p.0 == 9 && p.1 == "$HANDSEED" && i + 1 < pairs.len() && pairs[i + 1].0 == 5 {
+            handseed = u64::from_str_radix(pairs[i + 1].1.trim(), 16).expect("hex handseed");
+            break;
+        }
+    }
+    assert!(handseed > 0, "$HANDSEED must be set");
+
+    // Check table handles: each table has a unique handle strictly below $HANDSEED
+    let mut table_handles = std::collections::HashSet::new();
+    for (i, p) in pairs.iter().enumerate() {
+        if p.0 == 0 && p.1 == "TABLE" && i + 2 < pairs.len() && pairs[i + 1].0 == 2 {
+            let table_name = &pairs[i + 1].1;
+            assert_eq!(
+                pairs[i + 2].0,
+                5,
+                "Table {table_name} head must have group code 5 handle"
+            );
+            let handle_val =
+                u64::from_str_radix(pairs[i + 2].1.trim(), 16).expect("hex table handle");
+            assert!(
+                handle_val < handseed,
+                "Table {table_name} handle {handle_val:X} must be below $HANDSEED {handseed:X}"
+            );
+            assert!(
+                table_handles.insert(handle_val),
+                "Table {table_name} handle {handle_val:X} must be unique"
+            );
+        }
+    }
+    assert!(!table_handles.is_empty(), "Must have found table handles");
 }

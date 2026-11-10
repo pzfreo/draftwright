@@ -954,51 +954,48 @@ impl Drawing {
             line_weight: weight(-3),
             ..Default::default()
         });
-        d.add_line_type(dxf::tables::LineType {
-            name: "CENTRE".into(),
-            description: "ISO 128 long dash dot".into(),
-            element_count: 4,
-            total_pattern_length: 11.2,
-            dash_dot_space_lengths: vec![8.0, -1.5, 0.2, -1.5],
-            ..Default::default()
-        });
-        d.add_line_type(dxf::tables::LineType {
-            name: "CENTER".into(),
-            description: "ISO 128 long dash dot".into(),
-            element_count: 4,
-            total_pattern_length: 11.2,
-            dash_dot_space_lengths: vec![8.0, -1.5, 0.2, -1.5],
-            ..Default::default()
-        });
-        d.add_line_type(dxf::tables::LineType {
-            name: "DASHED".into(),
-            description: "ISO 128 dashed line".into(),
-            element_count: 2,
-            total_pattern_length: 4.5,
-            dash_dot_space_lengths: vec![3.0, -1.5],
-            ..Default::default()
-        });
-        d.add_line_type(dxf::tables::LineType {
-            name: "HIDDEN".into(),
-            description: "Hidden line".into(),
-            element_count: 2,
-            total_pattern_length: 3.5,
-            dash_dot_space_lengths: vec![2.5, -1.0],
-            ..Default::default()
-        });
-        d.add_line_type(dxf::tables::LineType {
-            name: "PHANTOM".into(),
-            description: "ISO 128 phantom line".into(),
-            element_count: 6,
-            total_pattern_length: 22.5,
-            dash_dot_space_lengths: vec![12.0, -1.5, 3.0, -1.5, 3.0, -1.5],
-            ..Default::default()
-        });
+        let mut registered_linetypes = std::collections::HashSet::new();
         for layer in self.paint_layers() {
-            let line_type_name = if layer.name == "centres" {
-                "CENTRE".into()
-            } else if layer.name == "hidden" || layer.style.dash.is_some() {
-                "DASHED".into()
+            if let Some(dash_pattern) = layer.style.dash {
+                let name = match layer.name.as_str() {
+                    "centres" => "CENTRE".to_string(),
+                    "hidden" => "HIDDEN".to_string(),
+                    _ => layer.name.to_ascii_uppercase(),
+                };
+                if registered_linetypes.insert(name.clone()) {
+                    let description = match layer.name.as_str() {
+                        "centres" => "ISO 128 long dash dot".to_string(),
+                        "hidden" => "ISO 128 dashed line".to_string(),
+                        _ => format!("{} line", layer.name),
+                    };
+                    let mut dash_dot_space_lengths = Vec::with_capacity(dash_pattern.len());
+                    let mut total_pattern_length = 0.0;
+                    for (i, &len) in dash_pattern.iter().enumerate() {
+                        total_pattern_length += len;
+                        if i % 2 == 0 {
+                            dash_dot_space_lengths.push(len);
+                        } else {
+                            dash_dot_space_lengths.push(-len);
+                        }
+                    }
+                    d.add_line_type(dxf::tables::LineType {
+                        name,
+                        description,
+                        element_count: dash_pattern.len() as i32,
+                        total_pattern_length,
+                        dash_dot_space_lengths,
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+        for layer in self.paint_layers() {
+            let line_type_name = if layer.style.dash.is_some() {
+                match layer.name.as_str() {
+                    "centres" => "CENTRE".into(),
+                    "hidden" => "HIDDEN".into(),
+                    _ => layer.name.to_ascii_uppercase(),
+                }
             } else {
                 "CONTINUOUS".into()
             };
@@ -2280,91 +2277,109 @@ pub(crate) fn label_gap(lines: &[[P; 2]], label: [f64; 4]) -> Option<f64> {
     Some(along.hypot(across))
 }
 
-/// Adds table head handles (group code 5 or 105) and owner pointers (group code 330) to DXF
+/// Adds table head handles (group code 5) and owner pointers (group code 330) to DXF
 /// tables that AutoCAD R2004+ requires for error-free loading.
+///
+/// Upstream crate `dxf` 0.6.2 does not write table head handles (noted as a TODO in its
+/// table generator) and exposes no API to inject them before saving. We parse the saved
+/// DXF into aligned (group-code, value) pairs, allocate unique handles sequentially from
+/// `$HANDSEED` for each unhandled table, and advance `$HANDSEED` so that all handles in
+/// the file remain unique and strictly below `$HANDSEED`.
 fn fix_dxf_table_handles(raw: &[u8]) -> Vec<u8> {
     let Ok(text) = std::str::from_utf8(raw) else {
         return raw.to_vec();
     };
-    let lines: Vec<&str> = text.split('\n').collect();
-    let mut handseed: u32 = 0x100;
-    for (idx, l) in lines.iter().enumerate() {
-        if l.trim_end_matches('\r').trim() == "$HANDSEED" && idx + 2 < lines.len() {
-            let val_str = lines[idx + 2].trim_end_matches('\r').trim();
-            if let Ok(v) = u32::from_str_radix(val_str, 16) {
+
+    let crlf = text.contains("\r\n");
+    let eol = if crlf { "\r\n" } else { "\n" };
+
+    // Parse text into (code, value) pairs.
+    // DXF ASCII alternates group code lines and value lines.
+    let lines: Vec<&str> = text.split('\n').map(|l| l.trim_end_matches('\r')).collect();
+    let mut pairs: Vec<(i32, String)> = Vec::with_capacity(lines.len() / 2);
+    let mut idx = 0;
+    while idx + 1 < lines.len() {
+        let code_line = lines[idx].trim();
+        let val_line = lines[idx + 1];
+        if let Ok(code) = code_line.parse::<i32>() {
+            pairs.push((code, val_line.to_string()));
+            idx += 2;
+        } else {
+            // Stray or trailing line
+            idx += 1;
+        }
+    }
+
+    // Locate $HANDSEED in header
+    let mut handseed: u64 = 0x100;
+    let mut handseed_pair_idx = None;
+    for (i, pair) in pairs.iter().enumerate() {
+        if pair.0 == 9 && pair.1 == "$HANDSEED" && i + 1 < pairs.len() && pairs[i + 1].0 == 5 {
+            if let Ok(v) = u64::from_str_radix(pairs[i + 1].1.trim(), 16) {
                 handseed = v;
+                handseed_pair_idx = Some(i + 1);
             }
             break;
         }
     }
 
-    let mut next_handle = handseed.max(0x2000);
-    let start_handle = next_handle;
-    let mut out = String::with_capacity(text.len() + 1024);
+    let mut next_handle = handseed;
+    let mut result_pairs: Vec<(i32, String)> = Vec::with_capacity(pairs.len() + 32);
+    let mut in_tables = false;
     let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        let trimmed = line.trim_end_matches('\r').trim();
-        out.push_str(line);
-        if i + 1 < lines.len() {
-            out.push('\n');
-        }
-        if trimmed == "TABLE"
-            && i > 0
-            && lines[i - 1].trim_end_matches('\r').trim() == "0"
-            && i + 2 < lines.len()
-            && lines[i + 1].trim_end_matches('\r').trim() == "2"
+    while i < pairs.len() {
+        let pair = &pairs[i];
+        if pair.0 == 0
+            && pair.1 == "SECTION"
+            && i + 1 < pairs.len()
+            && pairs[i + 1].0 == 2
+            && pairs[i + 1].1 == "TABLES"
         {
-            let _table_name = lines[i + 2]
-                .trim_end_matches('\r')
-                .trim()
-                .to_ascii_uppercase();
-            out.push_str(lines[i + 1]);
-            out.push('\n');
-            out.push_str(lines[i + 2]);
-            out.push('\n');
-            i += 3;
-            if i < lines.len() {
-                let code = lines[i].trim_end_matches('\r').trim();
-                if code != "5" && code != "105" {
-                    let handle_code = "    5";
-                    let handle_hex = format!("{:X}", next_handle);
-                    next_handle += 1;
-                    let nl = if line.ends_with('\r') { "\r\n" } else { "\n" };
-                    out.push_str(handle_code);
-                    out.push_str(nl);
-                    out.push_str(&handle_hex);
-                    out.push_str(nl);
-                    out.push_str("  330");
-                    out.push_str(nl);
-                    out.push('0');
-                    out.push_str(nl);
-                }
+            in_tables = true;
+        } else if pair.0 == 0 && pair.1 == "ENDSEC" && in_tables {
+            in_tables = false;
+        }
+
+        result_pairs.push(pair.clone());
+
+        if in_tables
+            && pair.0 == 0
+            && pair.1 == "TABLE"
+            && i + 1 < pairs.len()
+            && pairs[i + 1].0 == 2
+        {
+            // Push table name pair (code 2)
+            i += 1;
+            result_pairs.push(pairs[i].clone());
+
+            // Check if next pair already has handle (group 5 or 105)
+            if i + 1 < pairs.len() && pairs[i + 1].0 != 5 && pairs[i + 1].0 != 105 {
+                let handle_hex = format!("{:X}", next_handle);
+                next_handle += 1;
+                result_pairs.push((5, handle_hex));
+                result_pairs.push((330, "0".to_string()));
             }
-            continue;
         }
         i += 1;
     }
 
-    if next_handle > start_handle {
-        let mut update_handseed = || -> Option<()> {
-            let pos = out.find("$HANDSEED")?;
-            let nl_after_tag = out[pos..].find('\n')?;
-            let after_tag = pos + nl_after_tag + 1;
-            let nl_after_code = out[after_tag..].find('\n')?;
-            let after_code = after_tag + nl_after_code + 1;
-            let nl_after_val = out[after_code..].find('\n')?;
-            let is_crlf = out[after_code..after_code + nl_after_val].ends_with('\r');
-            let new_val = format!("{:X}", next_handle);
-            let replacement = if is_crlf {
-                format!("{new_val}\r")
-            } else {
-                new_val
-            };
-            out.replace_range(after_code..after_code + nl_after_val, &replacement);
-            Some(())
-        };
-        let _ = update_handseed();
+    // Advance $HANDSEED to next_handle if we allocated any table handles
+    if next_handle > handseed
+        && let Some(hs_idx) = handseed_pair_idx
+    {
+        for (j, p) in result_pairs.iter_mut().enumerate() {
+            if j == hs_idx && p.0 == 5 {
+                p.1 = format!("{:X}", next_handle);
+                break;
+            }
+        }
+    }
+
+    // Serialize back to DXF ASCII code pairs
+    let mut out = String::with_capacity(text.len() + 1024);
+    for (code, val) in result_pairs {
+        use std::fmt::Write;
+        let _ = write!(out, "{code: >3}{eol}{val}{eol}");
     }
 
     out.into_bytes()
