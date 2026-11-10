@@ -574,6 +574,23 @@ pub(crate) fn views(
         let Some(i) = views.iter().position(|v| v.id == format!("v:{name}")) else {
             continue;
         };
+        // A relative pin also holds its ancestor frames. Moving this partner alone
+        // would silently change the authored gap/alignment of the pinned view.
+        let mut ancestor = partner;
+        let mut held = false;
+        for _ in 0..s.views.len() {
+            let Some(place) = s.views.get(ancestor).and_then(|v| v.place.as_ref()) else {
+                break;
+            };
+            if place.relative_to == name {
+                held = true;
+                break;
+            }
+            ancestor = &place.relative_to;
+        }
+        if held {
+            continue;
+        }
         let occupied: Vec<_> = views
             .iter()
             .enumerate()
@@ -1215,6 +1232,14 @@ mod tests {
         .unwrap();
         let spec: Spec = serde_json::from_value(json!({"views":{"iso_below":{}}})).unwrap();
         let plan = crate::model::plan(&a, &spec).unwrap();
+        let mut anchor = plan
+            .views
+            .iter()
+            .find(|v| v.id == "v:front")
+            .unwrap()
+            .clone();
+        anchor.area = [35., 70., 45., 80.];
+        anchor.at = [40., 75.];
         let mut pair: Vec<_> = plan
             .views
             .into_iter()
@@ -1227,7 +1252,8 @@ mod tests {
         let bottom = pair.iter_mut().find(|v| v.id == "v:iso_below").unwrap();
         bottom.area = [0., 0., 10., 10.];
         bottom.at = [5., 5.];
-        let mut spec: Spec = serde_json::from_value(json!({"views":{"iso_below":{"place":{"relative_to":"iso","side":"above","gap":0,"pinned":true}}}})).unwrap();
+        pair.push(anchor);
+        let mut spec: Spec = serde_json::from_value(json!({"views":{"iso_below":{"place":{"relative_to":"front","side":"above","gap":0,"pinned":true}}}})).unwrap();
         let mut sheet = plan.sheet;
         sheet.page = [100., 100.];
         sheet.title_block = [5., 5., 95., 65.];

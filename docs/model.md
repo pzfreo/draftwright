@@ -653,7 +653,9 @@ into two fitted, unannotated slots when both are present. Each uses the same set
 
 Omit either slot with `omit: true`. `iso_below` uses the automatic single-sheet iso zone:
 both pictorials may use `place` (including editor pins). An unpinned partner fits
-in the space left by settled view reservations. If no space remains, a warning names
+in the space left by settled view reservations, unless it is an ancestor of the pinned
+view: relative pins hold their anchor frames, including chained pictorial anchors.
+If no space remains, a warning names
 the remedies: move the pinned partner, enlarge the paper, or omit the extra view.
 Assignment to another sheet and multi-sheet allocation are refused while it is shown.
 An authored `iso_scale_factor` must still fit exactly. The existing iso caption stays

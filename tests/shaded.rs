@@ -208,3 +208,41 @@ fn editor_can_pin_either_or_both_pictorials_without_invalidating_the_spec() {
     s.undo().unwrap();
     assert!(s.plan().spec.views.values().all(|v| v.place.is_none()));
 }
+
+#[test]
+fn a_pictorial_pin_preserves_its_unpinned_ancestor_in_both_directions() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
+    for (name, anchor) in [("iso", "iso_below"), ("iso_below", "iso")] {
+        let spec = serde_json::from_value(json!({"sheet":{"size":"A2","scale":"1:2"},"views":{"iso":{"style":"shaded"},"iso_below":{"style":"shaded"}}})).unwrap();
+        let mut s = Session::open(&path, api::Features::None, spec).unwrap();
+        s.apply(
+            &[Op::set(
+                format!("views/{name}/place"),
+                json!({"relative_to":anchor,"side":"below","gap":5,"pinned":true}),
+            )],
+            true,
+        )
+        .unwrap();
+        let view = |id: &str| {
+            s.plan()
+                .views
+                .iter()
+                .find(|v| v.id == format!("v:{id}"))
+                .unwrap()
+        };
+        let (a, b) = (view(name), view(anchor));
+        assert!(
+            (a.area[3] + 5. - b.area[1]).abs() < 1e-6,
+            "{name} relative to {anchor}: {:?} {:?}",
+            a.area,
+            b.area
+        );
+        assert!((a.area[0] + a.area[2] - b.area[0] - b.area[2]).abs() < 1e-6);
+        assert!(
+            s.plan()
+                .problems
+                .iter()
+                .all(|p| p.code != "placement_displaced")
+        );
+    }
+}
