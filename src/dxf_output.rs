@@ -87,6 +87,7 @@ struct Writer {
     entities: Tags,
     groups: Vec<(String, Vec<u64>)>,
     weight: Option<i16>,
+    colour: Option<u32>,
 }
 impl Writer {
     fn new() -> Self {
@@ -97,6 +98,7 @@ impl Writer {
             entities: Tags::default(),
             groups: Vec::new(),
             weight: None,
+            colour: None,
         }
     }
     fn id(&mut self) -> u64 {
@@ -129,6 +131,9 @@ impl Writer {
         if let Some(weight) = self.weight {
             t.tag(370, weight);
         }
+        if let Some(colour) = self.colour {
+            t.tag(420, colour);
+        }
         (h, t)
     }
     fn put(&mut self, t: Tags, block: Option<usize>) {
@@ -145,7 +150,18 @@ impl Writer {
         self.put(t, None);
         h
     }
-    fn curve(&mut self, c: &Curve, layer: &str, block: Option<usize>) -> u64 {
+    fn curve(&mut self, c: &Curve, layer: &str, block: Option<usize>) -> Option<u64> {
+        // A projected isolated pole paints no curve. Degree-zero SPLINEs pass
+        // some audits but cannot be constructed by CAD/ezdxf curve readers.
+        let point_only = match c {
+            Curve::Beziers(p) => p.iter().all(|p| p.len() < 2),
+            Curve::Rational(p) => p.iter().all(|p| p.len() < 2),
+            _ => false,
+        };
+        if point_only {
+            return None;
+        }
+
         let kind = match c {
             Curve::Line(..) => "LINE",
             Curve::Conic { radii, t0, t1, .. }
@@ -232,12 +248,12 @@ impl Writer {
             }
         }
         self.put(t, block);
-        h
+        Some(h)
     }
     fn item(&mut self, i: &Item, layer: &str, block: Option<usize>) -> Vec<u64> {
         match i {
             Item::Glyph(..) | Item::TextStroke(..) => Vec::new(),
-            Item::Edge(c) => vec![self.curve(c, layer, block)],
+            Item::Edge(c) => self.curve(c, layer, block).into_iter().collect(),
             Item::Face(w) => {
                 // SOLID supports triangular and quadrilateral arrowheads directly.
                 if w.len() == 1
@@ -256,7 +272,7 @@ impl Writer {
                 } else {
                     w.iter()
                         .flatten()
-                        .map(|c| self.curve(c, layer, block))
+                        .filter_map(|c| self.curve(c, layer, block))
                         .collect()
                 }
             }
@@ -760,7 +776,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         .find(|i| i.kind == crate::output::Kind::TitleBlock)
     {
         for [a, b] in tb.lines.iter().take(4) {
-            w.curve(&Curve::Line(*a, *b), BORDER, Some(title));
+            let _ = w.curve(&Curve::Line(*a, *b), BORDER, Some(title));
             if let Some(layer) = drawing.layers.first() {
                 for (i, item) in layer.items.iter().enumerate() {
                     if matches!(item,Item::Edge(Curve::Line(p,q)) if (*p==*a && *q==*b)||(*p==*b && *q==*a))
@@ -772,6 +788,8 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         }
     }
 
+    w.weight = Some(5);
+    w.colour = Some(0x0033b2);
     if let Some(l) = drawing.layers.get(2) {
         for i in drawing.sheet.dxf.title.clone() {
             if let Some(item) = l.items.get(i) {
@@ -830,6 +848,8 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         &format!("330\n{insert:X}\n"),
     );
     w.put(end, None);
+    w.weight = None;
+    w.colour = None;
     let border = w.block("SHEET_BORDER".into(), [0., 0.]);
     let mut border_ink = false;
     for (li, l) in drawing.layers.iter().enumerate() {

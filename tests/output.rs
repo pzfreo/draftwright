@@ -542,6 +542,18 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
         }
         assert!(block.entities.len() >= view.visible.len());
     }
+    let title_geometry = d.blocks().find(|b| b.name == "TITLE_BLOCK").unwrap();
+    for e in title_geometry
+        .entities
+        .iter()
+        .skip(4)
+        .filter(|e| matches!(e.specific, E::Line(_)))
+    {
+        assert_eq!(
+            e.common.lineweight_enum_value, 5,
+            "title rules retain their original 0.05 mm weight"
+        );
+    }
     let mut dimensions = 0;
     for e in d.entities() {
         if let E::RotatedDimension(dim) = &e.specific {
@@ -595,6 +607,16 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
         "IBMPlexSansCondensed-Regular.ttf",
     ] {
         assert!(d.styles().any(|s| s.primary_font_file_name == font));
+    }
+    // Isolated projected poles are not valid degree-zero DXF splines.
+    let mut with_points=drawing.clone();
+    with_points.layers[0].items.extend([
+        Item::Edge(Curve::Beziers(vec![vec![[12.,34.]]])),
+        Item::Edge(Curve::Rational(vec![vec![[12.,34.,1.]]])),
+    ]);
+    let parsed=dxf::Drawing::load(&mut std::io::Cursor::new(with_points.dxf())).unwrap();
+    for e in parsed.entities().chain(parsed.blocks().flat_map(|b|b.entities.iter())) {
+        if let E::Spline(s)=&e.specific {assert!(s.degree_of_curve>=1);assert!(s.control_points.len()>s.degree_of_curve as usize);}
     }
     // Poison all glyph outlines. No such geometry may appear in the native export.
     let mut poisoned = drawing.clone();
