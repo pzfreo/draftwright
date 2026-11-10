@@ -15,6 +15,13 @@ Specs `/1` and `/2` are read and migrated for ten releases from 0.2.15, through 
 0.6.9-alpha.1. Convert legacy Specs with 0.6.8: run
 `draftwright plan PART.step --spec FILE` and keep the `spec` it prints.
 
+- **Editable DXF export is back** (`--formats dxf`): native TEXT in IBM Plex styles,
+  DIMENSION entities with live values and per-view DIMLFAC so they read true at the drawing
+  scale, views and the title block as blocks (title fields as attributes), named groups for
+  callouts, tables and frames, ANSI31 HATCH, ISO linetypes on layers by meaning, and complete
+  table/layout structure for strict readers. The AutoCAD table-head-handle and hidden-linetype
+  problems were first reported and fixed by @vandang890615 in #368; this rewrite covers both.
+
 - Mixed maturin wheels providing the Python API and both `draftwright` and
   `draftwright-mcp`, with a tag/Cargo/wheel version agreement guard. GitHub URLs target `pzfreo/draftwright`.
 - The common Python CLI form `draftwright part.step [options]` renders natively, with explicit
@@ -25,7 +32,7 @@ Specs `/1` and `/2` are read and migrated for ten releases from 0.2.15, through 
 - Add a small Python API to the mixed abi3 wheel: `make_drawing` accepts STEP paths
   or build123d shapes, maps supported options to the Rust CLI render pipeline, and
   raises `DraftwrightError` for Rust failures. **Its return value is now
-  `(svg_path, pdf_path)`; there is no DXF export.** Unsupported non-default options
+  `(svg_path, pdf_path)`.** Unsupported non-default options
   raise `TypeError`; removed 0.4 names and submodule imports explain migration and
   pinning `draftwright<0.6`. See [Python](docs/python.md).
 - Keep both console commands as Python entry points over the same Rust functions
@@ -37,8 +44,8 @@ Specs `/1` and `/2` are read and migrated for ten releases from 0.2.15, through 
   PMI without annotating it; `annotate` explicitly opts in. Honour `source=` for
   STEP paths as well as shapes, and reject unreadable source documents. ISO page
   names retain whitespace trimming and case-insensitive parsing.
-- Visible changes from Python 0.4: no DXF export and a new `(svg_path, pdf_path)`
-  return value; the ISO frame and projection symbol are always drawn, including
+- Visible changes from Python 0.4: `make_drawing` returns `(svg_path, pdf_path)` rather
+  than `(svg_path, dxf_path)`; the ISO frame and projection symbol are always drawn, including
   with `frame=False`; unsupported keywords accept only their old defaults and
   otherwise raise `TypeError`, as do custom page dimensions. Rust layout/view/scale
   policies replace the old Python solver. See [the full keyword list](docs/python.md).
