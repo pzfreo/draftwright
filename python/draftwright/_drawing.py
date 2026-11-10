@@ -25,7 +25,8 @@ def make_drawing(
     """Draw a STEP path (str/PathLike) or build123d Shape using the Rust CLI engine.
 
     Returns **(svg_path, pdf_path)** as strings. In 0.4 the second path was DXF;
-    **0.6 writes PDF instead and does not export DXF**. Additional sheets use the
+    **This wrapper still returns PDF**; editable DXF is available through the CLI
+    with ``render --formats dxf``. Additional sheets use the
     CLI's usual suffixes. ``out`` is a stem, defaulting to the STEP path without
     its extension, or ``drawing`` in the working directory for a shape.
 

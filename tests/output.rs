@@ -453,8 +453,7 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
         }
     }
     let escape = |s: &str| {
-        s.replace('×', r"\U+00D7")
-            .replace('⌀', "%%c")
+        s.replace('⌀', "%%c")
             .replace('°', "%%d")
             .replace('±', "%%p")
     };
@@ -774,7 +773,7 @@ fn turned_profile_diameters_preserve_native_witness_dimensions() {
         .entities()
         .find_map(|e| {
             if let E::RotatedDimension(dim) = &e.specific
-                && dim.dimension_base.text == "%%c30"
+                && dim.dimension_base.text == "%%c<>"
             {
                 Some(dim)
             } else {
@@ -800,7 +799,8 @@ fn turned_profile_diameters_preserve_native_witness_dimensions() {
             .iter()
             .any(|e| matches!(&e.specific,E::Text(t) if t.value=="%%c30"))
     );
-    assert_eq!(dim.dimension_base.text, "%%c30");
+    // A live field is required: editing the witnesses must update the displayed diameter.
+    assert_eq!(dim.dimension_base.text, "%%c<>");
     let wanted = plan
         .dimensions
         .iter()
@@ -814,5 +814,223 @@ fn turned_profile_diameters_preserve_native_witness_dimensions() {
     assert!(
         (at.x - wanted[0]).hypot(at.y - wanted[1]) < 1e-10,
         "the profile dimension line stays where it was drawn"
+    );
+}
+
+fn dxf_pairs(bytes: &[u8]) -> Vec<(i32, String)> {
+    let text = std::str::from_utf8(bytes).unwrap();
+    text.lines()
+        .collect::<Vec<_>>()
+        .chunks_exact(2)
+        .map(|p| (p[0].trim().parse().unwrap(), p[1].to_owned()))
+        .collect()
+}
+fn dxf_header(bytes: &[u8], name: &str) -> String {
+    let pairs = dxf_pairs(bytes);
+    pairs
+        .windows(2)
+        .find(|p| p[0] == (9, name.to_owned()))
+        .unwrap()[1]
+        .1
+        .clone()
+}
+#[test]
+fn dxf_has_r2000_document_structure_and_sheet_viewport() {
+    let drawing = plate(&|_| {});
+    let bytes = drawing.dxf();
+    let pairs = dxf_pairs(&bytes);
+    let tables: BTreeSet<_> = pairs
+        .windows(2)
+        .filter(|p| p[0] == (0, "TABLE".into()))
+        .map(|p| p[1].1.as_str())
+        .collect();
+    for name in [
+        "VPORT",
+        "LTYPE",
+        "LAYER",
+        "STYLE",
+        "VIEW",
+        "UCS",
+        "APPID",
+        "DIMSTYLE",
+        "BLOCK_RECORD",
+    ] {
+        assert!(tables.contains(name), "{name}");
+    }
+    assert!(pairs.contains(&(2, "CLASSES".into())));
+    assert_eq!(
+        pairs.iter().filter(|p| **p == (0, "LAYOUT".into())).count(),
+        2
+    );
+    let seed = u64::from_str_radix(&dxf_header(&bytes, "$HANDSEED"), 16).unwrap();
+    let max = pairs
+        .windows(2)
+        .filter(|p| [5, 105].contains(&p[1].0) && p[0] != (9, "$HANDSEED".into()))
+        .map(|p| u64::from_str_radix(&p[1].1, 16).unwrap())
+        .max()
+        .unwrap();
+    assert!(seed > max);
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&bytes)).unwrap();
+    assert!(d.blocks().any(|b| b.name == "*Model_Space"));
+    assert!(d.blocks().any(|b| b.name == "*Paper_Space"));
+    assert!(
+        d.view_ports()
+            .any(|v| v.name.eq_ignore_ascii_case("*ACTIVE"))
+    );
+    assert_eq!(
+        d.objects()
+            .filter(|o| matches!(o.specific, dxf::objects::ObjectType::Layout(_)))
+            .count(),
+        2
+    );
+}
+#[test]
+fn dxf_multiline_rotation_is_degrees_and_single_line_symbols_are_text() {
+    use draftwright::output::{HAlign, TextRun, VAlign};
+    use dxf::entities::EntityType as E;
+    let mut drawing = plate(&|_| {});
+    for (text, rotation) in [("FIRST ↧6\nSECOND ⌴8", 37.), ("−3 × ⌀6 ±0.1 ° ⌵", 0.)] {
+        drawing.text.push(TextRun {
+            text: text.into(),
+            at: [25., 100.],
+            size: 2.5,
+            rotation,
+            font: "IBMPlexMono-Regular.ttf".into(),
+            h_align: HAlign::Left,
+            v_align: VAlign::Baseline,
+        });
+    }
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(drawing.dxf())).unwrap();
+    let m = d
+        .entities()
+        .find_map(|e| {
+            if let E::MText(t) = &e.specific {
+                t.text.contains("FIRST").then_some(t)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(m.rotation_angle, 37.);
+    assert_eq!(m.text, "FIRST ↧6\\PSECOND ⌴8");
+    let t = d
+        .entities()
+        .find_map(|e| {
+            if let E::Text(t) = &e.specific {
+                t.value.starts_with("-3").then_some(t)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(t.value, "-3 × %%c6 %%p0.1 %%d ⌵");
+    assert!(
+        !String::from_utf8(drawing.dxf())
+            .unwrap()
+            .contains("\\fArial")
+    );
+}
+#[test]
+fn dxf_pmi_hatch_and_multisheet_attributes_are_native() {
+    use dxf::entities::EntityType as E;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (_, files) = draftwright::api::render_from(
+        &root.join("tests/fixtures/parts/editor_pmi.step"),
+        draftwright::api::Features::Native,
+        &Spec::default(),
+        &["dxf"],
+        150.,
+    )
+    .unwrap();
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+    assert!(
+        d.entities().any(|e| e.common.layer == "A-PMI"
+            && matches!(&e.specific,E::Text(t) if !t.value.is_empty()))
+    );
+    let pairs = dxf_pairs(&files[0].1);
+    assert!(
+        pairs
+            .iter()
+            .any(|p| p.0 == 3 && p.1.starts_with("VIEW_") && p.1.ends_with("_ANNOT"))
+    );
+    let section: Spec =
+        serde_json::from_value(json!({"views":{"sections":[{"id":"A","through":"f:hole:f6"}]}}))
+            .unwrap();
+    let (_, files) = draftwright::api::render_from(
+        &root.join("tests/fixtures/parts/plate.step"),
+        draftwright::api::Features::Native,
+        &section,
+        &["dxf"],
+        150.,
+    )
+    .unwrap();
+    let pairs = dxf_pairs(&files[0].1);
+    assert!(
+        pairs.contains(&(0, "HATCH".into())),
+        "the closed section region stays a HATCH"
+    );
+    assert!(pairs.contains(&(2, "ANSI31".into())));
+    // The crate can still read the document around the unsupported HATCH entity.
+    dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+    let multi:Spec=serde_json::from_value(json!({"sheet":{"size":"A4","scale":"1:1","title":{"title":"MULTI"}},"sheets":{"max":2},"views":{"iso":{"sheet":2}}})).unwrap();
+    let (_, files) = draftwright::api::render_from(
+        &root.join("tests/fixtures/parts/plate.step"),
+        draftwright::api::Features::Native,
+        &multi,
+        &["dxf"],
+        150.,
+    )
+    .unwrap();
+    assert_eq!(files.len(), 2);
+    let mut fingerprints = BTreeSet::new();
+    for (_, bytes) in &files {
+        let d = dxf::Drawing::load(&mut std::io::Cursor::new(bytes)).unwrap();
+        let title = d
+            .entities()
+            .find_map(|e| {
+                if let E::Insert(i) = &e.specific {
+                    (i.name == "TITLE_BLOCK").then_some(i)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert!(
+            title
+                .attributes()
+                .any(|a| a.attribute_tag == "TITLE" && a.value == "MULTI")
+        );
+        assert!(title.attributes().any(|a| a.attribute_tag == "SCALE"));
+        fingerprints.insert(dxf_header(bytes, "$FINGERPRINTGUID"));
+    }
+    assert_eq!(fingerprints.len(), 2);
+}
+#[test]
+fn dxf_shaded_pictorial_is_visible_edges_without_mesh_wedges() {
+    use dxf::entities::EntityType as E;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (part, a) = model::analyse_native(&root.join("tests/fixtures/parts/plate.step")).unwrap();
+    let spec: Spec = serde_json::from_value(json!({"views":{"iso":{"style":"shaded"}}})).unwrap();
+    let p = model::plan(&a, &spec).unwrap();
+    let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    assert!(
+        drawing
+            .layers
+            .iter()
+            .any(|l| l.name.starts_with("shaded-") && !l.items.is_empty())
+    );
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(drawing.dxf())).unwrap();
+    let iso = d.blocks().find(|b| b.name == "v_iso").unwrap();
+    assert!(!iso.entities.is_empty());
+    assert!(
+        iso.entities.iter().all(
+            |e| e.common.layer == "A-OUTL" && !matches!(e.specific, E::Solid(_) | E::Face3D(_))
+        )
+    );
+    assert!(
+        !d.entities()
+            .chain(d.blocks().flat_map(|b| &b.entities))
+            .any(|e| e.common.layer == "A-OUTL" && matches!(e.specific, E::Solid(_)))
     );
 }

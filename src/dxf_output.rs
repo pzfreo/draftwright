@@ -19,11 +19,13 @@ pub struct ViewItems {
 }
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Structure {
+    pub sheet_number: u32,
     pub hatches: Vec<HatchRegion>,
     pub cutting: Vec<Range<usize>>,
     pub views: Vec<ViewItems>,
     pub annotations: BTreeMap<String, Range<usize>>,
     pub furniture: BTreeMap<String, Range<usize>>,
+    pub furniture_views: BTreeMap<String, String>,
     pub dimensions: BTreeMap<String, Dimension>,
     pub title: Range<usize>,
     pub labels: Vec<TextRun>,
@@ -40,6 +42,8 @@ pub struct Dimension {
     pub placed: Option<crate::dims::Placed>,
     pub diameter: bool,
     pub radial: bool,
+    /// Byte range of the displayed primary number, excluding count/prefix/units.
+    pub primary: Option<Range<usize>>,
 }
 impl From<&PlannedDimension> for Dimension {
     fn from(d: &PlannedDimension) -> Self {
@@ -63,8 +67,97 @@ impl From<&PlannedDimension> for Dimension {
             placed: d.placed.clone(),
             diameter,
             radial,
+            primary: primary_range(d),
         }
     }
+}
+
+fn number_range(s: &str) -> Option<Range<usize>> {
+    let start = s
+        .char_indices()
+        .find(|(_, c)| c.is_ascii_digit() || matches!(c, '-' | '+'))?
+        .0;
+    let end = s[start..]
+        .find(|c: char| !c.is_ascii_digit() && !matches!(c, '.' | '-' | '+'))
+        .map_or(s.len(), |n| start + n);
+    Some(start..end)
+}
+fn primary_range(d: &PlannedDimension) -> Option<Range<usize>> {
+    for term in &d.terms {
+        if term.ends_with('×') || term.starts_with('±') {
+            continue;
+        }
+        let Some(n) = number_range(term) else {
+            continue;
+        };
+        let Ok(value) = term[n.clone()].parse::<f64>() else {
+            continue;
+        };
+        if (value - d.value).abs() > 0.000501 {
+            continue;
+        }
+        if let Some(at) = d.label.find(term) {
+            return Some(at + n.start..at + n.end);
+        }
+    }
+    None
+}
+#[derive(Clone, Copy, Debug)]
+struct DimStyle {
+    factor: f64,
+    precision: u8,
+    fixed: bool,
+    tolerance: Option<[f64; 2]>,
+}
+/// Express a plain deviation band in DIMTP/DIMTM; retain genuinely free wording.
+fn live_label(d: &Dimension, kind: i32) -> (String, Option<[f64; 2]>) {
+    let Some(primary) = &d.primary else {
+        return (encode_mtext(&d.label), None);
+    };
+    let mut label = d.label.clone();
+    let mut tolerance = None;
+    let rest = &label[primary.end..];
+    let trim = rest.trim_start();
+    let space = rest.len() - trim.len();
+    let mut consumed = 0;
+    if let Some(t) = trim.strip_prefix('±') {
+        let n = t
+            .find(|c: char| !c.is_ascii_digit() && c != '.')
+            .unwrap_or(t.len());
+        if let Ok(v) = t[..n].parse::<f64>() {
+            tolerance = Some([v, v]);
+            consumed = '±'.len_utf8() + n;
+        }
+    } else {
+        let mut words = trim.split_whitespace();
+        if let (Some(up), Some(lo)) = (words.next(), words.next())
+            && (up.starts_with('+') || up == "0")
+            && (lo.starts_with('-') || lo == "0")
+            && let (Ok(up), Ok(lo)) = (up.parse::<f64>(), lo.parse::<f64>())
+        {
+            tolerance = Some([up, -lo]);
+            consumed = trim.find(lo_token(trim)).unwrap_or(0) + lo_token(trim).len();
+        }
+    }
+    if consumed > 0 {
+        label.replace_range(primary.end..primary.end + space + consumed, "");
+    }
+    label.replace_range(primary.clone(), "<>");
+    if kind == 3 {
+        for c in ['⌀', 'ø', 'Ø'] {
+            label = label.replace(&format!("{c}<>"), "<>");
+        }
+    }
+    if kind == 4 {
+        label = label.replace("R<>", "<>");
+    }
+    if kind == 5 {
+        label = label.replace("<>°", "<>");
+    }
+    (encode_mtext(&label), tolerance)
+}
+fn lo_token(s: &str) -> &str {
+    s.split_whitespace().nth(1).unwrap_or("")
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -126,6 +219,7 @@ struct Writer {
     groups: Vec<(String, Vec<u64>)>,
     weight: Option<i16>,
     colour: Option<u32>,
+    continuous: bool,
 }
 impl Writer {
     fn new() -> Self {
@@ -137,6 +231,7 @@ impl Writer {
             groups: Vec::new(),
             weight: None,
             colour: None,
+            continuous: false,
         }
     }
     fn id(&mut self) -> u64 {
@@ -166,6 +261,9 @@ impl Writer {
         t.handle(330, block.map_or(self.model, |i| self.blocks[i].record));
         t.tag(100, "AcDbEntity");
         t.tag(8, layer);
+        if self.continuous {
+            t.tag(6, "CONTINUOUS");
+        }
         if let Some(weight) = self.weight {
             t.tag(370, weight);
         }
@@ -333,6 +431,43 @@ impl Writer {
             }
         }
     }
+    /// DXF LINE has no dash-offset property. Clip centre-mark dashes using the
+    /// same phase as SVG/PDF, on the chain layer with a continuous entity override.
+    fn centre(&mut self, item: &Item, block: Option<usize>) {
+        let Item::Edge(Curve::Line(a, b)) = item else {
+            self.item(item, CENTRE, block);
+            return;
+        };
+        let length = (b[0] - a[0]).hypot(b[1] - a[1]);
+        if length < 1e-10 {
+            return;
+        }
+        let pattern = [8., 1.5, 0.2, 1.5];
+        let mut phase = crate::output::centre_phase(item);
+        let mut k = 0;
+        while phase >= pattern[k] {
+            phase -= pattern[k];
+            k = (k + 1) % 4;
+        }
+        let mut t = 0.;
+        self.continuous = true;
+        while t < length {
+            let end = (t + pattern[k] - phase).min(length);
+            if k % 2 == 0 && end > t {
+                let p = |at: f64| {
+                    [
+                        a[0] + (b[0] - a[0]) * at / length,
+                        a[1] + (b[1] - a[1]) * at / length,
+                    ]
+                };
+                self.curve(&Curve::Line(p(t), p(end)), CENTRE, block);
+            }
+            t = end;
+            phase = 0.;
+            k = (k + 1) % 4;
+        }
+        self.continuous = false;
+    }
     fn text(
         &mut self,
         r: &TextRun,
@@ -340,8 +475,7 @@ impl Writer {
         block: Option<usize>,
         attr: Option<(&str, bool)>,
     ) -> u64 {
-        let multiline =
-            (r.text.contains('\n') || r.text.chars().any(symbol_font)) && attr.is_none();
+        let multiline = r.text.contains('\n') && attr.is_none();
         let kind = attr.map_or(if multiline { "MTEXT" } else { "TEXT" }, |(_, def)| {
             if def { "ATTDEF" } else { "ATTRIB" }
         });
@@ -367,12 +501,18 @@ impl Writer {
             encode(&r.text)
         };
         if multiline {
-            let parts: Vec<_> = content.as_bytes().chunks(250).collect();
+            let mut parts = Vec::new();
+            let mut tail = content.as_str();
+            while !tail.is_empty() {
+                let mut end = tail.len().min(250);
+                while !tail.is_char_boundary(end) {
+                    end -= 1;
+                }
+                parts.push(&tail[..end]);
+                tail = &tail[end..];
+            }
             for (i, part) in parts.iter().enumerate() {
-                t.tag(
-                    if i + 1 == parts.len() { 1 } else { 3 },
-                    std::str::from_utf8(part).expect("ASCII DXF encoding"),
-                );
+                t.tag(if i + 1 == parts.len() { 1 } else { 3 }, part);
             }
             if parts.is_empty() {
                 t.tag(1, "");
@@ -380,7 +520,7 @@ impl Writer {
         } else {
             t.tag(1, content);
         }
-        t.tag(7, style(&r.font));
+        t.tag(7, style(text_font(r)));
         if multiline {
             t.tag(
                 71,
@@ -393,7 +533,7 @@ impl Writer {
                     (HAlign::Right, VAlign::Middle) => 6,
                 },
             );
-            t.tag(50, r.rotation.to_radians());
+            t.tag(50, r.rotation);
             t.tag(41, 0);
         } else {
             t.tag(50, r.rotation);
@@ -438,7 +578,9 @@ fn font_data(font: &str) -> Option<&'static [u8]> {
     }
 }
 fn style(font: &str) -> String {
-    font.trim_end_matches(".ttf").to_string()
+    font.trim_end_matches(".ttf")
+        .trim_end_matches(".otf")
+        .to_string()
 }
 fn encode(s: &str) -> String {
     let mut out = String::new();
@@ -448,11 +590,7 @@ fn encode(s: &str) -> String {
             '°' => out.push_str("%%d"),
             '±' => out.push_str("%%p"),
             '\n' => out.push_str("\\P"),
-            c if !c.is_ascii() => {
-                for u in c.encode_utf16(&mut [0; 2]) {
-                    write!(out, "\\U+{u:04X}").unwrap();
-                }
-            }
+            '−' => out.push('-'),
             _ => out.push(c),
         }
     }
@@ -598,7 +736,11 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             if let Some(l) = drawing.layers.get(layer) {
                 for i in range.clone() {
                     if let Some(item) = l.items.get(i) {
-                        w.item(item, name, Some(block));
+                        if name == CENTRE {
+                            w.centre(item, Some(block));
+                        } else {
+                            w.item(item, name, Some(block));
+                        }
                         consumed.insert((layer, i));
                     }
                 }
@@ -621,7 +763,8 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         w.weight = None;
         w.insert(block, VISIBLE);
     }
-    let mut styles: BTreeMap<String, (f64, u8, bool)> = BTreeMap::new();
+    let mut styles: BTreeMap<String, DimStyle> = BTreeMap::new();
+    let mut view_handles: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     let mut dim_index = 0;
     for a in &drawing.annotations {
         let range = drawing
@@ -680,12 +823,21 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         }
         if let (Some((d, (kind, points, factor))), Some(block)) = (native, block) {
             let precision = drawing.sheet.precision.get(&a.name).copied();
-            let name = format!("DW_{}_{:?}", factor.to_bits(), precision);
+            let (live, tolerance) = live_label(d, kind);
+            let name = format!("DW_{}_{:?}_{:?}", factor.to_bits(), precision, tolerance);
             styles.insert(
                 name.clone(),
-                (factor, precision.unwrap_or(3), precision.is_some()),
+                DimStyle {
+                    factor,
+                    precision: precision.unwrap_or(3),
+                    fixed: precision.is_some(),
+                    tolerance,
+                },
             );
-            let (_, mut t) = w.entity("DIMENSION", DIMS, None);
+            let (h, mut t) = w.entity("DIMENSION", DIMS, None);
+            if let Some(v) = &a.view {
+                view_handles.entry(v.clone()).or_default().push(h);
+            }
             t.tag(100, "AcDbDimension");
             t.tag(280, 0);
             t.tag(2, &w.blocks[block].name);
@@ -695,25 +847,8 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             t.point(11, at);
             t.tag(70, kind | 32 | 128);
             t.tag(71, 5);
-            // Keep a numeric value live. Compound labels and requirements use an override
-            // on the DIMENSION itself; there is no orphaned MTEXT to lose on a move.
-            let numeric = d.label.trim().trim_end_matches('°');
-            let numeric = if kind == 3 {
-                numeric.trim_start_matches(['⌀', 'ø', 'Ø'])
-            } else if kind == 4 {
-                numeric.trim_start_matches('R')
-            } else {
-                numeric
-            };
-            let plain = numeric.parse::<f64>().is_ok();
-            t.tag(
-                1,
-                if plain {
-                    "<>".into()
-                } else {
-                    encode_mtext(&d.label)
-                },
-            );
+            // The primary measured value remains live even in manufacturing wording.
+            t.tag(1, live);
             t.tag(3, name);
             t.tag(53, d.placed.as_ref().unwrap().rotation);
             match kind {
@@ -722,7 +857,14 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                     t.point(13, points[0]);
                     t.point(14, points[1]);
                     if kind == 0 {
-                        t.tag(50, d.placed.as_ref().unwrap().rotation);
+                        let arrows = &d.placed.as_ref().unwrap().arrows;
+                        t.tag(
+                            50,
+                            (arrows[1][0][1] - arrows[0][0][1])
+                                .atan2(arrows[1][0][0] - arrows[0][0][0])
+                                .to_degrees()
+                                .rem_euclid(180.),
+                        );
                         t.tag(100, "AcDbRotatedDimension");
                     }
                 }
@@ -752,6 +894,9 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             t.tag(1000, &d.kind);
             w.put(t, None);
         } else if !handles.is_empty() {
+            if let Some(v) = &a.view {
+                view_handles.entry(v.clone()).or_default().extend(&handles);
+            }
             w.group(a.name.clone(), handles);
         }
     }
@@ -784,6 +929,12 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                         runs.insert(*r);
                     }
                 }
+            }
+            if let Some(view) = drawing.sheet.dxf.furniture_views.get(name) {
+                view_handles
+                    .entry(view.clone())
+                    .or_default()
+                    .extend(&handles);
             }
             w.group(name.clone(), handles);
         }
@@ -906,6 +1057,9 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
     let border = w.block("SHEET_BORDER".into(), [0., 0.]);
     let mut border_ink = false;
     for (li, l) in drawing.layers.iter().enumerate() {
+        if l.name.starts_with("shaded-") {
+            continue;
+        }
         let layer = match l.name.as_str() {
             "part" => VISIBLE,
             "hidden" => HIDDEN,
@@ -945,6 +1099,9 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             w.text(r, TEXT, None, None);
         }
     }
+    for (view, handles) in view_handles {
+        w.group(format!("VIEW_{}_ANNOT", safe_name(&view)), handles);
+    }
     finish(w, drawing, styles)
 }
 fn within(p: P, b: [f64; 4]) -> bool {
@@ -967,9 +1124,12 @@ fn record(t: &mut Tags, kind: &str, h: u64, owner: u64, subclass: &str, name: &s
     t.tag(2, name);
     t.tag(70, 0);
 }
-fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, (f64, u8, bool)>) -> Vec<u8> {
+fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) -> Vec<u8> {
     let root = w.id();
     let dict = w.id();
+    let layout_dict = w.id();
+    let layout_ids = [w.id(), w.id()];
+    let plot_settings = w.id();
     let group_ids: Vec<_> = (0..w.groups.len()).map(|_| w.id()).collect();
     let mut reactors: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
     for ((_, handles), id) in w.groups.iter().zip(&group_ids) {
@@ -1005,8 +1165,13 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, (f64, u8, b
         out.tag(9, name);
         out.tag(code, value);
     }
+    out.tag(9, "$HANDSEED");
+    out.tag(5, "__HANDSEED__");
     use sha2::Digest;
-    let digest = sha2::Sha256::digest(drawing.spec.as_deref().unwrap_or("").as_bytes());
+    let mut hash = sha2::Sha256::new();
+    hash.update(drawing.spec.as_deref().unwrap_or("").as_bytes());
+    hash.update(drawing.sheet.dxf.sheet_number.to_le_bytes());
+    let digest = hash.finalize();
     let guid = uuid::Uuid::from_slice(&digest[..16])
         .expect("16 bytes")
         .to_string();
@@ -1026,7 +1191,71 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, (f64, u8, b
     out.tag(20, drawing.page[1]);
     out.tag(0, "ENDSEC");
     out.tag(0, "SECTION");
+    out.tag(2, "CLASSES");
+    out.tag(0, "CLASS");
+    out.tag(1, "LAYOUT");
+    out.tag(2, "AcDbLayout");
+    out.tag(3, "ObjectDBX Classes");
+    out.tag(90, 0);
+    out.tag(91, 2);
+    out.tag(280, 0);
+    out.tag(281, 0);
+    out.tag(0, "ENDSEC");
+    out.tag(0, "SECTION");
     out.tag(2, "TABLES");
+    let vp = w.id();
+    table(&mut out, "VPORT", vp, 1);
+    let active = w.id();
+    record(
+        &mut out,
+        "VPORT",
+        active,
+        vp,
+        "AcDbViewportTableRecord",
+        "*ACTIVE",
+    );
+    for (code, point) in [
+        (10, [0., 0.]),
+        (11, [1., 1.]),
+        (12, [drawing.page[0] / 2., drawing.page[1] / 2.]),
+        (13, [0., 0.]),
+        (14, [10., 10.]),
+        (15, [10., 10.]),
+    ] {
+        out.tag(code, point[0]);
+        out.tag(code + 10, point[1]);
+    }
+    out.tag(16, 0);
+    out.tag(26, 0);
+    out.tag(36, 1);
+    out.point(17, [0., 0.]);
+    out.tag(40, drawing.page[1] * 1.05);
+    out.tag(41, drawing.page[0] / drawing.page[1]);
+    out.tag(42, 50);
+    out.tag(43, 0);
+    out.tag(44, 0);
+    out.tag(50, 0);
+    out.tag(51, 0);
+    for (code, value) in [
+        (71, 0),
+        (72, 1000),
+        (73, 1),
+        (74, 3),
+        (75, 0),
+        (76, 0),
+        (77, 0),
+        (78, 0),
+        (281, 0),
+        (65, 0),
+    ] {
+        out.tag(code, value);
+    }
+    out.tag(0, "ENDTAB");
+    for name in ["VIEW", "UCS"] {
+        let id = w.id();
+        table(&mut out, name, id, 0);
+        out.tag(0, "ENDTAB");
+    }
     let lt = w.id();
     table(&mut out, "LTYPE", lt, 5);
     for (name, pattern) in [
@@ -1076,7 +1305,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, (f64, u8, b
         .text
         .iter()
         .chain(&drawing.sheet.dxf.labels)
-        .map(|r| r.font.clone())
+        .map(|r| text_font(r).to_string())
         .collect();
     fonts.insert("IBMPlexMono-Regular.ttf".into());
     table(&mut out, "STYLE", st, fonts.len() + 1);
@@ -1105,8 +1334,16 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, (f64, u8, b
     table(&mut out, "DIMSTYLE", ds, styles.len() + 1);
     out.tag(100, "AcDbDimStyleTable");
     out.tag(71, 0);
-    for (name, (factor, precision, fixed)) in
-        std::iter::once(("STANDARD".to_string(), (1., 3, false))).chain(styles)
+    for (name, style) in std::iter::once((
+        "STANDARD".to_string(),
+        DimStyle {
+            factor: 1.,
+            precision: 3,
+            fixed: false,
+            tolerance: None,
+        },
+    ))
+    .chain(styles)
     {
         record(
             &mut out,
@@ -1121,16 +1358,33 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, (f64, u8, b
         out.tag(42, crate::dims::GAP);
         out.tag(44, 1.);
         out.tag(140, crate::dims::TEXT * 0.698);
-        out.tag(144, factor);
+        out.tag(144, style.factor);
         out.tag(147, 0.8);
-        out.tag(271, precision);
-        out.tag(179, precision);
-        out.tag(78, if fixed { 0 } else { 8 });
-        out.tag(79, if fixed { 0 } else { 2 });
+        out.tag(271, style.precision);
+        out.tag(179, style.precision);
+        out.tag(78, if style.fixed { 0 } else { 8 });
+        out.tag(79, if style.fixed { 0 } else { 2 });
         out.tag(277, 2);
         out.tag(275, 0);
         out.tag(280, 0);
         out.tag(289, 3);
+        // Explicit placement: centred text, absolute user position, no automatic leader.
+        for (code, value) in [(73, 1), (74, 1), (77, 0), (172, 0), (174, 0), (279, 2)] {
+            out.tag(code, value);
+        }
+        out.tag(145, 0);
+        if let Some([up, lo]) = style.tolerance {
+            out.tag(71, 1);
+            out.tag(72, 0);
+            out.tag(47, up);
+            out.tag(48, lo);
+            out.tag(146, 1);
+            out.tag(272, 6);
+            out.tag(284, 8);
+        } else {
+            out.tag(71, 0);
+            out.tag(72, 0);
+        }
         out.handle(340, textstyle);
     }
     out.tag(0, "ENDTAB");
@@ -1155,7 +1409,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, (f64, u8, b
     out.tag(0, "ENDTAB");
     let br = w.id();
     table(&mut out, "BLOCK_RECORD", br, w.blocks.len());
-    for b in &w.blocks {
+    for (i, b) in w.blocks.iter().enumerate() {
         record(
             &mut out,
             "BLOCK_RECORD",
@@ -1164,6 +1418,9 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, (f64, u8, b
             "AcDbBlockTableRecord",
             &b.name,
         );
+        if i < 2 {
+            out.handle(340, layout_ids[i]);
+        }
         out.tag(280, 0);
         out.tag(281, 1);
     }
@@ -1202,6 +1459,27 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, (f64, u8, b
     dictionary(&mut out, root, 0);
     out.tag(3, "ACAD_GROUP");
     out.handle(350, dict);
+    out.tag(3, "ACAD_LAYOUT");
+    out.handle(350, layout_dict);
+    out.tag(3, "ACAD_PLOTSETTINGS");
+    out.handle(350, plot_settings);
+    dictionary(&mut out, layout_dict, root);
+    for (i, name) in ["Model", "Layout1"].iter().enumerate() {
+        out.tag(3, name);
+        out.handle(350, layout_ids[i]);
+    }
+    dictionary(&mut out, plot_settings, root);
+    for (i, name) in ["Model", "Layout1"].iter().enumerate() {
+        layout(
+            &mut out,
+            layout_ids[i],
+            layout_dict,
+            w.blocks[i].record,
+            name,
+            i,
+            drawing.page,
+        );
+    }
     dictionary(&mut out, dict, root);
     for ((name, _), id) in w.groups.iter().zip(&group_ids) {
         out.tag(3, name);
@@ -1221,7 +1499,55 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, (f64, u8, b
     }
     out.tag(0, "ENDSEC");
     out.tag(0, "EOF");
-    out.0.into_bytes()
+    out.0
+        .replace("__HANDSEED__", &format!("{:X}", w.next))
+        .into_bytes()
+}
+/// R2000+ layouts have reciprocal links with their BLOCK_RECORDs.
+fn layout(t: &mut Tags, id: u64, owner: u64, block: u64, name: &str, tab: usize, page: P) {
+    t.tag(0, "LAYOUT");
+    t.handle(5, id);
+    t.handle(330, owner);
+    t.tag(100, "AcDbPlotSettings");
+    t.tag(1, "");
+    t.tag(4, "UserDefinedMetric");
+    t.tag(6, "");
+    for code in [40, 41, 42, 43, 46, 47, 48, 49, 140, 141] {
+        t.tag(code, 0);
+    }
+    t.tag(44, page[0]);
+    t.tag(45, page[1]);
+    t.tag(142, 1);
+    t.tag(143, 1);
+    t.tag(70, if tab == 0 { 1024 } else { 0 });
+    t.tag(72, 1);
+    t.tag(73, 0);
+    t.tag(74, 5);
+    t.tag(7, "");
+    t.tag(75, 16);
+    t.tag(76, 0);
+    t.tag(77, 2);
+    t.tag(78, 300);
+    t.tag(147, 1);
+    t.tag(148, 0);
+    t.tag(149, 0);
+    t.tag(100, "AcDbLayout");
+    t.tag(1, name);
+    t.tag(70, 1);
+    t.tag(71, tab);
+    t.tag(10, 0);
+    t.tag(20, 0);
+    t.tag(11, page[0]);
+    t.tag(21, page[1]);
+    t.point(12, [0., 0.]);
+    t.point(14, [0., 0.]);
+    t.point(15, page);
+    t.tag(146, 0);
+    t.point(13, [0., 0.]);
+    t.point(16, [1., 0.]);
+    t.point(17, [0., 1.]);
+    t.tag(76, 1);
+    t.handle(330, block);
 }
 fn dictionary(t: &mut Tags, h: u64, owner: u64) {
     t.tag(0, "DICTIONARY");
@@ -1316,27 +1642,25 @@ pub(crate) fn clip_loops(loops: Vec<Vec<P>>, rect: [f64; 4]) -> Vec<Vec<P>> {
         .collect()
 }
 
-/// Plex does not contain these engineering characters. MTEXT allows a local
-/// font fallback while keeping the text style and the surrounding text in Plex.
+/// R2013 supports UTF-8 TEXT. Fallbacks are ordinary named text styles, never
+/// per-glyph MTEXT font programs. Plex remains the style for ordinary labels.
+fn text_font(r: &TextRun) -> &str {
+    if r.text.contains(['⏥', '⟂']) {
+        "STIXGeneral.ttf"
+    } else if r.text.chars().any(|c| symbol_font(c) && c != '−') {
+        "Arial Unicode.ttf"
+    } else {
+        &r.font
+    }
+}
 fn encode_mtext(s: &str) -> String {
     let mut out = String::new();
     for c in s.chars() {
-        if symbol_font(c) {
-            // Flatness and perpendicularity were added after Arial Unicode MS's
-            // Unicode repertoire; keep those two in a math face that has them.
-            let family = if matches!(c, '⏥' | '⟂') {
-                "STIX Two Math"
-            } else {
-                "Arial Unicode MS"
-            };
-            write!(out, "{{\\f{family}|b0|i0;\\U+{:04X}}}", c as u32).unwrap();
-        } else {
-            match c {
-                '\\' => out.push_str("\\\\"),
-                '{' => out.push_str("\\{"),
-                '}' => out.push_str("\\}"),
-                _ => out.push_str(&encode(&c.to_string())),
-            }
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '{' => out.push_str("\\{"),
+            '}' => out.push_str("\\}"),
+            _ => out.push_str(&encode(&c.to_string())),
         }
     }
     out

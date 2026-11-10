@@ -395,3 +395,16 @@ SIL Open Font License 1.1 (the `LICENSE-*-OFL.txt` files beside them).
 CLI release archives include both `draftwright` and `draftwright-mcp`, `schemas/spec.json`
 and the agent documentation under `docs/`. Start with `draftwright --help`,
 `draftwright --version`, or `draftwright spec_schema`; see [MCP and item discovery](mcp.md#cli-release-discovery).
+
+### Moving a DXF view
+
+The visible view geometry is an INSERT named after its view ID (illegal DXF name
+characters become underscores). Its dimensions, leaders, PMI and captions belong
+to `VIEW_<view-id>_ANNOT`; for example `VIEW_v_front_ANNOT`. In CAD, select the
+view INSERT and that named group together, then MOVE them using the same base
+point. Disable group selection temporarily to edit an individual dimension.
+Shaded pictorials export their visible edges, without presentation fill polygons.
+Single-line labels are TEXT; only real multi-line labels use MTEXT. Unicode
+engineering characters use a named Arial Unicode text style when Plex lacks them.
+The remaining dedicated GD&T fallback is STIX General for flatness (U+23E5) and
+perpendicularity (U+27C2); no inline font programs are embedded in labels.

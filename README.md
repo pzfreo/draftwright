@@ -37,7 +37,7 @@ STEP paths and build123d shapes are supported (install build123d separately for
 shapes). The wheel also installs `draftwright` and `draftwright-mcp` on PATH.
 
 **Changed from 0.4:** `make_drawing` returns `(svg_path, pdf_path)` as strings;
-the second file is now **PDF, not DXF**. DXF export and the other old Python
+the second file is now **PDF, not DXF**. Editable DXF is available through `draftwright render --formats dxf`; the other old Python
 classes/functions are unavailable. Unsupported options with non-default values
 raise `TypeError`; old names/imports give migration guidance. Pin
 `draftwright<0.6` to keep the old API. The Rust engine uses a [Spec](docs/model.md).

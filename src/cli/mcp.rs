@@ -157,7 +157,7 @@ fn tools() -> Value {
         {
             "name": "render",
             "description": "Draw a STEP file under a spec and write the drawing beside the \
-                output stem, one file per format (out.svg, out.pdf, out.png; DXF export is disabled until it is fixed). Each file embeds \
+                output stem, one file per format (out.svg, out.pdf, out.png, out.dxf; DXF is editable). Each file embeds \
                 the spec. Returns the paths written and the problems (the plan's, and what could not \
                 be drawn as planned).",
             "inputSchema": {

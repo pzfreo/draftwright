@@ -10669,6 +10669,7 @@ fn render_annotations_with_cuts(
     let mut captions: Vec<(String, [f64; 2])> = Vec::new();
     // What lint's sheet checks read: each view's visible box, and each thing drawn, by name.
     let mut sheet = Sheet::default();
+    sheet.dxf.sheet_number = plan.sheet.number;
     let mut caption_names: Vec<String> = Vec::new();
     let mut references = Vec::new();
     let mut layers: Vec<Layer> = layer_styles()
@@ -10825,6 +10826,10 @@ fn render_annotations_with_cuts(
         let Some(d) = &v.detail else { continue };
         captions.push((crate::detail::caption(d), crate::detail::caption_at(v)));
         caption_names.push(format!("detail_caption_{}", d.label));
+        sheet
+            .dxf
+            .furniture_views
+            .insert(format!("detail_caption_{}", d.label), v.id.clone());
         if let Some(source) = plan.views.iter().find(|s| s.id == d.source_view) {
             let labels: Vec<_> = plan
                 .dimensions
@@ -10888,6 +10893,10 @@ fn render_annotations_with_cuts(
             layers[3].items.extend(ink);
             captions.push((d.label.clone(), at));
             caption_names.push(format!("detail_marker_label_{}", d.label));
+            sheet.dxf.furniture_views.insert(
+                format!("detail_marker_label_{}", d.label),
+                source.id.clone(),
+            );
         }
     }
     if !thin.is_empty() {
@@ -11022,9 +11031,19 @@ fn render_annotations_with_cuts(
             let l = cut.label.to_lowercase();
             if !remote {
                 caption_names.push("section_caption".into());
+                sheet
+                    .dxf
+                    .furniture_views
+                    .insert("section_caption".into(), v.id.clone());
             }
             if f.chain.is_some() {
                 caption_names.extend([format!("section_{l}_left"), format!("section_{l}_right")]);
+                for side in ["left", "right"] {
+                    sheet
+                        .dxf
+                        .furniture_views
+                        .insert(format!("section_{l}_{side}"), cut.marked_in.clone());
+                }
             }
             furniture.extend(f.ink);
             captions.extend(f.text);
@@ -11067,6 +11086,10 @@ fn render_annotations_with_cuts(
             let gap = if v.cut.is_some() { 17.0 } else { 7.0 };
             captions.push((note.clone(), [v.at[0], v.at[1] - half_h - gap]));
             caption_names.push(format!("{}/scale_note", v.id));
+            sheet
+                .dxf
+                .furniture_views
+                .insert(format!("{}/scale_note", v.id), v.id.clone());
         }
     }
     // The border and the title block, lower right.
@@ -12221,6 +12244,15 @@ fn render_annotations_with_cuts(
     }
     if !shaded_layers.is_empty() {
         layers.extend(shaded_layers);
+    }
+    sheet
+        .dxf
+        .furniture_views
+        .extend(plan.captions.iter().map(|c| (c.id.clone(), c.view.clone())));
+    for t in plan.hole_table.iter().chain(&plan.hole_tables) {
+        if let Some(v) = &t.view {
+            sheet.dxf.furniture_views.insert(t.id.clone(), v.clone());
+        }
     }
     sheet.dxf.dimensions = plan
         .dimensions

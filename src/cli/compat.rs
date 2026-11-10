@@ -210,7 +210,7 @@ pub(super) fn parse(args: Vec<std::ffi::OsString>) -> Result<Given, clap::Error>
                 "--zones" => "use render --spec with sheet.zones",
                 "--page" => "use render --spec with sheet.size (A4..A0)",
                 "--pmi" => "use render --spec with pmi (first, strict or ignore)",
-                "--format" | "-f" => "use render --formats svg,pdf,png; DXF is disabled",
+                "--format" | "-f" => "use render --formats svg,pdf,png,dxf",
                 "--install-completion" | "--show-completion" => {
                     "use draftwright completions <shell>"
                 }
