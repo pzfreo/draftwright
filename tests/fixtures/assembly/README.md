@@ -1,5 +1,14 @@
 # Assembly fixtures
 
+`pack-copies.step.gz` (#380) is original synthetic build123d/OCP geometry from
+`pack-copies.py`: an enclosure, two separate 60 × 40 × 3 plate products (the
+first placed twice), four independent M3×8 hex bolt products, and an M3×10
+near miss. Public Specify BOM UDAs state make/buy, different item numbers,
+and different default descriptions/optional flags. The latter must not split
+interchangeable parts. No outside geometry or source code is included. Shared
+under this repository's licence; gzip without a timestamp. Regenerate with
+`/Users/paul/repos/quiddity/.venv/bin/python -I tests/fixtures/assembly/pack-copies.py`.
+
 `assembly.step` and `assembly_pin_pmi.step.gz` are described in `tests/assembly_parts.rs`.
 
 `vslot-20x20-100.step.gz` (#212) is pzfreo/dw-examples' `steps/freecad/vslot-20x20-100.step`,
