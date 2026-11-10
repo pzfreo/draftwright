@@ -548,7 +548,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         w.weight = None;
         w.insert(block, VISIBLE);
     }
-    let mut styles: BTreeMap<String, f64> = BTreeMap::new();
+    let mut styles: BTreeMap<String, (f64, u8, bool)> = BTreeMap::new();
     let mut dim_index = 0;
     for a in &drawing.annotations {
         let range = drawing
@@ -606,8 +606,12 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             }
         }
         if let (Some((d, (kind, points, factor))), Some(block)) = (native, block) {
-            let name = format!("DW_{}", factor.to_bits());
-            styles.insert(name.clone(), factor);
+            let precision = drawing.sheet.precision.get(&a.name).copied();
+            let name = format!("DW_{}_{:?}", factor.to_bits(), precision);
+            styles.insert(
+                name.clone(),
+                (factor, precision.unwrap_or(3), precision.is_some()),
+            );
             let (_, mut t) = w.entity("DIMENSION", DIMS, None);
             t.tag(100, "AcDbDimension");
             t.tag(280, 0);
@@ -891,7 +895,7 @@ fn record(t: &mut Tags, kind: &str, h: u64, owner: u64, subclass: &str, name: &s
     t.tag(2, name);
     t.tag(70, 0);
 }
-fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, f64>) -> Vec<u8> {
+fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, (f64, u8, bool)>) -> Vec<u8> {
     let root = w.id();
     let dict = w.id();
     let group_ids: Vec<_> = (0..w.groups.len()).map(|_| w.id()).collect();
@@ -1029,7 +1033,9 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, f64>) -> Ve
     table(&mut out, "DIMSTYLE", ds, styles.len() + 1);
     out.tag(100, "AcDbDimStyleTable");
     out.tag(71, 0);
-    for (name, factor) in std::iter::once(("STANDARD".to_string(), 1.)).chain(styles) {
+    for (name, (factor, precision, fixed)) in
+        std::iter::once(("STANDARD".to_string(), (1., 3, false))).chain(styles)
+    {
         record(
             &mut out,
             "DIMSTYLE",
@@ -1045,7 +1051,10 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, f64>) -> Ve
         out.tag(140, crate::dims::TEXT * 0.698);
         out.tag(144, factor);
         out.tag(147, 0.8);
-        out.tag(271, 3);
+        out.tag(271, precision);
+        out.tag(179, precision);
+        out.tag(78, if fixed { 0 } else { 8 });
+        out.tag(79, if fixed { 0 } else { 2 });
         out.tag(277, 2);
         out.tag(275, 0);
         out.tag(280, 0);
