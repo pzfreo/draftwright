@@ -763,6 +763,19 @@ fn dimension(d: &Dimension, drawing: &Drawing) -> Option<(i32, Vec<P>, f64)> {
     None
 }
 
+fn dimension_text_box(items: &[Item], runs: &[usize], primary: [f64; 4]) -> [f64; 4] {
+    if runs.len() <= 1 {
+        return primary;
+    }
+    // The plan's label_box can describe the first line of a wrapped callout.
+    // Group 11 is the midpoint of the complete dimension text, including its
+    // continuation lines, rather than that first line alone.
+    crate::output::items_bbox(items.iter().filter(
+        |item| matches!(item, Item::Glyph(_, r) | Item::TextStroke(_, r) if runs.contains(r)),
+    ))
+    .unwrap_or(primary)
+}
+
 pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
     let mut w = Writer::new();
     let model = w.block("*Model_Space".into(), [0., 0.]);
@@ -900,7 +913,11 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             t.tag(280, 0);
             t.tag(2, &w.blocks[block].name);
             t.point(10, if kind <= 1 { points[2] } else { points[0] });
-            let bbox = d.placed.as_ref().expect("placed dimension").label_box;
+            let bbox = dimension_text_box(
+                &drawing.layers[2].items[range.clone()],
+                &a.runs,
+                d.placed.as_ref().expect("placed dimension").label_box,
+            );
             let at = [(bbox[0] + bbox[2]) / 2., (bbox[1] + bbox[3]) / 2.];
             t.point(11, at);
             t.tag(70, kind | 32 | 128);
@@ -1848,6 +1865,19 @@ fn closed_boundaries(paths: &[Vec<P>]) -> Vec<Vec<P>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn wrapped_callout_midpoint_includes_continuation_ink_but_not_its_leader() {
+        let items = [
+            Item::Glyph(vec![vec![Curve::Line([10., 10.], [20., 14.])]], 3),
+            Item::Glyph(vec![vec![Curve::Line([12., 4.], [18., 8.])]], 4),
+            Item::Edge(Curve::Line([0., 0.], [15., 12.])),
+            Item::Glyph(vec![vec![Curve::Line([0., 0.], [100., 100.])]], 9),
+        ];
+        assert_eq!(
+            dimension_text_box(&items, &[3, 4], [10., 10., 20., 14.]),
+            [10., 4., 20., 14.]
+        );
+    }
     #[test]
     fn hatch_boundaries_join_reversed_face_intersections_and_reject_open_chains() {
         let p = vec![
