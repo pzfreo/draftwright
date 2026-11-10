@@ -1,7 +1,9 @@
 # Moving from Python draftwright
 
-The Rust wheel is CLI-only and replaces Python `draftwright` (0.4.x and 0.5.0rc).
-PyPI publishing begins with 0.6.0. Users of the Python API should pin `draftwright<0.6` for now.
+The Rust wheel includes the CLI and a small [Python API](python.md), replacing Python
+`draftwright` (0.4.x and 0.5.0rc). PyPI publishing begins with 0.6.0.
+The `make_drawing` one-liner is supported; users of the rest of the old Python API
+should pin `draftwright<0.6`.
 
 `draftwright part.step [options]` renders through the same native engine as
 `draftwright render part.step -o output`. Both forms accept the following common options;

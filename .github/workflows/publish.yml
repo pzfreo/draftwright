@@ -8,7 +8,12 @@ on:
       - 'src/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'crates/**/Cargo.toml'
+      - 'crates/**'
+      - 'python/**'
+      - 'tests/python/**'
+      - 'tests/fixtures/parts/plate.step'
+      - 'tests/fixtures/parts/scattered_holes.step'
+      - 'tests/fixtures/pmi/step/bolt_thread_knurl.step.gz'
       - 'build.rs'
       - 'build_support.rs'
       - 'rust-toolchain.toml'
@@ -25,7 +30,12 @@ on:
       - 'src/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'crates/**/Cargo.toml'
+      - 'crates/**'
+      - 'python/**'
+      - 'tests/python/**'
+      - 'tests/fixtures/parts/plate.step'
+      - 'tests/fixtures/parts/scattered_holes.step'
+      - 'tests/fixtures/pmi/step/bolt_thread_knurl.step.gz'
       - 'build.rs'
       - 'build_support.rs'
       - 'rust-toolchain.toml'
@@ -95,8 +105,8 @@ jobs:
           # Dispatch and release builds use the tag, never main's potentially newer commit.
           ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
           fetch-depth: 0 # The guard resolves actual tag objects, including annotated tags.
-      # The toolchain comes from rust-toolchain.toml. Both Cargo binaries go in wheel scripts;
-      # there is no Python extension or Python API.
+      # The toolchain comes from rust-toolchain.toml. One abi3 (Python 3.9+) extension
+      # provides the small Python API and both console entry points on each platform.
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.target }}
@@ -109,10 +119,16 @@ jobs:
           # --no-cache: a cached wheel of the same version would hide this build.
           uv pip install --python .venv --no-index --no-cache dist/*.whl
           source .venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}/activate
+          python -c "import draftwright; from pathlib import Path; paths = draftwright.make_drawing('tests/fixtures/parts/plate.step', out='python-smoke'); assert all(Path(p).is_file() for p in paths); exec('try:\n draftwright.Sheet\nexcept AttributeError as e:\n assert \"draftwright<0.6\" in str(e)\nelse:\n raise AssertionError(\"old name was accepted\")')"
           draftwright --version
           draftwright-mcp --version
           draftwright render tests/fixtures/parts/plate.step -o wheel-smoke --formats svg
           test -s wheel-smoke.svg
+      - name: Python API tests (installed wheel, no extra dependencies)
+        if: matrix.name == 'linux-x86_64'
+        run: |
+          source .venv/bin/activate
+          python -m unittest discover -s tests/python -v
       - name: Record the commit that built each wheel
         run: |
           source .venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}/activate

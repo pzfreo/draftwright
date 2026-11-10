@@ -17,6 +17,11 @@ name = "draftwright"
 path = "src/bin/draftwright.rs"
 required-features = ["cli"]
 
+[[bin]]
+name = "draftwright-mcp"
+path = "src/bin/draftwright-mcp.rs"
+required-features = ["cli"]
+
 [features]
 default = ["cli"]
 # The `draftwright` command line's parser and its shell completion scripts. The WASM crate turns
@@ -56,7 +61,7 @@ serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 sha2 = "0.11.0"
 
 [workspace]
-members = ["crates/draftwright-wasm"]
+members = ["crates/draftwright-wasm", "crates/draftwright-py"]
 default-members = ["."]
 resolver = "3"
 

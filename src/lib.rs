@@ -96,3 +96,8 @@ pub mod pack;
 
 #[cfg(test)]
 mod lint_evidence_tests;
+
+// Shared binary/extension adapters; this module is not public API.
+#[doc(hidden)]
+#[cfg(feature = "cli")]
+pub mod cli;

@@ -21,6 +21,28 @@ command, one repeatable drawing.
   hole-table entry, datum and GD&amp;T frame is placed automatically.</sub>
 </p>
 
+
+## Python
+
+```sh
+pip install draftwright
+```
+
+```python
+from draftwright import make_drawing
+svg_path, pdf_path = make_drawing("part.step", out="drawing", title="Bracket")
+```
+
+STEP paths and build123d shapes are supported (install build123d separately for
+shapes). The wheel also installs `draftwright` and `draftwright-mcp` on PATH.
+
+**Changed from 0.4:** `make_drawing` returns `(svg_path, pdf_path)` as strings;
+the second file is now **PDF, not DXF**. DXF export and the other old Python
+classes/functions are unavailable. Unsupported options with non-default values
+raise `TypeError`; old names/imports give migration guidance. Pin
+`draftwright<0.6` to keep the old API. The Rust engine uses a [Spec](docs/model.md).
+See the [Python API, keyword mapping and interrupt behaviour](docs/python.md).
+
 ## Ways to use it
 
 - **In the browser:** [draftwright.io](https://draftwright.io). Open a STEP file, see the drawing,
@@ -49,11 +71,12 @@ From 0.6.0, the same two commands install from PyPI without Rust:
 uv tool install draftwright      # or: pipx install draftwright
 ```
 
-Until then, `draftwright` on PyPI is still the original
-[Python implementation](https://github.com/pzfreo/draftwright-python) (0.4.x, no longer
-developed). The PyPI package is command-line only: if you use the old Python API, pin
-`draftwright<0.6` for now. The old command form `draftwright part.step [options]` still renders
-a drawing; see [CLI migration](docs/cli-migration.md) for the options it keeps.
+PyPI releases before 0.6 use the archived
+[Python implementation](https://github.com/pzfreo/draftwright-python). Starting with
+0.6, this Rust project provides both commands and the small
+[Python API](docs/python.md). Pin `draftwright<0.6` to keep the full old API.
+The old command form `draftwright part.step [options]` still renders a drawing;
+see [CLI migration](docs/cli-migration.md) for the options it keeps.
 
 Shell completion: `draftwright completions zsh` (or `bash`, `fish`, `powershell`, `elvish`)
 prints a completion script; see [docs/engine.md](docs/engine.md#using-it) for where to put it.
@@ -130,6 +153,7 @@ release, are in **[pzfreo/dw-examples](https://github.com/pzfreo/dw-examples)**.
 - [Engine guide](docs/engine.md): building, the full command line, what is and isn't supported,
   known limitations, checking a change
 - [Model and Spec reference](docs/model.md): the Analysis, Spec and Plan, and every setting
+- [Python API and migration](docs/python.md)
 - [MCP and agents](docs/mcp.md)
 - [Browser / WASM package](docs/wasm.md)
 - [Thread callouts](docs/thread-callouts.md) · [Bills of materials](docs/bom.md) ·
