@@ -31,14 +31,18 @@ def make_drawing(
 
     Title fields, numeric scale, ISO page (A4..A0), first/third projection,
     zones, auto_dims and pmi map to the Rust Spec. The renderer always draws a
-    frame and projection symbol. Other old options accept their defaults only; a non-default value
-    raises TypeError naming the unsupported keyword. Custom page dimensions
+    frame and projection symbol. PMI defaults to off: None, "off" and "report"
+    select inventory without annotations; "annotate" opts in. ISO page names
+    accept surrounding whitespace and either case. Other old options accept
+    their defaults only; a non-default value raises TypeError naming the
+    unsupported keyword. Custom page dimensions
     are likewise unsupported. Rust failures raise DraftwrightError.
 
     build123d is imported only for a Shape, exported via its own STEP exporter
     into a temporary directory. It is not a wheel dependency. For a shape,
-    ``source`` names its original STEP document for PMI, as in 0.4; the geometry
-    still comes from the shape. For a STEP path, that path is already the source.
+    ``source`` names the original STEP document for PMI; geometry still comes
+    from step_file. It also supplies PMI when step_file is a STEP path. An
+    unreadable source raises DraftwrightError.
 
     The Rust defaults for automatic dimensions, views, scale and layout apply;
     accepting an old option's default does not select the old Python solver.
@@ -57,8 +61,14 @@ def make_drawing(
             _unsupported(name)
     if pmi not in (None, "off", "report", "annotate"):
         _unsupported("pmi")
-    if page is not None and page not in ("A4", "A3", "A2", "A1", "A0"):
-        _unsupported("page")
+    if page is not None:
+        original_page = page
+        page = page.strip().upper() if isinstance(page, str) else page
+        if page not in ("A4", "A3", "A2", "A1", "A0"):
+            raise TypeError(
+                f"make_drawing page value {original_page!r} is not supported in 0.6; "
+                "expected an ISO name A4..A0 (case-insensitive) or None"
+            )
     fields = {
         name: values[name] for name in (
             "title", "number", "tolerance", "drawn_by", "material", "date", "revision",
@@ -69,16 +79,17 @@ def make_drawing(
     if not auto_dims:
         spec["dimension_source"] = "authored"
         spec["sheet"].update(centre_lines=False, centre_marks=False)
-    if pmi is not None:
-        spec["pmi"] = "first" if pmi == "annotate" else "ignore"
+    # The archived Python API defaults to off, unlike the native CLI's First.
+    spec["pmi"] = "first" if pmi == "annotate" else "ignore"
     if page is not None:
         spec["sheet"]["size"] = page
     if projection is not None:
         spec["sheet"]["projection"] = projection
     spec_json = json.dumps(spec)
     output = os.fsdecode(os.fspath(out)) if out is not None else None
+    source_path = os.fsdecode(os.fspath(source)) if source is not None else None
     if isinstance(step_file, (str, bytes, os.PathLike)):
-        return _native.render(os.fsdecode(os.fspath(step_file)), output, spec_json, scale, None)
+        return _native.render(os.fsdecode(os.fspath(step_file)), output, spec_json, scale, source_path)
 
     # No CAD-kernel import is paid by path users, importers or console commands.
     from build123d import Shape, export_step
@@ -90,5 +101,5 @@ def make_drawing(
             raise _native.DraftwrightError("build123d could not export the shape to STEP")
         return _native.render(
             str(step), output if output is not None else "drawing", spec_json, scale,
-            os.fsdecode(os.fspath(source)) if source is not None else None,
+            source_path,
         )

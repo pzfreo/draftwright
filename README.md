@@ -71,11 +71,12 @@ From 0.6.0, the same two commands install from PyPI without Rust:
 uv tool install draftwright      # or: pipx install draftwright
 ```
 
-Until then, `draftwright` on PyPI is still the original
-[Python implementation](https://github.com/pzfreo/draftwright-python) (0.4.x, no longer
-developed). The PyPI package includes the CLI and the small [Python API](docs/python.md). For the rest of the old API, pin
-`draftwright<0.6` for now. The old command form `draftwright part.step [options]` still renders
-a drawing; see [CLI migration](docs/cli-migration.md) for the options it keeps.
+PyPI releases before 0.6 use the archived
+[Python implementation](https://github.com/pzfreo/draftwright-python). Starting with
+0.6, this Rust project provides both commands and the small
+[Python API](docs/python.md). Pin `draftwright<0.6` to keep the full old API.
+The old command form `draftwright part.step [options]` still renders a drawing;
+see [CLI migration](docs/cli-migration.md) for the options it keeps.
 
 Shell completion: `draftwright completions zsh` (or `bash`, `fish`, `powershell`, `elvish`)
 prints a completion script; see [docs/engine.md](docs/engine.md#using-it) for where to put it.

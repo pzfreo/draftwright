@@ -13,6 +13,6 @@ _install()
 
 def __getattr__(name):
     if _removed(name):
-        from ._legacy import message
-        raise AttributeError(message(name))
+        from ._legacy import AttributeMigrationError, message
+        raise AttributeMigrationError(message(name))
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

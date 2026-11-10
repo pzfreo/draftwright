@@ -33,6 +33,21 @@ Specs `/1` and `/2` are read and migrated for ten releases from 0.2.15, through 
   PyO3 lives only in the new unpublished `draftwright-py` workspace crate; the
   published Rust crate and WASM dependency graphs stay independent of Python.
 
+- Preserve Python 0.4's PMI default: omitted/`None`, `off` and `report` all inventory
+  PMI without annotating it; `annotate` explicitly opts in. Honour `source=` for
+  STEP paths as well as shapes, and reject unreadable source documents. ISO page
+  names retain whitespace trimming and case-insensitive parsing.
+- Visible changes from Python 0.4: no DXF export and a new `(svg_path, pdf_path)`
+  return value; the ISO frame and projection symbol are always drawn, including
+  with `frame=False`; unsupported keywords accept only their old defaults and
+  otherwise raise `TypeError`, as do custom page dimensions. Rust layout/view/scale
+  policies replace the old Python solver. See [the full keyword list](docs/python.md).
+- Preserve `except ImportError` migration fallbacks and attribute probes for removed
+  APIs. Use a dual ImportError/AttributeError subtype where CPython permits it;
+  newer CPython's incompatible exception layouts require separate errors at the
+  import and attribute boundaries. Keep `draftwright.builder.make_drawing` working
+  and cover all 88 archived top-level modules/packages with migration guidance.
+
 ## 0.2.15 (2026-11-09)
 
 Still on quiddity-rust 0.4.9. Automatic item IDs are now anchored on faces, so resizing a part

@@ -12,11 +12,13 @@ import sys
 import tempfile
 import time
 import unittest
+import xml.etree.ElementTree as ET
 
 import draftwright
 
 ROOT = Path(__file__).resolve().parents[2]
 PLATE = ROOT / "tests/fixtures/parts/plate.step"
+PMI = ROOT / "tests/fixtures/pmi/step/bolt_thread_knurl.step.gz"
 
 
 class PythonAPI(unittest.TestCase):
@@ -72,19 +74,62 @@ class PythonAPI(unittest.TestCase):
         self.assert_files(draftwright.make_drawing(step, str(self.directory / "positional"), "T", "N"))
 
     def test_dimension_and_pmi_options_map_to_spec(self):
-        for mode, expected in (("off", "ignore"), ("report", "ignore"), ("annotate", "first")):
+        for mode, expected in ((None, "ignore"), ("off", "ignore"), ("report", "ignore"), ("annotate", "first")):
             with self.subTest(pmi=mode):
                 svg, _ = self.assert_files(draftwright.make_drawing(
                     # A no-PMI part intentionally canonicalizes inactive policies to
                     # `first` in embedded Specs. Use real PMI to verify this mapping.
-                    ROOT / "tests/fixtures/pmi/step/bolt_thread_knurl.step.gz",
-                    out=self.directory / mode, auto_dims=False, pmi=mode,
+                    PMI,
+                    out=self.directory / str(mode), auto_dims=False, pmi=mode,
                 ))
                 spec = self.spec(svg)
                 self.assertEqual(spec["dimension_source"], "authored")
                 self.assertFalse(spec["sheet"]["centre_lines"])
                 self.assertFalse(spec["sheet"]["centre_marks"])
                 self.assertEqual(spec.get("pmi", "first"), expected)
+
+    def test_default_pmi_matches_off_and_report_and_annotate_opts_in(self):
+        # Compare actual output from this engine, not fixed hashes or text counts.
+        for auto_dims in (True, False):
+            drawings = {}
+            for mode in (None, "off", "report", "annotate"):
+                options = {} if mode is None else {"pmi": mode}
+                paths = draftwright.make_drawing(
+                    PMI, out=self.directory / f"{auto_dims}-{mode}",
+                    auto_dims=auto_dims, **options,
+                )
+                drawings[mode] = tuple(Path(path).read_bytes() for path in paths)
+            with self.subTest(auto_dims=auto_dims):
+                self.assertEqual(drawings[None], drawings["off"])
+                self.assertEqual(drawings[None], drawings["report"])
+                self.assertNotEqual(drawings[None][0], drawings["annotate"][0])
+                self.assertNotEqual(drawings[None][1], drawings["annotate"][1])
+                def visible_text(svg):
+                    return tuple("".join(node.itertext()) for node in ET.fromstring(svg).iter()
+                                 if node.tag.rsplit("}", 1)[-1] == "text")
+                self.assertNotEqual(visible_text(drawings[None][0]), visible_text(drawings["annotate"][0]))
+
+    def test_step_path_source_is_read_and_missing_source_errors(self):
+        self.assert_files(draftwright.make_drawing(
+            PLATE, source=PLATE, out=self.directory / "path-source",
+        ))
+        with self.assertRaisesRegex(draftwright.DraftwrightError, "missing-source.step"):
+            draftwright.make_drawing(
+                PLATE, source=self.directory / "missing-source.step", out=self.directory / "bad",
+            )
+
+    def test_iso_page_names_are_case_insensitive_and_invalid_values_are_named(self):
+        for page in ("a3", " A3 ", "a4"):
+            with self.subTest(page=page):
+                svg, _ = self.assert_files(draftwright.make_drawing(
+                    PLATE, page=page, out=self.directory / page.strip(),
+                ))
+                self.assertEqual(self.spec(svg)["sheet"]["size"], page.strip().upper())
+        for page in ("LETTER", "420x297", (420, 297)):
+            with self.subTest(page=page), self.assertRaises(TypeError) as raised:
+                draftwright.make_drawing("missing.step", page=page)
+            self.assertIn(f"page value {page!r}", str(raised.exception))
+            self.assertIn("not supported in 0.6", str(raised.exception))
 
     def test_unsupported_non_defaults_are_named_before_io(self):
         for name, value in dict(
@@ -93,7 +138,6 @@ class PythonAPI(unittest.TestCase):
             text_position="above", text_orientation="horizontal", projection_symbol=False,
             margin_left=10, margin_right=10, margin_top=10, margin_bottom=10,
             title_block_width=100, leader_region="exterior", annotation_layout="compare",
-            page=(210, 297),
         ).items():
             with self.subTest(name=name), self.assertRaisesRegex(TypeError, f"{name!r}.*not supported in 0.6"):
                 draftwright.make_drawing("does-not-exist.step", **{name: value})
@@ -131,13 +175,57 @@ class PythonAPI(unittest.TestCase):
             importlib.import_module("draftwright.never_existed")
 
     def test_old_submodules_have_the_same_migration_error(self):
-        for module in ("sheet", "builder", "model.ir", "audit", "sheet_emit", "evaluation.step_analysis"):
-            with self.subTest(module=module), self.assertRaisesRegex(AttributeError, "0.4 API.*draftwright<0.6.*Spec"):
+        from draftwright._legacy import OLD_MODULES
+        self.assertEqual(len(OLD_MODULES), 88)
+        self.assertTrue({"fonts", "recognition", "annotate", "_core"} <= OLD_MODULES)
+        for module in sorted(OLD_MODULES - {"builder"}) + ["model.ir", "evaluation.step_analysis"]:
+            with self.subTest(module=module), self.assertRaisesRegex(ImportError, "0.4 API.*draftwright<0.6.*Spec"):
                 importlib.import_module("draftwright." + module)
-        with self.assertRaisesRegex(AttributeError, "draftwright<0.6"):
+        with self.assertRaisesRegex(ImportError, "draftwright<0.6"):
             exec("from draftwright.sheet import Sheet", {})
-        with self.assertRaisesRegex(AttributeError, "draftwright<0.6"):
-            exec("from draftwright import Sheet", {})
+
+    def test_removed_names_preserve_import_fallbacks_and_attribute_probes(self):
+        from draftwright._legacy import OLD_ALL
+        for name in OLD_ALL - {"make_drawing"}:
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(draftwright, name))
+                with self.assertRaises(AttributeError) as attribute:
+                    getattr(draftwright, name)
+                with self.assertRaises(ImportError) as imported:
+                    exec(f"from draftwright import {name}", {})
+                self.assertEqual(str(attribute.exception), str(imported.exception))
+        namespace = {}
+        exec("try:\n from draftwright import build_drawing\nexcept ImportError:\n fallback = True", namespace)
+        self.assertTrue(namespace["fallback"])
+        namespace = {}
+        exec("try:\n import draftwright.sheet\nexcept ImportError:\n fallback = True", namespace)
+        self.assertTrue(namespace["fallback"])
+        self.assertFalse(hasattr(draftwright, "Sheet"))
+
+        # CPython 3.9 supports the requested dual base. CPython >=3.10 rejects
+        # that layout; attribute/import boundaries must preserve each protocol.
+        from draftwright._legacy import AttributeMigrationError, ImportMigrationError
+        self.assertTrue(issubclass(AttributeMigrationError, AttributeError))
+        self.assertTrue(issubclass(ImportMigrationError, ImportError))
+        try:
+            type("DualErrorProbe", (ImportError, AttributeError), {})
+        except TypeError:
+            self.assertIsNot(AttributeMigrationError, ImportMigrationError)
+        else:
+            self.assertIs(AttributeMigrationError, ImportMigrationError)
+            self.assertTrue(issubclass(AttributeMigrationError, ImportError))
+            self.assertTrue(issubclass(AttributeMigrationError, AttributeError))
+
+    def test_builder_reexports_supported_function_and_refuses_removed_names(self):
+        from draftwright.builder import make_drawing
+        self.assertIs(make_drawing, draftwright.make_drawing)
+        self.assert_files(make_drawing(PLATE, out=self.directory / "builder"))
+        builder = importlib.import_module("draftwright.builder")
+        self.assertFalse(hasattr(builder, "build_drawing"))
+        with self.assertRaisesRegex(AttributeError, "draftwright.builder.build_drawing.*0.4 API"):
+            builder.build_drawing
+        with self.assertRaisesRegex(ImportError, "draftwright.builder.build_drawing.*0.4 API"):
+            exec("from draftwright.builder import build_drawing", {})
 
     def test_import_and_path_use_do_not_load_build123d(self):
         result = self.command(sys.executable, "-c", "import draftwright, sys; assert 'build123d' not in sys.modules")
