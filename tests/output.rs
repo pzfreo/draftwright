@@ -821,7 +821,9 @@ fn dxf_pairs(bytes: &[u8]) -> Vec<(i32, String)> {
     let text = std::str::from_utf8(bytes).unwrap();
     text.lines()
         .collect::<Vec<_>>()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|p| (p[0].trim().parse().unwrap(), p[1].to_owned()))
         .collect()
 }
@@ -1033,4 +1035,150 @@ fn dxf_shaded_pictorial_is_visible_edges_without_mesh_wedges() {
             .chain(d.blocks().flat_map(|b| &b.entities))
             .any(|e| e.common.layer == "A-OUTL" && matches!(e.specific, E::Solid(_)))
     );
+}
+
+#[test]
+fn dxf_tolerances_and_compound_nominals_stay_live() {
+    use dxf::entities::EntityType as E;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for (band, up, lo) in [("±0.05", 0.05, 0.05), ("+0.1 -0.02", 0.1, 0.02)] {
+        let spec: Spec = serde_json::from_value(
+            json!({"dimensions":{"d:envelope/width.length":{"tolerance":band}}}),
+        )
+        .unwrap();
+        let (_, files) = draftwright::api::render_from(
+            &root.join("tests/fixtures/parts/plate.step"),
+            draftwright::api::Features::Native,
+            &spec,
+            &["dxf"],
+            150.,
+        )
+        .unwrap();
+        let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+        let mut found = false;
+        for e in d.entities() {
+            if let E::RotatedDimension(dim) = &e.specific {
+                let st = d
+                    .dim_styles()
+                    .find(|s| s.name == dim.dimension_base.dimension_style_name)
+                    .unwrap();
+                if st.generate_dimension_tolerances {
+                    assert_eq!(dim.dimension_base.text, "<>");
+                    assert!((st.dimension_plus_tolerance - up).abs() < 1e-12);
+                    assert!((st.dimension_minus_tolerance - lo).abs() < 1e-12);
+                    found = true;
+                }
+            }
+            if let E::DiameterDimension(dim) = &e.specific {
+                assert_eq!(dim.dimension_base.text, "4× <> THRU");
+            }
+        }
+        assert!(found, "{band} must be dimension tolerance data");
+    }
+}
+
+#[test]
+fn dxf_dimension_axis_is_independent_of_horizontal_text() {
+    use draftwright::output::{Curve, HAlign, Item, VAlign};
+    use dxf::entities::EntityType as E;
+    for angle in [30_f64, 90.] {
+        let mut drawing = plate(&|_| {});
+        let (id, mut dimension) = drawing
+            .sheet
+            .dxf
+            .dimensions
+            .iter()
+            .find(|(_, d)| d.placed.as_ref().is_some_and(|p| p.arrows.len() == 2))
+            .map(|(id, d)| (id.clone(), d.clone()))
+            .unwrap();
+        let (sin, cos) = angle.to_radians().sin_cos();
+        let a = [60., 60.];
+        let b = [60. + 10. * cos, 60. + 10. * sin];
+        let offset = |p: [f64; 2], distance: f64| [p[0] - distance * sin, p[1] + distance * cos];
+        let arrows = [
+            [offset(a, 5.), offset(a, 4.)],
+            [offset(b, 5.), offset(b, 4.)],
+        ];
+        let centre = [
+            (arrows[0][0][0] + arrows[1][0][0]) / 2.,
+            (arrows[0][0][1] + arrows[1][0][1]) / 2.,
+        ];
+        let p = dimension.placed.as_mut().unwrap();
+        p.lines = vec![
+            [offset(a, 1.), offset(a, 7.)],
+            [offset(b, 1.), offset(b, 7.)],
+            [arrows[0][0], arrows[1][0]],
+        ];
+        p.arrows = arrows.to_vec();
+        p.rotation = 0.;
+        p.label_at = centre;
+        p.label_box = [
+            centre[0] - 3.,
+            centre[1] - 1.,
+            centre[0] + 3.,
+            centre[1] + 1.,
+        ];
+        dimension.value = 10.;
+        dimension.label = "10".into();
+        dimension.primary = Some(0..2);
+        dimension.diameter = false;
+        dimension.radial = false;
+        drawing
+            .sheet
+            .frames
+            .get_mut(dimension.view.trim_start_matches("v:"))
+            .unwrap()
+            .scale = 1.;
+        for layer in &mut drawing.layers {
+            layer.items.clear();
+        }
+        drawing.layers[0].items.push(Item::Edge(Curve::Line(a, b)));
+        drawing.layers[2].items = p
+            .lines
+            .iter()
+            .map(|[a, b]| Item::Edge(Curve::Line(*a, *b)))
+            .collect();
+        drawing.sheet.dxf.views.clear();
+        drawing.sheet.dxf.annotations = BTreeMap::from([(id.clone(), 0..p.lines.len())]);
+        drawing.sheet.dxf.furniture.clear();
+        drawing.sheet.dxf.title_fields.clear();
+        drawing.sheet.dxf.title = 0..0;
+        drawing.sheet.dxf.labels.clear();
+        drawing.sheet.dxf.dimensions = BTreeMap::from([(id.clone(), dimension)]);
+        drawing.annotations.retain(|a| a.name == id);
+        drawing.annotations[0].runs = vec![0];
+        let mut run = drawing.text[0].clone();
+        run.text = "10".into();
+        run.at = centre;
+        run.rotation = 0.;
+        run.h_align = HAlign::Center;
+        run.v_align = VAlign::Middle;
+        drawing.text = vec![run];
+        let bytes = drawing.dxf();
+        let d = dxf::Drawing::load(&mut std::io::Cursor::new(&bytes)).unwrap();
+        let dim = d
+            .entities()
+            .find_map(|e| {
+                if let E::RotatedDimension(dim) = &e.specific {
+                    Some(dim)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let base = &dim.dimension_base;
+        assert_eq!(base.dimension_type as i32, if angle == 30. { 1 } else { 0 });
+        if angle == 90. {
+            assert!((dim.rotation_angle - angle).abs() < 1e-10);
+        }
+        let a = &dim.definition_point_2;
+        let b = &dim.definition_point_3;
+        assert_eq!(base.text_rotation_angle, 0.);
+        assert!(((b.x - a.x).hypot(b.y - a.y) - 10.).abs() < 1e-10);
+        if let Some(dir) = std::env::var_os("DRAFTWRIGHT_DXF_PROBE_DIR") {
+            let path = Path::new(&dir).join(format!("synthetic_axis_{angle}"));
+            std::fs::write(path.with_extension("dxf"), bytes).unwrap();
+            std::fs::write(path.with_extension("svg"), drawing.svg()).unwrap();
+        }
+    }
 }

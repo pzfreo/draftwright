@@ -10671,6 +10671,7 @@ fn render_annotations_with_cuts(
     let mut sheet = Sheet::default();
     sheet.dxf.sheet_number = plan.sheet.number;
     let mut caption_names: Vec<String> = Vec::new();
+    let mut section_caption_owners: BTreeMap<[u64; 2], String> = BTreeMap::new();
     let mut references = Vec::new();
     let mut layers: Vec<Layer> = layer_styles()
         .into_iter()
@@ -11045,6 +11046,16 @@ fn render_annotations_with_cuts(
                         .insert(format!("section_{l}_{side}"), cut.marked_in.clone());
                 }
             }
+            for (i, (_, at)) in f.text.iter().enumerate() {
+                section_caption_owners.insert(
+                    at.map(f64::to_bits),
+                    if !remote && i == 0 {
+                        v.id.clone()
+                    } else {
+                        cut.marked_in.clone()
+                    },
+                );
+            }
             furniture.extend(f.ink);
             captions.extend(f.text);
             for (reference, prefix, name, target) in [
@@ -11256,7 +11267,17 @@ fn render_annotations_with_cuts(
                 run,
             });
         }
-        sheet.dxf.furniture.insert(name.clone(), from..dims.len());
+        let key = if name == "section_caption" {
+            section_caption_owners
+                .get(&at.map(f64::to_bits))
+                .map_or_else(|| name.clone(), |owner| format!("{name}/{owner}"))
+        } else {
+            name.clone()
+        };
+        if let Some(owner) = section_caption_owners.get(&at.map(f64::to_bits)) {
+            sheet.dxf.furniture_views.insert(key.clone(), owner.clone());
+        }
+        sheet.dxf.furniture.insert(key, from..dims.len());
         sheet
             .items
             .extend(labelled(name, Kind::Caption, &dims[from..]));

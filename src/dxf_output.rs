@@ -104,10 +104,12 @@ fn primary_range(d: &PlannedDimension) -> Option<Range<usize>> {
 }
 #[derive(Clone, Copy, Debug)]
 struct DimStyle {
+    font: &'static str,
     factor: f64,
     precision: u8,
     fixed: bool,
     tolerance: Option<[f64; 2]>,
+    leader: bool,
 }
 /// Express a plain deviation band in DIMTP/DIMTM; retain genuinely free wording.
 fn live_label(d: &Dimension, kind: i32) -> (String, Option<[f64; 2]>) {
@@ -115,32 +117,9 @@ fn live_label(d: &Dimension, kind: i32) -> (String, Option<[f64; 2]>) {
         return (encode_mtext(&d.label), None);
     };
     let mut label = d.label.clone();
-    let mut tolerance = None;
-    let rest = &label[primary.end..];
-    let trim = rest.trim_start();
-    let space = rest.len() - trim.len();
-    let mut consumed = 0;
-    if let Some(t) = trim.strip_prefix('±') {
-        let n = t
-            .find(|c: char| !c.is_ascii_digit() && c != '.')
-            .unwrap_or(t.len());
-        if let Ok(v) = t[..n].parse::<f64>() {
-            tolerance = Some([v, v]);
-            consumed = '±'.len_utf8() + n;
-        }
-    } else {
-        let mut words = trim.split_whitespace();
-        if let (Some(up), Some(lo)) = (words.next(), words.next())
-            && (up.starts_with('+') || up == "0")
-            && (lo.starts_with('-') || lo == "0")
-            && let (Ok(up), Ok(lo)) = (up.parse::<f64>(), lo.parse::<f64>())
-        {
-            tolerance = Some([up, -lo]);
-            consumed = trim.find(lo_token(trim)).unwrap_or(0) + lo_token(trim).len();
-        }
-    }
-    if consumed > 0 {
-        label.replace_range(primary.end..primary.end + space + consumed, "");
+    let tolerance = deviation_band(&label[primary.end..]);
+    if let Some((range, _)) = &tolerance {
+        label.replace_range(primary.end + range.start..primary.end + range.end, "");
     }
     label.replace_range(primary.clone(), "<>");
     if kind == 3 {
@@ -154,10 +133,72 @@ fn live_label(d: &Dimension, kind: i32) -> (String, Option<[f64; 2]>) {
     if kind == 5 {
         label = label.replace("<>°", "<>");
     }
-    (encode_mtext(&label), tolerance)
+    (encode_mtext(&label), tolerance.map(|(_, band)| band))
 }
-fn lo_token(s: &str) -> &str {
-    s.split_whitespace().nth(1).unwrap_or("")
+fn deviation_band(s: &str) -> Option<(Range<usize>, [f64; 2])> {
+    let fitting_prefix = |prefix: &str| {
+        let prefix = prefix.trim();
+        prefix.is_empty()
+            || (prefix.starts_with(|c: char| c.is_ascii_alphabetic())
+                && prefix.chars().all(|c| c.is_ascii_alphanumeric())
+                && prefix.chars().any(|c| c.is_ascii_digit()))
+    };
+    if let Some(at) = s.find('±') {
+        let rest = &s[at + '±'.len_utf8()..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit() && c != '.')
+            .unwrap_or(rest.len());
+        if fitting_prefix(&s[..at])
+            && let Ok(v) = rest[..end].parse::<f64>()
+        {
+            return Some((
+                s[..at].trim_end_matches(' ').len()..at + '±'.len_utf8() + end,
+                [v, v],
+            ));
+        }
+    }
+    let mut offset = 0;
+    let words: Vec<_> = s
+        .split_whitespace()
+        .map(|word| {
+            let start = offset + s[offset..].find(word).unwrap();
+            offset = start + word.len();
+            (start, word)
+        })
+        .collect();
+    for pair in words.windows(2) {
+        let [(at, up), (lo_at, lo)] = pair else {
+            unreachable!()
+        };
+        if fitting_prefix(&s[..*at])
+            && (up.starts_with('+') || *up == "0")
+            && (lo.starts_with(['-', '−']) || *lo == "0")
+            && let (Ok(up_value), Ok(lo_value)) =
+                (up.parse::<f64>(), lo.replace('−', "-").parse::<f64>())
+        {
+            return Some((
+                s[..*at].trim_end_matches(' ').len()..lo_at + lo.len(),
+                [up_value, -lo_value],
+            ));
+        }
+    }
+    for (at, word) in words {
+        let Some((up, lo)) = word.split_once('/') else {
+            continue;
+        };
+        if fitting_prefix(&s[..at])
+            && (up.starts_with('+') || up == "0")
+            && (lo.starts_with(['-', '−']) || lo == "0")
+            && let (Ok(up_value), Ok(lo_value)) =
+                (up.parse::<f64>(), lo.replace('−', "-").parse::<f64>())
+        {
+            return Some((
+                s[..at].trim_end_matches(' ').len()..at + word.len(),
+                [up_value, -lo_value],
+            ));
+        }
+    }
+    None
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -824,14 +865,25 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         if let (Some((d, (kind, points, factor))), Some(block)) = (native, block) {
             let precision = drawing.sheet.precision.get(&a.name).copied();
             let (live, tolerance) = live_label(d, kind);
-            let name = format!("DW_{}_{:?}_{:?}", factor.to_bits(), precision, tolerance);
+            let font = fallback_font(&d.label).unwrap_or("IBMPlexMono-Regular.ttf");
+            let leader = matches!(kind, 3 | 4);
+            let name = format!(
+                "DW_{}_{:?}_{:?}_{}_{}",
+                factor.to_bits(),
+                precision,
+                tolerance,
+                safe_name(font),
+                leader
+            );
             styles.insert(
                 name.clone(),
                 DimStyle {
+                    font,
                     factor,
                     precision: precision.unwrap_or(3),
                     fixed: precision.is_some(),
                     tolerance,
+                    leader,
                 },
             );
             let (h, mut t) = w.entity("DIMENSION", DIMS, None);
@@ -878,7 +930,11 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                         },
                     );
                     t.point(15, points[1]);
-                    t.tag(40, 0);
+                    let bend = d.placed.as_ref().unwrap().lines.first().map(|l| l[1]);
+                    t.tag(
+                        40,
+                        bend.map_or(0., |b| (b[0] - points[1][0]).hypot(b[1] - points[1][1])),
+                    );
                 }
                 5 => {
                     t.tag(100, "AcDb3PointAngularDimension");
@@ -1171,6 +1227,11 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     let mut hash = sha2::Sha256::new();
     hash.update(drawing.spec.as_deref().unwrap_or("").as_bytes());
     hash.update(drawing.sheet.dxf.sheet_number.to_le_bytes());
+    hash.update(w.entities.0.as_bytes());
+    for block in &w.blocks {
+        hash.update(block.name.as_bytes());
+        hash.update(block.entities.0.as_bytes());
+    }
     let digest = hash.finalize();
     let guid = uuid::Uuid::from_slice(&digest[..16])
         .expect("16 bytes")
@@ -1308,8 +1369,9 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         .map(|r| text_font(r).to_string())
         .collect();
     fonts.insert("IBMPlexMono-Regular.ttf".into());
+    fonts.extend(styles.values().map(|s| s.font.to_string()));
     table(&mut out, "STYLE", st, fonts.len() + 1);
-    let mut textstyle = 0;
+    let mut textstyles = BTreeMap::new();
     for (name, file) in std::iter::once((
         "STANDARD".to_string(),
         "IBMPlexMono-Regular.ttf".to_string(),
@@ -1317,8 +1379,8 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     .chain(fonts.iter().map(|f| (style(f), f.clone())))
     {
         let id = w.id();
-        if name == "IBMPlexMono-Regular" {
-            textstyle = id;
+        if name != "STANDARD" {
+            textstyles.insert(file.clone(), id);
         }
         record(&mut out, "STYLE", id, st, "AcDbTextStyleTableRecord", &name);
         out.tag(40, 0);
@@ -1337,10 +1399,12 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     for (name, style) in std::iter::once((
         "STANDARD".to_string(),
         DimStyle {
+            font: "IBMPlexMono-Regular.ttf",
             factor: 1.,
             precision: 3,
             fixed: false,
             tolerance: None,
+            leader: false,
         },
     ))
     .chain(styles)
@@ -1368,10 +1432,13 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         out.tag(275, 0);
         out.tag(280, 0);
         out.tag(289, 3);
-        // Explicit placement: centred text, absolute user position, no automatic leader.
-        for (code, value) in [(73, 1), (74, 1), (77, 0), (172, 0), (174, 0), (279, 2)] {
+        // Centred, horizontal text at the entity's explicit midpoint. Circular
+        // callouts keep their leaders when the text is moved by a CAD editor.
+        for (code, value) in [(73, 1), (74, 1), (77, 0), (172, 0), (174, 0)] {
             out.tag(code, value);
         }
+        out.tag(279, if style.leader { 1 } else { 2 });
+        out.tag(141, 0);
         out.tag(145, 0);
         if let Some([up, lo]) = style.tolerance {
             out.tag(71, 1);
@@ -1385,7 +1452,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
             out.tag(71, 0);
             out.tag(72, 0);
         }
-        out.handle(340, textstyle);
+        out.handle(340, textstyles[style.font]);
     }
     out.tag(0, "ENDTAB");
     let ap = w.id();
@@ -1644,15 +1711,19 @@ pub(crate) fn clip_loops(loops: Vec<Vec<P>>, rect: [f64; 4]) -> Vec<Vec<P>> {
 
 /// R2013 supports UTF-8 TEXT. Fallbacks are ordinary named text styles, never
 /// per-glyph MTEXT font programs. Plex remains the style for ordinary labels.
-fn text_font(r: &TextRun) -> &str {
-    if r.text.contains(['⏥', '⟂']) {
-        "STIXGeneral.ttf"
-    } else if r.text.chars().any(|c| symbol_font(c) && c != '−') {
-        "Arial Unicode.ttf"
+fn fallback_font(text: &str) -> Option<&'static str> {
+    if text.contains(['⏥', '⟂']) {
+        Some("STIXGeneral.ttf")
+    } else if text.chars().any(|c| symbol_font(c) && c != '−') {
+        Some("Arial Unicode.ttf")
     } else {
-        &r.font
+        None
     }
 }
+fn text_font(r: &TextRun) -> &str {
+    fallback_font(&r.text).unwrap_or(&r.font)
+}
+
 fn encode_mtext(s: &str) -> String {
     let mut out = String::new();
     for c in s.chars() {
@@ -1778,5 +1849,29 @@ mod tests {
         assert!(closed_boundaries(&p[..3]).is_empty());
         let half = clip_loops(loops, [0., 0., 5., 10.]);
         assert!(half[0].iter().all(|p| p[0] <= 5.));
+    }
+}
+
+#[cfg(test)]
+mod tolerance_tests {
+    use super::deviation_band;
+
+    #[test]
+    fn primary_tolerances_include_ap242_slash_bands_and_fits() {
+        for (text, remaining, band) in [
+            (" ±0.05 THRU", " THRU", [0.05, 0.05]),
+            (" +0.1 -0.02", "", [0.1, 0.02]),
+            (" +0.1/-0.05 ↧ 45", " ↧ 45", [0.1, 0.05]),
+            (" +0.2/0 THRU", " THRU", [0.2, 0.]),
+            (" 0/-0.2 THRU", " THRU", [0., 0.2]),
+            (" H7 ±0.1 THRU", " H7 THRU", [0.1, 0.1]),
+        ] {
+            let (range, values) = deviation_band(text).unwrap();
+            assert_eq!(values, band);
+            let mut label = text.to_string();
+            label.replace_range(range, "");
+            assert_eq!(label, remaining);
+        }
+        assert!(deviation_band(" THRU ↧ 10 ±0.2").is_none());
     }
 }
