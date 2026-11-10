@@ -98,6 +98,26 @@ wins. A multi-format export is not transactional; formats can come from differen
 and a later failure leaves already published formats in place. Cleanup removes only that
 invocation's staging file. Output names and rendered bytes are unchanged.
 
+**Pictorial CLI shortcuts.** `render`, `review`, `plan` (including `plan --analysis`), and
+`draftwright part.step [options]` accept `--shaded`, `--below`, and `--colour HEX`
+(`--color` is an alias). `--shaded` sets `views/iso/style` to `shaded`.
+`--below` requests a visible `views/iso_below`: line pictorial on its own, shaded when
+combined with `--shaded`, overriding that slot's existing style or omission.
+`--colour '#b8c4cc'` or `--colour b8c4cc` accepts exactly six hex digits, case-insensitively,
+and requires the `--shaded` flag even if the base Spec already requests shading.
+Colour applies to the iso and, with `--below`, the underside; other views keep their settings.
+
+These flags overlay the optional `--spec` file, which is also accepted in the bare form.
+Unrelated settings, including camera directions and title-block fields, are preserved;
+`--shaded` changes style without changing an authored iso omission.
+The resulting Spec is embedded in SVG/PDF/PNG and can be read with `draftwright spec out.pdf`.
+With no flags the existing defaults and output are unchanged. For example:
+
+```sh
+draftwright render part.step -o part --shaded --below --colour b8c4cc
+draftwright part.step --spec drawing.json --shaded --below --out part
+```
+
 `--spec` is optional: without it the defaults are drawn. The service, the MCP server and the
 library (`api::analyse(step, None)` and the rest) are not switched to native recognition:
 there, no `features` still means no features, and Python's JSON is passed as `features`.
