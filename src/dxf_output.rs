@@ -21,7 +21,7 @@ pub struct ViewItems {
 pub struct Structure {
     pub sheet_number: u32,
     pub hatches: Vec<HatchRegion>,
-    pub cutting: Vec<Range<usize>>,
+    pub cutting: Vec<CuttingPlane>,
     pub views: Vec<ViewItems>,
     pub annotations: BTreeMap<String, Range<usize>>,
     pub furniture: BTreeMap<String, Range<usize>>,
@@ -30,6 +30,12 @@ pub struct Structure {
     pub title: Range<usize>,
     pub labels: Vec<TextRun>,
     pub title_fields: Vec<(String, TextRun)>,
+}
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CuttingPlane {
+    pub name: String,
+    pub view: String,
+    pub items: Range<usize>,
 }
 /// Only the plan fields needed by DXF: avoid cloning planning explanations,
 /// claims and placement history on the SVG/PDF/PNG path.
@@ -1018,12 +1024,20 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                 }
             }
         }
-        for range in &drawing.sheet.dxf.cutting {
-            for i in range.clone() {
+        for plane in &drawing.sheet.dxf.cutting {
+            let mut handles = Vec::new();
+            for i in plane.items.clone() {
                 if let Some(item) = l.items.get(i) {
-                    w.item(item, CUT, None);
+                    handles.extend(w.item(item, CUT, None));
                     consumed.insert((2, i));
                 }
+            }
+            if !handles.is_empty() {
+                view_handles
+                    .entry(plane.view.clone())
+                    .or_default()
+                    .extend(&handles);
+                w.group(plane.name.clone(), handles);
             }
         }
     }

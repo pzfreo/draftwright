@@ -10975,10 +10975,11 @@ fn render_annotations_with_cuts(
                 items: furniture.len()..furniture.len() + f.hatch,
                 loops: f.boundary.clone(),
             });
-            sheet
-                .dxf
-                .cutting
-                .push(furniture.len() + f.hatch..furniture.len() + f.ink.len());
+            sheet.dxf.cutting.push(crate::dxf_output::CuttingPlane {
+                name: format!("{}/cutting_plane", v.id),
+                view: cut.marked_in.clone(),
+                items: furniture.len() + f.hatch..furniture.len() + f.ink.len(),
+            });
             // draftwright's pieces, each by its ink: the hatch, the chain line by its line, and
             // each end's arrowhead and wing stub (`section::cutting_plane`'s order).
             let mut piece = |name: String, kind: Kind, ink: &[Item], lines: Vec<[[f64; 2]; 2]>| {
@@ -11231,9 +11232,9 @@ fn render_annotations_with_cuts(
         region.items.start += dims.len();
         region.items.end += dims.len();
     }
-    for range in &mut sheet.dxf.cutting {
-        range.start += dims.len();
-        range.end += dims.len();
+    for plane in &mut sheet.dxf.cutting {
+        plane.items.start += dims.len();
+        plane.items.end += dims.len();
     }
     dims.extend(furniture);
     // A text-only thing as drawn: the box of its ink *items*, which is also its label.

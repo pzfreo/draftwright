@@ -972,8 +972,36 @@ fn dxf_pmi_hatch_and_multisheet_attributes_are_native() {
         "the closed section region stays a HATCH"
     );
     assert!(pairs.contains(&(2, "ANSI31".into())));
+    assert!(
+        pairs
+            .iter()
+            .any(|(code, text)| *code == 3 && text.ends_with("/cutting_plane"))
+    );
     // The crate can still read the document around the unsupported HATCH entity.
-    dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+    let section = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+    let groups: Vec<_> = section
+        .objects()
+        .filter_map(|o| {
+            if let dxf::objects::ObjectType::Group(g) = &o.specific {
+                Some(g)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let cutting = groups
+        .iter()
+        .find(|g| g.description.ends_with("/cutting_plane"))
+        .unwrap();
+    assert!(!cutting.__entities_handle.is_empty());
+    assert!(
+        groups.iter().any(|g| g.description.starts_with("VIEW_")
+            && cutting
+                .__entities_handle
+                .iter()
+                .all(|h| g.__entities_handle.contains(h))),
+        "moving the source view's annotation group must move its cutting plane"
+    );
     let multi:Spec=serde_json::from_value(json!({"sheet":{"size":"A4","scale":"1:1","title":{"title":"MULTI"}},"sheets":{"max":2},"views":{"iso":{"sheet":2}}})).unwrap();
     let (_, files) = draftwright::api::render_from(
         &root.join("tests/fixtures/parts/plate.step"),
