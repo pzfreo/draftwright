@@ -9,7 +9,7 @@ import tomllib
 import zipfile
 
 
-MANIFESTS = ("Cargo.toml", "crates/draftwright-wasm/Cargo.toml")
+MANIFESTS = ("Cargo.toml", "crates/draftwright-wasm/Cargo.toml", "crates/draftwright-py/Cargo.toml")
 STABLE_TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 
 

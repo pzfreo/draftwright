@@ -95,3 +95,7 @@ pub mod pack;
 
 #[cfg(test)]
 mod lint_evidence_tests;
+
+/// Native command-line adapters shared by Cargo binaries and the Python extension.
+#[cfg(feature = "cli")]
+pub mod cli;
