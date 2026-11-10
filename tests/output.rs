@@ -861,6 +861,14 @@ fn dxf_has_r2000_document_structure_and_sheet_viewport() {
     }
     assert!(pairs.contains(&(2, "CLASSES".into())));
     assert_eq!(
+        pairs.iter().filter(|p| **p == (278, "46".into())).count(),
+        pairs
+            .iter()
+            .filter(|p| **p == (0, "DIMSTYLE".into()))
+            .count(),
+        "every dimstyle preserves the drawing's decimal point"
+    );
+    assert_eq!(
         pairs.iter().filter(|p| **p == (0, "LAYOUT".into())).count(),
         2
     );
