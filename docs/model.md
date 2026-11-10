@@ -652,10 +652,15 @@ into two fitted, unannotated slots when both are present. Each uses the same set
 ```
 
 Omit either slot with `omit: true`. `iso_below` uses the automatic single-sheet iso zone:
-independent `place`/`sheet`,
-an iso placement or assignment to another sheet, and multi-sheet allocation are refused
-while it is shown. An authored `iso_scale_factor` must still fit exactly. Reduced
-pictorials carry an NTS caption.
+both pictorials may use `place` (including editor pins). An unpinned partner fits
+in the space left by settled view reservations. If no space remains, a warning names
+the remedies: move the pinned partner, enlarge the paper, or omit the extra view.
+Assignment to another sheet and multi-sheet allocation are refused while it is shown.
+An authored `iso_scale_factor` must still fit exactly. The existing iso caption stays
+`ISO VIEW (NTS)` when reduced; the underside is `ISO VIEW FROM BELOW (NTS)`.
+A non-isometric custom direction uses `PICTORIAL VIEW (NTS)` or
+`PICTORIAL VIEW FROM BELOW (NTS)`. Both captions use the collision-avoiding iso
+caption planner, including each other's ink, rather than a plain scale note.
 Shaded pictorials always suppress hidden ink, centre furniture, conventional threads,
 knurls and dimensions, regardless of inherited line-work switches. Session view options
 expose style, colour and direction through the same Spec edit path (including undo/redo).
@@ -664,14 +669,17 @@ SVG and PDF contain vector filled polygons, with the view's HLR visible sharp an
 silhouette edges on top; PNG rasterises that same drawing. Tessellation uses chordal
 deflection 0.1% of the envelope diagonal and angular deflection 0.3 rad. Adjacent
 coplanar triangles merge into convex patches within each B-rep face, preserving holes.
-Consecutive equal-colour patches share compound fill paths. Facet fills rasterise without
+Shared-edge adjacency limits merge searches to neighbours.
+Consecutive equal-colour patches share compound fill paths. SVG uses one shaded group
+per view, closed polygon paths, and coordinates rounded to 0.001 mm. The tessellation
+is shared across pictorial cameras in the projection cache. Facet fills rasterise without
 partial edge coverage, with 0.02 mm same-colour seam strokes to close subpixel
 T-junction gaps; the HLR outlines retain antialiasing.
 A binary space partition splits crossing patches and visibility cycles before painting
 back to front; it does not sort entire faces by average depth. Numerical coplanarity
-uses 1e-9 of the envelope diagonal (minimum 1e-9 mm). There is no approximate ordering
-fallback: incomplete/refused tessellation or over 200,000 split fragments refuses the
-render with unresolved face IDs. Textures, transparency and photorealism are unsupported.
+uses 1e-9 of the envelope diagonal (minimum 1e-9 mm). There is no approximate depth ordering: incomplete/refused tessellation or over 200,000 split fragments keeps
+the requested Spec and drawing, renders that view as ordinary pictorial lines, and
+adds a `shaded_view_unresolved` warning with the reason and affected face IDs. Textures, transparency and photorealism are unsupported.
 
 #### Sheet allocation (R5, Stage I)
 

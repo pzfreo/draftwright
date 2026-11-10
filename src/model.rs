@@ -9654,6 +9654,9 @@ pub struct Projections {
     cut_material: HashMap<Vec<u64>, bool>,
     hatches: HashMap<Vec<u64>, Vec<Item>>,
     geometry: HashMap<Vec<u64>, (Vec<u64>, ViewGeometry)>,
+    shaded_mesh: Option<crate::shaded::Mesh>,
+    #[cfg(test)]
+    shaded_fragment_limit: Option<usize>,
     stats: ProjectionStats,
     /// Whether the persisted projection/geometry entries changed after loading.
     pub(crate) dirty: bool,
@@ -9671,6 +9674,8 @@ pub struct ProjectionStats {
 pub struct ViewGeometry {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shaded: Vec<crate::shaded::Polygon>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shaded_unresolved: Option<crate::shaded::Unresolved>,
     pub visible: Vec<Item>,
     pub hidden: Vec<Item>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -9879,6 +9884,19 @@ impl Projections {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn shaded_test_mesh(
+        &mut self,
+        a: &Analysis,
+        spec: &Spec,
+        mesh: crate::shaded::Mesh,
+        limit: usize,
+    ) {
+        self.bind(a, spec);
+        self.shaded_mesh = Some(mesh);
+        self.shaded_fragment_limit = Some(limit);
+    }
+
     pub fn stats(&self) -> ProjectionStats {
         self.stats
     }
@@ -9919,6 +9937,7 @@ impl Projections {
             self.cut_material.clear();
             self.hatches.clear();
             self.geometry.clear();
+            self.shaded_mesh = None;
             self.binding = Some(binding);
             self.dirty = true;
         }
@@ -9934,8 +9953,9 @@ impl Projections {
         let (size, centre) = crate::detail::crop_extent(analysis, v);
         // Orientation views carry no hidden edges unless the Spec asks for them
         // (pictorial practice, ISO 128-30 / ASME Y14.3); the others draw them.
-        let shaded = crate::shaded::enabled(spec, &v.id);
-        let hidden = !shaded
+        let requested_shaded = crate::shaded::enabled(spec, &v.id);
+        let mut shaded = requested_shaded;
+        let mut hidden = !shaded
             && v.line_style
                 .hidden
                 .unwrap_or(!matches!(v.id.as_str(), "v:iso" | "v:iso_below"));
@@ -9956,18 +9976,38 @@ impl Projections {
                     .unwrap_or([184, 196, 204])
                     .map(u64::from),
             );
+            // A failed fill uses the ordinary hidden-line request; retain it in the cache key.
+            placement.push(u64::from(v.line_style.hidden.unwrap_or(false)));
         }
         if let Some((previous, geometry)) = self.geometry.get(&key)
             && *previous == placement
         {
             return Ok(geometry.clone());
         }
+        let mut shaded_unresolved = None;
+        let fills = if requested_shaded {
+            let mesh = self
+                .shaded_mesh
+                .get_or_insert_with(|| crate::shaded::Mesh::new(part, analysis));
+            #[cfg(test)]
+            let limit = self.shaded_fragment_limit.unwrap_or(200_000);
+            #[cfg(not(test))]
+            let limit = 200_000;
+            match crate::shaded::render(mesh, analysis, v, spec, limit) {
+                Ok(polygons) => polygons,
+                Err(reason) => {
+                    shaded = false;
+                    hidden = v.line_style.hidden.unwrap_or(false);
+                    shaded_unresolved = Some(reason);
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
         let mut geometry = ViewGeometry {
-            shaded: if shaded {
-                crate::shaded::render(part, analysis, v, spec)?
-            } else {
-                Vec::new()
-            },
+            shaded: fills,
+            shaded_unresolved,
             visible: Vec::new(),
             hidden: Vec::new(),
             breaks: Vec::new(),
@@ -10620,6 +10660,7 @@ fn render_annotations_with_cuts(
         crate::pmi_lowering::manufacturing(analysis)
     };
     let mut shaded_layers = Vec::new();
+    let mut shaded_problems = Vec::new();
     let mut thin: Vec<Item> = Vec::new();
     let mut undrawn = BTreeMap::new();
     // Invariant: Session geometry is generated in this same immutable plan view order.
@@ -10634,6 +10675,19 @@ fn render_annotations_with_cuts(
         if rejected_sections.contains_key(&v.id) {
             continue;
         }
+        if let Some(reason) = &geometry.shaded_unresolved {
+            shaded_problems.push(Problem {
+                id: format!("p:shaded_view_unresolved:{}", v.id),
+                code: "shaded_view_unresolved".into(),
+                severity: "warning".into(),
+                message: format!("Shading {} is unresolved: {}; faces {:?}. The requested style is retained; this view uses ordinary pictorial lines. Reduce mesh complexity or choose wireframe style.", v.id, reason.reason, reason.faces),
+                subjects: vec![v.id.clone()],
+                refs: reason.faces.iter().map(|f| format!("f{f}")).collect(),
+                ..Default::default()
+            });
+        }
+        let shaded =
+            crate::shaded::enabled(&plan.spec, &v.id) && geometry.shaded_unresolved.is_none();
         shaded_layers.extend(crate::shaded::layers(&v.id, &geometry.shaded));
         if geometry.undrawn > 0 {
             undrawn.insert(v.id.clone(), geometry.undrawn);
@@ -10676,7 +10730,7 @@ fn render_annotations_with_cuts(
         for w in v
             .line_work
             .iter()
-            .filter(|w| w.kind != "cutting_plane" && !crate::shaded::enabled(&plan.spec, &v.id))
+            .filter(|w| w.kind != "cutting_plane" && !shaded)
         {
             let lines = crate::centrelines::segments(w);
             let ink: Vec<_> = w.curves.iter().cloned().map(Item::Edge).collect();
@@ -10718,7 +10772,7 @@ fn render_annotations_with_cuts(
         if let Some(b) = &v.broken {
             local_thin = b.items(local_thin, crate::detail::crop_extent(analysis, v).1, v);
         }
-        if !crate::shaded::enabled(&plan.spec, &v.id) {
+        if !shaded {
             thin.extend(local_thin);
         }
         thin.extend(geometry.breaks.into_iter().map(Item::Edge));
@@ -12031,6 +12085,7 @@ fn render_annotations_with_cuts(
         sheet,
         problems: crate::output::undrawn(&undrawn)
             .into_iter()
+            .chain(shaded_problems)
             .chain(if plan.spec.views.sections.is_empty() {
                 Vec::new()
             } else {

@@ -1442,15 +1442,26 @@ pub(crate) fn reflow_outside_auxiliaries(analysis: &Analysis, source: &Plan) -> 
     // has already been clipped to its old frame.
     crate::centrelines::plan(analysis, &mut source.views);
     crate::centrelines::unused_origins(&mut source.views, &source.dimensions);
-    source.views.sort_by_key(|v| v.id == "v:iso");
+    source
+        .views
+        .sort_by_key(|v| matches!(v.id.as_str(), "v:iso" | "v:iso_below"));
     // Try moving only auxiliaries first. Their estimated right-hand row is
     // not a required projection relation; principal alignments remain exact.
     let mut relocated = source.clone();
-    let movable: Vec<_> = relocated
+    let paired = source.views.iter().any(|v| v.id == "v:iso")
+        && source.views.iter().any(|v| v.id == "v:iso_below");
+    let movable: Vec<Vec<String>> = relocated
         .views
         .iter()
-        .filter(|v| v.cut.is_some() || v.id == "v:iso")
-        .map(|v| v.id.clone())
+        .filter(|v| v.cut.is_some() || matches!(v.id.as_str(), "v:iso" | "v:iso_below"))
+        .filter(|v| !paired || v.id != "v:iso_below")
+        .map(|v| {
+            if paired && v.id == "v:iso" {
+                vec![v.id.clone(), "v:iso_below".into()]
+            } else {
+                vec![v.id.clone()]
+            }
+        })
         .collect();
     let owned = |plan: &Plan, keep: &dyn Fn(&str) -> bool| {
         let mut p = plan.clone();
@@ -1483,22 +1494,22 @@ pub(crate) fn reflow_outside_auxiliaries(analysis: &Analysis, source: &Plan) -> 
     ];
     let mut placed = Vec::new();
     let mut complete = true;
-    for id in &movable {
+    for group in &movable {
         // Per-view schedules need the allocator's coupled transport below.
         if source
             .hole_tables
             .iter()
-            .any(|t| t.view.as_deref() == Some(id))
+            .any(|t| t.view.as_ref().is_some_and(|id| group.contains(id)))
         {
             complete = false;
             break;
         }
         let retained = owned(&relocated, &|v| {
-            !movable.iter().any(|m| m == v) || placed.iter().any(|m| m == v)
+            !movable.iter().flatten().any(|m| m == v) || placed.iter().any(|m| m == v)
         });
         let mut obstacles = crate::sheet_fit::view_ink(analysis, &retained);
         obstacles.extend(fixed_ink.iter().copied());
-        let own = owned(&relocated, &|v| v == id);
+        let own = owned(&relocated, &|v| group.iter().any(|id| id == v));
         let Some(bounds) = crate::sheet_fit::view_ink(analysis, &own)
             .into_iter()
             .reduce(|a, b| {
@@ -1525,12 +1536,16 @@ pub(crate) fn reflow_outside_auxiliaries(analysis: &Analysis, source: &Plan) -> 
         };
         let mut areas: Vec<_> = relocated.views.iter().map(|v| v.area).collect();
         let mut deltas = vec![[0., 0.]; areas.len()];
-        let i = relocated.views.iter().position(|v| &v.id == id)?;
-        relocated.views[i].area = bounds;
-        areas[i] = bounds;
-        deltas[i] = [at[0] - bounds[0], at[1] - bounds[1]];
+        for id in group {
+            let i = relocated.views.iter().position(|v| &v.id == id)?;
+            if group.len() == 1 {
+                relocated.views[i].area = bounds;
+                areas[i] = bounds;
+            }
+            deltas[i] = [at[0] - bounds[0], at[1] - bounds[1]];
+        }
         crate::view_gutters::transport(analysis, &mut relocated, areas, deltas);
-        placed.push(id.clone());
+        placed.extend(group.iter().cloned());
     }
     if complete
         && model::finished_items_fit(analysis, &relocated)
@@ -1548,6 +1563,11 @@ pub(crate) fn reflow_outside_auxiliaries(analysis: &Analysis, source: &Plan) -> 
         relocated.sheet.basis += "; complete auxiliary ink relocated into vacant same-sheet space";
         relocated.status = crate::completeness::status(&relocated.problems);
         return Some(relocated);
+    }
+    // The generic allocator below packs views independently. A paired pictorial is
+    // one rigid block; leave recovery to the larger-paper trials if that block cannot fit.
+    if paired {
+        return None;
     }
     for tier in 0..=8 {
         if let Some(mut plan) = separate_views_inner(
@@ -2900,6 +2920,56 @@ pub(crate) fn overlap(a: [f64; 4], b: [f64; 4]) -> bool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn spilling_section_reflow_transports_both_pictorials_as_one_block() {
+        let (_, a) = model::analyse_native(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/parts/plate.step"),
+        )
+        .unwrap();
+        let spec: Spec = serde_json::from_value(json!({"sheet":{"size":"A1","scale":"1:2"},"views":{"iso":{"style":"shaded"},"iso_below":{"style":"shaded"}}})).unwrap();
+        let mut p = model::plan(&a, &spec).unwrap();
+        let mut section = p.views.iter().find(|v| v.id == "v:front").unwrap().clone();
+        section.id = "v:section_aa".into();
+        section.cut = Some(model::Cut {
+            label: "A".into(),
+            origin: [0.; 3],
+            normal: [0., -1., 0.],
+            marked_in: "v:plan".into(),
+            xref: None,
+        });
+        let dx = p.sheet.page[0];
+        section.at[0] += dx;
+        section.area[0] += dx;
+        section.area[2] += dx;
+        p.views.push(section);
+        let pair = |p: &Plan| {
+            let top = p.views.iter().find(|v| v.id == "v:iso").unwrap();
+            let bottom = p.views.iter().find(|v| v.id == "v:iso_below").unwrap();
+            (
+                [bottom.at[0] - top.at[0], bottom.at[1] - top.at[1]],
+                [top.scale, bottom.scale],
+            )
+        };
+        let before = pair(&p);
+        let recovered = reflow_outside_auxiliaries(&a, &p)
+            .expect("section and coupled pictorial block fit spare A1 paper");
+        let after = pair(&recovered);
+        for k in 0..2 {
+            assert!((before.0[k] - after.0[k]).abs() < 1e-9);
+        }
+        assert_eq!(before.1, after.1);
+        assert!(model::finished_items_fit(&a, &recovered));
+        assert!(model::carries_required(&p, &recovered));
+        let top = recovered.views.iter().find(|v| v.id == "v:iso").unwrap();
+        let bottom = recovered
+            .views
+            .iter()
+            .find(|v| v.id == "v:iso_below")
+            .unwrap();
+        assert!(!overlap(top.area, bottom.area));
+        assert!(recovered.sheet.basis.contains("auxiliary ink relocated"));
+    }
     #[test]
     fn issue109_sheet_relations_distinguish_projection_from_legacy_area_alignment() {
         // Captured issue areas reproduce the editor's shifts exactly in the area resolver.

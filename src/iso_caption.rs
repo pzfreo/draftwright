@@ -77,17 +77,42 @@ pub(crate) fn plan(
     views: &[PlannedView],
     ink: &[PlannedDimension],
 ) -> Vec<PlannedCaption> {
-    let Some(iso) = views
+    let mut captions = Vec::new();
+    let mut ink = ink.to_vec();
+    for view in views
         .iter()
-        .find(|v| {
-            v.id == "v:iso"
-                && v.sheet == sheet.number
-                && (v.scale / sheet.scale_factor - 1.0).abs() >= 1e-6
-        })
-        .filter(|_| analysis.drawing_iso_bounds() != [0.0; 4])
-    else {
-        return Vec::new();
-    };
+        .filter(|v| matches!(v.id.as_str(), "v:iso" | "v:iso_below") && v.sheet == sheet.number)
+    {
+        let isometric = {
+            let d = view.direction.map(f64::abs);
+            (d[0] - d[1]).abs() <= 1e-9 * d[0] && (d[0] - d[2]).abs() <= 1e-9 * d[0]
+        };
+        if view.id == "v:iso" && isometric && (view.scale / sheet.scale_factor - 1.).abs() < 1e-6 {
+            continue;
+        }
+        if analysis.drawing_iso_bounds() == [0.; 4] {
+            continue;
+        }
+        let text = match (isometric, view.id == "v:iso_below") {
+            (true, false) => NTS_CAPTION,
+            (true, true) => "ISO VIEW FROM BELOW (NTS)",
+            (false, false) => "PICTORIAL VIEW (NTS)",
+            (false, true) => "PICTORIAL VIEW FROM BELOW (NTS)",
+        };
+        let caption = plan_one(analysis, sheet, views, &ink, view, text);
+        ink.push(proxy(&caption));
+        captions.push(caption);
+    }
+    captions
+}
+fn plan_one(
+    analysis: &Analysis,
+    sheet: &PlannedSheet,
+    views: &[PlannedView],
+    ink: &[PlannedDimension],
+    iso: &PlannedView,
+    text: &str,
+) -> PlannedCaption {
     let mut obstacles: Vec<_> = views
         .iter()
         .filter(|v| v.sheet == sheet.number)
@@ -136,7 +161,7 @@ pub(crate) fn plan(
         }));
     }
     let height = crate::section::FONT_SIZE;
-    let laid = crate::dims::font().text(NTS_CAPTION, height);
+    let laid = crate::dims::font().text(text, height);
     let size = [laid.max[0] - laid.min[0], laid.max[1] - laid.min[1]];
     let at = crate::model::nts_caption_at(
         sheet.page,
@@ -145,11 +170,15 @@ pub(crate) fn plan(
         size,
         &obstacles,
     );
-    vec![PlannedCaption {
-        id: NTS_CAPTION_ID.into(),
+    PlannedCaption {
+        id: if iso.id == "v:iso" {
+            NTS_CAPTION_ID.into()
+        } else {
+            "note_iso_below_nts".into()
+        },
         view: iso.id.clone(),
         sheet: iso.sheet,
-        text: NTS_CAPTION.into(),
+        text: text.into(),
         height,
         at,
         ink: [
@@ -161,7 +190,7 @@ pub(crate) fn plan(
         default: true,
         basis: "the drawn isometric scale differs from the sheet scale".into(),
         state: State::Shown,
-    }]
+    }
 }
 
 /// Text and cutting-plane furniture use the same font, anchors and settled line work as

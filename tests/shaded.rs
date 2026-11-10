@@ -50,6 +50,8 @@ fn shaded_iso_is_vector_coloured_and_has_only_visible_hlr_edges() {
     let svg = d.svg();
     assert!(svg.contains("id=\"shaded-iso-"));
     assert!(!svg.contains("<image"));
+    assert_eq!(svg.matches("<g id=\"shaded-iso-view\"").count(), 1);
+    assert!(svg.contains("Z\" />"));
     assert!(svg.find("id=\"shaded-iso-").unwrap() < svg.find("id=\"part\"").unwrap());
     let pdf = d.pdf(&|name| (name == "IBMPlexMono-Regular.ttf").then(|| api::MONO.to_vec()));
     assert!(
@@ -138,4 +140,71 @@ fn session_style_colour_and_camera_changes_replay_and_undo() {
     );
     s.undo().unwrap();
     assert_eq!(shaded, s.drawing().svg());
+}
+
+#[test]
+fn both_pictorial_captions_follow_camera_and_avoid_each_other_and_ink() {
+    let (_, a) = plate();
+    for (direction, top, below) in [
+        ([1, -1, 1], "ISO VIEW (NTS)", "ISO VIEW FROM BELOW (NTS)"),
+        (
+            [2, -1, 1],
+            "PICTORIAL VIEW (NTS)",
+            "PICTORIAL VIEW FROM BELOW (NTS)",
+        ),
+    ] {
+        let spec = serde_json::from_value(json!({"sheet":{"size":"A2","scale":"1:2"},"views":{"iso":{"style":"shaded","direction":direction},"iso_below":{"style":"shaded","direction":[direction[0], direction[1], -direction[2]]}}})).unwrap();
+        let p = model::plan_recovered(&a, &spec).unwrap();
+        let captions: Vec<_> = ["v:iso", "v:iso_below"]
+            .map(|id| p.captions.iter().find(|c| c.view == id).unwrap())
+            .into();
+        assert_eq!((&*captions[0].text, &*captions[1].text), (top, below));
+        let overlaps =
+            |a: [f64; 4], b: [f64; 4]| a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+        assert!(!overlaps(captions[0].ink, captions[1].ink));
+        for c in &captions {
+            assert!(!overlaps(c.ink, p.sheet.title_block));
+            assert!(p.views.iter().all(|v| v.scale_note.is_none()));
+            assert!(
+                p.dimensions
+                    .iter()
+                    .filter_map(|d| d.placed.as_ref())
+                    .all(|d| !overlaps(c.ink, d.label_box))
+            );
+        }
+    }
+}
+#[test]
+fn editor_can_pin_either_or_both_pictorials_without_invalidating_the_spec() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
+    let spec = serde_json::from_value(json!({"sheet":{"size":"A2","scale":"1:2"},"views":{"iso":{"style":"shaded"},"iso_below":{"style":"shaded"}}})).unwrap();
+    let mut s = Session::open(&path, api::Features::None, spec).unwrap();
+    for (name, anchor, side) in [("iso", "plan", "right"), ("iso_below", "iso", "below")] {
+        s.apply(
+            &[Op::set(
+                &format!("views/{name}/place"),
+                json!({"relative_to":anchor,"side":side,"gap":5,"pinned":true}),
+            )],
+            true,
+        )
+        .unwrap();
+        let p = s.plan();
+        let a = p.views.iter().find(|v| v.id == "v:iso").unwrap();
+        let b = p.views.iter().find(|v| v.id == "v:iso_below").unwrap();
+        assert!(
+            !(a.area[0] < b.area[2]
+                && b.area[0] < a.area[2]
+                && a.area[1] < b.area[3]
+                && b.area[1] < a.area[3])
+        );
+        assert!(
+            p.problems
+                .iter()
+                .all(|p| p.code != "pictorial_placement_unresolved")
+        );
+        assert!(s.drawing().svg().contains("shaded-iso_below-view"));
+    }
+    s.undo().unwrap();
+    s.undo().unwrap();
+    assert!(s.plan().spec.views.values().all(|v| v.place.is_none()));
 }

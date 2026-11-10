@@ -7,7 +7,7 @@ use crate::{
 use haecceity::{
     Part,
     geom::{cross, dot, norm, sub, unit},
-    hlr::{Unresolved, View},
+    hlr::View,
 };
 use serde::{Deserialize, Serialize};
 type P = [f64; 3];
@@ -58,9 +58,9 @@ pub(crate) fn check(spec: &Spec) -> Result<(), Invalid> {
                 "Pictorial direction must be finite, nonzero and not parallel to Z (up).",
             ));
         }
-        if name == "iso_below" && (s.place.is_some() || s.sheet.is_some()) {
+        if name == "iso_below" && s.sheet.is_some_and(|n| n > 1) {
             return Err(error(
-                "iso_below shares the iso's sheet and reserved area; place the iso instead.",
+                "iso_below shares sheet 1 with iso; remove views/iso_below/sheet or choose sheet 1.",
             ));
         }
     }
@@ -68,14 +68,14 @@ pub(crate) fn check(spec: &Spec) -> Result<(), Invalid> {
         && (spec
             .views
             .get("iso")
-            .is_some_and(|s| s.place.is_some() || s.sheet.is_some_and(|n| n > 1))
+            .is_some_and(|s| s.sheet.is_some_and(|n| n > 1))
             || spec
                 .sheets
                 .as_ref()
                 .and_then(|s| s.max)
                 .is_some_and(|n| n > 1))
     {
-        return Err(crate::model::invalid("Paired pictorials use the automatic single-sheet iso zone; remove the iso placement/sheet assignment or omit iso_below.", &[]).at("views", "iso_below"));
+        return Err(crate::model::invalid("Paired pictorials use the automatic single-sheet iso zone; remove the iso sheet assignment and sheets/max, or omit iso_below.", &[]).at("views", "iso_below"));
     }
     for (id, d) in &spec.dimensions {
         let view = d
@@ -171,9 +171,6 @@ pub(crate) fn configure(
             (v.area[0] + v.area[2]) / 2.,
             (v.area[1] + v.area[3]) / 2. + 3.,
         ];
-        if v.id == "v:iso_below" {
-            v.scale_note = Some("NOT TO SCALE".into());
-        }
         v.default = false;
         v.basis += "; pictorial camera fitted within the existing iso zone (shared when iso_below is requested)";
         if direction.is_some() {
@@ -246,24 +243,51 @@ fn merge(a: &Patch, b: &Patch, eps: f64) -> Option<Patch> {
     }
     None
 }
-fn merge_face(mut patches: Vec<Patch>, eps: f64) -> Vec<Patch> {
-    // Stable greedy convex decomposition; merging never crosses a B-rep face boundary.
-    let mut i = 0;
-    while i < patches.len() {
-        let mut j = i + 1;
-        while j < patches.len() {
-            if let Some(p) = merge(&patches[i], &patches[j], eps) {
-                patches[i] = p;
-                patches.remove(j);
-                j = i + 1;
-            } else {
-                j += 1;
-            }
+fn merge_face(patches: Vec<Patch>, eps: f64) -> Vec<Patch> {
+    // Stable greedy decomposition, considering only shared-edge neighbours. Remaining
+    // patches are original mesh triangles: their exact shared vertex coordinates provide
+    // an adjacency index, so every merge need not rescan all unrelated triangles.
+    type Edge = ([u64; 3], [u64; 3]);
+    let key = |p: P| p.map(|x| if x == 0. { 0 } else { x.to_bits() });
+    let mut edges: std::collections::HashMap<Edge, Vec<usize>> = std::collections::HashMap::new();
+    for (i, p) in patches.iter().enumerate() {
+        for j in 0..p.points.len() {
+            edges
+                .entry((key(p.points[j]), key(p.points[(j + 1) % p.points.len()])))
+                .or_default()
+                .push(i);
         }
-        i += 1;
     }
-    patches
+    let mut patches: Vec<_> = patches.into_iter().map(Some).collect();
+    for i in 0..patches.len() {
+        let Some(mut p) = patches[i].take() else {
+            continue;
+        };
+        loop {
+            let candidates: std::collections::BTreeSet<_> = (0..p.points.len())
+                .flat_map(|j| {
+                    edges
+                        .get(&(key(p.points[(j + 1) % p.points.len()]), key(p.points[j])))
+                        .into_iter()
+                        .flatten()
+                        .copied()
+                })
+                .filter(|&j| j > i && patches[j].is_some())
+                .collect();
+            let merged = candidates
+                .into_iter()
+                .find_map(|j| merge(&p, patches[j].as_ref().unwrap(), eps).map(|p| (j, p)));
+            let Some((j, joined)) = merged else {
+                break;
+            };
+            p = joined;
+            patches[j] = None;
+        }
+        patches[i] = Some(p);
+    }
+    patches.into_iter().flatten().collect()
 }
+
 fn split(
     p: Patch,
     normal: P,
@@ -311,7 +335,16 @@ fn split(
 
 /// Iterative BSP traversal (no native/WASM call-stack growth). Crossing faces and visibility
 /// cycles are split. Refuse pathological fragment growth rather than silently misorder faces.
+#[cfg(test)]
 fn ordered(patches: Vec<Patch>, toward: P, eps: f64) -> Result<Vec<Patch>, ()> {
+    ordered_with_limit(patches, toward, eps, 200_000)
+}
+fn ordered_with_limit(
+    patches: Vec<Patch>,
+    toward: P,
+    eps: f64,
+    limit: usize,
+) -> Result<Vec<Patch>, ()> {
     enum Task {
         Sort(Vec<Patch>),
         Emit(Vec<Patch>),
@@ -334,7 +367,7 @@ fn ordered(patches: Vec<Patch>, toward: P, eps: f64) -> Result<Vec<Patch>, ()> {
                     if b.is_some() && f.is_some() {
                         fragments += 1;
                     }
-                    if fragments > 200_000 {
+                    if fragments > limit {
                         return Err(());
                     }
                     back.extend(b);
@@ -353,58 +386,89 @@ fn ordered(patches: Vec<Patch>, toward: P, eps: f64) -> Result<Vec<Patch>, ()> {
     Ok(out)
 }
 
+/// A plan/cache shares one tessellation across all pictorial cameras and colour edits.
+#[derive(Clone, Debug)]
+pub(crate) struct Mesh {
+    faces: Vec<(usize, Vec<Patch>)>,
+    refused: Vec<usize>,
+    eps: f64,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Unresolved {
+    pub faces: Vec<usize>,
+    pub reason: String,
+}
+impl Mesh {
+    pub(crate) fn new(part: &Part, a: &Analysis) -> Self {
+        let diagonal = norm(sub(a.envelope[1], a.envelope[0]));
+        let eps = (diagonal * 1e-9).max(1e-9);
+        let mut faces = Vec::new();
+        let mut refused = Vec::new();
+        let drawn = crate::quiddity_evidence::drawn_faces(part);
+        for (face, mesh) in part
+            .mesh((diagonal * 0.001).max(1e-5), 0.3)
+            .into_iter()
+            .enumerate()
+        {
+            if !drawn.contains(&face) {
+                continue;
+            }
+            let Ok(mesh) = mesh else {
+                refused.push(face);
+                continue;
+            };
+            if !mesh.converged || mesh.folded_dropped.0 > 0 {
+                refused.push(face);
+                continue;
+            }
+            let triangles = mesh
+                .triangles
+                .iter()
+                .filter_map(|t| {
+                    let points = t.map(|i| mesh.points[i]);
+                    let normal = unit(cross(sub(points[1], points[0]), sub(points[2], points[0])))?;
+                    Some(Patch {
+                        points: points.to_vec(),
+                        normal,
+                    })
+                })
+                .collect();
+            // Visibility is constant on each coplanar patch; merge once for all cameras.
+            faces.push((face, merge_face(triangles, eps)));
+        }
+        Self {
+            faces,
+            refused,
+            eps,
+        }
+    }
+}
 pub(crate) fn render(
-    part: &Part,
+    mesh: &Mesh,
     a: &Analysis,
     v: &PlannedView,
     spec: &Spec,
+    limit: usize,
 ) -> Result<Vec<Polygon>, Unresolved> {
     let camera = View::new(v.direction, v.up).expect("validated pictorial camera");
-    let diagonal = norm(sub(a.envelope[1], a.envelope[0]));
-    let eps = (diagonal * 1e-9).max(1e-9);
-    let mut patches = Vec::new();
-    let mut refused = Vec::new();
-    let drawn = crate::quiddity_evidence::drawn_faces(part);
-    for (face, mesh) in part
-        .mesh((diagonal * 0.001).max(1e-5), 0.3)
-        .into_iter()
-        .enumerate()
-    {
-        if !drawn.contains(&face) {
-            continue;
-        }
-        let Ok(mesh) = mesh else {
-            refused.push(face);
-            continue;
-        };
-        if !mesh.converged || mesh.folded_dropped.0 > 0 {
-            refused.push(face);
-            continue;
-        }
-        let triangles = mesh
-            .triangles
-            .iter()
-            .filter_map(|t| {
-                let points = t.map(|i| mesh.points[i]);
-                let normal = unit(cross(sub(points[1], points[0]), sub(points[2], points[0])))?;
-                (dot(normal, camera.toward) > 1e-9).then(|| Patch {
-                    points: points.to_vec(),
-                    normal,
-                })
-            })
-            .collect();
-        patches.extend(merge_face(triangles, eps));
-    }
-    if !refused.is_empty() {
+    if !mesh.refused.is_empty() {
         return Err(Unresolved {
-            faces: refused,
-            edges: Vec::new(),
+            faces: mesh.refused.clone(),
+            reason: "incomplete or folded tessellation".into(),
         });
     }
-    let sorted = ordered(patches, camera.toward, eps).map_err(|()| Unresolved {
-        faces: drawn,
-        edges: Vec::new(),
-    })?;
+    let patches = mesh
+        .faces
+        .iter()
+        .flat_map(|(_, p)| p)
+        .filter(|p| dot(p.normal, camera.toward) > 1e-9)
+        .cloned()
+        .collect();
+    let sorted =
+        ordered_with_limit(patches, camera.toward, mesh.eps, limit).map_err(|()| Unresolved {
+            faces: mesh.faces.iter().map(|(face, _)| *face).collect(),
+            reason: format!("BSP split-fragment limit ({limit}) exceeded"),
+        })?;
     let colour = spec
         .views
         .get(v.id.trim_start_matches("v:"))
@@ -574,6 +638,106 @@ mod tests {
         assert!(ring.len() < 8);
         assert!(ring.iter().all(|p| depth(p, 0.013, 0.017).is_none()));
         assert!(ring.iter().any(|p| depth(p, 1.5, 0.1).is_some()));
+    }
+    #[test]
+    fn unresolved_shading_preserves_spec_lines_drawing_and_cached_warning() {
+        let (part, a) = crate::model::analyse_native(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/parts/plate.step"),
+        )
+        .unwrap();
+        let spec: Spec = serde_json::from_value(
+            serde_json::json!({"views":{"iso":{"style":"shaded","hidden":true}}}),
+        )
+        .unwrap();
+        let plan = crate::model::plan(&a, &spec).unwrap();
+        let v = plan.views.iter().find(|v| v.id == "v:iso").unwrap();
+        let camera = View::new(v.direction, v.up).unwrap();
+        let camera_triangle = |points: [P; 3]| {
+            triangle(points.map(|p| {
+                std::array::from_fn(|k| {
+                    p[0] * camera.x[k] + p[1] * camera.y[k] + p[2] * camera.toward[k]
+                })
+            }))
+        };
+        let mesh = Mesh {
+            faces: vec![(
+                17,
+                vec![
+                    camera_triangle([[-2., -2., -2.], [2., -2., 2.], [0., 2., 0.]]),
+                    camera_triangle([[-2., -2., 2.], [2., -2., -2.], [0., 2., 0.]]),
+                ],
+            )],
+            refused: Vec::new(),
+            eps: 1e-9,
+        };
+        for incomplete in [false, true] {
+            let mut mesh = mesh.clone();
+            if incomplete {
+                mesh.refused.push(23);
+            }
+            let mut cache = crate::model::Projections::default();
+            cache.shaded_test_mesh(&a, &spec, mesh, 0);
+            let geometry = crate::model::render_geometry(&part, &a, &plan, &mut cache).unwrap();
+            let failed = &geometry
+                .views
+                .iter()
+                .find(|(id, _)| id == "v:iso")
+                .unwrap()
+                .1;
+            assert!(failed.shaded.is_empty());
+            assert!(!failed.visible.is_empty());
+            assert!(!failed.hidden.is_empty());
+            let warning = failed.shaded_unresolved.as_ref().unwrap();
+            assert_eq!(warning.faces, if incomplete { vec![23] } else { vec![17] });
+            assert!(warning.reason.contains(if incomplete {
+                "tessellation"
+            } else {
+                "limit (0)"
+            }));
+            let font = crate::text::Font::new(crate::api::MONO.to_vec()).unwrap();
+            let drawing = crate::model::render_with(&part, &a, &plan, &font, &mut cache).unwrap();
+            assert_eq!(drawing.sheet.views.len(), plan.views.len());
+            let problem = drawing
+                .problems
+                .iter()
+                .find(|p| p.code == "shaded_view_unresolved")
+                .unwrap();
+            assert_eq!(problem.severity, "warning");
+            assert!(problem.message.contains(&warning.reason));
+            assert!(drawing.spec.as_ref().unwrap().contains("shaded"));
+            let mut replay =
+                crate::model::Projections::from_disk(&cache.disk_bytes().unwrap()).unwrap();
+            let again = crate::model::render_with(&part, &a, &plan, &font, &mut replay).unwrap();
+            assert_eq!(drawing.svg(), again.svg());
+            assert_eq!(
+                serde_json::to_value(&drawing.problems).unwrap(),
+                serde_json::to_value(&again.problems).unwrap()
+            );
+            let mut wire = plan.clone();
+            wire.spec.views.get_mut("iso").unwrap().style = None;
+            let ordinary = crate::model::render_geometry(
+                &part,
+                &a,
+                &wire,
+                &mut crate::model::Projections::default(),
+            )
+            .unwrap();
+            let ordinary = &ordinary
+                .views
+                .iter()
+                .find(|(id, _)| id == "v:iso")
+                .unwrap()
+                .1;
+            assert_eq!(
+                serde_json::to_value(&failed.visible).unwrap(),
+                serde_json::to_value(&ordinary.visible).unwrap()
+            );
+            assert_eq!(
+                serde_json::to_value(&failed.hidden).unwrap(),
+                serde_json::to_value(&ordinary.hidden).unwrap()
+            );
+        }
     }
     #[test]
     fn lambert_is_bounded_directional_and_preserves_colour_ratios() {

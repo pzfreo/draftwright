@@ -498,7 +498,11 @@ pub(crate) fn views(
                 let occupied: Vec<_> = c
                     .views
                     .iter()
-                    .filter(|v| v.id != "v:iso")
+                    .filter(|v| {
+                        v.id != "v:iso"
+                            && !(v.id == "v:iso_below"
+                                && s.views.get("iso_below").is_none_or(|v| v.place.is_none()))
+                    })
                     .map(|v| {
                         if s.views
                             .get(v.id.trim_start_matches("v:"))
@@ -557,6 +561,52 @@ pub(crate) fn views(
             views[i].default = false;
             views[i].basis += "; placed relative to its anchor by the spec";
             resolved.insert(name);
+        }
+    }
+    // Dragging either pictorial leaves its unpinned partner automatic. Find room using
+    // settled peer reservations rather than rejecting a valid editor placement.
+    for (name, partner) in [("iso_below", "iso"), ("iso", "iso_below")] {
+        if s.views.get(name).is_some_and(|v| v.place.is_some())
+            || !s.views.get(partner).is_some_and(|v| v.place.is_some())
+        {
+            continue;
+        }
+        let Some(i) = views.iter().position(|v| v.id == format!("v:{name}")) else {
+            continue;
+        };
+        let occupied: Vec<_> = views
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, v)| v.area)
+            .chain([sheet.title_block])
+            .chain(obstacles.iter().copied())
+            .collect();
+        let region = [
+            crate::layout::FRAME,
+            crate::layout::FRAME,
+            page[0] - crate::layout::FRAME,
+            page[1] - crate::layout::FRAME,
+        ];
+        let a = views[i].area;
+        let size = [a[2] - a[0], a[3] - a[1]];
+        let fit = crate::layout::largest_empty_rect(region, &occupied, size);
+        if fit[2] > fit[0] && fit[3] > fit[1] && !occupied.iter().any(|b| overlap(fit, *b)) {
+            let factor = ((fit[2] - fit[0]) / size[0])
+                .min((fit[3] - fit[1]) / size[1])
+                .min(1.);
+            let v = &mut views[i];
+            let centre = [0, 1].map(|k| (fit[k] + fit[k + 2]) / 2.);
+            v.at = [0, 1].map(|k| centre[k] + factor * (v.at[k] - (a[k] + a[k + 2]) / 2.));
+            v.area = [
+                centre[0] - factor * size[0] / 2.,
+                centre[1] - factor * size[1] / 2.,
+                centre[0] + factor * size[0] / 2.,
+                centre[1] + factor * size[1] / 2.,
+            ];
+            v.scale *= factor;
+        } else {
+            problems.push(problem(&views[i].id, "pictorial_placement_unresolved", format!("No space remains for {name}; move the pinned {partner}, enlarge the paper or omit {name}."), &format!("views/{partner}/place")));
         }
     }
     for (name, v) in &s.views {
