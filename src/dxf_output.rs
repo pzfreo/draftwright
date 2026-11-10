@@ -24,11 +24,49 @@ pub struct Structure {
     pub views: Vec<ViewItems>,
     pub annotations: BTreeMap<String, Range<usize>>,
     pub furniture: BTreeMap<String, Range<usize>>,
-    pub dimensions: BTreeMap<String, PlannedDimension>,
+    pub dimensions: BTreeMap<String, Dimension>,
     pub title: Range<usize>,
     pub labels: Vec<TextRun>,
     pub title_fields: Vec<(String, TextRun)>,
 }
+/// Only the plan fields needed by DXF: avoid cloning planning explanations,
+/// claims and placement history on the SVG/PDF/PNG path.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Dimension {
+    pub kind: String,
+    pub view: String,
+    pub value: f64,
+    pub label: String,
+    pub placed: Option<crate::dims::Placed>,
+    pub diameter: bool,
+    pub radial: bool,
+}
+impl From<&PlannedDimension> for Dimension {
+    fn from(d: &PlannedDimension) -> Self {
+        let diameter = d.label.contains('⌀')
+            && d.measurements
+                .iter()
+                .any(|m| m.parameter.contains(".diameter") && (m.value - d.value).abs() < 1e-5);
+        let radial = d.terms.iter().any(|t| {
+            t.trim_start_matches('(')
+                .strip_prefix('R')
+                .is_some_and(|n| n.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        }) && d
+            .measurements
+            .iter()
+            .any(|m| m.parameter.contains(".radius") && (m.value - d.value).abs() < 1e-5);
+        Self {
+            kind: d.kind.clone(),
+            view: d.view.clone(),
+            value: d.value,
+            label: d.label.clone(),
+            placed: d.placed.clone(),
+            diameter,
+            radial,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HatchRegion {
     pub view: String,
@@ -208,7 +246,16 @@ impl Writer {
                     // DXF requires the major axis first, even for vertically long ellipses.
                     let swap = radii[1] > radii[0];
                     let (axis, major, minor, shift) = if swap {
-                        (*y_axis, radii[1], radii[0], -std::f64::consts::FRAC_PI_2)
+                        (
+                            *y_axis,
+                            radii[1],
+                            radii[0],
+                            if ccw {
+                                -std::f64::consts::FRAC_PI_2
+                            } else {
+                                std::f64::consts::FRAC_PI_2
+                            },
+                        )
                     } else {
                         (*x_axis, radii[0], radii[1], 0.)
                     };
@@ -425,7 +472,7 @@ fn safe_name(s: &str) -> String {
 
 /// Definition points from the actual placed witnesses. Broken views remain grouped:
 /// their discontinuous geometry cannot state a true measurement with one DIMLFAC.
-fn dimension(d: &PlannedDimension, drawing: &Drawing) -> Option<(i32, Vec<P>, f64)> {
+fn dimension(d: &Dimension, drawing: &Drawing) -> Option<(i32, Vec<P>, f64)> {
     let p = d.placed.as_ref()?;
     let frame = drawing.sheet.frames.get(d.view.trim_start_matches("v:"))?;
     if frame.broken.is_some() {
@@ -479,11 +526,7 @@ fn dimension(d: &PlannedDimension, drawing: &Drawing) -> Option<(i32, Vec<P>, f6
         if (measure / frame.scale - d.value).abs() > 1e-4 {
             return None;
         }
-        if d.label.contains('⌀')
-            && d.measurements
-                .iter()
-                .any(|m| m.parameter.contains(".diameter") && (m.value - d.value).abs() < 1e-5)
-        {
+        if d.diameter {
             return Some((3, vec![ends[0], ends[1]], 1. / frame.scale));
         }
         return Some((
@@ -494,18 +537,8 @@ fn dimension(d: &PlannedDimension, drawing: &Drawing) -> Option<(i32, Vec<P>, f6
     }
     // A manufacturing label can override a proven primary radius/diameter.
     // Its additional requirements stay editable in the same DIMENSION text.
-    let diameter = d.label.contains('⌀')
-        && d.measurements
-            .iter()
-            .any(|m| m.parameter.contains(".diameter") && (m.value - d.value).abs() < 1e-5);
-    let radial = d.terms.iter().any(|t| {
-        t.trim_start_matches('(')
-            .strip_prefix('R')
-            .is_some_and(|n| n.chars().next().is_some_and(|c| c.is_ascii_digit()))
-    }) && d
-        .measurements
-        .iter()
-        .any(|m| m.parameter.contains(".radius") && (m.value - d.value).abs() < 1e-5);
+    let diameter = d.diameter;
+    let radial = d.radial;
     if diameter || radial {
         let radius = if radial { d.value } else { d.value / 2. };
         let tip = p.arrows.first()?[0];

@@ -12226,7 +12226,7 @@ fn render_annotations_with_cuts(
         .dimensions
         .iter()
         .filter(|d| d.placed.is_some())
-        .map(|d| (d.id.clone(), d.clone()))
+        .map(|d| (d.id.clone(), crate::dxf_output::Dimension::from(d)))
         .collect();
     Ok(Drawing {
         page: plan.sheet.page,

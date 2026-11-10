@@ -629,6 +629,41 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
     ] {
         assert!(d.styles().any(|s| s.primary_font_file_name == font));
     }
+    // A clockwise ellipse with the longer radius on its second axis must retain
+    // the same arc after DXF's mandatory major-axis normalization.
+    let mut elliptical = drawing.clone();
+    let curve = Curve::Conic {
+        centre: [12., 34.],
+        radii: [2., 4.],
+        x_axis: [1., 0.],
+        y_axis: [0., -1.],
+        t0: 0.4,
+        t1: 1.2,
+    };
+    elliptical.layers[0].items.push(Item::Edge(curve.clone()));
+    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(elliptical.dxf())).unwrap();
+    let e = parsed
+        .entities()
+        .find_map(|e| {
+            if let E::Ellipse(e) = &e.specific {
+                Some(e)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let at = |t: f64| {
+        [
+            e.center.x + e.major_axis.x * t.cos() - e.major_axis.y * e.minor_axis_ratio * t.sin(),
+            e.center.y + e.major_axis.y * t.cos() + e.major_axis.x * e.minor_axis_ratio * t.sin(),
+        ]
+    };
+    for (a, b) in [
+        (at(e.start_parameter), curve.end()),
+        (at(e.end_parameter), curve.start()),
+    ] {
+        assert!((a[0] - b[0]).hypot(a[1] - b[1]) < 1e-10);
+    }
     // A leader's sampled rim may be slightly off the analytic circle. Native
     // dimension definitions still measure the exact bore, rather than that sample.
     let mut sampled = drawing.clone();
