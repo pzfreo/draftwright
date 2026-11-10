@@ -565,6 +565,7 @@ pub(crate) fn views(
     }
     // Dragging either pictorial leaves its unpinned partner automatic. Find room using
     // settled peer reservations rather than rejecting a valid editor placement.
+    let mut held_pictorials = BTreeSet::new();
     for (name, partner) in [("iso_below", "iso"), ("iso", "iso_below")] {
         if s.views.get(name).is_some_and(|v| v.place.is_some())
             || !s.views.get(partner).is_some_and(|v| v.place.is_some())
@@ -622,6 +623,8 @@ pub(crate) fn views(
                     "iso_scale_factor",
                 );
                 finding.fix = vec![Op::remove("iso_scale_factor")];
+                // Keep the later generic obstacle fitter from shrinking this authored frame.
+                held_pictorials.insert(views[i].id.clone());
                 problems.push(finding);
                 continue;
             }
@@ -729,6 +732,7 @@ pub(crate) fn views(
         })
         .map(|(n, _)| format!("v:{n}"))
         .collect();
+    fixed.extend(held_pictorials);
     if s.views.values().any(|v| {
         v.place
             .as_ref()
