@@ -24,9 +24,14 @@ pub fn inputs(root: &Path) -> io::Result<Vec<PathBuf>> {
         }
         Ok(())
     }
-    let mut files = ["Cargo.toml", "Cargo.lock", "build.rs", "build_support.rs"]
+    let mut files = ["Cargo.toml", "build.rs", "build_support.rs"]
         .map(PathBuf::from)
         .to_vec();
+    // Cargo does not require dependencies to carry a lockfile. Include it when present,
+    // while keeping downstream path/git/crates.io builds independent of its presence.
+    if root.join("Cargo.lock").try_exists()? {
+        files.push("Cargo.lock".into());
+    }
     for (directory, extensions) in [
         ("src", &["rs"][..]),
         ("schemas", &["json"][..]),

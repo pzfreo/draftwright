@@ -1,0 +1,169 @@
+name: Python package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pyproject.toml'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**/Cargo.toml'
+      - 'build.rs'
+      - 'build_support.rs'
+      - 'rust-toolchain.toml'
+      - 'fonts/**'
+      - 'schemas/**'
+      - 'README.md'
+      - 'LICENSE'
+      - '.github/workflows/publish.yml'
+      - 'tools/check_wheel_versions.py'
+      - 'tools/test_wheel_versions.py'
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**/Cargo.toml'
+      - 'build.rs'
+      - 'build_support.rs'
+      - 'rust-toolchain.toml'
+      - 'fonts/**'
+      - 'schemas/**'
+      - 'README.md'
+      - 'LICENSE'
+      - '.github/workflows/publish.yml'
+      - 'tools/check_wheel_versions.py'
+      - 'tools/test_wheel_versions.py'
+  # A published GitHub release publishes to PyPI. A manual run on main can publish too,
+  # with an explicit release tag; tag, Cargo and wheel versions must all agree.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the built wheels to PyPI
+        type: boolean
+        default: false
+      tag:
+        description: Release tag to build (vX.Y.Z)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # Dispatch and release builds use the tag, never main's potentially newer commit.
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
+          fetch-depth: 0 # The guard resolves actual tag objects, including annotated tags.
+      - run: python3 tools/test_wheel_versions.py -v
+
+  wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-22.04, target: x86_64, manylinux: '2_28' }
+          - { name: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64, manylinux: '2_28' }
+          - { name: macos-arm64, os: macos-latest, target: aarch64-apple-darwin }
+          - { name: macos-x86_64, os: macos-15-intel, target: x86_64-apple-darwin }
+          - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_BUILD_JOBS: '6'
+      RUSTC_WRAPPER: ''
+      # rustc's thin-LTO threads overflow Windows' default stack on step-io (as quiddity).
+      RUST_MIN_STACK: '67108864'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # Dispatch and release builds use the tag, never main's potentially newer commit.
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
+          fetch-depth: 0 # The guard resolves actual tag objects, including annotated tags.
+      # The toolchain comes from rust-toolchain.toml. Both Cargo binaries go in wheel scripts;
+      # there is no Python extension or Python API.
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+          args: --release --locked --out dist
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv venv --python 3.11 .venv
+      - name: Install this wheel and run both commands from PATH
+        run: |
+          # --no-cache: a cached wheel of the same version would hide this build.
+          uv pip install --python .venv --no-index --no-cache dist/*.whl
+          source .venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}/activate
+          draftwright --version
+          draftwright-mcp --version
+          draftwright render tests/fixtures/parts/plate.step -o wheel-smoke --formats svg
+          test -s wheel-smoke.svg
+      - name: Record the commit that built each wheel
+        run: |
+          source .venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}/activate
+          python - <<'PYTHON'
+          from pathlib import Path
+          import subprocess
+          commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          Path("provenance").mkdir(exist_ok=True)
+          for wheel in Path("dist").glob("*.whl"):
+              Path("provenance", wheel.name + ".commit").write_text(commit + "\n")
+          PYTHON
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-${{ matrix.name }}
+          # Preserve separate directories so provenance is checked but never sent to PyPI.
+          path: |
+            dist/*.whl
+            provenance/*.commit
+          if-no-files-found: error
+
+  # No sdist: this is a binary distribution for installs without Rust. Source users have
+  # Cargo and the repository; unsupported platforms should not unexpectedly compile Rust.
+  publish:
+    needs: [wheels, guard-test]
+    if: >-
+      (github.event_name == 'release' && !github.event.release.prerelease) ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish == true && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # Dispatch and release builds use the tag, never main's potentially newer commit.
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
+          fetch-depth: 0 # The guard resolves actual tag objects, including annotated tags.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: wheel-*
+          path: release
+          merge-multiple: true
+      # As in crates.yml (#371), the tag is the Cargo version; wheel METADATA must agree too.
+      # The tag must exist, HEAD and each wheel's recorded build commit must match it,
+      # and all versions must agree. Missing provenance or artifacts refuses publication.
+      - name: The tag, Cargo and wheel versions agree
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: python3 tools/check_wheel_versions.py --tag "$TAG" --dist release/dist --provenance release/provenance
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: release/dist
+          skip-existing: true

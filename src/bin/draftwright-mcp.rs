@@ -5,6 +5,9 @@
 
 use std::io::{BufRead, Write};
 
+#[path = "shared/version.rs"]
+mod version;
+
 use draftwright::api;
 use serde_json::{Value, json};
 
@@ -268,6 +271,22 @@ fn tools() -> Value {
 }
 
 fn main() {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    match args.as_slice() {
+        [] => {}
+        [arg] if arg == "--version" || arg == "-V" => {
+            println!("draftwright-mcp {}", version::version());
+            return;
+        }
+        [arg] if arg == "--help" || arg == "-h" => {
+            println!(
+                "Draftwright MCP server over stdio\n\nUsage: draftwright-mcp [--help | --version]\n\nReads JSON-RPC messages from stdin and writes replies to stdout."
+            );
+            return;
+        }
+        // Existing MCP client configurations may carry arguments this adapter ignores.
+        _ => {}
+    }
     let stdout = std::io::stdout();
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
