@@ -931,15 +931,15 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                     t.tag(100, "AcDbAlignedDimension");
                     t.point(13, points[0]);
                     t.point(14, points[1]);
+                    let arrows = &d.placed.as_ref().unwrap().arrows;
+                    t.tag(
+                        50,
+                        (arrows[1][0][1] - arrows[0][0][1])
+                            .atan2(arrows[1][0][0] - arrows[0][0][0])
+                            .to_degrees()
+                            .rem_euclid(180.),
+                    );
                     if kind == 0 {
-                        let arrows = &d.placed.as_ref().unwrap().arrows;
-                        t.tag(
-                            50,
-                            (arrows[1][0][1] - arrows[0][0][1])
-                                .atan2(arrows[1][0][0] - arrows[0][0][0])
-                                .to_degrees()
-                                .rem_euclid(180.),
-                        );
                         t.tag(100, "AcDbRotatedDimension");
                     }
                 }
@@ -1460,6 +1460,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         out.tag(78, if style.fixed { 0 } else { 8 });
         out.tag(79, if style.fixed { 0 } else { 2 });
         out.tag(277, 2);
+        out.tag(278, 46); // Preserve the drawing's decimal point on regeneration.
         out.tag(275, 0);
         out.tag(280, 0);
         out.tag(289, 3);

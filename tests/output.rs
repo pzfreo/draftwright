@@ -1196,9 +1196,7 @@ fn dxf_dimension_axis_is_independent_of_horizontal_text() {
             .unwrap();
         let base = &dim.dimension_base;
         assert_eq!(base.dimension_type as i32, if angle == 30. { 1 } else { 0 });
-        if angle == 90. {
-            assert!((dim.rotation_angle - angle).abs() < 1e-10);
-        }
+        assert!((dim.rotation_angle - angle).abs() < 1e-10);
         let a = &dim.definition_point_2;
         let b = &dim.definition_point_3;
         assert_eq!(base.text_rotation_angle, 0.);
