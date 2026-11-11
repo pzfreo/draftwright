@@ -304,7 +304,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             r.source_id == id
                 && r.category == Category::GeometricTolerance
                 && r.value.is_some_and(|v| v > 0.0)
-        }) && let Some(found) = mismatch(r, &m.text)
+        }) && let Some(found) = mismatch_in(r, &m.text, m.units)
         {
             let mut i = sourced("pmi_value_mismatch", id, Severity::Error, found);
             i.id = format!("l:pmi_value_mismatch:{}", m.name);
@@ -607,8 +607,8 @@ fn unreconciled(on_sheet: &BTreeSet<&str>) -> Vec<LintIssue> {
 
 /// What a frame's compartments *text* (its runs, joined by spaces: `⌖ ⌀0.05Ⓜ A B`) state
 /// that differs from record *r*, or none when they state its magnitude, zone and datums.
-fn mismatch(r: &Record, text: &str) -> Option<String> {
-    let expected = r.value?;
+fn mismatch_in(r: &Record, text: &str, units: crate::output::Units) -> Option<String> {
+    let expected = units.from_mm(r.value?);
     let zone_of = |r: &Record| {
         ["spherical_diameter_zone", "diameter_zone"]
             .into_iter()
@@ -1246,12 +1246,14 @@ mod tests {
         let marks = |edge: &str, finish: &str| {
             vec![
                 Mark {
+                    units: Default::default(),
                     name: ids.id("manufacturing_requirement:#2").unwrap().into(),
                     view: None,
                     text: edge.into(),
                     claims: vec![],
                 },
                 Mark {
+                    units: Default::default(),
                     name: ids.id("surface_texture:#3").unwrap().into(),
                     view: None,
                     text: finish.into(),
@@ -1295,6 +1297,7 @@ mod tests {
         // Text on an unrelated annotation cannot rescue either source's own corrupted text.
         let mut wrong = marks("1 Deburr", "Ra 9.9");
         wrong.push(Mark {
+            units: Default::default(),
             name: "n:1".into(),
             view: None,
             text: format!("{} Ra 0.8", report.records[0].label),
@@ -1307,6 +1310,7 @@ mod tests {
             .fields
             .push(("sampling length".into(), Field::Length(0.25)));
         let mark = Mark {
+            units: Default::default(),
             name: "pmi:surface_texture:#3".into(),
             view: None,
             text: "Ra 0.80 sampling length 250".into(),
@@ -1324,6 +1328,7 @@ mod tests {
             let mut source = report.clone();
             source.records[1].fields = vec![("Ra".into(), Field::Length(mm))];
             let mark = Mark {
+                units: Default::default(),
                 name: "pmi:surface_texture:#3".into(),
                 view: None,
                 text: text.into(),
@@ -1335,4 +1340,9 @@ mod tests {
             );
         }
     }
+}
+
+#[cfg(test)]
+fn mismatch(r: &Record, text: &str) -> Option<String> {
+    mismatch_in(r, text, crate::output::Units::Mm)
 }

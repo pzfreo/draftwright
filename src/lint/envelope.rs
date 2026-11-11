@@ -236,7 +236,7 @@ fn carriers(analysis: &Analysis, marks: &[Mark]) -> Vec<Carrier> {
     let mut out = Vec::new();
     for m in marks {
         for c in &m.claims {
-            let states = |v: f64| holes::states(&m.text, v);
+            let states = |v: f64| holes::states_in(&m.text, v, m.units);
             if c.feature == "envelope" {
                 if let Some(k) = PARAMETERS.iter().position(|p| *p == c.parameter) {
                     if states(hi[k] - lo[k]) {
@@ -450,6 +450,7 @@ mod tests {
 
     fn mark(name: &str, text: &str, feature: &str, parameter: &str) -> Mark {
         Mark {
+            units: Default::default(),
             name: name.into(),
             view: Some("v:front".into()),
             text: text.into(),

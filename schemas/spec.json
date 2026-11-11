@@ -218,6 +218,13 @@
         "cast",
         null
       ]
+    },
+    "units": {
+      "enum": [
+        "mm",
+        "in"
+      ],
+      "description": "Printed lengths: mm (default) or decimal inches; model and paper geometry remain millimetres."
     }
   },
   "additionalProperties": false,
@@ -1204,7 +1211,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Landscape named paper: A4..A0, ANSI A..E or ARCH A..E."
         },
         "scale": {
           "anyOf": [
@@ -1236,9 +1244,19 @@
                 "A3",
                 "A2",
                 "A1",
-                "A0"
+                "A0",
+                "ANSI A",
+                "ANSI B",
+                "ANSI C",
+                "ANSI D",
+                "ANSI E",
+                "ARCH A",
+                "ARCH B",
+                "ARCH C",
+                "ARCH D",
+                "ARCH E"
               ],
-              "description": "Preferred largest paper, default A3. Try single sheets then preferred_max_sheets at this size, then larger paper; exceeding a preference is advisory. Explicit size or scale wins."
+              "description": "Preferred largest paper in the selected family; defaults to its second size (A3, ANSI B or ARCH B)."
             },
             {
               "type": "null"
@@ -1350,6 +1368,15 @@
             "maximum": 4
           },
           "description": "Side-by-side blocks for any table by ID (t:<k>, t:radius-centres, manufacturing_requirements, gear_data_<owner>, hole_schedule_<view>, hole_table_plan): 1 never splits it. Unset splits a table taller than the sheet into the fewest blocks that fit, each repeating the header rows; rows read down then across."
+        },
+        "paper": {
+          "enum": [
+            "iso",
+            "ansi",
+            "arch",
+            null
+          ],
+          "description": "Paper family; absent follows explicit named size, else mm \u2192 iso and in \u2192 ansi."
         }
       },
       "additionalProperties": false
@@ -2033,6 +2060,13 @@
             "cast",
             null
           ]
+        },
+        "units": {
+          "enum": [
+            "mm",
+            "in"
+          ],
+          "description": "Printed lengths: mm (default) or decimal inches; model and paper geometry remain millimetres."
         }
       },
       "additionalProperties": false

@@ -27,6 +27,7 @@ fn marks(p: &Plan) -> Vec<Mark> {
         .iter()
         .filter(|d| d.placed.is_some())
         .map(|d| Mark {
+            units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),
@@ -295,6 +296,7 @@ fn a_pattern_pitch_beside_every_members_location_is_reported() {
     for (f, h) in read.iter().filter(|(f, _)| members.contains(&f.id)) {
         let h = h.as_ref().unwrap();
         over.push(Mark {
+            units: Default::default(),
             name: format!("{}/location", f.id),
             view: Some("v:plan".into()),
             text: fmt(h.at[k] - a.envelope[0][k]),

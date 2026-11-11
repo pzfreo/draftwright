@@ -31,7 +31,7 @@ use serde_json::Value;
 
 use super::envelope::profile_views;
 use super::{
-    AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, fmt, point, want_id,
+    AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, point, want_id,
 };
 use crate::bridge::Feature;
 use crate::bridge::holes::{dir_to_part, principal};
@@ -67,6 +67,7 @@ pub(super) fn size(f: &Feature, name: &str) -> Result<f64, String> {
 
 /// The groove's callout, or why it cannot be stated.
 fn want(cx: &Context, f: &Feature) -> Result<Want, String> {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let p = &f.parameters;
     let width = size(f, "width")?;
     let diameter = size(f, "diameter")?;
@@ -92,6 +93,7 @@ fn want(cx: &Context, f: &Feature) -> Result<Want, String> {
         .collect();
     let views = profile_views(k);
     Ok(Want {
+        units: cx.spec.units,
         id: want_id(&f.id, "groove.length"),
         views,
         value: width,
@@ -164,6 +166,7 @@ fn line<'a>(cx: &Context, f: &'a Feature) -> Option<Line<'a>> {
 
 /// An annular groove's callout and centre locations, or why they cannot be stated.
 pub(super) fn annular(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let p = &f.parameters;
     let face = f.kind == "face_groove";
     let outer = if face {
@@ -197,8 +200,8 @@ pub(super) fn annular(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
         parameter: parameter.into(),
         value,
     };
-    let mut out = vec![Want {
-        id: want_id(&f.id, "annular_groove_outer.diameter"),
+    let mut out = vec![Want { units: cx.spec.units,
+id: want_id(&f.id, "annular_groove_outer.diameter"),
         views: vec![view],
         value: outer,
         terms: vec![
@@ -227,7 +230,7 @@ pub(super) fn annular(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
             if (angle - 90.0).abs() > 1e-3 {
                 out[0]
                     .terms
-                    .extend([word.into(), format!("{}°", fmt(angle))]);
+                    .extend([word.into(), format!("{}°", crate::dims::fmt(angle))]);
                 out[0]
                     .measurements
                     .push(m(&format!("face_groove_{name}.angle"), angle));
@@ -252,7 +255,7 @@ pub(super) fn annular(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
         let parameter = format!("location.length.{}", AXES[j]);
         let mut a = mouth;
         a[j] = lo[j];
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(&f.id, &parameter),
             views: vec![view],
             value,

@@ -193,7 +193,7 @@ impl Term {
                                 .parameter
                                 .strip_prefix(&c.parameter)
                                 .is_some_and(|rest| rest.starts_with('.'))))
-            }) && holes::states(&m.text, self.value)
+            }) && holes::states_in(&m.text, self.value, m.units)
         })
     }
 
@@ -383,7 +383,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     m.claims
                         .iter()
                         .any(|c| c.feature == w.feature.id && c.parameter == w.parameter)
-                        && v.iter().all(|&x| holes::states(&m.text, x))
+                        && v.iter().all(|&x| holes::states_in(&m.text, x, m.units))
                 })
             });
             if !own {
@@ -458,6 +458,7 @@ mod tests {
             ]
         );
         let mark = |text: &str, axis: &str| Mark {
+            units: Default::default(),
             name: format!("m:{axis}"),
             view: Some("v:plan".into()),
             text: text.into(),
@@ -499,6 +500,7 @@ mod tests {
         for parameter in ["step_height.length", "step_position.length"] {
             let term = Term::new("step_level", &format!("{parameter}.f6"), 10.);
             let mark = |parameter: &str, text: &str| Mark {
+                units: Default::default(),
                 name: "ladder".into(),
                 view: None,
                 text: text.into(),
@@ -564,6 +566,7 @@ mod tests {
             ]
         );
         let mark = |name: &str, text: &str, feature: &str, parameter: &str| Mark {
+            units: Default::default(),
             name: name.into(),
             view: Some("v:front".into()),
             text: text.into(),

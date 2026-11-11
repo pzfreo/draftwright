@@ -232,6 +232,7 @@ fn advice_description(fix: &str) -> String {
 /// An annotation as lint sees it: the text it prints and the measurements it claims.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mark {
+    pub units: crate::output::Units,
     pub name: String,
     pub view: Option<String>,
     /// Its label's text runs, joined by spaces.
@@ -282,6 +283,7 @@ fn drawing_marks(drawing: &Drawing, witnesses: bool) -> Vec<Mark> {
             }
             let text = body.flatten().unwrap_or(drawn_text);
             Mark {
+                units: drawing.sheet.units,
                 name: a.name.clone(),
                 view: a.view.clone(),
                 text,
@@ -338,7 +340,7 @@ fn lint_indexed(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
                 .iter()
                 .position(|axis| c.parameter == format!("location.length.{axis}"))?;
             let at = sites.get(c.feature.as_str())?;
-            holes::states(&mark.text, at[axis] - origin[axis])
+            holes::states_in(&mark.text, at[axis] - origin[axis], mark.units)
                 .then(|| coverage::fmt(at[axis] - analysis.envelope[0][axis]))
         });
         if let Some(text) = proof {
@@ -413,10 +415,10 @@ fn lint_indexed(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
                             .get("radius")
                             .and_then(|v| v.as_f64())
                             .is_some_and(|r| {
-                                holes::states(radius, r)
+                                holes::states_in(radius, r, drawing.sheet.units)
                                     || marks.iter().any(|m| {
                                         m.view.is_some()
-                                            && holes::states(&m.text, r)
+                                            && holes::states_in(&m.text, r, m.units)
                                             && m.claims.iter().any(|c| {
                                                 c.feature == f.id
                                                     && c.parameter == format!("{}.radius", f.kind)
@@ -442,7 +444,7 @@ fn lint_indexed(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
                         && f.parameters
                             .get("radius")
                             .and_then(|v| v.as_f64())
-                            .is_some_and(|r| holes::states(&radius, r))
+                            .is_some_and(|r| holes::states_in(&radius, r, drawing.sheet.units))
                 })
             })
         })

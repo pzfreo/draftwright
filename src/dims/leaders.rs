@@ -7982,6 +7982,7 @@ mod tests {
         .unwrap();
         let frame = Frame::looking(&a, [0., -1., 0.], [0., 0., 1.], [0., 0.], 1.);
         let w = Want {
+            units: Default::default(),
             id: "group".into(),
             views: vec!["front"],
             value: 2.,

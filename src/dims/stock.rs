@@ -19,7 +19,7 @@
 
 use super::bosses::{Boss, Section, not_dimensioned, read_polygon};
 use super::envelope::profile_views;
-use super::{AXES, Context, Measurement, Planner, Problem, Shape, Want, end_on, fmt, want_id};
+use super::{AXES, Context, Measurement, Planner, Problem, Shape, Want, end_on, want_id};
 use crate::bridge::Feature;
 use crate::lint::polygonal::stock_wanted;
 
@@ -54,6 +54,7 @@ pub(super) fn whole(cx: &Context) -> bool {
 }
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let mut out = Vec::new();
     let mut problems = Vec::new();
     for (f, read) in read(cx) {
@@ -82,7 +83,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         let across: Vec<&str> = (0..3).filter(|&j| j != k).map(|j| AXES[j]).collect();
         let view = end_on(k);
         let parameter = "polygon_across_flats.length";
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(&f.id, parameter),
             views: vec![view],
             value: *across_flats,
@@ -120,7 +121,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             p
         };
         let parameter = "stock_length.length";
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(&f.id, parameter),
             views,
             value: length,

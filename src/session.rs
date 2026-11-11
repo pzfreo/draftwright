@@ -1634,7 +1634,12 @@ impl Session {
             placements,
             view_anchors,
             scales: if item.item.kind == "sheet" {
-                crate::layout::SCALES.map(model::scale_name).to_vec()
+                self.spec()
+                    .scales()
+                    .iter()
+                    .copied()
+                    .map(model::scale_name)
+                    .collect()
             } else {
                 Vec::new()
             },
@@ -1984,16 +1989,24 @@ fn settable(
         fields.insert("sheet/keep_layout".into(), json!({"choices":[true,false],"forms":["true with sheet/size, sheet/scale and sheets/max=1", "false or remove to allow the whole sheet to be laid out again, including hand-moved placements", "a later explicit paper, scale or sheet-count edit releases an inherited guard; setting keep_layout in that batch retains it"], "consequences":["Keeps explicit paper, scale and sheet count without automatic selection or refitting; moved views are reported."]}));
         fields.insert(
             "sheet/size".into(),
-            choices(json!(crate::layout::PAGES.map(|p| p.0))),
+            choices(json!((*session.spec().pages()).map(|p| p.0))),
         );
         fields.insert("sheet/preferred_max_sheets".into(), json!({"forms":["integer >= 1 (default 2)"], "consequences":["Soft sheet-count preference; sheets/max remains the hard limit."]}));
         fields.insert(
             "sheet/preferred_max_size".into(),
-            choices(json!(crate::layout::PAGES.map(|p| p.0))),
+            choices(json!((*session.spec().pages()).map(|p| p.0))),
         );
         fields.insert(
             "sheet/scale".into(),
-            choices(json!(crate::layout::SCALES.map(model::scale_name))),
+            choices(json!(
+                session
+                    .spec()
+                    .scales()
+                    .iter()
+                    .copied()
+                    .map(model::scale_name)
+                    .collect::<Vec<_>>()
+            )),
         );
         fields.insert(
             "sheet/frame_gutter".into(),

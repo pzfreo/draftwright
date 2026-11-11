@@ -263,7 +263,7 @@ pub(crate) fn alternative_depth(
                     .join(" ")
                     .split_once(term)
                     .and_then(|(before, _)| before.split_whitespace().last())
-                    .is_some_and(|number| super::holes::states(number, value))
+                    .is_some_and(|number| super::holes::states_in(number, value, m.units))
         })
     };
     if stated(
@@ -330,7 +330,7 @@ pub(crate) fn alternative_depth(
                     && m.claims
                         .iter()
                         .any(|c| c.feature == f.id && c.parameter == "boss.diameter")
-                    && super::holes::states(&m.text, diameter)
+                    && super::holes::states_in(&m.text, diameter, m.units)
             });
         }
         if f.kind != "turned_step" {
@@ -546,6 +546,7 @@ mod tests {
 
     fn mark(text: &str, parameters: &[&str]) -> Mark {
         Mark {
+            units: Default::default(),
             name: format!("m:{text}"),
             view: Some("v:plan".into()),
             text: text.into(),

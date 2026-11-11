@@ -85,6 +85,11 @@ impl Req {
     /// `_fmt_tolerance`). The note to undo it, or none when the label states no value.
     fn print(&self, w: &mut Want) -> Option<Note> {
         let before = w.terms.clone();
+        let units = if matches!(w.shape, Shape::Angular { .. }) {
+            crate::units::Units::Mm
+        } else {
+            w.units
+        };
         let symmetric = self.upper > 0.0 && self.upper == -self.lower;
         let mut limits = None;
         let (ok, band) = if let Some((letters, grade)) = self.fit {
@@ -95,7 +100,15 @@ impl Req {
                     .unwrap()
                     .trim_end_matches('\0')
             );
-            let term = tolerance::limits_term((self.lower, self.upper));
+            let term = if units.is_mm() {
+                tolerance::limits_term((self.lower, self.upper))
+            } else {
+                format!(
+                    "({}/{})",
+                    units.magnitude(self.upper),
+                    units.magnitude(self.lower)
+                )
+            };
             let ok = tolerance::insert(w, &term) && tolerance::insert(w, &class);
             limits = Some(term);
             (ok, tolerance::with_limits(&class, (self.lower, self.upper)))
@@ -105,7 +118,17 @@ impl Req {
                     (tolerance::limits(w, lo, hi), format!("{lo} - {hi}"))
                 }
                 _ => {
-                    let text = tolerance::band(self.upper, self.lower);
+                    let text = if units.is_mm() {
+                        tolerance::band(self.upper, self.lower)
+                    } else if symmetric {
+                        format!("±{}", units.magnitude(self.upper))
+                    } else {
+                        format!(
+                            "{}/{}",
+                            units.magnitude(self.upper),
+                            units.magnitude(self.lower)
+                        )
+                    };
                     (tolerance::insert(w, &text), text)
                 }
             }
@@ -728,6 +751,7 @@ fn general(report: &crate::pmi::Report, r: &Record, own: Want) -> Want {
         .find(|s| s.id == r.source_id)
         .map_or("", |s| s.reason.trim());
     Want {
+        units: Default::default(),
         id: want_id(&feature, GENERAL_SIZE),
         measurements: vec![super::Measurement {
             feature,
@@ -819,8 +843,24 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
     let Some(Reading::Read(report)) = &cx.analysis.pmi else {
         return (standalone, problems, notes);
     };
-    let records: Vec<&Record> = report
-        .records
+    let converted = if cx.spec.units.is_mm() {
+        std::borrow::Cow::Borrowed(report.records.as_slice())
+    } else {
+        std::borrow::Cow::Owned(
+            report
+                .records
+                .iter()
+                .map(|r| {
+                    let mut r = r.clone();
+                    if r.kind != "angular" {
+                        r.label = cx.spec.units.length_text(&r.label);
+                    }
+                    r
+                })
+                .collect::<Vec<_>>(),
+        )
+    };
+    let records: Vec<&Record> = converted
         .iter()
         // A common label (text on its faces, read as a dimension) is drawn as a label by
         // `pmi_lowering`, not here.
@@ -1413,6 +1453,7 @@ fn own(
 ) -> Want {
     let m = claim(ids, r, value);
     Want {
+        units: Default::default(),
         id: want_id(&m.feature, &m.parameter),
         views,
         value,
@@ -1770,6 +1811,7 @@ mod tests {
     #[test]
     fn symmetric_limits_print_as_a_band_and_asymmetric_ones_as_limits() {
         let callout = || Want {
+            units: Default::default(),
             id: "d:f:hole:1/bore.diameter".into(),
             views: vec!["plan"],
             value: 35.0,
@@ -1839,6 +1881,7 @@ mod tests {
             geometry: None,
         };
         let step = |value: f64| Want {
+            units: Default::default(),
             id: "d:f:turned_step:1/step.diameter".into(),
             views: vec!["front"],
             value,

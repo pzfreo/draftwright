@@ -36,7 +36,7 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-use super::{AXES, Context, Measurement, P3, Planner, Problem, QFrame, Shape, Want, fmt, point};
+use super::{AXES, Context, Measurement, P3, Planner, Problem, QFrame, Shape, Want, point};
 use crate::bridge::Feature;
 use crate::bridge::holes::{dir_to_part, principal};
 use crate::model::{LevelSupport, Riser};
@@ -719,6 +719,7 @@ fn repeat(levels: &[f64], base: f64, top: f64) -> Option<(usize, f64)> {
 }
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let a = cx.analysis;
     let o = ownership(cx);
     let mut problems = o.problems;
@@ -766,6 +767,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
     // Each rung is its own measurement, discriminated by its height, as its ID is.
     let height =
         |parameter: String, value: f64, terms: Vec<String>, shape: Shape, basis: String| Want {
+            units: cx.spec.units,
             id: super::want_id(FEATURE, &parameter),
             views: vec!["front"],
             value,
@@ -825,7 +827,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         let mut b = lo;
         b[k] = at;
         let parameter = position_parameter(a, k, at);
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: super::want_id(FEATURE, &parameter),
             views: vec![view],
             value,

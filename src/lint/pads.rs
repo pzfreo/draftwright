@@ -175,6 +175,7 @@ mod tests {
 
     fn mark(text: &str, parameters: &[&str]) -> Mark {
         Mark {
+            units: Default::default(),
             name: format!("m:{text}"),
             view: Some("v:plan".into()),
             text: text.into(),

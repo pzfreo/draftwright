@@ -15,8 +15,8 @@ use serde_json::Value;
 
 use super::turned::Turned;
 use super::{
-    AXES, Context, Measurement, NAMES, Omitted, P3, Planner, Problem, Shape, Want, end_on, fmt,
-    key, point, want_id,
+    AXES, Context, Measurement, NAMES, Omitted, P3, Planner, Problem, Shape, Want, end_on, key,
+    point, want_id,
 };
 use crate::arc::ProfileArc;
 use crate::bridge::{HolePattern, holes};
@@ -97,7 +97,8 @@ impl Hole<'_> {
     /// on the first, each `⌴`/[`SPOTFACE`] step opening a line of its own, innermost first
     /// (maintainer decision, 2026-10-29). A single recess stays on the bore's line, wrapped only
     /// at the 48 mm width.
-    fn terms(&self) -> Vec<String> {
+    fn terms(&self, units: crate::units::Units) -> Vec<String> {
+        let fmt = |v| crate::dims::fmt_in(v, units);
         let mut t = vec![format!("⌀{}", fmt(self.diameter))];
         match self.depth {
             Some(depth) if !self.through => t.extend(["↧".into(), fmt(depth)]),
@@ -120,7 +121,7 @@ impl Hole<'_> {
         if let Some(c) = self.countersink {
             t.extend(["⌵".into(), format!("⌀{}", fmt(c.diameter))]);
             if let Some(a) = c.angle {
-                t.extend(["×".into(), format!("{}°", fmt(a))]);
+                t.extend(["×".into(), format!("{}°", crate::dims::fmt(a))]);
             }
         }
         t
@@ -290,6 +291,7 @@ fn hole_tips(h: &Hole) -> Vec<ProfileArc> {
 /// The holes' callouts, the pitches of their patterns and their locations, with the problems met
 /// on the way.
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let analysis = cx.analysis;
     let frame = &cx.frame;
     let turned = &cx.turned;
@@ -431,6 +433,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                                 centres[0],
                                 along,
                                 values,
+                                cx.spec.units,
                             ));
                         }
                     }
@@ -466,6 +469,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                         start,
                         along,
                         &values,
+                        cx.spec.units,
                     ));
                     (
                         None,
@@ -483,7 +487,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         };
         taken.extend(members.iter().copied());
         let mut terms = vec![format!("{n}×")];
-        terms.extend(first.terms());
+        terms.extend(first.terms(cx.spec.units));
         let mut measurements: Vec<Measurement> = members
             .iter()
             .flat_map(|&m| holes[m].measurements())
@@ -524,6 +528,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             coincident.push((callouts.len(), first.at, projected));
         }
         callouts.push(Want {
+            units: cx.spec.units,
             id: want_id(&p.id, "bore.diameter"),
             views: vec![view],
             value: first.diameter,
@@ -607,7 +612,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         if n > 1 {
             terms.push(format!("{n}×"));
         }
-        terms.extend(first.terms());
+        terms.extend(first.terms(cx.spec.units));
         let mut measurements: Vec<Measurement> = members
             .iter()
             .flat_map(|&m| holes[m].measurements())
@@ -661,7 +666,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         } else {
             Vec::new()
         };
-        callouts.push(Want {
+        callouts.push(Want { units: cx.spec.units,
             id: want_id(&first.feature.id, "bore.diameter"),
             views,
             value: first.diameter,
@@ -756,6 +761,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         // Invariant: The selected view comes from the fixed principal view table.
         let view: &'static str = NAMES.iter().find(|n| **n == view).expect("a view");
         out.push(Want {
+            units: cx.spec.units,
             id: want_id(first, &parameter),
             views: vec![view],
             value: d,
@@ -913,6 +919,7 @@ fn round_whole(analysis: &Analysis, view: usize, k: usize, axis: P3) -> bool {
 /// `origin/<axis>` (`min` keeps the box side), or when the part carries PMI, whose datums own
 /// its origins.
 pub(super) fn round_origins(analysis: &Analysis, spec: &crate::model::Spec, wants: &mut Vec<Want>) {
+    let fmt = |v| crate::dims::fmt_in(v, spec.units);
     if super::pmi_policy::controls_origins(analysis) {
         return;
     }
@@ -1145,7 +1152,9 @@ fn pitch_want(
     at: P3,
     along: usize,
     values: &[f64],
+    units: crate::units::Units,
 ) -> Want {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let p = values[1] - values[0];
     let intervals = values.len() - 1;
     let mut terms = Vec::new();
@@ -1159,6 +1168,7 @@ fn pitch_want(
     a[along] = values[0];
     b[along] = values[1];
     Want {
+        units: units,
         id: want_id(pattern, parameter),
         views: vec![view],
         value: p,
@@ -1369,6 +1379,7 @@ mod tests {
     /// A default location of *feature* in the plan, from x = 0 to *at*, labelled *label*.
     fn location(feature: &str, parameter: &str, at: f64, label: &str) -> Kept {
         let want = Want {
+            units: Default::default(),
             id: want_id(feature, parameter),
             views: vec!["plan"],
             value: at,

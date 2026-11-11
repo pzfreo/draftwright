@@ -47,7 +47,8 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> (Vec<Mark>, Vec<LintIssu
                     .map_or(0, |(_, digits)| digits.len());
                 let truthful = nominal.parse::<f64>().is_ok_and(|n| {
                     n.is_finite()
-                        && (n - value).abs() <= 0.5 * 10f64.powi(-(decimals as i32)) + 1e-9
+                        && (n - m.units.from_mm(value)).abs()
+                            <= 0.5 * 10f64.powi(-(decimals as i32)) + 1e-9
                 });
                 if !truthful || m.text.starts_with('(') {
                     return None;
@@ -82,7 +83,7 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> (Vec<Mark>, Vec<LintIssu
                 continue;
             }
             for c in &m.claims {
-                for s in supports(a, &c.feature, &c.parameter, &m.text)
+                for s in supports(a, &c.feature, &c.parameter, &m.text, m.units)
                     .into_iter()
                     .filter(|s| s.axis == k)
                 {
@@ -183,6 +184,7 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> (Vec<Mark>, Vec<LintIssu
                             && members.windows(2).any(|p| (p[0][k] - p[1][k]).abs() > 1e-6);
                     if applies && let Ok(values) = w.values {
                         extra.push(Mark {
+                            units: Default::default(),
                             name: format!("derived:{}/{}", f.id, w.parameter),
                             view: view.clone(),
                             text: values
@@ -230,6 +232,7 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> (Vec<Mark>, Vec<LintIssu
                     continue;
                 }
                 extra.push(Mark {
+                    units: Default::default(),
                     name: format!("derived:{feature}/{parameter}"),
                     view: view.clone(),
                     text: super::parameters::fmt(span.hi - span.lo),
@@ -243,7 +246,13 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> (Vec<Mark>, Vec<LintIssu
 
 /// Physical supports actually certified by one printed claim. Counted pitches certify
 /// every interval of the established pattern, rather than only the representative span.
-pub(crate) fn supports(a: &Analysis, feature: &str, parameter: &str, text: &str) -> Vec<Span> {
+pub(crate) fn supports(
+    a: &Analysis,
+    feature: &str,
+    parameter: &str,
+    text: &str,
+    units: crate::output::Units,
+) -> Vec<Span> {
     let text = text.trim();
     if text.starts_with('(') {
         return Vec::new();
@@ -259,7 +268,7 @@ pub(crate) fn supports(a: &Analysis, feature: &str, parameter: &str, text: &str)
         .unwrap_or((1, text));
     let nominal = nominal.split_whitespace().next().unwrap_or("");
     if let Some(s) = super::redundancy::span(a, feature, parameter) {
-        return holes::states(nominal, s.hi - s.lo)
+        return holes::states_in(nominal, s.hi - s.lo, units)
             .then_some(s)
             .into_iter()
             .collect();
@@ -300,7 +309,7 @@ pub(crate) fn supports(a: &Analysis, feature: &str, parameter: &str, text: &str)
         let mut spans: Vec<_> = stations
             .into_iter()
             .map(|x| Span::new(k, a.envelope[0][k], x))
-            .filter(|s| holes::states(nominal, s.hi - s.lo))
+            .filter(|s| holes::states_in(nominal, s.hi - s.lo, units))
             .collect();
         spans.sort_by(|p, q| p.hi.total_cmp(&q.hi));
         spans.dedup_by(|p, q| p.same(*q));
@@ -343,7 +352,7 @@ pub(crate) fn supports(a: &Analysis, feature: &str, parameter: &str, text: &str)
         return Vec::new();
     }
     let pitch = xs[1] - xs[0];
-    if !holes::states(nominal, pitch)
+    if !holes::states_in(nominal, pitch, units)
         || xs
             .windows(2)
             .any(|p| ((p[1] - p[0]) - pitch).abs() > super::redundancy::TOL)

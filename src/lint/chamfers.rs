@@ -141,6 +141,7 @@ mod tests {
 
     fn mark(text: &str, feature: &str) -> Mark {
         Mark {
+            units: Default::default(),
             name: format!("m:{text}"),
             view: Some("v:front".into()),
             text: text.into(),

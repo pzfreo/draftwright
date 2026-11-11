@@ -102,6 +102,7 @@ pub(crate) mod tests {
             json!({ "axis": "x", "angle": 30.0, "length": 12.5, "at": [5.0, 0.0, 8.0] }),
         );
         let mark = |name: &str, text: &str, parameter: &str| Mark {
+            units: Default::default(),
             name: name.into(),
             view: Some("v:front".into()),
             text: text.into(),

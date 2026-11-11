@@ -71,6 +71,12 @@ impl SheetOptions {
 /// Pictorial shortcuts shared by the bare form, render, review and plan.
 #[derive(Args, Default)]
 pub(super) struct PictorialOptions {
+    /// Printed length units (geometry remains in mm)
+    #[arg(long, value_parser = ["mm", "in"])]
+    units: Option<String>,
+    /// Automatic paper family
+    #[arg(long, value_parser = ["iso", "ansi", "arch"])]
+    paper: Option<String>,
     /// Shade the isometric view
     #[arg(long)]
     shaded: bool,
@@ -89,11 +95,29 @@ pub(super) struct PictorialOptions {
 
 impl PictorialOptions {
     pub(super) fn requested(&self) -> bool {
-        self.shaded || self.below || self.colour.is_some()
+        self.units.is_some()
+            || self.paper.is_some()
+            || self.shaded
+            || self.below
+            || self.colour.is_some()
     }
 
     pub(super) fn apply(&self, spec: &mut Spec) -> Result<(), Error> {
         use crate::shaded::ViewStyle;
+        if let Some(u) = &self.units {
+            spec.units = if u == "in" {
+                crate::units::Units::In
+            } else {
+                crate::units::Units::Mm
+            };
+        }
+        if let Some(p) = &self.paper {
+            spec.sheet.paper = Some(match p.as_str() {
+                "ansi" => crate::units::Paper::Ansi,
+                "arch" => crate::units::Paper::Arch,
+                _ => crate::units::Paper::Iso,
+            });
+        }
         if self.colour.is_some() && !self.shaded {
             return Err(Error::invalid("--colour/--color requires --shaded"));
         }

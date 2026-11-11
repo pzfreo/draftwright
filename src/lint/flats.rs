@@ -230,6 +230,7 @@ mod tests {
 
     fn mark(text: &str, features: &[&str]) -> Mark {
         Mark {
+            units: Default::default(),
             name: "m_flat_z0".into(),
             view: Some("v:plan".into()),
             text: text.into(),

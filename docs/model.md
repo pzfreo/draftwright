@@ -506,6 +506,35 @@ results, retained warnings and the measured performance gates.
 
 #### Projection method and a pinned sheet's fit
 
+When mm is requested, `inch_design_detected` advises a units change only if all three
+principal extents lie on a 1/16-inch grid (within 0.001 mm recognition noise), at least
+95% of four distinct positive sizes match, and three sizes are non-integral mm. It
+never switches units automatically; its fix sets `units: "in"` and `sheet/paper: "ansi"`.
+
+`units` is `"mm"` (the default) or `"in"`. Geometry, measurements, locations,
+view offsets and paper coordinates remain in millimetres. Only printed lengths convert.
+Decimal inches omit the leading zero below one (`.500`, `-.500`) and default to
+three places, retaining trailing zeros. `precision` selects places in the drawing's
+unit. Angles retain their existing degree format. Authored dimension tolerances use
+the drawing unit; ISO fit deviations and AP242 lengths convert from their mm evidence.
+Metric thread designations remain metric. Unified thread support would extend
+`spec_notes::metric`, `pmi_lowering`'s thread readers and the modelled-thread catalogue.
+
+`sheet/paper` selects `"iso"`, `"ansi"` or `"arch"`. Absent paper follows an explicit
+family-named size/preference, otherwise mm defaults to ISO and inches to ANSI.
+`sheet/size` and `sheet/preferred_max_size` accept `A4`–`A0`, `ANSI A`–`ANSI E`,
+and `ARCH A`–`ARCH E`. ANSI landscape sizes are 11×8.5, 17×11, 22×17, 34×22,
+44×34 inches; ARCH sizes are 12×9, 18×12, 24×18, 36×24, 48×36 inches.
+Automatic selection and retries stay in that family; the default preferred maximum
+is its second size. Text, frame margins and symbol sizes remain paper mm.
+
+Inch drawings use ratios 4:1, 2:1, 1:1, 1:2, 1:4, 1:8, 1:12, 1:16, 1:24,
+1:48 and 1:96. Scale text uses ratios (`SCALE 1:12`); architectural foot-and-inch
+scale captions are not added. Metric drawings retain the ISO 5455 ladder.
+`--units mm|in` and `--paper iso|ansi|arch` on render, review, plan and the bare
+CLI override and record these fields in the embedded Spec. The Python keyword
+`units=` and case-insensitive `page="ANSI B"` / `page="ARCH D"` map to the same fields.
+
 `sheet/projection` is ISO 5456-2's method, `first` or `third` (angle); absent means third, and the
 plan is then byte for byte what it was before the field existed (`third` set explicitly differs only
 in the spec it echoes). First angle puts the plan below the front and the right side view left of

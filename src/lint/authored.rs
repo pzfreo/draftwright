@@ -26,7 +26,7 @@ pub(super) fn check(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             if symbol
                 && measured
                     .as_ref()
-                    .is_ok_and(|q| holes::states(nominal, q.value))
+                    .is_ok_and(|q| holes::states_in(nominal, q.value, m.units))
             {
                 continue;
             }

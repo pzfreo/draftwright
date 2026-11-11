@@ -120,6 +120,9 @@ draftwright --help
 - **Reads PMI.** Tolerances, fits, datums, GD&T frames, threads and surface finish come from
   AP242 semantic PMI. [Specify](https://github.com/pzfreo/specify-core) writes requirements back
   into STEP.
+- **US drawings.** `draftwright render part.step --units in --paper ansi` prints decimal
+  inches on landscape ANSI A–E paper. Use `--paper arch` for ARCH A–E, or `--paper iso`
+  for ISO A4–A0. In Python, use `make_drawing(part, units="in", page="ANSI B")`.
 - **Lays out sheets.** Views, sections, detail views and hole tables go on ISO 5457 sheets with
   an ISO 7200 title block. Sheet size and scale are chosen automatically, using more sheets when
   needed.

@@ -923,6 +923,7 @@ fn marks(plan: &Plan) -> Vec<draftwright::lint::Mark> {
         .iter()
         .filter(|d| d.placed.is_some())
         .map(|d| draftwright::lint::Mark {
+            units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),

@@ -471,7 +471,7 @@ fn chamfer_called(c: &Corner, leg: f64, marks: &[Mark]) -> bool {
         m.claims
             .iter()
             .any(|cl| cl.feature == c.feature && cl.parameter == "profile_angle.angle")
-            && states_chamfer(&m.text, leg)
+            && states_chamfer(&m.text, m.units.from_mm(leg))
     })
 }
 

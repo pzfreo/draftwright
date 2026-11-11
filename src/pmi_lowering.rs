@@ -167,6 +167,25 @@ pub fn lower(analysis: &Analysis, shown: &dyn Fn(&str) -> bool) -> (Vec<Lowered>
     })
 }
 
+/// Lower into an explicit drawing unit; source evidence remains in millimetres.
+pub(crate) fn lower_in(
+    analysis: &Analysis,
+    shown: &dyn Fn(&str) -> bool,
+    units: crate::units::Units,
+) -> (Vec<Lowered>, Vec<Problem>) {
+    let (mut items, problems) = lower(analysis, shown);
+    if !units.is_mm() {
+        for item in &mut items {
+            if let Glyph::ControlFrame { tolerance, .. } = &mut item.glyph {
+                if let Ok(mm) = tolerance.parse::<f64>() {
+                    *tolerance = units.magnitude(mm);
+                }
+            }
+        }
+    }
+    (items, problems)
+}
+
 fn lower_uncached(
     analysis: &Analysis,
     shown: &dyn Fn(&str) -> bool,
@@ -4445,11 +4464,34 @@ fn depiction_enabled(o: &Owned, spec: &crate::model::Spec) -> bool {
 /// The source requirement and complete note text remain unchanged for independent lint.
 pub fn manufacturing_for(analysis: &Analysis, spec: &crate::model::Spec) -> Manufacturing {
     use crate::callouts::{BREAK, Style};
+    let length = |v| {
+        if spec.units.is_mm() {
+            g6(v)
+        } else {
+            spec.units.format(v)
+        }
+    };
     let mut m = manufacturing(analysis);
     m.tags.clear();
     let candidates = owners(analysis);
     let mut scheduled = Vec::new();
     for o in &mut m.owned {
+        if !spec.units.is_mm() {
+            match &o.requirement {
+                Aspect::Thread(t) => {
+                    if let Some(v) = t.minimum_full_thread {
+                        let old = format!("{} MIN FULL THREAD", g6(v));
+                        let new = format!("{} MIN FULL THREAD", length(v));
+                        o.suffix = o.suffix.replace(&old, &new);
+                        o.text = o.text.replace(&old, &new);
+                    }
+                }
+                Aspect::Knurl(_) => {
+                    o.suffix = spec.units.length_text(&o.suffix);
+                    o.text = spec.units.length_text(&o.text);
+                }
+            }
+        }
         let style = crate::callouts::style(spec, &o.owner);
         let owner = candidates.iter().find(|c| c.id == o.owner);
         let diameter = owner.map_or(0.0, |c| c.diameter);
@@ -4463,9 +4505,9 @@ pub fn manufacturing_for(analysis: &Analysis, spec: &crate::model::Spec) -> Manu
                 }
                 if let Some(depth) = t.minimum_full_thread {
                     label += &if t.internal {
-                        format!(" ↧ {}", g6(depth))
+                        format!(" ↧ {}", length(depth))
                     } else {
-                        format!("; {} MIN FULL THREAD", g6(depth))
+                        format!("; {} MIN FULL THREAD", length(depth))
                     };
                 }
                 if !t.internal && t.full_available_length && !shown {
@@ -4477,9 +4519,9 @@ pub fn manufacturing_for(analysis: &Analysis, spec: &crate::model::Spec) -> Manu
                     && (!t.through || !t.conventional_drill())
                     && let Some(d) = t.drill_diameter
                 {
-                    label += &format!(" {BREAK} ⌀{}", g6(d));
+                    label += &format!(" {BREAK} ⌀{}", length(d));
                     if let Some(depth) = t.drill_depth {
-                        label += &format!(" ↧ {}", g6(depth));
+                        label += &format!(" ↧ {}", length(depth));
                     } else {
                         label += " THRU";
                     }
@@ -4487,7 +4529,7 @@ pub fn manufacturing_for(analysis: &Analysis, spec: &crate::model::Spec) -> Manu
                 (identity, label, t.drill_point_angle.is_some())
             }
             Aspect::Knurl(k) => {
-                let identity = format!("ø{}", g6(k.maximum_diameter.unwrap_or(diameter)));
+                let identity = format!("ø{}", length(k.maximum_diameter.unwrap_or(diameter)));
                 let mut label = identity.clone();
                 if k.maximum_diameter.is_some() {
                     label += " MAX AFTER KNURL";
@@ -4495,7 +4537,7 @@ pub fn manufacturing_for(analysis: &Analysis, spec: &crate::model::Spec) -> Manu
                 label += &format!(
                     " {BREAK} {} KNURL P{}",
                     k.pattern.to_uppercase(),
-                    g6(k.pitch)
+                    length(k.pitch)
                 );
                 if k.full_width && !shown {
                     label += " FULL WIDTH";
@@ -4508,7 +4550,7 @@ pub fn manufacturing_for(analysis: &Analysis, spec: &crate::model::Spec) -> Manu
                         .as_ref()
                         .is_some_and(|d| crate::dims::chamfer_stated(analysis, spec, c, d));
                     if !dimensioned {
-                        label += &format!(" TO C{} CHAMFERS", g6(c));
+                        label += &format!(" TO C{} CHAMFERS", length(c));
                     }
                 }
                 (identity, label, !k.processes.is_empty())
@@ -4516,9 +4558,9 @@ pub fn manufacturing_for(analysis: &Analysis, spec: &crate::model::Spec) -> Manu
         };
         let full = match &o.requirement {
             Aspect::Thread(t) if t.internal => {
-                let mut label = format!("⌀{}", g6(diameter));
+                let mut label = format!("⌀{}", length(diameter));
                 if let Some(depth) = t.drill_depth {
-                    label += &format!(" ↧ {}", g6(depth));
+                    label += &format!(" ↧ {}", length(depth));
                 } else if !t.through {
                     label += " THRU";
                 }
@@ -4526,7 +4568,7 @@ pub fn manufacturing_for(analysis: &Analysis, spec: &crate::model::Spec) -> Manu
             }
             Aspect::Knurl(k) => format!(
                 "ø{} {}",
-                g6(k.maximum_diameter.unwrap_or(diameter)),
+                length(k.maximum_diameter.unwrap_or(diameter)),
                 o.suffix
             ),
             _ => o.suffix.clone(),

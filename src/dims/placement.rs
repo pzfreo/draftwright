@@ -6136,6 +6136,7 @@ mod tests {
             Frame::looking(&a, [0., -1., 0.], [0., 0., 1.], [0., 0.], 1.),
         )]);
         let want = |id: &str, lo| Want {
+            units: Default::default(),
             id: format!("d:pmi:{id}"),
             views: vec!["front"],
             value: 10.,
@@ -6492,6 +6493,7 @@ mod tests {
             Frame::looking(&a, [0., -1., 0.], [0., 0., 1.], [0., 0.], 1.),
         )]);
         let want = |id: &str, span: f64, order| Want {
+            units: Default::default(),
             id: id.into(),
             views: vec!["front"],
             value: span,
@@ -6608,6 +6610,7 @@ mod tests {
                 a[axis] = lo;
                 b[axis] = hi;
                 Want {
+                    units: Default::default(),
                     id: format!("{lo}-{hi}"),
                     views: vec!["front"],
                     value: (hi - lo).abs(),

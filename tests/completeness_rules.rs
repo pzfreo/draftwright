@@ -420,6 +420,7 @@ fn a_grouped_length_states_exactly_its_adjoining_members() {
         .collect();
     assert_eq!(bands.len(), 3);
     let grouped = |text: &str, members: &[&String]| Mark {
+        units: Default::default(),
         name: "m_steplen_typ".into(),
         view: Some("v:front".into()),
         text: text.into(),

@@ -64,7 +64,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use super::{
-    AXES, Context, Measurement, P3, Planner, Problem, QFrame, Shape, Want, end_on, fmt, key, point,
+    AXES, Context, Measurement, P3, Planner, Problem, QFrame, Shape, Want, end_on, key, point,
     want_id,
 };
 use crate::bridge::Feature;
@@ -310,7 +310,9 @@ fn slot_callout(
     measurements: Vec<Measurement>,
     basis: String,
     analysis: &crate::model::Analysis,
+    units: crate::units::Units,
 ) -> Want {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let s = members[0];
     let arcs = match s.end_radius {
         Some(r) => members
@@ -320,6 +322,7 @@ fn slot_callout(
         None => Vec::new(),
     };
     Want {
+        units: units,
         id,
         views: vec![end_on(s.deep)],
         value: s.width,
@@ -355,8 +358,11 @@ fn end_radius_want(
     measurements: Vec<Measurement>,
     basis: &str,
     analysis: &crate::model::Analysis,
+    units: crate::units::Units,
 ) -> Want {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     Want {
+        units: units,
         id,
         views: vec![end_on(s.deep)],
         value: r,
@@ -451,6 +457,7 @@ pub(super) fn nearest_witness<'a>(
 }
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let analysis = cx.analysis;
     let [lo, _] = analysis.envelope;
     let size = |s: &Slot, view: &str, m, lo, hi, order| {
@@ -551,7 +558,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                 "{n} congruent obround slots (the same width, length and end radius) are dimensioned as slots: one slot callout states their width and length, in the view that looks through them; their ends are full-round, half the width, which the callout implies"
             ),
             cx.analysis,
-        ));
+         cx.spec.units));
         for &i in members {
             grouped[i] = true;
         }
@@ -596,7 +603,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             terms.push(format!("{n}×"));
         }
         terms.push(fmt(s.width));
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(&s.feature.id, "slot_width.length"),
             views: vec![view],
             value: s.width,
@@ -662,7 +669,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             };
             a[s.long] = lo[s.long];
             let d = c - lo[s.long];
-            out.push(Want {
+            out.push(Want { units: cx.spec.units,
                 id: want_id(id, "location_slot.length"),
                 views: vec![view],
                 value: d,
@@ -695,7 +702,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             // centres' distance apart.
             let c = [s.ends[0] + r, s.ends[1] - r];
             let apart = c[1] - c[0];
-            out.push(Want {
+            out.push(Want { units: cx.spec.units,
                 id: want_id(id, "slot_centres.length"),
                 views: vec![view],
                 value: apart,
@@ -711,7 +718,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             };
             a[s.long] = lo[s.long];
             let d = c[0] - lo[s.long];
-            out.push(Want {
+            out.push(Want { units: cx.spec.units,
                 id: want_id(id, "location_slot.length"),
                 views: vec![view],
                 value: d,
@@ -735,6 +742,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             continue;
         }
         out.push(Want {
+            units: cx.spec.units,
             id: want_id(id, "slot_length.length"),
             views: vec![view],
             value: s.length,
@@ -752,7 +760,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                 vec![m("slot_end_radius.radius", r)],
                 "an obround slot's ends are proven arcs: their radius is called out once for both, with a leader to an end",
                 cx.analysis,
-            ));
+             cx.spec.units));
         }
         let d = s.ends[0] - lo[s.long];
         if d.abs() < 1e-6 {
@@ -776,7 +784,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             unreachable!("a size is linear")
         };
         a[s.long] = lo[s.long];
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(id, "location_slot.length"),
             views: vec![view],
             value: d,
@@ -804,7 +812,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         .filter(|f| f.kind == "section_recess")
         .filter_map(|f| blind(f, &cx.frame))
     {
-        out.push(b.want());
+        out.push(b.want(cx.spec.units));
         across.push((b.feature.id.clone(), b.centre, b.wide, end_on(b.deep)));
     }
     for f in analysis
@@ -812,7 +820,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         .iter()
         .filter(|f| f.kind == "semicircular_blind_slot")
     {
-        match semicircular(&cx.frame, f) {
+        match semicircular(&cx.frame, f, cx.spec.units) {
             Ok((want, centre, wide, view)) => {
                 out.push(want);
                 across.push((f.id.clone(), centre, wide, view));
@@ -866,6 +874,7 @@ fn located_across(
     out: &mut Vec<Want>,
     problems: &mut Vec<Problem>,
 ) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let analysis = cx.analysis;
     let [lo, _] = analysis.envelope;
     type Owners = Vec<(String, P3)>;
@@ -904,7 +913,7 @@ fn located_across(
         let parameter = "location_slot_across.length";
         let mut a = *p;
         a[k] = lo[k];
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(first, parameter),
             views: vec![view],
             value: d,
@@ -946,6 +955,7 @@ type Grouped<'a> = (Vec<Want>, Vec<Problem>, Vec<&'a str>);
 /// A slot pattern's items (callout, end radius, pitches, location), the problems met, and its
 /// member slots' IDs; or why it does not hold together as quiddity describes it.
 fn pattern<'a>(cx: &Context<'a>, p: &'a Feature) -> Result<Grouped<'a>, String> {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let analysis = cx.analysis;
     let ids: Vec<&str> = p
         .parameters
@@ -1047,6 +1057,7 @@ fn pattern<'a>(cx: &Context<'a>, p: &'a Feature) -> Result<Grouped<'a>, String> 
                     centres[0],
                     along,
                     &values,
+                    cx.spec.units,
                 ));
             }
         }
@@ -1077,6 +1088,7 @@ fn pattern<'a>(cx: &Context<'a>, p: &'a Feature) -> Result<Grouped<'a>, String> 
             centres[0],
             along,
             &values,
+            cx.spec.units,
         ));
         let c = centres
             .iter()
@@ -1106,6 +1118,7 @@ fn pattern<'a>(cx: &Context<'a>, p: &'a Feature) -> Result<Grouped<'a>, String> 
             }
         ),
         analysis,
+        cx.spec.units,
     )];
     if let Some(r) = s.end_radius.filter(|_| !full_round(s)) {
         items.push(end_radius_want(
@@ -1115,7 +1128,7 @@ fn pattern<'a>(cx: &Context<'a>, p: &'a Feature) -> Result<Grouped<'a>, String> 
             vec![m("slot_end_radius.radius", r)],
             "the pattern's obround ends are proven arcs, not full-round: their radius is called out once, with a leader to an end of one slot",
             analysis,
-        ));
+         cx.spec.units));
     }
     items.extend(out);
     let [lo, _] = analysis.envelope;
@@ -1141,7 +1154,7 @@ fn pattern<'a>(cx: &Context<'a>, p: &'a Feature) -> Result<Grouped<'a>, String> 
         let parameter = format!("location_slot_pattern.length.{}", AXES[k]);
         let mut a = centre;
         a[k] = lo[k];
-        items.push(Want {
+        items.push(Want { units: cx.spec.units,
             id: want_id(&p.id, &parameter),
             views: vec![view],
             value: d,
@@ -1183,7 +1196,9 @@ fn pitch_want(
     at: P3,
     along: usize,
     values: &[f64],
+    units: crate::units::Units,
 ) -> Want {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let p = values[1] - values[0];
     let intervals = values.len() - 1;
     let text = if intervals > 1 {
@@ -1195,6 +1210,7 @@ fn pitch_want(
     a[along] = values[0];
     b[along] = values[1];
     Want {
+        units: units,
         id: want_id(pattern, parameter),
         views: vec![view],
         value: p,
@@ -1364,7 +1380,8 @@ impl Blind<'_> {
     /// Its callout, in the view that looks into it, as draftwright prints it: `OPEN SLOT W × L
     /// × D DEEP`, or `ROUND-BOTTOM OPEN SLOT F BOTTOM FLAT × Rr × L LONG` (the floor's flat
     /// width, the arcs' radius and the length), with a leader to a side wall.
-    fn want(&self) -> Want {
+    fn want(&self, units: crate::units::Units) -> Want {
+        let fmt = |v| crate::dims::fmt_in(v, units);
         let id = &self.feature.id;
         let view = end_on(self.deep);
         let m = |parameter: &str, value: f64| Measurement {
@@ -1411,6 +1428,7 @@ impl Blind<'_> {
             (c, 0.0)
         };
         Want {
+            units: units,
             id: want_id(id, &measurements[0].parameter),
             views: vec![view],
             value: measurements[0].value,
@@ -1433,7 +1451,12 @@ fn words(s: &str) -> Vec<String> {
 
 /// A semicircular blind slot's callout, with the point its centre line is located by, the axis
 /// across it and the view that carries them, or why it cannot be stated.
-fn semicircular(frame: &QFrame, f: &Feature) -> Result<(Want, P3, usize, &'static str), String> {
+fn semicircular(
+    frame: &QFrame,
+    f: &Feature,
+    units: crate::units::Units,
+) -> Result<(Want, P3, usize, &'static str), String> {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let p = &f.parameters;
     let number = |name: &str| super::grooves::size(f, name);
     let dir = |name: &str| -> Result<P3, String> {
@@ -1477,7 +1500,7 @@ fn semicircular(frame: &QFrame, f: &Feature) -> Result<(Want, P3, usize, &'stati
         c[wide] += s * radius;
         (c, 0.0)
     };
-    let want = Want {
+    let want = Want { units: units,
         id: want_id(id, "semicircular_blind_slot_width.length"),
         views: vec![view],
         value: width,

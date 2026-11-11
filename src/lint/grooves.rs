@@ -212,6 +212,7 @@ mod tests {
 
     fn mark(text: &str, parameters: &[&str]) -> Mark {
         Mark {
+            units: Default::default(),
             name: "m_groove_z0".into(),
             view: Some("v:front".into()),
             text: text.into(),
@@ -278,6 +279,7 @@ mod tests {
             parameter: parameter.into(),
         };
         let own = Mark {
+            units: Default::default(),
             name: "m_groove".into(),
             view: Some("v:plan".into()),
             text: "⌀3 × ⌀2 ↧ 2".into(),
@@ -303,6 +305,7 @@ mod tests {
         wall("hole", 3, 3.0);
         wall("boss", 5, 2.0);
         let hole = Mark {
+            units: Default::default(),
             name: "m_hole".into(),
             view: Some("v:plan".into()),
             text: "⌀3 ↧ 2".into(),
@@ -312,6 +315,7 @@ mod tests {
             ],
         };
         let boss = |text: &str| Mark {
+            units: Default::default(),
             name: "m_boss".into(),
             view: Some("v:plan".into()),
             text: text.into(),

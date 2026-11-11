@@ -95,6 +95,7 @@ mod tests {
                              "section": [[0.0, 4.0], [0.0, 0.0], [4.0, 0.0]] });
         let a = part("circular_blind_step", record.clone());
         let mark = |text: &str, parameter: &str| Mark {
+            units: Default::default(),
             name: format!("m:{parameter}"),
             view: Some("v:plan".into()),
             text: text.into(),

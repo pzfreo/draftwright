@@ -384,6 +384,9 @@ pub struct Riser {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Spec {
+    /// Printed length units; geometry remains millimetres.
+    #[serde(skip_serializing_if = "crate::units::Units::is_mm")]
+    pub units: crate::units::Units,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process: Option<crate::process::Process>,
     pub schema: String,
@@ -601,6 +604,7 @@ pub struct FeatureSpec {
 impl Default for Spec {
     fn default() -> Self {
         Spec {
+            units: Default::default(),
             process: None,
             schema: SPEC_SCHEMA.into(),
             part: None,
@@ -632,6 +636,9 @@ impl Default for Spec {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SheetSpec {
+    /// Automatic paper family; defaults to ISO for mm and ANSI for inches.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paper: Option<crate::units::Paper>,
     /// Inspection characteristic rings; off unless explicitly set to all.
     #[serde(skip_serializing_if = "crate::characteristics::Mode::is_off")]
     pub balloons: crate::characteristics::Mode,
@@ -781,12 +788,14 @@ fn preferred_max_sheets<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option
 
 fn preferred_max_size<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     let value = Option::<String>::deserialize(d)?;
-    if value
-        .as_deref()
-        .is_some_and(|v| !layout::PAGES.iter().any(|p| p.0 == v))
-    {
+    if value.as_deref().is_some_and(|v| {
+        !crate::units::Paper::for_size(v)
+            .pages()
+            .iter()
+            .any(|p| p.0 == v)
+    }) {
         return Err(serde::de::Error::custom(
-            "sheet/preferred_max_size must be A4, A3, A2, A1 or A0",
+            "sheet/preferred_max_size must be A4..A0, ANSI A..E or ARCH A..E",
         ));
     }
     Ok(value)
@@ -1015,6 +1024,8 @@ impl Plan {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlannedSheet {
+    #[serde(default, skip_serializing_if = "crate::units::Units::is_mm")]
+    pub units: crate::units::Units,
     #[serde(
         default = "crate::sheets::one",
         skip_serializing_if = "crate::sheets::is_one"
@@ -2885,7 +2896,7 @@ pub(crate) const LARGE_SHEET: usize = 2;
 /// above the front) no taller. Such a part exhausts single- and multi-sheet A4/A3 plans
 /// before the automatic search admits A2 or larger.
 pub(crate) fn fits_a3_at_full_size(analysis: &Analysis, first: &Plan) -> bool {
-    let (_, w, h) = layout::PAGES[LARGE_SHEET - 1];
+    let (_, w, h) = first.spec.pages()[LARGE_SHEET - 1];
     let size = |v: &PlannedView| {
         // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.
         let view = View::new(v.direction, v.up).expect("planned view");
@@ -2951,6 +2962,7 @@ pub(crate) fn established_drawing(analysis: &Analysis, spec: &Spec) -> Result<Pl
             || {
                 let reference = crate::lint::slots::without_recesses(analysis);
                 let mut base = Spec {
+                    units: spec.units,
                     hole_table: spec.hole_table,
                     pmi: spec.pmi,
                     origin: spec.origin.clone(),
@@ -2959,7 +2971,8 @@ pub(crate) fn established_drawing(analysis: &Analysis, spec: &Spec) -> Result<Pl
                 // This unrendered historical route template must not change with the
                 // paper preferences. The recipient has its own ordered sheet search, just
                 // as when packing annotation blocks from an explicit A0 template.
-                base.sheet.preferred_max_size = Some("A0".into());
+                base.sheet.paper = Some(spec.paper());
+                base.sheet.preferred_max_size = Some(spec.pages()[4].0.into());
                 base.sheet.projection = spec.sheet.projection.clone();
                 base.sheet.references = spec.sheet.references;
                 // The reference leaves out the view the drawing does, judged on the whole
@@ -3111,7 +3124,7 @@ fn recover_uncached(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Pla
         && spec.hole_table != crate::hole_table::Setting::Never)
         .then(|| first.clone());
     let plan = recover_capped(analysis, spec, first)?;
-    let page = |size: &str| layout::PAGES.iter().position(|p| p.0 == size);
+    let page = |size: &str| spec.pages().iter().position(|p| p.0 == size);
     let exhausted = recovery_exhausted(&plan);
     if let Some(first) = open
         && (exhausted
@@ -3203,9 +3216,12 @@ fn recover_recess_corridors(
         return Ok(());
     }
     let floor = crate::sheets::floor(spec)
-        .unwrap_or(crate::sheet_fit::ABSOLUTE_FLOOR)
-        .max(crate::sheet_fit::min_geometry_scale(analysis));
-    let Some(scale) = layout::SCALES
+        .unwrap_or(crate::sheet_fit::absolute_floor(spec.units))
+        .max(crate::sheet_fit::min_geometry_scale_in(
+            analysis, spec.units,
+        ));
+    let Some(scale) = spec
+        .scales()
         .iter()
         .copied()
         .find(|s| *s < plan.sheet.scale_factor && *s >= floor)
@@ -3427,7 +3443,7 @@ fn recover_callouts(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Pla
     }
     let clean =
         |p: &Plan| findings(p).clean() && drawn_sheets_fit(analysis, p) && undrawn_gdt(p) == 0;
-    if best.sheet.size == "A4" && clean(&best) {
+    if best.sheet.size == spec.pages()[0].0 && clean(&best) {
         return Ok(best);
     }
     let m = crate::pmi_lowering::manufacturing_for(analysis, spec);
@@ -3442,10 +3458,10 @@ fn recover_callouts(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Pla
         // Compact manufacturing text must not cause a small turned part to take a
         // larger paper merely to enlarge it. Keep a complete, legible A4 candidate.
         let mut small = spec.clone();
-        small.sheet.size = Some("A4".into());
+        small.sheet.size = Some(spec.pages()[0].0.into());
         let seed = plan_escalated_layout(analysis, &small)?;
         let mut candidate = recover_paper(analysis, &small, seed)?;
-        if candidate.sheet.size == "A4"
+        if candidate.sheet.size == spec.pages()[0].0
             && clean(&candidate)
             && crate::sheet_fit::illegible_steps(analysis, &candidate) == 0
             && carried(&best).is_subset(&carried(&candidate))
@@ -3497,7 +3513,12 @@ fn recover_callouts(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Pla
                 style: crate::callouts::Style::Note,
             });
         }
-        trial.sheet.size = Some(spec.sheet.size.clone().unwrap_or_else(|| "A4".into()));
+        trial.sheet.size = Some(
+            spec.sheet
+                .size
+                .clone()
+                .unwrap_or_else(|| spec.pages()[0].0.into()),
+        );
         trial.sheet.scale = Some(best.sheet.scale.clone());
         let seed = plan_escalated_layout(analysis, &trial)?;
         let mut candidate = recover_paper(analysis, &trial, seed)?;
@@ -3523,7 +3544,7 @@ fn recover_callouts(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Pla
             candidate.spec = spec.clone();
             candidate.sheet.default = spec.sheet.size.is_none();
             best = candidate;
-            if best.sheet.size == "A4" {
+            if best.sheet.size == spec.pages()[0].0 {
                 break;
             }
         }
@@ -3539,13 +3560,15 @@ fn recover_paper(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, 
     // Search the complete ordinary drawing first, including the small-sheet allocation.
     let minimum = crate::sheets::floor(spec)
         .unwrap_or(0.0)
-        .max(crate::sheet_fit::min_legible_scale(analysis));
+        .max(crate::sheet_fit::min_legible_scale_in(analysis, spec.units));
     let has_optional = first
         .views
         .iter()
         .any(|v| v.detail.as_ref().is_some_and(|d| !d.authored))
-        || layout::SCALES
-            .into_iter()
+        || spec
+            .scales()
+            .iter()
+            .copied()
             .filter(|s| *s >= minimum)
             .any(|scale| {
                 crate::detail::requests(analysis, spec, scale)
@@ -3567,7 +3590,8 @@ fn recover_paper(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, 
             && undrawn_gdt(&ordinary) == 0
             && drawn_sheets_fit(analysis, &ordinary)
             && required.is_subset(&carried(&ordinary));
-        let small_paper = ordinary.sheet.size == "A4" || ordinary.sheet.size == "A3";
+        let small_paper =
+            ordinary.sheet.size == spec.pages()[0].0 || ordinary.sheet.size == spec.pages()[1].0;
         if complete
             && (small_paper
                 || spec.sheet.size.is_some()
@@ -3585,7 +3609,7 @@ fn recover_paper(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, 
         // A refused detail search may return the invalid seed. A complete ordinary
         // drawing always wins over that fallback, irrespective of paper size.
         let paper = |p: &Plan| {
-            layout::PAGES
+            spec.pages()
                 .iter()
                 .position(|(name, ..)| *name == p.sheet.size)
         };
@@ -3687,8 +3711,8 @@ fn recover_candidates(
         })
     };
     let min_legible_scale = crate::sheets::floor(spec).map_or_else(
-        || crate::sheet_fit::min_legible_scale(analysis),
-        |floor| floor.max(crate::sheet_fit::min_legible_scale(analysis)),
+        || crate::sheet_fit::min_legible_scale_in(analysis, spec.units),
+        |floor| floor.max(crate::sheet_fit::min_legible_scale_in(analysis, spec.units)),
     );
     // A comparison below the live readability floor cannot cap the search:
     // doing so removes every scale, rather than preserving an old corridor.
@@ -3798,7 +3822,8 @@ fn recover_candidates(
         }
         Ok(*small.get_or_insert_with(|| fits_a3_at_full_size(analysis, &first)))
     };
-    let first_large = layout::PAGES
+    let first_large = spec
+        .pages()
         .iter()
         .position(|(n, _, _)| *n == first.sheet.size)
         .is_some_and(|i| i >= LARGE_SHEET);
@@ -3824,7 +3849,7 @@ fn recover_candidates(
     let mut first_sheet = 0;
     loop {
         let mut cut = false;
-        for (i, (name, _, _)) in layout::PAGES.iter().enumerate().skip(first_sheet) {
+        for (i, (name, _, _)) in spec.pages().iter().enumerate().skip(first_sheet) {
             if spec.sheet.size.as_ref().is_some_and(|n| n != name) {
                 continue;
             }
@@ -3846,7 +3871,7 @@ fn recover_candidates(
                 cut = true;
                 break;
             }
-            for scale in layout::SCALES.into_iter().filter(|s| {
+            for scale in spec.scales().iter().copied().filter(|s| {
                 *s >= min_legible_scale && established_scale.is_none_or(|cap| *s <= cap)
             }) {
                 // On the one larger sheet only an enlargement of the smallest fit is allowed.
@@ -3855,7 +3880,7 @@ fn recover_candidates(
                 }
                 // A view larger than the usable paper cannot be repaired by annotation placement.
                 // Reject it before running the finished solver (especially important on dense PMI).
-                let (_, w, h) = layout::PAGES[i];
+                let (_, w, h) = spec.pages()[i];
                 if first
                     .views
                     .iter()
@@ -3882,7 +3907,8 @@ fn recover_candidates(
                 named.sheet.scale = Some(scale_name(scale));
                 // Decide omissions before the expensive candidate/arrangement planning.
                 if !allow_automatic
-                    || (layout::PAGES
+                    || (spec
+                        .pages()
                         .iter()
                         .position(|(n, ..)| *n == first.sheet.size)
                         .is_some_and(|parent| i > parent)
@@ -3986,7 +4012,7 @@ fn recover_candidates(
                         && p.hole_tables.is_empty())
                 {
                     let mut roomy = named.clone();
-                    roomy.sheet.size = Some("A0".into());
+                    roomy.sheet.size = Some(spec.pages()[4].0.into());
                     // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
                     let recipe_key = serde_json::to_vec(&roomy).expect("recipe Spec serializes");
                     let recipe = recipes.entry(recipe_key).or_insert_with(|| {
@@ -4288,7 +4314,7 @@ fn recover_candidates(
             if c.sheet <= sheet || !longer_callouts(p, &reference) {
                 return true;
             }
-            let prefix = format!("{} {} fill ", layout::PAGES[c.sheet].0, scale_name(c.scale));
+            let prefix = format!("{} {} fill ", spec.pages()[c.sheet].0, scale_name(c.scale));
             for trace in tried.iter_mut().filter(|t| t.starts_with(&prefix)) {
                 *trace = trace.replacen("(valid and complete", "(leader length quality veto", 1);
                 *trace +=
@@ -4314,7 +4340,7 @@ fn recover_candidates(
         // Only a seed below the absolute floor (1:10, the smallest scale the automatic choice
         // ever offers) is redrawn at that floor; a seed between it and the feature floor is
         // kept and the shortfall reported, as no legible candidate drew more validly.
-        let floor = crate::sheet_fit::ABSOLUTE_FLOOR;
+        let floor = crate::sheet_fit::absolute_floor(spec.units);
         if first.sheet.scale_factor < floor && crate::sheets::floor(spec).is_none_or(|f| floor >= f)
         {
             let mut named = spec.clone();
@@ -4431,7 +4457,7 @@ fn recover_candidates(
     };
     chosen.sheet.basis = format!(
         "smallest fit {} at {}; at most one larger sheet only with enlargement; drawn-item fill {:.1}%, target {:.0}–{:.0}% (validity and completeness first); {estimate}{kept}; candidates: {}",
-        layout::PAGES[i].0,
+        spec.pages()[i].0,
         scale_name(s),
         chosen.sheet.fill * 100.0,
         FILL_BAND[0] * 100.0,
@@ -4598,7 +4624,8 @@ fn balloon_fallback(analysis: &Analysis, spec: &Spec, plan: Plan) -> Result<Plan
     {
         return Ok(plan);
     }
-    let Some(&smaller) = layout::SCALES
+    let Some(&smaller) = spec
+        .scales()
         .iter()
         .find(|s| **s < plan.sheet.scale_factor - 1e-12)
     else {
@@ -5461,10 +5488,10 @@ fn plan_escalated_uncached(
                     && spec.sheet.size.is_none()
                     && !crate::placement_intent::has_pins(spec)
                 {
-                    let first = layout::PAGES.iter().position(|(name, ..)| *name == p.sheet.size)
+                    let first = spec.pages().iter().position(|(name, ..)| *name == p.sheet.size)
                         // Invariant: The planned sheet size was selected from the fixed paper table.
                         .expect("planned paper is standard");
-                    for (name, ..) in layout::PAGES.iter().skip(first + 1) {
+                    for (name, ..) in spec.pages().iter().skip(first + 1) {
                         let mut larger = spec.clone();
                         larger.sheet.size = Some((*name).into());
                         let candidate = install_schedules(analysis, &p, &selection, |selection| {
@@ -5542,9 +5569,9 @@ fn plan_escalated_uncached(
     if spec.sheet.scale.is_none() && shared {
         let required = carried(&best);
         for _ in 0..2 {
-            let Some(scale) = layout::SCALES.iter().copied().find(|s| {
+            let Some(scale) = spec.scales().iter().copied().find(|s| {
                 *s < best.sheet.scale_factor
-                    && *s >= crate::sheet_fit::ABSOLUTE_FLOOR
+                    && *s >= crate::sheet_fit::absolute_floor(spec.units)
                     && crate::sheets::floor(spec).is_none_or(|floor| *s >= floor)
             }) else {
                 break;
@@ -5792,15 +5819,15 @@ fn plan_with_presentation(
             &["1", "2"],
         ));
     }
-    if spec
-        .sheet
-        .preferred_max_size
-        .as_deref()
-        .is_some_and(|v| !layout::PAGES.iter().any(|p| p.0 == v))
-    {
+    if spec.sheet.preferred_max_size.as_deref().is_some_and(|v| {
+        !crate::units::Paper::for_size(v)
+            .pages()
+            .iter()
+            .any(|p| p.0 == v)
+    }) {
         return Err(invalid(
-            "sheet/preferred_max_size must be A4, A3, A2, A1 or A0.",
-            &layout::PAGES.map(|p| p.0),
+            "sheet/preferred_max_size must be A4..A0, ANSI A..E or ARCH A..E.",
+            &(*spec.pages()).map(|p| p.0),
         ));
     }
     crate::dims::authored::check(spec)?;
@@ -6329,7 +6356,7 @@ fn plan_with_presentation(
     problems.extend(crate::dims::refused_threads(analysis, spec));
     problems.extend(crate::dims::possible_threads(analysis, spec));
     if !effective.annotations.is_empty() {
-        let mut lowered = crate::pmi_lowering::lower(analysis, &|_| true).0;
+        let mut lowered = crate::pmi_lowering::lower_in(analysis, &|_| true, spec.units).0;
         crate::label_text::annotations(&mut lowered, &effective)?;
         let mut annotation_ids: Vec<String> = lowered.into_iter().map(|i| i.id).collect();
         annotation_ids.extend(
@@ -6555,14 +6582,14 @@ fn plan_with_presentation(
     }
     let page = match &spec.sheet.size {
         Some(s) => Some(
-            layout::PAGES
+            spec.pages()
                 .iter()
                 .find(|(n, ..)| n == s)
                 .map(|(_, w, h)| [*w, *h])
                 .ok_or_else(|| {
                     invalid(
                         format!("{s:?} is not a sheet size."),
-                        &layout::PAGES.map(|p| p.0),
+                        &(*spec.pages()).map(|p| p.0),
                     )
                 })?,
         ),
@@ -6570,12 +6597,17 @@ fn plan_with_presentation(
     };
     let scale = match &spec.sheet.scale {
         Some(s) => Some(
-            layout::SCALES
+            spec.scales()
                 .iter()
                 .copied()
                 .find(|k| scale_name(*k) == *s)
                 .ok_or_else(|| {
-                    let names = layout::SCALES.map(scale_name);
+                    let names = spec
+                        .scales()
+                        .iter()
+                        .copied()
+                        .map(scale_name)
+                        .collect::<Vec<_>>();
                     invalid(
                         format!("{s:?} is not a standard scale."),
                         &names.iter().map(String::as_str).collect::<Vec<_>>(),
@@ -6679,6 +6711,8 @@ fn plan_with_presentation(
         principals,
         shown("iso") || shown("iso_below"),
     );
+    request.paper = spec.paper();
+    request.units = spec.units;
     let breaks = crate::broken::resolve(analysis, spec, &mut problems);
     request.breaks = breaks
         .iter()
@@ -6724,7 +6758,7 @@ fn plan_with_presentation(
     let mut radius_notes = if crate::dims::pmi_policy::strict(analysis, spec) {
         Vec::new()
     } else {
-        crate::dims::blends::notes(analysis)
+        crate::dims::blends::notes(analysis, spec.units)
     };
     for (note, _) in &mut radius_notes {
         if let Some(text) = spec.annotations.get(&note.id).and_then(|a| a.text.as_ref()) {
@@ -6762,7 +6796,7 @@ fn plan_with_presentation(
     request.required_tables =
         crate::tables::sizes_on(&spec.tables, spec, page.unwrap_or([1189.0, 841.0]));
     request.required_tables.extend(crate::tables::sizes_on(
-        &crate::gears::tables(analysis),
+        &crate::gears::tables_in(analysis, spec.units),
         spec,
         page.unwrap_or([1189.0, 841.0]),
     ));
@@ -6772,7 +6806,7 @@ fn plan_with_presentation(
             .extend(p.sizes(spec, page.unwrap_or(p.page)));
     }
     request.required_tables.extend(crate::tables::sizes_on(
-        &crate::springs::tables(analysis),
+        &crate::springs::tables_in(analysis, spec.units),
         spec,
         page.unwrap_or([1189.0, 841.0]),
     ));
@@ -6860,7 +6894,7 @@ fn plan_with_presentation(
     }
     request.strips = strips;
     let page_name = |page: [f64; 2]| {
-        layout::PAGES
+        spec.pages()
             .iter()
             .find(|(_, w, h)| [*w, *h] == page)
             .map_or_else(|| format!("{}x{}", page[0], page[1]), |p| p.0.into())
@@ -7298,9 +7332,10 @@ fn plan_with_presentation(
         g.title_block,
     );
     problems.extend(more);
-    let title_cells = title_block::cells(g.title_block, &title, &size);
+    let title_cells = title_block::cells_in(g.title_block, &title, &size, spec.units);
     problems.extend(title_block::problems(&title_cells, pick.page));
     let mut sheet = PlannedSheet {
+        units: spec.units,
         number: 1,
         zones: None,
         fill: 0.0,
@@ -7332,7 +7367,8 @@ fn plan_with_presentation(
             } else {
                 "; anchor frames and sheet choice kept fixed for placement pins"
             };
-        sheet.title_cells = title_block::cells(sheet.title_block, &sheet.title, &sheet.size);
+        sheet.title_cells =
+            title_block::cells_in(sheet.title_block, &sheet.title, &sheet.size, spec.units);
         sheet.projection_symbol = Some(title_block::projection(sheet.title_block, first_angle));
     }
     if canonical.is_some() || spec.views.values().any(|v| v.place.is_some()) {
@@ -8115,7 +8151,7 @@ fn plan_with_presentation(
     tables.extend(schedule);
     ink.extend(tables.iter().filter_map(crate::tables::proxy));
     let (mut gear_tables, more) = crate::tables::plan(
-        &crate::gears::tables(analysis),
+        &crate::gears::tables_in(analysis, spec.units),
         analysis,
         &sheet,
         &views,
@@ -8137,7 +8173,7 @@ fn plan_with_presentation(
             .filter_map(crate::tables::proxy),
     );
     let (mut spring_tables, more) = crate::tables::plan(
-        &crate::springs::tables(analysis),
+        &crate::springs::tables_in(analysis, spec.units),
         analysis,
         &sheet,
         &views,
@@ -8153,7 +8189,7 @@ fn plan_with_presentation(
     ink.extend(spring_tables.iter().filter_map(crate::tables::proxy));
     tables.extend(spring_tables);
     let exceptions_unstated =
-        crate::dims::blends::exceptions_unstated(analysis, &dimensions, &radius_notes);
+        crate::dims::blends::exceptions_unstated(analysis, &dimensions, &radius_notes, spec.units);
     if exceptions_unstated {
         automatic.retain(|n| n.id == crate::dims::blends::RELIEF_NOTE);
     }
@@ -8538,7 +8574,7 @@ fn plan_with_presentation(
             }
             if ink_findings(&plan) > 0 {
                 let mut roomy = plan.spec.clone();
-                roomy.sheet.size = Some("A0".into());
+                roomy.sheet.size = Some(plan.spec.pages()[4].0.into());
                 roomy.sheet.scale = Some(plan.sheet.scale.clone());
                 // A template must keep the recipient's actual view inventory. A0
                 // may fit a crop the recipient declined; adding it makes packing
@@ -12033,6 +12069,7 @@ fn render_annotations_with_cuts(
         .cloned()
         .collect();
     crate::label_text::capture(plan, &mut sheet);
+    sheet.units = plan.spec.units;
     if !plan.spec.precision.is_empty() {
         for d in &plan.dimensions {
             let role = d.id.rsplit_once('/').map_or("", |(_, p)| p);

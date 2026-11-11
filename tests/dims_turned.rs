@@ -113,6 +113,7 @@ fn marks(plan: &Plan) -> Vec<Mark> {
     plan.dimensions
         .iter()
         .map(|d| Mark {
+            units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),
@@ -788,6 +789,7 @@ fn a_nonterminal_thin_z_shoulder_keeps_its_length_on_the_main_view() {
         .dimensions
         .iter()
         .map(|d| Mark {
+            units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),

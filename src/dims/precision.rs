@@ -1,5 +1,5 @@
 //! Display policy by semantic measurement ID. Nominals and tolerances remain independent.
-use super::{Want, fmt, want_id};
+use super::{Want, want_id};
 use crate::model::{Invalid, Spec};
 use serde::de::{Error, MapAccess, Visitor};
 use std::collections::{BTreeMap, BTreeSet};
@@ -108,7 +108,11 @@ pub(super) fn labels<'a>(
                 && let Some(nominal) = term.split_whitespace().next()
                 && nominal.parse::<f64>().is_ok()
             {
-                *term = format!("{}{}", format(w.value, places), &term[nominal.len()..]);
+                *term = format!(
+                    "{}{}",
+                    spec.units.format_places(w.value, Some(places)),
+                    &term[nominal.len()..]
+                );
             }
             continue;
         }
@@ -147,6 +151,11 @@ pub(super) fn labels<'a>(
         }
         let mut seen = BTreeSet::new();
         for m in &w.measurements {
+            let units = if m.parameter.contains("angle") {
+                crate::units::Units::Mm
+            } else {
+                spec.units
+            };
             if m.feature.starts_with("pmi:") && !w.id.starts_with("d:pmi:") {
                 continue;
             }
@@ -160,7 +169,8 @@ pub(super) fn labels<'a>(
                 .skip(*at)
                 .find(|(_, (_, _, _, v))| {
                     (*v - m.value).abs() < 1e-9
-                        || fmt(m.value)
+                        || units
+                            .format(m.value)
                             .parse::<f64>()
                             .is_ok_and(|n| (n - v).abs() < 1e-9)
                 });
@@ -178,7 +188,7 @@ pub(super) fn labels<'a>(
                     .flatten()
                 });
             if let Some(&p) = policy {
-                let text = format(m.value, p);
+                let text = units.format_places(m.value, Some(p));
                 if let Some(old) = replacements.insert((i, a, b), text.clone())
                     && old != text
                 {
@@ -227,6 +237,7 @@ mod tests {
             (vec!["⌀10", "SEE MFG 10"], vec!["⌀10.000", "SEE MFG 10"]),
         ] {
             let mut want = Want {
+                units: Default::default(),
                 id: "d:f:turned_step:1/step.diameter".into(),
                 views: vec!["front"],
                 value: 10.0,

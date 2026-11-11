@@ -61,7 +61,9 @@ fn stated(w: &Wanted, marks: &[Mark]) -> bool {
         m.claims
             .iter()
             .any(|c| c.feature == w.feature.id && c.parameter == w.parameter)
-            && values.iter().all(|&v| holes::states(&m.text, v))
+            && values
+                .iter()
+                .all(|&v| holes::states_in(&m.text, v, m.units))
     })
 }
 
@@ -291,7 +293,7 @@ fn shoulder_coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     return false;
                 }
                 if c.parameter == parameter {
-                    return holes::states(&m.text, distance);
+                    return holes::states_in(&m.text, distance, m.units);
                 }
                 // Older captured drawings still carry value-word claims.
                 let prefix = format!("step_position.length.{}", AXES[k]);
@@ -302,7 +304,7 @@ fn shoulder_coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 encoded
                     .parse::<f64>()
                     .is_ok_and(|v| (v - distance).abs() <= 0.001)
-                    && holes::states(&m.text, distance)
+                    && holes::states_in(&m.text, distance, m.units)
             })
         });
         // Exact feature geometry supplies the other Python owners; its own ledger still
@@ -369,6 +371,7 @@ mod tests {
 
     fn mark(feature: &str, text: &str, parameters: &[&str]) -> Mark {
         Mark {
+            units: Default::default(),
             name: format!("m:{text}"),
             view: Some("v:plan".into()),
             text: text.into(),

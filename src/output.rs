@@ -559,6 +559,7 @@ pub struct DrawnReference {
 /// format.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Sheet {
+    pub units: Units,
     /// Resolved source inventory for independent rendered-balloon verification.
     pub characteristics: Vec<crate::characteristics::Characteristic>,
     pub inspection_enabled: bool,
@@ -2689,3 +2690,5 @@ mod tests {
         );
     }
 }
+
+pub use crate::units::Units;

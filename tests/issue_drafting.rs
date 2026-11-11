@@ -589,6 +589,7 @@ fn marks(plan: &Plan) -> Vec<Mark> {
     plan.dimensions
         .iter()
         .map(|d| Mark {
+            units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),
@@ -707,6 +708,7 @@ fn equal_diameters_on_different_features_are_stated_apart() {
         .iter()
         .filter(|d| d.id.starts_with("d:envelope/od.diameter"))
         .map(|d| Mark {
+            units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),
@@ -1132,6 +1134,7 @@ fn the_parts_extents_never_leave_the_drawing_silently() {
             .iter()
             .filter(|d| d.id.starts_with("d:envelope/") || d.id.ends_with("/step.length"))
             .map(|d| Mark {
+                units: Default::default(),
                 name: d.id.clone(),
                 view: Some(d.view.clone()),
                 text: d.label.clone(),

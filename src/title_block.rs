@@ -284,6 +284,15 @@ pub fn value_size(value: &str, cell: [f64; 4]) -> f64 {
 /// *title* (the plan's `sheet.title`, by spec key) and the sheet's *size*. A value that is empty
 /// or only whitespace is no value, and is drawn without its surrounding whitespace.
 pub fn cells(block: [f64; 4], title: &BTreeMap<String, String>, size: &str) -> Vec<TitleCell> {
+    cells_in(block, title, size, crate::units::Units::Mm)
+}
+
+pub fn cells_in(
+    block: [f64; 4],
+    title: &BTreeMap<String, String>,
+    size: &str,
+    units: crate::units::Units,
+) -> Vec<TitleCell> {
     let [x0, y0, x1, _] = block;
     let width = x1 - x0;
     let value = |field: &str| -> Option<String> {
@@ -292,7 +301,7 @@ pub fn cells(block: [f64; 4], title: &BTreeMap<String, String>, size: &str) -> V
             return Some(attribution(author));
         }
         let v = match field {
-            "units" => "mm",
+            "units" => units.symbol(),
             "format" => size,
             _ => {
                 let key = KEYS.iter().find(|(_, f)| *f == field)?.0;
@@ -592,7 +601,7 @@ pub(crate) fn number_sheets(plan: &mut crate::model::Plan) {
 /// Pack-only top row: keep owner and document type, adding independent item and quantity
 /// cells. Ordinary drawing Specs and their title blocks are byte-for-byte unchanged.
 pub(crate) fn pack_cells(sheet: &mut crate::model::PlannedSheet, item: u32, qty: usize) {
-    sheet.title_cells = cells(sheet.title_block, &sheet.title, &sheet.size);
+    sheet.title_cells = cells_in(sheet.title_block, &sheet.title, &sheet.size, sheet.units);
     let owner = &mut sheet.title_cells[0];
     let [x0, y0, x1, y1] = owner.cell;
     let width = x1 - x0;

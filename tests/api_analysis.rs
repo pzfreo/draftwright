@@ -361,6 +361,7 @@ fn edge_mouth_notches_need_no_opening_direction_location() {
             .unwrap()
             .iter()
             .map(|d| draftwright::lint::Mark {
+                units: Default::default(),
                 name: d["id"].as_str().unwrap().into(),
                 view: d["view"].as_str().map(str::to_string),
                 text: d["terms"]

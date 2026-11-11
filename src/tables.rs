@@ -857,6 +857,7 @@ mod split_tests {
     #[test]
     fn shared_tables_split_without_losing_source_rows_or_repeating_claims() {
         let sheet = crate::model::PlannedSheet {
+            units: Default::default(),
             page: [594.0, 420.0],
             ..serde_json::from_value(serde_json::json!({
                 "size":"A2", "page":[594.0,420.0], "scale":"1:1", "scale_factor":1.0,

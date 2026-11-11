@@ -1021,7 +1021,7 @@ pub(crate) fn demand_with_spec(
     spec: &Spec,
     shown: &dyn Fn(&str) -> bool,
 ) -> Vec<crate::layout::Gdt> {
-    let (mut items, _) = crate::pmi_lowering::lower(analysis, shown);
+    let (mut items, _) = crate::pmi_lowering::lower_in(analysis, shown, spec.units);
     if items
         .iter()
         .any(|i| matches!(i.glyph, Glyph::FlagNote { .. }))
@@ -1366,7 +1366,7 @@ fn plan_search(
             .any(|m| m.feature.starts_with("f:section_recess:"))
     });
     let shown = |name: &str| views.iter().any(|v| v.id == format!("v:{name}"));
-    let (mut items, mut problems) = crate::pmi_lowering::lower(analysis, &shown);
+    let (mut items, mut problems) = crate::pmi_lowering::lower_in(analysis, &shown, spec.units);
     // The exact same reconciled list reserves and numbers the notes block. A feature
     // whose leader cannot be lowered still has its text there, without a dangling flag.
     let (requirements, _) = crate::pmi_lowering::sheet_requirements(analysis);
@@ -2534,7 +2534,7 @@ pub(crate) fn validate_placements(
         return Ok(());
     }
     let shown = |name: &str| views.iter().any(|v| v.id == format!("v:{name}"));
-    let (items, _) = crate::pmi_lowering::lower(analysis, &shown);
+    let (items, _) = crate::pmi_lowering::lower_in(analysis, &shown, spec.units);
     let all: Vec<_> = PRINCIPALS
         .iter()
         .map(|(name, direction, up)| PlannedView {

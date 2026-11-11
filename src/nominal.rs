@@ -100,7 +100,12 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
             {
                 continue;
             }
-            let printed = format(m.value);
+            let units = if m.parameter.contains("angle") {
+                crate::units::Units::Mm
+            } else {
+                spec.units
+            };
+            let printed = units.format(m.value);
             // Symbolic thread designations and table references can replace a nominal.
             // Report only a numeric term that is actually printed on this carrier.
             let printed_here = text
@@ -114,7 +119,7 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
             if printed_here
                 && printed
                     .parse::<f64>()
-                    .is_ok_and(|v| (v - clean(m.value)).abs() > 1e-6 + 1e-12)
+                    .is_ok_and(|v| (v - clean(units.from_mm(m.value))).abs() > 1e-6 + 1e-12)
             {
                 problems.insert((id.to_string(), measurement.clone()), crate::model::Problem {
                     id: format!("p:nominal_rounded:{id}:{measurement}"),

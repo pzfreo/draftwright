@@ -63,12 +63,15 @@ pub(super) fn wants(
         .iter()
         .filter_map(|(id, d)| d.presentation.map(|p| (id, p)))
         .collect();
-    let mut result = if s.origin.is_empty() && s.pmi != PmiMode::Strict && presentations.is_empty()
+    let mut result = if s.units.is_mm()
+        && s.origin.is_empty()
+        && s.pmi != PmiMode::Strict
+        && presentations.is_empty()
     {
         super::wants(a)
     } else {
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
-        let key = serde_json::to_vec(&(s.pmi, &s.origin, presentations)).unwrap();
+        let key = serde_json::to_vec(&(s.pmi, &s.origin, s.units, presentations)).unwrap();
         crate::planning::memo(a, "pmi-wants", key, || super::wants_uncached(a, s))
     };
     super::modelled_threads::apply(a, s, &mut result.0, &mut result.1);
@@ -318,6 +321,7 @@ fn located_by(
 }
 
 pub(super) fn origins(a: &Analysis, s: &Spec, wants: &mut [Want]) -> Vec<Problem> {
+    let fmt = |v| crate::dims::fmt_in(v, s.units);
     if !carries(a) && s.origin.is_empty() {
         return Vec::new();
     }
@@ -368,6 +372,7 @@ pub(super) fn on_origin(w: &Want) -> bool {
 
 fn spans(a: &Analysis, w: &Want) -> Vec<Edge> {
     let mark = crate::lint::Mark {
+        units: w.units,
         name: w.id.clone(),
         view: None,
         text: crate::callouts::label(&w.terms),
@@ -472,6 +477,7 @@ fn raw_spans(a: &Analysis, w: &Want) -> Vec<Edge> {
                     &m.feature,
                     &m.parameter,
                     &crate::callouts::label(&w.terms),
+                    w.units,
                 )
                 .into_iter()
                 .map(|s| Edge {
@@ -536,6 +542,7 @@ fn cover_uncached(
     let marks: Vec<_> = kept
         .iter()
         .map(|(w, ..)| crate::lint::Mark {
+            units: w.units,
             name: w.id.clone(),
             view: None,
             text: crate::callouts::label(&w.terms),
@@ -896,6 +903,7 @@ fn dimension_marks(
         .iter()
         .filter(|d| d.placed.is_some() && !d.reference && include(d))
         .map(|d| crate::lint::Mark {
+            units: p.spec.units,
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),
@@ -972,6 +980,7 @@ fn dimension_marks(
         // Invariant: ink_span returns only the fixed x, y or z axis names.
         let k = AXES.iter().position(|v| v == axis).unwrap();
         marks.push(crate::lint::Mark {
+            units: p.spec.units,
             name: format!("origin/{axis}"),
             view: None,
             text: String::new(),
@@ -1054,6 +1063,7 @@ fn audit_inner(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
                     });
                 }
                 marks.push(crate::lint::Mark {
+                    units: p.spec.units,
                     name: format!("{}/{}/{}", table.id, row.key(), AXES[k]),
                     view: table.view.clone(),
                     text: format!("{value}"),

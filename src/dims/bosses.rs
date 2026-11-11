@@ -43,7 +43,7 @@ use super::envelope::profile_views;
 use super::holes as holes_dims;
 use super::{
     AXES, Context, Measurement, NAMES, Omitted, P3, Planner, Problem, QFrame, Shape, Want, add,
-    end_on, fmt, key, point, scale3, want_id,
+    end_on, key, point, scale3, want_id,
 };
 use crate::bridge::Feature;
 use crate::bridge::holes::{self, principal};
@@ -155,7 +155,8 @@ fn read_inclined<'a>(f: &'a Feature, frame: &QFrame) -> Option<Inclined<'a>> {
 /// diameter along one line are counted once, as principal ones along one axis are: keyed on the
 /// direction, either way along it (as [`holes::Hole::requirement`] keys a hole's, signed), so
 /// every member is seen as the first is.
-fn inclined_callouts(inclined: &[Inclined]) -> Vec<Want> {
+fn inclined_callouts(inclined: &[Inclined], units: crate::units::Units) -> Vec<Want> {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let mut groups: BTreeMap<([i64; 3], i64), Vec<&Inclined>> = BTreeMap::new();
     let mut order = Vec::new();
     for b in inclined {
@@ -191,7 +192,7 @@ fn inclined_callouts(inclined: &[Inclined]) -> Vec<Want> {
                     })
                 })
                 .collect();
-            Want {
+            Want { units: units,
                 id: want_id(&first.feature.id, "boss.diameter"),
                 views: axes.into_iter().map(end_on).collect(),
                 value: first.diameter,
@@ -440,6 +441,7 @@ pub(super) fn route_profile(analysis: &Analysis, w: &mut Want, view: &str) {
 }
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let analysis = cx.analysis;
     let [lo, _] = analysis.envelope;
     let mut problems = Vec::new();
@@ -555,7 +557,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                     }
                     let mut terms = vec![format!("ø{}", fmt(diameter))];
                     carried(id, &mut terms);
-                    out.push(Want {
+                    out.push(Want { units: cx.spec.units,
                     id: want_id(id, "boss.diameter"),
                     views: vec![views[0]],
                     value: diameter,
@@ -648,7 +650,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             p[j] += b.half(j);
             p
         };
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(&b.feature.id, "boss_height.length"),
             views,
             value: h,
@@ -819,6 +821,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             basis
         } + &super::turned::carries(&manufacturing, &[&first.feature.id], "boss");
         out.push(Want {
+            units: cx.spec.units,
             id: want_id(&first.feature.id, parameter),
             views,
             value,
@@ -848,7 +851,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         });
     }
 
-    out.extend(inclined_callouts(&inclined));
+    out.extend(inclined_callouts(&inclined, cx.spec.units));
     for ((view, a, _), owners) in located {
         let first = &bosses[owners[0]];
         let d = first.top[a] - lo[a];
@@ -858,6 +861,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         let mut from = first.top;
         from[a] = lo[a];
         out.push(Want {
+            units: cx.spec.units,
             id: want_id(&first.feature.id, &parameter),
             views: vec![view],
             value: d,

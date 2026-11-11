@@ -1,7 +1,7 @@
 //! Plate and wall thicknesses in exposed boundary profiles. Python's fixed
 //! axis map is the fallback; proven alternative statements cover derived intervals.
 
-use super::{Context, Measurement, Omitted, Planner, Problem, Shape, Want, fmt, want_id};
+use super::{Context, Measurement, Omitted, Planner, Problem, Shape, Want, want_id};
 use crate::items::State;
 use crate::lint::plates;
 use crate::model::Analysis;
@@ -12,6 +12,7 @@ pub(super) const PLANNER: Planner = Planner {
 };
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let mut out = Vec::new();
     let mut problems = Vec::new();
     for f in cx.analysis.features.iter().filter(|f| f.kind == "plate") {
@@ -35,6 +36,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         let k = p.axis;
         let value = p.thickness();
         out.push(Want {
+            units: cx.spec.units,
             id: want_id(&f.id, "thickness.length"),
             views: match k {
                 0 => vec!["front", "plan"],

@@ -113,7 +113,7 @@ pub fn text_diameters(text: &str) -> Vec<f64> {
             j += 1;
         }
         let mut end = digits(j);
-        if end == j {
+        if end == j && chars.get(end) != Some(&'.') {
             i += 1;
             continue;
         }
@@ -196,7 +196,10 @@ pub fn mentions(holes: &BTreeMap<&str, Hole>, mark: &Mark) -> Mentions {
     if !callout {
         return Mentions {
             structured: Vec::new(),
-            text: text_diameters(&mark.text),
+            text: text_diameters(&mark.text)
+                .into_iter()
+                .map(|v| v * mark.units.millimetres())
+                .collect(),
         };
     }
     let own = [" EQ SP", " ON ", " BC"]
@@ -205,7 +208,10 @@ pub fn mentions(holes: &BTreeMap<&str, Hole>, mark: &Mark) -> Mentions {
         .min()
         .map_or(mark.text.as_str(), |end| &mark.text[..end]);
     Mentions {
-        structured: text_diameters(own),
+        structured: text_diameters(own)
+            .into_iter()
+            .map(|v| v * mark.units.millimetres())
+            .collect(),
         text: Vec::new(),
     }
 }
@@ -629,7 +635,11 @@ pub fn sites(analysis: &Analysis, marks: &[Mark]) -> Vec<Site> {
                         .iter()
                         .any(|c| c.feature == id && c.parameter == parameter)
                     && (!m.name.starts_with("hole_schedule_")
-                        || super::holes::states(&m.text, at[k] - analysis.envelope[0][k]))
+                        || super::holes::states_in(
+                            &m.text,
+                            at[k] - analysis.envelope[0][k],
+                            m.units,
+                        ))
             })
         })
     };
@@ -780,7 +790,8 @@ pub fn schedule_entries(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 let Some((position, direction)) = m.text.split_once('/') else {
                     return false;
                 };
-                super::holes::states(position.trim(), want) && direction.trim() == want_dir
+                super::holes::states_in(position.trim(), want, m.units)
+                    && direction.trim() == want_dir
             });
             if !correct {
                 let mut issue = sheet_issue(
@@ -892,6 +903,7 @@ mod tests {
         ];
         let holes: BTreeMap<&str, Hole> = [("f:hole:1", Hole::read(&f, &identity).unwrap())].into();
         let mark = |text: &str, parameter: &str| Mark {
+            units: Default::default(),
             name: "m".into(),
             view: None,
             text: text.into(),
@@ -979,6 +991,7 @@ mod tests {
         assert_eq!(found[0].subjects, ["f:double_d_bore:1"]);
         assert_eq!(found[0].requirements[0].parameter, "location.length.y");
         let mark = Mark {
+            units: Default::default(),
             name: "m".into(),
             view: Some("v:side".into()),
             text: "30".into(),

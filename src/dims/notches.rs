@@ -10,7 +10,7 @@
 //! whose run is along no axis of the part is reported (`feature_not_dimensioned`).
 use super::grooves::{not_dimensioned, size};
 use super::{
-    AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, fmt, point, want_id,
+    AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, point, want_id,
 };
 use crate::bridge::Feature;
 use crate::bridge::holes::{dir_to_part, principal};
@@ -38,6 +38,7 @@ pub(super) const PLANNER: Planner = Planner {
 /// Width and depth of a published through-notch, with its mouth located on both
 /// in-plane axes. Corner radii retain the existing blend/fillet callouts.
 fn rectangular(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let n = crate::lint::rectangular_notches::read(cx.analysis, f)?;
     let view = end_on(n.axis);
     let mut out = Vec::new();
@@ -48,6 +49,7 @@ fn rectangular(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
         }
         let order = u8::from(parameter.starts_with("location."));
         out.push(Want {
+            units: cx.spec.units,
             id: want_id(&f.id, &parameter),
             views: vec![view],
             value,
@@ -197,6 +199,7 @@ pub(super) fn references(w: &Want, analysis: &crate::model::Analysis) -> Vec<Sha
 
 /// A V channel's callout and trough locations, or why they cannot be stated.
 pub(super) fn channel(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let p = &f.parameters;
     let angle = size(f, "included_angle_degrees")?;
     let depth = size(f, "depth")?;
@@ -221,12 +224,12 @@ pub(super) fn channel(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
         parameter: parameter.into(),
         value,
     };
-    let mut out = vec![Want {
-        id: want_id(&f.id, "v_channel.angle"),
+    let mut out = vec![Want { units: cx.spec.units,
+id: want_id(&f.id, "v_channel.angle"),
         views: vec![view],
         value: angle,
         terms: vec![
-            format!("{}°", fmt(angle)),
+            format!("{}°", crate::dims::fmt(angle)),
             "V".into(),
             "×".into(),
             fmt(depth),
@@ -253,7 +256,7 @@ pub(super) fn channel(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
         let parameter = format!("location.length.{}", AXES[j]);
         let mut a = at;
         a[j] = lo[j];
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(&f.id, &parameter),
             views: vec![view],
             value,
@@ -279,6 +282,7 @@ pub(super) fn channel(cx: &Context, f: &Feature) -> Result<Vec<Want>, String> {
 }
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let mut out = Vec::new();
     let mut problems = Vec::new();
     for f in cx
@@ -319,7 +323,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
     for n in notches {
         let view = end_on(n.axis);
         let value = n.angle.degrees();
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: id(&n.id,"notch.angle"), views:vec![view], value,
             terms:vec![format!("{}°",fmt(value))],
             measurements:vec![Measurement {feature:n.id.clone(),parameter:"notch.angle".into(),value}],
@@ -328,7 +332,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         });
         let k = n.depth_axis;
         let value = n.depth();
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id:id(&n.id,"notch_depth.length"),views:vec![view],value,terms:vec![fmt(value)],
             measurements:vec![Measurement {feature:n.id.clone(),parameter:"notch_depth.length".into(),value}],
             basis:"V-notch depth from the mouth to the theoretical sharp apex; the included angle and depth define the mouth width".into(),
@@ -346,6 +350,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             }
             let parameter = format!("location.length.{}", AXES[k]);
             out.push(Want {
+                units: cx.spec.units,
                 id: id(&n.id, &parameter),
                 // An X station is equally true in the aligned front projection.
                 // Keep the plan's angular sector free of long datum witnesses; an

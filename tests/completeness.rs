@@ -22,6 +22,7 @@ fn analysis(features: Vec<Value>) -> Analysis {
 
 fn mark(feature: &str, parameter: &str, text: &str) -> Mark {
     Mark {
+        units: Default::default(),
         name: format!("{feature}/{parameter}"),
         view: Some("v:plan".into()),
         text: text.into(),

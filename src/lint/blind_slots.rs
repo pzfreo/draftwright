@@ -182,6 +182,7 @@ mod tests {
 
     fn mark(text: &str, parameters: &[&str]) -> Mark {
         Mark {
+            units: Default::default(),
             name: "m_slot".into(),
             view: Some("v:front".into()),
             text: text.into(),

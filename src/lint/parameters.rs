@@ -194,7 +194,11 @@ pub fn coverage(
                 continue;
             }
         };
-        let states = |m: &&Mark| values.iter().all(|&v| holes::states(&m.text, v));
+        let states = |m: &&Mark| {
+            values
+                .iter()
+                .all(|&v| holes::states_in(&m.text, v, m.units))
+        };
         if claiming.iter().any(states) {
             continue;
         }
@@ -247,6 +251,7 @@ mod tests {
 
     fn mark(text: &str, parameter: &str) -> Mark {
         Mark {
+            units: Default::default(),
             name: format!("m:{text}"),
             view: Some("v:front".into()),
             text: text.into(),

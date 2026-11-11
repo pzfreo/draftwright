@@ -283,9 +283,9 @@ impl Term {
                     .iter()
                     .any(|c| c.feature == self.feature && c.parameter == self.parameter)
                 && if self.parameter == "thickness.length" {
-                    holes::states(nominal(&m.text), self.value)
+                    holes::states_in(nominal(&m.text), self.value, m.units)
                 } else {
-                    holes::states(&m.text, self.value)
+                    holes::states_in(&m.text, self.value, m.units)
                 }
         })
     }

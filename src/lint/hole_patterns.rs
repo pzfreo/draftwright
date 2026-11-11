@@ -246,7 +246,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                                 .any(|m| {
                                     m.claims.iter().any(|c| {
                                         c.feature == read[i].feature.id && c.parameter == parameter
-                                    }) && holes::states(&m.text, distance)
+                                    }) && holes::states_in(&m.text, distance, m.units)
                                 })
                     })
                 })
@@ -262,7 +262,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                         m.claims
                             .iter()
                             .any(|c| c.feature == p.id && c.parameter == *parameter)
-                            && spacing_stated(parameter, &m.text, d)
+                            && spacing_stated(parameter, &m.text, m.units.from_mm(d))
                     })
                 })
             });
@@ -288,7 +288,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     m.claims
                         .iter()
                         .any(|c| c.feature == p.id && c.parameter == parameter)
-                        && holes::states(&m.text, pitch)
+                        && holes::states_in(&m.text, pitch, m.units)
                 }) else {
                     continue;
                 };
@@ -337,10 +337,11 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                         .any(|c| c.feature == p.id && c.parameter == parameter)
                 })
                 .collect();
-            if claiming
-                .iter()
-                .any(|m| distances.iter().any(|d| holes::states(&m.text, *d)))
-            {
+            if claiming.iter().any(|m| {
+                distances
+                    .iter()
+                    .any(|d| holes::states_in(&m.text, *d, m.units))
+            }) {
                 continue;
             }
             let mut issue = super::uncovered(
@@ -389,7 +390,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             if value.is_some_and(|d| {
                 claiming
                     .iter()
-                    .any(|m| spacing_stated(&parameter, &m.text, d))
+                    .any(|m| spacing_stated(&parameter, &m.text, m.units.from_mm(d)))
             }) {
                 continue;
             }

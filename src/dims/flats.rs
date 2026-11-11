@@ -220,7 +220,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             terms.push("A/F".into());
         }
         let faces: usize = members.iter().map(|m| m.feature.faces.len()).sum();
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: super::want_id(&first.feature.id, "flat.length"),
             views: vec![view],
             value: first.across,

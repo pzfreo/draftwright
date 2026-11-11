@@ -116,6 +116,7 @@ fn a_thread_on_a_lone_boss_states_its_diameter() {
         .dimensions
         .iter()
         .map(|d| draftwright::lint::Mark {
+            units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.replace('\n', " "),

@@ -1,8 +1,9 @@
 //! Measurements carried by an explicitly requested longitudinal pocket section.
-use super::{Measurement, Shape, Want, fmt, want_id};
+use super::{Measurement, Shape, Want, want_id};
 use crate::model::{Analysis, Spec};
 
 pub(super) fn apply(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) {
+    let fmt = |v| crate::dims::fmt_in(v, s.units);
     let Some(p) = crate::sections::pocket(a, s) else {
         return;
     };
@@ -45,6 +46,7 @@ pub(super) fn apply(a: &Analysis, s: &Spec, wants: &mut Vec<Want>) {
         return;
     }
     wants.push(Want {
+        units: s.units,
         id: want_id(&r.through, "pocket_depth.length"),
         views: vec![name],
         value: p.depth,

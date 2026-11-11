@@ -101,7 +101,8 @@ fn sites_by_view<'a>(a: &Analysis, group: &[&'a Feature]) -> ViewSites<'a> {
 }
 
 /// Automatic notes carry explicit measurement identities; prose authored in Spec never does.
-pub(crate) fn notes(a: &Analysis) -> Vec<(NoteSpec, Vec<Measurement>)> {
+pub(crate) fn notes(a: &Analysis, units: crate::units::Units) -> Vec<(NoteSpec, Vec<Measurement>)> {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let groups = groups(a);
     let mut out = Vec::new();
     if let Some(i) = general(&groups) {
@@ -150,6 +151,7 @@ fn projected_sites(view: &str, sites: impl Iterator<Item = [f64; 3]>) -> Vec<[f6
 }
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let a = cx.analysis;
     let groups = groups(a);
     let general = general(&groups);
@@ -186,7 +188,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         } else {
             vec![format!("R{}", fmt(r))]
         };
-        wants.push(Want {
+        wants.push(Want { units: cx.spec.units,
             id: want_id(&group[0].id, "blend.radius"), views: vec![view], value: r,
             terms, measurements: measurements(group),
             basis: "equal displayed blend radii are stated once, with an exact measurement claim for every occurrence and a leader on a proven trimmed surface".into(),
@@ -199,7 +201,13 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
 /// no leader of its own. When a fillet callout already states the same radius, it is counted
 /// there with its exact claim, as draftwright counts members that read in another view, so the
 /// leader is laid out with its final count and the exception is stated wherever it is drawn.
-pub(super) fn count_oblique(a: &Analysis, wants: &mut [Want], problems: &mut Vec<Problem>) {
+pub(super) fn count_oblique(
+    a: &Analysis,
+    wants: &mut [Want],
+    problems: &mut Vec<Problem>,
+    units: crate::units::Units,
+) {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let oblique = |f: &Feature| {
         f.parameters
             .get("path")
@@ -256,6 +264,7 @@ pub(super) fn count_oblique(a: &Analysis, wants: &mut [Want], problems: &mut Vec
 /// area. Only where consolidation will apply: neither callout overridden, and one fillet
 /// callout of that radius.
 pub(super) fn count_equal(spec: &crate::model::Spec, wants: &mut [Want]) {
+    let fmt = |v| crate::dims::fmt_in(v, spec.units);
     let callout = |w: &Want, p: &str| {
         !overridden(spec, spec, &w.id)
             && matches!(w.shape, Shape::Callout { .. })
@@ -328,7 +337,9 @@ pub(crate) fn exceptions_unstated(
     a: &Analysis,
     dimensions: &[super::PlannedDimension],
     notes: &[(NoteSpec, Vec<Measurement>)],
+    units: crate::units::Units,
 ) -> bool {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let Some(value) = notes
         .first()
         .and_then(|(_, ms)| ms.first())
@@ -411,6 +422,7 @@ pub(crate) fn consolidate(
     spec: &crate::model::Spec,
     given: &crate::model::Spec,
 ) {
+    let fmt = |v| crate::dims::fmt_in(v, spec.units);
     for i in 0..dimensions.len() {
         if dimensions[i].measurements.is_empty()
             || !dimensions[i]
@@ -449,6 +461,7 @@ pub(crate) fn consolidate(
         // Invariant: The selected dimension indices were filtered to placed dimensions.
         let placed = dimensions[j].placed.as_ref().unwrap();
         let want = Want {
+            units: spec.units,
             id: dimensions[j].id.clone(),
             views: Vec::new(),
             value: dimensions[j].value,
@@ -476,6 +489,7 @@ pub(crate) fn cover_fillets(
     spec: &crate::model::Spec,
     given: &crate::model::Spec,
 ) {
+    let fmt = |v| crate::dims::fmt_in(v, spec.units);
     for note in notes.iter_mut().filter(|n| {
         n.placed.is_some()
             && crate::label_text::note_body(spec, n).starts_with("ALL UNSPECIFIED RADII")
@@ -522,7 +536,8 @@ pub struct RadiusTable {
     pub table: crate::tables::PlannedTable,
 }
 
-fn table_spec(rows: &[RadiusRow]) -> crate::tables::TableSpec {
+fn table_spec(rows: &[RadiusRow], units: crate::units::Units) -> crate::tables::TableSpec {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let mut cells = vec![vec![
         "RADIUS CENTRES".into(),
         "X FROM VIEW LEFT".into(),
@@ -552,6 +567,7 @@ pub(crate) fn reservations(
     a: &Analysis,
     spec: &crate::model::Spec,
 ) -> Vec<crate::tables::TableSpec> {
+    let fmt = |v| crate::dims::fmt_in(v, spec.units);
     if spec.dimension_source != crate::model::DimensionSource::Auto
         || crate::notches::requirements(a).is_empty()
     {
@@ -598,7 +614,7 @@ pub(crate) fn reservations(
     if rows.is_empty() {
         Vec::new()
     } else {
-        vec![table_spec(&rows)]
+        vec![table_spec(&rows, spec.units)]
     }
 }
 
@@ -692,7 +708,7 @@ pub(crate) fn tabulate_obstructed(
             .then(a.centre[1].total_cmp(&b.centre[1]))
             .then(a.feature.cmp(&b.feature))
     });
-    let specs = [table_spec(&rows)];
+    let specs = [table_spec(&rows, spec.units)];
     let mut remaining: Vec<_> = dimensions
         .iter()
         .enumerate()

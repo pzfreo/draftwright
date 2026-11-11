@@ -954,3 +954,36 @@ fn no_pictorial_flags_keep_cli_output_equal_to_the_default_library_spec() {
         );
     }
 }
+
+#[test]
+fn units_and_paper_flags_apply_to_plan_and_review() {
+    let path = fixture("parts/plate.step");
+    for command in ["plan", "review"] {
+        let (code, result) = run(&[
+            command,
+            path.to_str().unwrap(),
+            "--units",
+            "in",
+            "--paper",
+            "arch",
+        ]);
+        assert_eq!(code, Some(0), "{result}");
+        if command == "plan" {
+            assert_eq!(result["spec"]["units"], "in");
+            assert_eq!(result["spec"]["sheet"]["paper"], "arch");
+            assert!(
+                result["sheet"]["size"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("ARCH ")
+            );
+        }
+    }
+    for args in [["--units", "cm"], ["--paper", "letter"]] {
+        let result = Command::new(env!("CARGO_BIN_EXE_draftwright"))
+            .args(["plan", path.to_str().unwrap(), args[0], args[1]])
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+    }
+}

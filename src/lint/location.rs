@@ -7,14 +7,14 @@ use std::collections::BTreeSet;
 const EPS: f64 = 1e-6;
 
 /// The part and witnesses use millimetres; authored PMI can explicitly print inches.
-fn states_mm(text: &str, value: f64) -> bool {
+fn states_in(text: &str, value: f64, units: crate::output::Units) -> bool {
     let inch = text
         .split_whitespace()
         .any(|word| word.eq_ignore_ascii_case("INCH") || word.eq_ignore_ascii_case("INCHES"));
-    super::holes::states(text, value / if inch { 25.4 } else { 1. })
+    super::holes::states(text, value / if inch { 25.4 } else { units.millimetres() })
 }
 /// A station equation uses the leading nominal, never a tolerance or fit-class number.
-fn nominal_mm(text: &str, value: f64) -> bool {
+fn nominal_in(text: &str, value: f64, units: crate::output::Units) -> bool {
     if !value.is_finite() {
         return false;
     }
@@ -44,34 +44,35 @@ fn nominal_mm(text: &str, value: f64) -> bool {
     let inch = text
         .split_whitespace()
         .any(|w| w.eq_ignore_ascii_case("INCH") || w.eq_ignore_ascii_case("INCHES"));
-    states_mm(
+    states_in(
         &format!("{number}{}", if inch { " INCH" } else { "" }),
         value,
+        units,
     )
 }
 
 fn span_stated(mark: &Mark, value: f64, strict: bool) -> bool {
     if !strict {
         // Planner precedence retains its existing interpretation; lint verifies nominals.
-        return states_mm(&mark.text, value)
+        return states_in(&mark.text, value, mark.units)
             || mark.text.split_once('×').is_some_and(|(n, rest)| {
                 n.trim()
                     .parse::<f64>()
-                    .is_ok_and(|n| states_mm(rest.trim(), value / n))
+                    .is_ok_and(|n| states_in(rest.trim(), value / n, mark.units))
             });
     }
     if let Some((n, rest)) = mark.text.split_once('×') {
         n.trim().parse::<usize>().is_ok_and(|n| {
             n > 0
-                && (nominal_mm(rest, value)
+                && (nominal_in(rest, value, mark.units)
                     || (mark
                         .claims
                         .iter()
                         .any(|c| c.parameter.contains("pitch.length"))
-                        && nominal_mm(rest, value / n as f64)))
+                        && nominal_in(rest, value / n as f64, mark.units)))
         })
     } else {
-        nominal_mm(&mark.text, value)
+        nominal_in(&mark.text, value, mark.units)
     }
 }
 
@@ -336,9 +337,10 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                         for end in a.envelope.iter().take(1) {
                             // Unwitnessed coordinates use only the documented low-corner
                             // convention. High-end distances require their own ink span.
-                            if states_mm(
+                            if states_in(
                                 mark.text.split_whitespace().next().unwrap_or(""),
                                 (at - end[k]).abs(),
+                                mark.units,
                             ) {
                                 spans.push((k, end[k], at));
                             }
@@ -352,12 +354,16 @@ fn build_edges(a: &Analysis, marks: &[Mark], authored: bool) -> Vec<Edge> {
                     && ["pocket_width.length", "pocket_length.length"]
                         .contains(&c.parameter.as_str())
                     && let Some(s) = super::redundancy::span(a, &c.feature, &c.parameter)
-                    && states_mm(mark.text.split('±').next().unwrap_or(""), s.hi - s.lo)
+                    && states_in(
+                        mark.text.split('±').next().unwrap_or(""),
+                        s.hi - s.lo,
+                        mark.units,
+                    )
                 {
                     spans.push((s.axis, s.lo, s.hi));
                 }
                 spans.extend(
-                    super::schemes::supports(a, &c.feature, &c.parameter, &mark.text)
+                    super::schemes::supports(a, &c.feature, &c.parameter, &mark.text, mark.units)
                         .into_iter()
                         .map(|s| (s.axis, s.lo, s.hi)),
                 );
@@ -615,7 +621,7 @@ fn authored_span(a: &Analysis, mark: &Mark, c: &crate::output::Claim) -> Option<
         .collect();
     let along = c.parameter.strip_prefix("linear.")?;
     let m = a.measure_references(&refs, "linear", Some(along)).ok()?;
-    if !nominal_mm(&mark.text, m.value) {
+    if !nominal_in(&mark.text, m.value, mark.units) {
         return None;
     }
     let [p, q] = m.witnesses?;
@@ -1002,7 +1008,13 @@ pub(crate) fn drawn_proof(
     None
 }
 
-fn pitch_states(a: &Analysis, p: &crate::bridge::HolePattern, k: usize, text: &str) -> bool {
+fn pitch_states(
+    a: &Analysis,
+    p: &crate::bridge::HolePattern,
+    k: usize,
+    text: &str,
+    units: crate::output::Units,
+) -> bool {
     let Some(mut xs): Option<Vec<_>> = p.members.iter().map(|id| station(a, id, k)).collect()
     else {
         return false;
@@ -1014,7 +1026,7 @@ fn pitch_states(a: &Analysis, p: &crate::bridge::HolePattern, k: usize, text: &s
     });
     xs.len() >= 2
         && count == Some(xs.len() - 1)
-        && states_mm(body, xs[1] - xs[0])
+        && states_in(body, xs[1] - xs[0], units)
         && xs
             .windows(2)
             .all(|q| ((q[1] - q[0]) - (xs[1] - xs[0])).abs() < super::redundancy::TOL)
@@ -1199,7 +1211,8 @@ fn identify_impl(a: &Analysis, mark: &Mark, spans: Vec<Edge>, authored: bool) ->
                         } else {
                             (q[span.axis] - p[span.axis]).abs()
                         };
-                        n.signum() == value.signum() && states_mm(&mark.text, value.abs())
+                        n.signum() == value.signum()
+                            && states_in(&mark.text, value.abs(), mark.units)
                     })
             {
                 let node = |key: &str| {
@@ -1357,7 +1370,7 @@ fn identify_impl(a: &Analysis, mark: &Mark, spans: Vec<Edge>, authored: bool) ->
             let Some(p) = pattern(a, &c.feature) else {
                 continue;
             };
-            if !pitch_states(a, &p, span.axis, &mark.text) {
+            if !pitch_states(a, &p, span.axis, &mark.text, mark.units) {
                 continue;
             }
             let centre = station(a, &p.id, span.axis);
@@ -1942,6 +1955,7 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> Vec<Mark> {
             }
         }
         extra.push(Mark {
+            units: Default::default(),
             name: format!("location_network:{feature}/{}", AXES[k]),
             view: None,
             text: format!("{}", (at - a.envelope[0][k]).abs()),
@@ -1975,6 +1989,7 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> Vec<Mark> {
             .is_some()
             {
                 extra.push(Mark {
+                    units: Default::default(),
                     name: format!("location_network:{}/{role}", f.id),
                     view: None,
                     text: super::parameters::fmt(s.hi - s.lo),
@@ -2153,6 +2168,7 @@ mod tests {
                 {"surface":"plane","axis":2,"bounds":[0.,0.,4.,20.,20.,4.]}]
         })).unwrap();
         let mut mark = Mark {
+            units: Default::default(),
             name: "printed".into(),
             view: None,
             text: "4".into(),
@@ -2201,6 +2217,7 @@ mod tests {
         .unwrap();
         let claimed = |feature: &str, parameter: &str| -> Vec<String> {
             let mut marks = [Mark {
+                units: Default::default(),
                 name: "d".into(),
                 view: Some("v:plan".into()),
                 text: "225".into(),
@@ -2249,6 +2266,7 @@ mod tests {
             "features":[feature("hole","hole",5.)],"face_attachments":planes
         })).unwrap();
         let mark = |k: usize, value: f64| Mark {
+            units: Default::default(),
             name: format!("d:location.{k}"),
             view: None,
             text: value.to_string(),
@@ -2291,6 +2309,7 @@ mod tests {
             );
         }
         let note = Mark {
+            units: Default::default(),
             name: "feature-note".into(),
             view: None,
             text: "CENTRED ON AXIS".into(),
@@ -2371,6 +2390,7 @@ mod tests {
         assert!(drawn_proof(&a, &[], &[0.], 0, 40., Some("boss")).is_none());
         assert!(drawn_proof(&a, &[], &[0.], 1, 22., Some("boss")).is_none());
         let mut high = Mark {
+            units: Default::default(),
             name: "d:hole/location.length.x".into(),
             view: Some("v:plan".into()),
             text: "60".into(),
@@ -2474,4 +2494,9 @@ mod tests {
         invisible[1] = [[10., 90.], [10., 90.]];
         assert!(centreline_witnesses(&invisible, &heads, &centres).is_none());
     }
+}
+
+#[cfg(test)]
+fn states_mm(text: &str, value: f64) -> bool {
+    states_in(text, value, crate::output::Units::Mm)
 }

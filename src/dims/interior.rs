@@ -2942,6 +2942,7 @@ mod tests {
         let frame = Frame::new(&a, &views[0]);
         let frames = BTreeMap::from([("plan", frame)]);
         let w = Want {
+            units: Default::default(),
             id: "d:test/location.length.x".into(),
             views: vec!["plan"],
             value: 20.,
@@ -3084,6 +3085,7 @@ mod tests {
                 "label_box":[214.,149.,221.,152.], "rotation":0.}
         })).unwrap();
         let w = Want {
+            units: Default::default(),
             id: d.id.clone(),
             views: vec!["plan"],
             value: 60.,
@@ -3154,6 +3156,7 @@ mod tests {
         ]);
         let proof = proof(&drawing_ink);
         let w = Want {
+            units: Default::default(),
             id: "d:test/bore.diameter".into(),
             views: vec!["plan"],
             value: 10.,
@@ -3201,6 +3204,7 @@ mod tests {
         let ink = ink(vec![semicircle()]);
         let proof = proof(&ink);
         let w = Want {
+            units: Default::default(),
             id: "d:test/slot_end_radius.radius".into(),
             views: vec!["plan"],
             value: 5.,

@@ -794,7 +794,7 @@ fn rows(
         let k = usize::from(axis == "y");
         match read.get(f).map(|h| h.at[k] - origin[k]) {
             Some(distance) if (found.1.value - distance.abs()).abs() > 1e-6 => Some((
-                crate::dims::fmt(distance),
+                plan.spec.units.format(distance),
                 Measurement {
                     value: distance,
                     ..found.1
@@ -1147,7 +1147,7 @@ pub(crate) fn split_sizes(t: &HoleTable, spec: &crate::model::Spec) -> Vec<[f64;
         None => 1..=MAX_COLUMNS,
     };
     if t.view.is_some() {
-        let cells = schedule_cells(t);
+        let cells = schedule_cells(t, spec.units);
         let widths = schedule_widths(&cells);
         counts
             .map(|n| split_size(&widths, 2 + (cells.len() - 2).div_ceil(n), n))
@@ -2088,7 +2088,7 @@ mod tests {
         assert!(reflow_blocks(&table, &sheet, &obstacle, Some(1)).is_none());
         let blocks = reflow_blocks(&table, &sheet, &obstacle, None).unwrap();
         assert_eq!(blocks.len(), 2);
-        let cells = schedule_cells(&table);
+        let cells = schedule_cells(&table, sheet.units);
         for block in &blocks {
             assert_eq!(block.rows[..2], cells[..2]);
         }
@@ -2282,7 +2282,7 @@ impl Selection {
         self.tables
             .iter()
             .map(|t| {
-                let cells = schedule_cells(t);
+                let cells = schedule_cells(t, spec.units);
                 let body = cells.len() - 2;
                 let n = *counts(self.columns(spec, &t.id), 2, body, page).start();
                 (
@@ -2302,8 +2302,8 @@ fn pinned(plan: &Plan, d: &PlannedDimension) -> bool {
         .is_some_and(|p| p.pinned)
 }
 
-fn schedule_number(value: f64) -> String {
-    let text = crate::dims::fmt(if value.abs() < 1e-6 { 0.0 } else { value });
+fn schedule_number(value: f64, units: crate::units::Units) -> String {
+    let text = units.format(if value.abs() < 1e-6 { 0.0 } else { value });
     text.strip_suffix(".0").unwrap_or(&text).into()
 }
 
@@ -2325,7 +2325,7 @@ fn coordinate_number(
     distance: f64,
 ) -> String {
     if plan.spec.precision.is_empty() {
-        return schedule_number(distance);
+        return schedule_number(distance, plan.spec.units);
     }
     let policy = plan
         .spec
@@ -2345,13 +2345,13 @@ fn coordinate_number(
             })
         });
     policy.map_or_else(
-        || schedule_number(distance),
-        |&p| crate::dims::precision::format(distance, p),
+        || schedule_number(distance, plan.spec.units),
+        |&p| plan.spec.units.format_places(distance, Some(p)),
     )
 }
 
 /// A table carries a view title so its local X/Y cannot be mistaken for another view's.
-fn schedule_cells(t: &HoleTable) -> Vec<Vec<String>> {
+fn schedule_cells(t: &HoleTable, units: crate::units::Units) -> Vec<Vec<String>> {
     let mut title = vec![
         format!(
             "{} HOLES",
@@ -2390,11 +2390,11 @@ fn schedule_cells(t: &HoleTable) -> Vec<Vec<String>> {
         let coordinate = |a: &str| {
             // Invariant: Measurement location axes are emitted only as x, y or z.
             let k = ["x", "y", "z"].iter().position(|k| *k == a).unwrap();
-            schedule_number(pcd.centre[k] - origin[k])
+            schedule_number(pcd.centre[k] - origin[k], units)
         };
         title[1] = format!(
             "ø{} PCD @ X{} Y{}",
-            schedule_number(pcd.diameter),
+            schedule_number(pcd.diameter, units),
             coordinate(axes[0]),
             coordinate(axes[1])
         );
@@ -2410,7 +2410,13 @@ fn schedule_cells(t: &HoleTable) -> Vec<Vec<String>> {
 /// the page toward the reader. The entry plane is measured from the part's rearmost face, as
 /// X and Y are from its minimum faces, and the drilling direction is `+Z` (toward the reader)
 /// or `−Z` (into the page).
-fn entry_cell(analysis: &Analysis, out: [f64; 3], at: [f64; 3], direction: [f64; 3]) -> String {
+fn entry_cell(
+    analysis: &Analysis,
+    out: [f64; 3],
+    at: [f64; 3],
+    direction: [f64; 3],
+    units: crate::units::Units,
+) -> String {
     let dot = |p: [f64; 3]| p.iter().zip(out).map(|(a, b)| a * b).sum::<f64>();
     let [lo, hi] = analysis.envelope;
     let back = (0..8)
@@ -2422,7 +2428,7 @@ fn entry_cell(analysis: &Analysis, out: [f64; 3], at: [f64; 3], direction: [f64;
         .fold(f64::INFINITY, f64::min);
     format!(
         "{} / {}Z",
-        schedule_number(dot(at) - back),
+        schedule_number(dot(at) - back, units),
         if dot(direction) > 0.0 { "+" } else { "−" }
     )
 }
@@ -2703,10 +2709,13 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                         && !t.starts_with("EQ SP")
                 })
                 .map(|t| {
-                    if approved_size {
+                    if approved_size || !plan.spec.units.is_mm() {
                         t.clone()
                     } else {
-                        t.parse::<f64>().map_or_else(|_| t.clone(), schedule_number)
+                        t.parse::<f64>().map_or_else(
+                            |_| t.clone(),
+                            |v| schedule_number(v, crate::units::Units::Mm),
+                        )
                     }
                 })
                 .collect::<Vec<_>>()
@@ -2759,11 +2768,11 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                 // its own row; M6 alone must not erase the original ø5 bore.
                 let mut size = label.clone();
                 if shared_thread && !label.contains(['ø', '⌀', 'Ø']) {
-                    let mut drill = format!("⌀{}", schedule_number(h.diameter));
+                    let mut drill = format!("⌀{}", schedule_number(h.diameter, plan.spec.units));
                     if h.through {
                         drill += " THRU";
                     } else if let Some(depth) = h.depth {
-                        drill += &format!(" ↧ {}", schedule_number(depth));
+                        drill += &format!(" ↧ {}", schedule_number(depth, plan.spec.units));
                     }
                     size = format!("{drill} {size}");
                 }
@@ -2794,8 +2803,10 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                                             if has_precision(plan, d) {
                                                 t.clone()
                                             } else {
-                                                t.parse::<f64>()
-                                                    .map_or_else(|_| t.clone(), schedule_number)
+                                                t.parse::<f64>().map_or_else(
+                                                    |_| t.clone(),
+                                                    |v| schedule_number(v, crate::units::Units::Mm),
+                                                )
                                             }
                                         })
                                         .collect::<Vec<_>>()
@@ -2813,7 +2824,13 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                         });
                     }
                 }
-                cells.push(entry_cell(analysis, view.direction, h.at, h.direction));
+                cells.push(entry_cell(
+                    analysis,
+                    view.direction,
+                    h.at,
+                    h.direction,
+                    plan.spec.units,
+                ));
                 rows.push(HoleRow {
                     tag_id: None,
                     tag: String::new(),
@@ -2898,7 +2915,10 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                         .rem_euclid(360.0);
                     format!(
                         "{}°",
-                        schedule_number(if angle > 360.0 - 1e-6 { 0.0 } else { angle })
+                        schedule_number(
+                            if angle > 360.0 - 1e-6 { 0.0 } else { angle },
+                            crate::units::Units::Mm
+                        )
                     )
                 } else {
                     String::new()
@@ -3370,7 +3390,7 @@ pub(crate) fn reflow_blocks(
     if t.view.is_none() {
         return place_rows(&t.rows, sheet, obstacles, fixed);
     }
-    let cells = schedule_cells(t);
+    let cells = schedule_cells(t, sheet.units);
     let widths = schedule_widths(&cells);
     let (headers, body) = cells.split_at(2);
     let (n, rows, [x0, y0]) = counts(fixed, 2, body.len(), sheet.page).find_map(|n| {
