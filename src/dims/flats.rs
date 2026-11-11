@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use super::grooves::{not_dimensioned, size};
-use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, fmt, point};
+use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, point};
 use crate::bridge::Feature;
 use crate::bridge::holes::principal;
 
@@ -158,7 +158,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             Err(why) => problems.push(not_dimensioned(f, &why)),
         }
     }
-    let text = fmt;
+    let text = |v| crate::dims::fmt_in(v, cx.spec.units);
     // Stock regions, then callouts of equal definitions, each in order of its first face.
     let mut regions: Vec<Vec<&Flat>> = Vec::new();
     for (i, f) in flats.iter().enumerate() {

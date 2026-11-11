@@ -538,6 +538,14 @@ pub struct RadiusTable {
 
 fn table_spec(rows: &[RadiusRow], units: crate::units::Units) -> crate::tables::TableSpec {
     let fmt = |v| crate::dims::fmt_in(v, units);
+    // Centres keep the sheet's millimetre precision; inch sheets print them in inches.
+    let centre = |v| {
+        if units.is_mm() {
+            crate::lint::parameters::fmt(v)
+        } else {
+            units.format(v)
+        }
+    };
     let mut cells = vec![vec![
         "RADIUS CENTRES".into(),
         "X FROM VIEW LEFT".into(),
@@ -547,8 +555,8 @@ fn table_spec(rows: &[RadiusRow], units: crate::units::Units) -> crate::tables::
     cells.extend(rows.iter().map(|r| {
         vec![
             r.view.trim_start_matches("v:").to_uppercase(),
-            crate::lint::parameters::fmt(r.centre[0]),
-            crate::lint::parameters::fmt(r.centre[1]),
+            centre(r.centre[0]),
+            centre(r.centre[1]),
             format!("R{}", fmt(r.radius)),
         ]
     }));
@@ -762,5 +770,32 @@ mod identity_tests {
             groups[0].iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
             ["f:blend:f7", "f:blend:f14"]
         );
+    }
+}
+
+#[cfg(test)]
+mod radius_table_units {
+    use super::*;
+    use crate::units::Units;
+
+    #[test]
+    fn centres_print_in_the_sheets_units() {
+        let row = RadiusRow {
+            dimension: "d:r".into(),
+            feature: "f:blend:f1".into(),
+            view: "v:plan".into(),
+            centre: [7.2, 25.4],
+            radius: 0.1,
+        };
+        let cells = |units| {
+            table_spec(std::slice::from_ref(&row), units).rows[1]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c.as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(cells(Units::Mm), ["PLAN", "7.2", "25.4", "R0.1"]);
+        assert_eq!(cells(Units::In), ["PLAN", ".283", "1.000", "R.004"]);
     }
 }

@@ -1284,3 +1284,52 @@ fn m1008_a_boss_height_a_flat_hole_depth_states_is_conveyed_by_the_hole_callout(
         ["l:duplicate_measurement:f:boss:f15/boss_height.length"]
     );
 }
+#[test]
+fn ctc05_in_inches_prints_no_millimetre_size_and_lint_flags_one() {
+    let (part, a) =
+        model::analyse_native(&corpus::dir().unwrap().join("nist/nist_ctc_05_asme1_rd.stp"))
+            .unwrap();
+    let spec: Spec = serde_json::from_value(json!({"units": "in"})).unwrap();
+    let p = model::plan(&a, &spec).unwrap();
+    // The across-flats callout and the counted flat-to-far-side size of the same part.
+    assert!(p.dimensions.iter().any(|d| d.label == "20.750 A/F"));
+    assert!(p.dimensions.iter().any(|d| d.label == "2× 15.900"));
+    for mm in ["527.05", "403.86"] {
+        assert!(
+            !p.dimensions.iter().any(|d| d.label.contains(mm)),
+            "{mm} printed on an inch drawing"
+        );
+    }
+    let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    let mut marks = lint::marks(&drawing);
+    let flat_issues = |marks: &[Mark]| {
+        lint::check(&a, marks)
+            .into_iter()
+            .filter(|i| i.code.starts_with("flat_requirement"))
+            .count()
+    };
+    assert_eq!(flat_issues(&marks), 0);
+    // Independent of the plan: the same mark printing the millimetre value is flagged.
+    let m = marks.iter_mut().find(|m| m.text == "20.750 A/F").unwrap();
+    m.text = "527.05 A/F".into();
+    assert!(flat_issues(&marks) > 0);
+    // End to end: a plan that prints a millimetre value is caught by the full lint.
+    for (inch, terms) in [
+        ("20.750 A/F", ["527.05", "A/F"].as_slice()),
+        ("2× 15.900", ["2×", "403.86"].as_slice()),
+    ] {
+        let mut bad = p.clone();
+        for d in bad.dimensions.iter_mut().filter(|d| d.label == inch) {
+            d.label = terms.join(" ");
+            d.terms = terms.iter().map(|t| t.to_string()).collect();
+        }
+        let drawing = model::render(&part, &a, &bad, &font).unwrap();
+        assert!(
+            lint::lint(&a, &drawing)
+                .iter()
+                .any(|i| i.code.starts_with("flat_requirement")),
+            "an inch drawing printing {terms:?} passed lint"
+        );
+    }
+}
