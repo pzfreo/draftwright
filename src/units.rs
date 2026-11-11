@@ -152,7 +152,8 @@ impl Units {
                 let tail = text[end..].trim_start();
                 let after_times = tail.strip_prefix('×').map(str::trim_start);
                 let next_is_angle = after_times.is_some_and(|rest| {
-                    let end = rest.find(|c: char| !c.is_ascii_digit() && c != '.')
+                    let end = rest
+                        .find(|c: char| !c.is_ascii_digit() && c != '.')
                         .unwrap_or(rest.len());
                     end > 0 && rest[end..].trim_start().starts_with('°')
                 });
