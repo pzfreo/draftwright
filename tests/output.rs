@@ -955,7 +955,11 @@ fn dxf_cad_readers_get_visible_blocks_and_full_dimension_settings() {
         assert_eq!(value(end, 330), value(r, 5), "{name}: ENDBLK owner");
     }
     for v in &drawing.sheet.dxf.views {
-        let b = parsed.blocks().find(|b| b.name == v.name).unwrap();
+        // View IDs contain ':', which DXF symbol-table names cannot contain.
+        let b = parsed
+            .blocks()
+            .find(|b| b.name == v.name.replace(':', "_"))
+            .unwrap();
         assert!(!b.entities.is_empty(), "{} has geometry", v.name);
     }
     for (name, expected) in [
