@@ -576,15 +576,19 @@ impl Writer {
         };
         t.point(10, insertion);
         t.tag(40, height);
-        let width = cad_width(text_font(r));
+        let words = asme_words(&r.text);
+        // The words are longer than the glyphs they replace; condense them to
+        // the width the layout gave the label, so table cells do not overflow.
+        let width = cad_width(text_font(r)) * r.text.chars().count() as f64
+            / words.chars().count().max(1) as f64;
         let mut content = if multiline {
-            encode_mtext(&asme_words(&r.text))
+            encode_mtext(&words)
         } else {
-            encode(&asme_words(&r.text))
+            encode(&words)
         };
         if multiline {
             if width != 1. {
-                content = format!("\\W{width};{content}");
+                content = format!("\\W{width:.3};{content}");
             }
             let mut parts = Vec::new();
             let mut tail = content.as_str();
@@ -673,20 +677,10 @@ fn style(font: &str) -> String {
 /// for a second TTF would not provide substitution.
 fn cad_font_file(font: &str) -> &str {
     match font {
-        "IBMPlexMono-Regular.ttf" => "Arial.ttf",
-        crate::title_block::FONT => "Arial.ttf",
+        // The single-stroke drafting font every DWG/DXF program ships (AutoCAD,
+        // its viewers, BricsCAD, DraftSight, QCAD, LibreCAD).
+        "IBMPlexMono-Regular.ttf" | crate::title_block::FONT => "romans.shx",
         _ => font,
-    }
-}
-fn cad_width(font: &str) -> f64 {
-    if font == "IBMPlexMono-Regular.ttf" {
-        // DXF height is cap height. Plex Mono advances 600/698 of it per
-        // character; Arial capitals average about 0.93 and digits 0.78.
-        // Condense Arial so all-capital labels stay within Plex Mono's widths
-        // and do not overflow table cells or frames.
-        0.9
-    } else {
-        1.
     }
 }
 fn encode(s: &str) -> String {
@@ -697,11 +691,22 @@ fn encode(s: &str) -> String {
             '°' => out.push_str("%%d"),
             '±' => out.push_str("%%p"),
             '\n' => out.push_str("\\P"),
-            '−' => out.push('-'),
+            // SHX fonts have neither; ASME writes counts as 4X.
+            '−' | '–' | '—' => out.push('-'),
+            '×' => out.push('X'),
             _ => out.push(c),
         }
     }
     out
+}
+/// romans.shx advances about one cap height per character. Condense it to
+/// the Plex advance the layout used, so text stays inside its cells.
+fn cad_width(font: &str) -> f64 {
+    match font {
+        "IBMPlexMono-Regular.ttf" => 0.85,
+        crate::title_block::FONT => 0.75,
+        _ => 1.,
+    }
 }
 fn safe_name(s: &str) -> String {
     s.chars()
@@ -1806,6 +1811,8 @@ pub(crate) fn clip_loops(loops: Vec<Vec<P>>, rect: [f64; 4]) -> Vec<Vec<P>> {
 /// R2013 supports UTF-8 TEXT. Fallbacks are ordinary named text styles, never
 /// per-glyph MTEXT font programs. Plex remains the style for ordinary labels.
 fn fallback_font(text: &str) -> Option<&'static str> {
+    // Hole glyphs are written as words, so they need no symbol font.
+    let text = asme_words(text);
     if text.contains(['⏥', '⟂']) {
         Some("STIXGeneral.ttf")
     } else if text.chars().any(|c| symbol_font(c) && c != '−') {
@@ -2003,7 +2010,7 @@ mod tolerance_tests {
             live_label(&dim("⌀20 +0.05/-0.1 ↧ 45", 3..5), 3),
             "%%c<> +0.05/-0.1 DEEP 45"
         );
-        assert_eq!(live_label(&dim("7× R50", 5..7), 4), "7× R<>");
+        assert_eq!(live_label(&dim("7× R50", 5..7), 4), "7X R<>");
         assert_eq!(
             live_label(&dim("25 ±0.15 THRU", 0..2), 0),
             "<> %%p0.15 THRU"

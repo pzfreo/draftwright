@@ -456,6 +456,7 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
         s.replace('⌀', "%%c")
             .replace('°', "%%d")
             .replace('±', "%%p")
+            .replace('×', "X")
     };
     let mut expected: Vec<_> = drawing
         .text
@@ -624,7 +625,7 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
     }
     // CAD installations commonly lack Plex; the named Plex styles explicitly
     // request an installed alternative instead (round 2 interoperability).
-    assert!(d.styles().any(|s| s.primary_font_file_name == "Arial.ttf"));
+    assert!(d.styles().any(|s| s.primary_font_file_name == "romans.shx"));
     // A clockwise ellipse with the longer radius on its second axis must retain
     // the same arc after DXF's mandatory major-axis normalization.
     let mut elliptical = drawing.clone();
@@ -947,10 +948,8 @@ fn dxf_cad_readers_get_visible_blocks_and_full_dimension_settings() {
         .find(|r| value(r, 2) == "IBMPlexMono-Regular")
         .unwrap();
     let width = value(mono, 41).parse::<f64>().unwrap();
-    assert!(
-        (0.89..0.91).contains(&width),
-        "condensed Arial keeps Plex Mono label widths"
-    );
+    assert_eq!(width, 0.85, "romans.shx condensed to Plex Mono's advance");
+    assert_eq!(value(mono, 3), "romans.shx");
     for text in records_of("TEXT") {
         if value(text, 7) == "IBMPlexMono-Regular" {
             assert_eq!(value(text, 41).parse::<f64>().unwrap(), width);
@@ -1054,7 +1053,7 @@ fn dxf_multiline_rotation_is_degrees_and_single_line_symbols_are_text() {
         .unwrap();
     assert_eq!(m.rotation_angle, 37.);
     // Hole glyphs print as `?` in CAD fallback fonts, so they become words.
-    assert_eq!(m.text, "FIRST DEEP6\\PSECOND CBORE8");
+    assert_eq!(m.text, "\\W0.612;FIRST DEEP6\\PSECOND CBORE8");
     let t = d
         .entities()
         .find_map(|e| {
@@ -1065,7 +1064,8 @@ fn dxf_multiline_rotation_is_degrees_and_single_line_symbols_are_text() {
             }
         })
         .unwrap();
-    assert_eq!(t.value, "-3 × %%c6 %%p0.1 %%d CSK");
+    // SHX fonts have no ×; ASME writes counts with X.
+    assert_eq!(t.value, "-3 X %%c6 %%p0.1 %%d CSK");
     assert!(
         !String::from_utf8(drawing.dxf())
             .unwrap()
@@ -1245,7 +1245,7 @@ fn dxf_tolerances_and_compound_nominals_stay_live() {
                 }
             }
             if let E::DiameterDimension(dim) = &e.specific {
-                assert_eq!(dim.dimension_base.text, "4× %%c<> THRU");
+                assert_eq!(dim.dimension_base.text, "4X %%c<> THRU");
             }
         }
         assert!(
@@ -1377,4 +1377,33 @@ fn dxf_text_spells_hole_glyphs_as_asme_words() {
     assert!(svg.contains('↧'), "the fixture must have a depth callout");
     assert!(!dxf.contains(['↧', '⌴', '⌵']));
     assert!(dxf.contains("DEEP"));
+}
+
+/// The ASME words are longer than the glyphs, so a hole-table cell condenses
+/// to the width its glyph text was laid out in.
+#[test]
+fn dxf_hole_words_condense_to_their_laid_out_width() {
+    use draftwright::output::{HAlign, TextRun, VAlign};
+    use dxf::entities::EntityType as E;
+    let mut drawing = plate(&|_| {});
+    drawing.text.push(TextRun {
+        text: "⌀19.05 THRU ⌴ ⌀38.1 ↧ 12.7".into(),
+        at: [25., 100.],
+        size: 2.5,
+        rotation: 0.,
+        font: "IBMPlexMono-Regular.ttf".into(),
+        h_align: HAlign::Left,
+        v_align: VAlign::Baseline,
+    });
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(drawing.dxf())).unwrap();
+    let t = d
+        .entities()
+        .find_map(|e| match &e.specific {
+            E::Text(t) if t.value.contains("CBORE") => Some(t),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(t.value, "%%c19.05 THRU CBORE %%c38.1 DEEP 12.7");
+    let expected = 0.85 * 26. / 33.;
+    assert!((t.relative_x_scale_factor - expected).abs() < 1e-9);
 }

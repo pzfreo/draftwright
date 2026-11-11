@@ -408,10 +408,11 @@ Single-line labels are TEXT; only real multi-line labels use MTEXT. Unicode
 engineering characters use a named Arial Unicode text style when Plex lacks them.
 The remaining dedicated GD&T fallback is STIX General for flatness (U+23E5) and
 perpendicularity (U+27C2); no inline font programs are embedded in labels.
-Plex-named DXF styles request Arial, so CAD installations without Plex find a
-common system font. Labels use Arial condensed to 0.9 so all-capital text stays
-within Plex Mono's advance; text stays in its original table cells and annotation
-frames.
+Plex-named DXF styles request romans.shx, the single-stroke drafting font every
+DWG/DXF program ships, condensed to Plex's advance so text stays in its original
+table cells and annotation frames. SHX fonts lack × and en dashes, so DXF text
+writes counts as `4X` (the ASME form) and dashes as `-`; hole glyphs are DEEP, CBORE
+and CSK, condensed to the width the layout gave the glyph text.
 Dimension styles use readable scale names such as `DW-1to2`, with suffixes for
 precision, tolerances and leaders. Global settings and entity overrides also carry
 the text size and measurement factor for readers that regenerate dimensions.
