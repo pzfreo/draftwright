@@ -182,6 +182,19 @@ jobs:
           pattern: wheel-*
           path: release
           merge-multiple: true
+      # The tag's -alpha.N must agree with the release's pre-release box (#402).
+      - name: The tag and the pre-release flag agree
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A release event carries the flag; a manual run asks GitHub for the tag's release.
+          prerelease="$PRERELEASE"
+          if [ -z "$prerelease" ]; then
+            prerelease=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .prerelease)
+          fi
+          python3 tools/check_wheel_versions.py --tag "$TAG" --prerelease "$prerelease"
       # As in crates.yml (#371), the tag is the Cargo version; wheel METADATA must agree too.
       # The tag must exist, HEAD and each wheel's recorded build commit must match it,
       # and all versions must agree. Missing provenance or artifacts refuses publication.

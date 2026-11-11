@@ -26,6 +26,22 @@ def git_commit(root: Path, reference: str) -> str:
         raise ValueError(f"git reference {reference!r} does not exist or is not a commit") from error
 
 
+def check_prerelease_flag(tag: str, prerelease: str) -> str:
+    """The tag's pre-release-ness (-alpha.N, -beta.N, -rc.N) must match the release's flag."""
+    match = TAG.fullmatch(tag)
+    if not match:
+        raise ValueError(f"tag {tag!r}: expected vX.Y.Z or vX.Y.Z-alpha.N, -beta.N, -rc.N")
+    if prerelease not in ("true", "false"):
+        raise ValueError(f"release pre-release flag {prerelease!r}: expected true or false")
+    tagged = match.group(4) is not None
+    if tagged != (prerelease == "true"):
+        raise ValueError(
+            f"tag {tag} is a {'pre-release' if tagged else 'stable release'} but the GitHub "
+            f"release is {'' if prerelease == 'true' else 'not '}marked pre-release: they must agree"
+        )
+    return f"tag {tag} and the release pre-release flag ({prerelease}) agree"
+
+
 def check_versions(tag: str, root: Path, dist: Path, provenance: Path) -> str:
     match = TAG.fullmatch(tag)
     if not match:
@@ -74,11 +90,16 @@ def check_versions(tag: str, root: Path, dist: Path, provenance: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", required=True)
+    parser.add_argument("--prerelease",
+                        help="only check the tag against the release's pre-release flag")
     parser.add_argument("--root", type=Path, default=Path("."))
     parser.add_argument("--dist", type=Path, default=Path("dist"))
     parser.add_argument("--provenance", type=Path)
     args = parser.parse_args()
     try:
+        if args.prerelease is not None:
+            print(check_prerelease_flag(args.tag, args.prerelease))
+            return 0
         print(check_versions(args.tag, args.root, args.dist,
                              args.provenance or args.dist.parent / "provenance"))
     except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
