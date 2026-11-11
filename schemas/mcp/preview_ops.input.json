@@ -46,6 +46,12 @@
             "always",
             "never"
           ]
+        },
+        "units": {
+          "enum": [
+            "mm",
+            "in"
+          ]
         }
       },
       "additionalProperties": false,

@@ -10,6 +10,7 @@ B = {'type': 'boolean'}
 N = {'type': 'number'}
 I = {'type': 'integer', 'minimum': 0}
 SHEET = {'type': 'integer', 'minimum': 1, 'maximum': 9}
+PAPER_SIZES = ('A4', 'A3', 'A2', 'A1', 'A0', *(f'{family} {size}' for family in ('ANSI', 'ARCH') for size in 'ABCDE'))
 
 def enum(*values): return {'enum': list(values)}
 def arr(item, **kw): return {'type': 'array', 'items': item, **kw}
@@ -38,6 +39,7 @@ def outline():
         'hole_table': enum('auto', 'always', 'never'),
         'envelope_tolerance': {'type': ['string', 'null']},
         **{k: {'type': 'array'} for k in ('notes', 'tables', 'gears', 'feature_declarations')},
+        'units': enum('mm', 'in'),
     }), 'description': 'Outline. Call spec_schema {} for the full Spec and get_spec spec_read schemas; item_options gives valid edit paths and choices.'}
 
 
@@ -121,6 +123,13 @@ def document():
                     ('on', 'frame', 'tooth_count', 'module', 'pressure_angle', 'profile_shift',
                      'face_width', 'tooth_thickness', 'tooth_thickness_tolerance', 'flank_tolerance_class')),
     }
+    sheet = definitions['sheet']['properties']
+    sheet['size']['description'] = 'Landscape named paper: A4..A0, ANSI A..E or ARCH A..E.'
+    maximum = sheet['preferred_max_size']['anyOf'][0]
+    maximum['enum'] = list(PAPER_SIZES)
+    maximum['description'] = 'Preferred largest paper in the selected family; defaults to its second size (A3, ANSI B or ARCH B).'
+    sheet['paper'] = {**enum('iso', 'ansi', 'arch', None),
+                      'description': 'Paper family; absent follows explicit named size, else mm → iso and in → ansi.'}
     for name in ('dimension', 'feature'):
         field = definitions[name]['properties']['fit']
         definitions[name]['properties']['fit'] = {'description': 'ISO 286 fit class. Prints independently of the supported numerical-deviation table; unavailable requested deviations warn without invented values.', **field}
@@ -156,6 +165,7 @@ def document():
               'moulded',
               'cast',
               None]}
+    props['units'] = {**enum('mm', 'in'), 'description': 'Printed lengths: mm (default) or decimal inches; model and paper geometry remain millimetres.'}
     definitions['spec_read'] = obj(deepcopy(props))
     return {'$schema': 'https://json-schema.org/draft/2020-12/schema',
             'title': 'Draftwright Spec',

@@ -876,3 +876,48 @@ fn an_oversized_trade_keeps_the_finding_inline_and_the_remedy_lossless() {
     );
     mcp::validate(&mcp::schema("list_problems", true).unwrap(), &page).unwrap();
 }
+
+#[test]
+fn us_sheet_options_fit_wire_budget_and_follow_the_selected_family() {
+    let (cache, summary) = open("us-sheet-options", "plate");
+    for (paper, sizes) in [
+        ("iso", json!(["A4", "A3", "A2", "A1", "A0"])),
+        (
+            "ansi",
+            json!(["ANSI A", "ANSI B", "ANSI C", "ANSI D", "ANSI E"]),
+        ),
+        (
+            "arch",
+            json!(["ARCH A", "ARCH B", "ARCH C", "ARCH D", "ARCH E"]),
+        ),
+    ] {
+        for units in ["mm", "in"] {
+            let result = call(
+                &cache,
+                "item_options",
+                json!({
+                    "part_ref":summary["part_ref"], "id":"sheet",
+                    "spec":{"units":units,"sheet":{"paper":paper}}
+                }),
+            );
+            let fields = &result["settable"];
+            assert_eq!(fields["units"]["choices"], json!(["mm", "in"]));
+            assert_eq!(fields["units"]["scope"], "sheet");
+            assert_eq!(
+                fields["sheet/paper"]["choices"],
+                json!(["iso", "ansi", "arch"])
+            );
+            assert_eq!(fields["sheet/size"]["choices"], sizes);
+            assert_eq!(fields["sheet/preferred_max_size"]["choices"], sizes);
+            if units == "in" {
+                assert_eq!(
+                    fields["sheet/scale"]["choices"],
+                    json!([
+                        "4:1", "2:1", "1:1", "1:2", "1:4", "1:8", "1:12", "1:16", "1:24", "1:48",
+                        "1:96"
+                    ])
+                );
+            }
+        }
+    }
+}
