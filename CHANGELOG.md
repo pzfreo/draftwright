@@ -6,6 +6,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Python `make_drawing` returns `(svg_path, dxf_path)` again, as in 0.4, now that DXF output
+  is editable. 0.6.0-alpha.1 returned `(svg_path, pdf_path)`; use `draftwright render
+  --formats pdf` for PDF.
+
 - Fix inch scale-floor overflow, numeric trust parsing, modelled-thread pitch/diameter,
   turned OD riders and the inch-design advisory fix. Summarize inch rounding findings,
   detect decimal-inch grids, align tolerance precision, and use explicit US zone counts

@@ -10,13 +10,14 @@ pip install draftwright
 from pathlib import Path
 from draftwright import make_drawing, DraftwrightError
 
-svg_path, pdf_path = make_drawing(Path("part.step"), out="drawing", title="Bracket")
+svg_path, dxf_path = make_drawing(Path("part.step"), out="drawing", title="Bracket")
 ```
 
-**The return value in 0.6 is `(svg_path, pdf_path)`, both strings. In 0.4 it was
-`(svg_path, dxf_path)`. Editable DXF is available through `draftwright render --formats dxf`.** Both files (and additional
+**The return value is `(svg_path, dxf_path)`, both strings, as in 0.4.** The DXF is
+editable in CAD: native text, live dimensions, blocks and title-block attributes. For PDF
+or PNG use `draftwright render --formats`. Both files (and additional
 sheets, if needed) follow the CLI's bare-render naming rules. An output extension
-such as `.pdf` is removed from the stem. Without `out`, files go beside the input
+such as `.dxf` is removed from the stem. Without `out`, files go beside the input
 STEP; for a shape the default is `drawing` in the working directory. Exceptions
 from Rust are `draftwright.DraftwrightError`, carrying the Rust error message.
 
@@ -96,7 +97,7 @@ cancellation can run their drawing in a subprocess.
 
 Visible changes from 0.4:
 
-- The wrapper returns PDF; use `draftwright render --formats dxf` for editable DXF. Unpacking gives
+- The return value is still `(svg_path, dxf_path)`. 0.6.0-alpha.1 briefly returned
   `(svg_path, pdf_path)`.
 - The sheet frame is always drawn, even with `frame=False`; the projection
   symbol is always drawn as well.
