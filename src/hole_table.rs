@@ -2800,7 +2800,7 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                                             d.terms.first().is_some_and(|t| t.ends_with('×')),
                                         ))
                                         .map(|t| {
-                                            if has_precision(plan, d) {
+                                            if has_precision(plan, d) || !plan.spec.units.is_mm() {
                                                 t.clone()
                                             } else {
                                                 t.parse::<f64>().map_or_else(

@@ -414,6 +414,18 @@ mod tests {
         let (part, a) = model::analyse_native(&path).unwrap();
         let spec: Spec = serde_json::from_value(json!({"units":"in"})).unwrap();
         let p = model::plan_recovered(&a, &spec).unwrap();
+        let mut coordinates = 0;
+        for table in p.hole_table.iter().chain(&p.hole_tables) {
+            for row in &table.rows {
+                for cell in row.cells.iter().skip(2).take(2) {
+                    if let Ok(value) = cell.parse::<f64>() {
+                        assert_eq!(*cell, Units::In.format(value * 25.4));
+                        coordinates += 1;
+                    }
+                }
+            }
+        }
+        assert!(coordinates > 0);
         let font = crate::text::Font::new(crate::api::MONO.to_vec()).unwrap();
         let mut drawing = model::render(&part, &a, &p, &font).unwrap();
         assert!(lint::lint(&a, &drawing).is_empty());
