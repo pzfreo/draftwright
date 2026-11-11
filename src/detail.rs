@@ -470,9 +470,10 @@ fn requests_uncached(a: &Analysis, spec: &Spec, sheet: f64) -> Vec<(String, Deta
             if axis == 1 {
                 let short = bands.iter().any(|(_, b)| {
                     (b.hi - b.lo) * sheet
-                        < crate::dims::font()
-                            .advance(&crate::dims::fmt(b.hi - b.lo), crate::dims::TEXT)
-                            + 2.0 * crate::dims::ARROW
+                        < crate::dims::font().advance(
+                            &crate::dims::fmt_in(b.hi - b.lo, spec.units),
+                            crate::dims::TEXT,
+                        ) + 2.0 * crate::dims::ARROW
                             + 2.0
                 });
                 if short {
@@ -513,7 +514,7 @@ fn requests_uncached(a: &Analysis, spec: &Spec, sheet: f64) -> Vec<(String, Deta
                     run.iter()
                         .map(|&i| {
                             (crate::dims::font().advance(
-                                &crate::dims::fmt(bands[i].1.hi - bands[i].1.lo),
+                                &crate::dims::fmt_in(bands[i].1.hi - bands[i].1.lo, spec.units),
                                 crate::dims::TEXT,
                             ) + 2.0 * crate::dims::ARROW
                                 + 2.0)

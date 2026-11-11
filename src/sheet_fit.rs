@@ -1439,7 +1439,7 @@ pub(crate) fn reserve_nominal_bounds(
             .filter(|d| d.kind == "linear")
             .filter(|d| {
                 d.measurements.iter().any(|m| {
-                    let number = crate::nominal::format(m.value);
+                    let number = sheet.units.format(m.value);
                     number
                         .split_once('.')
                         .is_some_and(|(_, fraction)| fraction.len() > 1)
@@ -1457,7 +1457,7 @@ pub(crate) fn reserve_nominal_bounds(
         .iter()
         .filter(|d| {
             d.measurements.iter().any(|m| {
-                let number = crate::nominal::format(m.value);
+                let number = sheet.units.format(m.value);
                 number
                     .split_once('.')
                     .is_some_and(|(_, fraction)| fraction.len() > 1)
