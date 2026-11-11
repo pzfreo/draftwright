@@ -414,16 +414,6 @@ fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
         return Err(error);
     }
     finite_optional_numbers(spec)?;
-    if spec.schema == SPEC_SCHEMA {
-        // Current Specs hold current IDs; nothing is renamed. The map is still reported
-        // for plans, which carry the legacy spellings as aliases.
-        return Ok(Migration {
-            unmapped: Vec::new(),
-            spec: spec.clone(),
-            migrated: Vec::new(),
-            ids: ids(a),
-        });
-    }
     if matches!(
         spec.schema.as_str(),
         "draftwright.spec/1" | "draftwright.spec/2"
@@ -459,7 +449,7 @@ fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
     }
     let mut out = crate::model::migrate_v1(spec, a)?;
     let mut migrated = Vec::new();
-    {
+    if spec.schema != SPEC_SCHEMA || !ids.is_empty() {
         let mut map = ids.clone();
         if spec.schema == "draftwright.spec/1" {
             // This is the existing view/PMI migration, composed with the identity map.
@@ -712,15 +702,26 @@ mod tests {
             }))
             .unwrap()
         };
-        // Current Spec: nothing is renamed, key included, by either entry point.
+        // Current Spec: prose is untouched by either path; the open path still recovers a
+        // rank key an older reader marked spec/3, which set_spec (already opened) does not.
         let current = doc("draftwright.spec/3");
-        let opened = migrate(&current, &a).unwrap();
-        assert_eq!(opened.spec, current);
-        assert!(opened.migrated.is_empty());
-        assert_eq!(crate::model::migrate(&current, &a).unwrap(), current);
+        let new = &ids(&a)["f:hole:1"];
+        let opened = migrate(&current, &a).unwrap().spec;
+        let set = crate::model::migrate(&current, &a).unwrap();
+        for out in [&opened, &set] {
+            assert_eq!(out.notes, current.notes);
+            assert_eq!(out.sheet.title, current.sheet.title);
+            assert_eq!(out.tables, current.tables);
+            assert_eq!(out.annotations, current.annotations);
+        }
+        assert!(
+            opened
+                .precision
+                .contains_key(&format!("d:{new}/bore.diameter"))
+        );
+        assert_eq!(set, current);
         // Legacy Spec: ID keys move, prose does not, and the entry points agree.
         let legacy = doc("draftwright.spec/2");
-        let new = &ids(&a)["f:hole:1"];
         let opened = migrate(&legacy, &a).unwrap();
         let set = crate::model::migrate(&legacy, &a).unwrap();
         assert_eq!(opened.spec, set);
