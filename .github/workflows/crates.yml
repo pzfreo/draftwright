@@ -50,7 +50,7 @@ jobs:
   publish:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'release' && !github.event.release.prerelease)
+      github.event_name == 'release'
     runs-on: ubuntu-latest
     # crates.io trusted publishing: the crate trusts this repository, this workflow and this
     # environment, and the job mints a short-lived token; no token is stored.

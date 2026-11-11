@@ -57,7 +57,7 @@ on:
         type: boolean
         default: false
       tag:
-        description: Release tag to build (vX.Y.Z)
+        description: Release tag to build (vX.Y.Z or vX.Y.Z-alpha.N)
         type: string
         required: true
 
@@ -154,7 +154,7 @@ jobs:
   publish:
     needs: [wheels, guard-test]
     if: >-
-      (github.event_name == 'release' && !github.event.release.prerelease) ||
+      github.event_name == 'release' ||
       (github.event_name == 'workflow_dispatch' && inputs.publish == true && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     environment: pypi
