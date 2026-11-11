@@ -6,6 +6,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Report a `text_glyph_missing` warning, naming the label and the characters, when a label holds a
+  character none of the bundled fonts or the stroked GD&T symbols can draw (CJK, `✓`); the label
+  is still drawn, those characters as empty boxes, and no other drawing changes (#401).
 - Legacy-ID migration no longer rewrites free text (note text, title block, table cells,
   annotation label text) that looks like an ID, in any schema, and `Session::set_spec` and
   `openSpec` now share one migration and give the same Spec for spec/3.
