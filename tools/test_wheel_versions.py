@@ -109,10 +109,44 @@ class WheelVersions(unittest.TestCase):
         self.wheel("macos", "0.6.1")
         self.refused(self.run_guard(), "['0.6.1']: they must agree")
 
-    def test_plain_tag_required(self):
-        for tag in ("", "0.6.0", "v0.6", "v0.6.0rc1", "v0.6.0-alpha.1", "v00.6.0"):
+    def test_malformed_tag_refused(self):
+        # Pre-release tags are accepted since alpha publishing (vX.Y.Z-alpha.N etc.); every
+        # other shape is still refused, including PEP 440 spellings in the tag.
+        for tag in ("", "0.6.0", "v0.6", "v0.6.0rc1", "v0.6.0a1", "v00.6.0", "v0.6.0-alpha",
+                    "v0.6.0-alpha.0", "v0.6.0-dev.1", "v0.6.0-alpha.01", "v0.6.0-ALPHA.1"):
             with self.subTest(tag=tag):
                 self.refused(self.run_guard(tag), "expected vX.Y.Z")
+
+    def prerelease(self, cargo, wheel, tag):
+        for manifest in ("Cargo.toml", "crates/draftwright-wasm/Cargo.toml", "crates/draftwright-py/Cargo.toml"):
+            self.manifest(manifest, cargo)
+        self.git("add", "Cargo.toml", "crates")
+        self.git("commit", "-qm", "Pre-release fixture")
+        self.git("tag", tag)
+        self.commit = self.git("rev-parse", "HEAD").stdout.strip()
+        for platform in ("linux", "macos"):
+            self.wheel(platform, wheel)
+
+    def test_prerelease_match(self):
+        for cargo, wheel in (("0.6.0-alpha.1", "0.6.0a1"), ("0.6.0-beta.2", "0.6.0b2"), ("0.6.0-rc.3", "0.6.0rc3")):
+            with self.subTest(cargo=cargo):
+                self.setUp()
+                self.prerelease(cargo, wheel, f"v{cargo}")
+                result = self.run_guard(f"v{cargo}")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"2 wheel(s) {wheel}: they agree", result.stdout)
+
+    def test_prerelease_wheel_must_use_pep440(self):
+        # A wheel spelled like the Cargo version, or a different pre-release, is refused.
+        for wheel in ("0.6.0-alpha.1", "0.6.0a2", "0.6.0"):
+            with self.subTest(wheel=wheel):
+                self.setUp()
+                self.prerelease("0.6.0-alpha.1", wheel, "v0.6.0-alpha.1")
+                self.refused(self.run_guard("v0.6.0-alpha.1"), "they must agree")
+
+    def test_prerelease_cargo_mismatch(self):
+        self.prerelease("0.6.0-alpha.1", "0.6.0a1", "v0.6.0-alpha.1")
+        self.refused(self.run_guard("v0.6.0-alpha.2"), "does not exist")
 
     def test_matching_old_release_cannot_start_pypi_publishing(self):
         for manifest in ("Cargo.toml", "crates/draftwright-wasm/Cargo.toml", "crates/draftwright-py/Cargo.toml"):

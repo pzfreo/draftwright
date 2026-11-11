@@ -10,7 +10,10 @@ import zipfile
 
 
 MANIFESTS = ("Cargo.toml", "crates/draftwright-wasm/Cargo.toml", "crates/draftwright-py/Cargo.toml")
-STABLE_TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+# A release tag: vX.Y.Z, or a pre-release vX.Y.Z-alpha.N, -beta.N or -rc.N (N from 1).
+TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(alpha|beta|rc)\.([1-9][0-9]*))?")
+# Cargo's semver pre-release, as PEP 440 and maturin spell it in the wheel.
+PEP440 = {"alpha": "a", "beta": "b", "rc": "rc"}
 
 
 def git_commit(root: Path, reference: str) -> str:
@@ -24,12 +27,14 @@ def git_commit(root: Path, reference: str) -> str:
 
 
 def check_versions(tag: str, root: Path, dist: Path, provenance: Path) -> str:
-    match = STABLE_TAG.fullmatch(tag)
+    match = TAG.fullmatch(tag)
     if not match:
-        raise ValueError(f"tag {tag!r}: expected vX.Y.Z")
-    if tuple(map(int, match.groups())) < (0, 6, 0):
+        raise ValueError(f"tag {tag!r}: expected vX.Y.Z or vX.Y.Z-alpha.N, -beta.N, -rc.N")
+    major, minor, patch, stage, number = match.groups()
+    if (int(major), int(minor), int(patch)) < (0, 6, 0):
         raise ValueError(f"tag {tag}: PyPI publishing begins with 0.6.0")
     version = tag[1:]
+    wheel_version = f"{major}.{minor}.{patch}" + (f"{PEP440[stage]}{number}" if stage else "")
     tag_commit = git_commit(root, f"refs/tags/{tag}^{{commit}}")
     head = git_commit(root, "HEAD^{commit}")
     if head != tag_commit:
@@ -51,7 +56,7 @@ def check_versions(tag: str, root: Path, dist: Path, provenance: Path) -> str:
             package = BytesParser().parsebytes(archive.read(metadata[0]))
         if package.get_all("Name") != ["draftwright"]:
             raise ValueError(f"{wheel.name}: expected package draftwright")
-        if package.get_all("Version") != [version]:
+        if package.get_all("Version") != [wheel_version]:
             raise ValueError(
                 f"tag {tag}, wheel {wheel.name} {package.get_all('Version')}: they must agree"
             )
@@ -63,7 +68,7 @@ def check_versions(tag: str, root: Path, dist: Path, provenance: Path) -> str:
             raise ValueError(
                 f"wheel {wheel.name} built commit {built_commit!r} does not match tag {tag} ({tag_commit})"
             )
-    return f"tag {tag} ({tag_commit}), Cargo {version}, {len(wheels)} wheel(s) {version}: they agree"
+    return f"tag {tag} ({tag_commit}), Cargo {version}, {len(wheels)} wheel(s) {wheel_version}: they agree"
 
 
 def main() -> int:

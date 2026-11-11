@@ -16,6 +16,14 @@ On your first pull request a bot asks you to sign by replying:
 
 Pull requests cannot merge until the CLA is signed.
 
+## Test files and data
+
+Add only files you created yourself or whose licence allows redistribution, and record each
+file's source and licence beside it (a fixture README or NOTICE entry). Never add customer,
+confidential or NDA-covered files, or geometry extracted from them, to the repository, to
+issues or to pull requests. For a bug seen on such a part, share a reduced synthetic part that
+reproduces it instead.
+
 ## Releasing
 
 The repository is `pzfreo/draftwright`; the archived Python implementation is
