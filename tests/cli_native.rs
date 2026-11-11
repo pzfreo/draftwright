@@ -1003,9 +1003,7 @@ fn bare_and_render_embed_us_unit_and_paper_overrides() {
             "in",
             "--paper",
             "ansi",
-            "--formats",
-            "svg",
-            "-o",
+            "--out",
             stem.to_str().unwrap(),
         ]);
         let (code, result) = run(&args);
