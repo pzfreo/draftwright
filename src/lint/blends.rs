@@ -127,10 +127,18 @@ pub(crate) fn verified_row(a: &Analysis, m: &Mark) -> bool {
     let cells: Vec<_> = m.text.split_whitespace().collect();
     cells.len() == 4
         && cells[0] == view.to_uppercase()
-        && super::holes::states_in(cells[1], centre[0], m.units)
-        && super::holes::states_in(cells[2], centre[1], m.units)
+        && (if m.units.is_mm() {
+            cells[1] == fmt(centre[0])
+        } else {
+            super::holes::states_in(cells[1], centre[0], m.units)
+        })
+        && (if m.units.is_mm() {
+            cells[2] == fmt(centre[1])
+        } else {
+            super::holes::states_in(cells[2], centre[1], m.units)
+        })
         && cells[3].strip_prefix('R').is_some_and(|value| {
-            value.starts_with(|c: char| c.is_ascii_digit() || c == '.')
+            value.starts_with(|c: char| c.is_ascii_digit() || (!m.units.is_mm() && c == '.'))
                 && value.bytes().all(|b| b.is_ascii_digit() || b == b'.')
                 && value.parse::<f64>().is_ok_and(|v| v.is_finite() && v > 0.0)
                 && super::holes::states_in(value, r, m.units)

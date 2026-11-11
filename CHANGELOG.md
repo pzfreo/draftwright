@@ -1,16 +1,13 @@
 # Changelog
 
-## Unreleased
-
-- Add decimal-inch drawing intent, ANSI/ARCH landscape paper, imperial scale ratios,
-  unit-aware printed-precision checks, and CLI/Python units and paper controls.
-
-
 All notable changes to draftwright-rust are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
+
+- Add decimal-inch drawing intent, ANSI/ARCH landscape paper, imperial scale ratios,
+  unit-aware printed-precision checks, and CLI/Python units and paper controls.
 
 The next release is **0.6.0**, with one version for the GitHub tag, Cargo/crates.io and
 PyPI. The number jumps because PyPI's `draftwright` name already has releases from the

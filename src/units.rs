@@ -446,7 +446,7 @@ mod tests {
     fn source_pmi_lengths_convert_once_from_their_mm_evidence() {
         let font = crate::text::Font::new(crate::api::MONO.to_vec()).unwrap();
         for file in [
-            "pmi/plate.specify018.step.gz",
+            "pmi/step/nist_stc_06_asme1_ap242-e3.stp.gz",
             "pmi/step/nist_ctc_01_asme1_ap242-e1.stp.gz",
         ] {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -465,7 +465,17 @@ mod tests {
                     d.kind != "angular"
                         && d.measurements.iter().any(|m| {
                             m.feature.starts_with("pmi:")
-                                || m.feature.starts_with("specify_general:")
+                                && [
+                                    "linear",
+                                    "linear.basic",
+                                    "diameter",
+                                    "diameter.basic",
+                                    "radius",
+                                    "radius.basic",
+                                    "thickness",
+                                    "thickness.basic",
+                                ]
+                                .contains(&m.parameter.as_str())
                         })
                 })
                 .collect();
