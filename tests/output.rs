@@ -859,6 +859,27 @@ fn dxf_has_r2000_document_structure_and_sheet_viewport() {
         assert!(tables.contains(name), "{name}");
     }
     assert!(pairs.contains(&(2, "CLASSES".into())));
+    // AutoCAD discards a file whose LAYERs lack a PlotStyleName (390) handle
+    // to a placeholder in ACAD_PLOTSTYLENAME.
+    let placeholder = pairs
+        .windows(2)
+        .find(|p| p[0] == (0, "ACDBPLACEHOLDER".into()) && p[1].0 == 5)
+        .map(|p| p[1].1.clone())
+        .expect("a Normal plot style placeholder");
+    let mut layers = 0;
+    for (i, p) in pairs.iter().enumerate() {
+        if *p == (0, "LAYER".into()) {
+            layers += 1;
+            let end = pairs[i + 1..].iter().position(|q| q.0 == 0).unwrap() + i + 1;
+            assert!(
+                pairs[i..end].contains(&(390, placeholder.clone())),
+                "layer {:?} has no PlotStyleName",
+                pairs[i..end].iter().find(|q| q.0 == 2)
+            );
+        }
+    }
+    assert!(layers > 1);
+    assert!(pairs.contains(&(3, "ACAD_PLOTSTYLENAME".into())));
     assert_eq!(
         pairs.iter().filter(|p| **p == (278, "46".into())).count(),
         pairs
@@ -1210,6 +1231,12 @@ fn dxf_tolerances_and_compound_nominals_stay_live() {
                     .dim_styles()
                     .find(|s| s.name == dim.dimension_base.dimension_style_name)
                     .unwrap();
+                // AutoCAD refuses symbol-table names with commas and the like.
+                assert!(
+                    !st.name.contains(|c: char| ",<>/\\\":;?*|=`".contains(c)),
+                    "{}",
+                    st.name
+                );
                 // CAD readers such as QCAD ignore DIMTOL/DIMTP/DIMTM, so the
                 // tolerance is inline text beside the live value, not style data.
                 let text = &dim.dimension_base.text;

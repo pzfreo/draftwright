@@ -1274,6 +1274,10 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     let layout_dict = w.id();
     let layout_ids = [w.id(), w.id()];
     let plot_settings = w.id();
+    // AutoCAD refuses a LAYER without a PlotStyleName (390), which must point
+    // at a placeholder held in ACAD_PLOTSTYLENAME.
+    let plot_styles = w.id();
+    let normal = w.id();
     let group_ids: Vec<_> = (0..w.groups.len()).map(|_| w.id()).collect();
     let mut reactors: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
     for ((_, handles), id) in w.groups.iter().zip(&group_ids) {
@@ -1361,6 +1365,19 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     out.tag(91, 2);
     out.tag(280, 0);
     out.tag(281, 0);
+    for (dxf, cpp) in [
+        ("ACDBDICTIONARYWDFLT", "AcDbDictionaryWithDefault"),
+        ("ACDBPLACEHOLDER", "AcDbPlaceHolder"),
+    ] {
+        out.tag(0, "CLASS");
+        out.tag(1, dxf);
+        out.tag(2, cpp);
+        out.tag(3, "ObjectDBX Classes");
+        out.tag(90, 0);
+        out.tag(91, 1);
+        out.tag(280, 0);
+        out.tag(281, 0);
+    }
     out.tag(0, "ENDSEC");
     out.tag(0, "SECTION");
     out.tag(2, "TABLES");
@@ -1462,6 +1479,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         out.tag(6, linetype);
         out.tag(290, if name == "Defpoints" { 0 } else { 1 });
         out.tag(370, weight);
+        out.handle(390, normal);
     }
     out.tag(0, "ENDTAB");
     let st = w.id();
@@ -1591,6 +1609,20 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     out.handle(350, layout_dict);
     out.tag(3, "ACAD_PLOTSETTINGS");
     out.handle(350, plot_settings);
+    out.tag(3, "ACAD_PLOTSTYLENAME");
+    out.handle(350, plot_styles);
+    out.tag(0, "ACDBDICTIONARYWDFLT");
+    out.handle(5, plot_styles);
+    out.handle(330, root);
+    out.tag(100, "AcDbDictionary");
+    out.tag(281, 1);
+    out.tag(3, "Normal");
+    out.handle(350, normal);
+    out.tag(100, "AcDbDictionaryWithDefault");
+    out.handle(340, normal);
+    out.tag(0, "ACDBPLACEHOLDER");
+    out.handle(5, normal);
+    out.handle(330, plot_styles);
     dictionary(&mut out, layout_dict, root);
     for (i, name) in ["Model", "Layout1"].iter().enumerate() {
         out.tag(3, name);
