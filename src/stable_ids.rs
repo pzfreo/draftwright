@@ -414,6 +414,16 @@ fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
         return Err(error);
     }
     finite_optional_numbers(spec)?;
+    if spec.schema == SPEC_SCHEMA {
+        // Current Specs hold current IDs; nothing is renamed. The map is still reported
+        // for plans, which carry the legacy spellings as aliases.
+        return Ok(Migration {
+            unmapped: Vec::new(),
+            spec: spec.clone(),
+            migrated: Vec::new(),
+            ids: ids(a),
+        });
+    }
     if matches!(
         spec.schema.as_str(),
         "draftwright.spec/1" | "draftwright.spec/2"
@@ -449,7 +459,7 @@ fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
     }
     let mut out = crate::model::migrate_v1(spec, a)?;
     let mut migrated = Vec::new();
-    if spec.schema != SPEC_SCHEMA || !ids.is_empty() {
+    {
         let mut map = ids.clone();
         if spec.schema == "draftwright.spec/1" {
             // This is the existing view/PMI migration, composed with the identity map.
@@ -691,37 +701,44 @@ mod tests {
             .join("tests/fixtures/parts/mounting_plate.step");
         let (_, a) = crate::model::analyse_native(&path).unwrap();
         let note = "DEBURR f:hole:1 AND f:hole:2 BEFORE PLATING";
-        let spec: Spec = serde_json::from_value(serde_json::json!({
-            "schema": "draftwright.spec/3",
-            "notes": [{"id": "n:1", "text": note}],
-            "sheet": {"title": {"title": "BRACKET f:hole:3"}},
-            "tables": [{"id": "t:1", "rows": [["ITEM"], ["f:hole:1"]]}],
-            "annotations": {"n:1": {"text": {"template": "see f:hole:1"}}},
-            "precision": {"d:f:hole:1/bore.diameter": 2}
-        }))
-        .unwrap();
-        let ids = ids(&a);
-        let (new, old) = (&ids["f:hole:1"], "f:hole:1");
-        assert_ne!(new, old);
-        let opened = migrate(&spec, &a).unwrap().spec;
-        let set = crate::model::migrate(&spec, &a).unwrap();
-        assert_eq!(opened, set);
-        assert_eq!(opened.notes[0].text, note);
-        assert_eq!(opened.sheet.title["title"], "BRACKET f:hole:3");
-        assert_eq!(opened.tables, spec.tables);
-        assert_eq!(opened.annotations, spec.annotations);
+        let doc = |schema: &str| -> Spec {
+            serde_json::from_value(serde_json::json!({
+                "schema": schema,
+                "notes": [{"id": "n:1", "text": note}],
+                "sheet": {"title": {"title": "BRACKET f:hole:3"}},
+                "tables": [{"id": "t:1", "rows": [["ITEM"], ["f:hole:1"]]}],
+                "annotations": {"n:1": {"text": {"template": "see f:hole:1"}}},
+                "precision": {"d:f:hole:1/bore.diameter": 2}
+            }))
+            .unwrap()
+        };
+        // Current Spec: nothing is renamed, key included, by either entry point.
+        let current = doc("draftwright.spec/3");
+        let opened = migrate(&current, &a).unwrap();
+        assert_eq!(opened.spec, current);
+        assert!(opened.migrated.is_empty());
+        assert_eq!(crate::model::migrate(&current, &a).unwrap(), current);
+        // Legacy Spec: ID keys move, prose does not, and the entry points agree.
+        let legacy = doc("draftwright.spec/2");
+        let new = &ids(&a)["f:hole:1"];
+        let opened = migrate(&legacy, &a).unwrap();
+        let set = crate::model::migrate(&legacy, &a).unwrap();
+        assert_eq!(opened.spec, set);
+        let out = opened.spec;
+        assert_eq!(out.notes[0].text, note);
+        assert_eq!(out.sheet.title["title"], "BRACKET f:hole:3");
+        assert_eq!(out.tables, legacy.tables);
+        assert_eq!(out.annotations, legacy.annotations);
         assert!(
-            opened
-                .precision
+            out.precision
                 .contains_key(&format!("d:{new}/bore.diameter"))
         );
-        assert!(!opened.precision.contains_key("d:f:hole:1/bore.diameter"));
-        let reported = migrate(&spec, &a).unwrap();
-        assert!(reported.migrated.iter().all(|m| !m.path.contains("notes")
+        assert!(!out.precision.contains_key("d:f:hole:1/bore.diameter"));
+        assert!(opened.migrated.iter().all(|m| !m.path.contains("notes")
             && !m.path.contains("title")
             && !m.path.contains("tables")
             && !m.path.contains("annotations/n:1/text")));
-        assert!(reported.unmapped.is_empty(), "{:?}", reported.unmapped);
+        assert!(opened.unmapped.is_empty(), "{:?}", opened.unmapped);
     }
 
     #[test]

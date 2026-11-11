@@ -9455,6 +9455,9 @@ fn retain_short_leaders(analysis: &Analysis, plan: &mut Plan, bare: &Plan) {
 /// Two keys that come to one are ambiguous, and refused with both as the candidates. Anything
 /// but a known schema is refused; old schemas expire at the named legacy-reader cutoff.
 pub fn migrate(spec: &Spec, analysis: &Analysis) -> Result<Spec, Invalid> {
+    if spec.schema == SPEC_SCHEMA {
+        return Ok(spec.clone());
+    }
     crate::stable_ids::migrate(spec, analysis).map(|m| m.spec)
 }
 
