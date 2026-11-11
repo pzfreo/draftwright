@@ -624,7 +624,7 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
     }
     // CAD installations commonly lack Plex; the named Plex styles explicitly
     // request these installed alternatives instead (round 2 interoperability).
-    for font in ["Courier New.ttf", "Arial Narrow.ttf"] {
+    for font in ["Courier New.ttf", "Arial.ttf"] {
         assert!(d.styles().any(|s| s.primary_font_file_name == font));
     }
     // A clockwise ellipse with the longer radius on its second axis must retain
@@ -922,6 +922,20 @@ fn dxf_cad_readers_get_visible_blocks_and_full_dimension_settings() {
             .find(|r| value(r, 2) == layer)
             .unwrap();
         assert_eq!(value(r, 420), "0", "{layer} is explicit black on white");
+    }
+    let mono = records_of("STYLE")
+        .into_iter()
+        .find(|r| value(r, 2) == "IBMPlexMono-Regular")
+        .unwrap();
+    let width = value(mono, 41).parse::<f64>().unwrap();
+    assert!(
+        (0.81..0.83).contains(&width),
+        "Courier cap/advance compensation"
+    );
+    for text in records_of("TEXT") {
+        if value(text, 7) == "IBMPlexMono-Regular" {
+            assert_eq!(value(text, 41).parse::<f64>().unwrap(), width);
+        }
     }
     let block_records = records_of("BLOCK_RECORD");
     for r in &block_records {

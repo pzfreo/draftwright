@@ -642,12 +642,16 @@ impl Writer {
         };
         t.point(10, insertion);
         t.tag(40, height);
-        let content = if multiline {
+        let width = cad_width(text_font(r));
+        let mut content = if multiline {
             encode_mtext(&r.text)
         } else {
             encode(&r.text)
         };
         if multiline {
+            if width != 1. {
+                content = format!("\\W{width};{content}");
+            }
             let mut parts = Vec::new();
             let mut tail = content.as_str();
             while !tail.is_empty() {
@@ -683,6 +687,7 @@ impl Writer {
             t.tag(50, r.rotation);
             t.tag(41, 0);
         } else {
+            t.tag(41, width);
             t.tag(50, r.rotation);
             t.tag(
                 72,
@@ -735,8 +740,18 @@ fn style(font: &str) -> String {
 fn cad_font_file(font: &str) -> &str {
     match font {
         "IBMPlexMono-Regular.ttf" => "Courier New.ttf",
-        crate::title_block::FONT => "Arial Narrow.ttf",
+        crate::title_block::FONT => "Arial.ttf",
         _ => font,
+    }
+}
+fn cad_width(font: &str) -> f64 {
+    if font == "IBMPlexMono-Regular.ttf" {
+        // DXF height is cap height. Plex Mono's advance/cap ratio is 600/698;
+        // Courier New's is 1229/1170. Preserve the monospaced label widths so
+        // substituting a common font does not overflow table cells or frames.
+        (600. / 698.) / (1229. / 1170.)
+    } else {
+        1.
     }
 }
 fn encode(s: &str) -> String {
@@ -1539,7 +1554,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         }
         record(&mut out, "STYLE", id, st, "AcDbTextStyleTableRecord", &name);
         out.tag(40, 0);
-        out.tag(41, 1);
+        out.tag(41, cad_width(&file));
         out.tag(50, 0);
         out.tag(71, 0);
         out.tag(42, 3);
