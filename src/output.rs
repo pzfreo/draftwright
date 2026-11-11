@@ -1701,6 +1701,47 @@ pub fn undrawn(counts: &BTreeMap<String, usize>) -> Vec<Problem> {
         .collect()
 }
 
+/// A `text_glyph_missing` warning for each label with a character no bundled font draws. The
+/// label is still drawn, its missing characters as empty boxes, so the sheet shows where they are.
+/// A character is drawn if either bundled font has it (`⌀` as the font's `ø`) or haecceity's stroke
+/// font does, or it is a counterbore or countersink sign (`⌴ ⌵`), which the callout draws as strokes.
+pub fn missing_glyphs(text: &[TextRun]) -> Vec<Problem> {
+    let faces: Vec<crate::text::Font> = [crate::api::MONO, crate::title_block::FONT_DATA]
+        .into_iter()
+        .filter_map(|d| crate::text::Font::new(d.to_vec()))
+        .collect();
+    let mut seen = BTreeSet::new();
+    text.iter()
+        .filter(|run| seen.insert(run.text.as_str()))
+        .filter_map(|run| {
+            let missing: BTreeSet<char> = run
+                .text
+                .chars()
+                .filter(|c| !c.is_whitespace() && !"⌴⌵".contains(*c))
+                .filter(|c| !faces.iter().any(|f| f.supports(*c)))
+                .filter(|c| !haecceity::presentation::text::Font.supports(*c))
+                .collect();
+            (!missing.is_empty()).then(|| Problem {
+                id: format!("p:text_glyph_missing:{}", run.text),
+                code: "text_glyph_missing".into(),
+                severity: "warning".into(),
+                message: format!(
+                    "The label {:?} has {} that no bundled font draws, so {} drawn as an empty box: {}. Use characters IBM Plex has, or word it in plain text.",
+                    run.text,
+                    if missing.len() == 1 { "a character" } else { "characters" },
+                    if missing.len() == 1 { "it is" } else { "they are" },
+                    missing
+                        .iter()
+                        .map(|c| format!("{c} (U+{:04X})", *c as u32))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                ..Default::default()
+            })
+        })
+        .collect()
+}
+
 /// Boehm's insertion of knot *t* into a B-spline of *degree* (homogeneous poles).
 fn insert_knot(degree: usize, knots: &mut Vec<f64>, poles: &mut Vec<[f64; 3]>, t: f64) {
     let s = knots.partition_point(|k| *k <= t) - 1;

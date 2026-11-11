@@ -6,6 +6,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Report a `text_glyph_missing` warning, naming the label and the characters, when a label holds a
+  character none of the bundled fonts or the stroked GD&T symbols can draw (CJK, `✓`); the label
+  is still drawn, those characters as empty boxes, and no other drawing changes (#401).
+
 - Fix inch scale-floor overflow, numeric trust parsing, modelled-thread pitch/diameter,
   turned OD riders and the inch-design advisory fix. Summarize inch rounding findings,
   detect decimal-inch grids, align tolerance precision, and use explicit US zone counts
