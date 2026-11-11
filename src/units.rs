@@ -787,13 +787,23 @@ mod tests {
                 .iter()
                 .any(|op| op.path == "units" && op.value == Some(json!("mm")))
         );
-        assert!(advice.fixes.iter().any(|f| {
-            f.ops
-                .iter()
-                .all(|op| op.path.starts_with("precision/") && op.value == Some(json!(4)))
-        }));
-        let four =
-            model::edit(&spec, &serde_json::to_value(&advice.fixes[0].ops).unwrap()).unwrap();
+        let remedy = advice
+            .fixes
+            .iter()
+            .find(|f| f.ops.len() == 1 && f.ops[0].path == "precision")
+            .expect("four-place remedy");
+        assert!(
+            remedy.ops[0]
+                .value
+                .as_ref()
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .values()
+                .all(|v| *v == json!(4))
+        );
+        let four = model::edit(&spec, &serde_json::to_value(&remedy.ops).unwrap()).unwrap();
+        assert_eq!(four.units, Units::In);
         assert!(
             !model::plan_recovered(&a, &four)
                 .unwrap()
@@ -802,6 +812,41 @@ mod tests {
                 .any(|p| p.code == "nominal_rounded")
         );
         assert!(p.notes.iter().any(|n| n.text == text));
+    }
+
+    #[test]
+    fn review_dense_rounding_fix_fits_transport_and_preserves_authored_precision() {
+        let (_, a) = review_fixture("scattered_holes.step");
+        let spec: Spec =
+            serde_json::from_value(json!({"units":"in","precision":{"d:envelope/width.length":5}}))
+                .unwrap();
+        let plan = model::plan_recovered(&a, &spec).unwrap();
+        let problem = plan
+            .problems
+            .iter()
+            .find(|p| p.code == "nominal_rounded")
+            .unwrap();
+        assert!(problem.refs.len() > crate::stateless::MAX_OPS);
+        let ops = &problem
+            .fixes
+            .iter()
+            .find(|f| f.ops.len() == 1 && f.ops[0].path == "precision")
+            .expect("four-place remedy")
+            .ops;
+        assert_eq!(ops.len(), 1);
+        assert!(crate::stateless::check_operation_count(ops.len()).is_ok());
+        let fixed = model::edit(&spec, &serde_json::to_value(ops).unwrap()).unwrap();
+        assert_eq!(fixed.units, Units::In);
+        assert_eq!(fixed.precision["d:envelope/width.length"], 5);
+        assert!(fixed.precision.len() > crate::stateless::MAX_OPS);
+        assert!(fixed.precision.iter().all(|(id, p)| *p
+            == if id == "d:envelope/width.length" {
+                5
+            } else {
+                4
+            }));
+        let p = model::plan_recovered(&a, &fixed).unwrap();
+        assert!(!p.problems.iter().any(|p| p.code == "nominal_rounded"));
     }
 
     #[test]

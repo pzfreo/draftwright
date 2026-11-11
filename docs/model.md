@@ -532,6 +532,8 @@ scale ratios (`1:2`), metric thread designations and angles are not lengths.
 Inch `nominal_rounded` findings are summarized once at sheet level. The finding's
 subjects identify affected carriers and its refs retain every detailed mm-to-inch
 comparison. Fixes offer mm units or four-place precision for those measurements.
+The four-place fix replaces the merged precision map in one operation, preserving
+existing authored settings and staying within the transport's 32-operation limit.
 Metric findings retain their existing behavior.
 Metric thread designations remain metric. Unified thread support would extend
 `spec_notes::metric`, `pmi_lowering`'s thread readers and the modelled-thread catalogue.

@@ -172,9 +172,25 @@ fn only_sheet_problems_have_the_sheet_as_subject() {
                             p.fix.iter().any(|op| op.path == "units"
                                 && op.value == Some(serde_json::json!("mm")))
                         );
-                        assert!(p.fixes.iter().any(|fix| !fix.ops.is_empty()
-                            && fix.ops.iter().all(|op| op.path.starts_with("precision/")
-                                && op.value == Some(serde_json::json!(4)))));
+                        assert!(p.fixes.iter().any(|fix| fix.ops.len() == 1
+                            && fix.ops[0].path == "precision"
+                            && fix.ops[0].value.as_ref().is_some_and(|v| v.is_object())));
+                        let remedy = p
+                            .fixes
+                            .iter()
+                            .find(|f| f.ops.len() == 1 && f.ops[0].path == "precision")
+                            .unwrap();
+                        let four =
+                            model::edit(&plan.spec, &serde_json::to_value(&remedy.ops).unwrap())
+                                .unwrap();
+                        assert_eq!(four.units, plan.spec.units);
+                        assert!(four.precision.values().any(|p| *p == 4));
+                        assert!(
+                            plan.spec
+                                .precision
+                                .iter()
+                                .all(|(id, p)| four.precision.get(id) == Some(p))
+                        );
                         true
                     } else {
                         false
