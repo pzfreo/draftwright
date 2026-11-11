@@ -8,13 +8,16 @@ const EPS: f64 = 1e-6;
 
 /// The part and witnesses use millimetres; authored PMI can explicitly print inches.
 fn states_in(text: &str, value: f64, units: crate::output::Units) -> bool {
+    if !units.is_mm() {
+        return super::holes::states_in(text, value, units);
+    }
     let inch = text
         .split_whitespace()
         .any(|word| word.eq_ignore_ascii_case("INCH") || word.eq_ignore_ascii_case("INCHES"));
     super::holes::states(text, value / if inch { 25.4 } else { units.millimetres() })
 }
 /// A station equation uses the leading nominal, never a tolerance or fit-class number.
-fn nominal_in(text: &str, value: f64, units: crate::output::Units) -> bool {
+fn nominal_in(text: &str, value: f64, units: crate::output::Units, precision: Option<u8>) -> bool {
     if !value.is_finite() {
         return false;
     }
@@ -44,6 +47,9 @@ fn nominal_in(text: &str, value: f64, units: crate::output::Units) -> bool {
     let inch = text
         .split_whitespace()
         .any(|w| w.eq_ignore_ascii_case("INCH") || w.eq_ignore_ascii_case("INCHES"));
+    if !units.is_mm() {
+        return super::holes::states_with_precision(&number, value, units, precision);
+    }
     states_in(
         &format!("{number}{}", if inch { " INCH" } else { "" }),
         value,
@@ -64,15 +70,15 @@ fn span_stated(mark: &Mark, value: f64, strict: bool) -> bool {
     if let Some((n, rest)) = mark.text.split_once('×') {
         n.trim().parse::<usize>().is_ok_and(|n| {
             n > 0
-                && (nominal_in(rest, value, mark.units)
+                && (nominal_in(rest, value, mark.units, mark.precision)
                     || (mark
                         .claims
                         .iter()
                         .any(|c| c.parameter.contains("pitch.length"))
-                        && nominal_in(rest, value / n as f64, mark.units)))
+                        && nominal_in(rest, value / n as f64, mark.units, mark.precision)))
         })
     } else {
-        nominal_in(&mark.text, value, mark.units)
+        nominal_in(&mark.text, value, mark.units, mark.precision)
     }
 }
 
@@ -621,7 +627,7 @@ fn authored_span(a: &Analysis, mark: &Mark, c: &crate::output::Claim) -> Option<
         .collect();
     let along = c.parameter.strip_prefix("linear.")?;
     let m = a.measure_references(&refs, "linear", Some(along)).ok()?;
-    if !nominal_in(&mark.text, m.value, mark.units) {
+    if !nominal_in(&mark.text, m.value, mark.units, mark.precision) {
         return None;
     }
     let [p, q] = m.witnesses?;
@@ -1955,6 +1961,7 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> Vec<Mark> {
             }
         }
         extra.push(Mark {
+            precision: None,
             units: Default::default(),
             name: format!("location_network:{feature}/{}", AXES[k]),
             view: None,
@@ -1989,6 +1996,7 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> Vec<Mark> {
             .is_some()
             {
                 extra.push(Mark {
+                    precision: None,
                     units: Default::default(),
                     name: format!("location_network:{}/{role}", f.id),
                     view: None,
@@ -2173,6 +2181,7 @@ mod tests {
                 {"surface":"plane","axis":2,"bounds":[0.,0.,4.,20.,20.,4.]}]
         })).unwrap();
         let mut mark = Mark {
+            precision: None,
             units: Default::default(),
             name: "printed".into(),
             view: None,
@@ -2222,6 +2231,7 @@ mod tests {
         .unwrap();
         let claimed = |feature: &str, parameter: &str| -> Vec<String> {
             let mut marks = [Mark {
+                precision: None,
                 units: Default::default(),
                 name: "d".into(),
                 view: Some("v:plan".into()),
@@ -2271,6 +2281,7 @@ mod tests {
             "features":[feature("hole","hole",5.)],"face_attachments":planes
         })).unwrap();
         let mark = |k: usize, value: f64| Mark {
+            precision: None,
             units: Default::default(),
             name: format!("d:location.{k}"),
             view: None,
@@ -2314,6 +2325,7 @@ mod tests {
             );
         }
         let note = Mark {
+            precision: None,
             units: Default::default(),
             name: "feature-note".into(),
             view: None,
@@ -2395,6 +2407,7 @@ mod tests {
         assert!(drawn_proof(&a, &[], &[0.], 0, 40., Some("boss")).is_none());
         assert!(drawn_proof(&a, &[], &[0.], 1, 22., Some("boss")).is_none());
         let mut high = Mark {
+            precision: None,
             units: Default::default(),
             name: "d:hole/location.length.x".into(),
             view: Some("v:plan".into()),

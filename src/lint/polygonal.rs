@@ -508,6 +508,7 @@ mod tests {
 
     fn mark(feature: &str, text: &str, parameter: &str) -> Mark {
         Mark {
+            precision: None,
             units: Default::default(),
             name: format!("m:{parameter}"),
             view: Some("v:plan".into()),

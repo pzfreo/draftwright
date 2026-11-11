@@ -248,6 +248,7 @@ fn a_size_numeral_cannot_supply_a_pocket_patterns_quantity() {
         .unwrap();
     assert_eq!(pattern.parameters["members"].as_array().unwrap().len(), 3);
     let mut mark = lint::Mark {
+        precision: None,
         units: Default::default(),
         name: "pattern-callout".into(),
         view: Some("v:plan".into()),
@@ -294,6 +295,7 @@ fn pocket_pattern_requirement_states_are_checked_independently() {
             .all(|i| i.code == "pocket_pattern_requirement_missing")
     );
     let mut mark = lint::Mark {
+        precision: None,
         units: Default::default(),
         name: String::new(),
         view: None,

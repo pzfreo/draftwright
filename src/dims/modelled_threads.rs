@@ -28,7 +28,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                 // Invariant: The iterator is over the fixed three coordinate axes.
                 .expect("three coordinates")
         });
-        let (text, standard) = t.designation();
+        let (text, standard) = t.designation_in(cx.spec.units);
         if !standard {
             problems.push(unmatched(f));
         }

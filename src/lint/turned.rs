@@ -457,7 +457,7 @@ fn judged<'a>(
                 .unwrap_or(nominal.len());
             return holes::states(&nominal[..end], value);
         }
-        holes::states_in(&m.text, value, m.units)
+        m.states_text(&m.text, value)
     };
     match claiming.iter().find(states) {
         Some(m) => (State::Placed, Some(m)),
@@ -638,7 +638,7 @@ fn from_baseline<'a>(
             m.claims
                 .iter()
                 .any(|k| k.feature == c.id && k.parameter == "step_position.length")
-                && holes::states_in(&m.text, distance, m.units)
+                && m.states_text(&m.text, distance)
         })
     };
     [lo, hi].into_iter().find_map(|end| {
@@ -780,6 +780,7 @@ mod tests {
 
     fn mark(name: &str, text: &str, feature: &str, parameter: &str) -> Mark {
         Mark {
+            precision: None,
             units: Default::default(),
             name: name.into(),
             view: Some("v:front".into()),

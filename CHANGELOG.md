@@ -6,6 +6,11 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Fix inch scale-floor overflow, numeric trust parsing, modelled-thread pitch/diameter,
+  turned OD riders and the inch-design advisory fix. Summarize inch rounding findings,
+  detect decimal-inch grids, align tolerance precision, and use explicit US zone counts
+  and smallest-sheet-first paper selection. Refuse conflicting paper families.
+
 - Add decimal-inch drawing intent, ANSI/ARCH landscape paper, imperial scale ratios,
   unit-aware printed-precision checks, and CLI/Python units and paper controls.
 

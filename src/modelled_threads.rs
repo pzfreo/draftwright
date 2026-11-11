@@ -121,7 +121,11 @@ impl<'a> Thread<'a> {
             .and_then(|t| t.depiction)
             != Some(false)
     }
+    #[cfg(test)]
     pub(crate) fn designation(&self) -> (String, bool) {
+        self.designation_in(crate::units::Units::Mm)
+    }
+    pub(crate) fn designation_in(&self, units: crate::units::Units) -> (String, bool) {
         // External crests match nominal directly. An internal model can truncate its
         // roots: allow up to 0.26 P (capped at 0.4 mm) below nominal, never above it.
         // This is an inference policy, not an ISO manufacturing tolerance/class.
@@ -153,8 +157,8 @@ impl<'a> Thread<'a> {
         } else {
             format!(
                 "⌀{} × P{}",
-                crate::dims::fmt((self.major * 1000.).round() / 1000.),
-                crate::dims::fmt((self.pitch * 1000.).round() / 1000.)
+                units.format((self.major * 1000.).round() / 1000.),
+                units.format((self.pitch * 1000.).round() / 1000.)
             )
         };
         if !standard && self.starts > 1 {
@@ -1121,6 +1125,17 @@ mod tests {
                 assert!(plan.problems.iter().any(|p| p.code == "nominal_rounded"));
             }
         }
+    }
+    #[test]
+    fn non_metric_designation_uses_drawing_units_for_diameter_and_pitch() {
+        let f = feature(8.3, 2., true);
+        let mut t = Thread::read(&f).unwrap();
+        t.starts = 4;
+        assert_eq!(
+            t.designation_in(crate::units::Units::In),
+            ("⌀.327 × P.079 4 STARTS".into(), false)
+        );
+        assert_eq!(t.designation(), ("⌀8.3 × P2 4 STARTS".into(), false));
     }
     #[test]
     fn matching_tolerance_edges_and_unlisted_pairs() {

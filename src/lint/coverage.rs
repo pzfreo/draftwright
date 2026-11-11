@@ -635,11 +635,7 @@ pub fn sites(analysis: &Analysis, marks: &[Mark]) -> Vec<Site> {
                         .iter()
                         .any(|c| c.feature == id && c.parameter == parameter)
                     && (!m.name.starts_with("hole_schedule_")
-                        || super::holes::states_in(
-                            &m.text,
-                            at[k] - analysis.envelope[0][k],
-                            m.units,
-                        ))
+                        || m.states_text(&m.text, at[k] - analysis.envelope[0][k]))
             })
         })
     };
@@ -790,8 +786,7 @@ pub fn schedule_entries(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 let Some((position, direction)) = m.text.split_once('/') else {
                     return false;
                 };
-                super::holes::states_in(position.trim(), want, m.units)
-                    && direction.trim() == want_dir
+                m.states_text(position.trim(), want) && direction.trim() == want_dir
             });
             if !correct {
                 let mut issue = sheet_issue(
@@ -903,6 +898,7 @@ mod tests {
         ];
         let holes: BTreeMap<&str, Hole> = [("f:hole:1", Hole::read(&f, &identity).unwrap())].into();
         let mark = |text: &str, parameter: &str| Mark {
+            precision: None,
             units: Default::default(),
             name: "m".into(),
             view: None,
@@ -991,6 +987,7 @@ mod tests {
         assert_eq!(found[0].subjects, ["f:double_d_bore:1"]);
         assert_eq!(found[0].requirements[0].parameter, "location.length.y");
         let mark = Mark {
+            precision: None,
             units: Default::default(),
             name: "m".into(),
             view: Some("v:side".into()),

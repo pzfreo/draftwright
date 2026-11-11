@@ -5837,6 +5837,24 @@ fn plan_with_presentation(
             &(*spec.pages()).map(|p| p.0),
         ));
     }
+    for (path, size) in [
+        ("sheet/size", spec.sheet.size.as_deref()),
+        (
+            "sheet/preferred_max_size",
+            spec.sheet.preferred_max_size.as_deref(),
+        ),
+    ] {
+        if let Some(size) = size
+            && crate::units::Paper::for_size(size) != spec.paper()
+        {
+            return Err(invalid(
+                format!(
+                    "{path} {size:?} belongs to a different paper family; sheet size, preferred maximum and paper must use the same family."
+                ),
+                &(*spec.pages()).map(|p| p.0),
+            ));
+        }
+    }
     crate::dims::authored::check(spec)?;
     crate::dimension_scheme::check(spec)?;
     crate::dims::pmi_policy::validate(analysis, spec)?;

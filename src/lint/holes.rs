@@ -290,9 +290,7 @@ fn numbers(text: &str) -> Vec<(f64, usize)> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < chars.len() {
-        if chars[i].is_ascii_digit()
-            || (chars[i] == '.' && chars.get(i + 1).is_some_and(char::is_ascii_digit))
-        {
+        if chars[i].is_ascii_digit() {
             let start = i;
             while i < chars.len() && chars[i].is_ascii_digit() {
                 i += 1;
@@ -325,27 +323,42 @@ pub fn states(text: &str, value: f64) -> bool {
 
 /// Compare in the printed unit, retaining its rounding interval.
 pub fn states_in(text: &str, value: f64, units: crate::output::Units) -> bool {
+    states_with_precision(text, value, units, None)
+}
+
+pub(crate) fn states_with_precision(
+    text: &str,
+    value: f64,
+    units: crate::output::Units,
+    precision: Option<u8>,
+) -> bool {
     if units.is_mm() {
         return numbers(text).iter().any(|&(n, d)| rounds(n, d, value));
     }
-    // A compound label can carry an angle as well as lengths. Degree terms stay degrees.
-    let mut rest = text;
-    while let Some(start) = rest.find(|c: char| c.is_ascii_digit() || c == '.') {
-        rest = &rest[start..];
-        let end = rest
-            .find(|c: char| !c.is_ascii_digit() && c != '.')
-            .unwrap_or(rest.len());
-        let token = &rest[..end];
-        let angular = rest[end..].trim_start().starts_with('°');
-        if let Ok(n) = token.parse::<f64>() {
-            let d = token.split_once('.').map_or(0, |(_, f)| f.len());
-            if rounds(n, d, if angular { value } else { units.from_mm(value) }) {
-                return true;
-            }
+    let numbers = crate::output::Units::text_numbers(text);
+    let leading = numbers.iter().find(|n| n.length).map(|n| n.range.start);
+    numbers.iter().any(|number| {
+        let token = &text[number.range.clone()];
+        let decimal = token.contains('.');
+        if !(number.angular
+            || number.length
+                && (decimal || precision == Some(0) && leading == Some(number.range.start)))
+        {
+            return false;
         }
-        rest = &rest[end..];
-    }
-    false
+        token.parse::<f64>().is_ok_and(|n| {
+            let d = token.split_once('.').map_or(0, |(_, f)| f.len());
+            rounds(
+                n,
+                d,
+                if number.angular {
+                    value
+                } else {
+                    units.from_mm(value)
+                },
+            )
+        })
+    })
 }
 
 /// Whether the number *n*, printed with *decimals* decimals, rounds from *value*.
@@ -405,6 +418,7 @@ impl Segment {
 /// from `EQ`, `ON` or `BC` on (a bolt circle's diameter).
 #[derive(Clone, Debug, PartialEq)]
 struct Callout {
+    zero_nominal: Option<f64>,
     units: crate::output::Units,
     count: Option<usize>,
     segments: Vec<Segment>,
@@ -413,17 +427,31 @@ struct Callout {
 }
 
 impl Callout {
-    fn read_in(text: &str, units: crate::output::Units) -> Self {
+    fn from_mark(mark: &Mark) -> Self {
         Self {
-            units,
-            ..Self::read(text)
+            zero_nominal: (mark.precision == Some(0))
+                .then(|| {
+                    crate::output::Units::text_numbers(&mark.text)
+                        .iter()
+                        .find(|n| n.length)
+                        .and_then(|n| mark.text[n.range.clone()].parse().ok())
+                })
+                .flatten(),
+            ..Self::read_in(&mark.text, mark.units)
         }
+    }
+    fn read_in(text: &str, units: crate::output::Units) -> Self {
+        Self::read_units(text, units)
     }
 
     fn read(text: &str) -> Callout {
+        Self::read_units(text, crate::output::Units::Mm)
+    }
+    fn read_units(text: &str, units: crate::output::Units) -> Callout {
         let chars: Vec<char> = text.chars().collect();
         let mut out = Callout {
-            units: crate::output::Units::Mm,
+            zero_nominal: None,
+            units,
             count: None,
             segments: vec![Segment::new(Opened::Bore)],
             loose: Vec::new(),
@@ -433,7 +461,9 @@ impl Callout {
         while i < chars.len() {
             let c = chars[i];
             if c.is_ascii_digit()
-                || (c == '.' && chars.get(i + 1).is_some_and(char::is_ascii_digit))
+                || (!units.is_mm()
+                    && c == '.'
+                    && chars.get(i + 1).is_some_and(char::is_ascii_digit))
             {
                 let start = i;
                 while i < chars.len() && chars[i].is_ascii_digit() {
@@ -598,6 +628,13 @@ impl Callout {
             (numbers.len() == 1).then(|| numbers[0])
         };
         term.is_some_and(|(n, decimals)| {
+            if !self.units.is_mm()
+                && !parameter.contains("angle")
+                && decimals == 0
+                && self.zero_nominal != Some(n)
+            {
+                return false;
+            }
             rounds(
                 n,
                 decimals,
@@ -642,7 +679,7 @@ pub fn verified_schedule_size(analysis: &Analysis, mark: &Mark) -> bool {
     else {
         return false;
     };
-    let callout = Callout::read_in(&mark.text, mark.units);
+    let callout = Callout::from_mark(mark);
     group
         .requirements()
         .iter()
@@ -684,7 +721,7 @@ fn uncounted<'a>(g: &'a HoleGroup, marks: &[Mark]) -> Vec<&'a str> {
         .iter()
         .filter_map(|m| {
             let claimed = diameters(m);
-            let n = Callout::read_in(&m.text, m.units).count.unwrap_or(1);
+            let n = Callout::from_mark(m).count.unwrap_or(1);
             let whole = claimed.len() == g.members.len() && n == g.drillings;
             ((claimed.len() == n || whole)
                 && claimed.iter().all(|f| g.members.iter().any(|x| x == f)))
@@ -800,9 +837,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             let outer = g.sizes.outer_steps.len();
             let stated = |m: &&Mark| match parameter {
                 "bore.through" => says_thru(&m.text),
-                _ => {
-                    Callout::read_in(&m.text, m.units).states(parameter, value, counterbore, outer)
-                }
+                _ => Callout::from_mark(m).states(parameter, value, counterbore, outer),
             };
             if match parameter {
                 "grouping.count" => uncounted.is_empty(),
@@ -857,7 +892,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                             format!(
                                 "the diameter's callout {:?} prints {} for the {k} hole{} it claims; {} {} counted by no callout",
                                 m.text,
-                                Callout::read_in(&m.text, m.units)
+                                Callout::from_mark(m)
                                     .count
                                     .map_or("no quantity".into(), |n| format!("{n}×")),
                                 if k == 1 { "" } else { "s" },
@@ -1026,6 +1061,7 @@ mod tests {
     #[test]
     fn a_modelled_thread_shorter_than_its_hole_requires_no_depth() {
         let mark = Mark {
+            precision: None,
             units: Default::default(),
             name: "d:f:modelled_thread:1/thread".into(),
             view: Some("v:front".into()),
@@ -1087,6 +1123,7 @@ mod tests {
 
     fn mark(text: &str, claims: &[(&str, &str)]) -> Mark {
         Mark {
+            precision: None,
             units: Default::default(),
             name: format!("m:{text}"),
             view: Some("v:plan".into()),

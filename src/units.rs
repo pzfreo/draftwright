@@ -111,6 +111,9 @@ impl crate::model::Spec {
     pub fn scales(&self) -> &'static [f64] {
         scales(self.units)
     }
+    pub fn smallest_scale(&self) -> f64 {
+        *self.scales().last().expect("nonempty scale ladder")
+    }
 }
 pub fn scales(units: Units) -> &'static [f64] {
     if units == Units::In {
@@ -133,57 +136,137 @@ impl Units {
         if self.is_mm() {
             return text.into();
         }
+        let mut tokens = Self::text_numbers(text);
+        if magnitude {
+            for n in &mut tokens {
+                if !n.angular && !n.symbolic {
+                    n.length = true;
+                }
+            }
+        }
+        let places = tokens
+            .iter()
+            .filter(|n| n.length)
+            .filter_map(|n| text[n.range.clone()].parse::<f64>().ok())
+            .map(|mm| self.magnitude_places(mm))
+            .max()
+            .unwrap_or(3);
         let mut out = String::new();
         let mut at = 0;
+        for n in tokens {
+            out.push_str(&text[at..n.range.start]);
+            let word = &text[n.range.clone()];
+            if n.length
+                && let Ok(mm) = word.parse::<f64>()
+            {
+                let tolerance = magnitude
+                    || text[..n.range.start].contains('±')
+                    || text[..n.range.start].contains('+');
+                if magnitude && mm == 0. && text[..n.range.start].trim_end().ends_with('/') {
+                    out.push('-');
+                }
+                out.push_str(&self.format_places(mm, tolerance.then_some(places)));
+            } else {
+                out.push_str(word);
+            }
+            at = n.range.end;
+        }
+        out.push_str(&text[at..]);
+        out
+    }
+    fn magnitude_places(self, mm: f64) -> u8 {
+        let v = self.from_mm(mm);
+        (3..=12)
+            .find(|&p| v == 0. || (v * 10f64.powi(p)).round() != 0.)
+            .unwrap_or(12) as u8
+    }
+    pub(crate) fn deviations(self, upper: f64, lower: f64) -> String {
+        let places = self
+            .magnitude_places(upper)
+            .max(self.magnitude_places(lower));
+        let signed = |v: f64, zero_sign: char| {
+            let sign = if v == 0. {
+                zero_sign
+            } else if v > 0. {
+                '+'
+            } else {
+                '-'
+            };
+            format!("{sign}{}", self.format_places(v.abs(), Some(places)))
+        };
+        format!("{}/{}", signed(upper, '+'), signed(lower, '-'))
+    }
+    /// Engine-owned label grammar. A number is a length only with a length marker,
+    /// decimal point, or an unambiguous numeric size expression. Ratios, counts,
+    /// angles, fit classes and metric thread tokens retain their own meanings.
+    pub(crate) fn text_numbers(text: &str) -> Vec<TextNumber> {
+        let mut out = Vec::new();
+        let mut at = 0;
         let mut thread_end = 0;
+        let numeric_expression = text
+            .chars()
+            .all(|c| c.is_ascii_digit() || c.is_whitespace() || ".+-±/×[]()°".contains(c));
         while at < text.len() {
             let c = text[at..].chars().next().unwrap();
             if c == 'M' && text[at + 1..].starts_with(|c: char| c.is_ascii_digit()) {
                 thread_end = text[at..]
-                    .find(char::is_whitespace)
+                    .find(|c: char| c.is_whitespace() || c == ';')
                     .map_or(text.len(), |i| at + i);
             }
-            if at >= thread_end && (c.is_ascii_digit() || c == '.') {
+            if c.is_ascii_digit()
+                || (c == '.' && text[at + 1..].starts_with(|c: char| c.is_ascii_digit()))
+            {
                 let end = text[at..]
                     .find(|c: char| !c.is_ascii_digit() && c != '.')
                     .map_or(text.len(), |i| at + i);
                 let word = &text[at..end];
-                let previous = text[..at].chars().next_back();
+                let head = &text[..at];
                 let tail = text[end..].trim_start();
-                let after_times = tail.strip_prefix('×').map(str::trim_start);
-                let next_is_angle = after_times.is_some_and(|rest| {
-                    let end = rest
+                let previous = head.chars().next_back();
+                let marker = head
+                    .trim_end()
+                    .chars()
+                    .next_back()
+                    .is_some_and(|p| "⌀ØøRCP↧".contains(p));
+                let angular = tail.starts_with('°') || tail.starts_with("deg");
+                let times = tail.strip_prefix(['×', 'X']).map(str::trim_start);
+                let next_angle = times.is_some_and(|rest| {
+                    let e = rest
                         .find(|c: char| !c.is_ascii_digit() && c != '.')
                         .unwrap_or(rest.len());
-                    end > 0 && rest[end..].trim_start().starts_with('°')
+                    e > 0 && rest[e..].trim_start().starts_with('°')
                 });
-                let quantity = after_times.is_some()
+                let count = !marker
                     && !word.contains('.')
-                    && !next_is_angle
-                    && !previous.is_some_and(|p| matches!(p, '⌀' | 'Ø' | 'ø' | 'R' | 'C' | 'P'));
-                let symbolic = previous
-                    .is_some_and(|p| p.is_ascii_alphabetic() && !matches!(p, 'R' | 'C' | 'P'))
-                    || tail.starts_with('°')
-                    || tail.starts_with("deg")
-                    || quantity;
-                if let Ok(mm) = word.parse::<f64>() {
-                    if symbolic {
-                        out.push_str(word);
-                    } else {
-                        let tolerance =
-                            magnitude || text[..at].contains('±') || text[..at].contains('+');
-                        out.push_str(&if tolerance {
-                            self.magnitude(mm)
-                        } else {
-                            self.format(mm)
-                        });
-                    }
-                } else {
-                    out.push_str(word);
-                }
+                    && !next_angle
+                    && times.is_some_and(|rest| {
+                        text[end..].starts_with(['×', 'X'])
+                            || rest.starts_with(['⌀', 'Ø', 'ø', 'R', 'M'])
+                            || tail.starts_with('X')
+                    });
+                let ratio = tail.starts_with(':') || head.trim_end().ends_with(':');
+                let symbolic = at < thread_end
+                    || ratio
+                    || count
+                    || tail.starts_with("STARTS")
+                    || previous.is_some_and(|p| p.is_ascii_alphabetic() && !"RCP".contains(p));
+                let length = !symbolic
+                    && !angular
+                    && (marker
+                        || word.contains('.')
+                        || numeric_expression
+                        || next_angle
+                        || ["MIN", "MAX", "THRU", "TYP", "TO C"]
+                            .iter()
+                            .any(|q| tail.starts_with(q)));
+                out.push(TextNumber {
+                    range: at..end,
+                    length,
+                    angular: angular && !symbolic,
+                    symbolic,
+                });
                 at = end;
             } else {
-                out.push(c);
                 at += c.len_utf8();
             }
         }
@@ -191,13 +274,24 @@ impl Units {
     }
 }
 
-/// A conservative advisory: a sixteenth-inch grid must explain every principal extent
-/// and at least 95% of four distinct sizes, including three non-integral mm sizes.
+#[derive(Clone, Debug)]
+pub(crate) struct TextNumber {
+    pub range: std::ops::Range<usize>,
+    pub length: bool,
+    pub angular: bool,
+    pub symbolic: bool,
+}
+
+/// A conservative advisory: sixteenth-inch or thousandth-inch decimal grids explain
+/// every principal extent and at least 85% of four distinct sizes, including three
+/// on-grid non-integral mm sizes.
 /// This examines model measurements, never drawing scale or printed rounding.
 pub(crate) fn inch_design(lengths: &[f64]) -> bool {
     let on_grid = |v: f64| {
-        let steps = v * 16. / 25.4;
-        (steps - steps.round()).abs() <= 0.001 / (25.4 / 16.) + 1e-9
+        [25.4 / 16., 25.4 / 1000.].iter().any(|step| {
+            let nearest = (v / step).round() * step;
+            (v - nearest).abs() <= 0.001 + 1e-9
+        })
     };
     if lengths.len() < 3
         || !lengths[..3]
@@ -214,10 +308,10 @@ pub(crate) fn inch_design(lengths: &[f64]) -> bool {
     distinct.sort_by(f64::total_cmp);
     distinct.dedup_by(|a, b| (*a - *b).abs() <= 0.001);
     distinct.len() >= 4
-        && distinct.iter().filter(|v| on_grid(**v)).count() * 100 >= distinct.len() * 95
+        && distinct.iter().filter(|v| on_grid(**v)).count() * 100 >= distinct.len() * 85
         && distinct
             .iter()
-            .filter(|v| (**v - v.round()).abs() > 0.001)
+            .filter(|v| on_grid(**v) && (**v - v.round()).abs() > 0.001)
             .count()
             >= 3
 }
@@ -242,9 +336,15 @@ pub(crate) fn advise(analysis: &crate::model::Analysis, plan: &mut crate::model:
     if inch_design(&lengths) {
         plan.problems.push(crate::model::Problem {
             id: "p:inch_design_detected:sheet".into(), code: "inch_design_detected".into(), severity: "info".into(),
-            message: "The principal dimensions and feature sizes closely follow a 1/16-inch grid. Consider decimal-inch units and ANSI paper; the drawing remains in its requested units.".into(),
+            message: "The principal dimensions and feature sizes closely follow sixteenth-inch or thousandth-inch decimal grids. Consider decimal-inch units and ANSI paper; the drawing remains in its requested units.".into(),
             subjects: vec!["sheet".into()],
-            fix: vec![crate::items::Op::set("units", serde_json::json!("in")), crate::items::Op::set("sheet/paper", serde_json::json!("ansi"))],
+            fix: {
+                let mut ops = vec![crate::items::Op::set("units", serde_json::json!("in")), crate::items::Op::set("sheet/paper", serde_json::json!("ansi"))];
+                for (path, size) in [("sheet/size", plan.spec.sheet.size.as_deref()), ("sheet/preferred_max_size", plan.spec.sheet.preferred_max_size.as_deref())] {
+                    if size.is_some_and(|v| Paper::for_size(v) != Paper::Ansi) { ops.push(crate::items::Op::set(path, serde_json::Value::Null)); }
+                }
+                ops
+            },
             ..Default::default()
         });
     }
@@ -577,5 +677,208 @@ mod tests {
             }
         }
         assert_eq!(codes[0], codes[1]);
+    }
+    #[test]
+    fn review_tokens_are_lengths_only_with_drawing_evidence() {
+        for (text, wrong, right) in [
+            ("4× ⌀.394 THRU", 100., 10.),
+            ("4× ⌀.394 THRU", 110., 10.),
+            ("M8×1.25 ↧ .500", 203., 12.7),
+            ("2× .250", 50., 6.35),
+        ] {
+            assert!(!lint::holes::states_in(text, wrong, Units::In), "{text}");
+            assert!(lint::holes::states_in(text, right, Units::In), "{text}");
+        }
+        assert!(!lint::holes::states_in("⌀4", 101.6, Units::In));
+        let mark = lint::Mark {
+            precision: Some(0),
+            units: Units::In,
+            name: "printed".into(),
+            view: None,
+            text: "⌀4".into(),
+            claims: vec![],
+        };
+        assert!(mark.states_text(&mark.text, 101.6));
+        assert!(!mark.states_text("4× ⌀.394", 101.6));
+        assert!(!mark.states_text("⌀4 ↧ 2", 50.8));
+        assert!(!lint::holes::states_in(".5", 0.5, Units::Mm));
+        assert!(lint::holes::states_in(".5", 12.7, Units::In));
+        assert_eq!(Units::In.length_text("10 × 20"), ".394 × .787");
+        assert_eq!(Units::In.length_text("2X ⌀10"), "2X ⌀.394");
+        assert_eq!(Units::In.length_text("1:2"), "1:2");
+        assert_eq!(Units::In.deviations(0.0762, 0.), "+.003/-.000");
+        assert_eq!(Units::In.deviations(0.1016, -0.01016), "+.0040/-.0004");
+        assert_eq!(
+            Units::In.magnitude_text("H7 (+0.0762/0)"),
+            "H7 (+.003/-.000)"
+        );
+    }
+
+    fn review_fixture(name: &str) -> (haecceity::Part, model::Analysis) {
+        model::analyse_native(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/parts")
+                .join(name),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn review_active_scale_floor_and_detection_fix_render() {
+        let (part, a) = review_fixture("inch_plate.step");
+        let spec: Spec = serde_json::from_value(json!({"units":"in","sheet":{"preferred_max_size":"ANSI A"},"sheets":{"max":2,"smallest_scale":"1:8"}})).unwrap();
+        let mut plan = model::plan_recovered(&a, &spec).unwrap();
+        assert_eq!(spec.smallest_scale(), 1. / 96.);
+        for v in &mut plan.views {
+            v.scale = 1. / 192.;
+        }
+        let findings = crate::sheets::check(&plan);
+        let warning = findings
+            .iter()
+            .find(|p| p.code == "sheet_below_smallest_scale")
+            .unwrap();
+        assert!(warning.fix.iter().any(|op| op.value == Some(json!("1:96"))));
+        let font = crate::text::Font::new(crate::api::MONO.to_vec()).unwrap();
+        for sheet in [json!({}), json!({"size":"A3","preferred_max_size":"A1"})] {
+            let spec: Spec = serde_json::from_value(json!({"sheet":sheet})).unwrap();
+            let plan = model::plan_recovered(&a, &spec).unwrap();
+            let fix = &plan
+                .problems
+                .iter()
+                .find(|p| p.code == "inch_design_detected")
+                .unwrap()
+                .fix;
+            let fixed = model::edit(&spec, &serde_json::to_value(fix).unwrap()).unwrap();
+            assert_eq!(fixed.units, Units::In);
+            assert_eq!(fixed.paper(), Paper::Ansi);
+            assert!(fixed.sheet.size.is_none());
+            assert!(fixed.sheet.preferred_max_size.is_none());
+            let p = model::plan_recovered(&a, &fixed).unwrap();
+            assert!(model::render(&part, &a, &p, &font).is_ok());
+        }
+    }
+
+    #[test]
+    fn review_rounding_summary_and_verbatim_notes() {
+        let (_, a) = review_fixture("plate.step");
+        let text = "KEEP 20 mm; 2X 10; SCALE 1:2";
+        let spec: Spec =
+            serde_json::from_value(json!({"units":"in", "notes":[{"id":"n:1","text":text}]}))
+                .unwrap();
+        let p = model::plan_recovered(&a, &spec).unwrap();
+        let advice: Vec<_> = p
+            .problems
+            .iter()
+            .filter(|p| p.code == "nominal_rounded")
+            .collect();
+        assert_eq!(advice.len(), 1);
+        let advice = advice[0];
+        assert_eq!(advice.subjects[0], "sheet");
+        assert!(advice.refs.len() > 1);
+        assert!(
+            advice
+                .refs
+                .iter()
+                .all(|r| r.contains(" mm prints ") && r.contains(" in "))
+        );
+        assert!(
+            advice
+                .fix
+                .iter()
+                .any(|op| op.path == "units" && op.value == Some(json!("mm")))
+        );
+        assert!(advice.fixes.iter().any(|f| {
+            f.ops
+                .iter()
+                .all(|op| op.path.starts_with("precision/") && op.value == Some(json!(4)))
+        }));
+        let four =
+            model::edit(&spec, &serde_json::to_value(&advice.fixes[0].ops).unwrap()).unwrap();
+        assert!(
+            !model::plan_recovered(&a, &four)
+                .unwrap()
+                .problems
+                .iter()
+                .any(|p| p.code == "nominal_rounded")
+        );
+        assert!(p.notes.iter().any(|n| n.text == text));
+    }
+
+    #[test]
+    fn review_zero_place_approval_reaches_the_independent_drawing() {
+        let (part, a) = review_fixture("plate.step");
+        let spec: Spec =
+            serde_json::from_value(json!({"units":"in","precision":{"d:envelope/width.length":0}}))
+                .unwrap();
+        let p = model::plan_recovered(&a, &spec).unwrap();
+        let font = crate::text::Font::new(crate::api::MONO.to_vec()).unwrap();
+        let d = model::render(&part, &a, &p, &font).unwrap();
+        let marks = lint::marks(&d);
+        let mark = marks
+            .iter()
+            .find(|m| m.name == "d:envelope/width.length")
+            .unwrap();
+        assert_eq!(mark.precision, Some(0));
+        let dimension = p.dimensions.iter().find(|d| d.id == mark.name).unwrap();
+        assert!(mark.states_text(&mark.text, dimension.value));
+        assert!(!lint::holes::states_in(
+            &mark.text,
+            dimension.value,
+            Units::In
+        ));
+        assert!(lint::lint(&a, &d).is_empty());
+    }
+
+    #[test]
+    fn review_paper_families_zones_and_smallest_sheet_first() {
+        let (_, a) = review_fixture("plate.step");
+        for sheet in [
+            json!({"size":"ANSI B","preferred_max_size":"A1"}),
+            json!({"paper":"arch","size":"ANSI B"}),
+        ] {
+            let spec: Spec = serde_json::from_value(json!({"sheet":sheet})).unwrap();
+            assert!(
+                model::plan(&a, &spec)
+                    .unwrap_err()
+                    .message
+                    .contains("different paper family")
+            );
+        }
+        for family in [Paper::Ansi, Paper::Arch] {
+            for (i, (_, w, h)) in family.pages().iter().enumerate() {
+                let z = crate::sheets::zones([*w, *h]);
+                assert_eq!(
+                    (z.columns, z.rows),
+                    [(2, 2), (4, 2), (4, 4), (8, 4), (8, 8)][i]
+                );
+            }
+            let mut r =
+                crate::layout::Request::new([100., 60., 10.], crate::layout::Principals::ALL, true);
+            r.paper = family;
+            r.units = Units::In;
+            let p = crate::layout::choose(
+                &r,
+                &|_| crate::layout::Scaled::default(),
+                None,
+                None,
+                &crate::layout::AUTOMATIC_ARRANGEMENTS,
+                None,
+            );
+            assert_eq!(p.page, [family.pages()[0].1, family.pages()[0].2]);
+            assert!(p.scale <= 1.);
+        }
+    }
+
+    #[test]
+    fn review_decimal_inch_detection_allows_a_small_metric_minor_size() {
+        let decimal: Vec<_> = [0.1, 0.2, 0.05, 0.35, 0.45, 0.55, 0.65]
+            .map(|v| v * 25.4)
+            .into();
+        assert!(inch_design(&decimal));
+        let mut mixed = decimal.clone();
+        mixed.push(6.);
+        assert!(inch_design(&mixed));
+        assert!(!inch_design(&[100., 60., 10., 8., 6., 4., 3.]));
+        assert!(!inch_design(&[127., 254., 381., 508., 635., 762.]));
     }
 }

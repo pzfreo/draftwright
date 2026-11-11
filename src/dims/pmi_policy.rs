@@ -372,6 +372,7 @@ pub(super) fn on_origin(w: &Want) -> bool {
 
 fn spans(a: &Analysis, w: &Want) -> Vec<Edge> {
     let mark = crate::lint::Mark {
+        precision: None,
         units: w.units,
         name: w.id.clone(),
         view: None,
@@ -542,6 +543,7 @@ fn cover_uncached(
     let marks: Vec<_> = kept
         .iter()
         .map(|(w, ..)| crate::lint::Mark {
+            precision: None,
             units: w.units,
             name: w.id.clone(),
             view: None,
@@ -903,6 +905,7 @@ fn dimension_marks(
         .iter()
         .filter(|d| d.placed.is_some() && !d.reference && include(d))
         .map(|d| crate::lint::Mark {
+            precision: None,
             units: p.spec.units,
             name: d.id.clone(),
             view: Some(d.view.clone()),
@@ -980,6 +983,7 @@ fn dimension_marks(
         // Invariant: ink_span returns only the fixed x, y or z axis names.
         let k = AXES.iter().position(|v| v == axis).unwrap();
         marks.push(crate::lint::Mark {
+            precision: None,
             units: p.spec.units,
             name: format!("origin/{axis}"),
             view: None,
@@ -1063,6 +1067,7 @@ fn audit_inner(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
                     });
                 }
                 marks.push(crate::lint::Mark {
+                    precision: None,
                     // The coordinate was verified above; this graph edge is canonical mm.
                     units: crate::units::Units::Mm,
                     name: format!("{}/{}/{}", table.id, row.key(), AXES[k]),

@@ -50,6 +50,13 @@ pub fn zones(page: [f64; 2]) -> Zones {
         .iter()
         .position(|(_, w, h)| [*w, *h] == page)
         .map(|i| [(6, 4), (8, 6), (12, 8), (16, 12), (24, 16)][i])
+        .or_else(|| {
+            layout::ANSI_PAGES
+                .iter()
+                .chain(&layout::ARCH_PAGES)
+                .position(|(_, w, h)| [*w, *h] == page)
+                .map(|i| [(2, 2), (4, 2), (4, 4), (8, 4), (8, 8)][i % 5])
+        })
         .unwrap_or_else(|| {
             (
                 ((page[0] / 100.0).round() as u32 * 2).max(2),
@@ -1296,9 +1303,9 @@ fn pack_with_overflow(
                     name,
                     if *name == "iso" {
                         spec.iso_scale_factor
-                            .map_or(spec.scales()[15], |f| f * plan.sheet.scale_factor)
+                            .map_or(spec.smallest_scale(), |f| f * plan.sheet.scale_factor)
                     } else {
-                        spec.scales()[15]
+                        spec.smallest_scale()
                     },
                     n,
                     plan.sheet.scale_factor,
@@ -2832,7 +2839,7 @@ fn check_with_search(plan: &Plan, blocked: bool) -> Vec<Problem> {
                                 .iter()
                                 .copied()
                                 .find(|s| *s <= scale)
-                                .unwrap_or(plan.spec.scales()[15])
+                                .unwrap_or(plan.spec.smallest_scale())
                         )),
                     )
                 };

@@ -158,7 +158,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             && marks.iter().any(|m| {
                 m.claims.iter().any(|c| {
                     c.feature == "envelope" && c.parameter == super::envelope::PARAMETERS[s.axis]
-                }) && super::holes::states_in(&m.text, whole.hi - whole.lo, m.units)
+                }) && m.states_text(&m.text, whole.hi - whole.lo)
             }))
     });
     for i in &mut issues {
@@ -220,6 +220,7 @@ mod tests {
             ),
         ]);
         let mark = |text: &str, p: &str| Mark {
+            precision: None,
             units: Default::default(),
             name: format!("m:{p}"),
             view: Some("v:side".into()),

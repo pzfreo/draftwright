@@ -130,18 +130,18 @@ pub(crate) fn verified_row(a: &Analysis, m: &Mark) -> bool {
         && (if m.units.is_mm() {
             cells[1] == fmt(centre[0])
         } else {
-            super::holes::states_in(cells[1], centre[0], m.units)
+            m.states_text(cells[1], centre[0])
         })
         && (if m.units.is_mm() {
             cells[2] == fmt(centre[1])
         } else {
-            super::holes::states_in(cells[2], centre[1], m.units)
+            m.states_text(cells[2], centre[1])
         })
         && cells[3].strip_prefix('R').is_some_and(|value| {
             value.starts_with(|c: char| c.is_ascii_digit() || (!m.units.is_mm() && c == '.'))
                 && value.bytes().all(|b| b.is_ascii_digit() || b == b'.')
                 && value.parse::<f64>().is_ok_and(|v| v.is_finite() && v > 0.0)
-                && super::holes::states_in(value, r, m.units)
+                && m.states_text(value, r)
         })
 }
 
@@ -217,6 +217,7 @@ mod tests {
                     "path": { "at": [0.0, 0.0, 0.0], "direction": [0.0, 0.0, 1.0] } }),
         ]);
         let mark = |text: &str, f: &str| Mark {
+            precision: None,
             units: Default::default(),
             name: format!("m:{f}"),
             view: Some("v:plan".into()),
@@ -256,6 +257,7 @@ mod tests {
         a.blend_sites
             .insert("f:blend:1".into(), vec![[12.5956, 67.8901, 0.0]]);
         let mut row = Mark {
+            precision: None,
             units: Default::default(),
             name: format!("{RADIUS_TABLE}/f:blend:1"),
             view: Some("v:plan".into()),

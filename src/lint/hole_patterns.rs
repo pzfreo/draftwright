@@ -246,7 +246,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                                 .any(|m| {
                                     m.claims.iter().any(|c| {
                                         c.feature == read[i].feature.id && c.parameter == parameter
-                                    }) && holes::states_in(&m.text, distance, m.units)
+                                    }) && m.states_text(&m.text, distance)
                                 })
                     })
                 })
@@ -288,7 +288,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     m.claims
                         .iter()
                         .any(|c| c.feature == p.id && c.parameter == parameter)
-                        && holes::states_in(&m.text, pitch, m.units)
+                        && m.states_text(&m.text, pitch)
                 }) else {
                     continue;
                 };
@@ -337,11 +337,10 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                         .any(|c| c.feature == p.id && c.parameter == parameter)
                 })
                 .collect();
-            if claiming.iter().any(|m| {
-                distances
-                    .iter()
-                    .any(|d| holes::states_in(&m.text, *d, m.units))
-            }) {
+            if claiming
+                .iter()
+                .any(|m| distances.iter().any(|d| m.states_text(&m.text, *d)))
+            {
                 continue;
             }
             let mut issue = super::uncovered(

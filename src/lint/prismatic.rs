@@ -42,7 +42,7 @@
 //! The severity is a warning: Python's is info on a part of several solids.
 
 use super::parameters::Wanted;
-use super::{LintIssue, Mark, Requirement, Severity, holes, pads, pockets};
+use super::{LintIssue, Mark, Requirement, Severity, pads, pockets};
 use crate::model::Analysis;
 
 const AXES: [&str; 3] = ["x", "y", "z"];
@@ -61,9 +61,7 @@ fn stated(w: &Wanted, marks: &[Mark]) -> bool {
         m.claims
             .iter()
             .any(|c| c.feature == w.feature.id && c.parameter == w.parameter)
-            && values
-                .iter()
-                .all(|&v| holes::states_in(&m.text, v, m.units))
+            && values.iter().all(|&v| m.states_text(&m.text, v))
     })
 }
 
@@ -293,7 +291,7 @@ fn shoulder_coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     return false;
                 }
                 if c.parameter == parameter {
-                    return holes::states_in(&m.text, distance, m.units);
+                    return m.states_text(&m.text, distance);
                 }
                 // Older captured drawings still carry value-word claims.
                 let prefix = format!("step_position.length.{}", AXES[k]);
@@ -304,7 +302,7 @@ fn shoulder_coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 encoded
                     .parse::<f64>()
                     .is_ok_and(|v| (v - distance).abs() <= 0.001)
-                    && holes::states_in(&m.text, distance, m.units)
+                    && m.states_text(&m.text, distance)
             })
         });
         // Exact feature geometry supplies the other Python owners; its own ledger still
@@ -371,6 +369,7 @@ mod tests {
 
     fn mark(feature: &str, text: &str, parameters: &[&str]) -> Mark {
         Mark {
+            precision: None,
             units: Default::default(),
             name: format!("m:{text}"),
             view: Some("v:plan".into()),

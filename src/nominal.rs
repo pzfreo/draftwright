@@ -124,7 +124,11 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
                 problems.insert((id.to_string(), measurement.clone()), crate::model::Problem {
                     id: format!("p:nominal_rounded:{id}:{measurement}"),
                     code: "nominal_rounded".into(), severity: "info".into(),
-                    message: format!("The dimension {text:?} has modelled nominal {} but prints {printed} at the default three-place limit.", clean(m.value)),
+                    message: if spec.units.is_mm() {
+                        format!("The dimension {text:?} has modelled nominal {} but prints {printed} at the default three-place limit.", clean(m.value))
+                    } else {
+                        format!("The dimension {text:?}: modelled nominal {} mm prints {printed} in at the default three-place limit.", clean(m.value))
+                    },
                     subjects: vec![id.into()], ..Default::default()
                 });
             }
@@ -170,7 +174,28 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
             check(&r.dimension, &measurements, &cells.join(" "));
         }
     }
-    plan.problems.extend(problems.into_values());
+    if !plan.spec.units.is_mm() && !problems.is_empty() {
+        let mut subjects = vec!["sheet".into()];
+        let mut refs = Vec::new();
+        let mut precision = std::collections::BTreeSet::new();
+        for ((id, measurement), problem) in &problems {
+            if !subjects.contains(id) {
+                subjects.push(id.clone());
+            }
+            refs.push(problem.message.clone());
+            precision.insert(measurement.clone());
+        }
+        plan.problems.push(crate::model::Problem {
+            id: "p:nominal_rounded:sheet".into(), code: "nominal_rounded".into(), severity: "info".into(),
+            message: format!("{} dimensions print rounded from non-inch nominals at three decimal inch places. Use millimetres or request four-place precision where needed.", problems.len()),
+            subjects, refs,
+            fix: vec![crate::items::Op::set("units", serde_json::json!("mm"))],
+            fixes: vec![crate::fixes::Fix::new("Print these dimensions to four decimal inch places", precision.into_iter().map(|id| crate::items::Op::set(format!("precision/{}", crate::items::key(&id)), serde_json::json!(4))).collect())],
+            ..Default::default()
+        });
+    } else {
+        plan.problems.extend(problems.into_values());
+    }
 }
 
 #[cfg(test)]

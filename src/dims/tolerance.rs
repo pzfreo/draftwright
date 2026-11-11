@@ -606,19 +606,27 @@ pub(super) fn apply(
             // Invariant: check validated this same immutable tolerance text before apply.
             let (mut text, nothing) = tolerance_for(&t, spec.units).expect("checked");
             if !spec.units.is_mm() && !matches!(w.shape, super::Shape::Angular { .. }) {
+                let places = t
+                    .split(|c: char| !c.is_ascii_digit() && c != '.')
+                    .filter_map(|n| n.split_once('.').map(|(_, d)| d.len()))
+                    .max()
+                    .unwrap_or(3)
+                    .max(3) as u8;
+                let paired = t.trim_start().starts_with('+');
                 text = text
                     .split_whitespace()
-                    .map(|term| {
-                        let sign = term
+                    .enumerate()
+                    .map(|(index, term)| {
+                        let mut sign = term
                             .chars()
                             .take_while(|c| matches!(c, '±' | '+' | '-'))
                             .collect::<String>();
                         let n = &term[sign.len()..];
-                        let p = n.split_once('.').map_or(3, |(_, d)| d.len().max(3));
-                        let digits = super::precision::format(
-                            n.parse().expect("checked tolerance"),
-                            p as u8,
-                        );
+                        if paired && sign.is_empty() {
+                            sign = if index == 0 { "+" } else { "-" }.into();
+                        }
+                        let digits =
+                            super::precision::format(n.parse().expect("checked tolerance"), places);
                         format!("{sign}{}", crate::units::Units::inch_digits(digits))
                     })
                     .collect::<Vec<_>>()

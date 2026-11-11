@@ -90,13 +90,6 @@ impl Req {
         } else {
             w.units
         };
-        let signed = |v: f64| {
-            if v > 0. {
-                format!("+{}", units.magnitude(v))
-            } else {
-                units.magnitude(v)
-            }
-        };
         let symmetric = self.upper > 0.0 && self.upper == -self.lower;
         let mut limits = None;
         let (ok, band) = if let Some((letters, grade)) = self.fit {
@@ -110,7 +103,7 @@ impl Req {
             let term = if units.is_mm() {
                 tolerance::limits_term((self.lower, self.upper))
             } else {
-                format!("({}/{})", signed(self.upper), signed(self.lower))
+                format!("({})", units.deviations(self.upper, self.lower))
             };
             let ok = tolerance::insert(w, &term) && tolerance::insert(w, &class);
             limits = Some(term);
@@ -126,7 +119,7 @@ impl Req {
                     } else if symmetric {
                         format!("±{}", units.magnitude(self.upper))
                     } else {
-                        format!("{}/{}", signed(self.upper), signed(self.lower))
+                        units.deviations(self.upper, self.lower)
                     };
                     (tolerance::insert(w, &text), text)
                 }

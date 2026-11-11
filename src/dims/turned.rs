@@ -59,7 +59,7 @@ use serde_json::Value;
 
 use super::envelope::{corner, profile_views};
 use super::grooves::not_dimensioned;
-use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, fmt, point, want_id};
+use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, point, want_id};
 use crate::bridge::{Feature, holes};
 use crate::lint::turned::{Band, band, bands};
 use crate::model::Analysis;
@@ -189,16 +189,16 @@ fn groove_spans<'a>(cx: &'a Context) -> Vec<(Option<&'a Value>, usize, P3, f64, 
 
 /// The diameters a hole coaxial with a band along *k* through *on* prints (its bore, counterbore
 /// and spotface), as `fmt` prints them.
-fn coaxial_bores(analysis: &Analysis, k: usize, on: P3) -> Vec<String> {
+fn coaxial_bores(analysis: &Analysis, k: usize, on: P3, units: crate::units::Units) -> Vec<String> {
     let mut out = Vec::new();
     for (_, h) in holes::read(analysis) {
         let Ok(h) = h else { continue };
         if h.principal.map(|(a, _)| a) != Some(k) || !same_line(k, h.at, on) {
             continue;
         }
-        out.push(fmt(h.diameter));
+        out.push(units.format(h.diameter));
         for r in h.recesses() {
-            out.push(fmt(r.diameter));
+            out.push(units.format(r.diameter));
         }
     }
     out
@@ -341,7 +341,7 @@ fn diameters(
         // A thread or knurl the band carries follows its diameter (`_manufacturing_suffix`),
         // before the `OD` rider (`_external_diameter_rider`).
         terms.extend(manufacturing.terms(&f.id).0);
-        if b.axis == 2 && coaxial_bores(cx.analysis, b.axis, b.on).contains(&text) {
+        if b.axis == 2 && coaxial_bores(cx.analysis, b.axis, b.on, cx.spec.units).contains(&text) {
             terms.push("OD".into());
         }
         items.push((vec![fb], terms));

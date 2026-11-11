@@ -184,6 +184,7 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> (Vec<Mark>, Vec<LintIssu
                             && members.windows(2).any(|p| (p[0][k] - p[1][k]).abs() > 1e-6);
                     if applies && let Ok(values) = w.values {
                         extra.push(Mark {
+                            precision: None,
                             units: Default::default(),
                             name: format!("derived:{}/{}", f.id, w.parameter),
                             view: view.clone(),
@@ -232,6 +233,7 @@ pub(crate) fn evidence(a: &Analysis, marks: &[Mark]) -> (Vec<Mark>, Vec<LintIssu
                     continue;
                 }
                 extra.push(Mark {
+                    precision: None,
                     units: Default::default(),
                     name: format!("derived:{feature}/{parameter}"),
                     view: view.clone(),

@@ -32,6 +32,7 @@ fn marks(p: &Plan) -> Vec<Mark> {
         .iter()
         .filter(|d| d.placed.is_some())
         .map(|d| Mark {
+            precision: None,
             units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
@@ -237,6 +238,7 @@ fn lint_detects_duplicate_claims_and_closed_turned_chains() {
         m.text = m.text.trim_matches(['(', ')']).to_string();
     }
     ink.push(Mark {
+        precision: None,
         units: Default::default(),
         name: "overall".into(),
         view: Some("v:front".into()),
@@ -517,6 +519,7 @@ fn lint_reports_an_overall_that_repeats_an_outside_diameter_or_across_flats() {
         ("overall y", "depth.length", "558.8"),
     ] {
         ink.push(Mark {
+            precision: None,
             units: Default::default(),
             name: name.into(),
             view: Some("v:front".into()),
@@ -877,6 +880,7 @@ fn cgb217_keeps_its_short_shoulder_and_leaves_the_longest_band_to_the_total() {
 /// A plain mark of *text* claiming one *feature*'s *parameter*, drawn in the front view.
 fn mark(name: &str, text: &str, claims: &[(&str, &str)]) -> Mark {
     Mark {
+        precision: None,
         units: Default::default(),
         name: name.into(),
         view: Some("v:front".into()),

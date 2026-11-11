@@ -35,7 +35,7 @@
 use super::envelope::PARAMETERS;
 use super::parameters::{self, fmt, fmt3};
 use super::section_recesses::{Grammar, grammar, recesses};
-use super::{LintIssue, Mark, Requirement, Severity, holes};
+use super::{LintIssue, Mark, Requirement, Severity};
 use crate::bridge::Feature;
 use crate::bridge::holes::{dir_to_part, frame, principal, to_part};
 use crate::model::Analysis;
@@ -286,10 +286,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 continue;
             }
         };
-        if claiming
-            .iter()
-            .any(|m| holes::states_in(&m.text, value, m.units))
-        {
+        if claiming.iter().any(|m| m.states_text(&m.text, value)) {
             continue;
         }
         let fix = Some(format!(
@@ -435,7 +432,7 @@ fn run_by_extent(analysis: &Analysis, s: &Seat, marks: &[Mark]) -> bool {
             m.claims
                 .iter()
                 .any(|c| c.feature == "envelope" && c.parameter == PARAMETERS[k])
-                && holes::states_in(&m.text, s.length, m.units)
+                && m.states_text(&m.text, s.length)
         })
 }
 
@@ -531,6 +528,7 @@ mod tests {
 
     fn mark(name: &str, text: &str, feature: &str, parameter: &str) -> Mark {
         Mark {
+            precision: None,
             units: Default::default(),
             name: name.into(),
             view: Some("v:side".into()),
@@ -586,6 +584,7 @@ mod tests {
         assert_eq!(named, want);
         let id = "f:section_recess:1";
         let callout = Mark {
+            precision: None,
             units: Default::default(),
             name: "m_circular_channel_y0".into(),
             view: Some("v:front".into()),

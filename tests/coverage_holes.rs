@@ -24,6 +24,7 @@ fn marks(a: &Analysis) -> Vec<Mark> {
         .iter()
         .filter(|d| d.placed.is_some())
         .map(|d| Mark {
+            precision: None,
             units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
@@ -276,6 +277,7 @@ fn outer_profile_angles_keep_corner_identity_and_require_live_degree_ink() {
     let good: Vec<_> = requirements
         .iter()
         .map(|c| Mark {
+            precision: None,
             units: Default::default(),
             name: c.feature.clone(),
             view: Some("v:plan".into()),

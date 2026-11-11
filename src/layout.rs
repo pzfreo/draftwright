@@ -1640,9 +1640,9 @@ pub fn choose(
             (LADDER.iter().map(|(s, n)| (*s, sheet(n))).collect(), false)
         }
         _ => (
-            scales
+            pages
                 .iter()
-                .flat_map(|s| pages.iter().map(move |(_, w, h)| (*s, [*w, *h])))
+                .flat_map(|(_, w, h)| scales.iter().map(move |s| (*s, [*w, *h])))
                 .collect(),
             false,
         ),

@@ -113,6 +113,7 @@ fn marks(plan: &Plan) -> Vec<Mark> {
     plan.dimensions
         .iter()
         .map(|d| Mark {
+            precision: None,
             units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
@@ -473,6 +474,14 @@ fn equal_z_bands_share_a_callout_and_a_bore_sized_band_reads_od() {
         .find(|d| d.id == "d:f:turned_step:1/step.diameter")
         .unwrap();
     assert_eq!(d.label, "2× ø16 OD");
+    let spec: Spec = serde_json::from_value(json!({"units":"in"})).unwrap();
+    let inch = model::plan(&a, &spec).unwrap();
+    let d = inch
+        .dimensions
+        .iter()
+        .find(|d| d.id == "d:f:turned_step:1/step.diameter")
+        .unwrap();
+    assert_eq!(d.label, "2× ø.630 OD");
 }
 
 /// A part turned about y: its bands' diameters are led to their circles in the front view, which
@@ -789,6 +798,7 @@ fn a_nonterminal_thin_z_shoulder_keeps_its_length_on_the_main_view() {
         .dimensions
         .iter()
         .map(|d| Mark {
+            precision: None,
             units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),

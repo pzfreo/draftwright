@@ -116,6 +116,7 @@ fn a_thread_on_a_lone_boss_states_its_diameter() {
         .dimensions
         .iter()
         .map(|d| draftwright::lint::Mark {
+            precision: None,
             units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
@@ -188,6 +189,17 @@ fn a_refused_thread_with_chamfer_split_flanks_is_measured_and_depicted() {
         .map(|d| d.label.as_str())
         .collect();
     assert_eq!(labels, ["⌀8.3 × P2 4 STARTS"]);
+    let inch_spec: model::Spec = serde_json::from_value(json!({"units":"in"})).unwrap();
+    let inch = model::plan_recovered(&analysis, &inch_spec).unwrap();
+    let labels: Vec<_> = inch
+        .dimensions
+        .iter()
+        .filter(|d| d.measurements.iter().any(|m| m.parameter == "thread"))
+        .map(|d| d.label.as_str())
+        .collect();
+    assert_eq!(labels, ["⌀.327 × P.079 4 STARTS"]);
+    let inch_font = Font::new(api::MONO.to_vec()).unwrap();
+    assert!(model::render(&part, &analysis, &inch, &inch_font).is_ok());
     let codes: Vec<_> = plan.problems.iter().map(|p| p.code.as_str()).collect();
     assert!(!codes.contains(&"modelled_thread_refused"), "{codes:?}");
     assert!(codes.contains(&"thread_designation_measured"), "{codes:?}");

@@ -259,6 +259,7 @@ mod tests {
 
     fn mark(text: &str, parameter: &str) -> Mark {
         Mark {
+            precision: None,
             units: Default::default(),
             name: format!("m:{text}"),
             view: Some("v:front".into()),

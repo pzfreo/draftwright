@@ -1279,6 +1279,7 @@ mod tests {
         let marks = |edge: &str, finish: &str| {
             vec![
                 Mark {
+                    precision: None,
                     units: Default::default(),
                     name: ids.id("manufacturing_requirement:#2").unwrap().into(),
                     view: None,
@@ -1286,6 +1287,7 @@ mod tests {
                     claims: vec![],
                 },
                 Mark {
+                    precision: None,
                     units: Default::default(),
                     name: ids.id("surface_texture:#3").unwrap().into(),
                     view: None,
@@ -1330,6 +1332,7 @@ mod tests {
         // Text on an unrelated annotation cannot rescue either source's own corrupted text.
         let mut wrong = marks("1 Deburr", "Ra 9.9");
         wrong.push(Mark {
+            precision: None,
             units: Default::default(),
             name: "n:1".into(),
             view: None,
@@ -1343,6 +1346,7 @@ mod tests {
             .fields
             .push(("sampling length".into(), Field::Length(0.25)));
         let mark = Mark {
+            precision: None,
             units: Default::default(),
             name: "pmi:surface_texture:#3".into(),
             view: None,
@@ -1361,6 +1365,7 @@ mod tests {
             let mut source = report.clone();
             source.records[1].fields = vec![("Ra".into(), Field::Length(mm))];
             let mark = Mark {
+                precision: None,
                 units: Default::default(),
                 name: "pmi:surface_texture:#3".into(),
                 view: None,

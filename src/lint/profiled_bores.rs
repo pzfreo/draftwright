@@ -240,6 +240,7 @@ mod tests {
 
     fn mark(text: &str, feature: &str, parameters: &[&str]) -> Mark {
         Mark {
+            precision: None,
             units: Default::default(),
             name: format!("hc:{feature}"),
             view: Some("v:plan".into()),

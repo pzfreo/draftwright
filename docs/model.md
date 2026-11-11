@@ -507,9 +507,13 @@ results, retained warnings and the measured performance gates.
 #### Projection method and a pinned sheet's fit
 
 When mm is requested, `inch_design_detected` advises a units change only if all three
-principal extents lie on a 1/16-inch grid (within 0.001 mm recognition noise), at least
-95% of four distinct positive sizes match, and three sizes are non-integral mm. It
-never switches units automatically; its fix sets `units: "in"` and `sheet/paper: "ansi"`.
+principal extents lie on either a 1/16-inch grid or a decimal-inch grid with at most
+three decimal places (within 0.001 mm recognition noise). At least 85% of four or more
+distinct positive sizes must match, including three matching sizes that are non-integral
+mm. This allows occasional off-grid sizes such as metric holes. It is evidence, not a
+unit declaration: mixed or irregular designs can be missed, and coincidence remains
+possible. It never switches units automatically. Its fix sets `units: "in"` and
+`sheet/paper: "ansi"`, removing incompatible ISO/ARCH named size preferences.
 
 `units` is `"mm"` (the default) or `"in"`. Geometry, measurements, locations,
 view offsets and paper coordinates remain in millimetres. Only printed lengths convert.
@@ -518,7 +522,17 @@ three places, retaining trailing zeros. `precision` selects places in the drawin
 unit. Angles retain their existing degree format. Authored dimension tolerances use
 the drawing unit; ISO fit deviations and AP242 lengths convert from their mm evidence.
 Converted tolerance magnitudes default to three places, adding places when needed to
-keep a nonzero sub-thousandth tolerance nonzero.
+keep a nonzero sub-thousandth tolerance nonzero. Both deviations in a tolerance share
+the finer precision; a zero lower deviation keeps its sign (`+.003/-.000`,
+`+.0040/-.0004`). Free-text notes from the source or Spec are not unit-converted:
+their wording, numbers and unit names remain as authored, with existing whitespace
+handling. Only structured engine-owned length labels are converted. Counts (`2X`),
+scale ratios (`1:2`), metric thread designations and angles are not lengths.
+
+Inch `nominal_rounded` findings are summarized once at sheet level. The finding's
+subjects identify affected carriers and its refs retain every detailed mm-to-inch
+comparison. Fixes offer mm units or four-place precision for those measurements.
+Metric findings retain their existing behavior.
 Metric thread designations remain metric. Unified thread support would extend
 `spec_notes::metric`, `pmi_lowering`'s thread readers and the modelled-thread catalogue.
 
@@ -527,6 +541,17 @@ family-named size/preference, otherwise mm defaults to ISO and inches to ANSI.
 `sheet/size` and `sheet/preferred_max_size` accept `A4`–`A0`, `ANSI A`–`ANSI E`,
 and `ARCH A`–`ARCH E`. ANSI landscape sizes are 11×8.5, 17×11, 22×17, 34×22,
 44×34 inches; ARCH sizes are 12×9, 18×12, 24×18, 36×24, 48×36 inches.
+Mixed named size/preference families, or names conflicting with explicit `paper`, are
+refused with a paper-family explanation. Non-ISO automatic selection tries the smallest
+sheet first, descending through its scale ladder before considering the next sheet.
+
+ANSI zoning uses ASME Y14.1-2012, Table 4-1 and §5.5.1: columns × rows are
+A 2×2, B 4×2, C 4×4, D 8×4, E 8×8. A/B zoning is optional in that standard;
+draftwright enables it with the existing `sheet/zones` control. See the
+[standard text, Table 4-1](https://studylib.net/doc/28396607/asme-y14.1--2012--drawing-sheet-size-and-format).
+ARCH sizes are outside that table: draftwright explicitly uses the same A–E zone
+counts as a convention, scaled to the ARCH page. ISO zone counts are unchanged.
+
 Automatic selection and retries stay in that family; the default preferred maximum
 is its second size. Text, frame margins and symbol sizes remain paper mm.
 
