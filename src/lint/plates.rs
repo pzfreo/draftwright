@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::envelope::PARAMETERS;
 use super::parameters::{self, Wanted};
-use super::{LintIssue, Mark, holes};
+use super::{LintIssue, Mark};
 use crate::bridge::Feature;
 use crate::bridge::holes::{dir_to_part, frame, point, principal, to_part};
 use crate::model::Analysis;
@@ -283,9 +283,9 @@ impl Term {
                     .iter()
                     .any(|c| c.feature == self.feature && c.parameter == self.parameter)
                 && if self.parameter == "thickness.length" {
-                    holes::states(nominal(&m.text), self.value)
+                    m.states_text(nominal(&m.text), self.value)
                 } else {
-                    holes::states(&m.text, self.value)
+                    m.states_text(&m.text, self.value)
                 }
         })
     }

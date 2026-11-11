@@ -673,7 +673,7 @@ fn layout(
         } else {
             std::iter::once(None)
                 .chain(
-                    crate::layout::SCALES
+                    spec.scales()
                         .iter()
                         .copied()
                         .filter(|s| {

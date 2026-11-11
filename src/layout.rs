@@ -90,6 +90,36 @@ pub const PAGES: [(&str, f64, f64); 5] = [
     ("A0", 1189.0, 841.0),
 ];
 
+/// ANSI and architectural paper, exact inch dimensions expressed in millimetres.
+pub const ANSI_PAGES: [(&str, f64, f64); 5] = [
+    ("ANSI A", 279.4, 215.9),
+    ("ANSI B", 431.8, 279.4),
+    ("ANSI C", 558.8, 431.8),
+    ("ANSI D", 863.6, 558.8),
+    ("ANSI E", 1117.6, 863.6),
+];
+pub const ARCH_PAGES: [(&str, f64, f64); 5] = [
+    ("ARCH A", 304.8, 228.6),
+    ("ARCH B", 457.2, 304.8),
+    ("ARCH C", 609.6, 457.2),
+    ("ARCH D", 914.4, 609.6),
+    ("ARCH E", 1219.2, 914.4),
+];
+/// Decimal-inch mechanical and architectural ratios, in descending order.
+pub const INCH_SCALES: [f64; 11] = [
+    4.,
+    2.,
+    1.,
+    0.5,
+    0.25,
+    0.125,
+    1. / 12.,
+    1. / 16.,
+    1. / 24.,
+    1. / 48.,
+    1. / 96.,
+];
+
 /// ISO 5455's scales, largest first, as draftwright tries them.
 pub const SCALES: [f64; 16] = [
     10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001, 0.0005, 0.0002,
@@ -129,7 +159,11 @@ const LADDER: [(f64, &str); 26] = [
 
 /// The title block's width for a sheet: 120 mm on A4, 150 mm on A3 and larger.
 pub fn title_block_width(page_w: f64) -> f64 {
-    if page_w <= 297.0 { 120.0 } else { 150.0 }
+    if page_w <= 297.0 || page_w == ARCH_PAGES[0].1 {
+        120.0
+    } else {
+        150.0
+    }
 }
 
 fn sheet(name: &str) -> [f64; 2] {
@@ -679,6 +713,8 @@ impl Principals {
 /// Everything about the drawing the layout reads, apart from scale, sheet and arrangement.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Request {
+    pub paper: crate::units::Paper,
+    pub units: crate::units::Units,
     /// Largest paper index for automatic page/scale choice.
     pub max_page: Option<usize>,
     /// Internal automatic page/scale trials may compare arrangements.
@@ -718,6 +754,8 @@ impl Request {
     /// The request for a part of this size with draftwright's defaults.
     pub fn new(size: [f64; 3], views: Principals, include_iso: bool) -> Self {
         Request {
+            paper: Default::default(),
+            units: Default::default(),
             max_page: None,
             automatic_pair: false,
             candidate_arrangement: None,
@@ -1565,6 +1603,8 @@ pub fn choose(
     arrangements: &[Arrangement],
     tb_width: Option<f64>,
 ) -> Pick {
+    let pages = req.paper.pages();
+    let scales = crate::units::scales(req.units);
     let forced = [req.candidate_arrangement.unwrap_or(arrangements[0])];
     let arrangements = if req.candidate_arrangement.is_some() {
         &forced[..]
@@ -1594,24 +1634,34 @@ pub fn choose(
         return pick(s, p, preferred, fallback);
     }
     let (mut candidates, packed): (Vec<(f64, [f64; 2])>, bool) = match (scale, page) {
-        (None, Some(p)) => (SCALES.iter().map(|s| (*s, p)).collect(), true),
-        (Some(s), None) => (PAGES.iter().map(|(_, w, h)| (s, [*w, *h])).collect(), true),
-        _ => (LADDER.iter().map(|(s, n)| (*s, sheet(n))).collect(), false),
+        (None, Some(p)) => (scales.iter().map(|s| (*s, p)).collect(), true),
+        (Some(s), None) => (pages.iter().map(|(_, w, h)| (s, [*w, *h])).collect(), true),
+        _ if req.paper == crate::units::Paper::Iso && req.units == crate::units::Units::Mm => {
+            (LADDER.iter().map(|(s, n)| (*s, sheet(n))).collect(), false)
+        }
+        _ => (
+            pages
+                .iter()
+                .flat_map(|(_, w, h)| scales.iter().map(move |s| (*s, [*w, *h])))
+                .collect(),
+            false,
+        ),
     };
     if page.is_none()
         && let Some(max) = req.max_page
     {
-        candidates.retain(|(_, p)| p[0] <= PAGES[max].1 && p[1] <= PAGES[max].2);
-        if scale.is_none() && max < PAGES.len() - 1 {
+        candidates.retain(|(_, p)| p[0] <= pages[max].1 && p[1] <= pages[max].2);
+        if scale.is_none() && max < pages.len() - 1 {
             // The old ladder's reduction tail belongs to A0. With a smaller
             // maximum it belongs to that paper instead; removing it would jump
             // straight from 1:5 (A3) or 1:1 (A4) to a microscopic computed scale.
             let last_scale = candidates.last().expect("bounded ladder is nonempty").0;
             candidates.extend(
-                SCALES
-                    .into_iter()
+                scales
+                    .iter()
+                    .copied()
                     .filter(|s| *s < last_scale && *s >= 0.0002)
-                    .map(|s| (s, [PAGES[max].1, PAGES[max].2])),
+                    .map(|s| (s, [pages[max].1, pages[max].2])),
             );
         }
     }
@@ -1643,7 +1693,7 @@ pub fn choose(
             views: Principals::ALL,
             ..req.clone()
         };
-        let (mut lo, mut hi) = (0.0, SCALES[SCALES.len() - 1]);
+        let (mut lo, mut hi) = (0.0, scales[scales.len() - 1]);
         for _ in 0..60 {
             let mid = (lo + hi) / 2.0;
             let g = geometry(

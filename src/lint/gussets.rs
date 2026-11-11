@@ -29,7 +29,7 @@
 use serde_json::Value;
 
 use super::parameters::fmt;
-use super::{LintIssue, Mark, Requirement, Severity, holes};
+use super::{LintIssue, Mark, Requirement, Severity};
 use crate::bridge::Feature;
 use crate::bridge::holes::{dir_to_part, frame};
 use crate::model::Analysis;
@@ -418,7 +418,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 continue;
             }
         };
-        if claiming.iter().any(|m| holes::states(&m.text, value)) {
+        if claiming.iter().any(|m| m.states_text(&m.text, value)) {
             continue;
         }
         let fix = Some(format!(
@@ -493,6 +493,8 @@ mod tests {
 
     fn callout(text: &str, parameters: &[&str]) -> Mark {
         Mark {
+            precision: None,
+            units: Default::default(),
             name: "m_gusset_rib_x0".into(),
             view: Some("v:side".into()),
             text: text.into(),

@@ -1,6 +1,6 @@
 //! Double-D bores: the major diameter and across flats form one indivisible callout.
 //! The leader lands on an uncut circular arc, even when the flats are rotated.
-use super::{Context, Measurement, Planner, Problem, Shape, Want, end_on, fmt, point, want_id};
+use super::{Context, Measurement, Planner, Problem, Shape, Want, end_on, point, want_id};
 use crate::bridge::holes::{dir_to_part, frame, principal, to_part};
 
 pub(super) const PLANNER: Planner = Planner {
@@ -9,6 +9,7 @@ pub(super) const PLANNER: Planner = Planner {
 };
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let mut out = Vec::new();
     let mut problems = Vec::new();
     let fr = frame(cx.analysis);
@@ -101,7 +102,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                     0.,
                 )
             });
-            Ok(Want{id:want_id(&f.id,"bore.diameter"),views:vec![end_on(k)],value:major,terms,measurements,
+            Ok(Want{ units: cx.spec.units,id:want_id(&f.id,"bore.diameter"),views:vec![end_on(k)],value:major,terms,measurements,
                 turning:None,basis:"a double-D bore's major diameter and across flats in one callout, led to its circular rim in the view along its axis".into(),
                 shape:Shape::Callout{sites:sites.to_vec(), arcs: Vec::new()}})
         };

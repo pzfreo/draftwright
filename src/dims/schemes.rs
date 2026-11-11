@@ -1,5 +1,5 @@
 //! Replace automatic location ownership with an authored, acyclic station network.
-use super::{AXES, Measurement, Shape, Want, fmt};
+use super::{AXES, Measurement, Shape, Want};
 use crate::{
     dimension_scheme::invalid,
     model::{Analysis, Invalid, Spec},
@@ -78,6 +78,7 @@ pub(super) fn apply(
     s: &Spec,
     wants: &mut Vec<Want>,
 ) -> Result<(Covered, Vec<crate::model::Problem>), Invalid> {
+    let fmt = |v| crate::dims::fmt_in(v, s.units);
     let mut problems = Vec::new();
     let mut covered = Covered::new();
     if s.dimension_schemes.is_empty() {
@@ -257,7 +258,7 @@ pub(super) fn apply(
                     });
                 }
             }
-            generated.push(Want {
+            generated.push(Want { units: s.units,
                 id, views:vec![view], value, terms:vec![fmt(value)], measurements,
                 basis:format!("spec dimension_schemes/{name}: {} along {} from {from} to {to}; one station network owns these locations",d.scheme,d.axis),
                 shape:Shape::Linear {a:p,b:q,axis:k,a_edge:from=="min"||from=="max",b_edge:to=="min"||to=="max",order:1},
@@ -507,7 +508,9 @@ fn complete_ownership(
             let mut spans: Vec<_> = w
                 .measurements
                 .iter()
-                .flat_map(|m| crate::lint::schemes::supports(a, &m.feature, &m.parameter, &text))
+                .flat_map(|m| {
+                    crate::lint::schemes::supports(a, &m.feature, &m.parameter, &text, s.units)
+                })
                 .filter(|s| s.axis == k)
                 .collect();
             spans.sort_by(|p, q| p.lo.total_cmp(&q.lo).then(p.hi.total_cmp(&q.hi)));

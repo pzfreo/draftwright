@@ -68,6 +68,7 @@ fn sheet(scale: f64, edges: Vec<Curve>, items: Vec<(Drawn, &str)>) -> Drawing {
         annotations,
         sheet: Sheet {
             dxf: Default::default(),
+            units: Default::default(),
             characteristics: Vec::new(),
             inspection_enabled: false,
             label_text: Default::default(),

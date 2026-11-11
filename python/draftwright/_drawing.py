@@ -20,7 +20,7 @@ def make_drawing(
     text_orientation="aligned", *, projection_symbol=True, source=None,
     approved_by="", document_type="", sheet="", margin_left=None,
     margin_right=None, margin_top=None, margin_bottom=None, title_block_width=None,
-    leader_region="auto", annotation_layout="demand-guided",
+    units="mm", leader_region="auto", annotation_layout="demand-guided",
 ):
     """Draw a STEP path (str/PathLike) or build123d Shape using the Rust CLI engine.
 
@@ -30,10 +30,10 @@ def make_drawing(
     CLI's usual suffixes. ``out`` is a stem, defaulting to the STEP path without
     its extension, or ``drawing`` in the working directory for a shape.
 
-    Title fields, numeric scale, ISO page (A4..A0), first/third projection,
+    Title fields, numeric scale, ISO/ANSI/ARCH page names, mm/inch units, first/third projection,
     zones, auto_dims and pmi map to the Rust Spec. The renderer always draws a
     frame and projection symbol. PMI defaults to off: None, "off" and "report"
-    select inventory without annotations; "annotate" opts in. ISO page names
+    select inventory without annotations; "annotate" opts in. Paper names
     accept surrounding whitespace and either case. Other old options accept
     their defaults only; a non-default value raises TypeError naming the
     unsupported keyword. Custom page dimensions
@@ -65,18 +65,20 @@ def make_drawing(
     if page is not None:
         original_page = page
         page = page.strip().upper() if isinstance(page, str) else page
-        if page not in ("A4", "A3", "A2", "A1", "A0"):
+        if page not in ("A4", "A3", "A2", "A1", "A0", *(f"{family} {size}" for family in ("ANSI", "ARCH") for size in "ABCDE")):
             raise TypeError(
                 f"make_drawing page value {original_page!r} is not supported in 0.6; "
-                "expected an ISO name A4..A0 (case-insensitive) or None"
+                "expected A4..A0, ANSI A..E, ARCH A..E (case-insensitive) or None"
             )
+    if units not in ("mm", "in"):
+        raise TypeError("make_drawing units must be mm or in")
     fields = {
         name: values[name] for name in (
             "title", "number", "tolerance", "drawn_by", "material", "date", "revision",
             "company", "approved_by", "document_type", "sheet",
         ) if values[name] is not None
     }
-    spec = {"sheet": {"title": fields, "zones": zones}}
+    spec = {"units": units, "sheet": {"title": fields, "zones": zones}}
     if not auto_dims:
         spec["dimension_source"] = "authored"
         spec["sheet"].update(centre_lines=False, centre_marks=False)

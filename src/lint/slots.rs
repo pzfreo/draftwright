@@ -326,7 +326,7 @@ fn slot_callout_states_ends(owner: &str, f: &Feature, marks: &[Mark]) -> bool {
     full_round(f)
         && marks.iter().any(|m| {
             m.text.split_whitespace().any(|t| t == "SLOT")
-                && super::holes::states(&m.text, w)
+                && m.states_text(&m.text, w)
                 && m.claims
                     .iter()
                     .any(|c| c.feature == owner && c.parameter == "slot_width.length")
@@ -657,7 +657,7 @@ pub(crate) fn conveyed_locations(analysis: &Analysis, marks: &mut [Mark]) {
             .iter()
             .filter(|(id, (axis, d), deep, parameter)| {
                 m.view.as_deref() == Some(view(*deep).as_str())
-                    && super::holes::states(&m.text, *d)
+                    && m.states_text(&m.text, *d)
                     && m.claims
                         .iter()
                         .any(|c| c.feature != *id && axis_of(c) == Some(axis))
@@ -937,6 +937,8 @@ mod tests {
             Ok(("x", "79.07".into()))
         );
         let mark = |text: &str, f: &str, p: &str| Mark {
+            precision: None,
+            units: Default::default(),
             name: format!("m:{f}:{p}"),
             view: Some("v:plan".into()),
             text: text.into(),
@@ -997,6 +999,8 @@ mod tests {
         assert_eq!(fmt(at), "95.965");
         let unverified = |text: &str| -> Vec<String> {
             let marks = [Mark {
+                precision: None,
+                units: Default::default(),
                 name: "m:f:slot:1:location_slot.length".into(),
                 view: Some("v:plan".into()),
                 text: text.into(),
@@ -1036,6 +1040,8 @@ mod tests {
         assert!(a.features.iter().all(|f| !grouped(&a, f)));
         let missing = |text: &str| -> Vec<String> {
             let marks = [Mark {
+                precision: None,
+                units: Default::default(),
                 name: "m:f:slot:1:location_slot.length".into(),
                 view: Some("v:plan".into()),
                 text: text.into(),
@@ -1093,6 +1099,8 @@ mod tests {
         assert_eq!(at(1), Ok(("x", "20".into())));
         assert_eq!(at(2), Ok(("x", "40".into())));
         let mark = |name: &str, text: &str, claims: &[(&str, &str)]| Mark {
+            precision: None,
+            units: Default::default(),
             name: name.into(),
             view: Some("v:plan".into()),
             text: text.into(),
@@ -1178,12 +1186,16 @@ mod tests {
             };
             let mut marks = [
                 Mark {
+                    precision: None,
+                    units: Default::default(),
                     name: "d:f:hole:1/location.length.x".into(),
                     view: Some(view.into()),
                     text: text.into(),
                     claims: vec![claim("f:hole:1", parameter)],
                 },
                 Mark {
+                    precision: None,
+                    units: Default::default(),
                     name: "d:f:slot:1/slot_width.length".into(),
                     view: Some("v:plan".into()),
                     text: "2× SLOT 5 × 25".into(),
@@ -1220,6 +1232,8 @@ mod tests {
         )]);
         for name in ["hole_schedule_1/y", "hole_table_plan/1/y"] {
             let mut marks = [Mark {
+                precision: None,
+                units: Default::default(),
                 name: name.into(),
                 view: Some("v:plan".into()),
                 text: "40".into(),
@@ -1272,6 +1286,8 @@ mod tests {
         ]);
         let claimed = |ends: Option<[f64; 2]>, view: &str| {
             let mut m = Mark {
+                precision: None,
+                units: Default::default(),
                 name: "hole-ordinate".into(),
                 view: Some(view.into()),
                 text: "40".into(),
@@ -1351,6 +1367,8 @@ mod tests {
             ]
         );
         let mark = |text: &str, ps: &[&str]| Mark {
+            precision: None,
+            units: Default::default(),
             name: format!("m:{text}"),
             view: Some("v:plan".into()),
             text: text.into(),

@@ -570,6 +570,10 @@ pub struct Omitted {
 
 /// Shortest nominal within 1e-6 after noise removal, bounded to three decimal places.
 /// Unlike Python's `_fmt`, this preserves modelled hundredths and thousandths.
+pub fn fmt_in(v: f64, units: crate::units::Units) -> String {
+    units.format(v)
+}
+
 pub fn fmt(v: f64) -> String {
     crate::nominal::format(v)
 }
@@ -631,6 +635,8 @@ enum Shape {
 
 #[derive(Clone, Debug, Serialize)]
 struct Want {
+    #[serde(skip_serializing_if = "crate::units::Units::is_mm")]
+    units: crate::units::Units,
     id: String,
     /// The views that can carry it, preferred first.
     views: Vec<&'static str>,
@@ -861,6 +867,7 @@ fn wants_uncached(
     Vec<Problem>,
     BTreeMap<String, pmi_dimensions::Note>,
 ) {
+    let fmt = |v| crate::dims::fmt_in(v, spec.units);
     let frame = QFrame(analysis.recognition.as_ref().map_or(
         [[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         |r| r.frame,
@@ -878,7 +885,7 @@ fn wants_uncached(
         out.extend(w);
         problems.extend(more);
     }
-    blends::count_oblique(analysis, &mut out, &mut problems);
+    blends::count_oblique(analysis, &mut out, &mut problems, spec.units);
     // All axial locations use the same inspection end as the turned shoulder baseline.
     if let Some((axis, datum)) = turned::axial_datum(analysis) {
         for w in &mut out {
@@ -923,6 +930,9 @@ fn wants_uncached(
             .into_iter()
             .filter(|p| !p.subjects.iter().any(|s| stated.contains(s))),
     );
+    for w in &mut out {
+        w.units = spec.units;
+    }
     problems.extend(pmi_policy::origins(analysis, spec, &mut out));
     pmi_policy::drop_on_origin(analysis, spec, &mut out);
     // The part's PMI dimensions: on the model's items that state them, or their own.
@@ -950,7 +960,10 @@ fn wants_uncached(
     } else {
         pmi_dimensions::lower(&cx, &mut out)
     };
-    out.extend(own);
+    out.extend(own.into_iter().map(|mut w| {
+        w.units = spec.units;
+        w
+    }));
     problems.extend(more);
     (out, problems, notes)
 }
@@ -1572,7 +1585,8 @@ pub(crate) fn idle_decision(analysis: &Analysis, spec: &Spec) -> IdleDecision {
         let Ok(shown) = shown else {
             return IdleDecision::default();
         };
-        let page = crate::layout::PAGES
+        let page = spec
+            .pages()
             .iter()
             .position(|p| p.0 == shown.sheet.size)
             .unwrap_or(usize::MAX);
@@ -1937,6 +1951,7 @@ fn lanes_uncached(
             &mut kept,
             &mut given,
             &mut omitted,
+            spec.units,
         );
         let pmi_covered: BTreeSet<String> =
             omitted[before_pmi..].iter().map(|o| o.id.clone()).collect();
@@ -3051,6 +3066,7 @@ fn plan_inventory_ordered(
     stage: u8,
     profile_first: bool,
 ) -> Result<(Planned, Vec<PlannedDimension>), Invalid> {
+    let fmt = |v| crate::dims::fmt_in(v, spec.units);
     let (mut wants, mut problems, notes) = pmi_policy::wants(analysis, spec);
     if !spec.views.sections.is_empty()
         && views
@@ -3215,6 +3231,7 @@ fn plan_inventory_ordered(
             &mut defaults,
             &mut nominal,
             &mut unused,
+            spec.units,
         );
         redundancy::consolidate(analysis, spec, &mut defaults, &mut nominal, &mut unused);
         (defaults, unused)
@@ -3321,6 +3338,7 @@ fn plan_inventory_ordered(
         &mut kept,
         &mut given,
         &mut omitted,
+        spec.units,
     );
     // A span the part's PMI states (again, or for a recognised feature's dimension) is one
     // dimension: the item it conveys is not drawn, so it takes its survivor's lane rather than
@@ -4985,7 +5003,9 @@ fn share_pmi(
     kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
+    units: crate::units::Units,
 ) {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     notches::share_pmi(analysis, kept, given, omitted);
     pmi_policy::cover(analysis, kept, given, omitted);
     const SAME_SPAN: f64 = 1e-6;
@@ -6203,6 +6223,7 @@ mod tests {
     /// A default size of *feature* in the plan, along x from *lo* to *hi*, labelled *label*.
     fn size(feature: &str, parameter: &str, lo: f64, hi: f64, label: &[&str]) -> Kept {
         let want = Want {
+            units: Default::default(),
             id: want_id(feature, parameter),
             views: vec!["plan"],
             value: hi - lo,

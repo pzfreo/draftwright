@@ -744,6 +744,8 @@ fn marks(analysis: &Analysis, groups: &[HoleGroup], f: &facts::Facts) -> (Vec<Ma
                 }
             }
             Mark {
+                precision: None,
+                units: Default::default(),
                 name: a.name.clone(),
                 view: a.view.clone().map(|v| format!("v:{v}")),
                 text: a.text.join(" "),

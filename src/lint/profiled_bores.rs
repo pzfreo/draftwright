@@ -112,8 +112,8 @@ fn documented(f: &Feature, major: f64, across: f64, marks: &[Mark]) -> bool {
             && claims("profile_across_flats.length")
             && role_ink(
                 &m.text,
-                major,
-                across,
+                m.units.from_mm(major),
+                m.units.from_mm(across),
                 f.parameters.get("through").and_then(Value::as_bool) == Some(true),
             )
     })
@@ -240,6 +240,8 @@ mod tests {
 
     fn mark(text: &str, feature: &str, parameters: &[&str]) -> Mark {
         Mark {
+            precision: None,
+            units: Default::default(),
             name: format!("hc:{feature}"),
             view: Some("v:plan".into()),
             text: text.into(),

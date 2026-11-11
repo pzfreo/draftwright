@@ -98,6 +98,13 @@ wins. A multi-format export is not transactional; formats can come from differen
 and a later failure leaves already published formats in place. Cleanup removes only that
 invocation's staging file. Output names and rendered bytes are unchanged.
 
+`render`, `review`, `plan` and the bare form accept `--units mm|in` and
+`--paper iso|ansi|arch`. The flags override the Spec and are recorded in its
+embedded drawing copy. Decimal inches default to three places with trailing zeros
+and no leading zero below one. Geometry remains in mm. Paper defaults to ISO for
+mm and ANSI for inches; `sheet.size` also accepts `ANSI A`–`ANSI E` and
+`ARCH A`–`ARCH E`. See [the model guide](model.md) for precision, paper and scale policy.
+
 **Pictorial CLI shortcuts.** `render`, `review`, `plan` (including `plan --analysis`), and
 `draftwright part.step [options]` accept `--shaded`, `--below`, and `--colour HEX`
 (`--color` is an alias). `--shaded` sets `views/iso/style` to `shaded`.

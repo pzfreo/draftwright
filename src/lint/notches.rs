@@ -105,7 +105,15 @@ pub(super) fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                                 .as_deref()
                                 .is_some_and(|v| v.trim_start_matches("v:") == normal_view)
                     }))
-                    && holes::states(nominal, value)
+                    && holes::states_in(
+                        nominal,
+                        value,
+                        if parameter == "notch.angle" {
+                            crate::output::Units::Mm
+                        } else {
+                            m.units
+                        },
+                    )
             }) {
                 continue;
             }

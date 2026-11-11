@@ -100,7 +100,12 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
             {
                 continue;
             }
-            let printed = format(m.value);
+            let units = if m.parameter.contains("angle") {
+                crate::units::Units::Mm
+            } else {
+                spec.units
+            };
+            let printed = units.format(m.value);
             // Symbolic thread designations and table references can replace a nominal.
             // Report only a numeric term that is actually printed on this carrier.
             let printed_here = text
@@ -114,12 +119,16 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
             if printed_here
                 && printed
                     .parse::<f64>()
-                    .is_ok_and(|v| (v - clean(m.value)).abs() > 1e-6 + 1e-12)
+                    .is_ok_and(|v| (v - clean(units.from_mm(m.value))).abs() > 1e-6 + 1e-12)
             {
                 problems.insert((id.to_string(), measurement.clone()), crate::model::Problem {
                     id: format!("p:nominal_rounded:{id}:{measurement}"),
                     code: "nominal_rounded".into(), severity: "info".into(),
-                    message: format!("The dimension {text:?} has modelled nominal {} but prints {printed} at the default three-place limit.", clean(m.value)),
+                    message: if spec.units.is_mm() {
+                        format!("The dimension {text:?} has modelled nominal {} but prints {printed} at the default three-place limit.", clean(m.value))
+                    } else {
+                        format!("The dimension {text:?}: modelled nominal {} mm prints {printed} in at the default three-place limit.", clean(m.value))
+                    },
                     subjects: vec![id.into()], ..Default::default()
                 });
             }
@@ -165,7 +174,28 @@ pub(crate) fn report(plan: &mut crate::model::Plan) {
             check(&r.dimension, &measurements, &cells.join(" "));
         }
     }
-    plan.problems.extend(problems.into_values());
+    if !plan.spec.units.is_mm() && !problems.is_empty() {
+        let mut subjects = vec!["sheet".into()];
+        let mut refs = Vec::new();
+        let mut precision = plan.spec.precision.clone();
+        for ((id, measurement), problem) in &problems {
+            if !subjects.contains(id) {
+                subjects.push(id.clone());
+            }
+            refs.push(problem.message.clone());
+            precision.insert(measurement.clone(), 4);
+        }
+        plan.problems.push(crate::model::Problem {
+            id: "p:nominal_rounded:sheet".into(), code: "nominal_rounded".into(), severity: "info".into(),
+            message: format!("{} dimensions print rounded from non-inch nominals at three decimal inch places. Use millimetres or request four-place precision where needed.", problems.len()),
+            subjects, refs,
+            fix: vec![crate::items::Op::set("units", serde_json::json!("mm"))],
+            fixes: vec![crate::fixes::Fix::new("Print these dimensions to four decimal inch places", vec![crate::items::Op::set("precision", serde_json::json!(precision))])],
+            ..Default::default()
+        });
+    } else {
+        plan.problems.extend(problems.into_values());
+    }
 }
 
 #[cfg(test)]

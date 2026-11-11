@@ -28,7 +28,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                 // Invariant: The iterator is over the fixed three coordinate axes.
                 .expect("three coordinates")
         });
-        let (text, standard) = t.designation();
+        let (text, standard) = t.designation_in(cx.spec.units);
         if !standard {
             problems.push(unmatched(f));
         }
@@ -61,7 +61,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         if t.internal && !coaxial {
             views.insert(0, end_on(k));
         }
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id:want_id(&f.id,"thread"), views,value:t.major,
             terms:vec![text],
             measurements:vec![Measurement {feature:f.id.clone(),parameter:"thread".into(),value:t.major},Measurement {feature:f.id.clone(),parameter:"thread.length".into(),value:t.span[1]-t.span[0]}],
@@ -178,6 +178,7 @@ fn named_sizes(a: &Analysis, s: &Spec) -> Vec<f64> {
 /// possible, so nothing is asked of it. Authoring the feature's `thread`, or a PMI thread on its
 /// faces, settles it.
 pub(crate) fn possible_threads(a: &Analysis, s: &Spec) -> Vec<Problem> {
+    let fmt = |v| crate::dims::fmt_in(v, s.units);
     let sizes = named_sizes(a, s);
     let patterns = a
         .recognition

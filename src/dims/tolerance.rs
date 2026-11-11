@@ -79,7 +79,11 @@ fn fit_text(
         return code.into();
     }
     if let Some(limits) = deviations(code, nominal) {
-        return with_limits(code, limits);
+        return if spec.units.is_mm() {
+            with_limits(code, limits)
+        } else {
+            spec.units.magnitude_text(&with_limits(code, limits))
+        };
     }
     problems.push(problem("fit_deviations_unavailable", id,
         format!("The fit {code} is printed, but requested numerical deviations at {nominal} mm are outside the supported ISO 286 table; no deviations were invented."), vec![id.into()]));
@@ -118,6 +122,17 @@ fn magnitude(s: &str) -> Option<&str> {
 
 /// A magnitude printed as draftwright prints it: its authored digits, with at least the drawn
 /// precision (one decimal), so `1` reads `1.0` and `0.05` stays `0.05`.
+fn tolerance_for(text: &str, units: crate::units::Units) -> Result<(String, bool), String> {
+    if units.is_mm() {
+        return tolerance(text);
+    }
+    let normalized = text
+        .replace("±.", "±0.")
+        .replace("+.", "+0.")
+        .replace("-.", "-0.");
+    tolerance(&normalized)
+}
+
 fn printed(m: &str) -> String {
     match m.split_once('.') {
         Some(_) => m.to_string(),
@@ -307,7 +322,7 @@ pub(super) fn limits_shown(spec: &Spec) -> bool {
 /// is [`apply`]'s). A refusal names the entry.
 pub(crate) fn check(spec: &Spec) -> Result<(), Invalid> {
     if let Some(t) = &spec.envelope_tolerance {
-        tolerance(t).map_err(|why| Invalid {
+        tolerance_for(t, spec.units).map_err(|why| Invalid {
             path: None,
             also: Vec::new(),
             message: format!("The envelope tolerance cannot be read: {why}."),
@@ -334,7 +349,7 @@ pub(crate) fn check(spec: &Spec) -> Result<(), Invalid> {
             }
         }
         if let Some(t) = &entry.tolerance {
-            tolerance(t).map_err(|why| Invalid {
+            tolerance_for(t, spec.units).map_err(|why| Invalid {
                 path: None,
                 also: Vec::new(),
                 message: format!("The tolerance of {id:?} cannot be read: {why}."),
@@ -589,7 +604,34 @@ pub(super) fn apply(
             Some(fit_text(code, w.value, &w.id, spec, problems))
         } else if let Some(t) = authored {
             // Invariant: check validated this same immutable tolerance text before apply.
-            let (text, nothing) = tolerance(&t).expect("checked");
+            let (mut text, nothing) = tolerance_for(&t, spec.units).expect("checked");
+            if !spec.units.is_mm() && !matches!(w.shape, super::Shape::Angular { .. }) {
+                let places = t
+                    .split(|c: char| !c.is_ascii_digit() && c != '.')
+                    .filter_map(|n| n.split_once('.').map(|(_, d)| d.len()))
+                    .max()
+                    .unwrap_or(3)
+                    .max(3) as u8;
+                let paired = t.trim_start().starts_with('+');
+                text = text
+                    .split_whitespace()
+                    .enumerate()
+                    .map(|(index, term)| {
+                        let mut sign = term
+                            .chars()
+                            .take_while(|c| matches!(c, '±' | '+' | '-'))
+                            .collect::<String>();
+                        let n = &term[sign.len()..];
+                        if paired && sign.is_empty() {
+                            sign = if index == 0 { "+" } else { "-" }.into();
+                        }
+                        let digits =
+                            super::precision::format(n.parse().expect("checked tolerance"), places);
+                        format!("{sign}{}", crate::units::Units::inch_digits(digits))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+            }
             if nothing {
                 problems.push(Problem {
                     fix: vec![Op::remove(path(&w.id))],
@@ -741,14 +783,20 @@ pub(super) fn authored(spec: &Spec, w: &Want) -> Option<(&'static str, bool)> {
             .is_none_or(|e| e.tolerance.is_none())
         && let Some(t) = &spec.envelope_tolerance
     {
-        return Some(("tolerance", tolerance(t).is_ok_and(|(_, nothing)| !nothing)));
+        return Some((
+            "tolerance",
+            tolerance_for(t, spec.units).is_ok_and(|(_, nothing)| !nothing),
+        ));
     }
     if let Some(t) = spec
         .dimensions
         .get(&w.id)
         .and_then(|e| e.tolerance.as_deref())
     {
-        return Some(("tolerance", tolerance(t).is_ok_and(|(_, nothing)| !nothing)));
+        return Some((
+            "tolerance",
+            tolerance_for(t, spec.units).is_ok_and(|(_, nothing)| !nothing),
+        ));
     }
     let lead = parameter(&w.id);
     if !FITTED.iter().any(|(_, p)| *p == lead) {
@@ -791,14 +839,28 @@ pub(super) fn limits(w: &mut super::Want, lower: f64, upper: f64) -> bool {
     };
     let prefix: String = w.terms[i]
         .chars()
-        .take_while(|c| !c.is_ascii_digit())
+        .take_while(|c| !c.is_ascii_digit() && *c != '.')
         .collect();
     w.terms.splice(
         i..=i,
         [
-            format!("{prefix}{lower}"),
+            format!(
+                "{prefix}{}",
+                if w.units.is_mm() {
+                    lower.to_string()
+                } else {
+                    w.units.format(lower)
+                }
+            ),
             "-".into(),
-            format!("{prefix}{upper}"),
+            format!(
+                "{prefix}{}",
+                if w.units.is_mm() {
+                    upper.to_string()
+                } else {
+                    w.units.format(upper)
+                }
+            ),
         ],
     );
     true
@@ -822,6 +884,7 @@ mod tests {
         }))
         .unwrap();
         let mut original = Want {
+            units: Default::default(),
             id: "d:f:boss:1/boss_height.length".into(),
             views: vec!["front"],
             value: 3.,
@@ -982,6 +1045,7 @@ mod tests {
     #[test]
     fn what_the_spec_gives_a_size_includes_a_bosss_fit() {
         let want = |id: &str, parameter: &str, members: &[&str]| Want {
+            units: Default::default(),
             id: id.into(),
             views: vec!["front"],
             value: 20.0,
@@ -1038,6 +1102,7 @@ mod tests {
         .unwrap();
         let id = "d:f:hole:f6/bore.diameter";
         let want = |terms: &[&str]| Want {
+            units: Default::default(),
             id: id.into(),
             views: vec!["plan"],
             value: 6.0,

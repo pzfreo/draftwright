@@ -284,7 +284,9 @@ pub(super) fn append(
         // Measure the real section region rather than inferring material or a fit.
         if let Some((group, point, thickness)) = recovery.thin_site(part, a, &section) {
             let factor = (1.2 / (thickness * scale)).ceil().max(2.);
-            let automatic_scale = crate::layout::SCALES
+            let automatic_scale = plan
+                .spec
+                .scales()
                 .iter()
                 .copied()
                 .filter(|s| *s >= scale * factor)
@@ -294,7 +296,8 @@ pub(super) fn append(
                 .detail_scale
                 .as_ref()
                 .and_then(|name| {
-                    crate::layout::SCALES
+                    plan.spec
+                        .scales()
                         .iter()
                         .find(|s| model::scale_name(**s) == *name)
                 })

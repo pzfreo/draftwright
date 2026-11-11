@@ -152,6 +152,8 @@ fn marks(a: &Analysis, f: &facts::Facts) -> (Vec<Mark>, usize) {
                 })
                 .collect();
             Mark {
+                precision: None,
+                units: Default::default(),
                 name: n.name.clone(),
                 view: n.view.clone(),
                 text: n.text.join(" "),

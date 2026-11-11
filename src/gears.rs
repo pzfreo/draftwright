@@ -182,12 +182,35 @@ pub fn authored(value: f64) -> String {
 }
 
 pub fn rows(g: &GearSpec) -> Vec<Vec<String>> {
+    rows_in(g, crate::units::Units::Mm)
+}
+
+fn rows_in(g: &GearSpec, units: crate::units::Units) -> Vec<Vec<String>> {
     let geometry = "ISO 21771-1:2024";
+    let length = |v| {
+        if units.is_mm() {
+            authored(v)
+        } else {
+            units.format(v)
+        }
+    };
+    let unit = units.symbol();
     let signed = |v: f64| {
         if v > 0.0 {
-            format!("+{}", authored(v))
+            format!(
+                "+{}",
+                if units.is_mm() {
+                    authored(v)
+                } else {
+                    units.magnitude(v)
+                }
+            )
         } else {
-            authored(v)
+            if units.is_mm() {
+                authored(v)
+            } else {
+                units.magnitude(v)
+            }
         }
     };
     let [lower, upper] = g.tooth_thickness_tolerance;
@@ -202,7 +225,7 @@ pub fn rows(g: &GearSpec) -> Vec<Vec<String>> {
         ["TEETH z".into(), g.tooth_count.to_string(), geometry.into()],
         [
             "MODULE m".into(),
-            format!("{} mm", authored(g.module)),
+            format!("{} {unit}", length(g.module)),
             "ISO 54:1996".into(),
         ],
         [
@@ -217,14 +240,14 @@ pub fn rows(g: &GearSpec) -> Vec<Vec<String>> {
         ],
         [
             "FACE WIDTH b".into(),
-            format!("{} mm", authored(g.face_width)),
+            format!("{} {unit}", length(g.face_width)),
             geometry.into(),
         ],
         [
             "TOOTH THICKNESS s".into(),
             format!(
-                "{} {}/{} mm",
-                authored(g.tooth_thickness),
+                "{} {}/{} {unit}",
+                length(g.tooth_thickness),
                 signed(upper),
                 signed(lower)
             ),
@@ -337,6 +360,10 @@ pub(crate) fn effective<'a>(
 }
 
 pub fn tables(analysis: &Analysis) -> Vec<TableSpec> {
+    tables_in(analysis, crate::units::Units::Mm)
+}
+
+pub(crate) fn tables_in(analysis: &Analysis, units: crate::units::Units) -> Vec<TableSpec> {
     analysis
         .recognition
         .iter()
@@ -348,7 +375,7 @@ pub fn tables(analysis: &Analysis) -> Vec<TableSpec> {
             let g: GearSpec = serde_json::from_value(p.into()).ok()?;
             Some(TableSpec {
                 id: format!("gear_data_{id}"),
-                rows: rows(&g).into_iter().map(|r| json!(r)).collect(),
+                rows: rows_in(&g, units).into_iter().map(|r| json!(r)).collect(),
                 prefer: Some("tr".into()),
                 sheet: None,
             })

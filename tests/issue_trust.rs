@@ -169,6 +169,8 @@ fn holes_only(issues: Vec<LintIssue>) -> BTreeSet<String> {
 
 fn mark(text: &str, claims: &[(&str, &str)]) -> Mark {
     Mark {
+        precision: None,
+        units: Default::default(),
         name: format!("m:{text}"),
         view: Some("v:plan".into()),
         text: text.into(),
@@ -910,6 +912,8 @@ fn every_recognised_feature_is_dimensioned_or_reported() {
         let marks: Vec<_> = draftwright::dims::render(&plan.dimensions, &mut ink, &mut text)
             .into_iter()
             .map(|a| Mark {
+                precision: None,
+                units: Default::default(),
                 name: a.name,
                 view: a.view,
                 text: a

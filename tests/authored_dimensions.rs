@@ -1417,6 +1417,8 @@ fn an_engine_coordinate_uses_the_axis_instead_of_a_trimmed_face_fingerprint() {
     f.fingerprint.position[0] += 0.03;
     for (text, missing) in [("49", false), ("999 ±49", true)] {
         let mark = draftwright::lint::Mark {
+            precision: None,
+            units: Default::default(),
             name: "hole_schedule_test/x".into(),
             view: Some("v:plan".into()),
             text: text.into(),

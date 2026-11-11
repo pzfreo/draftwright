@@ -2,7 +2,7 @@
 import json
 import re
 from copy import deepcopy
-from mcp_spec import document, outline, pictorial_fields
+from mcp_spec import document, outline, pictorial_fields, PAPER_SIZES
 from pathlib import Path
 MAX_OPS = int(re.search(r'pub const MAX_OPS: usize = (\d+);', (Path(__file__).resolve().parent.parent / 'src/stateless.rs').read_text())[1])
 S = {'type': 'string'}
@@ -43,6 +43,9 @@ line_fields = {name: nullable(B) for name in
                ('hidden', 'centre_marks', 'centre_lines', 'thread_depiction', 'knurl_depiction')}
 spec['properties']['sheet']['properties'].update(line_fields)
 spec['properties']['balloons'] = obj({'occurrences': B, 'items': {'type':'object','additionalProperties':obj({'suppress':B,'position':nullable(arr(N,minItems=2,maxItems=2))})}})
+spec['properties']['units'] = {'enum': ['mm', 'in']}
+spec['properties']['sheet']['properties']['paper'] = nullable({'enum': ['iso', 'ansi', 'arch']})
+spec['properties']['sheet']['properties']['preferred_max_size'] = nullable({'enum': list(PAPER_SIZES)})
 spec['properties']['sheet']['properties']['balloons'] = {'enum':['off','all']}
 spec['properties']['sheet']['properties']['keep_layout'] = nullable(B)
 spec['properties']['sheet']['properties']['zones'] = nullable(B)

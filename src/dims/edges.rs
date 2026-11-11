@@ -29,7 +29,7 @@ use serde_json::Value;
 
 use super::envelope::profile_views;
 use super::turned::Turned;
-use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, fmt, key};
+use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, key};
 use crate::bridge::Feature;
 use crate::bridge::holes::{self, point, principal};
 use crate::lint::turned::Band;
@@ -96,6 +96,7 @@ fn size(f: &Feature, name: &str) -> Result<f64, String> {
 
 /// A recognised fillet or chamfer as the grammar reads it, or why it cannot be stated.
 fn edge<'a>(cx: &Context, f: &'a Feature) -> Result<Edge<'a>, String> {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let frame = &cx.frame;
     let mut at = point(f.parameters.get(if f.kind == "cylindrical_profile" {
         "axis_point"
@@ -185,7 +186,11 @@ fn edge<'a>(cx: &Context, f: &'a Feature) -> Result<Edge<'a>, String> {
             },
             angle,
         ));
-        vec![fmt(leg1), "×".into(), format!("{}°", fmt(angle))]
+        vec![
+            fmt(leg1),
+            "×".into(),
+            format!("{}°", crate::dims::fmt(angle)),
+        ]
     };
     Ok(Edge {
         feature: f,
@@ -458,6 +463,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             })
             .collect();
         out.push(Want {
+            units: cx.spec.units,
             id: super::want_id(&first.feature.id, first.parameter),
             views,
             value: first.value,

@@ -828,7 +828,8 @@ pub(super) fn nominal_context(
         && spec.precision.is_empty()
         && !crate::placement_intent::has_pins(spec)
         && items.iter().flat_map(|w| &w.measurements).any(|m| {
-            crate::nominal::format(m.value)
+            spec.units
+                .format(m.value)
                 .split_once('.')
                 .is_some_and(|(_, fraction)| fraction.len() > 1)
         })
@@ -909,7 +910,7 @@ fn settled_nominal_reference(
         })
         .any(|d| {
             d.measurements.iter().any(|m| {
-                let n = crate::nominal::format(m.value);
+                let n = spec.units.format(m.value);
                 n.split_once('.').is_some_and(|(_, tail)| tail.len() == 1)
             })
         })
@@ -918,7 +919,8 @@ fn settled_nominal_reference(
             .filter(|d| d.kind == "callout" && d.placed.is_some())
             .all(|d| {
                 d.measurements.iter().all(|m| {
-                    crate::nominal::format(m.value)
+                    spec.units
+                        .format(m.value)
                         .split_once('.')
                         .is_none_or(|(_, tail)| tail.len() <= 1)
                 })
@@ -959,7 +961,8 @@ fn settled_nominal_reference(
                 .iter()
                 .any(|m| m.parameter == "bore.diameter")
                 && d.measurements.iter().all(|m| {
-                    crate::nominal::format(m.value)
+                    spec.units
+                        .format(m.value)
                         .split_once('.')
                         .is_none_or(|(_, tail)| tail.len() <= 1)
                 })
@@ -976,7 +979,8 @@ fn settled_nominal_reference(
             return false;
         }
         let grew = d.measurements.iter().any(|m| {
-            crate::nominal::format(m.value)
+            spec.units
+                .format(m.value)
                 .split_once('.')
                 .is_some_and(|(_, tail)| tail.len() > 1)
         });
@@ -989,7 +993,7 @@ fn settled_nominal_reference(
         (contact
             && d.measurements
                 .iter()
-                .any(|m| crate::nominal::format(m.value).contains('.')))
+                .any(|m| spec.units.format(m.value).contains('.')))
             || (grew && length(&p.lines) > MIN_LEADER + SHOULDER)
     });
     if !needs_reference && !canonical_bores && legacy.is_none() {
@@ -998,8 +1002,11 @@ fn settled_nominal_reference(
     let recovered_recipe =
         canonical_bores || unchanged_fractional || (legacy.is_some() && !recess_statement);
     let recipe = crate::model::Spec {
+        units: spec.units,
         hole_table: spec.hole_table,
         sheet: crate::model::SheetSpec {
+            paper: (!spec.units.is_mm() || spec.paper() != crate::units::Paper::Iso)
+                .then_some(spec.paper()),
             size: (!recovered_recipe).then(|| sheet.size.clone()),
             scale: (!recovered_recipe).then(|| crate::model::scale_name(sheet.scale_factor)),
             projection: spec.sheet.projection.clone(),
@@ -1248,7 +1255,8 @@ fn place_with_obstacles_uncached(
                 radial: !crate::nominal::comparison()
                     && w.measurements.iter().any(|m| {
                         m.parameter == "slot_end_radius.radius"
-                            && crate::nominal::format(m.value)
+                            && w.units
+                                .format(m.value)
                                 .split_once('.')
                                 .is_some_and(|(_, tail)| tail.len() > 1)
                     }),
@@ -1636,7 +1644,9 @@ pub(crate) fn settle_after_furniture(
         let radius = final_inventory
             && d.measurements.iter().any(|m| {
                 m.parameter == "slot_end_radius.radius"
-                    && crate::nominal::format(m.value)
+                    && spec
+                        .units
+                        .format(m.value)
                         .split_once('.')
                         .is_some_and(|(_, tail)| tail.len() > 1)
             });
@@ -1800,7 +1810,8 @@ pub(crate) fn settle_after_furniture(
             radial: !crate::nominal::comparison()
                 && w.measurements.iter().any(|m| {
                     m.parameter == "slot_end_radius.radius"
-                        && crate::nominal::format(m.value)
+                        && w.units
+                            .format(m.value)
                             .split_once('.')
                             .is_some_and(|(_, tail)| tail.len() > 1)
                 }),
@@ -3054,7 +3065,8 @@ pub(super) fn seed_established(
         if !crate::nominal::comparison()
             && w.measurements.iter().any(|m| {
                 m.parameter == "slot_end_radius.radius"
-                    && crate::nominal::format(m.value)
+                    && w.units
+                        .format(m.value)
                         .split_once('.')
                         .is_some_and(|(_, tail)| tail.len() > 1)
             })
@@ -3599,7 +3611,8 @@ fn refine_uncached(
             radial: !crate::nominal::comparison()
                 && w.measurements.iter().any(|m| {
                     m.parameter == "slot_end_radius.radius"
-                        && crate::nominal::format(m.value)
+                        && w.units
+                            .format(m.value)
                             .split_once('.')
                             .is_some_and(|(_, tail)| tail.len() > 1)
                 }),
@@ -6598,7 +6611,8 @@ pub fn clear_routes(
         radial: !crate::nominal::comparison()
             && w.measurements.iter().any(|m| {
                 m.parameter == "slot_end_radius.radius"
-                    && crate::nominal::format(m.value)
+                    && w.units
+                        .format(m.value)
                         .split_once('.')
                         .is_some_and(|(_, tail)| tail.len() > 1)
             }),
@@ -7508,7 +7522,8 @@ pub(super) fn settled_routes(
         radial: want.is_some_and(|w| {
             w.measurements.iter().any(|m| {
                 m.parameter == "slot_end_radius.radius"
-                    && crate::nominal::format(m.value)
+                    && w.units
+                        .format(m.value)
                         .split_once('.')
                         .is_some_and(|(_, tail)| tail.len() > 1)
             })
@@ -7982,6 +7997,7 @@ mod tests {
         .unwrap();
         let frame = Frame::looking(&a, [0., -1., 0.], [0., 0., 1.], [0., 0.], 1.);
         let w = Want {
+            units: Default::default(),
             id: "group".into(),
             views: vec!["front"],
             value: 2.,

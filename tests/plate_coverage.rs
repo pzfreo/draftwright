@@ -23,6 +23,8 @@ fn part(features: Vec<Feature>) -> Analysis {
 }
 fn mark(feature: &str, parameter: &str, text: &str) -> Mark {
     Mark {
+        precision: None,
+        units: Default::default(),
         name: format!("d:{feature}/{parameter}"),
         view: Some("v:front".into()),
         text: text.into(),

@@ -4,6 +4,8 @@
 //! Tagged glyph faces and symbol strokes retain text-run ownership without changing
 //! the painted formats.
 
+pub use crate::units::Units;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::f64::consts::{FRAC_PI_2, PI};
 use std::fmt::Write as _;
@@ -561,6 +563,7 @@ pub struct DrawnReference {
 /// format.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Sheet {
+    pub units: Units,
     /// Resolved source inventory for independent rendered-balloon verification.
     pub characteristics: Vec<crate::characteristics::Characteristic>,
     /// Export-only provenance; never participates in the painted formats.

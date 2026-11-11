@@ -1,7 +1,7 @@
 //! Gusset groups use lint's checked reader. The triangle's two legs are seen end-on;
 //! thickness, pitch/spacing and the box-to-centre location are seen along a leg.
 
-use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, fmt, want_id};
+use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, want_id};
 use crate::lint::gussets::{Arrangement, groups};
 
 pub(super) const PLANNER: Planner = Planner {
@@ -9,6 +9,7 @@ pub(super) const PLANNER: Planner = Planner {
     wants,
 };
 
+#[allow(clippy::too_many_arguments)]
 fn linear(
     owner: &str,
     parameter: &str,
@@ -17,9 +18,12 @@ fn linear(
     axis: usize,
     view: &'static str,
     count: usize,
+    units: crate::units::Units,
 ) -> Want {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let value = (b[axis] - a[axis]).abs();
     Want {
+        units,
         id: want_id(owner, parameter),
         views: vec![view],
         value,
@@ -98,6 +102,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             r.axis,
             transverse,
             ribs.len(),
+            cx.spec.units,
         ));
         for (i, (k, _)) in r.supports.iter().enumerate() {
             b = corner;
@@ -110,6 +115,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                 *k,
                 end_on(r.axis),
                 ribs.len(),
+                cx.spec.units,
             ));
         }
         a[r.axis] = centre(0);
@@ -123,7 +129,16 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                 } else {
                     "gusset_spacing.length"
                 };
-                out.push(linear(id, parameter, a, b, r.axis, transverse, 1));
+                out.push(linear(
+                    id,
+                    parameter,
+                    a,
+                    b,
+                    r.axis,
+                    transverse,
+                    1,
+                    cx.spec.units,
+                ));
                 match arrangement {
                     Arrangement::Mirror { plane, .. } => plane,
                     _ => centre(0),
@@ -146,6 +161,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             r.axis,
             transverse,
             1,
+            cx.spec.units,
         ));
         // One group statement also owns each member's equal section, as counted
         // hole and slot statements do. Completeness can then follow the drawn ink.
@@ -195,7 +211,9 @@ pub(super) fn share(
     kept: &mut Vec<(Want, bool, Option<&'static str>, Vec<&'static str>)>,
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<super::Omitted>,
+    units: crate::units::Units,
 ) {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let mut i = 0;
     while i < kept.len() {
         let (w, default, view, _) = &kept[i];
@@ -273,6 +291,7 @@ mod tests {
                 2,
                 "side",
                 2,
+                crate::units::Units::Mm,
             );
             let other = linear(
                 "plate",
@@ -282,6 +301,7 @@ mod tests {
                 2,
                 "side",
                 1,
+                crate::units::Units::Mm,
             );
             let mut kept = vec![
                 (other, true, Some("side"), vec![]),
@@ -289,7 +309,7 @@ mod tests {
             ];
             let mut given = vec![vec![], vec![]];
             let mut omitted = vec![];
-            share(&mut kept, &mut given, &mut omitted);
+            share(&mut kept, &mut given, &mut omitted, crate::units::Units::Mm);
             assert_eq!(kept.len(), count);
             assert_eq!(given.len(), count);
             if count == 1 {

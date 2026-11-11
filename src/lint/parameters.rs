@@ -194,7 +194,19 @@ pub fn coverage(
                 continue;
             }
         };
-        let states = |m: &&Mark| values.iter().all(|&v| holes::states(&m.text, v));
+        let states = |m: &&Mark| {
+            values.iter().all(|&v| {
+                holes::states_in(
+                    &m.text,
+                    v,
+                    if parameter.ends_with(".count") {
+                        crate::output::Units::Mm
+                    } else {
+                        m.units
+                    },
+                )
+            })
+        };
         if claiming.iter().any(states) {
             continue;
         }
@@ -247,6 +259,8 @@ mod tests {
 
     fn mark(text: &str, parameter: &str) -> Mark {
         Mark {
+            precision: None,
+            units: Default::default(),
             name: format!("m:{text}"),
             view: Some("v:front".into()),
             text: text.into(),
