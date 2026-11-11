@@ -98,7 +98,7 @@ Visible changes from 0.4:
 
 - No DXF export: the second returned string is a PDF path, so unpacking now gives
   `(svg_path, pdf_path)`.
-- The ISO sheet frame is always drawn, even with `frame=False`; the projection
+- The sheet frame is always drawn, even with `frame=False`; the projection
   symbol is always drawn as well.
 - Unsupported keywords accept only their old defaults. Non-default values raise
   `TypeError` instead of being ignored; the full list is in the table above.

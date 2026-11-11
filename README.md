@@ -123,8 +123,8 @@ draftwright --help
 - **US drawings.** `draftwright render part.step --units in --paper ansi` prints decimal
   inches on landscape ANSI A–E paper. Use `--paper arch` for ARCH A–E, or `--paper iso`
   for ISO A4–A0. In Python, use `make_drawing(part, units="in", page="ANSI B")`.
-- **Lays out sheets.** Views, sections, detail views and hole tables go on ISO 5457 sheets with
-  an ISO 7200 title block. Sheet size and scale are chosen automatically, using more sheets when
+- **Lays out sheets.** Views, sections, detail views and hole tables go on landscape ISO, ANSI or ARCH
+  sheets with an ISO 7200 title block. Sheet size and scale are chosen automatically, using more sheets when
   needed.
 - **Is deterministic.** The same inputs give the same bytes. SVG and PDF carry real, searchable
   text and embed the Spec that made them.
