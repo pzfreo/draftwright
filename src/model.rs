@@ -2925,7 +2925,7 @@ pub(crate) fn fits_a3_at_full_size(analysis: &Analysis, first: &Plan) -> bool {
 }
 
 pub(crate) fn established_key(spec: &Spec) -> Vec<u8> {
-    if spec.pmi == PmiMode::First && spec.origin.is_empty() {
+    let mut key = if spec.pmi == PmiMode::First && spec.origin.is_empty() {
         serde_json::to_vec(&(
             spec.hole_table,
             &spec.sheet.projection,
@@ -2945,7 +2945,14 @@ pub(crate) fn established_key(spec: &Spec) -> Vec<u8> {
         ))
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         .expect("presentation inputs serialize")
+    };
+    // Historical metric keys stay stable; formatted reference ink belongs to its own units
+    // and paper family when a planning scope compares several presentations.
+    if !spec.units.is_mm() || spec.paper() != crate::units::Paper::Iso {
+        key.push(0);
+        key.extend(serde_json::to_vec(&(spec.units, spec.paper())).expect("units serialize"));
     }
+    key
 }
 
 /// The established automatic presentation, shared by scale and hole-table
@@ -6466,12 +6473,13 @@ fn plan_with_presentation(
         );
     }
     // The analysis's demand assumes the default Spec; edited wording or datum visibility
-    // (`sheet/uncited_datums`, a datum's omit) changes which symbols need room.
+    // (`sheet/uncited_datums`, a datum's omit) and drawing units change the required ink.
     if spec
         .annotations
         .values()
         .any(|a| a.text.is_some() || a.omit)
         || spec.sheet.uncited_datums.is_some()
+        || !spec.units.is_mm()
     {
         demand.gdt = [
             crate::dims::gdt::demand_with_spec(analysis, spec, &|_| true),

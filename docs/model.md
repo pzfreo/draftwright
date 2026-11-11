@@ -517,6 +517,8 @@ Decimal inches omit the leading zero below one (`.500`, `-.500`) and default to
 three places, retaining trailing zeros. `precision` selects places in the drawing's
 unit. Angles retain their existing degree format. Authored dimension tolerances use
 the drawing unit; ISO fit deviations and AP242 lengths convert from their mm evidence.
+Converted tolerance magnitudes default to three places, adding places when needed to
+keep a nonzero sub-thousandth tolerance nonzero.
 Metric thread designations remain metric. Unified thread support would extend
 `spec_notes::metric`, `pmi_lowering`'s thread readers and the modelled-thread catalogue.
 

@@ -2509,7 +2509,11 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
     {
         Some(published)
     } else if crate::placement_intent::has_pins(&plan.spec) {
-        let mut base = crate::model::Spec::default();
+        let mut base = crate::model::Spec {
+            units: plan.spec.units,
+            ..Default::default()
+        };
+        base.sheet.paper = plan.spec.sheet.paper;
         base.sheet.size = plan.spec.sheet.size.clone();
         base.sheet.scale = plan.spec.sheet.scale.clone();
         base.hole_table = plan.spec.hole_table;
@@ -3008,6 +3012,30 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                 basis
             }, state: crate::items::State::Shown, blocks: Vec::new(),
         });
+    }
+    if !plan.spec.units.is_mm() {
+        // Inch labels can select a coordinate table where the shorter metric labels used a
+        // ladder. Keep any physical ladder edge also locating a non-tabulated feature.
+        let scheduled: BTreeSet<_> = selection
+            .tables
+            .iter()
+            .flat_map(|t| &t.rows)
+            .map(|r| r.feature.as_str())
+            .collect();
+        let complete =
+            crate::dims::pmi_policy::retained_locations(analysis, plan, &BTreeSet::new());
+        let remaining =
+            crate::dims::pmi_policy::retained_locations(analysis, plan, &selection.replaced);
+        for ((feature, axis), owners) in complete {
+            if !scheduled.contains(feature.as_str()) && !remaining.contains_key(&(feature, axis)) {
+                for owner in owners {
+                    selection.replaced.remove(&owner);
+                }
+            }
+        }
+        selection
+            .dimensions
+            .retain(|d| selection.replaced.contains(&d.id));
     }
     // Consolidated wants otherwise reappear when their table-owned survivor leaves the lanes.
     // Keep the original merged measurement only; its aliases remain covered by that item.

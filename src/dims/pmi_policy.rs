@@ -1025,7 +1025,7 @@ fn audit_inner(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
                         .next()
                         .and_then(|n| n.parse::<f64>().ok())
                         .is_some_and(|n| n.signum() == value.signum())
-                        && crate::lint::holes::states(s, value.abs())
+                        && crate::lint::holes::states_in(s, value.abs(), p.spec.units)
                 }) {
                     continue;
                 }
@@ -1063,7 +1063,8 @@ fn audit_inner(a: &Analysis, s: &Spec, p: &mut crate::model::Plan) {
                     });
                 }
                 marks.push(crate::lint::Mark {
-                    units: p.spec.units,
+                    // The coordinate was verified above; this graph edge is canonical mm.
+                    units: crate::units::Units::Mm,
                     name: format!("{}/{}/{}", table.id, row.key(), AXES[k]),
                     view: table.view.clone(),
                     text: format!("{value}"),

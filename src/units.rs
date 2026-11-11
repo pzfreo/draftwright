@@ -41,17 +41,14 @@ impl Units {
         let text = crate::dims::precision::format(self.from_mm(mm), places.unwrap_or(3));
         Self::inch_digits(text)
     }
-    /// Tolerance magnitudes retain significant source digits beyond the nominal precision.
+    /// Tolerances default to three inch places; a nonzero sub-thousandth stays nonzero.
     pub fn magnitude(self, mm: f64) -> String {
         if self.is_mm() {
             return crate::pmi::fmt_magnitude(mm, None);
         }
         let v = self.from_mm(mm);
         let places = (3..=12)
-            .find(|&p| {
-                let k = 10f64.powi(p);
-                ((v * k).round() / k - v).abs() <= 1e-12
-            })
+            .find(|&p| v == 0. || (v * 10f64.powi(p)).round() != 0.)
             .unwrap_or(12) as u8;
         self.format_places(mm, Some(places))
     }
@@ -252,6 +249,18 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn reference_ink_cache_is_partitioned_by_units_and_paper() {
+        let mm = Spec::default();
+        let inch: Spec = serde_json::from_value(json!({"units":"in"})).unwrap();
+        let arch: Spec =
+            serde_json::from_value(json!({"units":"in","sheet":{"paper":"arch"}})).unwrap();
+        let iso: Spec = serde_json::from_value(json!({"sheet":{"paper":"iso"}})).unwrap();
+        assert_ne!(model::established_key(&mm), model::established_key(&inch));
+        assert_ne!(model::established_key(&inch), model::established_key(&arch));
+        assert_eq!(model::established_key(&mm), model::established_key(&iso));
+    }
+
+    #[test]
     fn decimal_inches_and_explicit_places() {
         for (mm, expected) in [
             (12.7, ".500"),
@@ -268,6 +277,8 @@ mod tests {
         assert_eq!(Units::In.format_places(12.7, Some(0)), "0");
         assert_eq!(Units::Mm.format(12.7), "12.7");
         assert_eq!(Units::In.magnitude(0.0254), ".001");
+        assert_eq!(Units::In.magnitude(0.2), ".008");
+        assert_eq!(Units::In.magnitude(0.00254), ".0001");
         assert_eq!(
             Units::In.length_text("M8×1.25; 25.4 MIN FULL THREAD"),
             "M8×1.25; 1.000 MIN FULL THREAD"
@@ -491,6 +502,27 @@ mod tests {
             let drawing = model::render(&part, &a, &p, &font).unwrap();
             assert!(lint::marks(&drawing).iter().all(|m| m.units == Units::In));
         }
+    }
+
+    #[test]
+    fn pmi_location_unit_roundtrip() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pmi/step/nist_ctc_01_asme1_ap242-e1.stp.gz");
+        let (part, a) = model::analyse_native(&path).unwrap();
+        let font = crate::text::Font::new(crate::api::MONO.to_vec()).unwrap();
+        let mut codes = Vec::new();
+        for units in [Units::Mm, Units::In] {
+            let spec: Spec = serde_json::from_value(json!({"units":units})).unwrap();
+            let plan = model::plan_recovered(&a, &spec).unwrap();
+            let drawing = model::render(&part, &a, &plan, &font).unwrap();
+            let mut current: Vec<_> = lint::lint(&a, &drawing)
+                .iter()
+                .map(|i| i.code.clone())
+                .collect();
+            current.sort();
+            codes.push(current);
+        }
+        assert_eq!(codes[0], codes[1]);
     }
 
     #[test]
