@@ -79,9 +79,16 @@ pub(crate) fn defaults(a: &Analysis, spec: &Spec, requirements: &mut Vec<SheetRe
         && !spec.sheet.title.contains_key("tolerance")
         && !requirements.iter().any(|r| r.kind == "general_tolerance")
     {
-        let value = if spec.units.is_mm() {value.to_string()} else {
-            let (length, rest) = value.split_once(" mm").expect("process tolerance has a length");
-            let mm: f64 = length.trim_start_matches('±').parse().expect("process tolerance");
+        let value = if spec.units.is_mm() {
+            value.to_string()
+        } else {
+            let (length, rest) = value
+                .split_once(" mm")
+                .expect("process tolerance has a length");
+            let mm: f64 = length
+                .trim_start_matches('±')
+                .parse()
+                .expect("process tolerance");
             format!("±{} in{rest}", spec.units.magnitude(mm))
         };
         requirements.push(SheetRequirement {
@@ -96,7 +103,7 @@ pub(crate) fn defaults(a: &Analysis, spec: &Spec, requirements: &mut Vec<SheetRe
             } else if matches!(resolved.source, ValueSource::Guess | ValueSource::Suggested) {
                 format!("{value} CHECK")
             } else {
-                value.into()
+                value.clone()
             },
             basis: format!(
                 "{}: {value}; default to check; override: sheet/title/tolerance",

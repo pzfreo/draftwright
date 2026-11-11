@@ -1168,7 +1168,7 @@ fn pitch_want(
     a[along] = values[0];
     b[along] = values[1];
     Want {
-        units: units,
+        units,
         id: want_id(pattern, parameter),
         views: vec![view],
         value: p,

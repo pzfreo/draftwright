@@ -176,10 +176,10 @@ pub(crate) fn lower_in(
     let (mut items, problems) = lower(analysis, shown);
     if !units.is_mm() {
         for item in &mut items {
-            if let Glyph::ControlFrame { tolerance, .. } = &mut item.glyph {
-                if let Ok(mm) = tolerance.parse::<f64>() {
-                    *tolerance = units.magnitude(mm);
-                }
+            if let Glyph::ControlFrame { tolerance, .. } = &mut item.glyph
+                && let Ok(mm) = tolerance.parse::<f64>()
+            {
+                *tolerance = units.magnitude(mm);
             }
         }
     }
@@ -715,6 +715,23 @@ pub struct SheetRequirement {
 /// neither is drawn. A record the reading blocked, or one whose statement is not a supported
 /// default, is said with its reason (`pmi_not_lowered`). Other document kinds draftwright knows
 /// (a datum scheme, a model representation note) are reported as not ported.
+pub(crate) fn sheet_requirements_in(
+    analysis: &Analysis,
+    units: crate::units::Units,
+) -> (Vec<SheetRequirement>, Vec<Problem>) {
+    let (mut requirements, problems) = sheet_requirements(analysis);
+    if !units.is_mm() {
+        for r in &mut requirements {
+            if r.kind == "default_surface_finish"
+                && let Ok(um) = r.value.parse::<f64>()
+            {
+                r.value = units.magnitude(um / 1000.0);
+            }
+        }
+    }
+    (requirements, problems)
+}
+
 pub fn sheet_requirements(analysis: &Analysis) -> (Vec<SheetRequirement>, Vec<Problem>) {
     let mut out = Vec::new();
     let mut problems = Vec::new();

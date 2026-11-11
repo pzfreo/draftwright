@@ -7,6 +7,8 @@
 //! The drawing is layers of curves on a page, in millimetres with y up: each layer's lines are
 //! drawn in its style, and its faces (glyphs, arrowheads) filled where the layer fills.
 
+pub use crate::units::Units;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::f64::consts::{FRAC_PI_2, PI};
 use std::fmt::Write as _;
@@ -2690,5 +2692,3 @@ mod tests {
         );
     }
 }
-
-pub use crate::units::Units;

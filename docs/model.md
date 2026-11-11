@@ -714,17 +714,18 @@ adds a `shaded_view_unresolved` warning with the reason and affected face IDs. T
 
 #### Sheet allocation (R5, Stage I)
 
-`sheet/preferred_max_size` (`"A4"` through `"A0"`, default `"A3"`) and
+`sheet/preferred_max_size` (a name in the selected paper family; default its
+second size: `"A3"`, `"ANSI B"` or `"ARCH B"`) and
 `sheet/preferred_max_sheets` (integer at least 1, default 2) are soft preferences.
 The existing `sheets.max` is a hard limit (up to 9); preferences never grant
 permission beyond it. Explicit paper, scale and allocation intent take precedence.
 `sheet/keep_layout` retains the author's explicit paper, scale and count, including
 when either preference changes.
 
-Search one sheet at A4, then each size through the preferred maximum. Next try
+Search one sheet at the family’s smallest size, then each size through the preferred maximum. Next try
 2 through the preferred count at that size. If none is usable, increase paper one
 size at a time, trying one through the preferred count at each size. Finally try
-more A0 sheets, up to `sheets.max`. The first usable result wins. Principal and
+more sheets of the family’s largest size, up to `sheets.max`. The first usable result wins. Principal and
 auxiliary views can move as complete annotated blocks; dimension, PMI and balloon
 ownership follows the view. Authored view relations and keep-together groups remain
 constraints. Footprint bounds skip impossible candidates. At each request the

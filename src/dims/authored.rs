@@ -193,7 +193,7 @@ pub(super) fn append(
         let label = match kind {
             "diameter" => format!("⌀{}", fmt(m.value)),
             "radius" => format!("R{}", fmt(m.value)),
-            "angle" => format!("{}°", fmt(m.value)),
+            "angle" => format!("{}°", crate::dims::fmt(m.value)),
             _ => fmt(m.value),
         };
         let mut w = Want {

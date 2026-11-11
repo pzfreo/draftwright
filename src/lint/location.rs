@@ -2080,6 +2080,11 @@ pub(crate) fn active(a: &Analysis, marks: &[Mark]) -> bool {
 }
 
 #[cfg(test)]
+fn states_mm(text: &str, value: f64) -> bool {
+    states_in(text, value, crate::output::Units::Mm)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     fn edge(a: f64, b: f64, name: &str) -> Edge {
@@ -2494,9 +2499,4 @@ mod tests {
         invisible[1] = [[10., 90.], [10., 90.]];
         assert!(centreline_witnesses(&invisible, &heads, &centres).is_none());
     }
-}
-
-#[cfg(test)]
-fn states_mm(text: &str, value: f64) -> bool {
-    states_in(text, value, crate::output::Units::Mm)
 }

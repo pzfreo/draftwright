@@ -322,7 +322,7 @@ fn slot_callout(
         None => Vec::new(),
     };
     Want {
-        units: units,
+        units,
         id,
         views: vec![end_on(s.deep)],
         value: s.width,
@@ -362,7 +362,7 @@ fn end_radius_want(
 ) -> Want {
     let fmt = |v| crate::dims::fmt_in(v, units);
     Want {
-        units: units,
+        units,
         id,
         views: vec![end_on(s.deep)],
         value: r,
@@ -1210,7 +1210,7 @@ fn pitch_want(
     a[along] = values[0];
     b[along] = values[1];
     Want {
-        units: units,
+        units,
         id: want_id(pattern, parameter),
         views: vec![view],
         value: p,
@@ -1428,7 +1428,7 @@ impl Blind<'_> {
             (c, 0.0)
         };
         Want {
-            units: units,
+            units,
             id: want_id(id, &measurements[0].parameter),
             views: vec![view],
             value: measurements[0].value,
@@ -1500,7 +1500,7 @@ fn semicircular(
         c[wide] += s * radius;
         (c, 0.0)
     };
-    let want = Want { units: units,
+    let want = Want { units,
         id: want_id(id, "semicircular_blind_slot_width.length"),
         views: vec![view],
         value: width,

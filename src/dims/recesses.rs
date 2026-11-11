@@ -145,6 +145,7 @@ fn words(s: &str) -> Vec<String> {
 
 /// A location from the part's box to *at* along *k*, stated in *view* for *owners* (the first
 /// names it).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn location(
     owners: &[&Feature],
     parameter: &str,
@@ -160,7 +161,7 @@ pub(super) fn location(
     let mut from = at;
     from[k] = lo;
     Want {
-        units: units,
+        units,
         id: want_id(&owners[0].id, parameter),
         views: vec![view],
         value: d,

@@ -195,9 +195,17 @@ pub fn coverage(
             }
         };
         let states = |m: &&Mark| {
-            values
-                .iter()
-                .all(|&v| holes::states_in(&m.text, v, m.units))
+            values.iter().all(|&v| {
+                holes::states_in(
+                    &m.text,
+                    v,
+                    if parameter.ends_with(".count") {
+                        crate::output::Units::Mm
+                    } else {
+                        m.units
+                    },
+                )
+            })
         };
         if claiming.iter().any(states) {
             continue;

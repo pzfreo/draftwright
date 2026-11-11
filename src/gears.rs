@@ -181,17 +181,36 @@ pub fn authored(value: f64) -> String {
     value.to_string()
 }
 
-pub fn rows(g: &GearSpec) -> Vec<Vec<String>> { rows_in(g, crate::units::Units::Mm) }
+pub fn rows(g: &GearSpec) -> Vec<Vec<String>> {
+    rows_in(g, crate::units::Units::Mm)
+}
 
 fn rows_in(g: &GearSpec, units: crate::units::Units) -> Vec<Vec<String>> {
     let geometry = "ISO 21771-1:2024";
-    let length = |v| if units.is_mm() {authored(v)} else {units.format(v)};
+    let length = |v| {
+        if units.is_mm() {
+            authored(v)
+        } else {
+            units.format(v)
+        }
+    };
     let unit = units.symbol();
     let signed = |v: f64| {
         if v > 0.0 {
-            format!("+{}", if units.is_mm() {authored(v)} else {units.magnitude(v)})
+            format!(
+                "+{}",
+                if units.is_mm() {
+                    authored(v)
+                } else {
+                    units.magnitude(v)
+                }
+            )
         } else {
-            if units.is_mm() {authored(v)} else {units.magnitude(v)}
+            if units.is_mm() {
+                authored(v)
+            } else {
+                units.magnitude(v)
+            }
         }
     };
     let [lower, upper] = g.tooth_thickness_tolerance;
@@ -340,7 +359,9 @@ pub(crate) fn effective<'a>(
     Ok(analysis)
 }
 
-pub fn tables(analysis: &Analysis) -> Vec<TableSpec> {tables_in(analysis, crate::units::Units::Mm)}
+pub fn tables(analysis: &Analysis) -> Vec<TableSpec> {
+    tables_in(analysis, crate::units::Units::Mm)
+}
 
 pub(crate) fn tables_in(analysis: &Analysis, units: crate::units::Units) -> Vec<TableSpec> {
     analysis

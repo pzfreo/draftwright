@@ -1914,6 +1914,11 @@ fn settable(
         fields.insert(paths[0].clone(), descriptor);
     }
     if item.item.kind == "sheet" {
+        fields.insert("units".into(), choices(json!(["mm", "in"])));
+        fields.insert(
+            "sheet/paper".into(),
+            choices(json!(["iso", "ansi", "arch"])),
+        );
         fields.insert(
             "sheet/callouts/style".into(),
             choices(json!(["auto", "compact", "full", "note"])),

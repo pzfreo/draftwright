@@ -100,7 +100,9 @@ fn wrap(text: &str) -> Vec<String> {
     lines
 }
 #[cfg(test)]
-pub(crate) fn tables(a: &Analysis) -> Vec<TableSpec> {tables_in(a, crate::units::Units::Mm)}
+pub(crate) fn tables(a: &Analysis) -> Vec<TableSpec> {
+    tables_in(a, crate::units::Units::Mm)
+}
 pub(crate) fn tables_in(a: &Analysis, units: crate::units::Units) -> Vec<TableSpec> {
     read(a)
         .enumerate()
@@ -130,11 +132,21 @@ pub(crate) fn tables_in(a: &Analysis, units: crate::units::Units) -> Vec<TableSp
             ] {
                 let value = p.get(key).map_or("—".into(), |v| match v {
                     serde_json::Value::String(s) => s.clone(),
-                    _ => v.as_f64().map_or("—".into(), |v| if label.contains("(mm)") {units.format(v)} else {crate::dims::fmt(v)}),
+                    _ => v.as_f64().map_or("—".into(), |v| {
+                        if label.contains("(mm)") {
+                            units.format(v)
+                        } else {
+                            crate::dims::fmt(v)
+                        }
+                    }),
                 });
                 for (j, line) in wrap(basis).into_iter().enumerate() {
                     rows.push(vec![
-                        if j == 0 { label.replace("(mm)", &format!("({})",units.symbol())) } else { String::new() },
+                        if j == 0 {
+                            label.replace("(mm)", &format!("({})", units.symbol()))
+                        } else {
+                            String::new()
+                        },
                         if j == 0 { value.clone() } else { String::new() },
                         line,
                     ]);
@@ -143,7 +155,7 @@ pub(crate) fn tables_in(a: &Analysis, units: crate::units::Units) -> Vec<TableSp
             // The recogniser does not infer rate. Only an explicitly stated value may appear.
             if let Some(rate) = p.get("rate").and_then(|v| v.as_f64()) {
                 rows.push(vec![
-                    format!("Rate (N/{})",units.symbol()),
+                    format!("Rate (N/{})", units.symbol()),
                     crate::dims::fmt(rate * units.millimetres()),
                     "stated".into(),
                 ]);

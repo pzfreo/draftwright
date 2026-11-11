@@ -222,6 +222,7 @@ pub fn coverage(a: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 // length numeral elsewhere in the size/depth callout.
                 let mut count = m.clone();
                 count.claims = count_claims;
+                count.units = crate::output::Units::Mm;
                 count.text = m
                     .text
                     .split_whitespace()

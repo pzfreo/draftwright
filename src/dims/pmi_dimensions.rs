@@ -90,6 +90,13 @@ impl Req {
         } else {
             w.units
         };
+        let signed = |v: f64| {
+            if v > 0. {
+                format!("+{}", units.magnitude(v))
+            } else {
+                units.magnitude(v)
+            }
+        };
         let symmetric = self.upper > 0.0 && self.upper == -self.lower;
         let mut limits = None;
         let (ok, band) = if let Some((letters, grade)) = self.fit {
@@ -103,11 +110,7 @@ impl Req {
             let term = if units.is_mm() {
                 tolerance::limits_term((self.lower, self.upper))
             } else {
-                format!(
-                    "({}/{})",
-                    units.magnitude(self.upper),
-                    units.magnitude(self.lower)
-                )
+                format!("({}/{})", signed(self.upper), signed(self.lower))
             };
             let ok = tolerance::insert(w, &term) && tolerance::insert(w, &class);
             limits = Some(term);
@@ -123,11 +126,7 @@ impl Req {
                     } else if symmetric {
                         format!("±{}", units.magnitude(self.upper))
                     } else {
-                        format!(
-                            "{}/{}",
-                            units.magnitude(self.upper),
-                            units.magnitude(self.lower)
-                        )
+                        format!("{}/{}", signed(self.upper), signed(self.lower))
                     };
                     (tolerance::insert(w, &text), text)
                 }
@@ -606,7 +605,8 @@ fn measured_plane_size(a: &Analysis, wants: &[Want], r: &Record, k: usize) -> Op
 
 /// Whether a plain diameter's label is the size as a callout prints it: `⌀6`, or `⌀6 THRU`
 /// (draftwright's `_canonical_nominal_diameter_label`, which spells it `ø6`).
-fn canonical(r: &Record, value: f64) -> bool {
+fn canonical(r: &Record, value: f64, units: crate::units::Units) -> bool {
+    let fmt = |v| units.format(v);
     let size = format!("⌀{}", fmt(value));
     let label = qualifier(r).map_or(r.label.as_str(), |q| {
         // Invariant: q was selected by checking this same label suffix.
@@ -743,7 +743,8 @@ pub(crate) fn conveys(basis: &str, source_id: &str) -> bool {
 /// priority and is not the file's requirement downstream. Candidates, lanes, redundancy and
 /// drop findings treat it as any planned dimension. Its basis names the record's source, which
 /// carries its characteristic number and Specify's authorship ([`crate::characteristics`]).
-fn general(report: &crate::pmi::Report, r: &Record, own: Want) -> Want {
+fn general(report: &crate::pmi::Report, r: &Record, own: Want, units: crate::units::Units) -> Want {
+    let fmt = |v| units.format(v);
     let feature = general_feature(&own.measurements[0].feature);
     let reason = report
         .sources
@@ -873,7 +874,14 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
         .iter()
         .map(|r| {
             match (
-                outcome(cx.analysis, &ids, r, wants, cx.turned.as_ref()),
+                outcome(
+                    cx.analysis,
+                    &ids,
+                    r,
+                    wants,
+                    cx.turned.as_ref(),
+                    cx.spec.units,
+                ),
                 ids.id(&r.source_id),
             ) {
                 (o @ Outcome::Refused(_), _) | (o, Ok(_)) => o,
@@ -894,7 +902,7 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
             {
                 outcomes[j] = match conveyed(cx.analysis, wants, r, own) {
                     Some((i, how)) => Outcome::Conveyed(i, how),
-                    None => Outcome::General(general(report, r, own.clone())),
+                    None => Outcome::General(general(report, r, own.clone(), cx.spec.units)),
                 };
             }
         }
@@ -1226,7 +1234,9 @@ fn outcome(
     r: &Record,
     wants: &[Want],
     turned: Option<&Turned>,
+    units: crate::units::Units,
 ) -> Outcome {
+    let fmt = |v| units.format(v);
     let symbolic = symbolic_bore(r);
     if !r.blockers.is_empty() {
         return Outcome::Refused(not_lowered(r.blockers.join("; ")));
@@ -1351,7 +1361,7 @@ fn outcome(
             };
             if !r.basic
                 && let Some((i, members)) = owner
-                && (band.is_some() || canonical(r, value))
+                && (band.is_some() || canonical(r, value, units))
             {
                 return Outcome::Hole(i, members, band);
             }
@@ -1369,7 +1379,7 @@ fn outcome(
                 match external_owner(wants, &g.cylinders, value, turned) {
                     Some(Ok(i)) => match band {
                         Some(b) => return Outcome::Band(i, b),
-                        None if canonical(r, value) => {
+                        None if canonical(r, value, units) => {
                             return Outcome::Stated(
                                 i,
                                 "diameter, which draftwright gives to the turned step or boss whose cylinder it names (lower_ap242_nominal_diameters)",
@@ -1786,6 +1796,45 @@ fn split(w: &Want, groups: &[Group]) -> Vec<(Want, Vec<usize>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inch_limits_and_tolerance_magnitudes_keep_their_units() {
+        let mut w = Want {
+            units: crate::units::Units::In,
+            id: "d:test/bore.diameter".into(),
+            views: vec!["plan"],
+            value: 35.,
+            terms: vec!["⌀1.378".into()],
+            measurements: vec![],
+            basis: String::new(),
+            shape: Shape::Callout {
+                arcs: vec![],
+                sites: vec![],
+            },
+            turning: None,
+        };
+        let limits = Req {
+            upper: 0.1,
+            lower: -0.2,
+            limits: Some((34.8, 35.1)),
+            fit: None,
+        };
+        limits.print(&mut w).unwrap();
+        assert_eq!(w.terms, ["⌀1.370", "-", "⌀1.382"]);
+        let mut w = Want {
+            terms: vec!["⌀1.378".into()],
+            ..w
+        };
+        let band = Req {
+            upper: 0.0254,
+            lower: -0.0254,
+            limits: None,
+            fit: None,
+        };
+        band.print(&mut w).unwrap();
+        assert_eq!(w.terms, ["⌀1.378", "±.001"]);
+        assert_eq!(w.value, 35.);
+    }
 
     #[test]
     fn every_angle_value_carries_its_unit() {

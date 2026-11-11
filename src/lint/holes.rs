@@ -729,7 +729,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 && t.internal
                 && t.through
                 && t.conventional_drill()
-                && super::pmi_coverage::thread_text_states(t, &mark.text)
+                && super::pmi_coverage::thread_text_states(t, &mark.text, mark.units)
             {
                 // Invariant: The tapped-hole branch requires a known drill diameter.
                 mark.text += &format!(" ⌀{} THRU", t.drill_diameter.unwrap());

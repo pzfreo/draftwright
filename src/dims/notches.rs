@@ -325,7 +325,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         let value = n.angle.degrees();
         out.push(Want { units: cx.spec.units,
             id: id(&n.id,"notch.angle"), views:vec![view], value,
-            terms:vec![format!("{}°",fmt(value))],
+            terms:vec![format!("{}°",crate::dims::fmt(value))],
             measurements:vec![Measurement {feature:n.id.clone(),parameter:"notch.angle".into(),value}],
             basis:"a V-notch's included angle, in the normal view that shows it true; rounded roots extend to the theoretical sharp apex".into(),
             shape:Shape::Angular {angle:(&n.angle).into(), alternates: Vec::new()}, turning:None,

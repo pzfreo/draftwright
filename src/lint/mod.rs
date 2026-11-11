@@ -345,6 +345,7 @@ fn lint_indexed(analysis: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
         });
         if let Some(text) = proof {
             mark.text = text;
+            mark.units = crate::output::Units::Mm;
         } else {
             mark.claims.clear();
         }

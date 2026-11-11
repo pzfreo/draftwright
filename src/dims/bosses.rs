@@ -192,7 +192,7 @@ fn inclined_callouts(inclined: &[Inclined], units: crate::units::Units) -> Vec<W
                     })
                 })
                 .collect();
-            Want { units: units,
+            Want { units,
                 id: want_id(&first.feature.id, "boss.diameter"),
                 views: axes.into_iter().map(end_on).collect(),
                 value: first.diameter,

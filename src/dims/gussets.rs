@@ -9,6 +9,7 @@ pub(super) const PLANNER: Planner = Planner {
     wants,
 };
 
+#[allow(clippy::too_many_arguments)]
 fn linear(
     owner: &str,
     parameter: &str,
@@ -22,7 +23,7 @@ fn linear(
     let fmt = |v| crate::dims::fmt_in(v, units);
     let value = (b[axis] - a[axis]).abs();
     Want {
-        units: units,
+        units,
         id: want_id(owner, parameter),
         views: vec![view],
         value,

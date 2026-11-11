@@ -74,7 +74,7 @@ fn through_wants(s: &Through, units: crate::units::Units) -> Vec<Want> {
         .map(|(k, a, b)| {
             let value = (b[k] - a[k]).abs();
             let parameter = format!("through_step_leg.length.{}", AXES[k]);
-            Want { units: units,
+            Want { units,
                 id: super::want_id(id, &parameter),
                 views: vec![view],
                 value,
@@ -133,7 +133,7 @@ fn circular(
         fmt(depth),
         "DEEP".into(),
     ];
-    Ok(Want { units: units,
+    Ok(Want { units,
         id: super::want_id(&f.id, "circular_step_radius.radius"),
         views: vec![view],
         value: r,
@@ -177,7 +177,7 @@ fn ramp(f: &Feature, frame: &QFrame, units: crate::units::Units) -> Result<Want,
         fmt(length),
         "RUN".into(),
     ];
-    Ok(Want { units: units,
+    Ok(Want { units,
         id: super::want_id(&f.id, "ramp_angle.angle"),
         views: vec![view],
         value: angle,

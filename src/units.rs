@@ -127,6 +127,12 @@ impl Units {
     /// Reprint an engine-owned length label whose numeric source is in mm.
     /// Counts, angles, fit classes and metric thread designations are symbolic terms.
     pub(crate) fn length_text(self, text: &str) -> String {
+        self.format_text(text, false)
+    }
+    pub(crate) fn magnitude_text(self, text: &str) -> String {
+        self.format_text(text, true)
+    }
+    fn format_text(self, text: &str, magnitude: bool) -> String {
         if self.is_mm() {
             return text.into();
         }
@@ -156,7 +162,13 @@ impl Units {
                     if symbolic {
                         out.push_str(word);
                     } else {
-                        out.push_str(&self.format(mm));
+                        let tolerance =
+                            magnitude || text[..at].contains('±') || text[..at].contains('+');
+                        out.push_str(&if tolerance {
+                            self.magnitude(mm)
+                        } else {
+                            self.format(mm)
+                        });
                     }
                 } else {
                     out.push_str(word);
@@ -212,7 +224,7 @@ pub(crate) fn advise(analysis: &crate::model::Analysis, plan: &mut crate::model:
         .collect();
     for f in &analysis.features {
         for key in [
-            "diameter", "width", "length", "height", "depth", "radius", "leg1", "leg2",
+            "diameter", "width", "length", "height", "radius", "leg1", "leg2",
         ] {
             if let Some(v) = f.parameters.get(key).and_then(serde_json::Value::as_f64) {
                 lengths.push(v);
@@ -359,6 +371,104 @@ mod tests {
         }
         assert!(lint::holes::states_in(".333", 8.46, Units::In));
         assert!(!lint::holes::states_in(".333", 8.5, Units::In));
+    }
+
+    #[test]
+    fn inch_precision_tolerances_and_fits_reach_the_print_boundary() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/plate.step");
+        let (_, a) = model::analyse_native(&path).unwrap();
+        let mut spec:Spec=serde_json::from_value(json!({"units":"in","sheet":{"size":"ANSI B","scale":"1:1"},"envelope_tolerance":"+.002 -.001","precision":{"d:envelope/width.length":4}})).unwrap();
+        let p = model::plan(&a, &spec).unwrap();
+        let width = p
+            .dimensions
+            .iter()
+            .find(|d| d.id == "d:envelope/width.length")
+            .unwrap();
+        assert!(
+            width
+                .label
+                .contains(&Units::In.format_places(width.value, Some(4)))
+        );
+        assert!(width.label.contains("+.002 -.001"), "{}", width.label);
+        assert_eq!(width.value, a.envelope[1][0] - a.envelope[0][0]);
+        spec.envelope_tolerance = None;
+        spec.sheet.fit_deviations = Some(true);
+        for f in a.features.iter().filter(|f| f.kind == "hole") {
+            spec.features.entry(f.id.clone()).or_default().fit = Some("H7".into());
+        }
+        let p = model::plan(&a, &spec).unwrap();
+        assert!(p.dimensions.iter().any(|d| d.label.contains("H7")));
+        assert!(
+            p.dimensions
+                .iter()
+                .filter(|d| d.label.contains("H7"))
+                .all(|d| d.label.contains(&Units::In.format(d.value)))
+        );
+    }
+
+    #[test]
+    fn inch_hole_table_roundtrip_still_catches_a_wrong_cell() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/scattered_holes.step");
+        let (part, a) = model::analyse_native(&path).unwrap();
+        let spec: Spec = serde_json::from_value(json!({"units":"in"})).unwrap();
+        let p = model::plan_recovered(&a, &spec).unwrap();
+        let font = crate::text::Font::new(crate::api::MONO.to_vec()).unwrap();
+        let mut drawing = model::render(&part, &a, &p, &font).unwrap();
+        assert!(lint::lint(&a, &drawing).is_empty());
+        let annotation = drawing
+            .annotations
+            .iter()
+            .find(|a| {
+                a.coordinate_origin.is_some()
+                    && a.claims.iter().any(|c| c.parameter == "location.length.x")
+            })
+            .expect("coordinate cell");
+        let index = annotation.runs[0];
+        drawing.text[index].text = "99.999".into();
+        assert!(!lint::lint(&a, &drawing).is_empty());
+    }
+
+    #[test]
+    fn source_pmi_lengths_convert_once_from_their_mm_evidence() {
+        let font = crate::text::Font::new(crate::api::MONO.to_vec()).unwrap();
+        for file in [
+            "pmi/plate.specify018.step.gz",
+            "pmi/step/nist_ctc_01_asme1_ap242-e1.stp.gz",
+        ] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(file);
+            let (part, a) = model::analyse_native(&path).unwrap();
+            let spec: Spec = serde_json::from_value(
+                json!({"units":"in","sheet":{"size":"ANSI E","scale":"1:2"}}),
+            )
+            .unwrap();
+            let p = model::plan(&a, &spec).unwrap();
+            let source: Vec<_> = p
+                .dimensions
+                .iter()
+                .filter(|d| {
+                    d.kind != "angular"
+                        && d.measurements.iter().any(|m| {
+                            m.feature.starts_with("pmi:")
+                                || m.feature.starts_with("specify_general:")
+                        })
+                })
+                .collect();
+            assert!(!source.is_empty(), "{file}");
+            for d in source {
+                assert!(
+                    lint::holes::states_in(&d.label, d.value, Units::In),
+                    "{file}: {} {}",
+                    d.label,
+                    d.value
+                );
+            }
+            let drawing = model::render(&part, &a, &p, &font).unwrap();
+            assert!(lint::marks(&drawing).iter().all(|m| m.units == Units::In));
+        }
     }
 
     #[test]

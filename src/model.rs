@@ -6360,7 +6360,7 @@ fn plan_with_presentation(
         crate::label_text::annotations(&mut lowered, &effective)?;
         let mut annotation_ids: Vec<String> = lowered.into_iter().map(|i| i.id).collect();
         annotation_ids.extend(
-            crate::pmi_lowering::sheet_requirements(analysis)
+            crate::pmi_lowering::sheet_requirements_in(analysis, spec.units)
                 .0
                 .into_iter()
                 .filter(|r| matches!(r.kind, "document_note" | "no_requirement"))
@@ -6737,7 +6737,7 @@ fn plan_with_presentation(
     // draftwright's order, unless only a fallback would make room for them: then each is placed
     // where it can be, or reported (crate::tables, crate::notes).
     // Part PMI notes precede the drawing's own notes; reconciliation never changes the Spec.
-    let (mut requirements, more) = crate::pmi_lowering::sheet_requirements(analysis);
+    let (mut requirements, more) = crate::pmi_lowering::sheet_requirements_in(analysis, spec.units);
     crate::process::defaults(analysis, spec, &mut requirements);
     problems.extend(more);
     let (mut notes_given, omitted_notes, more) =

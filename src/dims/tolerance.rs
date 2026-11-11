@@ -82,7 +82,7 @@ fn fit_text(
         return if spec.units.is_mm() {
             with_limits(code, limits)
         } else {
-            spec.units.length_text(&with_limits(code, limits))
+            spec.units.magnitude_text(&with_limits(code, limits))
         };
     }
     problems.push(problem("fit_deviations_unavailable", id,

@@ -159,7 +159,11 @@ const LADDER: [(f64, &str); 26] = [
 
 /// The title block's width for a sheet: 120 mm on A4, 150 mm on A3 and larger.
 pub fn title_block_width(page_w: f64) -> f64 {
-    if page_w <= 297.0 { 120.0 } else { 150.0 }
+    if page_w <= 297.0 || page_w == ARCH_PAGES[0].1 {
+        120.0
+    } else {
+        150.0
+    }
 }
 
 fn sheet(name: &str) -> [f64; 2] {

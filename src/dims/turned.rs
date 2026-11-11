@@ -1036,7 +1036,7 @@ fn baseline(
     }
     for (f, b) in &ordered[1..ordered.len() - 1] {
         let value = (far(b) - datum).abs();
-        out.push(Want { units: units,
+        out.push(Want { units,
             id: want_id(&f.id, "step_position.length"),
             views: profile_views(k),
             value,

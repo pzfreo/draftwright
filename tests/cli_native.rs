@@ -987,3 +987,32 @@ fn units_and_paper_flags_apply_to_plan_and_review() {
         assert!(!result.status.success());
     }
 }
+
+#[test]
+fn bare_and_render_embed_us_unit_and_paper_overrides() {
+    let path = fixture("parts/plate.step");
+    for command in ["render", "bare"] {
+        let stem = scratch(&format!("units-{command}"));
+        let mut args = Vec::new();
+        if command == "render" {
+            args.push("render");
+        }
+        args.extend([
+            path.to_str().unwrap(),
+            "--units",
+            "in",
+            "--paper",
+            "ansi",
+            "--formats",
+            "svg",
+            "-o",
+            stem.to_str().unwrap(),
+        ]);
+        let (code, result) = run(&args);
+        assert_eq!(code, Some(0), "{result}");
+        let (code, spec) = run(&["spec", stem.with_extension("svg").to_str().unwrap()]);
+        assert_eq!(code, Some(0), "{spec}");
+        assert_eq!(spec["units"], "in");
+        assert_eq!(spec["sheet"]["paper"], "ansi");
+    }
+}
