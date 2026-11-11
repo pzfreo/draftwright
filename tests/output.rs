@@ -1424,9 +1424,10 @@ fn dxf_inch_dimensions_stay_live_in_inches() {
     )
     .unwrap();
     let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
-    let mut live = 0;
+    let (mut live, mut linear) = (0, 0);
     for e in d.entities() {
         if let E::RotatedDimension(dim) = &e.specific {
+            linear += 1;
             let base = &dim.dimension_base;
             let st = d
                 .dim_styles()
@@ -1448,9 +1449,25 @@ fn dxf_inch_dimensions_stay_live_in_inches() {
             }
         }
     }
-    assert!(live > 0, "inch dimensions keep a live <> value");
-    // DIMZIN 4: drop the leading zero, keep trailing zeros (.312, 1.000).
+    // Including values under an inch, printed without the leading zero (.197).
+    assert_eq!(live, linear, "every inch dimension keeps a live <> value");
+    // An empty title-block field keeps a usable width factor (AutoCAD accepts 0.01 to 100).
     let pairs = dxf_pairs(&files[0].1);
+    for (i, p) in pairs.iter().enumerate() {
+        if matches!(p.1.as_str(), "TEXT" | "ATTDEF" | "ATTRIB") && p.0 == 0 {
+            let end = pairs[i + 1..].iter().position(|q| q.0 == 0).unwrap() + i + 1;
+            for q in &pairs[i..end] {
+                if q.0 == 41 {
+                    assert!(
+                        q.1.trim().parse::<f64>().unwrap() >= 0.01,
+                        "{:?}",
+                        &pairs[i..end]
+                    );
+                }
+            }
+        }
+    }
+    // DIMZIN 4: drop the leading zero, keep trailing zeros (.312, 1.000).
     let zin: Vec<_> = pairs
         .windows(2)
         .filter(|p| p[0] == (9, "$DIMZIN".into()) || p[0].0 == 78)

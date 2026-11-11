@@ -90,10 +90,16 @@ fn number_range(s: &str) -> Option<Range<usize>> {
             0
         }
     });
+    // Inch values drop the leading zero (.197), so a point before a digit starts one too.
+    let tail = &s[after_count..];
     let start = after_count
-        + s[after_count..]
+        + tail
             .char_indices()
-            .find(|(_, c)| c.is_ascii_digit() || matches!(c, '-' | '+'))?
+            .find(|&(i, c)| {
+                c.is_ascii_digit()
+                    || matches!(c, '-' | '+')
+                    || (c == '.' && tail[i + 1..].starts_with(|n: char| n.is_ascii_digit()))
+            })?
             .0;
     let end = s[start..]
         .find(|c: char| !c.is_ascii_digit() && !matches!(c, '.' | '-' | '+'))
@@ -245,7 +251,12 @@ fn dimension_integer(code: i32) -> bool {
 /// shown by every reader. (In AutoCAD a regenerated radial/diametric `<>` adds
 /// its own R/diameter sign; the stored *D block shows the intended text.)
 fn live_label(d: &Dimension, kind: i32, inches: bool) -> String {
-    let primary = if inches { &d.primary_in } else { &d.primary };
+    // Angles are degrees on every sheet; only lengths are printed in inches.
+    let primary = if inches && kind != 5 {
+        &d.primary_in
+    } else {
+        &d.primary
+    };
     let Some(primary) = primary else {
         return override_text(&d.label);
     };
@@ -606,8 +617,13 @@ impl Writer {
         let words = asme_words(&r.text);
         // The words are longer than the glyphs they replace; condense them to
         // the width the layout gave the label, so table cells do not overflow.
-        let width = cad_width(text_font(r)) * r.text.chars().count() as f64
-            / words.chars().count().max(1) as f64;
+        // An empty field (a title-block attribute to fill in) keeps the font's width.
+        let width = cad_width(text_font(r))
+            * if words.is_empty() {
+                1.
+            } else {
+                r.text.chars().count() as f64 / words.chars().count() as f64
+            };
         let mut content = if multiline {
             encode_mtext(&words)
         } else {
@@ -2048,5 +2064,24 @@ mod tolerance_tests {
             live_label(&dim("25 ±0.15 THRU", 0..2), 0, false),
             "<> %%p0.15 THRU"
         );
+    }
+
+    #[test]
+    fn inch_values_without_a_leading_zero_and_angles_stay_live() {
+        assert_eq!(number_range("⌀.236 THRU"), Some(3..7));
+        assert_eq!(number_range("2× R.197"), Some(5..9));
+        let angle = Dimension {
+            kind: "angle".into(),
+            view: String::new(),
+            value: 30.,
+            label: "30°".into(),
+            placed: None,
+            diameter: false,
+            radial: false,
+            primary: Some(0..2),
+            primary_in: None,
+        };
+        // Degrees are degrees on an inch sheet too.
+        assert_eq!(live_label(&angle, 5, true), "<>");
     }
 }
