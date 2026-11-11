@@ -10,7 +10,7 @@ description = "Engineering drawings from STEP: Rust CLI and a small Python API."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "AGPL-3.0-only"
-license-files = ["LICENSE", "fonts/LICENSE-*.txt"]
+license-files = ["LICENSE", "THIRD-PARTY-LICENSES", "fonts/LICENSE-*.txt"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

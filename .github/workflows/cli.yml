@@ -6,7 +6,7 @@ on:
   release:
     types: [published]
   pull_request:
-    paths: ['.github/workflows/cli.yml']
+    paths: ['.github/workflows/cli.yml', 'about.toml', 'about.hbs']
 
 permissions:
   contents: read
@@ -38,6 +38,11 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: cli-${{ matrix.target }}
+      - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2.87.19
+        with:
+          tool: cargo-about@0.9.3
+      - name: Third-party licence notices
+        run: cargo about generate --locked --workspace --all-features about.hbs -o THIRD-PARTY-LICENSES
       - run: cargo build --locked --release --bin draftwright --bin draftwright-mcp --target ${{ matrix.target }}
       - name: Try it on a revision
         # The hole_removed pair: one entry renumbers with its hole, one is set aside with the
@@ -58,7 +63,8 @@ jobs:
         run: |
           name="draftwright-${RELEASE_TAG:-pr}-${{ matrix.target }}"
           mkdir -p dist "$name"
-          cp "target/${{ matrix.target }}/release/draftwright${{ matrix.exe }}" LICENSE README.md "$name/"
+          cp "target/${{ matrix.target }}/release/draftwright${{ matrix.exe }}" LICENSE THIRD-PARTY-LICENSES README.md "$name/"
+          cp fonts/LICENSE-*.txt "$name/"
           cp "target/${{ matrix.target }}/release/draftwright-mcp${{ matrix.exe }}" "$name/"
           cp -R schemas "$name/"
           mkdir -p "$name/docs"

@@ -21,6 +21,8 @@ on:
       - 'schemas/**'
       - 'README.md'
       - 'LICENSE'
+      - 'about.toml'
+      - 'about.hbs'
       - '.github/workflows/publish.yml'
       - 'tools/check_wheel_versions.py'
       - 'tools/test_wheel_versions.py'
@@ -43,6 +45,8 @@ on:
       - 'schemas/**'
       - 'README.md'
       - 'LICENSE'
+      - 'about.toml'
+      - 'about.hbs'
       - '.github/workflows/publish.yml'
       - 'tools/check_wheel_versions.py'
       - 'tools/test_wheel_versions.py'
@@ -105,6 +109,12 @@ jobs:
           # Dispatch and release builds use the tag, never main's potentially newer commit.
           ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
           fetch-depth: 0 # The guard resolves actual tag objects, including annotated tags.
+      - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2.87.19
+        with:
+          tool: cargo-about@0.9.3
+      # Listed in pyproject.toml's license-files, so every wheel carries the notices.
+      - name: Third-party licence notices
+        run: cargo about generate --locked --workspace --all-features about.hbs -o THIRD-PARTY-LICENSES
       # The toolchain comes from rust-toolchain.toml. One abi3 (Python 3.9+) extension
       # provides the small Python API and both console entry points on each platform.
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0

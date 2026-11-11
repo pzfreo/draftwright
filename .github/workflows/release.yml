@@ -44,6 +44,11 @@ jobs:
       - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2.87.19
         with:
           tool: wasm-pack@0.15.0
+      - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2.87.19
+        with:
+          tool: cargo-about@0.9.3
+      - name: Third-party licence notices
+        run: cargo about generate --locked --workspace --all-features about.hbs -o THIRD-PARTY-LICENSES
       - run: wasm-pack build crates/draftwright-wasm --target web --profile wasm-release --locked
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -56,7 +61,7 @@ jobs:
         run: |
           version="${RELEASE_TAG#v}"
           asset="draftwright-wasm-${version}.tgz"
-          cp LICENSE fonts/LICENSE-IBMPlexMono-OFL.txt fonts/LICENSE-IBMPlexSansCondensed-OFL.txt crates/draftwright-wasm/pkg/
+          cp LICENSE THIRD-PARTY-LICENSES fonts/LICENSE-IBMPlexMono-OFL.txt fonts/LICENSE-IBMPlexSansCondensed-OFL.txt crates/draftwright-wasm/pkg/
           tar -czf "$asset" -C crates/draftwright-wasm pkg
           sha256sum "$asset" > "$asset.sha256"
       - name: Compare released quiddity pins and annotate release (warning only)
