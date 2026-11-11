@@ -189,7 +189,7 @@ fn a_refused_thread_with_chamfer_split_flanks_is_measured_and_depicted() {
         .map(|d| d.label.as_str())
         .collect();
     assert_eq!(labels, ["⌀8.3 × P2 4 STARTS"]);
-    let inch_spec: model::Spec = serde_json::from_value(json!({"units":"in"})).unwrap();
+    let inch_spec: model::Spec = serde_json::from_value(serde_json::json!({"units":"in"})).unwrap();
     let inch = model::plan_recovered(&analysis, &inch_spec).unwrap();
     let labels: Vec<_> = inch
         .dimensions
