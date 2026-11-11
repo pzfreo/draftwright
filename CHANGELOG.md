@@ -6,6 +6,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Refuse an out-of-range `sheets.max` before the paper search sizes anything from it, and
+  refuse gzip STEP input that decompresses to more than 1 GiB (256 MiB in WASM).
+
 - Fix inch scale-floor overflow, numeric trust parsing, modelled-thread pitch/diameter,
   turned OD riders and the inch-design advisory fix. Summarize inch rounding findings,
   detect decimal-inch grids, align tolerance precision, and use explicit US zone counts

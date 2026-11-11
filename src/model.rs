@@ -1348,9 +1348,27 @@ pub fn step_bytes(bytes: &[u8]) -> Result<std::borrow::Cow<'_, [u8]>, String> {
     if !bytes.starts_with(&[0x1f, 0x8b]) {
         return Ok(std::borrow::Cow::Borrowed(bytes));
     }
+    step_bytes_within(bytes, MAX_STEP_BYTES)
+}
+
+/// Most decompressed STEP text accepted from a gzip file: gzip expands by up to about 1000:1,
+/// so a few KB can otherwise claim gigabytes. A WASM page has 4 GB in all, so it takes less.
+#[cfg(not(target_arch = "wasm32"))]
+pub const MAX_STEP_BYTES: u64 = 1 << 30;
+#[cfg(target_arch = "wasm32")]
+pub const MAX_STEP_BYTES: u64 = 1 << 28;
+
+fn step_bytes_within(bytes: &[u8], limit: u64) -> Result<std::borrow::Cow<'_, [u8]>, String> {
     let mut text = Vec::new();
-    std::io::Read::read_to_end(&mut flate2::read::MultiGzDecoder::new(bytes), &mut text)
+    let decoder = flate2::read::MultiGzDecoder::new(bytes);
+    std::io::Read::read_to_end(&mut std::io::Read::take(decoder, limit + 1), &mut text)
         .map_err(|e| format!("it is gzip but cannot be decompressed: {e}"))?;
+    if text.len() as u64 > limit {
+        return Err(format!(
+            "it is gzip and decompresses to more than {} MB, the most accepted",
+            limit >> 20
+        ));
+    }
     Ok(std::borrow::Cow::Owned(text))
 }
 
@@ -12804,5 +12822,25 @@ mod ga_crop_cache_tests {
         let expected_parent = render_geometry(&part, &a, &plan, &mut baseline).unwrap();
         let actual_parent = render_geometry(&part, &a, &plan, &mut culled).unwrap();
         equal(&expected_parent.views[0].1, &actual_parent.views[0].1);
+    }
+}
+
+#[cfg(test)]
+mod gzip_limit_tests {
+    use super::*;
+
+    fn gz(data: &[u8]) -> Vec<u8> {
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        std::io::Write::write_all(&mut enc, data).unwrap();
+        enc.finish().unwrap()
+    }
+
+    #[test]
+    fn gzip_expanding_past_the_limit_is_refused() {
+        let bomb = gz(&vec![0u8; 3 << 20]);
+        let err = step_bytes_within(&bomb, 2 << 20).unwrap_err();
+        assert!(err.contains("more than 2 MB"), "{err}");
+        let text = step_bytes_within(&bomb, 3 << 20).unwrap();
+        assert_eq!(text.len(), 3 << 20);
     }
 }
