@@ -158,7 +158,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `hole_table_tag_order_retained` | advisory | Legacy tags retain the finished geometry when spatial relabelling would collide or detach a row leader. |
 | `hole_table_unavailable` | decision | An explicit table request was not met; individual dimensions remain. |
 | `id_not_migrated` | advisory | A saved legacy identity has no exact current match; its key and intent are retained. |
-| `inch_design_detected` | advisory | Model sizes closely follow a sixteenth-inch grid; units remain unchanged. |
+| `inch_design_detected` | advisory | Model sizes closely follow sixteenth-inch or decimal-inch grids; units remain unchanged. |
 | `interior_void` | advisory | A factual inventory of an internal cavity; its faces do not establish a hole opening. |
 | `iso_layout_overflow` | readability | The requested isometric scale exceeds its reserved layout area. |
 | `iso_projection_empty` | incomplete | The requested isometric view has no projected geometry. |
