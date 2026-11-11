@@ -49,9 +49,7 @@
 //! coinciding with a hole's or slot's is not merged (ARCH0009-6).
 
 use super::envelope::profile_views;
-use super::{
-    AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, fmt, key, want_id,
-};
+use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, key, want_id};
 use crate::bridge::Feature;
 use crate::bridge::holes::{dir_to_part, principal, to_part};
 use crate::lint::section_recesses::{Grammar, grammar, recesses};
@@ -147,6 +145,7 @@ fn words(s: &str) -> Vec<String> {
 
 /// A location from the part's box to *at* along *k*, stated in *view* for *owners* (the first
 /// names it).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn location(
     owners: &[&Feature],
     parameter: &str,
@@ -155,11 +154,14 @@ pub(super) fn location(
     lo: f64,
     view: &'static str,
     basis: String,
+    units: crate::units::Units,
 ) -> Want {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let d = at[k] - lo;
     let mut from = at;
     from[k] = lo;
     Want {
+        units,
         id: want_id(&owners[0].id, parameter),
         views: vec![view],
         value: d,
@@ -198,6 +200,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
 }
 
 fn pocket_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let [lo, _] = cx.analysis.envelope;
     for (f, p) in pockets::placed(cx.analysis) {
         if crate::lint::pocket_patterns::member(cx.analysis, &f.id) {
@@ -269,7 +272,7 @@ fn pocket_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) 
                 }
             }
         }
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(&f.id, "pocket_width.length"),
             views: vec![view],
             value: p.width,
@@ -348,12 +351,13 @@ fn pocket_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) 
                     AXES[k],
                     ["left", "front", "bottom"][k]
                 ),
-            ));
+             cx.spec.units));
         }
     }
 }
 
 fn hex_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     // Callouts by axis, the side the pocket opens to, size across flats and depth, in quiddity's
     // order of their first member.
     type Member<'a> = (&'a Feature, P3, f64, f64);
@@ -386,7 +390,7 @@ fn hex_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) {
         }
         terms.extend(["HEX".into(), fmt(across), "A/F".into(), "×".into()]);
         terms.extend([fmt(depth), "DEEP".into()]);
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(&first.id, "polygon_across_flats.length"),
             views: vec![view],
             value: across,
@@ -426,6 +430,7 @@ fn hex_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) {
 }
 
 fn seat_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let [lo, _] = cx.analysis.envelope;
     // Coaxial seats with one label, by axis, the axis's position across it and the label's
     // values, in quiddity's order of their first member.
@@ -459,8 +464,8 @@ fn seat_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) {
         terms.extend([format!("ø{}", fmt(diameter)), "×".into(), fmt(first.length)]);
         terms.extend(["LONG".into(), "×".into(), format!("{}°", fmt(first.sweep))]);
         terms.push("ARC".into());
-        out.push(Want {
-            id: want_id(&first.feature.id, "seat_diameter.diameter"),
+        out.push(Want { units: cx.spec.units,
+id: want_id(&first.feature.id, "seat_diameter.diameter"),
             views: vec![view],
             value: diameter,
             terms,
@@ -531,6 +536,7 @@ fn seat_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) {
                         ""
                     }
                 ),
+                cx.spec.units,
             );
             if cx
                 .analysis
@@ -567,6 +573,7 @@ fn seat_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) {
                     AXES[axis],
                     face(axis)
                 ),
+                cx.spec.units,
             );
             if cx
                 .analysis
@@ -622,6 +629,7 @@ fn channel<'a>(
 }
 
 fn channel_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let analysis = cx.analysis;
     // draftwright's `_append_primary_feature_families`: channels are drawn only for a
     // base-and-walls construction with no turned profile.
@@ -647,7 +655,7 @@ fn channel_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>)
             p[c.wide] = w;
             p
         };
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(&c.feature.id, "channel_width.length"),
             views: vec![view],
             value: c.width,
@@ -672,6 +680,7 @@ fn channel_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>)
 }
 
 fn pattern_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     for f in cx
         .analysis
         .features
@@ -743,6 +752,7 @@ fn pattern_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>)
             value: count as f64,
         });
         out.push(Want {
+            units: cx.spec.units,
             id: want_id(&f.id, "pocket_width.length"),
             views: vec![view],
             value: p.width,
@@ -761,6 +771,7 @@ fn pattern_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>)
             let mut b = at;
             b[axis] += pitch;
             out.push(Want {
+                units: cx.spec.units,
                 id: want_id(&f.id, &parameter),
                 views: vec![view],
                 value: pitch,
@@ -795,6 +806,7 @@ fn pattern_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>)
                 cx.analysis.envelope[0][k],
                 view,
                 "the pocket pattern's centre located from the part's datum".into(),
+                cx.spec.units,
             ));
         }
     }
@@ -804,6 +816,7 @@ fn pattern_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>)
 type CornerGroup<'a> = (usize, f64, Vec<(&'a Feature, &'a pockets::Placed)>);
 
 fn corner_wants(cx: &Context, out: &mut Vec<Want>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let placed = pockets::placed(cx.analysis);
     let mut groups: Vec<CornerGroup> = Vec::new();
     for (f, p) in &placed {
@@ -855,6 +868,7 @@ fn corner_wants(cx: &Context, out: &mut Vec<Want>) {
             }
         }
         out.push(Want {
+            units: cx.spec.units,
             id: want_id(&members[0].0.id, "pocket_corner_radius.radius"),
             views: vec![end_on(axis)],
             value: r,

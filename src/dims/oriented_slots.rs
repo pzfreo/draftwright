@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use super::{Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, fmt, key, want_id};
+use super::{Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, key, want_id};
 use crate::bridge::Feature;
 
 pub(super) const PLANNER: Planner = Planner {
@@ -85,6 +85,7 @@ fn read(analysis: &crate::model::Analysis, f: &Feature) -> Result<Read, String> 
 }
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let mut problems = Vec::new();
     // Slots by view axis, width and length, in the Analysis's order of their first member.
     type Key = (usize, i64, i64, bool);
@@ -134,7 +135,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         if !r0.open {
             terms.extend(["×".into(), fmt(r0.length), "LONG".into()]);
         }
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(&first.id, "oriented_slot_width.length"),
             views: vec![end_on(r0.axis)],
             value: r0.width,

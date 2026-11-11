@@ -141,6 +141,7 @@ fn drawing(direction: [f64; 3], items: Vec<(Annotation, Drawn)>) -> Drawing {
         text: Vec::new(),
         annotations,
         sheet: Sheet {
+            units: Default::default(),
             characteristics: Vec::new(),
             inspection_enabled: false,
             label_text: Default::default(),

@@ -332,8 +332,37 @@ const DOT: f64 = 0.5;
 /// condition's mark, the bar from the long leg's top, and the parameters under it (ISO 1302's
 /// positions a and b). The reference line itself is the leader's ([`candidate`]), as long as the
 /// glyph is wide.
-fn finish_symbol(texture: &haecceity::pmi::SurfaceTexture) -> (Laid, Vec<String>) {
-    let c = haecceity::presentation::notes::surface_texture_with_width(texture, &width);
+fn finish_symbol(
+    texture: &haecceity::pmi::SurfaceTexture,
+    units: crate::units::Units,
+) -> (Laid, Vec<String>) {
+    let source = haecceity::presentation::notes::texture_parameters(texture);
+    let replacement = |line: &str| {
+        if units.is_mm() {
+            return line.to_string();
+        }
+        source.iter().position(|s| s == line).map_or_else(
+            || line.to_string(),
+            |i| {
+                format!(
+                    "{} {}",
+                    texture.parameters[i].characteristic,
+                    units.magnitude(texture.parameters[i].value.mm())
+                )
+            },
+        )
+    };
+    let mut c = haecceity::presentation::notes::surface_texture_with_width(texture, &|s, size| {
+        width(&replacement(s), size)
+    });
+    if !units.is_mm() {
+        for t in c.letters.iter_mut().chain(&mut c.runs) {
+            t.text = replacement(&t.text);
+        }
+        for t in &mut c.cells {
+            *t = replacement(t);
+        }
+    }
     let cells = c.cells.clone();
     (laid(c), cells)
 }
@@ -1021,7 +1050,7 @@ pub(crate) fn demand_with_spec(
     spec: &Spec,
     shown: &dyn Fn(&str) -> bool,
 ) -> Vec<crate::layout::Gdt> {
-    let (mut items, _) = crate::pmi_lowering::lower(analysis, shown);
+    let (mut items, _) = crate::pmi_lowering::lower_in(analysis, shown, spec.units);
     if items
         .iter()
         .any(|i| matches!(i.glyph, Glyph::FlagNote { .. }))
@@ -1066,7 +1095,7 @@ pub(crate) fn demand_with_spec(
                 Glyph::Datum { .. } => [H, H],
                 Glyph::Label { text } => label(text).size,
                 Glyph::FlagNote { number, .. } => flag_note(*number).size,
-                Glyph::Finish { texture, .. } => finish_symbol(texture).0.size,
+                Glyph::Finish { texture, .. } => finish_symbol(texture, spec.units).0.size,
                 g => control_frame(g).0.size,
             };
             let horizontal = outward(item.side)[0] == 0.0;
@@ -1366,7 +1395,7 @@ fn plan_search(
             .any(|m| m.feature.starts_with("f:section_recess:"))
     });
     let shown = |name: &str| views.iter().any(|v| v.id == format!("v:{name}"));
-    let (mut items, mut problems) = crate::pmi_lowering::lower(analysis, &shown);
+    let (mut items, mut problems) = crate::pmi_lowering::lower_in(analysis, &shown, spec.units);
     // The exact same reconciled list reserves and numbers the notes block. A feature
     // whose leader cannot be lowered still has its text there, without a dangling flag.
     let (requirements, _) = crate::pmi_lowering::sheet_requirements(analysis);
@@ -1519,7 +1548,7 @@ fn plan_search(
             Glyph::Datum { letter, .. } => (datum_frame(letter), vec![letter.clone()]),
             Glyph::Label { text } => (label(text), vec![text.clone()]),
             Glyph::FlagNote { number, .. } => (flag_note(*number), vec![number.to_string()]),
-            Glyph::Finish { texture, .. } => finish_symbol(texture),
+            Glyph::Finish { texture, .. } => finish_symbol(texture, spec.units),
             g => control_frame(g),
         };
         let modifiers: Vec<String> = match &item.glyph {
@@ -2534,7 +2563,7 @@ pub(crate) fn validate_placements(
         return Ok(());
     }
     let shown = |name: &str| views.iter().any(|v| v.id == format!("v:{name}"));
-    let (items, _) = crate::pmi_lowering::lower(analysis, &shown);
+    let (items, _) = crate::pmi_lowering::lower_in(analysis, &shown, spec.units);
     let all: Vec<_> = PRINCIPALS
         .iter()
         .map(|(name, direction, up)| PlannedView {

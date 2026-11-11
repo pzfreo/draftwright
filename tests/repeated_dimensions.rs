@@ -32,6 +32,8 @@ fn marks(plan: &Plan) -> Vec<Mark> {
     plan.dimensions
         .iter()
         .map(|d| Mark {
+            precision: None,
+            units: Default::default(),
             name: d.id.clone(),
             view: Some(d.view.clone()),
             text: d.label.clone(),

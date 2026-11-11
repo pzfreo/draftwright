@@ -561,6 +561,7 @@ fn stated_spans(a: &Analysis, m: &Mark) -> Vec<Span> {
         m.claims
             .iter()
             .map(|c| (c.feature.as_str(), c.parameter.as_str())),
+        m.units,
     )
 }
 
@@ -570,6 +571,7 @@ pub(crate) fn stated<'c>(
     a: &Analysis,
     text: &str,
     claims: impl IntoIterator<Item = (&'c str, &'c str)>,
+    units: crate::output::Units,
 ) -> Vec<Span> {
     let mut own: Vec<Span> = Vec::new();
     let text = repeated(text).unwrap_or(text);
@@ -581,7 +583,7 @@ pub(crate) fn stated<'c>(
                 .collect(),
         };
         for s in found {
-            if holes::states(text, s.hi - s.lo) && !own.iter().any(|p| p.same(s)) {
+            if holes::states_in(text, s.hi - s.lo, units) && !own.iter().any(|p| p.same(s)) {
                 own.push(s);
             }
         }

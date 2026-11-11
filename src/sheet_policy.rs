@@ -158,6 +158,7 @@ fn failures(analysis: &Analysis, plan: &Plan, floor: f64) -> BTreeSet<(String, V
 /// freely resized isometric are omitted, making the necessary fit test optimistic.
 #[derive(Clone)]
 struct Estimate {
+    units: crate::units::Units,
     views: Vec<(String, [f64; 2], [f64; 2])>,
     /// Each block's sizes, in preference order: one for fixed furniture, one per block count
     /// for a hole table that may be split side by side ([`crate::hole_table::split_sizes`]).
@@ -224,6 +225,7 @@ impl Estimate {
         );
         blocks.extend(baseline.hole_table.iter().filter_map(split));
         Self {
+            units: baseline.spec.units,
             views,
             first_blocks,
             blocks,
@@ -254,7 +256,11 @@ impl Estimate {
     /// with the reserved paper mm it needs against what the paper offers; `None` if all hold.
     fn shortfall(&self, size: &str, max: usize, scale: f64) -> Option<String> {
         // Invariant: Candidates select paper names from the fixed PAGES table.
-        let (_, w, h) = layout::PAGES.iter().find(|p| p.0 == size).unwrap();
+        let (_, w, h) = crate::units::Paper::for_size(size)
+            .pages()
+            .iter()
+            .find(|p| p.0 == size)
+            .unwrap();
         let available = [w - 2.0 * layout::margin(), h - 2.0 * layout::margin()];
         let at = model::scale_name(scale);
         let frame = format!(
@@ -374,8 +380,9 @@ impl Estimate {
     /// Why no readable standard scale fits: the shortfall at the smallest readable scale,
     /// where every reserved outline is smallest, so every larger scale fails too.
     fn ruled_out(&self, size: &str, max: usize, floor: f64) -> String {
-        let smallest = layout::SCALES
-            .into_iter()
+        let smallest = crate::units::scales(self.units)
+            .iter()
+            .copied()
             .rev()
             .find(|s| *s + 1e-9 >= floor);
         match smallest.and_then(|s| Some((s, self.shortfall(size, max, s)?))) {
@@ -391,8 +398,9 @@ impl Estimate {
     }
 
     fn scale(&self, size: &str, max: usize, floor: f64) -> Option<f64> {
-        layout::SCALES
-            .into_iter()
+        crate::units::scales(self.units)
+            .iter()
+            .copied()
             .filter(|s| *s + 1e-9 >= floor)
             .find(|s| self.fits(size, max, *s))
     }
@@ -411,13 +419,16 @@ fn shared_band(views: &[(String, [f64; 2], [f64; 2])], a: &str, b: &str, k: usiz
 fn candidate_floor(analysis: &Analysis, baseline: &Plan, floor: f64) -> f64 {
     // Never newly compress a larger readable reference to the absolute 1:10
     // fallback just to retain preferred paper.
-    let floor = if baseline.sheet.scale_factor > sheet_fit::ABSOLUTE_FLOOR {
+    let floor = if baseline.sheet.scale_factor > sheet_fit::absolute_floor(baseline.spec.units) {
         floor.max(
-            layout::SCALES
-                .into_iter()
+            baseline
+                .spec
+                .scales()
+                .iter()
+                .copied()
                 .rev()
-                .find(|s| *s > sheet_fit::ABSOLUTE_FLOOR)
-                .unwrap_or(sheet_fit::ABSOLUTE_FLOOR),
+                .find(|s| *s > sheet_fit::absolute_floor(baseline.spec.units))
+                .unwrap_or(sheet_fit::absolute_floor(baseline.spec.units)),
         )
     } else {
         floor
@@ -429,8 +440,11 @@ fn candidate_floor(analysis: &Analysis, baseline: &Plan, floor: f64) -> f64 {
         return floor;
     }
     let needed = sheet_fit::min_step_scale(analysis, baseline);
-    let standard = layout::SCALES
-        .into_iter()
+    let standard = baseline
+        .spec
+        .scales()
+        .iter()
+        .copied()
         .rev()
         .find(|s| *s >= needed)
         .unwrap_or(needed);
@@ -446,13 +460,16 @@ fn readable_floor(analysis: &Analysis, baseline: &Plan, spec: &Spec) -> f64 {
     candidate_floor(
         analysis,
         baseline,
-        sheet_fit::min_geometry_scale(analysis).min(baseline.sheet.scale_factor),
+        sheet_fit::min_geometry_scale_in(analysis, spec.units).min(baseline.sheet.scale_factor),
     )
     .max(crate::sheets::floor(spec).unwrap_or(0.))
 }
 
 fn cap(spec: &Spec) -> &str {
-    spec.sheet.preferred_max_size.as_deref().unwrap_or("A3")
+    spec.sheet
+        .preferred_max_size
+        .as_deref()
+        .unwrap_or(spec.pages()[1].0)
 }
 
 fn preferred_sheets(spec: &Spec) -> usize {
@@ -460,21 +477,22 @@ fn preferred_sheets(spec: &Spec) -> usize {
 }
 
 fn requests(spec: &Spec) -> Vec<(&'static str, usize)> {
-    let preferred = layout::PAGES
+    let preferred = spec
+        .pages()
         .iter()
         .position(|p| p.0 == cap(spec))
         .unwrap_or(1);
     let hard = spec.sheets.as_ref().and_then(|s| s.max).unwrap_or(9) as usize;
     let count = preferred_sheets(spec).min(hard);
-    let mut out: Vec<_> = layout::PAGES[..=preferred]
+    let mut out: Vec<_> = spec.pages()[..=preferred]
         .iter()
         .map(|p| (p.0, 1))
         .collect();
-    out.extend((2..=count).map(|n| (layout::PAGES[preferred].0, n)));
-    for p in &layout::PAGES[preferred + 1..] {
+    out.extend((2..=count).map(|n| (spec.pages()[preferred].0, n)));
+    for p in &spec.pages()[preferred + 1..] {
         out.extend((1..=count).map(|n| (p.0, n)));
     }
-    out.extend((count + 1..=hard).map(|n| ("A0", n)));
+    out.extend((count + 1..=hard).map(|n| (spec.pages()[4].0, n)));
     out
 }
 
@@ -925,8 +943,8 @@ fn finish_choice(mut plan: Plan, spec: &Spec, candidates: Vec<Candidate>, reason
     for s in &mut plan.sheets {
         s.default = true;
     }
-    let larger = layout::PAGES.iter().position(|p| p.0 == plan.sheet.size)
-        > layout::PAGES.iter().position(|p| p.0 == cap(spec));
+    let larger = spec.pages().iter().position(|p| p.0 == plan.sheet.size)
+        > spec.pages().iter().position(|p| p.0 == cap(spec));
     let more = 1 + plan.sheets.len() > preferred_sheets(spec);
     if larger || more {
         let which = match (larger, more) {
@@ -951,8 +969,8 @@ fn finish_choice(mut plan: Plan, spec: &Spec, candidates: Vec<Candidate>, reason
 /// no standard sheet had a legible scale and the candidate is still below the opening
 /// legibility floor, it says so, as the baseline did.
 fn illegible_shortfall(analysis: &Analysis, spec: &Spec, baseline: &Plan, plan: &mut Plan) {
-    let legible =
-        sheet_fit::min_legible_scale(analysis).max(crate::sheets::floor(spec).unwrap_or(0.));
+    let legible = sheet_fit::min_legible_scale_in(analysis, spec.units)
+        .max(crate::sheets::floor(spec).unwrap_or(0.));
     let exhausted = |p: &Plan| {
         p.problems
             .iter()
@@ -992,7 +1010,7 @@ pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> 
             && let Some(unbroken) = crate::broken::without(spec)
         {
             let mut full = select(analysis, &unbroken)?;
-            let rank = |p: &Plan| layout::PAGES.iter().position(|g| g.0 == p.sheet.size);
+            let rank = |p: &Plan| spec.pages().iter().position(|g| g.0 == p.sheet.size);
             if rank(&plan) > rank(&full) || plan.sheet.scale_factor + 1e-9 < full.sheet.scale_factor
             {
                 full.spec = spec.clone();
@@ -1017,7 +1035,7 @@ fn select_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
         let decision = crate::dims::idle_decision(analysis, spec);
         let paper = |p: &Plan| {
             (
-                layout::PAGES
+                spec.pages()
                     .iter()
                     .position(|g| g.0 == p.sheet.size)
                     .unwrap_or(usize::MAX),
@@ -1248,7 +1266,8 @@ fn select_scales_full(
     let small = std::cell::OnceCell::new();
     let first_estimate = std::cell::OnceCell::new();
     for (size, max) in requests(spec) {
-        let large = layout::PAGES
+        let large = spec
+            .pages()
             .iter()
             .position(|p| p.0 == size)
             .is_some_and(|i| i >= model::LARGE_SHEET);
@@ -1284,8 +1303,7 @@ fn select_scales_full(
         let mut outcome = ruled_out.clone().unwrap_or_default();
         let inherited_floor = readable_floor(fit, &baseline, spec);
         let trials = std::cell::RefCell::new(
-            layout::SCALES
-                .into_iter()
+            spec.scales().iter().copied()
                 .filter(|s| *s + 1e-9 >= inherited_floor)
                 .filter_map(|s| {
                     if s+1e-9<floor {
@@ -1576,8 +1594,9 @@ fn select_scales_full(
         let mut steps: Vec<_> = first
             .into_iter()
             .flat_map(|largest| {
-                layout::SCALES
-                    .into_iter()
+                spec.scales()
+                    .iter()
+                    .copied()
                     .filter(move |s| *s <= largest && *s + 1e-9 >= floor)
             })
             .collect();
@@ -1616,8 +1635,9 @@ fn select_scales_full(
                 .into_iter()
                 .flat_map(|scale| {
                     std::iter::once(scale).chain(
-                        layout::SCALES
-                            .into_iter()
+                        spec.scales()
+                            .iter()
+                            .copied()
                             .find(|s| *s < scale && *s + 1e-9 >= floor),
                     )
                 })
@@ -1627,8 +1647,10 @@ fn select_scales_full(
             } else if baseline_fits {
                 // A refused baseline still earns one smaller readable scale on its own paper
                 // before a larger sheet is tried.
-                steps = layout::SCALES
-                    .into_iter()
+                steps = spec
+                    .scales()
+                    .iter()
+                    .copied()
                     .find(|s| *s < baseline.sheet.scale_factor && *s + 1e-9 >= floor)
                     .into_iter()
                     .collect();
@@ -3336,6 +3358,7 @@ mod tests {
     #[test]
     fn paper_bands_and_furniture_do_not_shrink_with_the_outline() {
         let estimate = Estimate {
+            units: Default::default(),
             views: vec![("v:front".into(), [100.0, 80.0], [280.0, 15.0])],
             blocks: Vec::new(),
             first_blocks: 0,
@@ -3348,6 +3371,7 @@ mod tests {
         assert_eq!(estimate.scale("A4", 2, 0.1), None);
         assert_eq!(estimate.scale("A3", 1, 0.1), Some(1.0));
         let with_table = Estimate {
+            units: Default::default(),
             blocks: vec![vec![[401.0, 20.0]]],
             ..estimate
         };
@@ -3361,6 +3385,7 @@ mod tests {
         let whole = [115.0, 441.0];
         let split = [236.0, 231.0];
         let estimate = |blocks| Estimate {
+            units: Default::default(),
             views: vec![("v:front".into(), [200.0, 100.0], [0.0; 2])],
             blocks,
             first_blocks: 1,
@@ -3381,6 +3406,7 @@ mod tests {
     #[test]
     fn tall_furniture_must_fit_beside_both_aligned_principals() {
         let estimate = Estimate {
+            units: Default::default(),
             views: vec![
                 ("v:front".into(), [200.0, 100.0], [0.0; 2]),
                 ("v:side".into(), [70.0, 100.0], [0.0; 2]),
@@ -3396,6 +3422,7 @@ mod tests {
         assert!(!estimate.fits("A3", 2, 1.0));
         assert!(estimate.fits("A3", 1, 0.5));
         let movable = Estimate {
+            units: Default::default(),
             first_blocks: 0,
             ..estimate
         };
@@ -3409,6 +3436,7 @@ mod tests {
         // With a second sheet R5 may give the plan its own page, so the estimate
         // must not rule that request out.
         let estimate = Estimate {
+            units: Default::default(),
             views: vec![
                 ("v:front".into(), [400.0, 100.0], [0.0; 2]),
                 ("v:plan".into(), [400.0, 320.0], [0.0; 2]),
@@ -3474,6 +3502,7 @@ mod tests {
     #[test]
     fn a_ruled_out_request_states_its_shortfall_and_paper() {
         let estimate = Estimate {
+            units: Default::default(),
             views: vec![("v:front".into(), [100.0, 80.0], [280.0, 15.0])],
             blocks: Vec::new(),
             first_blocks: 0,
@@ -3515,6 +3544,7 @@ mod tests {
         // The necessary test refuses only a strict excess: a footprint exactly filling the
         // drawable width is planned in full.
         let at_limit = |width: f64| Estimate {
+            units: Default::default(),
             views: vec![("v:front".into(), [width - 20.0, 100.0], [20.0, 10.0])],
             blocks: Vec::new(),
             first_blocks: 0,
@@ -3557,6 +3587,7 @@ mod tests {
             let estimate = Estimate::new(&a, &baseline);
             assert!(estimate.fits("A4", 1, 0.5));
             let wider = Estimate {
+                units: Default::default(),
                 views: estimate
                     .views
                     .iter()

@@ -46,13 +46,33 @@ fn number(v: f64) -> String {
     v.to_string()
 }
 
-fn expected(p: &Map<String, Value>) -> Option<Vec<String>> {
+fn expected(p: &Map<String, Value>, units: crate::output::Units) -> Option<Vec<String>> {
+    let unit = units.symbol();
+    let length = |v: f64| {
+        if units.is_mm() {
+            number(v)
+        } else {
+            crate::output::Units::inch_digits(format!("{:.3}", v / 25.4))
+        }
+    };
+    let len = |key: &str| Some(length(p.get(key)?.as_f64()?));
     let n = |key: &str| Some(number(p.get(key)?.as_f64()?));
     let signed = |v: f64| {
         if v > 0.0 {
-            format!("+{}", number(v))
+            format!(
+                "+{}",
+                if units.is_mm() {
+                    number(v)
+                } else {
+                    units.magnitude(v)
+                }
+            )
         } else {
-            number(v)
+            if units.is_mm() {
+                number(v)
+            } else {
+                units.magnitude(v)
+            }
         }
     };
     let tol = p.get("tooth_thickness_tolerance")?.as_array()?;
@@ -71,7 +91,7 @@ fn expected(p: &Map<String, Value>) -> Option<Vec<String>> {
             ],
             [
                 "MODULE m".into(),
-                format!("{} mm", n("module")?),
+                format!("{} {unit}", len("module")?),
                 "ISO 54:1996".into(),
             ],
             [
@@ -82,12 +102,17 @@ fn expected(p: &Map<String, Value>) -> Option<Vec<String>> {
             ["PROFILE SHIFT x".into(), n("profile_shift")?, geo.into()],
             [
                 "FACE WIDTH b".into(),
-                format!("{} mm", n("face_width")?),
+                format!("{} {unit}", len("face_width")?),
                 geo.into(),
             ],
             [
                 "TOOTH THICKNESS s".into(),
-                format!("{} {}/{} mm", n("tooth_thickness")?, signed(hi), signed(lo)),
+                format!(
+                    "{} {}/{} {unit}",
+                    len("tooth_thickness")?,
+                    signed(hi),
+                    signed(lo)
+                ),
                 "ISO 21771-2:2025".into(),
             ],
             [
@@ -195,7 +220,7 @@ pub fn check(a: &Analysis, drawing: &Drawing) -> Vec<LintIssue> {
                 .iter()
                 .map(|&i| Some(drawing.text.get(i)?.text.clone()))
                 .collect();
-            if actual.is_none() || actual != expected(p) {
+            if actual.is_none() || actual != expected(p, drawing.sheet.units) {
                 issues.push(issue("gear_requirement_mismatch", key, severity, "placed gear data table does not preserve the current authored normative requirement values"));
             }
         }

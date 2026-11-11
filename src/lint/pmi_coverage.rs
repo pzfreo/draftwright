@@ -304,7 +304,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             r.source_id == id
                 && r.category == Category::GeometricTolerance
                 && r.value.is_some_and(|v| v > 0.0)
-        }) && let Some(found) = mismatch(r, &m.text)
+        }) && let Some(found) = mismatch_in(r, &m.text, m.units)
         {
             let mut i = sourced("pmi_value_mismatch", id, Severity::Error, found);
             i.id = format!("l:pmi_value_mismatch:{}", m.name);
@@ -444,7 +444,14 @@ fn manufacturing_text(report: &Report, marks: &[Mark], ids: &Identities) -> Vec<
                     .fields
                     .iter()
                     .filter_map(|(name, field)| match field {
-                        crate::pmi::Field::Length(mm) => Some((name.as_str(), mm * 1000.0)),
+                        crate::pmi::Field::Length(mm) => Some((
+                            name.as_str(),
+                            if m.units.is_mm() {
+                                mm * 1000.0
+                            } else {
+                                m.units.from_mm(*mm)
+                            },
+                        )),
                         _ => None,
                     })
                     .collect();
@@ -463,7 +470,8 @@ fn manufacturing_text(report: &Report, marks: &[Mark], ids: &Identities) -> Vec<
                                 .and_then(|word| word.parse::<f64>().ok())
                                 .is_some_and(|value| {
                                     value.is_finite()
-                                        && (value == *expected
+                                        && ((!m.units.is_mm() && (value - expected).abs() <= 1e-12)
+                                            || value == *expected
                                             || format!("{expected:.2e}")
                                                 .parse::<f64>()
                                                 .is_ok_and(|display| value == display))
@@ -607,8 +615,8 @@ fn unreconciled(on_sheet: &BTreeSet<&str>) -> Vec<LintIssue> {
 
 /// What a frame's compartments *text* (its runs, joined by spaces: `⌖ ⌀0.05Ⓜ A B`) state
 /// that differs from record *r*, or none when they state its magnitude, zone and datums.
-fn mismatch(r: &Record, text: &str) -> Option<String> {
-    let expected = r.value?;
+fn mismatch_in(r: &Record, text: &str, units: crate::output::Units) -> Option<String> {
+    let expected = units.from_mm(r.value?);
     let zone_of = |r: &Record| {
         ["spherical_diameter_zone", "diameter_zone"]
             .into_iter()
@@ -630,6 +638,7 @@ fn mismatch(r: &Record, text: &str) -> Option<String> {
             .is_some_and(|n| !n.is_empty() && n.chars().all(|d| d.is_ascii_digit()))
     });
     let mut values = Vec::new();
+    let mut places = 0;
     let mut zones = Vec::new();
     let mut letters = Vec::new();
     for cell in cells.skip(1) {
@@ -644,13 +653,18 @@ fn mismatch(r: &Record, text: &str) -> Option<String> {
         match number.parse::<f64>() {
             Ok(v) if v.is_finite() => {
                 values.push(v);
+                places = number.split_once('.').map_or(0, |(_, d)| d.len());
                 zones.push(zone);
             }
             _ => letters.push(cell),
         }
     }
     // Python's display bound: half a unit of the 13th significant digit of the source value.
-    let bound = 0.5 * 10f64.powi(expected.abs().log10().floor() as i32 - 12);
+    let bound = if units.is_mm() {
+        0.5 * 10f64.powi(expected.abs().log10().floor() as i32 - 12)
+    } else {
+        0.5 * 10f64.powi(-(places as i32))
+    };
     let zone = zones.first().copied().flatten();
     if values.len() == 1
         && (values[0] - expected).abs() <= bound
@@ -862,7 +876,11 @@ pub(super) fn source_sites(
 
 // Read designation and role-bound values from all source-bound leader/note runs.
 // Numeric fields are compared with the parsed source, never with generated label text.
-pub(super) fn thread_text_states(t: &crate::pmi_lowering::Thread, text: &str) -> bool {
+pub(super) fn thread_text_states(
+    t: &crate::pmi_lowering::Thread,
+    text: &str,
+    units: crate::output::Units,
+) -> bool {
     let words: Vec<_> = text
         .split_whitespace()
         .map(|s| s.trim_end_matches([';', ',']))
@@ -870,7 +888,13 @@ pub(super) fn thread_text_states(t: &crate::pmi_lowering::Thread, text: &str) ->
     let equal = |s: &str, value: f64| {
         s.trim_end_matches([';', ','])
             .parse::<f64>()
-            .is_ok_and(|v| (v - value).abs() < 1e-6)
+            .is_ok_and(|v| {
+                if units.is_mm() {
+                    (v - value).abs() < 1e-6
+                } else {
+                    super::holes::states_in(s.trim_end_matches([';', ',']), value, units)
+                }
+            })
     };
     let designation = words.iter().enumerate().any(|(i, word)| {
         if !word.starts_with('M') {
@@ -981,14 +1005,18 @@ pub fn manufacturing_references(analysis: &Analysis, drawing: &Drawing) -> Vec<L
             text += &super::schedule_evidence::text(drawing, a);
         }
         let states = if let Some(t) = o.thread() {
-            thread_text_states(t, &text)
+            thread_text_states(t, &text, drawing.sheet.units)
         } else if let Some((pattern, pitch, maximum)) = o.knurl_values() {
             let words: Vec<_> = text
                 .split_whitespace()
                 .map(|w| w.trim_end_matches([';', ',']))
                 .collect();
             let same = |s: &str, expected: f64| {
-                s.parse::<f64>().is_ok_and(|v| (v - expected).abs() < 1e-6)
+                if drawing.sheet.units.is_mm() {
+                    s.parse::<f64>().is_ok_and(|v| (v - expected).abs() < 1e-6)
+                } else {
+                    super::holes::states_in(s, expected, drawing.sheet.units)
+                }
             };
             words.windows(3).any(|w| {
                 w[0] == pattern.to_uppercase()
@@ -1089,6 +1117,11 @@ pub fn manufacturing_references(analysis: &Analysis, drawing: &Drawing) -> Vec<L
         }
     }
     issues
+}
+
+#[cfg(test)]
+fn mismatch(r: &Record, text: &str) -> Option<String> {
+    mismatch_in(r, text, crate::output::Units::Mm)
 }
 
 #[cfg(test)]
@@ -1246,12 +1279,16 @@ mod tests {
         let marks = |edge: &str, finish: &str| {
             vec![
                 Mark {
+                    precision: None,
+                    units: Default::default(),
                     name: ids.id("manufacturing_requirement:#2").unwrap().into(),
                     view: None,
                     text: edge.into(),
                     claims: vec![],
                 },
                 Mark {
+                    precision: None,
+                    units: Default::default(),
                     name: ids.id("surface_texture:#3").unwrap().into(),
                     view: None,
                     text: finish.into(),
@@ -1295,6 +1332,8 @@ mod tests {
         // Text on an unrelated annotation cannot rescue either source's own corrupted text.
         let mut wrong = marks("1 Deburr", "Ra 9.9");
         wrong.push(Mark {
+            precision: None,
+            units: Default::default(),
             name: "n:1".into(),
             view: None,
             text: format!("{} Ra 0.8", report.records[0].label),
@@ -1307,6 +1346,8 @@ mod tests {
             .fields
             .push(("sampling length".into(), Field::Length(0.25)));
         let mark = Mark {
+            precision: None,
+            units: Default::default(),
             name: "pmi:surface_texture:#3".into(),
             view: None,
             text: "Ra 0.80 sampling length 250".into(),
@@ -1324,6 +1365,8 @@ mod tests {
             let mut source = report.clone();
             source.records[1].fields = vec![("Ra".into(), Field::Length(mm))];
             let mark = Mark {
+                precision: None,
+                units: Default::default(),
                 name: "pmi:surface_texture:#3".into(),
                 view: None,
                 text: text.into(),

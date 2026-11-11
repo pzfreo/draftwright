@@ -59,7 +59,7 @@ use serde_json::Value;
 
 use super::envelope::{corner, profile_views};
 use super::grooves::not_dimensioned;
-use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, fmt, point, want_id};
+use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, point, want_id};
 use crate::bridge::{Feature, holes};
 use crate::lint::turned::{Band, band, bands};
 use crate::model::Analysis;
@@ -189,16 +189,16 @@ fn groove_spans<'a>(cx: &'a Context) -> Vec<(Option<&'a Value>, usize, P3, f64, 
 
 /// The diameters a hole coaxial with a band along *k* through *on* prints (its bore, counterbore
 /// and spotface), as `fmt` prints them.
-fn coaxial_bores(analysis: &Analysis, k: usize, on: P3) -> Vec<String> {
+fn coaxial_bores(analysis: &Analysis, k: usize, on: P3, units: crate::units::Units) -> Vec<String> {
     let mut out = Vec::new();
     for (_, h) in holes::read(analysis) {
         let Ok(h) = h else { continue };
         if h.principal.map(|(a, _)| a) != Some(k) || !same_line(k, h.at, on) {
             continue;
         }
-        out.push(fmt(h.diameter));
+        out.push(units.format(h.diameter));
         for r in h.recesses() {
-            out.push(fmt(r.diameter));
+            out.push(units.format(r.diameter));
         }
     }
     out
@@ -325,6 +325,7 @@ fn diameters(
     carried: &[&str],
     manufacturing: &Manufacturing,
 ) -> Vec<Want> {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let mut items: Vec<(Vec<&Banded>, Vec<String>)> = Vec::new();
     for fb in read {
         let (f, b) = fb;
@@ -340,7 +341,7 @@ fn diameters(
         // A thread or knurl the band carries follows its diameter (`_manufacturing_suffix`),
         // before the `OD` rider (`_external_diameter_rider`).
         terms.extend(manufacturing.terms(&f.id).0);
-        if b.axis == 2 && coaxial_bores(cx.analysis, b.axis, b.on).contains(&text) {
+        if b.axis == 2 && coaxial_bores(cx.analysis, b.axis, b.on, cx.spec.units).contains(&text) {
             terms.push("OD".into());
         }
         items.push((vec![fb], terms));
@@ -377,7 +378,7 @@ fn diameters(
             let (f, b) = members[0];
             let views = diameter_views(cx.analysis, b);
             let n = members.len();
-            Want {
+            Want { units: cx.spec.units,
                 id: want_id(&f.id, "step.diameter"),
                 views,
                 value: b.diameter,
@@ -432,6 +433,7 @@ fn length(first: &Feature, members: &[&Banded], terms: Vec<String>, basis: Strin
         .fold(f64::NEG_INFINITY, f64::max);
     let views = profile_views(k);
     Want {
+        units: Default::default(),
         id: want_id(&first.id, "step.length"),
         views,
         value: if members.len() == 1 {
@@ -518,7 +520,8 @@ fn mean(members: &[&Banded]) -> f64 {
 }
 
 /// One profile's step lengths, its bands in order along the axis.
-fn chain(bands: &[&Banded]) -> Vec<Want> {
+fn chain(bands: &[&Banded], units: crate::units::Units) -> Vec<Want> {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let k = bands[0].1.axis;
     let one = |m: &Banded| {
         length(
@@ -681,7 +684,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             && p.len() >= 2
             && let Some((high, from)) = profile_datum(cx.analysis, p)
         {
-            let (shoulders, last) = baseline(p, high, &from);
+            let (shoulders, last) = baseline(p, high, &from, cx.spec.units);
             out.extend(shoulders);
             let overall = want_id("envelope", &format!("{}.length", super::envelope::NAMES[k]));
             if let Some(w) = out.iter_mut().find(|w| w.id == overall) {
@@ -697,10 +700,10 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             // Keep individual links so exactly one, rather than an entire counted
             // chain, can become reference beside the controlling overall length.
             for b in p {
-                out.extend(chain(std::slice::from_ref(b)));
+                out.extend(chain(std::slice::from_ref(b), cx.spec.units));
             }
         } else {
-            out.extend(chain(p));
+            out.extend(chain(p, cx.spec.units));
         }
         own_body(&mut out[first..], p, &profiles, cx.analysis);
     }
@@ -1001,7 +1004,13 @@ fn axial_datum_uncached(analysis: &Analysis) -> Option<(usize, f64)> {
 /// and the far end's claim (the last band's position), which the overall
 /// length states, is returned for it to carry. The shortest is innermost (placement's lane
 /// order), so the rungs stack from the datum.
-fn baseline(p: &[&Banded], high: bool, from: &str) -> (Vec<Want>, Measurement) {
+fn baseline(
+    p: &[&Banded],
+    high: bool,
+    from: &str,
+    units: crate::units::Units,
+) -> (Vec<Want>, Measurement) {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let k = p[0].1.axis;
     let mut ordered: Vec<&Banded> = p.to_vec();
     if high {
@@ -1023,11 +1032,11 @@ fn baseline(p: &[&Banded], high: bool, from: &str) -> (Vec<Want>, Measurement) {
     // The other bands' own lengths stay planned, so a spec that names one still reads; the plan
     // shows each as conveyed by the rung that locates its band (`redundancy::consolidate`).
     for b in &ordered[1..] {
-        out.extend(chain(std::slice::from_ref(b)));
+        out.extend(chain(std::slice::from_ref(b), units));
     }
     for (f, b) in &ordered[1..ordered.len() - 1] {
         let value = (far(b) - datum).abs();
-        out.push(Want {
+        out.push(Want { units,
             id: want_id(&f.id, "step_position.length"),
             views: profile_views(k),
             value,
@@ -1070,6 +1079,7 @@ fn overall(
     covered: bool,
     manufacturing: &Manufacturing,
 ) -> Vec<Want> {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let [lo, hi] = cx.analysis.envelope;
     let mut out = Vec::new();
     let views = profile_views(t.axis);
@@ -1121,7 +1131,7 @@ fn overall(
         2 => "; it is also the diameter of the two separate bands that size".into(),
         n => format!("; it is also the diameter of the {n} separate bands that size"),
     };
-    out.push(Want {
+    out.push(Want { units: cx.spec.units,
         id: want_id("envelope", "od.diameter"),
         views: views.clone(),
         value: t.diameter,
@@ -1144,7 +1154,7 @@ fn overall(
     });
     let k = t.axis;
     let name = super::envelope::NAMES[k];
-    out.push(Want {
+    out.push(Want { units: cx.spec.units,
         id: want_id("envelope", &format!("{name}.length")),
         views,
         value: hi[k] - lo[k],

@@ -22,7 +22,7 @@
 //! A pad whose record cannot be read in the part's frame is `feature_not_dimensioned`.
 
 use super::recesses::{location, on_datum};
-use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, fmt, want_id};
+use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, end_on, want_id};
 use crate::lint::pads::{locations, placed};
 
 pub(super) const PLANNER: Planner = Planner {
@@ -34,6 +34,7 @@ pub(super) const PLANNER: Planner = Planner {
 const PLANE_AXES: [[usize; 2]; 3] = [[1, 2], [2, 0], [0, 1]];
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let a = cx.analysis;
     let [lo, hi] = a.envelope;
     let mut out = Vec::new();
@@ -78,7 +79,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             let (mut from, mut to) = (face, face);
             from[k] = b[k][0];
             to[k] = b[k][1];
-            out.push(Want {
+            out.push(Want { units: cx.spec.units,
                 id: want_id(&f.id, parameter),
                 views: vec![view],
                 value: v,
@@ -109,7 +110,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             c[k] = b[k][end];
             (c, 0.0)
         };
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id(&f.id, "pad_height.length"),
             views: vec![view],
             value: height,
@@ -155,7 +156,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
                     AXES[k],
                     ["left", "front", "bottom"][k]
                 ),
-            ));
+             cx.spec.units));
         }
     }
     (out, problems)

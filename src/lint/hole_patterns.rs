@@ -246,7 +246,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                                 .any(|m| {
                                     m.claims.iter().any(|c| {
                                         c.feature == read[i].feature.id && c.parameter == parameter
-                                    }) && holes::states(&m.text, distance)
+                                    }) && m.states_text(&m.text, distance)
                                 })
                     })
                 })
@@ -262,7 +262,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                         m.claims
                             .iter()
                             .any(|c| c.feature == p.id && c.parameter == *parameter)
-                            && spacing_stated(parameter, &m.text, d)
+                            && spacing_stated(parameter, &m.text, m.units.from_mm(d))
                     })
                 })
             });
@@ -288,7 +288,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                     m.claims
                         .iter()
                         .any(|c| c.feature == p.id && c.parameter == parameter)
-                        && holes::states(&m.text, pitch)
+                        && m.states_text(&m.text, pitch)
                 }) else {
                     continue;
                 };
@@ -339,7 +339,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
                 .collect();
             if claiming
                 .iter()
-                .any(|m| distances.iter().any(|d| holes::states(&m.text, *d)))
+                .any(|m| distances.iter().any(|d| m.states_text(&m.text, *d)))
             {
                 continue;
             }
@@ -389,7 +389,7 @@ pub fn coverage(analysis: &Analysis, marks: &[Mark]) -> Vec<LintIssue> {
             if value.is_some_and(|d| {
                 claiming
                     .iter()
-                    .any(|m| spacing_stated(&parameter, &m.text, d))
+                    .any(|m| spacing_stated(&parameter, &m.text, m.units.from_mm(d)))
             }) {
                 continue;
             }

@@ -158,7 +158,7 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                     } else {
                         l.span[1] - l.span[0]
                     };
-                    issues.extend(label_vs_measured(
+                    issues.extend(label_vs_measured_in(
                         d,
                         text,
                         measured,
@@ -166,6 +166,7 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                         unfolded,
                         drawing.sheet.precision.get(&d.name).copied(),
                         &mut rounded,
+                        drawing.sheet.units,
                     ));
                 } else if let Some(span) = drawing
                     .sheet
@@ -174,7 +175,7 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                     .and_then(|f| f.half_axis)
                     .and_then(|axis| half_span(&d.lines, axis))
                 {
-                    issues.extend(label_vs_measured(
+                    issues.extend(label_vs_measured_in(
                         d,
                         text,
                         span,
@@ -182,6 +183,7 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                         false,
                         drawing.sheet.precision.get(&d.name).copied(),
                         &mut rounded,
+                        drawing.sheet.units,
                     ));
                 } else if let Some(span) = aligned_span(&d.lines) {
                     let unfolded = frame.broken.is_some();
@@ -193,7 +195,7 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                     } else {
                         span
                     };
-                    issues.extend(label_vs_measured(
+                    issues.extend(label_vs_measured_in(
                         d,
                         text,
                         span,
@@ -201,6 +203,7 @@ pub(super) fn check(drawing: &Drawing) -> Vec<LintIssue> {
                         unfolded,
                         drawing.sheet.precision.get(&d.name).copied(),
                         &mut rounded,
+                        drawing.sheet.units,
                     ));
                 } else if d.lines.len() >= 3 {
                     issues.extend(angular(drawing, d, text, *view));
@@ -273,7 +276,7 @@ pub(crate) fn label_value(label: &str) -> Option<f64> {
         return number(rest.trim_start()).map(|(v, _)| v);
     }
     let body = label.split(['±', '+']).next()?;
-    let start = body.find(|c: char| c.is_ascii_digit())?;
+    let start = body.find(|c: char| c.is_ascii_digit() || c == '.')?;
     number(&body[start..]).map(|(v, _)| v)
 }
 
@@ -284,7 +287,7 @@ fn displayed_decimals(label: &str) -> usize {
     let is_bare = !bare.is_empty()
         && bare.chars().all(|c| c.is_ascii_digit() || c == '.')
         && bare.chars().filter(|&c| c == '.').count() <= 1
-        && bare.starts_with(|c: char| c.is_ascii_digit());
+        && bare.starts_with(|c: char| c.is_ascii_digit() || c == '.');
     let places = if is_bare {
         bare.split_once('.').map_or(0, |(_, f)| f.len())
     } else {
@@ -302,7 +305,8 @@ fn reference_body(label: &str) -> &str {
         .trim()
 }
 
-fn label_vs_measured(
+#[allow(clippy::too_many_arguments)]
+fn label_vs_measured_in(
     d: &Drawn,
     label: &str,
     page: f64,
@@ -310,6 +314,7 @@ fn label_vs_measured(
     unfolded: bool,
     precision: Option<u8>,
     rounded: &mut Vec<(f64, String, f64)>,
+    units: crate::output::Units,
 ) -> Option<LintIssue> {
     if angular_label(label) {
         return None;
@@ -330,7 +335,7 @@ fn label_vs_measured(
         )
     } else {
         (
-            1.0,
+            units.millimetres(),
             precision.map_or_else(|| displayed_decimals(label) as i32, i32::from),
         )
     };

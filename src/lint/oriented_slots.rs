@@ -256,6 +256,8 @@ mod tests {
 
     fn mark(text: &str, parameters: &[&str]) -> Mark {
         Mark {
+            precision: None,
+            units: Default::default(),
             name: "m_oriented_slot_x_0".into(),
             view: Some("v:side".into()),
             text: text.into(),

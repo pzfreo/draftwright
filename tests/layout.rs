@@ -103,6 +103,8 @@ fn request(c: &Value) -> Request {
     });
     assert_eq!(c["convention"], "third", "first angle is not ported");
     Request {
+        units: Default::default(),
+        paper: Default::default(),
         max_page: None,
         automatic_pair: false,
         candidate_arrangement: None,

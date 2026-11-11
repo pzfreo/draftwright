@@ -4626,7 +4626,7 @@ fn settle_where(
     sees: impl Fn(usize, usize) -> bool,
 ) {
     let text_box = |b| {
-        if slot_layout {
+        if slot_layout || !page.units.is_mm() {
             super::contacts::clear_box(b)
         } else {
             b
@@ -4929,6 +4929,8 @@ fn outlines<'a>(analysis: &Analysis, views: &'a [PlannedView]) -> Vec<(&'a str, 
 /// drawn box ([`outlines`]) and the title block.
 #[derive(serde::Serialize)]
 pub(super) struct Page<'a> {
+    #[serde(skip_serializing_if = "crate::units::Units::is_mm")]
+    units: crate::units::Units,
     drawable: [f64; 4],
     views: Vec<(&'a str, [f64; 4])>,
     /// Each view's reserved area (its box and its annotation bands), by its ID.
@@ -4943,6 +4945,7 @@ impl<'a> Page<'a> {
         views: &'a [PlannedView],
     ) -> Page<'a> {
         Page {
+            units: sheet.units,
             drawable: drawable(sheet),
             views: outlines(analysis, views)
                 .into_iter()
@@ -6136,6 +6139,7 @@ mod tests {
             Frame::looking(&a, [0., -1., 0.], [0., 0., 1.], [0., 0.], 1.),
         )]);
         let want = |id: &str, lo| Want {
+            units: Default::default(),
             id: format!("d:pmi:{id}"),
             views: vec!["front"],
             value: 10.,
@@ -6492,6 +6496,7 @@ mod tests {
             Frame::looking(&a, [0., -1., 0.], [0., 0., 1.], [0., 0.], 1.),
         )]);
         let want = |id: &str, span: f64, order| Want {
+            units: Default::default(),
             id: id.into(),
             views: vec!["front"],
             value: span,
@@ -6608,6 +6613,7 @@ mod tests {
                 a[axis] = lo;
                 b[axis] = hi;
                 Want {
+                    units: Default::default(),
                     id: format!("{lo}-{hi}"),
                     views: vec!["front"],
                     value: (hi - lo).abs(),

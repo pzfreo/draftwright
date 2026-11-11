@@ -125,7 +125,7 @@ fn controlling(
     given: &mut Vec<Vec<String>>,
     omitted: &mut Vec<Omitted>,
 ) -> References {
-    super::gussets::share(kept, given, omitted);
+    super::gussets::share(kept, given, omitted, spec.units);
     let mut references = References::new();
     if !walkable(a) {
         return references;
@@ -574,7 +574,7 @@ fn members(analysis: &Analysis, w: &Want) -> Vec<Span> {
             .iter()
             .map(|m| (m.feature.as_str(), m.parameter.as_str()))
     };
-    let mut own = crate::lint::redundancy::stated(analysis, &w.terms.join(" "), claims());
+    let mut own = crate::lint::redundancy::stated(analysis, &w.terms.join(" "), claims(), w.units);
     let halves: Vec<Span> = claims()
         .filter(|(_, p)| *p != "slot_width.length")
         .flat_map(|(f, p)| crate::lint::redundancy::halves(analysis, f, p, &own))

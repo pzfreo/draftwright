@@ -72,7 +72,17 @@
                   "A3",
                   "A2",
                   "A1",
-                  "A0"
+                  "A0",
+                  "ANSI A",
+                  "ANSI B",
+                  "ANSI C",
+                  "ANSI D",
+                  "ANSI E",
+                  "ARCH A",
+                  "ARCH B",
+                  "ARCH C",
+                  "ARCH D",
+                  "ARCH E"
                 ]
               },
               "dimension_spacing": {
@@ -107,6 +117,14 @@
                 "type": [
                   "object",
                   "null"
+                ]
+              },
+              "paper": {
+                "enum": [
+                  null,
+                  "iso",
+                  "ansi",
+                  "arch"
                 ]
               },
               "balloons": {
@@ -350,6 +368,12 @@
               }
             },
             "additionalProperties": false
+          },
+          "units": {
+            "enum": [
+              "mm",
+              "in"
+            ]
           }
         },
         "additionalProperties": false,
@@ -492,7 +516,17 @@
                   "A3",
                   "A2",
                   "A1",
-                  "A0"
+                  "A0",
+                  "ANSI A",
+                  "ANSI B",
+                  "ANSI C",
+                  "ANSI D",
+                  "ANSI E",
+                  "ARCH A",
+                  "ARCH B",
+                  "ARCH C",
+                  "ARCH D",
+                  "ARCH E"
                 ]
               },
               "dimension_spacing": {
@@ -527,6 +561,14 @@
                 "type": [
                   "object",
                   "null"
+                ]
+              },
+              "paper": {
+                "enum": [
+                  null,
+                  "iso",
+                  "ansi",
+                  "arch"
                 ]
               },
               "balloons": {
@@ -763,6 +805,12 @@
               }
             },
             "additionalProperties": false
+          },
+          "units": {
+            "enum": [
+              "mm",
+              "in"
+            ]
           }
         },
         "additionalProperties": false,
@@ -994,7 +1042,17 @@
                   "A3",
                   "A2",
                   "A1",
-                  "A0"
+                  "A0",
+                  "ANSI A",
+                  "ANSI B",
+                  "ANSI C",
+                  "ANSI D",
+                  "ANSI E",
+                  "ARCH A",
+                  "ARCH B",
+                  "ARCH C",
+                  "ARCH D",
+                  "ARCH E"
                 ]
               },
               "dimension_spacing": {
@@ -1029,6 +1087,14 @@
                 "type": [
                   "object",
                   "null"
+                ]
+              },
+              "paper": {
+                "enum": [
+                  null,
+                  "iso",
+                  "ansi",
+                  "arch"
                 ]
               },
               "balloons": {
@@ -1272,6 +1338,12 @@
               }
             },
             "additionalProperties": false
+          },
+          "units": {
+            "enum": [
+              "mm",
+              "in"
+            ]
           }
         },
         "additionalProperties": false,
@@ -1400,7 +1472,17 @@
                   "A3",
                   "A2",
                   "A1",
-                  "A0"
+                  "A0",
+                  "ANSI A",
+                  "ANSI B",
+                  "ANSI C",
+                  "ANSI D",
+                  "ANSI E",
+                  "ARCH A",
+                  "ARCH B",
+                  "ARCH C",
+                  "ARCH D",
+                  "ARCH E"
                 ]
               },
               "dimension_spacing": {
@@ -1435,6 +1517,14 @@
                 "type": [
                   "object",
                   "null"
+                ]
+              },
+              "paper": {
+                "enum": [
+                  null,
+                  "iso",
+                  "ansi",
+                  "arch"
                 ]
               },
               "balloons": {
@@ -1678,6 +1768,12 @@
               }
             },
             "additionalProperties": false
+          },
+          "units": {
+            "enum": [
+              "mm",
+              "in"
+            ]
           }
         },
         "additionalProperties": false,
@@ -1824,7 +1920,17 @@
                   "A3",
                   "A2",
                   "A1",
-                  "A0"
+                  "A0",
+                  "ANSI A",
+                  "ANSI B",
+                  "ANSI C",
+                  "ANSI D",
+                  "ANSI E",
+                  "ARCH A",
+                  "ARCH B",
+                  "ARCH C",
+                  "ARCH D",
+                  "ARCH E"
                 ]
               },
               "dimension_spacing": {
@@ -1859,6 +1965,14 @@
                 "type": [
                   "object",
                   "null"
+                ]
+              },
+              "paper": {
+                "enum": [
+                  null,
+                  "iso",
+                  "ansi",
+                  "arch"
                 ]
               },
               "balloons": {
@@ -2102,6 +2216,12 @@
               }
             },
             "additionalProperties": false
+          },
+          "units": {
+            "enum": [
+              "mm",
+              "in"
+            ]
           }
         },
         "additionalProperties": false,
@@ -2226,7 +2346,17 @@
                   "A3",
                   "A2",
                   "A1",
-                  "A0"
+                  "A0",
+                  "ANSI A",
+                  "ANSI B",
+                  "ANSI C",
+                  "ANSI D",
+                  "ANSI E",
+                  "ARCH A",
+                  "ARCH B",
+                  "ARCH C",
+                  "ARCH D",
+                  "ARCH E"
                 ]
               },
               "dimension_spacing": {
@@ -2261,6 +2391,14 @@
                 "type": [
                   "object",
                   "null"
+                ]
+              },
+              "paper": {
+                "enum": [
+                  null,
+                  "iso",
+                  "ansi",
+                  "arch"
                 ]
               },
               "balloons": {
@@ -2504,6 +2642,12 @@
               }
             },
             "additionalProperties": false
+          },
+          "units": {
+            "enum": [
+              "mm",
+              "in"
+            ]
           }
         },
         "additionalProperties": false,
@@ -2675,7 +2819,17 @@
                   "A3",
                   "A2",
                   "A1",
-                  "A0"
+                  "A0",
+                  "ANSI A",
+                  "ANSI B",
+                  "ANSI C",
+                  "ANSI D",
+                  "ANSI E",
+                  "ARCH A",
+                  "ARCH B",
+                  "ARCH C",
+                  "ARCH D",
+                  "ARCH E"
                 ]
               },
               "dimension_spacing": {
@@ -2710,6 +2864,14 @@
                 "type": [
                   "object",
                   "null"
+                ]
+              },
+              "paper": {
+                "enum": [
+                  null,
+                  "iso",
+                  "ansi",
+                  "arch"
                 ]
               },
               "balloons": {
@@ -2953,6 +3115,12 @@
               }
             },
             "additionalProperties": false
+          },
+          "units": {
+            "enum": [
+              "mm",
+              "in"
+            ]
           }
         },
         "additionalProperties": false,
@@ -3128,7 +3296,17 @@
                   "A3",
                   "A2",
                   "A1",
-                  "A0"
+                  "A0",
+                  "ANSI A",
+                  "ANSI B",
+                  "ANSI C",
+                  "ANSI D",
+                  "ANSI E",
+                  "ARCH A",
+                  "ARCH B",
+                  "ARCH C",
+                  "ARCH D",
+                  "ARCH E"
                 ]
               },
               "dimension_spacing": {
@@ -3163,6 +3341,14 @@
                 "type": [
                   "object",
                   "null"
+                ]
+              },
+              "paper": {
+                "enum": [
+                  null,
+                  "iso",
+                  "ansi",
+                  "arch"
                 ]
               },
               "balloons": {
@@ -3406,6 +3592,12 @@
               }
             },
             "additionalProperties": false
+          },
+          "units": {
+            "enum": [
+              "mm",
+              "in"
+            ]
           }
         },
         "additionalProperties": false,
@@ -3562,7 +3754,17 @@
                   "A3",
                   "A2",
                   "A1",
-                  "A0"
+                  "A0",
+                  "ANSI A",
+                  "ANSI B",
+                  "ANSI C",
+                  "ANSI D",
+                  "ANSI E",
+                  "ARCH A",
+                  "ARCH B",
+                  "ARCH C",
+                  "ARCH D",
+                  "ARCH E"
                 ]
               },
               "dimension_spacing": {
@@ -3597,6 +3799,14 @@
                 "type": [
                   "object",
                   "null"
+                ]
+              },
+              "paper": {
+                "enum": [
+                  null,
+                  "iso",
+                  "ansi",
+                  "arch"
                 ]
               },
               "balloons": {
@@ -3840,6 +4050,12 @@
               }
             },
             "additionalProperties": false
+          },
+          "units": {
+            "enum": [
+              "mm",
+              "in"
+            ]
           }
         },
         "additionalProperties": false,
@@ -3968,7 +4184,17 @@
                   "A3",
                   "A2",
                   "A1",
-                  "A0"
+                  "A0",
+                  "ANSI A",
+                  "ANSI B",
+                  "ANSI C",
+                  "ANSI D",
+                  "ANSI E",
+                  "ARCH A",
+                  "ARCH B",
+                  "ARCH C",
+                  "ARCH D",
+                  "ARCH E"
                 ]
               },
               "dimension_spacing": {
@@ -4003,6 +4229,14 @@
                 "type": [
                   "object",
                   "null"
+                ]
+              },
+              "paper": {
+                "enum": [
+                  null,
+                  "iso",
+                  "ansi",
+                  "arch"
                 ]
               },
               "balloons": {
@@ -4246,6 +4480,12 @@
               }
             },
             "additionalProperties": false
+          },
+          "units": {
+            "enum": [
+              "mm",
+              "in"
+            ]
           }
         },
         "additionalProperties": false,
@@ -4365,7 +4605,17 @@
                   "A3",
                   "A2",
                   "A1",
-                  "A0"
+                  "A0",
+                  "ANSI A",
+                  "ANSI B",
+                  "ANSI C",
+                  "ANSI D",
+                  "ANSI E",
+                  "ARCH A",
+                  "ARCH B",
+                  "ARCH C",
+                  "ARCH D",
+                  "ARCH E"
                 ]
               },
               "dimension_spacing": {
@@ -4400,6 +4650,14 @@
                 "type": [
                   "object",
                   "null"
+                ]
+              },
+              "paper": {
+                "enum": [
+                  null,
+                  "iso",
+                  "ansi",
+                  "arch"
                 ]
               },
               "balloons": {
@@ -4643,6 +4901,12 @@
               }
             },
             "additionalProperties": false
+          },
+          "units": {
+            "enum": [
+              "mm",
+              "in"
+            ]
           }
         },
         "additionalProperties": false,

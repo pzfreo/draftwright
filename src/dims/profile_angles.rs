@@ -190,6 +190,7 @@ fn angle_want(id: String, corners: &[&Corner], reference: bool, basis: &str) -> 
         text = format!("({text})");
     }
     Want {
+        units: Default::default(),
         id,
         views: vec![end_on(c.axis)],
         value,
@@ -263,6 +264,7 @@ pub(super) fn apply(
     spec: &Spec,
     wants: &mut Vec<Want>,
 ) -> Result<(), Invalid> {
+    let fmt = |v| crate::dims::fmt_in(v, spec.units);
     let corners = requirements(analysis);
     if corners.is_empty() {
         return Ok(());
@@ -394,7 +396,7 @@ pub(super) fn apply(
                 // atan2 differs in its last bits between native and WASM libm; the plan's value
                 // must not.
                 let angle = |c: &Corner| (c.degrees() * 1e9).round() / 1e9;
-                added.push(Want {
+                added.push(Want { units: spec.units,
                     id: id(&format!("f{face}_{oblique}"), CHAMFER),
                     views: vec![end_on(first.axis)],
                     value: leg,
@@ -538,7 +540,7 @@ pub(super) fn apply(
             } else {
                 ([at, a], [false, true])
             };
-            added.push(Want {
+            added.push(Want { units: spec.units,
                 id: want_id,
                 views: vec![end_on(axis)],
                 value,

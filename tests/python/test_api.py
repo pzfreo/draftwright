@@ -61,6 +61,17 @@ class PythonAPI(unittest.TestCase):
         self.assertEqual(spec["sheet"]["projection"], "first")
         self.assertTrue(spec["sheet"]["zones"])
 
+    def test_inches_and_us_paper_names(self):
+        for page in ("ansi b", " ARCH D "):
+            svg, _ = self.assert_files(draftwright.make_drawing(
+                PLATE, units="in", page=page, out=self.directory / page.strip(),
+            ))
+            spec = self.spec(svg)
+            self.assertEqual(spec["units"], "in")
+            self.assertEqual(spec["sheet"]["size"], page.strip().upper())
+        with self.assertRaisesRegex(TypeError, "units must be"):
+            draftwright.make_drawing("missing.step", units="cm")
+
     def test_default_destination_and_old_positional_arguments(self):
         step = self.directory / "input.step"
         shutil.copyfile(PLATE, step)

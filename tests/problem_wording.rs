@@ -143,8 +143,60 @@ fn only_sheet_problems_have_the_sheet_as_subject() {
     for (name, plan) in plans() {
         for p in &plan.problems {
             if p.subjects.iter().any(|s| s == "sheet") {
+                // US units add two whole-sheet intent advisories. Check their complete
+                // contracts: the original whitelist still governs every other finding.
+                let unit_intent =
+                    if p.code == "inch_design_detected" {
+                        assert!(plan.spec.units.is_mm());
+                        assert_eq!(p.id, "p:inch_design_detected:sheet");
+                        assert_eq!(p.severity, "info");
+                        assert!(
+                            p.fix.iter().any(|op| op.path == "units"
+                                && op.value == Some(serde_json::json!("in")))
+                        );
+                        assert!(p.fix.iter().any(|op| op.path == "sheet/paper"
+                            && op.value == Some(serde_json::json!("ansi"))));
+                        assert!(p.fix.iter().all(|op| match op.path.as_str() {
+                            "units" | "sheet/paper" => op.op == "set",
+                            "sheet/size" | "sheet/preferred_max_size" =>
+                                op.op == "set" && op.value == Some(serde_json::Value::Null),
+                            _ => false,
+                        }));
+                        true
+                    } else if p.code == "nominal_rounded" && !plan.spec.units.is_mm() {
+                        assert_eq!(p.id, "p:nominal_rounded:sheet");
+                        assert_eq!(p.severity, "info");
+                        assert!(!p.refs.is_empty());
+                        assert!(p.subjects.len() > 1);
+                        assert!(
+                            p.fix.iter().any(|op| op.path == "units"
+                                && op.value == Some(serde_json::json!("mm")))
+                        );
+                        assert!(p.fixes.iter().any(|fix| fix.ops.len() == 1
+                            && fix.ops[0].path == "precision"
+                            && fix.ops[0].value.as_ref().is_some_and(|v| v.is_object())));
+                        let remedy = p
+                            .fixes
+                            .iter()
+                            .find(|f| f.ops.len() == 1 && f.ops[0].path == "precision")
+                            .unwrap();
+                        let four =
+                            model::edit(&plan.spec, &serde_json::to_value(&remedy.ops).unwrap())
+                                .unwrap();
+                        assert_eq!(four.units, plan.spec.units);
+                        assert!(four.precision.values().any(|p| *p == 4));
+                        assert!(
+                            plan.spec
+                                .precision
+                                .iter()
+                                .all(|(id, p)| four.precision.get(id) == Some(p))
+                        );
+                        true
+                    } else {
+                        false
+                    };
                 assert!(
-                    SHEET.contains(&p.code.as_str()),
+                    SHEET.contains(&p.code.as_str()) || unit_intent,
                     "{name}: {} ({}) is not about the sheet: {}",
                     p.id,
                     p.code,

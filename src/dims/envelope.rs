@@ -3,7 +3,7 @@
 //! diameter and length instead ([`super::turned`]), and whole-part polygonal stock its size across
 //! flats and its length ([`super::stock`]).
 
-use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, fmt, want_id};
+use super::{AXES, Context, Measurement, P3, Planner, Problem, Shape, Want, want_id};
 
 pub(super) const PLANNER: Planner = Planner { kinds: &[], wants };
 
@@ -27,6 +27,7 @@ pub(super) fn corner(k: usize, at: f64, other: P3) -> P3 {
 }
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     if cx.turned.is_some() || super::stock::whole(cx) || crate::springs::whole(cx.analysis) {
         return (Vec::new(), Vec::new());
     }
@@ -38,7 +39,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
             continue;
         }
         let views = profile_views(k);
-        out.push(Want {
+        out.push(Want { units: cx.spec.units,
             id: want_id("envelope", &format!("{name}.length")),
             views: views.clone(),
             value: v,

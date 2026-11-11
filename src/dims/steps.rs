@@ -23,9 +23,7 @@
 use serde_json::Value;
 
 use super::levels::{Through, ownership};
-use super::{
-    AXES, Context, Measurement, Planner, Problem, QFrame, Shape, Want, end_on, fmt, point,
-};
+use super::{AXES, Context, Measurement, Planner, Problem, QFrame, Shape, Want, end_on, point};
 use crate::bridge::Feature;
 use crate::bridge::holes::principal;
 
@@ -67,7 +65,8 @@ fn run(f: &Feature, frame: &QFrame) -> Result<usize, String> {
 }
 
 /// A through step's two legs, each in the view that looks along its run.
-fn through_wants(s: &Through) -> Vec<Want> {
+fn through_wants(s: &Through, units: crate::units::Units) -> Vec<Want> {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let view = end_on(s.run);
     let id = &s.feature.id;
     s.legs()
@@ -75,7 +74,7 @@ fn through_wants(s: &Through) -> Vec<Want> {
         .map(|(k, a, b)| {
             let value = (b[k] - a[k]).abs();
             let parameter = format!("through_step_leg.length.{}", AXES[k]);
-            Want {
+            Want { units,
                 id: super::want_id(id, &parameter),
                 views: vec![view],
                 value,
@@ -108,7 +107,9 @@ fn circular(
     f: &Feature,
     frame: &QFrame,
     analysis: &crate::model::Analysis,
+    units: crate::units::Units,
 ) -> Result<Want, String> {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let r = size(f, "radius")?;
     let depth = size(f, "length")?;
     let k = run(f, frame)?;
@@ -132,7 +133,7 @@ fn circular(
         fmt(depth),
         "DEEP".into(),
     ];
-    Ok(Want {
+    Ok(Want { units,
         id: super::want_id(&f.id, "circular_step_radius.radius"),
         views: vec![view],
         value: r,
@@ -159,7 +160,8 @@ fn circular(
 }
 
 /// A paired-ramp step's callout: `2× <angle>° × <run> RUN`, with a leader to the ramps' ridge.
-fn ramp(f: &Feature, frame: &QFrame) -> Result<Want, String> {
+fn ramp(f: &Feature, frame: &QFrame, units: crate::units::Units) -> Result<Want, String> {
+    let fmt = |v| crate::dims::fmt_in(v, units);
     let angle = size(f, "angle")?;
     if angle >= 90.0 {
         return Err(format!("its angle {angle} is not acute"));
@@ -170,12 +172,12 @@ fn ramp(f: &Feature, frame: &QFrame) -> Result<Want, String> {
     let view = end_on(k);
     let terms = vec![
         "2×".into(),
-        format!("{}°", fmt(angle)),
+        format!("{}°", crate::dims::fmt(angle)),
         "×".into(),
         fmt(length),
         "RUN".into(),
     ];
-    Ok(Want {
+    Ok(Want { units,
         id: super::want_id(&f.id, "ramp_angle.angle"),
         views: vec![view],
         value: angle,
@@ -201,12 +203,13 @@ fn ramp(f: &Feature, frame: &QFrame) -> Result<Want, String> {
 }
 
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let mut out = Vec::new();
     let mut problems = Vec::new();
     // Unreadable through steps are reported by the ladder's ownership stage, which reads them.
     let o = ownership(cx);
     for s in &o.lowered {
-        out.extend(through_wants(s));
+        out.extend(through_wants(s, cx.spec.units));
     }
     for (s, owners) in &o.legacy {
         let f = s.feature;
@@ -245,8 +248,8 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
     }
     for f in &cx.analysis.features {
         let want = match f.kind.as_str() {
-            "circular_blind_step" => circular(f, &cx.frame, cx.analysis),
-            "paired_ramp_step" => ramp(f, &cx.frame),
+            "circular_blind_step" => circular(f, &cx.frame, cx.analysis, cx.spec.units),
+            "paired_ramp_step" => ramp(f, &cx.frame, cx.spec.units),
             _ => continue,
         };
         match want {

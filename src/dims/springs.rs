@@ -1,5 +1,5 @@
 //! Only free length and outer diameter are dimensioned; remaining data is tabulated.
-use super::{Context, Measurement, Planner, Problem, Shape, Want, fmt, want_id};
+use super::{Context, Measurement, Planner, Problem, Shape, Want, want_id};
 use crate::bridge::holes;
 
 pub(super) const PLANNER: Planner = Planner {
@@ -7,6 +7,7 @@ pub(super) const PLANNER: Planner = Planner {
     wants,
 };
 fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
+    let fmt = |v| crate::dims::fmt_in(v, cx.spec.units);
     let mut out = vec![];
     let mut problems = vec![];
     for s in crate::springs::read(cx.analysis) {
@@ -46,7 +47,7 @@ fn wants(cx: &Context) -> (Vec<Want>, Vec<Problem>) {
         ] {
             let full = cx.spec.features.get(&s.feature.id).and_then(|f| f.spring)
                 == Some(crate::model::SpringDepiction::Full);
-            out.push(Want {
+            out.push(Want { units: cx.spec.units,
                 id: want_id(&s.feature.id, parameter),
                 views: views.clone(),
                 value,

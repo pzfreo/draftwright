@@ -1,5 +1,5 @@
 //! Spec-authored quantities use the ordinary Want -> lanes -> placement -> ink pipeline.
-use super::{Measurement, Shape, Want, fmt};
+use super::{Measurement, Shape, Want};
 use crate::model::dimension_geometry::{Reference, dot, sub, unit};
 use crate::model::{Analysis, Invalid, Problem, Spec};
 
@@ -74,6 +74,7 @@ pub(super) fn append(
     s: &Spec,
     wants: &mut Vec<Want>,
 ) -> Result<Vec<Problem>, Invalid> {
+    let fmt = |v| crate::dims::fmt_in(v, s.units);
     if !s.dimensions.keys().any(|id| id.starts_with("d:authored:"))
         && !s
             .dimensions
@@ -192,10 +193,11 @@ pub(super) fn append(
         let label = match kind {
             "diameter" => format!("⌀{}", fmt(m.value)),
             "radius" => format!("R{}", fmt(m.value)),
-            "angle" => format!("{}°", fmt(m.value)),
+            "angle" => format!("{}°", crate::dims::fmt(m.value)),
             _ => fmt(m.value),
         };
         let mut w = Want {
+            units: s.units,
             id: id.clone(),
             views,
             value: m.value,

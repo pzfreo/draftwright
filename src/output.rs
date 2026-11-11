@@ -7,6 +7,8 @@
 //! The drawing is layers of curves on a page, in millimetres with y up: each layer's lines are
 //! drawn in its style, and its faces (glyphs, arrowheads) filled where the layer fills.
 
+pub use crate::units::Units;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::f64::consts::{FRAC_PI_2, PI};
 use std::fmt::Write as _;
@@ -559,6 +561,7 @@ pub struct DrawnReference {
 /// format.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Sheet {
+    pub units: Units,
     /// Resolved source inventory for independent rendered-balloon verification.
     pub characteristics: Vec<crate::characteristics::Characteristic>,
     pub inspection_enabled: bool,

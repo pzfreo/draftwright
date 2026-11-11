@@ -6,6 +6,14 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Fix inch scale-floor overflow, numeric trust parsing, modelled-thread pitch/diameter,
+  turned OD riders and the inch-design advisory fix. Summarize inch rounding findings,
+  detect decimal-inch grids, align tolerance precision, and use explicit US zone counts
+  and smallest-sheet-first paper selection. Refuse conflicting paper families.
+
+- Add decimal-inch drawing intent, ANSI/ARCH landscape paper, imperial scale ratios,
+  unit-aware printed-precision checks, and CLI/Python units and paper controls.
+
 The next release is **0.6.0**, with one version for the GitHub tag, Cargo/crates.io and
 PyPI. The number jumps because PyPI's `draftwright` name already has releases from the
 earlier Python draftwright, up to 0.5.0rc13; the Rust engine takes that name over.
