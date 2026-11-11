@@ -1189,7 +1189,7 @@ fn dxf_shaded_pictorial_is_visible_edges_without_mesh_wedges() {
 fn dxf_tolerances_and_compound_nominals_stay_live() {
     use dxf::entities::EntityType as E;
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    for (band, up, lo) in [("±0.05", 0.05, 0.05), ("+0.1 -0.02", 0.1, 0.02)] {
+    for (band, shown) in [("±0.05", "%%p0.05"), ("+0.1 -0.02", "+0.1 -0.02")] {
         let spec: Spec = serde_json::from_value(
             json!({"dimensions":{"d:envelope/width.length":{"tolerance":band}}}),
         )
@@ -1210,18 +1210,22 @@ fn dxf_tolerances_and_compound_nominals_stay_live() {
                     .dim_styles()
                     .find(|s| s.name == dim.dimension_base.dimension_style_name)
                     .unwrap();
-                if st.generate_dimension_tolerances {
-                    assert_eq!(dim.dimension_base.text, "<>");
-                    assert!((st.dimension_plus_tolerance - up).abs() < 1e-12);
-                    assert!((st.dimension_minus_tolerance - lo).abs() < 1e-12);
+                // CAD readers such as QCAD ignore DIMTOL/DIMTP/DIMTM, so the
+                // tolerance is inline text beside the live value, not style data.
+                let text = &dim.dimension_base.text;
+                if text.starts_with("<> ") && text.contains(shown) {
+                    assert!(!st.generate_dimension_tolerances, "{text}");
                     found = true;
                 }
             }
             if let E::DiameterDimension(dim) = &e.specific {
-                assert_eq!(dim.dimension_base.text, "4× <> THRU");
+                assert_eq!(dim.dimension_base.text, "4× %%c<> THRU");
             }
         }
-        assert!(found, "{band} must be dimension tolerance data");
+        assert!(
+            found,
+            "{band} must be inline in the dimension text override"
+        );
     }
 }
 

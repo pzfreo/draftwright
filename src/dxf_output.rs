@@ -134,7 +134,6 @@ struct DimStyle {
     factor: f64,
     precision: u8,
     fixed: bool,
-    tolerance: Option<[f64; 2]>,
     leader: bool,
 }
 impl Default for DimStyle {
@@ -144,7 +143,6 @@ impl Default for DimStyle {
             factor: 1.,
             precision: 3,
             fixed: false,
-            tolerance: None,
             leader: false,
         }
     }
@@ -158,9 +156,6 @@ impl DimStyle {
         };
         if self.fixed {
             write!(name, "-P{}", self.precision).unwrap();
-        }
-        if let Some([up, lo]) = self.tolerance {
-            write!(name, "-TOL-{up}-{lo}").unwrap();
         }
         if self.leader {
             name.push_str("-LEADER");
@@ -201,10 +196,10 @@ impl DimStyle {
             ("DIMTMOVE", 279, if self.leader { 1. } else { 2. }),
             ("DIMCEN", 141, 0.),
             ("DIMTVP", 145, 0.),
-            ("DIMTOL", 71, if self.tolerance.is_some() { 1. } else { 0. }),
+            ("DIMTOL", 71, 0.),
             ("DIMLIM", 72, 0.),
-            ("DIMTP", 47, self.tolerance.map_or(0., |t| t[0])),
-            ("DIMTM", 48, self.tolerance.map_or(0., |t| t[1])),
+            ("DIMTP", 47, 0.),
+            ("DIMTM", 48, 0.),
             ("DIMTFAC", 146, 1.),
             ("DIMTDEC", 272, 6.),
             ("DIMTZIN", 284, 8.),
@@ -217,94 +212,33 @@ impl DimStyle {
 fn dimension_integer(code: i32) -> bool {
     (70..=79).contains(&code) || code >= 170
 }
-/// Express a plain deviation band in DIMTP/DIMTM; retain genuinely free wording.
-fn live_label(d: &Dimension, kind: i32) -> (String, Option<[f64; 2]>) {
+/// The DIMENSION text override: the measured value stays live (`<>`) while
+/// prefixes, tolerances and notes stay in the text itself. QCAD regenerates
+/// dimensions from per-entity data and ignores DIMTOL/DIMTP/DIMTM and the
+/// automatic diameter/radius prefix of named styles, so only inline text is
+/// shown by every reader. (In AutoCAD a regenerated radial/diametric `<>` adds
+/// its own R/diameter sign; the stored *D block shows the intended text.)
+fn live_label(d: &Dimension, kind: i32) -> String {
     let Some(primary) = &d.primary else {
-        return (encode_mtext(&d.label), None);
+        return override_text(&d.label);
     };
     let mut label = d.label.clone();
-    let tolerance = deviation_band(&label[primary.end..]);
-    if let Some((range, _)) = &tolerance {
-        label.replace_range(primary.end + range.start..primary.end + range.end, "");
-    }
     label.replace_range(primary.clone(), "<>");
-    if kind == 3 {
-        for c in ['⌀', 'ø', 'Ø'] {
-            label = label.replace(&format!("{c}<>"), "<>");
-        }
-    }
-    if kind == 4 {
-        label = label.replace("R<>", "<>");
-    }
     if kind == 5 {
         label = label.replace("<>°", "<>");
     }
-    (encode_mtext(&label), tolerance.map(|(_, band)| band))
+    override_text(&label)
 }
-fn deviation_band(s: &str) -> Option<(Range<usize>, [f64; 2])> {
-    let fitting_prefix = |prefix: &str| {
-        let prefix = prefix.trim();
-        prefix.is_empty()
-            || (prefix.starts_with(|c: char| c.is_ascii_alphabetic())
-                && prefix.chars().all(|c| c.is_ascii_alphanumeric())
-                && prefix.chars().any(|c| c.is_ascii_digit()))
-    };
-    if let Some(at) = s.find('±') {
-        let rest = &s[at + '±'.len_utf8()..];
-        let end = rest
-            .find(|c: char| !c.is_ascii_digit() && c != '.')
-            .unwrap_or(rest.len());
-        if fitting_prefix(&s[..at])
-            && let Ok(v) = rest[..end].parse::<f64>()
-        {
-            return Some((
-                s[..at].trim_end_matches(' ').len()..at + '±'.len_utf8() + end,
-                [v, v],
-            ));
-        }
-    }
-    let mut offset = 0;
-    let words: Vec<_> = s
-        .split_whitespace()
-        .map(|word| {
-            let start = offset + s[offset..].find(word).unwrap();
-            offset = start + word.len();
-            (start, word)
-        })
-        .collect();
-    for pair in words.windows(2) {
-        let [(at, up), (lo_at, lo)] = pair else {
-            unreachable!()
-        };
-        if fitting_prefix(&s[..*at])
-            && (up.starts_with('+') || *up == "0")
-            && (lo.starts_with(['-', '−']) || *lo == "0")
-            && let (Ok(up_value), Ok(lo_value)) =
-                (up.parse::<f64>(), lo.replace('−', "-").parse::<f64>())
-        {
-            return Some((
-                s[..*at].trim_end_matches(' ').len()..lo_at + lo.len(),
-                [up_value, -lo_value],
-            ));
-        }
-    }
-    for (at, word) in words {
-        let Some((up, lo)) = word.split_once('/') else {
-            continue;
-        };
-        if fitting_prefix(&s[..at])
-            && (up.starts_with('+') || up == "0")
-            && (lo.starts_with(['-', '−']) || lo == "0")
-            && let (Ok(up_value), Ok(lo_value)) =
-                (up.parse::<f64>(), lo.replace('−', "-").parse::<f64>())
-        {
-            return Some((
-                s[..at].trim_end_matches(' ').len()..at + word.len(),
-                [up_value, -lo_value],
-            ));
-        }
-    }
-    None
+/// U+21A7 and the other GD&T glyphs have no outline in the fonts QCAD and
+/// AutoCAD substitute for a dimension style, so they print as `?`. Use the
+/// ASME Y14.5 words instead.
+fn override_text(label: &str) -> String {
+    encode_mtext(
+        &label
+            .replace('↧', "DEEP")
+            .replace('⌴', "CBORE")
+            .replace('⌵', "CSK"),
+    )
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1008,7 +942,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         }
         if let (Some((d, (kind, points, factor))), Some(block)) = (native, block) {
             let precision = drawing.sheet.precision.get(&a.name).copied();
-            let (live, tolerance) = live_label(d, kind);
+            let live = live_label(d, kind);
             let font = fallback_font(&d.label).unwrap_or("IBMPlexMono-Regular.ttf");
             let leader = matches!(kind, 3 | 4);
             let style = DimStyle {
@@ -1016,7 +950,6 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                 factor,
                 precision: precision.unwrap_or(3),
                 fixed: precision.is_some(),
-                tolerance,
                 leader,
             };
             let name = style.name();
@@ -1995,7 +1928,7 @@ mod tests {
 
 #[cfg(test)]
 mod tolerance_tests {
-    use super::{deviation_band, number_range, printed_value_matches};
+    use super::{Dimension, live_label, number_range, printed_value_matches};
 
     #[test]
     fn displayed_precision_does_not_freeze_the_measured_primary_value() {
@@ -2022,21 +1955,25 @@ mod tolerance_tests {
     }
 
     #[test]
-    fn primary_tolerances_include_ap242_slash_bands_and_fits() {
-        for (text, remaining, band) in [
-            (" ±0.05 THRU", " THRU", [0.05, 0.05]),
-            (" +0.1 -0.02", "", [0.1, 0.02]),
-            (" +0.1/-0.05 ↧ 45", " ↧ 45", [0.1, 0.05]),
-            (" +0.2/0 THRU", " THRU", [0.2, 0.]),
-            (" 0/-0.2 THRU", " THRU", [0., 0.2]),
-            (" H7 ±0.1 THRU", " H7 THRU", [0.1, 0.1]),
-        ] {
-            let (range, values) = deviation_band(text).unwrap();
-            assert_eq!(values, band);
-            let mut label = text.to_string();
-            label.replace_range(range, "");
-            assert_eq!(label, remaining);
-        }
-        assert!(deviation_band(" THRU ↧ 10 ±0.2").is_none());
+    fn dimension_override_keeps_prefix_tolerance_and_depth_words() {
+        let dim = |label: &str, primary| Dimension {
+            kind: "callout".into(),
+            view: String::new(),
+            value: 20.,
+            label: label.into(),
+            placed: None,
+            diameter: true,
+            radial: false,
+            primary: Some(primary),
+        };
+        assert_eq!(
+            live_label(&dim("⌀20 +0.05/-0.1 ↧ 45", 3..5), 3),
+            "%%c<> +0.05/-0.1 DEEP 45"
+        );
+        assert_eq!(live_label(&dim("7× R50", 5..7), 4), "7× R<>");
+        assert_eq!(
+            live_label(&dim("25 ±0.15 THRU", 0..2), 0),
+            "<> %%p0.15 THRU"
+        );
     }
 }
