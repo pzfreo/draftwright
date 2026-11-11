@@ -622,10 +622,9 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
     ] {
         assert!(d.layers().any(|l| l.name == name));
     }
-    for font in [
-        "IBMPlexMono-Regular.ttf",
-        "IBMPlexSansCondensed-Regular.ttf",
-    ] {
+    // CAD installations commonly lack Plex; the named Plex styles explicitly
+    // request these installed alternatives instead (round 2 interoperability).
+    for font in ["Courier New.ttf", "Arial Narrow.ttf"] {
         assert!(d.styles().any(|s| s.primary_font_file_name == font));
     }
     // A clockwise ellipse with the longer radius on its second axis must retain
@@ -893,6 +892,101 @@ fn dxf_has_r2000_document_structure_and_sheet_viewport() {
             .count(),
         2
     );
+}
+/// QCAD regenerates dimensions and uses literal white for ACI 7 in its CLI.
+/// These contracts must hold without recomputing empty dimension blocks.
+#[test]
+fn dxf_cad_readers_get_visible_blocks_and_full_dimension_settings() {
+    let drawing = plate(&|_| {});
+    let bytes = drawing.dxf();
+    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(&bytes)).unwrap();
+    let pairs = dxf_pairs(&bytes);
+    let starts: Vec<_> = pairs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| (p.0 == 0).then_some(i))
+        .chain(std::iter::once(pairs.len()))
+        .collect();
+    let records: Vec<_> = starts.windows(2).map(|w| &pairs[w[0]..w[1]]).collect();
+    let value = |r: &[(i32, String)], code| r.iter().find(|p| p.0 == code).unwrap().1.clone();
+    let records_of = |kind: &str| {
+        records
+            .iter()
+            .copied()
+            .filter(|r| r[0].1 == kind)
+            .collect::<Vec<_>>()
+    };
+    for layer in ["0", "A-OUTL", "A-CNTR", "A-BORD"] {
+        let r = records_of("LAYER")
+            .into_iter()
+            .find(|r| value(r, 2) == layer)
+            .unwrap();
+        assert_eq!(value(r, 420), "0", "{layer} is explicit black on white");
+    }
+    let block_records = records_of("BLOCK_RECORD");
+    for r in &block_records {
+        let name = value(r, 2);
+        let layout = matches!(name.as_str(), "*Model_Space" | "*Paper_Space");
+        assert_eq!(r.iter().any(|p| p.0 == 340), layout, "{name}");
+        let block = records_of("BLOCK")
+            .into_iter()
+            .find(|b| value(b, 2) == name)
+            .unwrap();
+        assert_eq!(value(block, 330), value(r, 5), "{name}: BLOCK owner");
+        let begin = records.iter().position(|b| *b == block).unwrap();
+        let end = records[begin + 1..]
+            .iter()
+            .find(|b| b[0].1 == "ENDBLK")
+            .unwrap();
+        assert_eq!(value(end, 330), value(r, 5), "{name}: ENDBLK owner");
+    }
+    for v in &drawing.sheet.dxf.views {
+        let b = parsed.blocks().find(|b| b.name == v.name).unwrap();
+        assert!(!b.entities.is_empty(), "{} has geometry", v.name);
+    }
+    for (name, expected) in [
+        ("$DIMTXT", 3. * 0.698),
+        ("$DIMASZ", 2.7),
+        ("$DIMLFAC", 1.),
+        ("$DIMSCALE", 1.),
+        ("$DIMLUNIT", 2.),
+        ("$DIMDEC", 3.),
+        ("$DIMDSEP", 46.),
+    ] {
+        assert_eq!(dxf_header(&bytes, name).parse::<f64>().unwrap(), expected);
+    }
+    let dimensions = records_of("DIMENSION");
+    assert!(dimensions.len() >= 7);
+    for r in dimensions {
+        assert!(value(r, 1).contains("<>"));
+        let name = value(r, 3);
+        assert!(name.starts_with("DW-") && name.contains("to"), "{name}");
+        assert!(!name.contains(['[', ']', '_', ' ']), "{name}");
+        let style = parsed.dim_styles().find(|s| s.name == name).unwrap();
+        let acad = r.iter().position(|p| *p == (1001, "ACAD".into())).unwrap();
+        let overrides = &r[acad..];
+        assert!(overrides.contains(&(1000, "DSTYLE".into())));
+        for (code, expected) in [
+            (144, style.dimension_linear_measurement_scale_factor),
+            (140, 3. * 0.698),
+            (41, 2.7),
+            (40, 1.),
+        ] {
+            let at = overrides
+                .iter()
+                .position(|p| *p == (1070, code.to_string()))
+                .unwrap();
+            assert_eq!(overrides[at + 1], (1040, expected.to_string()));
+        }
+        let block = parsed.blocks().find(|b| b.name == value(r, 2)).unwrap();
+        assert!(
+            block.entities.iter().any(|e| matches!(
+                &e.specific, dxf::entities::EntityType::Text(t)
+                    if t.value.chars().any(|c| c.is_ascii_digit())
+            )),
+            "cached dimension contains its readable value"
+        );
+    }
 }
 #[test]
 fn dxf_multiline_rotation_is_degrees_and_single_line_symbols_are_text() {

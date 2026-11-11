@@ -408,3 +408,8 @@ Single-line labels are TEXT; only real multi-line labels use MTEXT. Unicode
 engineering characters use a named Arial Unicode text style when Plex lacks them.
 The remaining dedicated GD&T fallback is STIX General for flatness (U+23E5) and
 perpendicularity (U+27C2); no inline font programs are embedded in labels.
+Plex-named DXF styles request Courier New for monospaced labels and Arial Narrow
+for title fields, so CAD installations without Plex can find common system fonts.
+Dimension styles use readable scale names such as `DW-1to2`, with suffixes for
+precision, tolerances and leaders. Global settings and entity overrides also carry
+the text size and measurement factor for readers that regenerate dimensions.

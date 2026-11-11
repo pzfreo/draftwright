@@ -137,6 +137,86 @@ struct DimStyle {
     tolerance: Option<[f64; 2]>,
     leader: bool,
 }
+impl Default for DimStyle {
+    fn default() -> Self {
+        Self {
+            font: "IBMPlexMono-Regular.ttf",
+            factor: 1.,
+            precision: 3,
+            fixed: false,
+            tolerance: None,
+            leader: false,
+        }
+    }
+}
+impl DimStyle {
+    fn name(self) -> String {
+        let mut name = if self.factor >= 1. {
+            format!("DW-1to{}", self.factor)
+        } else {
+            format!("DW-{}to1", 1. / self.factor)
+        };
+        if self.fixed {
+            write!(name, "-P{}", self.precision).unwrap();
+        }
+        if let Some([up, lo]) = self.tolerance {
+            write!(name, "-TOL-{up}-{lo}").unwrap();
+        }
+        if self.leader {
+            name.push_str("-LEADER");
+        }
+        name.push_str(match self.font {
+            "Arial Unicode.ttf" => "-SYMBOL",
+            "STIXGeneral.ttf" => "-GDT",
+            _ => "",
+        });
+        name
+    }
+    /// Keep HEADER defaults, named styles and per-entity DSTYLE overrides in
+    /// agreement. QCAD's dxflib importer regenerates dimensions, ignores *D
+    /// blocks and named dimstyles, and reads DIMLFAC from the entity's XDATA.
+    fn variables(self) -> Vec<(&'static str, i32, f64)> {
+        let mut vars = vec![
+            ("DIMSCALE", 40, 1.),
+            ("DIMASZ", 41, crate::dims::ARROW),
+            ("DIMEXO", 42, crate::dims::GAP),
+            ("DIMEXE", 44, 1.),
+            ("DIMTXT", 140, crate::dims::TEXT * 0.698),
+            ("DIMLFAC", 144, self.factor),
+            ("DIMGAP", 147, 0.8),
+            ("DIMDEC", 271, self.precision.into()),
+            ("DIMADEC", 179, self.precision.into()),
+            ("DIMZIN", 78, if self.fixed { 0. } else { 8. }),
+            ("DIMAZIN", 79, if self.fixed { 0. } else { 2. }),
+            ("DIMLUNIT", 277, 2.),
+            ("DIMDSEP", 278, 46.),
+            ("DIMAUNIT", 275, 0.),
+            ("DIMJUST", 280, 0.),
+            ("DIMATFIT", 289, 3.),
+            ("DIMTIH", 73, 1.),
+            ("DIMTOH", 74, 1.),
+            ("DIMTAD", 77, 0.),
+            ("DIMTOFL", 172, 0.),
+            ("DIMTIX", 174, 0.),
+            ("DIMTMOVE", 279, if self.leader { 1. } else { 2. }),
+            ("DIMCEN", 141, 0.),
+            ("DIMTVP", 145, 0.),
+            ("DIMTOL", 71, if self.tolerance.is_some() { 1. } else { 0. }),
+            ("DIMLIM", 72, 0.),
+            ("DIMTP", 47, self.tolerance.map_or(0., |t| t[0])),
+            ("DIMTM", 48, self.tolerance.map_or(0., |t| t[1])),
+            ("DIMTFAC", 146, 1.),
+            ("DIMTDEC", 272, 6.),
+            ("DIMTZIN", 284, 8.),
+        ];
+        // The numeric DXF codes determine both HEADER and XDATA value types.
+        vars.sort_by_key(|v| v.1);
+        vars
+    }
+}
+fn dimension_integer(code: i32) -> bool {
+    (70..=79).contains(&code) || code >= 170
+}
 /// Express a plain deviation band in DIMTP/DIMTM; retain genuinely free wording.
 fn live_label(d: &Dimension, kind: i32) -> (String, Option<[f64; 2]>) {
     let Some(primary) = &d.primary else {
@@ -649,6 +729,16 @@ fn style(font: &str) -> String {
         .trim_end_matches(".otf")
         .to_string()
 }
+/// Keep the drawing's font-family style names, but request widely installed
+/// alternatives. STYLE group 4 is a CJK bigfont, not a fallback list; using it
+/// for a second TTF would not provide substitution.
+fn cad_font_file(font: &str) -> &str {
+    match font {
+        "IBMPlexMono-Regular.ttf" => "Courier New.ttf",
+        crate::title_block::FONT => "Arial Narrow.ttf",
+        _ => font,
+    }
+}
 fn encode(s: &str) -> String {
     let mut out = String::new();
     for c in s.chars() {
@@ -906,25 +996,16 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             let (live, tolerance) = live_label(d, kind);
             let font = fallback_font(&d.label).unwrap_or("IBMPlexMono-Regular.ttf");
             let leader = matches!(kind, 3 | 4);
-            let name = format!(
-                "DW_{}_{:?}_{:?}_{}_{}",
-                factor.to_bits(),
-                precision,
+            let style = DimStyle {
+                font,
+                factor,
+                precision: precision.unwrap_or(3),
+                fixed: precision.is_some(),
                 tolerance,
-                safe_name(font),
-                leader
-            );
-            styles.insert(
-                name.clone(),
-                DimStyle {
-                    font,
-                    factor,
-                    precision: precision.unwrap_or(3),
-                    fixed: precision.is_some(),
-                    tolerance,
-                    leader,
-                },
-            );
+                leader,
+            };
+            let name = style.name();
+            styles.insert(name.clone(), style);
             let (h, mut t) = w.entity("DIMENSION", DIMS, None);
             if let Some(v) = &a.view {
                 view_handles.entry(v.clone()).or_default().push(h);
@@ -988,6 +1069,14 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                 }
                 _ => unreachable!(),
             }
+            t.tag(1001, "ACAD");
+            t.tag(1000, "DSTYLE");
+            t.tag(1002, "{");
+            for (_, code, value) in style.variables() {
+                t.tag(1070, code);
+                t.tag(if dimension_integer(code) { 1070 } else { 1040 }, value);
+            }
+            t.tag(1002, "}");
             t.tag(1001, "DRAFTWRIGHT");
             t.tag(1000, &a.name);
             t.tag(1000, &d.kind);
@@ -1272,6 +1361,18 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         out.tag(9, name);
         out.tag(code, value);
     }
+    out.tag(9, "$INSBASE");
+    out.point(10, [0., 0.]);
+    out.tag(9, "$DIMSTYLE");
+    out.tag(2, "STANDARD");
+    out.tag(9, "$TEXTSTYLE");
+    out.tag(7, "STANDARD");
+    out.tag(9, "$DIMTXSTY");
+    out.tag(7, "STANDARD");
+    for (name, code, value) in DimStyle::default().variables() {
+        out.tag(9, format!("${name}"));
+        out.tag(if dimension_integer(code) { 70 } else { 40 }, value);
+    }
     out.tag(9, "$HANDSEED");
     out.tag(5, "__HANDSEED__");
     use sha2::Digest;
@@ -1400,13 +1501,16 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     for (name, weight, linetype) in std::iter::once(("0", 25, "CONTINUOUS")).chain(LAYERS) {
         record(&mut out, "LAYER", w.id(), la, "AcDbLayerTableRecord", name);
         out.tag(62, 7);
-        if let Some(rgb) = match name {
-            HIDDEN => Some(0x7f7f7f),
-            DIMS | TEXT | PMI | HATCH | CUT => Some(0x0033b2),
-            _ => None,
-        } {
-            out.tag(420, rgb);
-        }
+        // ACI 7 alone is white in QCAD's white-background CLI renderer. Give
+        // every layer an explicit RGB, including black outlines and borders.
+        out.tag(
+            420,
+            match name {
+                HIDDEN => 0x7f7f7f,
+                DIMS | TEXT | PMI | HATCH | CUT => 0x0033b2,
+                _ => 0,
+            },
+        );
         out.tag(6, linetype);
         out.tag(290, if name == "Defpoints" { 0 } else { 1 });
         out.tag(370, weight);
@@ -1439,7 +1543,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         out.tag(50, 0);
         out.tag(71, 0);
         out.tag(42, 3);
-        out.tag(3, file);
+        out.tag(3, cad_font_file(&file));
         out.tag(4, "");
     }
     out.tag(0, "ENDTAB");
@@ -1447,18 +1551,8 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     table(&mut out, "DIMSTYLE", ds, styles.len() + 1);
     out.tag(100, "AcDbDimStyleTable");
     out.tag(71, 0);
-    for (name, style) in std::iter::once((
-        "STANDARD".to_string(),
-        DimStyle {
-            font: "IBMPlexMono-Regular.ttf",
-            factor: 1.,
-            precision: 3,
-            fixed: false,
-            tolerance: None,
-            leader: false,
-        },
-    ))
-    .chain(styles)
+    for (name, style) in
+        std::iter::once(("STANDARD".to_string(), DimStyle::default())).chain(styles)
     {
         record(
             &mut out,
@@ -1468,41 +1562,8 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
             "AcDbDimStyleTableRecord",
             &name,
         );
-        out.tag(40, 1);
-        out.tag(41, crate::dims::ARROW);
-        out.tag(42, crate::dims::GAP);
-        out.tag(44, 1.);
-        out.tag(140, crate::dims::TEXT * 0.698);
-        out.tag(144, style.factor);
-        out.tag(147, 0.8);
-        out.tag(271, style.precision);
-        out.tag(179, style.precision);
-        out.tag(78, if style.fixed { 0 } else { 8 });
-        out.tag(79, if style.fixed { 0 } else { 2 });
-        out.tag(277, 2);
-        out.tag(278, 46); // Preserve the drawing's decimal point on regeneration.
-        out.tag(275, 0);
-        out.tag(280, 0);
-        out.tag(289, 3);
-        // Centred, horizontal text at the entity's explicit midpoint. Circular
-        // callouts keep their leaders when the text is moved by a CAD editor.
-        for (code, value) in [(73, 1), (74, 1), (77, 0), (172, 0), (174, 0)] {
+        for (_, code, value) in style.variables() {
             out.tag(code, value);
-        }
-        out.tag(279, if style.leader { 1 } else { 2 });
-        out.tag(141, 0);
-        out.tag(145, 0);
-        if let Some([up, lo]) = style.tolerance {
-            out.tag(71, 1);
-            out.tag(72, 0);
-            out.tag(47, up);
-            out.tag(48, lo);
-            out.tag(146, 1);
-            out.tag(272, 6);
-            out.tag(284, 8);
-        } else {
-            out.tag(71, 0);
-            out.tag(72, 0);
         }
         out.handle(340, textstyles[style.font]);
     }
