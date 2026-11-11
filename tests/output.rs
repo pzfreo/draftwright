@@ -1407,3 +1407,60 @@ fn dxf_hole_words_condense_to_their_laid_out_width() {
     let expected = 0.85 * 26. / 33.;
     assert!((t.relative_x_scale_factor - expected).abs() < 1e-9);
 }
+
+/// Inch sheets keep dimensions live: the measured millimetres become inches
+/// through DIMLFAC, with the ASME inch zero rules.
+#[test]
+fn dxf_inch_dimensions_stay_live_in_inches() {
+    use dxf::entities::EntityType as E;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let spec: Spec = serde_json::from_value(json!({"units": "in"})).unwrap();
+    let (_, files) = draftwright::api::render_from(
+        &root.join("tests/fixtures/parts/plate.step"),
+        draftwright::api::Features::Native,
+        &spec,
+        &["dxf"],
+        150.,
+    )
+    .unwrap();
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+    let mut live = 0;
+    for e in d.entities() {
+        if let E::RotatedDimension(dim) = &e.specific {
+            let base = &dim.dimension_base;
+            let st = d
+                .dim_styles()
+                .find(|s| s.name == base.dimension_style_name)
+                .unwrap();
+            assert!(st.name.contains("-IN"), "{}", st.name);
+            // Same scale as the mm style would use, divided by 25.4.
+            let mm_factor: f64 = st.name["DW-".len()..]
+                .split('-')
+                .next()
+                .map(|s| {
+                    let (a, b) = s.split_once("to").unwrap();
+                    b.parse::<f64>().unwrap() / a.parse::<f64>().unwrap()
+                })
+                .unwrap();
+            assert!((st.dimension_linear_measurement_scale_factor - mm_factor / 25.4).abs() < 1e-9);
+            if base.text.contains("<>") {
+                live += 1;
+            }
+        }
+    }
+    assert!(live > 0, "inch dimensions keep a live <> value");
+    // DIMZIN 4: drop the leading zero, keep trailing zeros (.312, 1.000).
+    let pairs = dxf_pairs(&files[0].1);
+    let zin: Vec<_> = pairs
+        .windows(2)
+        .filter(|p| p[0] == (9, "$DIMZIN".into()) || p[0].0 == 78)
+        .map(|p| {
+            if p[0].0 == 78 {
+                p[0].1.trim().to_owned()
+            } else {
+                p[1].1.trim().to_owned()
+            }
+        })
+        .collect();
+    assert!(zin.iter().any(|z| z == "4"), "{zin:?}");
+}

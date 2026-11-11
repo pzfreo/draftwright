@@ -50,6 +50,8 @@ pub struct Dimension {
     pub radial: bool,
     /// Byte range of the displayed primary number, excluding count/prefix/units.
     pub primary: Option<Range<usize>>,
+    /// The same range when the label prints the value in inches.
+    pub primary_in: Option<Range<usize>>,
 }
 impl From<&PlannedDimension> for Dimension {
     fn from(d: &PlannedDimension) -> Self {
@@ -73,7 +75,8 @@ impl From<&PlannedDimension> for Dimension {
             placed: d.placed.clone(),
             diameter,
             radial,
-            primary: primary_range(d),
+            primary: primary_range(d, 1.),
+            primary_in: primary_range(d, 1. / 25.4),
         }
     }
 }
@@ -97,7 +100,7 @@ fn number_range(s: &str) -> Option<Range<usize>> {
         .map_or(s.len(), |n| start + n);
     Some(start..end)
 }
-fn primary_range(d: &PlannedDimension) -> Option<Range<usize>> {
+fn primary_range(d: &PlannedDimension, scale: f64) -> Option<Range<usize>> {
     for term in &d.terms {
         if term.ends_with('×') || term.starts_with('±') {
             continue;
@@ -108,7 +111,7 @@ fn primary_range(d: &PlannedDimension) -> Option<Range<usize>> {
         let Ok(value) = term[n.clone()].parse::<f64>() else {
             continue;
         };
-        if !printed_value_matches(d.value, value) {
+        if !printed_value_matches(d.value * scale, value) {
             continue;
         }
         if let Some(at) = d.label.find(term) {
@@ -135,6 +138,7 @@ struct DimStyle {
     precision: u8,
     fixed: bool,
     leader: bool,
+    inches: bool,
 }
 impl Default for DimStyle {
     fn default() -> Self {
@@ -144,6 +148,7 @@ impl Default for DimStyle {
             precision: 3,
             fixed: false,
             leader: false,
+            inches: false,
         }
     }
 }
@@ -156,6 +161,9 @@ impl DimStyle {
         };
         if self.fixed {
             write!(name, "-P{}", self.precision).unwrap();
+        }
+        if self.inches {
+            name.push_str("-IN");
         }
         if self.leader {
             name.push_str("-LEADER");
@@ -177,11 +185,29 @@ impl DimStyle {
             ("DIMEXO", 42, crate::dims::GAP),
             ("DIMEXE", 44, 1.),
             ("DIMTXT", 140, crate::dims::TEXT * 0.698),
-            ("DIMLFAC", 144, self.factor),
+            // Geometry is in millimetres; inch sheets measure in inches.
+            (
+                "DIMLFAC",
+                144,
+                if self.inches {
+                    self.factor / 25.4
+                } else {
+                    self.factor
+                },
+            ),
             ("DIMGAP", 147, 0.8),
             ("DIMDEC", 271, self.precision.into()),
             ("DIMADEC", 179, self.precision.into()),
-            ("DIMZIN", 78, if self.fixed { 0. } else { 8. }),
+            // Inch values drop the leading zero and keep trailing ones (.312, 1.000).
+            (
+                "DIMZIN",
+                78,
+                match (self.inches, self.fixed) {
+                    (true, _) => 4.,
+                    (false, true) => 0.,
+                    (false, false) => 8.,
+                },
+            ),
             ("DIMAZIN", 79, if self.fixed { 0. } else { 2. }),
             ("DIMLUNIT", 277, 2.),
             ("DIMDSEP", 278, 46.),
@@ -218,8 +244,9 @@ fn dimension_integer(code: i32) -> bool {
 /// automatic diameter/radius prefix of named styles, so only inline text is
 /// shown by every reader. (In AutoCAD a regenerated radial/diametric `<>` adds
 /// its own R/diameter sign; the stored *D block shows the intended text.)
-fn live_label(d: &Dimension, kind: i32) -> String {
-    let Some(primary) = &d.primary else {
+fn live_label(d: &Dimension, kind: i32, inches: bool) -> String {
+    let primary = if inches { &d.primary_in } else { &d.primary };
+    let Some(primary) = primary else {
         return override_text(&d.label);
     };
     let mut label = d.label.clone();
@@ -948,7 +975,8 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         }
         if let (Some((d, (kind, points, factor))), Some(block)) = (native, block) {
             let precision = drawing.sheet.precision.get(&a.name).copied();
-            let live = live_label(d, kind);
+            let inches = drawing.sheet.units == crate::units::Units::In;
+            let live = live_label(d, kind, inches);
             let font = fallback_font(&d.label).unwrap_or("IBMPlexMono-Regular.ttf");
             let leader = matches!(kind, 3 | 4);
             let style = DimStyle {
@@ -957,6 +985,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                 precision: precision.unwrap_or(3),
                 fixed: precision.is_some(),
                 leader,
+                inches,
             };
             let name = style.name();
             styles.insert(name.clone(), style);
@@ -1327,7 +1356,12 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     out.tag(7, "STANDARD");
     out.tag(9, "$DIMTXSTY");
     out.tag(7, "STANDARD");
-    for (name, code, value) in DimStyle::default().variables() {
+    // Readers that take dimension settings from the header see the sheet's units.
+    let standard = DimStyle {
+        inches: drawing.sheet.units == crate::units::Units::In,
+        ..DimStyle::default()
+    };
+    for (name, code, value) in standard.variables() {
         out.tag(9, format!("${name}"));
         out.tag(if dimension_integer(code) { 70 } else { 40 }, value);
     }
@@ -1523,9 +1557,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     table(&mut out, "DIMSTYLE", ds, styles.len() + 1);
     out.tag(100, "AcDbDimStyleTable");
     out.tag(71, 0);
-    for (name, style) in
-        std::iter::once(("STANDARD".to_string(), DimStyle::default())).chain(styles)
-    {
+    for (name, style) in std::iter::once(("STANDARD".to_string(), standard)).chain(styles) {
         record(
             &mut out,
             "DIMSTYLE",
@@ -2005,14 +2037,15 @@ mod tolerance_tests {
             diameter: true,
             radial: false,
             primary: Some(primary),
+            primary_in: None,
         };
         assert_eq!(
-            live_label(&dim("⌀20 +0.05/-0.1 ↧ 45", 3..5), 3),
+            live_label(&dim("⌀20 +0.05/-0.1 ↧ 45", 3..5), 3, false),
             "%%c<> +0.05/-0.1 DEEP 45"
         );
-        assert_eq!(live_label(&dim("7× R50", 5..7), 4), "7X R<>");
+        assert_eq!(live_label(&dim("7× R50", 5..7), 4, false), "7X R<>");
         assert_eq!(
-            live_label(&dim("25 ±0.15 THRU", 0..2), 0),
+            live_label(&dim("25 ±0.15 THRU", 0..2), 0, false),
             "<> %%p0.15 THRU"
         );
     }
