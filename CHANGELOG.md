@@ -6,6 +6,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Legacy-ID migration no longer rewrites free text (note text, title block, table cells,
+  annotation label text) that looks like an ID, in any schema, and `Session::set_spec` and
+  `openSpec` now share one migration and give the same Spec for spec/3.
+
 - Fix inch scale-floor overflow, numeric trust parsing, modelled-thread pitch/diameter,
   turned OD riders and the inch-design advisory fix. Summarize inch rounding findings,
   detect decimal-inch grids, align tolerance precision, and use explicit US zone counts
