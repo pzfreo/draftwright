@@ -12136,6 +12136,7 @@ fn render_annotations_with_cuts(
     if !shaded_layers.is_empty() {
         layers.extend(shaded_layers);
     }
+    let missing_glyphs = crate::output::missing_glyphs(&text);
     Ok(Drawing {
         page: plan.sheet.page,
         layers,
@@ -12151,6 +12152,7 @@ fn render_annotations_with_cuts(
         sheet,
         problems: crate::output::undrawn(&undrawn)
             .into_iter()
+            .chain(missing_glyphs)
             .chain(shaded_problems)
             .chain(if plan.spec.views.sections.is_empty() {
                 Vec::new()
