@@ -229,16 +229,16 @@ fn live_label(d: &Dimension, kind: i32) -> String {
     }
     override_text(&label)
 }
-/// U+21A7 and the other GD&T glyphs have no outline in the fonts QCAD and
-/// AutoCAD substitute for a dimension style, so they print as `?`. Use the
-/// ASME Y14.5 words instead.
 fn override_text(label: &str) -> String {
-    encode_mtext(
-        &label
-            .replace('↧', "DEEP")
-            .replace('⌴', "CBORE")
-            .replace('⌵', "CSK"),
-    )
+    encode_mtext(&asme_words(label))
+}
+/// U+21A7 and the other hole glyphs have no outline in the fonts QCAD and
+/// AutoCAD substitute, so they print as `?` in dimensions, callouts and hole
+/// tables alike. Use the ASME Y14.5 words instead.
+fn asme_words(text: &str) -> String {
+    text.replace('↧', "DEEP")
+        .replace('⌴', "CBORE")
+        .replace('⌵', "CSK")
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -578,9 +578,9 @@ impl Writer {
         t.tag(40, height);
         let width = cad_width(text_font(r));
         let mut content = if multiline {
-            encode_mtext(&r.text)
+            encode_mtext(&asme_words(&r.text))
         } else {
-            encode(&r.text)
+            encode(&asme_words(&r.text))
         };
         if multiline {
             if width != 1. {
@@ -673,17 +673,18 @@ fn style(font: &str) -> String {
 /// for a second TTF would not provide substitution.
 fn cad_font_file(font: &str) -> &str {
     match font {
-        "IBMPlexMono-Regular.ttf" => "Courier New.ttf",
+        "IBMPlexMono-Regular.ttf" => "Arial.ttf",
         crate::title_block::FONT => "Arial.ttf",
         _ => font,
     }
 }
 fn cad_width(font: &str) -> f64 {
     if font == "IBMPlexMono-Regular.ttf" {
-        // DXF height is cap height. Plex Mono's advance/cap ratio is 600/698;
-        // Courier New's is 1229/1170. Preserve the monospaced label widths so
-        // substituting a common font does not overflow table cells or frames.
-        (600. / 698.) / (1229. / 1170.)
+        // DXF height is cap height. Plex Mono advances 600/698 of it per
+        // character; Arial capitals average about 0.93 and digits 0.78.
+        // Condense Arial so all-capital labels stay within Plex Mono's widths
+        // and do not overflow table cells or frames.
+        0.9
     } else {
         1.
     }

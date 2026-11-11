@@ -623,10 +623,8 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
         assert!(d.layers().any(|l| l.name == name));
     }
     // CAD installations commonly lack Plex; the named Plex styles explicitly
-    // request these installed alternatives instead (round 2 interoperability).
-    for font in ["Courier New.ttf", "Arial.ttf"] {
-        assert!(d.styles().any(|s| s.primary_font_file_name == font));
-    }
+    // request an installed alternative instead (round 2 interoperability).
+    assert!(d.styles().any(|s| s.primary_font_file_name == "Arial.ttf"));
     // A clockwise ellipse with the longer radius on its second axis must retain
     // the same arc after DXF's mandatory major-axis normalization.
     let mut elliptical = drawing.clone();
@@ -950,8 +948,8 @@ fn dxf_cad_readers_get_visible_blocks_and_full_dimension_settings() {
         .unwrap();
     let width = value(mono, 41).parse::<f64>().unwrap();
     assert!(
-        (0.81..0.83).contains(&width),
-        "Courier cap/advance compensation"
+        (0.89..0.91).contains(&width),
+        "condensed Arial keeps Plex Mono label widths"
     );
     for text in records_of("TEXT") {
         if value(text, 7) == "IBMPlexMono-Regular" {
@@ -1055,7 +1053,8 @@ fn dxf_multiline_rotation_is_degrees_and_single_line_symbols_are_text() {
         })
         .unwrap();
     assert_eq!(m.rotation_angle, 37.);
-    assert_eq!(m.text, "FIRST ↧6\\PSECOND ⌴8");
+    // Hole glyphs print as `?` in CAD fallback fonts, so they become words.
+    assert_eq!(m.text, "FIRST DEEP6\\PSECOND CBORE8");
     let t = d
         .entities()
         .find_map(|e| {
@@ -1066,7 +1065,7 @@ fn dxf_multiline_rotation_is_degrees_and_single_line_symbols_are_text() {
             }
         })
         .unwrap();
-    assert_eq!(t.value, "-3 × %%c6 %%p0.1 %%d ⌵");
+    assert_eq!(t.value, "-3 × %%c6 %%p0.1 %%d CSK");
     assert!(
         !String::from_utf8(drawing.dxf())
             .unwrap()
@@ -1358,4 +1357,24 @@ fn dxf_dimension_axis_is_independent_of_horizontal_text() {
             std::fs::write(path.with_extension("svg"), drawing.svg()).unwrap();
         }
     }
+}
+
+/// CAD fallback fonts have no hole glyphs, so every DXF text uses the ASME
+/// words, including hole callouts and table cells outside dimensions.
+#[test]
+fn dxf_text_spells_hole_glyphs_as_asme_words() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (_, files) = draftwright::api::render_from(
+        &root.join("tests/fixtures/parts/grm02.step"),
+        draftwright::api::Features::Native,
+        &Spec::default(),
+        &["svg", "dxf"],
+        150.,
+    )
+    .unwrap();
+    let svg = String::from_utf8_lossy(&files[0].1);
+    let dxf = String::from_utf8_lossy(&files[1].1);
+    assert!(svg.contains('↧'), "the fixture must have a depth callout");
+    assert!(!dxf.contains(['↧', '⌴', '⌵']));
+    assert!(dxf.contains("DEEP"));
 }
