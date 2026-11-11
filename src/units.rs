@@ -150,11 +150,21 @@ impl Units {
                 let word = &text[at..end];
                 let previous = text[..at].chars().next_back();
                 let tail = text[end..].trim_start();
+                let after_times = tail.strip_prefix('×').map(str::trim_start);
+                let next_is_angle = after_times.is_some_and(|rest| {
+                    let end = rest.find(|c: char| !c.is_ascii_digit() && c != '.')
+                        .unwrap_or(rest.len());
+                    end > 0 && rest[end..].trim_start().starts_with('°')
+                });
+                let quantity = after_times.is_some()
+                    && !word.contains('.')
+                    && !next_is_angle
+                    && !previous.is_some_and(|p| matches!(p, '⌀' | 'Ø' | 'ø' | 'R' | 'C' | 'P'));
                 let symbolic = previous
                     .is_some_and(|p| p.is_ascii_alphabetic() && !matches!(p, 'R' | 'C' | 'P'))
                     || tail.starts_with('°')
                     || tail.starts_with("deg")
-                    || (tail.starts_with('×') && !word.contains('.'));
+                    || quantity;
                 if let Ok(mm) = word.parse::<f64>() {
                     if symbolic {
                         out.push_str(word);
@@ -284,6 +294,9 @@ mod tests {
             "M8×1.25; 1.000 MIN FULL THREAD"
         );
         assert_eq!(Units::In.length_text("⌀12.7 × 90°"), "⌀.500 × 90°");
+        assert_eq!(Units::In.length_text("⌀10 × 90°"), "⌀.394 × 90°");
+        assert_eq!(Units::In.length_text("5 × 45°"), ".197 × 45°");
+        assert_eq!(Units::In.length_text("4× ⌀10 × 90°"), "4× ⌀.394 × 90°");
     }
 
     #[test]
