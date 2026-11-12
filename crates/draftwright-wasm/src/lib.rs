@@ -101,6 +101,10 @@ impl Session {
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         Ok(serde_json::to_string(&self.0.svg_fragments_on_sheet(None, sheet)?).unwrap())
     }
+    /// One sheet as an editable DXF (a file per sheet).
+    pub fn render_sheet_dxf(&self, sheet: u32) -> Result<Vec<u8>, Error> {
+        Ok(self.0.drawing_on_sheet(sheet)?.dxf())
+    }
     /// One sheet's SVG.
     pub fn render_sheet_svg(&self, sheet: u32) -> Result<String, Error> {
         Ok(self.0.drawing_on_sheet(sheet)?.svg())
@@ -483,6 +487,10 @@ export interface CalloutOffset {
         #[wasm_bindgen(js_name = sheetFragments)]
         pub fn sheet_fragments(&self, sheet: u32) -> Result<String, JsValue> {
             self.0.sheet_fragments_json(sheet).map_err(js)
+        }
+        #[wasm_bindgen(js_name = sheetDxf)]
+        pub fn sheet_dxf(&self, sheet: u32) -> Result<Vec<u8>, JsValue> {
+            self.0.render_sheet_dxf(sheet).map_err(js)
         }
         #[wasm_bindgen(js_name = sheetSvg)]
         pub fn sheet_svg(&self, sheet: u32) -> Result<Vec<u8>, JsValue> {

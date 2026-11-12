@@ -411,10 +411,10 @@ to `VIEW_<view-id>_ANNOT`; for example `VIEW_v_front_ANNOT`. In CAD, select the
 view INSERT and that named group together, then MOVE them using the same base
 point. Disable group selection temporarily to edit an individual dimension.
 Shaded pictorials export their visible edges, without presentation fill polygons.
-Single-line labels are TEXT; only real multi-line labels use MTEXT. Unicode
-engineering characters use a named Arial Unicode text style when Plex lacks them.
-The remaining dedicated GD&T fallback is STIX General for flatness (U+23E5) and
-perpendicularity (U+27C2); no inline font programs are embedded in labels.
+Single-line labels are TEXT; only real multi-line labels use MTEXT. A GD&T
+characteristic symbol is drawn as its strokes (lines and arcs), the circled modifiers
+Ⓜ Ⓛ are written (M) (L), and no style names a TTF; no inline font programs are
+embedded in labels.
 Plex-named DXF styles request romans.shx, the single-stroke drafting font every
 DWG/DXF program ships, condensed to Plex's advance so text stays in its original
 table cells and annotation frames. SHX fonts lack × and en dashes, so DXF text

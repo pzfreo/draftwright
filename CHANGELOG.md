@@ -8,9 +8,13 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 - A proposed fix now leaves the drawing with fewer findings than before, or is not proposed. A
   placement fix that traded findings (its text said "Trade-off: adds these findings") is offered
-  only when it clears at least two more than it adds; fixes that widened to a whole-sheet layout
-  are withheld, since their count was not checked; and the unmeasured "move it above/left of the
+  only when it clears at least two more than it adds; a placement fix that widened to a
+  whole-sheet layout is withheld, since its count was not checked; and the unmeasured "move it above/left of the
   view" guess is gone. Nothing replaces a withheld fix. Drawings are unchanged.
+- DXF: GD&T characteristic symbols (⏥ ⟂ ⌖ ⌓ …) are drawn as the lines and arcs of their strokes,
+  and the circled modifiers Ⓜ Ⓛ are written `(M)` and `(L)`, so no text or dimension style names
+  a TTF. AutoCAD on Windows had no STIXGeneral or Arial Unicode, substituted simplex.shx and
+  printed `?` for every symbol.
 - Python: `draftwright.Part`, the Python half of the build123d requirements API (0.6.0-alpha.2).
   Datums, holes (fit, thread, position, finish), part data and flatness/finish on faces are
   recorded as Specify answers; referenced faces get `f:` names in the exported STEP (written with OCCT's
@@ -86,6 +90,10 @@ Specs `/1` and `/2` are read and migrated for ten releases from 0.2.15, through 
   newer CPython's incompatible exception layouts require separate errors at the
   import and attribute boundaries. Keep `draftwright.builder.make_drawing` working
   and cover all 88 archived top-level modules/packages with migration guidance.
+
+### WASM API
+
+- `sheetDxf(sheet)` gives a sheet as editable DXF, as the native `render --formats dxf` does.
 
 ## 0.2.15 (2026-11-09)
 

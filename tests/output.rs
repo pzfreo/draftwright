@@ -1500,3 +1500,135 @@ fn dxf_inch_dimensions_stay_live_in_inches() {
         .collect();
     assert!(zin.iter().any(|z| z == "4"), "{zin:?}");
 }
+
+/// An AP242 PMI fixture drawn with the default spec.
+fn pmi_drawing(stem: &str) -> Drawing {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let name = std::fs::read_dir(root.join("tests/fixtures/pmi/step"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(&format!("{stem}."))
+        })
+        .unwrap();
+    let mut step = Vec::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(&name).unwrap())
+        .read_to_end(&mut step)
+        .unwrap();
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join("output_pmi")
+        .join(std::process::id().to_string());
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!("{stem}.stp"));
+    std::fs::write(&path, step).unwrap();
+    let (part, a) = model::analyse_native(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let font =
+        draftwright::text::Font::open(&root.join("fonts").join(draftwright::dims::FONT)).unwrap();
+    model::render(&part, &a, &plan, &font).unwrap()
+}
+
+/// AutoCAD on Windows has neither STIXGeneral nor Arial Unicode: it substitutes
+/// simplex.shx and prints `?` for every GD&T symbol. No STYLE or DIMSTYLE may
+/// name a TTF, and the characteristic symbols are drawn as the strokes the
+/// drawing already holds for them (gdt.shx is not in QCAD or LibreCAD).
+#[test]
+fn dxf_gdt_symbols_are_strokes_and_no_style_names_a_ttf() {
+    use draftwright::output::Item;
+    const SYMBOLS: &str = "⏤⏥○⌭⌒⌓∠⟂∥⌖◎⌯↗⌰";
+    for stem in ["nist_ctc_01_asme1_ap242-e1", "nist_ftc_07_asme1_ap242-e2"] {
+        let drawing = pmi_drawing(stem);
+        let runs: Vec<_> = drawing
+            .text
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.text.chars().count() == 1 && SYMBOLS.contains(&r.text))
+            .collect();
+        assert!(!runs.is_empty(), "{stem} has frames");
+        let stroked: BTreeSet<usize> = drawing
+            .layers
+            .iter()
+            .flat_map(|l| &l.items)
+            .filter_map(|i| match i {
+                Item::TextStroke(_, r) => Some(*r),
+                _ => None,
+            })
+            .collect();
+        for (i, r) in &runs {
+            assert!(stroked.contains(i), "{stem}: {:?} has strokes", r.text);
+        }
+        let bytes = drawing.dxf();
+        let pairs = dxf_pairs(&bytes);
+        let mut kind = "";
+        let mut near = vec![false; runs.len()];
+        let mut at = [0.; 2];
+        for (code, value) in &pairs {
+            match *code {
+                0 => kind = value,
+                10 => at[0] = value.parse().unwrap_or(f64::NAN),
+                20 => {
+                    at[1] = value.parse().unwrap_or(f64::NAN);
+                    if matches!(kind, "LINE" | "ARC" | "CIRCLE") {
+                        for (n, (_, r)) in runs.iter().enumerate() {
+                            near[n] |= (at[0] - r.at[0]).abs() < r.size
+                                && (at[1] - r.at[1]).abs() < r.size;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if matches!(kind, "STYLE" | "DIMSTYLE") {
+                assert!(
+                    !value.to_lowercase().ends_with(".ttf"),
+                    "{stem}: {kind} {value}"
+                );
+            }
+            if kind == "TEXT" || kind == "MTEXT" {
+                assert!(
+                    !(*code == 1 && value.chars().any(|c| SYMBOLS.contains(c))),
+                    "{stem}: symbol left as text: {value}"
+                );
+            }
+        }
+        assert!(near.iter().all(|n| *n), "{stem}: every symbol has linework");
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("STIXGeneral") && !text.contains("Arial Unicode"));
+    }
+}
+
+/// Circled modifiers (Ⓜ Ⓛ) have no SHX glyph; they are written as ASME's (M) and (L),
+/// keeping the cell's laid-out width.
+#[test]
+fn dxf_circled_modifiers_are_written_in_parentheses() {
+    use draftwright::output::{HAlign, TextRun, VAlign};
+    use dxf::entities::EntityType as E;
+    let mut drawing = plate(&|_| {});
+    drawing.text.push(TextRun {
+        text: "⌀0.5Ⓜ".into(),
+        at: [25., 100.],
+        size: 2.5,
+        rotation: 0.,
+        font: "IBMPlexMono-Regular.ttf".into(),
+        h_align: HAlign::Left,
+        v_align: VAlign::Baseline,
+    });
+    let bytes = drawing.dxf();
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&bytes)).unwrap();
+    let t = d
+        .entities()
+        .find_map(|e| match &e.specific {
+            E::Text(t) if t.value.contains("(M)") => Some(t),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(t.value, "%%c0.5(M)");
+    assert!(
+        d.styles()
+            .all(|s| !s.primary_font_file_name.ends_with(".ttf"))
+    );
+    assert!(!String::from_utf8_lossy(&bytes).contains('Ⓜ'));
+}
