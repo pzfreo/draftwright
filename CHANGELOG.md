@@ -86,6 +86,10 @@ Specs `/1` and `/2` are read and migrated for ten releases from 0.2.15, through 
   import and attribute boundaries. Keep `draftwright.builder.make_drawing` working
   and cover all 88 archived top-level modules/packages with migration guidance.
 
+### WASM API
+
+- `sheetDxf(sheet)` gives a sheet as editable DXF, as the native `render --formats dxf` does.
+
 ## 0.2.15 (2026-11-09)
 
 Still on quiddity-rust 0.4.9. Automatic item IDs are now anchored on faces, so resizing a part
