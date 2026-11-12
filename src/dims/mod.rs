@@ -5622,8 +5622,6 @@ pub(crate) fn local_placement_fix(
                 // The trial counts settled ink, not the sheet replanned around the edit, and was
                 // seen to miscount by one (10 cleared, 9 added, 57 findings before and after).
                 // A lead of one is inside that error, so the trade must win by at least two.
-                    eprintln!("DBG {description} removed {removed} added {}", added.len());
-                }
                 if added.len() + 2 > removed {
                     return None;
                 }
