@@ -17,6 +17,8 @@ mod engine_version;
 #[allow(clippy::module_inception)]
 #[path = "../facts.rs"]
 mod facts;
+#[path = "../fix_never_worse.rs"]
+mod fix_never_worse;
 #[path = "../gears.rs"]
 mod gears;
 #[path = "../gzip.rs"]
