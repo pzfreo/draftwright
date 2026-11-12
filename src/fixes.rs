@@ -390,6 +390,19 @@ pub(crate) fn attach(analysis: &crate::model::Analysis, plan: &mut crate::model:
     MEMO.insert(key, plan.problems.clone());
 }
 
+/// A placement the bounded trial of `dims::local_placement_fix` proposed: it sets an item's
+/// place to something (an unpinning sets it to nothing).
+fn is_trialled_move(ops: &[Op]) -> bool {
+    ops.iter().any(|op| {
+        op.path.ends_with("/place")
+            && op
+                .value
+                .as_ref()
+                .and_then(serde_json::Value::as_object)
+                .is_some_and(|o| !o.is_empty())
+    })
+}
+
 /// Marks a local fix that adds findings of its own, as `dims::local_placement_fix` words it.
 pub(crate) const TRADE_OFF: &str = " Trade-off: adds these findings: ";
 
@@ -490,12 +503,14 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
                     ));
                 }
             } else {
-                // The settled-ink trial that proved this edit assumed the rest of the sheet
-                // stays put. A whole-sheet layout does not promise that (a plate's 3 findings
-                // became 5 this way), so an edit widened to the sheet is withheld, not offered
-                // on a count nobody checked.
-                withheld.push(fix.ops.clone());
-                continue;
+                // The settled-ink trial that proved a move assumed the rest of the sheet stays
+                // put. A whole-sheet layout does not promise that (a plate's 3 findings became 5
+                // this way), so a move widened to the sheet is withheld, not offered on a count
+                // nobody checked. Other edits (a title, an unpin) were never trialled.
+                if is_trialled_move(&fix.ops) {
+                    withheld.push(fix.ops.clone());
+                    continue;
+                }
             }
         }
         fixes.retain(|f| !withheld.contains(&f.ops));
