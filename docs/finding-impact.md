@@ -306,6 +306,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `step_position_coincident_with_datum` | advisory | The datum already states this shoulder location. |
 | `table_dropped` | incomplete | A required drawing item was dropped before it could be stated. |
 | `table_not_placed` | incomplete | The required item has no drawn placement. |
+| `text_glyph_missing` | readability | A character in a label is in none of the bundled fonts, so it is drawn as an empty box. |
 | `thread_designation_measured` | advisory | Measured diameter and pitch are stated without an inferred designation. |
 | `through_step_requirement_missing` | incomplete | The drawing does not state this required feature parameter. |
 | `through_step_requirement_unverifiable` | incomplete | The drawing does not prove this required feature parameter. |

@@ -482,7 +482,7 @@ fn requests(spec: &Spec) -> Vec<(&'static str, usize)> {
         .iter()
         .position(|p| p.0 == cap(spec))
         .unwrap_or(1);
-    let hard = spec.sheets.as_ref().and_then(|s| s.max).unwrap_or(9) as usize;
+    let hard = spec.sheets.as_ref().and_then(|s| s.max).unwrap_or(9).min(9) as usize;
     let count = preferred_sheets(spec).min(hard);
     let mut out: Vec<_> = spec.pages()[..=preferred]
         .iter()
@@ -1000,6 +1000,7 @@ fn illegible_shortfall(analysis: &Analysis, spec: &Spec, baseline: &Plan, plan: 
 /// keeping the view reaches smaller paper, the view is kept. The plan keeps the caller's spec,
 /// so planning it again reaches the same drawing.
 pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    crate::sheets::check_max(spec)?;
     // Pin replays derive the same canonical paper inputs for annotation-only edits.
     // Retain that exact selection in session preparation instead of searching again.
     let key = serde_json::to_vec(&(spec, crate::planning::policy_key(analysis)))
@@ -3736,6 +3737,14 @@ mod tests {
             );
             assert!(p.sheet_candidates.iter().all(preferred_scales_descend));
         }
+    }
+
+    #[test]
+    fn absurd_sheets_max_is_refused_and_never_sizes_the_requests() {
+        let spec: Spec =
+            serde_json::from_value(json!({"sheets":{"max":4_000_000_000u32}})).unwrap();
+        assert!(crate::sheets::check_max(&spec).is_err());
+        assert!(requests(&spec).len() <= 9 * spec.pages().len());
     }
 
     #[test]
