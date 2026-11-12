@@ -18,6 +18,7 @@ pub mod cosmetic;
 pub mod demand;
 pub mod dimension_scheme;
 pub mod dims;
+mod dxf_output;
 pub mod evaluation;
 pub mod finding;
 pub mod fixes;

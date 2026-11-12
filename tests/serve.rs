@@ -151,7 +151,10 @@ fn the_service_answers_each_line() {
     );
     // No feature-size requirements; the sheet still proves every overall extent.
     assert_eq!(replies[1]["result"]["lint"], json!([]));
-    assert_eq!(replies[2]["error"]["choices"], json!(["svg", "pdf", "png"]));
+    assert_eq!(
+        replies[2]["error"]["choices"],
+        json!(["svg", "pdf", "png", "dxf"])
+    );
     assert_eq!(replies[3]["ok"], true, "{}", replies[3]);
     written.extend(replies[3]["result"]["written"].as_array().unwrap().clone());
     assert_eq!(written.len(), 3);

@@ -2383,8 +2383,28 @@ pub fn render(
     }
     let p = g.placed.as_ref()?;
     let first = text.len();
-    for [a, b] in p.lines.iter().chain(&p.strokes) {
+    let symbol_run = |a: P2, b: P2| {
+        p.runs
+            .iter()
+            .enumerate()
+            .find(|(_, r)| {
+                r.text.chars().count() == 1
+                    && r.text.chars().any(|c| (c as u32) >= 0x2100)
+                    && [a, b]
+                        .iter()
+                        .all(|p| (0..2).all(|k| (p[k] - r.at[k]).abs() < 0.75 * r.size))
+            })
+            .map(|(i, _)| first + i)
+    };
+    for [a, b] in &p.lines {
         items.push(Item::Edge(Curve::Line(*a, *b)));
+    }
+    for [a, b] in &p.strokes {
+        let curve = Curve::Line(*a, *b);
+        items.push(symbol_run(*a, *b).map_or_else(
+            || Item::Edge(curve.clone()),
+            |r| Item::TextStroke(curve.clone(), r),
+        ));
     }
     for [tip, tail] in &p.arrows {
         let n = [tail[1] - tip[1], tip[0] - tail[0]];
@@ -2436,7 +2456,16 @@ pub fn render(
             })
             .collect();
         if !wires.is_empty() {
-            items.push(Item::Face(wires));
+            let run = p
+                .runs
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| {
+                    let distance = |r: &GdtText| (r.at[0] - l.at[0]).hypot(r.at[1] - l.at[1]);
+                    distance(a).total_cmp(&distance(b))
+                })
+                .map_or(first, |(i, _)| first + i);
+            items.push(Item::Glyph(wires, run));
         }
     }
     for r in &p.runs {

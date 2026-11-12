@@ -48,8 +48,10 @@ fn layer(drawing: &Drawing, name: &str) -> Vec<[P; 2]> {
         .filter(|l| l.name == name)
         .flat_map(|l| &l.items)
         .flat_map(|i| match i {
-            Item::Edge(c) => segments(c),
-            Item::Face(loops) => loops.iter().flatten().flat_map(segments).collect(),
+            Item::Edge(c) | Item::TextStroke(c, _) => segments(c),
+            Item::Face(loops) | Item::Glyph(loops, _) => {
+                loops.iter().flatten().flat_map(segments).collect()
+            }
         })
         .collect()
 }

@@ -1,11 +1,8 @@
-//! A drawing written out as draftwright writes it — SVG (build123d's `ExportSVG`), DXF (its
-//! `ExportDXF`, through ezdxf) and PDF (the SVG through svglib and reportlab, with the labels'
-//! text laid invisibly over their glyphs so the PDF can be searched). The port lays the same
-//! invisible text over the SVG's glyphs too, and keeps the callout symbols (`⌀ ↧ ⌴ ⌵`) in both,
-//! where draftwright's PDF text has `ø` and spaces.
-//!
-//! The drawing is layers of curves on a page, in millimetres with y up: each layer's lines are
-//! drawn in its style, and its faces (glyphs, arrowheads) filled where the layer fills.
+//! Drawings in sheet millimetres, y up. SVG/PDF/PNG paint the same layered curves
+//! and filled faces; their invisible text remains searchable. DXF uses the same
+//! geometry with native text, dimensions, blocks, attributes, hatches and groups.
+//! Tagged glyph faces and symbol strokes retain text-run ownership without changing
+//! the painted formats.
 
 pub use crate::units::Units;
 
@@ -31,10 +28,10 @@ pub(crate) fn centred_label_ink(
     for [a, b] in ink.strokes {
         let a = local(a);
         let b = local(b);
-        items.push(Item::Edge(Curve::Line(
-            [at[0] + a[0], at[1] + a[1]],
-            [at[0] + b[0], at[1] + b[1]],
-        )));
+        items.push(Item::TextStroke(
+            Curve::Line([at[0] + a[0], at[1] + a[1]], [at[0] + b[0], at[1] + b[1]]),
+            usize::MAX,
+        ));
     }
     crate::text::Laid {
         contours: ink
@@ -307,8 +304,8 @@ pub fn items_bbox<'a>(items: impl IntoIterator<Item = &'a Item>) -> Option<[f64;
     let mut out: Option<[f64; 4]> = None;
     for item in items {
         let curves: Vec<&Curve> = match item {
-            Item::Edge(c) => vec![c],
-            Item::Face(wires) => wires.iter().flatten().collect(),
+            Item::Edge(c) | Item::TextStroke(c, _) => vec![c],
+            Item::Face(wires) | Item::Glyph(wires, _) => wires.iter().flatten().collect(),
         };
         for c in curves {
             let b = c.bbox();
@@ -330,6 +327,11 @@ pub fn items_bbox<'a>(items: impl IntoIterator<Item = &'a Item>) -> Option<[f64;
 pub enum Item {
     Edge(Curve),
     Face(Vec<Vec<Curve>>),
+    /// Glyph outlines belonging to a text run; ordinary exporters paint these as faces.
+    /// `usize::MAX` identifies an outline-only furniture label recorded in `Sheet::dxf`.
+    Glyph(Vec<Vec<Curve>>, usize),
+    /// A font-independent callout symbol stroke, replaced by native text in DXF.
+    TextStroke(Curve, usize),
 }
 
 #[derive(Clone, Debug)]
@@ -366,7 +368,7 @@ pub enum VAlign {
 }
 
 /// A label's text, laid invisibly over its drawn glyphs in the PDF and the SVG.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextRun {
     pub text: String,
     /// The anchor, mm.
@@ -564,6 +566,8 @@ pub struct Sheet {
     pub units: Units,
     /// Resolved source inventory for independent rendered-balloon verification.
     pub characteristics: Vec<crate::characteristics::Characteristic>,
+    /// Export-only provenance; never participates in the painted formats.
+    pub dxf: crate::dxf_output::Structure,
     pub inspection_enabled: bool,
     /// Compiled wording wrappers; lint reads the live measured body, never authored numbers.
     pub label_text: BTreeMap<String, LabelWording>,
@@ -771,7 +775,7 @@ pub const DXF_SPEC: &str = "draftwright spec, JSON in the comments that follow";
 /// crate, so the file opens as before; a re-save drops them, as it would any other application's
 /// note. The JSON is made ASCII (`\uXXXX`) and cut into lines of at most 255 characters, the
 /// oldest readers' limit for a string; no line is trimmed when it is read back.
-fn dxf_spec_comments(spec: &str) -> Vec<u8> {
+pub(crate) fn dxf_spec_comments(spec: &str) -> Vec<u8> {
     let mut ascii = String::new();
     for c in spec.chars() {
         if c.is_ascii() {
@@ -842,7 +846,7 @@ impl Drawing {
                 let [r, g, b] = layer.style.colour;
                 let mut d = String::new();
                 for item in &layer.items {
-                    if let Item::Face(wires) = item {
+                    if let Item::Face(wires) | Item::Glyph(wires, _) = item {
                         for wire in wires {
                             // Shaded wires are closed polygons. Z supplies the final edge.
                             for (i, curve) in wire.iter().enumerate() {
@@ -963,157 +967,9 @@ impl Drawing {
         s
     }
 
-    /// The DXF (R2013, millimetres): each layer with its line weight, each curve as a LINE,
-    /// CIRCLE, ARC, ELLIPSE or SPLINE, and each face as the curves of its boundary.
+    /// An editable R2013 DXF in millimetres at sheet size in model space.
     pub fn dxf(&self) -> Vec<u8> {
-        use dxf::entities::{Arc, Circle, Ellipse, Entity, EntityType, Line};
-        use dxf::enums::{AcadVersion, Units};
-        use dxf::tables::Layer as DxfLayer;
-        use dxf::{Point, Vector};
-        let mut d = dxf::Drawing::new();
-        d.header.version = AcadVersion::R2013;
-        d.header.default_drawing_units = Units::Millimeters;
-        // The crate stamps the clock and random GUIDs: pin them, so the same drawing gives the
-        // same bytes (reportlab's `invariant` dates for draftwright's PDFs are 2000-01-01 too).
-        // The crate writes a local date as its time since local midnight, 1900-01-01, and the
-        // zone's offset then and in 2000 differ (local mean time in many zones): the local date is
-        // that epoch plus the 36524 days to 2000-01-01, so it is Julian day 2451545 in every zone.
-        {
-            use chrono::TimeZone;
-            let local = chrono::Local
-                .with_ymd_and_hms(1900, 1, 1, 0, 0, 0)
-                .single()
-                .expect("the crate's local epoch")
-                + chrono::Duration::days(36524);
-            let utc = chrono::Utc
-                .with_ymd_and_hms(2000, 1, 1, 0, 0, 0)
-                .single()
-                .expect("a fixed time");
-            (d.header.creation_date, d.header.update_date) = (local, local);
-            (
-                d.header.creation_date_universal,
-                d.header.update_date_universal,
-            ) = (utc, utc);
-            use sha2::Digest;
-            let digest = sha2::Sha256::digest(self.spec.as_deref().unwrap_or("").as_bytes());
-            let id = uuid::Uuid::from_slice(&digest[..16]).expect("16 bytes");
-            (d.header.fingerprint_guid, d.header.version_guid) = (id, id);
-        }
-        // The crate builds a line weight of a given value only by deserialising one.
-        let weight = |w: i16| -> dxf::LineWeight {
-            serde_json::from_value(serde_json::json!({ "raw_value": w }))
-                .expect("a line weight is its raw value")
-        };
-        // ezdxf's standard layers, at the default weight, then the drawing's.
-        for l in d.layers_mut() {
-            l.line_weight = weight(-3);
-        }
-        d.add_layer(DxfLayer {
-            name: "Defpoints".into(),
-            line_weight: weight(-3),
-            ..Default::default()
-        });
-        d.add_line_type(dxf::tables::LineType {
-            name: "CENTRE".into(),
-            description: "ISO 128 long dash dot".into(),
-            element_count: 4,
-            total_pattern_length: 11.2,
-            dash_dot_space_lengths: vec![8.0, -1.5, 0.2, -1.5],
-            ..Default::default()
-        });
-        for layer in self.paint_layers() {
-            d.add_layer(DxfLayer {
-                name: layer.name.clone(),
-                line_weight: weight(layer.style.weight),
-                line_type_name: if layer.name == "centres" {
-                    "CENTRE".into()
-                } else {
-                    "CONTINUOUS".into()
-                },
-                ..Default::default()
-            });
-        }
-        let pt = |p: P| Point::new(p[0], p[1], 0.0);
-        for layer in self.paint_layers() {
-            let curves = layer.items.iter().flat_map(|item| match item {
-                Item::Edge(c) => vec![c],
-                Item::Face(wires) => wires.iter().flatten().collect(),
-            });
-            for curve in curves {
-                let kind = match curve {
-                    Curve::Line(a, b) => EntityType::Line(Line::new(pt(*a), pt(*b))),
-                    Curve::Conic {
-                        centre,
-                        radii,
-                        x_axis,
-                        y_axis,
-                        t0,
-                        t1,
-                    } => {
-                        // As an anticlockwise arc: a clockwise frame runs its parameter backwards.
-                        let ccw = x_axis[0] * y_axis[1] - x_axis[1] * y_axis[0] > 0.0;
-                        let (mut a, mut b) = if ccw { (*t0, *t1) } else { (-*t0, -*t1) };
-                        if b < a {
-                            (a, b) = (b, a);
-                        }
-                        let rotation = x_axis[1].atan2(x_axis[0]);
-                        let closed = (b - a) >= 2.0 * PI - 1e-12;
-                        if (radii[0] - radii[1]).abs() <= 1e-12 * radii[0] {
-                            if closed {
-                                EntityType::Circle(Circle::new(pt(*centre), radii[0]))
-                            } else {
-                                EntityType::Arc(Arc::new(
-                                    pt(*centre),
-                                    radii[0],
-                                    (a + rotation).to_degrees(),
-                                    (b + rotation).to_degrees(),
-                                ))
-                            }
-                        } else {
-                            let (start_parameter, end_parameter) =
-                                if closed { (0.0, 2.0 * PI) } else { (a, b) };
-                            EntityType::Ellipse(Ellipse {
-                                center: pt(*centre),
-                                major_axis: Vector::new(
-                                    x_axis[0] * radii[0],
-                                    x_axis[1] * radii[0],
-                                    0.0,
-                                ),
-                                minor_axis_ratio: radii[1] / radii[0],
-                                start_parameter,
-                                end_parameter,
-                                ..Default::default()
-                            })
-                        }
-                    }
-                    Curve::Beziers(pieces) => match pieces.as_slice() {
-                        [only] if only.len() == 2 => {
-                            EntityType::Line(Line::new(pt(only[0]), pt(only[1])))
-                        }
-                        _ => EntityType::Spline(spline(
-                            pieces
-                                .iter()
-                                .map(|p| p.iter().map(|q| [q[0], q[1], 1.0]).collect())
-                                .collect(),
-                        )),
-                    },
-                    Curve::Rational(pieces) => EntityType::Spline(spline(pieces.clone())),
-                };
-                let mut entity = Entity::new(kind);
-                entity.common.layer = layer.name.clone();
-                // The crate writes these two always: weight and transparency by layer
-                // (an explicit 0 would be the thinnest line and fully transparent).
-                entity.common.lineweight_enum_value = -1;
-                entity.common.transparency = 0x0200_00FF;
-                d.add_entity(entity);
-            }
-        }
-        let mut out = Vec::new();
-        if let Some(spec) = &self.spec {
-            out = dxf_spec_comments(spec);
-        }
-        d.save(&mut out).expect("writes to memory");
-        out
+        crate::dxf_output::write(self)
     }
 
     /// The PDF: the page in points, each layer's paths stroked (faces filled) in its style, the
@@ -1213,13 +1069,13 @@ impl Drawing {
                     );
                 }
                 match item {
-                    Item::Edge(curve) => {
+                    Item::Edge(curve) | Item::TextStroke(curve, _) => {
                         let s = curve.start();
                         c.move_to(s[0] as f32, s[1] as f32);
                         pdf_curve(&mut c, curve);
                         c.stroke();
                     }
-                    Item::Face(wires) => {
+                    Item::Face(wires) | Item::Glyph(wires, _) => {
                         for wire in wires {
                             let s = wire[0].start();
                             c.move_to(s[0] as f32, s[1] as f32);
@@ -1515,7 +1371,7 @@ impl Drawing {
 
 /// One DXF spline through rational Bézier pieces (homogeneous poles): each raised to the
 /// highest degree, joined by knots of full multiplicity.
-fn spline(pieces: Vec<Vec<[f64; 3]>>) -> dxf::entities::Spline {
+pub(crate) fn spline(pieces: Vec<Vec<[f64; 3]>>) -> dxf::entities::Spline {
     let degree = pieces.iter().map(|p| p.len() - 1).max().unwrap_or(1);
     let mut s = dxf::entities::Spline {
         degree_of_curve: degree as i32,
@@ -1562,7 +1418,7 @@ fn rational_at(poles: &[[f64; 3]], t: f64) -> P {
 
 /// Rational pieces as the polynomial ones SVG and PDF can draw (up to cubics): a piece of equal
 /// weights and at most 4 poles is one already; any other is drawn as chords within 0.1 µm of it.
-fn polynomial(pieces: &[Vec<[f64; 3]>]) -> Vec<Vec<P>> {
+pub(crate) fn polynomial(pieces: &[Vec<[f64; 3]>]) -> Vec<Vec<P>> {
     let mut out = Vec::new();
     for piece in pieces {
         let w = piece[0][2];
@@ -2120,7 +1976,7 @@ fn svg_segments(curve: &Curve, d: &mut String) {
 
 fn svg_item(item: &Item) -> String {
     match item {
-        Item::Edge(Curve::Line(a, b)) => {
+        Item::Edge(Curve::Line(a, b)) | Item::TextStroke(Curve::Line(a, b), _) => {
             format!(
                 "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" />",
                 num(a[0]),
@@ -2145,13 +2001,13 @@ fn svg_item(item: &Item) -> String {
                 radii[0]
             )
         }
-        Item::Edge(curve) => {
+        Item::Edge(curve) | Item::TextStroke(curve, _) => {
             let s = curve.start();
             let mut d = format!("M {},{}", num(s[0]), num(s[1]));
             svg_segments(curve, &mut d);
             format!("<path d=\"{d}\" fill=\"none\" />")
         }
-        Item::Face(wires) => {
+        Item::Face(wires) | Item::Glyph(wires, _) => {
             let mut d = String::new();
             for wire in wires {
                 let s = wire[0].start();

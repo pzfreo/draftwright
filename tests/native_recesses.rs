@@ -722,8 +722,8 @@ fn recess_locations_do_not_send_an_existing_ramp_leader_through_extra_hidden_edg
             .filter(|l| l.name == "hidden")
             .flat_map(|l| &l.items)
             .filter_map(|i| match i {
-                Item::Edge(c) => Some(c),
-                Item::Face(_) => None,
+                Item::Edge(c) | Item::TextStroke(c, _) => Some(c),
+                Item::Face(_) | Item::Glyph(_, _) => None,
             })
             .filter(|c| {
                 if let draftwright::output::Curve::Line(a, b) = c {

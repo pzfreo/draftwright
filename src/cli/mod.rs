@@ -6,9 +6,8 @@
 //!   or `draftwright plan [part.step] --analysis a.json [--spec s.json]`, from an Analysis
 //!   without analysing again
 //! - `draftwright render part.step [--features r.json | --no-features | --analysis a.json]
-//!   [--spec s.json] -o out [--formats svg,pdf,png] [--dpi 150]`: writes the files
-//!   (`out.svg`, …; svg and pdf unless named, a PNG at `--dpi` pixels per inch; DXF export is
-//!   disabled until it is fixed) and prints
+//!   [--spec s.json] -o out [--formats svg,pdf,png,dxf] [--dpi 150]`: writes the files
+//!   (`out.svg`, …; svg and pdf unless named, a PNG at `--dpi` pixels per inch; editable DXF) and prints
 //!   what was written, with the problems: the plan's, and what could not be drawn as planned
 //! - `draftwright review part.step [--features r.json | --no-features | --analysis a.json]
 //!   [--spec s.json]`: the drawing as SVG text, with the problems and lint's findings on the
@@ -158,7 +157,7 @@ enum Command {
         out_dir: Option<String>,
         #[command(flatten)]
         sheet: Box<compat::SheetOptions>,
-        /// the formats written, of svg, pdf and png
+        /// the formats written, of svg, pdf, png and editable dxf
         #[arg(long, value_name = "LIST", default_value = "svg,pdf")]
         formats: String,
         /// a PNG's pixels per inch (default 150)

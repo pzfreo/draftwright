@@ -47,7 +47,7 @@ struct Stored {
     cuts: BTreeMap<Vec<u64>, Vec<Vec<[f64; 3]>>>,
     geometry: BTreeMap<Vec<u64>, (Vec<u64>, ViewGeometry)>,
     cut_material: BTreeMap<Vec<u64>, bool>,
-    hatches: BTreeMap<Vec<u64>, Vec<Item>>,
+    hatches: BTreeMap<Vec<u64>, HatchInk>,
 }
 // JSON map keys are strings; sorted pairs retain numeric cache keys without hash iteration order.
 type CutPairs = Vec<(Vec<u64>, Vec<Vec<[f64; 3]>>)>;
@@ -61,7 +61,7 @@ struct Pairs {
     #[serde(default)]
     cut_material: Vec<(Vec<u64>, bool)>,
     #[serde(default)]
-    hatches: Vec<(Vec<u64>, Vec<Item>)>,
+    hatches: Vec<(Vec<u64>, HatchInk)>,
 }
 impl Projections {
     pub fn disk_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {

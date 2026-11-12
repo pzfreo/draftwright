@@ -9729,13 +9729,15 @@ pub fn render(
 
 /// What renders share: hidden-line projections and cuts, and the latest placed edges and
 /// visible-ink bounds per projection. A different part binding discards the cached geometry.
+type HatchInk = (Vec<Item>, Vec<Vec<[f64; 2]>>);
+
 #[derive(Clone, Default)]
 pub struct Projections {
     binding: Option<String>,
     views: HashMap<Vec<u64>, Vec<Projected>>,
     cuts: HashMap<Vec<u64>, Vec<Vec<[f64; 3]>>>,
     cut_material: HashMap<Vec<u64>, bool>,
-    hatches: HashMap<Vec<u64>, Vec<Item>>,
+    hatches: HashMap<Vec<u64>, HatchInk>,
     geometry: HashMap<Vec<u64>, (Vec<u64>, ViewGeometry)>,
     shaded_mesh: Option<crate::shaded::Mesh>,
     #[cfg(test)]
@@ -9957,7 +9959,19 @@ impl Projections {
             ]);
             let extra = crate::modelled_threads::cache_key(a, &plan.spec, v);
             key.extend(&extra);
-            self.hatches.insert(key, ink);
+            let view = View::new(v.direction, v.up).expect("section camera");
+            let boundary = contours
+                .iter()
+                .map(|l| {
+                    l.iter()
+                        .map(|p| {
+                            let q = view.map(*p);
+                            [0, 1].map(|k| v.at[k] + v.scale * (q[k] - centre[k]))
+                        })
+                        .collect()
+                })
+                .collect();
+            self.hatches.insert(key, (ink, boundary));
             let mut key = bits(&[&cut.origin, &cut.normal]);
             key.extend(extra);
             self.cuts.insert(key.clone(), contours.to_vec());
@@ -10358,7 +10372,22 @@ impl RenderedItem {
         sheet: &mut Sheet,
     ) {
         let offset = text.len();
-        items.extend(self.items);
+        let start = items.len();
+        if let Some(a) = self.annotations.first() {
+            sheet
+                .dxf
+                .annotations
+                .insert(a.name.clone(), start..start + self.items.len());
+        }
+        items.extend(self.items.into_iter().map(|mut i| {
+            match &mut i {
+                Item::Glyph(_, run) | Item::TextStroke(_, run) if *run != usize::MAX => {
+                    *run += offset
+                }
+                _ => {}
+            }
+            i
+        }));
         text.extend(self.text);
         annotations.extend(self.annotations.into_iter().map(|mut a| {
             for run in &mut a.runs {
@@ -10720,7 +10749,9 @@ fn render_annotations_with_cuts(
     let mut captions: Vec<(String, [f64; 2])> = Vec::new();
     // What lint's sheet checks read: each view's visible box, and each thing drawn, by name.
     let mut sheet = Sheet::default();
+    sheet.dxf.sheet_number = plan.sheet.number;
     let mut caption_names: Vec<String> = Vec::new();
+    let mut section_caption_owners: BTreeMap<[u64; 2], String> = BTreeMap::new();
     let mut references = Vec::new();
     let mut layers: Vec<Layer> = layer_styles()
         .into_iter()
@@ -10753,6 +10784,8 @@ fn render_annotations_with_cuts(
         "geometry covers every planned view"
     );
     for (v, (name, geometry)) in plan.views.iter().zip(geometry.views) {
+        let centres_from = layers[3].items.len();
+        let thin_from = thin.len();
         // Invariant: Session geometry is generated in this same immutable plan view order.
         assert_eq!(v.id, name, "geometry follows plan view order");
         if rejected_sections.contains_key(&v.id) {
@@ -10783,8 +10816,8 @@ fn render_annotations_with_cuts(
                     .visible
                     .iter()
                     .filter_map(|i| match i {
-                        Item::Edge(c) => Some(c.clone()),
-                        Item::Face(_) => None,
+                        Item::Edge(c) | Item::TextStroke(c, _) => Some(c.clone()),
+                        Item::Face(_) | Item::Glyph(_, _) => None,
                     })
                     .collect(),
             });
@@ -10859,6 +10892,14 @@ fn render_annotations_with_cuts(
             thin.extend(local_thin);
         }
         thin.extend(geometry.breaks.into_iter().map(Item::Edge));
+        sheet.dxf.views.push(crate::dxf_output::ViewItems {
+            name: v.id.clone(),
+            at: v.at,
+            visible: layers[0].items.len()..layers[0].items.len() + geometry.visible.len(),
+            hidden: layers[1].items.len()..layers[1].items.len() + geometry.hidden.len(),
+            centres: centres_from..layers[3].items.len(),
+            thin: thin_from..thin.len(),
+        });
         layers[0].items.extend(geometry.visible);
         layers[1].items.extend(geometry.hidden);
     }
@@ -10866,6 +10907,10 @@ fn render_annotations_with_cuts(
         let Some(d) = &v.detail else { continue };
         captions.push((crate::detail::caption(d), crate::detail::caption_at(v)));
         caption_names.push(format!("detail_caption_{}", d.label));
+        sheet
+            .dxf
+            .furniture_views
+            .insert(format!("detail_caption_{}", d.label), v.id.clone());
         if let Some(source) = plan.views.iter().find(|s| s.id == d.source_view) {
             let labels: Vec<_> = plan
                 .dimensions
@@ -10929,6 +10974,10 @@ fn render_annotations_with_cuts(
             layers[3].items.extend(ink);
             captions.push((d.label.clone(), at));
             caption_names.push(format!("detail_marker_label_{}", d.label));
+            sheet.dxf.furniture_views.insert(
+                format!("detail_marker_label_{}", d.label),
+                source.id.clone(),
+            );
         }
     }
     if !thin.is_empty() {
@@ -10947,10 +10996,12 @@ fn render_annotations_with_cuts(
             continue;
         };
         let keep = h.rect(analysis, v, true);
-        let ink: Vec<Item> = section_hatch(part, analysis, plan, v, (&plane, &cut), projections)?
+        let (source_ink, boundary) =
+            section_hatch(part, analysis, plan, v, (&plane, &cut), projections)?;
+        let ink: Vec<Item> = source_ink
             .into_iter()
             .flat_map(|item| match item {
-                Item::Edge(c) => crate::detail::clip(c, keep)
+                Item::Edge(c) | Item::TextStroke(c, _) => crate::detail::clip(c, keep)
                     .into_iter()
                     .map(Item::Edge)
                     .collect(),
@@ -10970,6 +11021,12 @@ fn render_annotations_with_cuts(
                 interior: false,
             });
         }
+        sheet.dxf.hatches.push(crate::dxf_output::HatchRegion {
+            view: v.id.clone(),
+            clip: Some(keep),
+            items: furniture.len()..furniture.len() + ink.len(),
+            loops: boundary,
+        });
         furniture.extend(ink);
     }
     for v in plan.views.iter().chain(remote_sections.iter().copied()) {
@@ -10983,6 +11040,7 @@ fn render_annotations_with_cuts(
                 let mut f = Furniture {
                     ink: Vec::new(),
                     hatch: 0,
+                    boundary: Vec::new(),
                     chain: None,
                     text: Vec::new(),
                 };
@@ -10991,6 +11049,17 @@ fn render_annotations_with_cuts(
             } else {
                 section_furniture(part, analysis, plan, v, (plane, cut), projections)?
             };
+            sheet.dxf.hatches.push(crate::dxf_output::HatchRegion {
+                view: v.id.clone(),
+                clip: None,
+                items: furniture.len()..furniture.len() + f.hatch,
+                loops: f.boundary.clone(),
+            });
+            sheet.dxf.cutting.push(crate::dxf_output::CuttingPlane {
+                name: format!("{}/cutting_plane", v.id),
+                view: cut.marked_in.clone(),
+                items: furniture.len() + f.hatch..furniture.len() + f.ink.len(),
+            });
             // draftwright's pieces, each by its ink: the hatch, the chain line by its line, and
             // each end's arrowhead and wing stub (`section::cutting_plane`'s order).
             let mut piece = |name: String, kind: Kind, ink: &[Item], lines: Vec<[[f64; 2]; 2]>| {
@@ -11044,9 +11113,29 @@ fn render_annotations_with_cuts(
             let l = cut.label.to_lowercase();
             if !remote {
                 caption_names.push("section_caption".into());
+                sheet
+                    .dxf
+                    .furniture_views
+                    .insert("section_caption".into(), v.id.clone());
             }
             if f.chain.is_some() {
                 caption_names.extend([format!("section_{l}_left"), format!("section_{l}_right")]);
+                for side in ["left", "right"] {
+                    sheet
+                        .dxf
+                        .furniture_views
+                        .insert(format!("section_{l}_{side}"), cut.marked_in.clone());
+                }
+            }
+            for (i, (_, at)) in f.text.iter().enumerate() {
+                section_caption_owners.insert(
+                    at.map(f64::to_bits),
+                    if !remote && i == 0 {
+                        v.id.clone()
+                    } else {
+                        cut.marked_in.clone()
+                    },
+                );
             }
             furniture.extend(f.ink);
             captions.extend(f.text);
@@ -11089,6 +11178,10 @@ fn render_annotations_with_cuts(
             let gap = if v.cut.is_some() { 17.0 } else { 7.0 };
             captions.push((note.clone(), [v.at[0], v.at[1] - half_h - gap]));
             caption_names.push(format!("{}/scale_note", v.id));
+            sheet
+                .dxf
+                .furniture_views
+                .insert(format!("{}/scale_note", v.id), v.id.clone());
         }
     }
     // The border and the title block, lower right.
@@ -11159,6 +11252,15 @@ fn render_annotations_with_cuts(
                      layer: &mut Vec<Item>,
                      run: Option<(&str, &str, f64)>|
      -> Option<usize> {
+        for item in layer.iter_mut().rev() {
+            if let Item::TextStroke(_, index) = item
+                && *index == usize::MAX
+            {
+                *index = text.len();
+            } else {
+                break;
+            }
+        }
         let shift = |p: [f64; 2]| [p[0] + at[0], p[1] + at[1]];
         let curves: Vec<Curve> = laid
             .contours
@@ -11184,7 +11286,14 @@ fn render_annotations_with_cuts(
                 })
                 .filter(|w| !w.is_empty())
                 .collect();
-            layer.push(Item::Face(wires));
+            layer.push(Item::Glyph(
+                wires,
+                if run.is_some() {
+                    text.len()
+                } else {
+                    usize::MAX
+                },
+            ));
         }
         let (s, font, size) = run?;
         text.push(TextRun {
@@ -11199,6 +11308,14 @@ fn render_annotations_with_cuts(
         Some(text.len() - 1)
     };
     let dims = &mut layers[2].items;
+    for region in &mut sheet.dxf.hatches {
+        region.items.start += dims.len();
+        region.items.end += dims.len();
+    }
+    for plane in &mut sheet.dxf.cutting {
+        plane.items.start += dims.len();
+        plane.items.end += dims.len();
+    }
     dims.extend(furniture);
     // A text-only thing as drawn: the box of its ink *items*, which is also its label.
     let labelled = |name: &str, kind: Kind, items: &[Item]| {
@@ -11231,6 +11348,17 @@ fn render_annotations_with_cuts(
                 run,
             });
         }
+        let key = if name == "section_caption" {
+            section_caption_owners
+                .get(&at.map(f64::to_bits))
+                .map_or_else(|| name.clone(), |owner| format!("{name}/{owner}"))
+        } else {
+            name.clone()
+        };
+        if let Some(owner) = section_caption_owners.get(&at.map(f64::to_bits)) {
+            sheet.dxf.furniture_views.insert(key.clone(), owner.clone());
+        }
+        sheet.dxf.furniture.insert(key, from..dims.len());
         sheet
             .items
             .extend(labelled(name, Kind::Caption, &dims[from..]));
@@ -11285,6 +11413,21 @@ fn render_annotations_with_cuts(
     };
     for c in &plan.sheet.title_cells {
         let [x0, y0, x1, y1] = c.cell;
+        sheet.dxf.title_fields.push((
+            c.field.clone(),
+            TextRun {
+                text: c.value.clone().unwrap_or_default(),
+                at: [(x0 + x1) / 2., (y0 + y1) / 2.],
+                size: c
+                    .value
+                    .as_ref()
+                    .map_or(title_block::TEXT, |v| title_block::value_size(v, c.cell)),
+                rotation: 0.,
+                font: title_block::FONT.into(),
+                h_align: HAlign::Center,
+                v_align: VAlign::Middle,
+            },
+        ));
         if x0 > tx0 {
             dims.push(Item::Edge(Curve::Line([x0, y0], [x0, y1])));
         } else if y1 < title_block::top(block) {
@@ -11303,6 +11446,17 @@ fn render_annotations_with_cuts(
             title_block::FONT,
             title_block::LABEL_TEXT,
         ));
+        if run.is_none() {
+            sheet.dxf.labels.push(crate::output::TextRun {
+                text: c.label.clone(),
+                at,
+                size: title_block::LABEL_TEXT,
+                rotation: 0.0,
+                font: title_block::FONT.into(),
+                h_align: HAlign::Center,
+                v_align: VAlign::Middle,
+            });
+        }
         label(laid, at, dims, run);
         if let Some(v) = &c.value {
             let centre = [0.5 * (x0 + x1), 0.5 * (y0 + y1)];
@@ -11334,6 +11488,7 @@ fn render_annotations_with_cuts(
             }
         }
     }
+    sheet.dxf.title = title_from..dims.len();
     // The block's outline and every cell's ink.
     let outline = [tx0, ty0, tx1, title_block::top(block)];
     let ink = items_bbox(&dims[title_from..]).map_or(outline, |b| {
@@ -11437,6 +11592,14 @@ fn render_annotations_with_cuts(
                 });
             }
         }
+        sheet.dxf.furniture.insert(
+            if i == 0 {
+                "general_notes".into()
+            } else {
+                "blend_radius_notes".into()
+            },
+            notes_from..dims.len(),
+        );
         if let Some(ink) = items_bbox(&dims[notes_from..]) {
             sheet.items.push(Drawn {
                 datum_triangle: None,
@@ -11492,6 +11655,7 @@ fn render_annotations_with_cuts(
             Some(run),
         );
         stated.entry(r.id.clone()).or_default().extend(at);
+        sheet.dxf.furniture.insert(r.id.clone(), from..dims.len());
         if let Some(ink) = items_bbox(&dims[from..]) {
             sheet.items.push(Drawn {
                 datum_triangle: None,
@@ -11595,6 +11759,10 @@ fn render_annotations_with_cuts(
                 }
             }
         }
+        sheet
+            .dxf
+            .furniture
+            .insert(table.id.clone(), table_from..dims.len());
         if let Some(ink) = items_bbox(&dims[table_from..]) {
             sheet.items.push(Drawn {
                 datum_triangle: None,
@@ -11657,6 +11825,10 @@ fn render_annotations_with_cuts(
                 });
             }
         }
+        sheet
+            .dxf
+            .furniture
+            .insert(t.table.id.clone(), start..dims.len());
         if let Some(ink) = items_bbox(&dims[start..]) {
             sheet.items.push(Drawn {
                 datum_triangle: None,
@@ -11717,6 +11889,10 @@ fn render_annotations_with_cuts(
                 }
             }
         }
+        sheet
+            .dxf
+            .furniture
+            .insert(t.id.clone(), table_from..dims.len());
         if let Some(ink) = items_bbox(&dims[table_from..]) {
             sheet.items.push(Drawn {
                 datum_triangle: None,
@@ -11848,6 +12024,7 @@ fn render_annotations_with_cuts(
         for [a, z] in &b.lines {
             dims.push(Item::Edge(Curve::Line(*a, *z)));
         }
+        sheet.dxf.furniture.insert(b.id.clone(), from..dims.len());
         if let Some(ink) = items_bbox(&dims[from..]) {
             sheet.items.push(Drawn {
                 datum_triangle: None,
@@ -11923,6 +12100,7 @@ fn render_annotations_with_cuts(
             }
             lines.insert(0, [tip, end]);
         }
+        sheet.dxf.furniture.insert(b.id.clone(), from..dims.len());
         if let Some(ink) = items_bbox(&dims[from..]) {
             sheet.items.push(Drawn {
                 datum_triangle: None,
@@ -11944,6 +12122,18 @@ fn render_annotations_with_cuts(
     // The scale, outside the block (ISO 7200 §4), above its right end.
     let scale = format!("SCALE {}", plan.sheet.scale);
     let at = title_block::scale_note(block, &scale);
+    sheet.dxf.title_fields.push((
+        "scale".into(),
+        TextRun {
+            text: scale.clone(),
+            at,
+            size: title_block::TEXT,
+            rotation: 0.,
+            font: title_block::FONT.into(),
+            h_align: HAlign::Center,
+            v_align: VAlign::Middle,
+        },
+    ));
     let run = (scale.as_str(), title_block::FONT, title_block::TEXT);
     let from = dims.len();
     label(
@@ -11968,6 +12158,10 @@ fn render_annotations_with_cuts(
             dims,
             Some(run),
         );
+        sheet
+            .dxf
+            .furniture
+            .insert(caption.id.clone(), from..dims.len());
         sheet
             .items
             .extend(labelled(&caption.id, Kind::Caption, &dims[from..]));
@@ -12154,6 +12348,21 @@ fn render_annotations_with_cuts(
     if !shaded_layers.is_empty() {
         layers.extend(shaded_layers);
     }
+    sheet
+        .dxf
+        .furniture_views
+        .extend(plan.captions.iter().map(|c| (c.id.clone(), c.view.clone())));
+    for t in plan.hole_table.iter().chain(&plan.hole_tables) {
+        if let Some(v) = &t.view {
+            sheet.dxf.furniture_views.insert(t.id.clone(), v.clone());
+        }
+    }
+    sheet.dxf.dimensions = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.placed.is_some())
+        .map(|d| (d.id.clone(), crate::dxf_output::Dimension::from(d)))
+        .collect();
     let missing_glyphs = crate::output::missing_glyphs(&text);
     Ok(Drawing {
         page: plan.sheet.page,
@@ -12283,6 +12492,7 @@ struct Furniture {
     ink: Vec<Item>,
     /// How many of the ink's first items are the hatch.
     hatch: usize,
+    boundary: Vec<Vec<[f64; 2]>>,
     /// The cutting plane's chain line, end to end, when it is drawn.
     chain: Option<[[f64; 2]; 2]>,
     text: Vec<(String, [f64; 2])>,
@@ -12326,8 +12536,10 @@ fn section_furniture(
     (plane, cut): (&Plane, &Cut),
     projections: &mut Projections,
 ) -> Result<Furniture, Unresolved> {
+    let (ink, boundary) = section_hatch(part, analysis, plan, v, (plane, cut), projections)?;
     let mut out = Furniture {
-        ink: section_hatch(part, analysis, plan, v, (plane, cut), projections)?,
+        ink,
+        boundary,
         hatch: 0,
         chain: None,
         text: Vec::new(),
@@ -12355,9 +12567,10 @@ fn section_hatch(
     v: &PlannedView,
     (plane, cut): (&Plane, &Cut),
     projections: &mut Projections,
-) -> Result<Vec<Item>, Unresolved> {
+) -> Result<HatchInk, Unresolved> {
     use crate::section::{HATCH_SPACING, hatch};
     let mut ink = Vec::new();
+    let boundary;
     // Invariant: Planned cameras come from the fixed views or checked section/detail cameras, with nonparallel axes.
     let view = &View::new(v.direction, v.up).expect("a planned view");
     let (s, centre) = (v.scale, extent(analysis, view).1);
@@ -12382,7 +12595,7 @@ fn section_hatch(
     ]);
     hatch_key.extend(&extra);
     if let Some(cached) = projections.hatches.get(&hatch_key) {
-        ink = cached.clone();
+        (ink, boundary) = cached.clone();
     } else {
         let page: Vec<Vec<[f64; 2]>> = projections
             .cut(part, cut, plane, &extra)?
@@ -12457,9 +12670,12 @@ fn section_hatch(
                 }
             }
         }
-        projections.hatches.insert(hatch_key, ink.clone());
+        boundary = page;
+        projections
+            .hatches
+            .insert(hatch_key, (ink.clone(), boundary.clone()));
     }
-    Ok(ink)
+    Ok((ink, boundary))
 }
 
 fn cutting_furniture(plan: &Plan, cut: &Cut, out: &mut Furniture) {

@@ -1076,7 +1076,8 @@ fn a_turned_part_with_a_stepped_bore_draws_its_profile_as_a_half_section() {
     let hidden = d.layers.iter().find(|l| l.name == "hidden").unwrap();
     assert!(
         !hidden.items.iter().any(|i| match i {
-            draftwright::output::Item::Edge(c) => inside(c.bbox()),
+            draftwright::output::Item::Edge(c) | draftwright::output::Item::TextStroke(c, _) =>
+                inside(c.bbox()),
             _ => false,
         }),
         "a half section draws no hidden edges"

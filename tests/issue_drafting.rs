@@ -1367,8 +1367,10 @@ fn faces_inside(drawing: &Drawing, b: [f64; 4]) -> usize {
         .filter(|l| l.name == "dims")
         .flat_map(|l| &l.items)
         .filter(|i| match i {
-            Item::Face(wires) => wires.iter().flatten().all(|c| points(c).iter().all(within)),
-            Item::Edge(_) => false,
+            Item::Face(wires) | Item::Glyph(wires, _) => {
+                wires.iter().flatten().all(|c| points(c).iter().all(within))
+            }
+            Item::Edge(_) | Item::TextStroke(_, _) => false,
         })
         .count()
 }

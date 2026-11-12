@@ -14,7 +14,7 @@ svg_path, pdf_path = make_drawing(Path("part.step"), out="drawing", title="Brack
 ```
 
 **The return value in 0.6 is `(svg_path, pdf_path)`, both strings. In 0.4 it was
-`(svg_path, dxf_path)`. There is no DXF export in 0.6.** Both files (and additional
+`(svg_path, dxf_path)`. Editable DXF is available through `draftwright render --formats dxf`.** Both files (and additional
 sheets, if needed) follow the CLI's bare-render naming rules. An output extension
 such as `.pdf` is removed from the stem. Without `out`, files go beside the input
 STEP; for a shape the default is `drawing` in the working directory. Exceptions
@@ -96,7 +96,7 @@ cancellation can run their drawing in a subprocess.
 
 Visible changes from 0.4:
 
-- No DXF export: the second returned string is a PDF path, so unpacking now gives
+- The wrapper returns PDF; use `draftwright render --formats dxf` for editable DXF. Unpacking gives
   `(svg_path, pdf_path)`.
 - The sheet frame is always drawn, even with `frame=False`; the projection
   symbol is always drawn as well.

@@ -199,8 +199,8 @@ yet been tried in a real client.
   silently. Checked record by record against Python draftwright's drawings of 22 AP242 files
   (NIST CTC/FTC/STC models and files written by specify-core and by haecceity's PMI writer):
   every difference has a verdict, and none is rust-wrong.
-- **Output:** SVG, PDF and PNG (`src/output.rs`, `src/png.rs`); DXF is drawn but its export is
-  disabled until it is fixed. The PDF embeds subset
+- **Output:** SVG, PDF, PNG and editable DXF (`src/output.rs`, `src/png.rs`,
+  `src/dxf_output.rs`). The PDF embeds subset
   fonts and carries every label as searchable text, callout symbols included; the SVG carries
   the text too. Every format embeds the Spec, which `draftwright spec` reads back.
 - **Deterministic:** the same input gives the same bytes, run to run and in every time zone
@@ -254,7 +254,9 @@ includes the summary. See [finding impact](finding-impact.md) for all codes and 
   Missing edge evidence, section views and uncertain curved regions cannot prove interior paper.
 - **The rules catalogue** (`docs/rules/`) tracks what Python draftwright learnt; most of its
   rules are still pending.
-- DXF table head handles (ezdxf adds them on audit) are not written.
+- DXF uses owned block records, native text and dimension entities with rendered anonymous
+  blocks. Engineering symbol text uses Unicode and a symbol-font fallback; other annotations
+  remain selectable named groups.
 
 ## Known limitations
 
@@ -400,3 +402,24 @@ SIL Open Font License 1.1 (the `LICENSE-*-OFL.txt` files beside them).
 CLI release archives include both `draftwright` and `draftwright-mcp`, `schemas/spec.json`
 and the agent documentation under `docs/`. Start with `draftwright --help`,
 `draftwright --version`, or `draftwright spec_schema`; see [MCP and item discovery](mcp.md#cli-release-discovery).
+
+### Moving a DXF view
+
+The visible view geometry is an INSERT named after its view ID (illegal DXF name
+characters become underscores). Its dimensions, leaders, PMI and captions belong
+to `VIEW_<view-id>_ANNOT`; for example `VIEW_v_front_ANNOT`. In CAD, select the
+view INSERT and that named group together, then MOVE them using the same base
+point. Disable group selection temporarily to edit an individual dimension.
+Shaded pictorials export their visible edges, without presentation fill polygons.
+Single-line labels are TEXT; only real multi-line labels use MTEXT. Unicode
+engineering characters use a named Arial Unicode text style when Plex lacks them.
+The remaining dedicated GD&T fallback is STIX General for flatness (U+23E5) and
+perpendicularity (U+27C2); no inline font programs are embedded in labels.
+Plex-named DXF styles request romans.shx, the single-stroke drafting font every
+DWG/DXF program ships, condensed to Plex's advance so text stays in its original
+table cells and annotation frames. SHX fonts lack × and en dashes, so DXF text
+writes counts as `4X` (the ASME form) and dashes as `-`; hole glyphs are DEEP, CBORE
+and CSK, condensed to the width the layout gave the glyph text.
+Dimension styles use readable scale names such as `DW-1to2`, with suffixes for
+precision, tolerances and leaders. Global settings and entity overrides also carry
+the text size and measurement factor for readers that regenerate dimensions.

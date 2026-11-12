@@ -1,4 +1,4 @@
-//! The port's SVG and DXF against draftwright's, written from the same drawings
+//! The port's SVG against draftwright's, written from the same drawings
 //! (`tools/capture_output.py`): every layer must carry the same style and the same lines, each
 //! side's within `common::TOL` of the other's. (The PDF, rendered and searched, is compared by
 //! `tools/compare_pdf.py`, which needs a PDF renderer.) The text a PDF and an SVG carry is read
@@ -21,24 +21,17 @@ use pdf::{pdf_objects, pdf_text, reference, svg_text, to_unicode};
 use serde_json::{Value, json};
 
 #[test]
-fn svg_and_dxf_match_draftwright() {
+fn svg_matches_draftwright() {
     let mut problems = Vec::new();
     for name in ["m10127", "string_post", "ctc01"] {
         let drawing = common::drawing(&common::load(name));
-        for (kind, theirs, mine) in [
-            (
-                "svg",
-                common::read_svg(
-                    &String::from_utf8(common::gunzip(&format!("{name}.svg.gz"))).unwrap(),
-                ),
-                common::read_svg(&drawing.svg()),
+        for (kind, theirs, mine) in [(
+            "svg",
+            common::read_svg(
+                &String::from_utf8(common::gunzip(&format!("{name}.svg.gz"))).unwrap(),
             ),
-            (
-                "dxf",
-                common::read_dxf(&common::gunzip(&format!("{name}.dxf.gz"))),
-                common::read_dxf(&drawing.dxf()),
-            ),
-        ] {
+            common::read_svg(&drawing.svg()),
+        )] {
             let layers: std::collections::BTreeSet<&String> =
                 theirs.keys().chain(mine.keys()).collect();
             for layer in layers {
@@ -430,4 +423,1061 @@ fn general_notes_reach_the_pdf_text_layer() {
         svg.iter().any(|t| t == "1  BREAK ALL SHARP EDGES"),
         "{svg:?}"
     );
+}
+
+/// Native entities replace the old glyph-curve DXF contract. Read with the Rust
+/// crate alone so the normal test suite does not depend on Python or a CAD install.
+#[test]
+fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
+    use draftwright::output::{Curve, Item};
+    use dxf::entities::EntityType as E;
+    let drawing = plate(&|_| {});
+    let bytes = drawing.dxf();
+    assert_eq!(bytes, drawing.dxf(), "deterministic handles and metadata");
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&bytes)).unwrap();
+    let all: Vec<_> = d
+        .entities()
+        .chain(d.blocks().flat_map(|b| b.entities.iter()))
+        .collect();
+    let mut strings = Vec::new();
+    for e in &all {
+        match &e.specific {
+            E::Text(t) => strings.push(t.value.clone()),
+            E::MText(t) => strings.push(t.text.clone()),
+            E::Insert(i) => strings.extend(
+                i.attributes()
+                    .filter(|a| !a.value.is_empty())
+                    .map(|a| a.value.clone()),
+            ),
+            _ => {}
+        }
+    }
+    let escape = |s: &str| {
+        s.replace('⌀', "%%c")
+            .replace('°', "%%d")
+            .replace('±', "%%p")
+            .replace('×', "X")
+    };
+    let mut expected: Vec<_> = drawing
+        .text
+        .iter()
+        .chain(&drawing.sheet.dxf.labels)
+        .map(|r| escape(&r.text))
+        .collect();
+    strings.sort();
+    expected.sort();
+    assert_eq!(
+        strings, expected,
+        "one editable native text entity per run, including attribute values"
+    );
+    let title = d
+        .entities()
+        .find_map(|e| match &e.specific {
+            E::Insert(i) if i.name == "TITLE_BLOCK" => Some(i),
+            _ => None,
+        })
+        .unwrap();
+    let tags: BTreeSet<_> = title
+        .attributes()
+        .map(|a| a.attribute_tag.as_str())
+        .collect();
+    for tag in [
+        "TITLE",
+        "DRAWING_NUMBER",
+        "MATERIAL",
+        "SCALE",
+        "DATE",
+        "REVISION",
+        "DESIGNED_BY",
+    ] {
+        assert!(tags.contains(tag), "{tag}");
+    }
+    assert!(
+        d.blocks()
+            .find(|b| b.name == "TITLE_BLOCK")
+            .unwrap()
+            .entities
+            .iter()
+            .any(|e| matches!(e.specific, E::AttributeDefinition(_)))
+    );
+    for view in &drawing.sheet.views {
+        assert!(d.blocks().any(|b| b.name == view.name.replace(':', "_")));
+    }
+    // Native blocks retain the original view geometry, before centres/hatch are appended.
+    for view in &drawing.sheet.dxf.views {
+        let block = d
+            .blocks()
+            .find(|b| b.name == view.name.replace(':', "_"))
+            .unwrap();
+        for (item, entity) in drawing.layers[0].items[view.visible.clone()]
+            .iter()
+            .zip(&block.entities)
+        {
+            match (item, &entity.specific) {
+                (Item::Edge(Curve::Line(a, b)), E::Line(line)) => {
+                    assert!((line.p1.x - a[0]).abs() < 1e-10 && (line.p1.y - a[1]).abs() < 1e-10);
+                    assert!((line.p2.x - b[0]).abs() < 1e-10 && (line.p2.y - b[1]).abs() < 1e-10);
+                }
+                (
+                    Item::Edge(Curve::Conic {
+                        centre,
+                        radii,
+                        t0,
+                        t1,
+                        ..
+                    }),
+                    E::Circle(circle),
+                ) => {
+                    assert!((t1 - t0).abs() > std::f64::consts::TAU - 1e-10);
+                    assert!(
+                        (circle.center.x - centre[0]).abs() < 1e-10
+                            && (circle.center.y - centre[1]).abs() < 1e-10
+                    );
+                    assert!((circle.radius - radii[0]).abs() < 1e-10);
+                }
+                (Item::Edge(Curve::Conic { .. }), E::Arc(_) | E::Ellipse(_)) => {}
+                (Item::Edge(Curve::Beziers(_) | Curve::Rational(_)), E::Spline(_)) => {}
+                _ => panic!("view curve changed type: {item:?} -> {:?}", entity.specific),
+            }
+        }
+        assert!(block.entities.len() >= view.visible.len());
+    }
+    let title_geometry = d.blocks().find(|b| b.name == "TITLE_BLOCK").unwrap();
+    for e in title_geometry
+        .entities
+        .iter()
+        .skip(4)
+        .filter(|e| matches!(e.specific, E::Line(_)))
+    {
+        assert_eq!(
+            e.common.lineweight_enum_value, 5,
+            "title rules retain their original 0.05 mm weight"
+        );
+    }
+    let mut dimensions = 0;
+    for e in d.entities() {
+        if let E::RotatedDimension(dim) = &e.specific {
+            dimensions += 1;
+            let base = &dim.dimension_base;
+            let style = d
+                .dim_styles()
+                .find(|s| s.name == base.dimension_style_name)
+                .unwrap();
+            let block = d.blocks().find(|b| b.name == base.block_name).unwrap();
+            assert!(block.name.starts_with("*D") && !block.entities.is_empty());
+            let label = block
+                .entities
+                .iter()
+                .find_map(|e| match &e.specific {
+                    E::Text(t) => t.value.parse::<f64>().ok(),
+                    _ => None,
+                })
+                .unwrap();
+            let a = &dim.definition_point_2;
+            let b = &dim.definition_point_3;
+            let angle = dim.rotation_angle.to_radians();
+            let measured = ((b.x - a.x) * angle.cos() + (b.y - a.y) * angle.sin()).abs();
+            let text = block
+                .entities
+                .iter()
+                .find_map(|e| {
+                    if let E::Text(t) = &e.specific {
+                        Some(t)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            let delta = [
+                base.text_mid_point.x - text.location.x,
+                base.text_mid_point.y - text.location.y,
+            ];
+            let rise = -delta[0] * angle.sin() + delta[1] * angle.cos();
+            assert!(
+                (rise - text.text_height / 2.).abs() < 0.15,
+                "DIMENSION text point is the ink centre, not its baseline"
+            );
+
+            assert!(
+                (measured * style.dimension_linear_measurement_scale_factor - label).abs() < 1e-5
+            );
+            assert_eq!(base.text, "<>", "plain values regenerate from geometry");
+        }
+    }
+    assert!(dimensions >= 7);
+    assert!(
+        d.objects()
+            .any(|o| matches!(o.specific, dxf::objects::ObjectType::Group(_)))
+    );
+    for name in [
+        "A-OUTL",
+        "A-HIDN",
+        "A-CNTR",
+        "A-DIMS",
+        "A-TEXT",
+        "A-PMI",
+        "A-HATCH",
+        "A-CUTP",
+        "A-BORD",
+        "Defpoints",
+    ] {
+        assert!(d.layers().any(|l| l.name == name));
+    }
+    // CAD installations commonly lack Plex; the named Plex styles explicitly
+    // request an installed alternative instead (round 2 interoperability).
+    assert!(d.styles().any(|s| s.primary_font_file_name == "romans.shx"));
+    // A clockwise ellipse with the longer radius on its second axis must retain
+    // the same arc after DXF's mandatory major-axis normalization.
+    let mut elliptical = drawing.clone();
+    let curve = Curve::Conic {
+        centre: [12., 34.],
+        radii: [2., 4.],
+        x_axis: [1., 0.],
+        y_axis: [0., -1.],
+        t0: 0.4,
+        t1: 1.2,
+    };
+    elliptical.layers[0].items.push(Item::Edge(curve.clone()));
+    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(elliptical.dxf())).unwrap();
+    let e = parsed
+        .entities()
+        .find_map(|e| {
+            if let E::Ellipse(e) = &e.specific {
+                Some(e)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let at = |t: f64| {
+        [
+            e.center.x + e.major_axis.x * t.cos() - e.major_axis.y * e.minor_axis_ratio * t.sin(),
+            e.center.y + e.major_axis.y * t.cos() + e.major_axis.x * e.minor_axis_ratio * t.sin(),
+        ]
+    };
+    for (a, b) in [
+        (at(e.start_parameter), curve.end()),
+        (at(e.end_parameter), curve.start()),
+    ] {
+        assert!((a[0] - b[0]).hypot(a[1] - b[1]) < 1e-10);
+    }
+    // A leader's sampled rim may be slightly off the analytic circle. Native
+    // dimension definitions still measure the exact bore, rather than that sample.
+    let mut sampled = drawing.clone();
+    let callout = sampled
+        .sheet
+        .dxf
+        .dimensions
+        .values_mut()
+        .find(|d| d.label.contains("THRU"))
+        .unwrap();
+    callout.placed.as_mut().unwrap().arrows[0][0][0] += 0.0001;
+    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(sampled.dxf())).unwrap();
+    let dim = parsed
+        .entities()
+        .find_map(|e| {
+            if let E::DiameterDimension(d) = &e.specific {
+                Some(d)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let a = &dim.dimension_base.definition_point_1;
+    let b = &dim.definition_point_2;
+    let factor = parsed
+        .dim_styles()
+        .find(|s| s.name == dim.dimension_base.dimension_style_name)
+        .unwrap()
+        .dimension_linear_measurement_scale_factor;
+    assert!(((b.x - a.x).hypot(b.y - a.y) * factor - 6.).abs() < 1e-8);
+    // Isolated projected poles are not valid degree-zero DXF splines.
+    let mut with_points = drawing.clone();
+    with_points.layers[0].items.extend([
+        Item::Edge(Curve::Beziers(vec![vec![[12., 34.]]])),
+        Item::Edge(Curve::Rational(vec![vec![[12., 34., 1.]]])),
+        Item::Edge(Curve::Rational(vec![
+            (0..15)
+                .map(|i| [12. + i as f64, 34. + (i as f64 / 14.).powi(2), 1.])
+                .collect(),
+        ])),
+    ]);
+    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(with_points.dxf())).unwrap();
+    for e in parsed
+        .entities()
+        .chain(parsed.blocks().flat_map(|b| b.entities.iter()))
+    {
+        if let E::Spline(s) = &e.specific {
+            assert!((1..=10).contains(&s.degree_of_curve));
+            assert!(s.control_points.len() > s.degree_of_curve as usize);
+        }
+    }
+    // Poison all glyph outlines. No such geometry may appear in the native export.
+    let mut poisoned = drawing.clone();
+    let mut count = 0;
+    for layer in &mut poisoned.layers {
+        for i in &mut layer.items {
+            match i {
+                Item::Glyph(w, _) => {
+                    *w = vec![vec![Curve::Line([9000., 9000.], [9999., 9999.])]];
+                    count += 1;
+                }
+                Item::TextStroke(c, _) => *c = Curve::Line([9000., 9000.], [9999., 9999.]),
+                _ => {}
+            }
+        }
+    }
+    assert!(count > 0);
+    let check = dxf::Drawing::load(&mut std::io::Cursor::new(poisoned.dxf())).unwrap();
+    assert_eq!(
+        all.len(),
+        check.entities().count() + check.blocks().map(|b| b.entities.len()).sum::<usize>()
+    );
+    for e in check
+        .entities()
+        .chain(check.blocks().flat_map(|b| b.entities.iter()))
+    {
+        match &e.specific {
+            E::Line(l) => assert!(
+                [&l.p1, &l.p2]
+                    .iter()
+                    .all(|p| p.x.abs() < 1000. && p.y.abs() < 1000.)
+            ),
+            E::Spline(s) => assert!(
+                s.control_points
+                    .iter()
+                    .all(|p| p.x.abs() < 1000. && p.y.abs() < 1000.)
+            ),
+            _ => {}
+        }
+    }
+}
+
+/// Turned-profile labels use the historical slashed-o spelling. It carries the
+/// same diameter semantics and control code as the explicit diameter sign.
+#[test]
+fn turned_profile_diameters_preserve_native_witness_dimensions() {
+    use dxf::entities::EntityType as E;
+    let (plan, files) = draftwright::api::render_from(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/turned.step"),
+        draftwright::api::Features::Native,
+        &Spec::default(),
+        &["dxf"],
+        150.,
+    )
+    .unwrap();
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+    let dim = d
+        .entities()
+        .find_map(|e| {
+            if let E::RotatedDimension(dim) = &e.specific
+                && dim.dimension_base.text == "%%c<>"
+            {
+                Some(dim)
+            } else {
+                None
+            }
+        })
+        .expect("the overall turned diameter");
+    let a = &dim.definition_point_2;
+    let b = &dim.definition_point_3;
+    let factor = d
+        .dim_styles()
+        .find(|s| s.name == dim.dimension_base.dimension_style_name)
+        .unwrap()
+        .dimension_linear_measurement_scale_factor;
+    assert!(((a.x - b.x).hypot(a.y - b.y) * factor - 30.).abs() < 1e-6);
+    let block = d
+        .blocks()
+        .find(|b| b.name == dim.dimension_base.block_name)
+        .unwrap();
+    assert!(
+        block
+            .entities
+            .iter()
+            .any(|e| matches!(&e.specific,E::Text(t) if t.value=="%%c30"))
+    );
+    // A live field is required: editing the witnesses must update the displayed diameter.
+    assert_eq!(dim.dimension_base.text, "%%c<>");
+    let wanted = plan
+        .dimensions
+        .iter()
+        .find(|d| d.id == "d:envelope/od.diameter")
+        .unwrap()
+        .placed
+        .as_ref()
+        .unwrap()
+        .arrows[0][0];
+    let at = &dim.dimension_base.definition_point_1;
+    assert!(
+        (at.x - wanted[0]).hypot(at.y - wanted[1]) < 1e-10,
+        "the profile dimension line stays where it was drawn"
+    );
+}
+
+fn dxf_pairs(bytes: &[u8]) -> Vec<(i32, String)> {
+    let text = std::str::from_utf8(bytes).unwrap();
+    text.lines()
+        .collect::<Vec<_>>()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|p| (p[0].trim().parse().unwrap(), p[1].to_owned()))
+        .collect()
+}
+fn dxf_header(bytes: &[u8], name: &str) -> String {
+    let pairs = dxf_pairs(bytes);
+    pairs
+        .windows(2)
+        .find(|p| p[0] == (9, name.to_owned()))
+        .unwrap()[1]
+        .1
+        .clone()
+}
+#[test]
+fn dxf_has_r2000_document_structure_and_sheet_viewport() {
+    let drawing = plate(&|_| {});
+    let bytes = drawing.dxf();
+    let pairs = dxf_pairs(&bytes);
+    let tables: BTreeSet<_> = pairs
+        .windows(2)
+        .filter(|p| p[0] == (0, "TABLE".into()))
+        .map(|p| p[1].1.as_str())
+        .collect();
+    for name in [
+        "VPORT",
+        "LTYPE",
+        "LAYER",
+        "STYLE",
+        "VIEW",
+        "UCS",
+        "APPID",
+        "DIMSTYLE",
+        "BLOCK_RECORD",
+    ] {
+        assert!(tables.contains(name), "{name}");
+    }
+    assert!(pairs.contains(&(2, "CLASSES".into())));
+    // AutoCAD discards a file whose LAYERs lack a PlotStyleName (390) handle
+    // to a placeholder in ACAD_PLOTSTYLENAME.
+    let placeholder = pairs
+        .windows(2)
+        .find(|p| p[0] == (0, "ACDBPLACEHOLDER".into()) && p[1].0 == 5)
+        .map(|p| p[1].1.clone())
+        .expect("a Normal plot style placeholder");
+    let mut layers = 0;
+    for (i, p) in pairs.iter().enumerate() {
+        if *p == (0, "LAYER".into()) {
+            layers += 1;
+            let end = pairs[i + 1..].iter().position(|q| q.0 == 0).unwrap() + i + 1;
+            assert!(
+                pairs[i..end].contains(&(390, placeholder.clone())),
+                "layer {:?} has no PlotStyleName",
+                pairs[i..end].iter().find(|q| q.0 == 2)
+            );
+        }
+    }
+    assert!(layers > 1);
+    assert!(pairs.contains(&(3, "ACAD_PLOTSTYLENAME".into())));
+    assert_eq!(
+        pairs.iter().filter(|p| **p == (278, "46".into())).count(),
+        pairs
+            .iter()
+            .filter(|p| **p == (0, "DIMSTYLE".into()))
+            .count(),
+        "every dimstyle preserves the drawing's decimal point"
+    );
+    assert_eq!(
+        pairs.iter().filter(|p| **p == (0, "LAYOUT".into())).count(),
+        2
+    );
+    let seed = u64::from_str_radix(&dxf_header(&bytes, "$HANDSEED"), 16).unwrap();
+    let max = pairs
+        .windows(2)
+        .filter(|p| [5, 105].contains(&p[1].0) && p[0] != (9, "$HANDSEED".into()))
+        .map(|p| u64::from_str_radix(&p[1].1, 16).unwrap())
+        .max()
+        .unwrap();
+    assert!(seed > max);
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&bytes)).unwrap();
+    assert!(d.blocks().any(|b| b.name == "*Model_Space"));
+    assert!(d.blocks().any(|b| b.name == "*Paper_Space"));
+    assert!(
+        d.view_ports()
+            .any(|v| v.name.eq_ignore_ascii_case("*ACTIVE"))
+    );
+    assert_eq!(
+        d.objects()
+            .filter(|o| matches!(o.specific, dxf::objects::ObjectType::Layout(_)))
+            .count(),
+        2
+    );
+}
+/// QCAD regenerates dimensions and uses literal white for ACI 7 in its CLI.
+/// These contracts must hold without recomputing empty dimension blocks.
+#[test]
+fn dxf_cad_readers_get_visible_blocks_and_full_dimension_settings() {
+    let drawing = plate(&|_| {});
+    let bytes = drawing.dxf();
+    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(&bytes)).unwrap();
+    let pairs = dxf_pairs(&bytes);
+    let starts: Vec<_> = pairs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| (p.0 == 0).then_some(i))
+        .chain(std::iter::once(pairs.len()))
+        .collect();
+    let records: Vec<_> = starts.windows(2).map(|w| &pairs[w[0]..w[1]]).collect();
+    let value = |r: &[(i32, String)], code| r.iter().find(|p| p.0 == code).unwrap().1.clone();
+    let records_of = |kind: &str| {
+        records
+            .iter()
+            .copied()
+            .filter(|r| r[0].1 == kind)
+            .collect::<Vec<_>>()
+    };
+    for layer in ["0", "A-OUTL", "A-CNTR", "A-BORD"] {
+        let r = records_of("LAYER")
+            .into_iter()
+            .find(|r| value(r, 2) == layer)
+            .unwrap();
+        assert_eq!(value(r, 420), "0", "{layer} is explicit black on white");
+    }
+    let mono = records_of("STYLE")
+        .into_iter()
+        .find(|r| value(r, 2) == "IBMPlexMono-Regular")
+        .unwrap();
+    let width = value(mono, 41).parse::<f64>().unwrap();
+    assert_eq!(width, 0.85, "romans.shx condensed to Plex Mono's advance");
+    assert_eq!(value(mono, 3), "romans.shx");
+    for text in records_of("TEXT") {
+        if value(text, 7) == "IBMPlexMono-Regular" {
+            assert_eq!(value(text, 41).parse::<f64>().unwrap(), width);
+        }
+    }
+    let block_records = records_of("BLOCK_RECORD");
+    for r in &block_records {
+        let name = value(r, 2);
+        let layout = matches!(name.as_str(), "*Model_Space" | "*Paper_Space");
+        assert_eq!(r.iter().any(|p| p.0 == 340), layout, "{name}");
+        let block = records_of("BLOCK")
+            .into_iter()
+            .find(|b| value(b, 2) == name)
+            .unwrap();
+        assert_eq!(value(block, 330), value(r, 5), "{name}: BLOCK owner");
+        let begin = records.iter().position(|b| *b == block).unwrap();
+        let end = records[begin + 1..]
+            .iter()
+            .find(|b| b[0].1 == "ENDBLK")
+            .unwrap();
+        assert_eq!(value(end, 330), value(r, 5), "{name}: ENDBLK owner");
+    }
+    for v in &drawing.sheet.dxf.views {
+        // View IDs contain ':', which DXF symbol-table names cannot contain.
+        let b = parsed
+            .blocks()
+            .find(|b| b.name == v.name.replace(':', "_"))
+            .unwrap();
+        assert!(!b.entities.is_empty(), "{} has geometry", v.name);
+    }
+    for (name, expected) in [
+        ("$DIMTXT", 3. * 0.698),
+        ("$DIMASZ", 2.7),
+        ("$DIMLFAC", 1.),
+        ("$DIMSCALE", 1.),
+        ("$DIMLUNIT", 2.),
+        ("$DIMDEC", 3.),
+        ("$DIMDSEP", 46.),
+    ] {
+        assert_eq!(dxf_header(&bytes, name).parse::<f64>().unwrap(), expected);
+    }
+    let dimensions = records_of("DIMENSION");
+    assert!(dimensions.len() >= 7);
+    for r in dimensions {
+        assert!(value(r, 1).contains("<>"));
+        let name = value(r, 3);
+        assert!(name.starts_with("DW-") && name.contains("to"), "{name}");
+        assert!(!name.contains(['[', ']', '_', ' ']), "{name}");
+        let style = parsed.dim_styles().find(|s| s.name == name).unwrap();
+        let acad = r.iter().position(|p| *p == (1001, "ACAD".into())).unwrap();
+        let overrides = &r[acad..];
+        assert!(overrides.contains(&(1000, "DSTYLE".into())));
+        for (code, expected) in [
+            (144, style.dimension_linear_measurement_scale_factor),
+            (140, 3. * 0.698),
+            (41, 2.7),
+            (40, 1.),
+        ] {
+            let at = overrides
+                .iter()
+                .position(|p| *p == (1070, code.to_string()))
+                .unwrap();
+            assert_eq!(overrides[at + 1], (1040, expected.to_string()));
+        }
+        let block = parsed.blocks().find(|b| b.name == value(r, 2)).unwrap();
+        assert!(
+            block.entities.iter().any(|e| matches!(
+                &e.specific, dxf::entities::EntityType::Text(t)
+                    if t.value.chars().any(|c| c.is_ascii_digit())
+            )),
+            "cached dimension contains its readable value"
+        );
+    }
+}
+#[test]
+fn dxf_multiline_rotation_is_degrees_and_single_line_symbols_are_text() {
+    use draftwright::output::{HAlign, TextRun, VAlign};
+    use dxf::entities::EntityType as E;
+    let mut drawing = plate(&|_| {});
+    for (text, rotation) in [("FIRST ↧6\nSECOND ⌴8", 37.), ("−3 × ⌀6 ±0.1 ° ⌵", 0.)] {
+        drawing.text.push(TextRun {
+            text: text.into(),
+            at: [25., 100.],
+            size: 2.5,
+            rotation,
+            font: "IBMPlexMono-Regular.ttf".into(),
+            h_align: HAlign::Left,
+            v_align: VAlign::Baseline,
+        });
+    }
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(drawing.dxf())).unwrap();
+    let m = d
+        .entities()
+        .find_map(|e| {
+            if let E::MText(t) = &e.specific {
+                t.text.contains("FIRST").then_some(t)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(m.rotation_angle, 37.);
+    // Hole glyphs print as `?` in CAD fallback fonts, so they become words.
+    assert_eq!(m.text, "\\W0.612;FIRST DEEP6\\PSECOND CBORE8");
+    let t = d
+        .entities()
+        .find_map(|e| {
+            if let E::Text(t) = &e.specific {
+                t.value.starts_with("-3").then_some(t)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    // SHX fonts have no ×; ASME writes counts with X.
+    assert_eq!(t.value, "-3 X %%c6 %%p0.1 %%d CSK");
+    assert!(
+        !String::from_utf8(drawing.dxf())
+            .unwrap()
+            .contains("\\fArial")
+    );
+}
+#[test]
+fn dxf_pmi_hatch_and_multisheet_attributes_are_native() {
+    use dxf::entities::EntityType as E;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (_, files) = draftwright::api::render_from(
+        &root.join("tests/fixtures/parts/editor_pmi.step"),
+        draftwright::api::Features::Native,
+        &Spec::default(),
+        &["dxf"],
+        150.,
+    )
+    .unwrap();
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+    assert!(
+        d.entities().any(|e| e.common.layer == "A-PMI"
+            && matches!(&e.specific,E::Text(t) if !t.value.is_empty()))
+    );
+    let pairs = dxf_pairs(&files[0].1);
+    assert!(
+        pairs
+            .iter()
+            .any(|p| p.0 == 3 && p.1.starts_with("VIEW_") && p.1.ends_with("_ANNOT"))
+    );
+    let section: Spec =
+        serde_json::from_value(json!({"views":{"sections":[{"id":"A","through":"f:hole:f6"}]}}))
+            .unwrap();
+    let (_, files) = draftwright::api::render_from(
+        &root.join("tests/fixtures/parts/plate.step"),
+        draftwright::api::Features::Native,
+        &section,
+        &["dxf"],
+        150.,
+    )
+    .unwrap();
+    let pairs = dxf_pairs(&files[0].1);
+    assert!(
+        pairs.contains(&(0, "HATCH".into())),
+        "the closed section region stays a HATCH"
+    );
+    assert!(pairs.contains(&(2, "ANSI31".into())));
+    assert!(
+        pairs
+            .iter()
+            .any(|(code, text)| *code == 3 && text.ends_with("/cutting_plane"))
+    );
+    // The crate can still read the document around the unsupported HATCH entity.
+    let section = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+    let groups: Vec<_> = section
+        .objects()
+        .filter_map(|o| {
+            if let dxf::objects::ObjectType::Group(g) = &o.specific {
+                Some(g)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let cutting = groups
+        .iter()
+        .find(|g| g.description.ends_with("/cutting_plane"))
+        .unwrap();
+    assert!(!cutting.__entities_handle.is_empty());
+    assert!(
+        groups.iter().any(|g| g.description.starts_with("VIEW_")
+            && cutting
+                .__entities_handle
+                .iter()
+                .all(|h| g.__entities_handle.contains(h))),
+        "moving the source view's annotation group must move its cutting plane"
+    );
+    let multi:Spec=serde_json::from_value(json!({"sheet":{"size":"A4","scale":"1:1","title":{"title":"MULTI"}},"sheets":{"max":2},"views":{"iso":{"sheet":2}}})).unwrap();
+    let (_, files) = draftwright::api::render_from(
+        &root.join("tests/fixtures/parts/plate.step"),
+        draftwright::api::Features::Native,
+        &multi,
+        &["dxf"],
+        150.,
+    )
+    .unwrap();
+    assert_eq!(files.len(), 2);
+    let mut fingerprints = BTreeSet::new();
+    for (_, bytes) in &files {
+        let d = dxf::Drawing::load(&mut std::io::Cursor::new(bytes)).unwrap();
+        let title = d
+            .entities()
+            .find_map(|e| {
+                if let E::Insert(i) = &e.specific {
+                    (i.name == "TITLE_BLOCK").then_some(i)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert!(
+            title
+                .attributes()
+                .any(|a| a.attribute_tag == "TITLE" && a.value == "MULTI")
+        );
+        assert!(title.attributes().any(|a| a.attribute_tag == "SCALE"));
+        fingerprints.insert(dxf_header(bytes, "$FINGERPRINTGUID"));
+    }
+    assert_eq!(fingerprints.len(), 2);
+}
+#[test]
+fn dxf_shaded_pictorial_is_visible_edges_without_mesh_wedges() {
+    use dxf::entities::EntityType as E;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (part, a) = model::analyse_native(&root.join("tests/fixtures/parts/plate.step")).unwrap();
+    let spec: Spec = serde_json::from_value(json!({"views":{"iso":{"style":"shaded"}}})).unwrap();
+    let p = model::plan(&a, &spec).unwrap();
+    let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
+    let drawing = model::render(&part, &a, &p, &font).unwrap();
+    assert!(
+        drawing
+            .layers
+            .iter()
+            .any(|l| l.name.starts_with("shaded-") && !l.items.is_empty())
+    );
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(drawing.dxf())).unwrap();
+    let iso = d.blocks().find(|b| b.name == "v_iso").unwrap();
+    assert!(!iso.entities.is_empty());
+    assert!(
+        iso.entities.iter().all(
+            |e| e.common.layer == "A-OUTL" && !matches!(e.specific, E::Solid(_) | E::Face3D(_))
+        )
+    );
+    assert!(
+        !d.entities()
+            .chain(d.blocks().flat_map(|b| &b.entities))
+            .any(|e| e.common.layer == "A-OUTL" && matches!(e.specific, E::Solid(_)))
+    );
+}
+
+#[test]
+fn dxf_tolerances_and_compound_nominals_stay_live() {
+    use dxf::entities::EntityType as E;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for (band, shown) in [("±0.05", "%%p0.05"), ("+0.1 -0.02", "+0.1 -0.02")] {
+        let spec: Spec = serde_json::from_value(
+            json!({"dimensions":{"d:envelope/width.length":{"tolerance":band}}}),
+        )
+        .unwrap();
+        let (_, files) = draftwright::api::render_from(
+            &root.join("tests/fixtures/parts/plate.step"),
+            draftwright::api::Features::Native,
+            &spec,
+            &["dxf"],
+            150.,
+        )
+        .unwrap();
+        let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+        let mut found = false;
+        for e in d.entities() {
+            if let E::RotatedDimension(dim) = &e.specific {
+                let st = d
+                    .dim_styles()
+                    .find(|s| s.name == dim.dimension_base.dimension_style_name)
+                    .unwrap();
+                // AutoCAD refuses symbol-table names with commas and the like.
+                assert!(
+                    !st.name.contains(|c: char| ",<>/\\\":;?*|=`".contains(c)),
+                    "{}",
+                    st.name
+                );
+                // CAD readers such as QCAD ignore DIMTOL/DIMTP/DIMTM, so the
+                // tolerance is inline text beside the live value, not style data.
+                let text = &dim.dimension_base.text;
+                if text.starts_with("<> ") && text.contains(shown) {
+                    assert!(!st.generate_dimension_tolerances, "{text}");
+                    found = true;
+                }
+            }
+            if let E::DiameterDimension(dim) = &e.specific {
+                assert_eq!(dim.dimension_base.text, "4X %%c<> THRU");
+            }
+        }
+        assert!(
+            found,
+            "{band} must be inline in the dimension text override"
+        );
+    }
+}
+
+#[test]
+fn dxf_dimension_axis_is_independent_of_horizontal_text() {
+    use draftwright::output::{Curve, HAlign, Item, VAlign};
+    use dxf::entities::EntityType as E;
+    for angle in [30_f64, 90.] {
+        let mut drawing = plate(&|_| {});
+        let (id, mut dimension) = drawing
+            .sheet
+            .dxf
+            .dimensions
+            .iter()
+            .find(|(_, d)| d.placed.as_ref().is_some_and(|p| p.arrows.len() == 2))
+            .map(|(id, d)| (id.clone(), d.clone()))
+            .unwrap();
+        let (sin, cos) = angle.to_radians().sin_cos();
+        let a = [60., 60.];
+        let b = [60. + 10. * cos, 60. + 10. * sin];
+        let offset = |p: [f64; 2], distance: f64| [p[0] - distance * sin, p[1] + distance * cos];
+        let arrows = [
+            [offset(a, 5.), offset(a, 4.)],
+            [offset(b, 5.), offset(b, 4.)],
+        ];
+        let centre = [
+            (arrows[0][0][0] + arrows[1][0][0]) / 2.,
+            (arrows[0][0][1] + arrows[1][0][1]) / 2.,
+        ];
+        let p = dimension.placed.as_mut().unwrap();
+        p.lines = vec![
+            [offset(a, 1.), offset(a, 7.)],
+            [offset(b, 1.), offset(b, 7.)],
+            [arrows[0][0], arrows[1][0]],
+        ];
+        p.arrows = arrows.to_vec();
+        p.rotation = 0.;
+        p.label_at = centre;
+        p.label_box = [
+            centre[0] - 3.,
+            centre[1] - 1.,
+            centre[0] + 3.,
+            centre[1] + 1.,
+        ];
+        dimension.value = 10.;
+        dimension.label = "10".into();
+        dimension.primary = Some(0..2);
+        dimension.diameter = false;
+        dimension.radial = false;
+        drawing
+            .sheet
+            .frames
+            .get_mut(dimension.view.trim_start_matches("v:"))
+            .unwrap()
+            .scale = 1.;
+        for layer in &mut drawing.layers {
+            layer.items.clear();
+        }
+        drawing.layers[0].items.push(Item::Edge(Curve::Line(a, b)));
+        drawing.layers[2].items = p
+            .lines
+            .iter()
+            .map(|[a, b]| Item::Edge(Curve::Line(*a, *b)))
+            .collect();
+        drawing.sheet.dxf.views.clear();
+        drawing.sheet.dxf.annotations = BTreeMap::from([(id.clone(), 0..p.lines.len())]);
+        drawing.sheet.dxf.furniture.clear();
+        drawing.sheet.dxf.title_fields.clear();
+        drawing.sheet.dxf.title = 0..0;
+        drawing.sheet.dxf.labels.clear();
+        drawing.sheet.dxf.dimensions = BTreeMap::from([(id.clone(), dimension)]);
+        drawing.annotations.retain(|a| a.name == id);
+        drawing.annotations[0].runs = vec![0];
+        let mut run = drawing.text[0].clone();
+        run.text = "10".into();
+        run.at = centre;
+        run.rotation = 0.;
+        run.h_align = HAlign::Center;
+        run.v_align = VAlign::Middle;
+        drawing.text = vec![run];
+        let bytes = drawing.dxf();
+        let d = dxf::Drawing::load(&mut std::io::Cursor::new(&bytes)).unwrap();
+        let dim = d
+            .entities()
+            .find_map(|e| {
+                if let E::RotatedDimension(dim) = &e.specific {
+                    Some(dim)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let base = &dim.dimension_base;
+        assert_eq!(base.dimension_type as i32, if angle == 30. { 1 } else { 0 });
+        assert!((dim.rotation_angle - angle).abs() < 1e-10);
+        let a = &dim.definition_point_2;
+        let b = &dim.definition_point_3;
+        assert_eq!(base.text_rotation_angle, 0.);
+        assert!(((b.x - a.x).hypot(b.y - a.y) - 10.).abs() < 1e-10);
+        if let Some(dir) = std::env::var_os("DRAFTWRIGHT_DXF_PROBE_DIR") {
+            let path = Path::new(&dir).join(format!("synthetic_axis_{angle}"));
+            std::fs::write(path.with_extension("dxf"), bytes).unwrap();
+            std::fs::write(path.with_extension("svg"), drawing.svg()).unwrap();
+        }
+    }
+}
+
+/// CAD fallback fonts have no hole glyphs, so every DXF text uses the ASME
+/// words, including hole callouts and table cells outside dimensions.
+#[test]
+fn dxf_text_spells_hole_glyphs_as_asme_words() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (_, files) = draftwright::api::render_from(
+        &root.join("tests/fixtures/parts/grm02.step"),
+        draftwright::api::Features::Native,
+        &Spec::default(),
+        &["svg", "dxf"],
+        150.,
+    )
+    .unwrap();
+    let svg = String::from_utf8_lossy(&files[0].1);
+    let dxf = String::from_utf8_lossy(&files[1].1);
+    assert!(svg.contains('↧'), "the fixture must have a depth callout");
+    assert!(!dxf.contains(['↧', '⌴', '⌵']));
+    assert!(dxf.contains("DEEP"));
+}
+
+/// The ASME words are longer than the glyphs, so a hole-table cell condenses
+/// to the width its glyph text was laid out in.
+#[test]
+fn dxf_hole_words_condense_to_their_laid_out_width() {
+    use draftwright::output::{HAlign, TextRun, VAlign};
+    use dxf::entities::EntityType as E;
+    let mut drawing = plate(&|_| {});
+    drawing.text.push(TextRun {
+        text: "⌀19.05 THRU ⌴ ⌀38.1 ↧ 12.7".into(),
+        at: [25., 100.],
+        size: 2.5,
+        rotation: 0.,
+        font: "IBMPlexMono-Regular.ttf".into(),
+        h_align: HAlign::Left,
+        v_align: VAlign::Baseline,
+    });
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(drawing.dxf())).unwrap();
+    let t = d
+        .entities()
+        .find_map(|e| match &e.specific {
+            E::Text(t) if t.value.contains("CBORE") => Some(t),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(t.value, "%%c19.05 THRU CBORE %%c38.1 DEEP 12.7");
+    let expected = 0.85 * 26. / 33.;
+    assert!((t.relative_x_scale_factor - expected).abs() < 1e-9);
+}
+
+/// Inch sheets keep dimensions live: the measured millimetres become inches
+/// through DIMLFAC, with the ASME inch zero rules.
+#[test]
+fn dxf_inch_dimensions_stay_live_in_inches() {
+    use dxf::entities::EntityType as E;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let spec: Spec = serde_json::from_value(json!({"units": "in"})).unwrap();
+    let (_, files) = draftwright::api::render_from(
+        &root.join("tests/fixtures/parts/plate.step"),
+        draftwright::api::Features::Native,
+        &spec,
+        &["dxf"],
+        150.,
+    )
+    .unwrap();
+    let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
+    let (mut live, mut linear) = (0, 0);
+    for e in d.entities() {
+        if let E::RotatedDimension(dim) = &e.specific {
+            linear += 1;
+            let base = &dim.dimension_base;
+            let st = d
+                .dim_styles()
+                .find(|s| s.name == base.dimension_style_name)
+                .unwrap();
+            assert!(st.name.contains("-IN"), "{}", st.name);
+            // Same scale as the mm style would use, divided by 25.4.
+            let mm_factor: f64 = st.name["DW-".len()..]
+                .split('-')
+                .next()
+                .map(|s| {
+                    let (a, b) = s.split_once("to").unwrap();
+                    b.parse::<f64>().unwrap() / a.parse::<f64>().unwrap()
+                })
+                .unwrap();
+            assert!((st.dimension_linear_measurement_scale_factor - mm_factor / 25.4).abs() < 1e-9);
+            if base.text.contains("<>") {
+                live += 1;
+            }
+        }
+    }
+    // Including values under an inch, printed without the leading zero (.197).
+    assert_eq!(live, linear, "every inch dimension keeps a live <> value");
+    // An empty title-block field keeps a usable width factor (AutoCAD accepts 0.01 to 100).
+    let pairs = dxf_pairs(&files[0].1);
+    for (i, p) in pairs.iter().enumerate() {
+        if matches!(p.1.as_str(), "TEXT" | "ATTDEF" | "ATTRIB") && p.0 == 0 {
+            let end = pairs[i + 1..].iter().position(|q| q.0 == 0).unwrap() + i + 1;
+            for q in &pairs[i..end] {
+                if q.0 == 41 {
+                    assert!(
+                        q.1.trim().parse::<f64>().unwrap() >= 0.01,
+                        "{:?}",
+                        &pairs[i..end]
+                    );
+                }
+            }
+        }
+    }
+    // DIMZIN 4: drop the leading zero, keep trailing zeros (.312, 1.000).
+    let zin: Vec<_> = pairs
+        .windows(2)
+        .filter(|p| p[0] == (9, "$DIMZIN".into()) || p[0].0 == 78)
+        .map(|p| {
+            if p[0].0 == 78 {
+                p[0].1.trim().to_owned()
+            } else {
+                p[1].1.trim().to_owned()
+            }
+        })
+        .collect();
+    assert!(zin.iter().any(|z| z == "4"), "{zin:?}");
 }

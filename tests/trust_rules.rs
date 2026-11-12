@@ -933,8 +933,10 @@ fn ink_box<'a>(items: impl Iterator<Item = &'a Item>) -> [f64; 4] {
     };
     for item in items {
         match item {
-            Item::Face(wires) => wires.iter().flatten().for_each(&mut curve),
-            Item::Edge(c) => curve(c),
+            Item::Face(wires) | Item::Glyph(wires, _) => {
+                wires.iter().flatten().for_each(&mut curve)
+            }
+            Item::Edge(c) | Item::TextStroke(c, _) => curve(c),
         }
     }
     b
@@ -995,7 +997,7 @@ fn labels_are_measured_with_the_font_they_are_drawn_with() {
         let [tx0, ty0, tx1, ty1] = one.sheet.title_block;
         let tips: Vec<[f64; 2]> = mine.arrows.iter().map(|a| a[0]).collect();
         let glyphs = drawing.layers[2].items.iter().filter(|i| match i {
-            Item::Face(wires) => {
+            Item::Face(wires) | Item::Glyph(wires, _) => {
                 let first = match &wires[0][0] {
                     Curve::Line(a, _) => *a,
                     Curve::Beziers(b) => b[0][0],

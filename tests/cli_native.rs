@@ -942,7 +942,7 @@ fn no_pictorial_flags_keep_cli_output_equal_to_the_default_library_spec() {
         "-o",
         prefix.to_str().unwrap(),
         "--formats",
-        "svg,pdf,png",
+        "svg,pdf,png,dxf",
     ]);
     assert_eq!(code, Some(0), "{result}");
     let (_, files) = api::render(&step, None, &model::Spec::default(), &api::FORMATS).unwrap();
