@@ -5465,6 +5465,9 @@ pub(crate) fn local_placement_fix(
     // Once a trade is found, inspect at most three further candidates for a clean
     // alternative. This uses the existing settled-ink trial, never another plan.
     let mut fallback = None;
+    // Set by the first candidate that adds findings, offered or not, so a withheld trade
+    // bounds the search just as an offered one does.
+    let mut traded = false;
     let mut remaining = 3usize;
     for id in &problem.subjects {
         let Some(index) = plan.dimensions.iter().position(|d| &d.id == id) else {
@@ -5527,7 +5530,7 @@ pub(crate) fn local_placement_fix(
                 .chain(&plan.sheets)
                 .find(|s| s.number == view.sheet)?;
             let mut offer = |placed: Placed, place: &Place| {
-                if fallback.is_some() {
+                if traded {
                     if remaining == 0 {
                         return fallback.take();
                     }
@@ -5608,6 +5611,7 @@ pub(crate) fn local_placement_fix(
                 if added.is_empty() {
                     return Some(crate::fixes::Fix::new(description, ops));
                 }
+                traded = true;
                 // A trade is offered only when it leaves strictly fewer findings: the
                 // published findings on this item that the candidate clears must outnumber
                 // those it adds. Equal or worse is withheld, and nothing replaces it.
