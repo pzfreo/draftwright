@@ -1,7 +1,7 @@
 """Engineering drawings from STEP, using the Rust engine.
 
-``make_drawing`` returns **(svg_path, pdf_path)** in 0.6, replacing 0.4's
-(svg_path, dxf_path). Editable DXF is available through the CLI; the other 0.4 Python classes are unavailable.
+``make_drawing`` returns **(svg_path, dxf_path)**, as in 0.4. The other 0.4 Python
+classes are unavailable.
 """
 from ._native import DraftwrightError, __version__
 from ._drawing import make_drawing

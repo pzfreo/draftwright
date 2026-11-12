@@ -477,6 +477,8 @@ pub fn make_drawing(
             inline_analysis: analysis,
             sheet: compat::SheetOptions::with_scale(scale),
             bare: true,
+            // The 0.4 one-liner returned (svg, dxf); the DXF is editable in CAD.
+            formats: Some("svg,dxf".into()),
             ..Given::default()
         },
     )?;
@@ -493,7 +495,7 @@ pub fn make_drawing(
             .map(str::to_owned)
             .ok_or_else(|| Error::failed(format!("render did not write {suffix}")))
     };
-    Ok((path(".svg")?, path(".pdf")?))
+    Ok((path(".svg")?, path(".dxf")?))
 }
 
 fn finish(name: &str, given: &Given) -> u8 {

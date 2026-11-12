@@ -37,22 +37,25 @@ class PythonAPI(unittest.TestCase):
         self.assertIsInstance(paths, tuple)
         self.assertEqual(len(paths), 2)
         self.assertTrue(all(isinstance(path, str) for path in paths))
-        svg, pdf = map(Path, paths)
+        # (svg, dxf) as in 0.4: the maintainer's decision once editable DXF landed.
+        svg, dxf = map(Path, paths)
         self.assertTrue(svg.read_text().startswith("<svg") or "<svg" in svg.read_text())
-        self.assertTrue(pdf.read_bytes().startswith(b"%PDF-"))
-        self.assertFalse(svg.with_suffix(".dxf").exists())
-        return svg, pdf
+        self.assertEqual(dxf.suffix, ".dxf")
+        self.assertIn("\nENTITIES\n", dxf.read_text())
+        self.assertTrue(dxf.read_text().rstrip().endswith("EOF"))
+        self.assertFalse(svg.with_suffix(".pdf").exists())
+        return svg, dxf
 
     def test_path_and_keyword_mapping(self):
         title = dict(title="Plate", number="D-42", material="Steel", drawn_by="Author",
                      date="2026-11-10", revision="B", company="Example", approved_by="Reviewer",
                      tolerance="ISO 2768-m", document_type="PART", sheet="1/1")
-        svg, pdf = self.assert_files(draftwright.make_drawing(
-            PLATE, out=self.directory / "plate.pdf", scale=0.5, page="A3",
+        svg, dxf = self.assert_files(draftwright.make_drawing(
+            PLATE, out=self.directory / "plate.dxf", scale=0.5, page="A3",
             projection="first", zones=True, frame=True, **title,
         ))
         self.assertEqual(svg, self.directory / "plate.svg")
-        self.assertEqual(pdf, self.directory / "plate.pdf")
+        self.assertEqual(dxf, self.directory / "plate.dxf")
         spec = self.spec(svg)
         for key, value in title.items():
             self.assertEqual(spec["sheet"]["title"][key], value, key)
@@ -75,9 +78,9 @@ class PythonAPI(unittest.TestCase):
     def test_default_destination_and_old_positional_arguments(self):
         step = self.directory / "input.step"
         shutil.copyfile(PLATE, step)
-        svg, pdf = self.assert_files(draftwright.make_drawing(str(step)))
+        svg, dxf = self.assert_files(draftwright.make_drawing(str(step)))
         self.assertEqual(svg, step.with_suffix(".svg"))
-        self.assertEqual(pdf, step.with_suffix(".pdf"))
+        self.assertEqual(dxf, step.with_suffix(".dxf"))
         defaults = self.spec(svg)["sheet"]
         self.assertEqual(defaults["title"]["number"], "DWG-001")
         self.assertEqual(defaults["title"]["revision"], "A")
@@ -274,7 +277,7 @@ class PythonAPI(unittest.TestCase):
         subprocess.run([sys.executable, "-c", code], cwd=self.directory, check=True,
                        capture_output=True, text=True, timeout=60)
         self.assertTrue((self.directory / "drawing.svg").exists())
-        self.assertTrue((self.directory / "drawing.pdf").exists())
+        self.assertTrue((self.directory / "drawing.dxf").exists())
 
     @unittest.skipIf(os.name == "nt", "POSIX SIGINT test; Windows console uses CTRL_C_EVENT")
     def test_ctrl_c_stops_render_and_mcp_stdio(self):

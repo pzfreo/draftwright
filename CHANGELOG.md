@@ -14,6 +14,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
 - Legacy-ID migration no longer rewrites free text (note text, title block, table cells,
   annotation label text) that looks like an ID, in any schema, and `Session::set_spec` and
   `openSpec` now share one migration and give the same Spec for spec/3.
+- Python `make_drawing` returns `(svg_path, dxf_path)` again, as in 0.4, now that DXF output
+  is editable. 0.6.0-alpha.1 returned `(svg_path, pdf_path)`; use `draftwright render
+  --formats pdf` for PDF.
 
 - Fix inch scale-floor overflow, numeric trust parsing, modelled-thread pitch/diameter,
   turned OD riders and the inch-design advisory fix. Summarize inch rounding findings,
