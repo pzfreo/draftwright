@@ -6,6 +6,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- DXF: GD&T characteristic symbols (⏥ ⟂ ⌖ ⌓ …) are drawn as the lines and arcs of their strokes,
+  and the circled modifiers Ⓜ Ⓛ are written `(M)` and `(L)`, so no text or dimension style names
+  a TTF. AutoCAD on Windows had no STIXGeneral or Arial Unicode, substituted simplex.shx and
+  printed `?` for every symbol.
 - Python: `draftwright.Part`, the Python half of the build123d requirements API (0.6.0-alpha.2).
   Datums, holes (fit, thread, position, finish), part data and flatness/finish on faces are
   recorded as Specify answers; referenced faces get `f:` names in the exported STEP (written with OCCT's
