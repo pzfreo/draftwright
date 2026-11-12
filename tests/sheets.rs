@@ -1,14 +1,7 @@
-//! R5 allocation and the pre-Stage-I single-sheet byte contract.
+//! R5 allocation.
 
 #[path = "common/overflow.rs"]
 mod overflow;
-#[path = "common/single_sheet.rs"]
-mod single_sheet;
-
-#[test]
-fn single_sheet_documents_are_byte_identical() {
-    single_sheet::compare();
-}
 
 use draftwright::model::{Analysis, Spec};
 use draftwright::{api, model};

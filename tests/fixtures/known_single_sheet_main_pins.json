@@ -1,7 +1,0 @@
-{
-  "base_commit": "0419fa6c1ebc81226cb577639276ea45eb9df3a1",
-  "base_portable_sha256": "22bbd6076e6453b03b6b3168cb687841fe7308fa4298a9393a1be15d87179f68",
-  "cases": {},
-  "rebaselined_for": "nts",
-  "upstream_commit": "d1193921abbe3ab9035f54df1e298beb042a7569"
-}

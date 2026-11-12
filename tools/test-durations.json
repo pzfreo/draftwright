@@ -1612,7 +1612,6 @@
 "draftwright::rendering sheets::r5_table_sheet_edits_are_narrow_and_transactional": 0.0,
 "draftwright::rendering sheets::r5_the_bounded_ladder_skips_scales_below_the_floor": 0.0,
 "draftwright::rendering sheets::r5_zones_follow_the_iso_grid_and_skip_i_and_o": 0.0,
-"draftwright::rendering sheets::single_sheet_documents_are_byte_identical": 0.0,
 "draftwright::rendering sheets_lint::an_address_must_reach_the_drawn_target_zone": 11.2,
 "draftwright::rendering sheets_lint::remote_hole_table_rows_cover_the_sheet_one_balloons": 1.5,
 "draftwright::rendering sheets_lint::split_marks_are_covered_once_and_positions_stay_on_their_sheet": 0.2,
