@@ -172,6 +172,20 @@ fn groups(spec: &Spec) -> Vec<Vec<String>> {
     out
 }
 
+/// `sheets.max` is from 1 to 9. Checked before anything is sized from it: the paper search
+/// builds one request per permitted sheet.
+pub(crate) fn check_max(spec: &Spec) -> Result<(), Invalid> {
+    if (1..=9).contains(&maximum(spec)) {
+        return Ok(());
+    }
+    Err(Invalid {
+        message: "sheets.max must be from 1 to 9.".into(),
+        choices: (1..=9).map(|n| n.to_string()).collect(),
+        path: None,
+        also: Vec::new(),
+    })
+}
+
 pub(crate) fn validate(spec: &Spec) -> Result<(), Invalid> {
     if spec
         .sheet
@@ -223,12 +237,7 @@ pub(crate) fn validate(spec: &Spec) -> Result<(), Invalid> {
         path: None,
         also: Vec::new(),
     };
-    if !(1..=9).contains(&max) {
-        return Err(refuse(
-            "sheets.max must be from 1 to 9.".into(),
-            (1..=9).map(|n| n.to_string()).collect(),
-        ));
-    }
+    check_max(spec)?;
     for (name, n) in assignments(spec).into_iter().chain(
         spec.tables
             .iter()
