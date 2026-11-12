@@ -1582,6 +1582,12 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
             "AcDbDimStyleTableRecord",
             &name,
         );
+        // Diameter and radius signs are written in the text (`%%c<>`, `R<>`), where QCAD
+        // and LibreCAD show them. AutoCAD would add its own sign to `<>` as well, but a
+        // DIMPOST prefix replaces that default; `\A1;` is a prefix that prints nothing.
+        if style.leader {
+            out.tag(3, "\\A1;<>");
+        }
         for (_, code, value) in style.variables() {
             out.tag(code, value);
         }
