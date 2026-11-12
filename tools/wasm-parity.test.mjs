@@ -243,6 +243,13 @@ test('each sheet has its own fragments and SVG, and the PDF a page per sheet', (
     assert.equal(decoder.decode(engine.sheetSvg(1)), decoder.decode(engine.renderSvg()));
     assert.match(decoder.decode(engine.sheetSvg(2)), /^<\?xml/);
     invalid(() => engine.sheetSvg(3));
+    // Editable DXF, one file per sheet.
+    for (const sheet of [1, 2]) {
+      const dxf = decoder.decode(engine.sheetDxf(sheet));
+      assert.match(dxf, /\nENTITIES\n/);
+      assert.match(dxf.trimEnd(), /EOF$/);
+    }
+    invalid(() => engine.sheetDxf(3));
     const pdf = Buffer.from(engine.renderPdf()).toString('latin1');
     assert.equal(pdf.match(/\/Type\s*\/Page\b/g)?.length, 2);
   } finally { engine.free(); }
