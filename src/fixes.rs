@@ -506,10 +506,25 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
                 // The settled-ink trial that proved a move assumed the rest of the sheet stays
                 // put. A whole-sheet layout does not promise that (a plate's 3 findings became 5
                 // this way), so a move widened to the sheet is withheld, not offered on a count
-                // nobody checked. Other edits (a title, an unpin) were never trialled.
+                // nobody checked. Other edits (an unpin) were never trialled; they stay,
+                // widened to the sheet as before.
                 if is_trialled_move(&fix.ops) {
                     withheld.push(fix.ops.clone());
                     continue;
+                }
+                fix.minimum_scope = Some(Scope::Sheet);
+                fix.ops.retain(|op| {
+                    !matches!(
+                        op.path.as_str(),
+                        "sheet/keep_layout"
+                            | "sheet/size"
+                            | "sheet/scale"
+                            | "sheets/max"
+                            | "sheet/dimension_spacing"
+                    )
+                });
+                if plan.spec.sheet.keep_layout == Some(true) {
+                    fix.ops.push(Op::remove("sheet/keep_layout"));
                 }
             }
         }
