@@ -850,6 +850,40 @@ fn a_title_block_value_that_overflows_is_reported() {
     assert_eq!(drawing.text.iter().filter(|t| t.text == long).count(), 1);
 }
 
+/// A title with characters in no bundled font is drawn (its missing glyphs as empty boxes) and
+/// reported, naming the label and the characters; ordinary labels, including `⌀ ± ° ×`, are not.
+#[test]
+fn a_label_with_a_character_no_font_draws_is_reported() {
+    let title = "轴承座 Lagerbock ⌖";
+    let (_, drawing) = titled("plate", json!({ "title": title }));
+    let found: Vec<_> = drawing
+        .problems
+        .iter()
+        .filter(|p| p.code == "text_glyph_missing")
+        .collect();
+    assert_eq!(found.len(), 1, "{:?}", drawing.problems);
+    assert_eq!(found[0].severity, "warning");
+    assert!(found[0].message.contains(title));
+    for c in ['轴', '承', '座', '⌖'] {
+        assert!(found[0].message.contains(c), "{c}: {}", found[0].message);
+    }
+    assert!(!found[0].message.contains("Lagerbock ("));
+    assert_eq!(drawing.text.iter().filter(|t| t.text == title).count(), 1);
+
+    let (_, plain) = titled(
+        "plate",
+        json!({ "title": "BRACKET ⌀10 ± 0.1 90° 2 × 4 ↧ ⌴ ⌵ ⌖ Ⓜ Ⓛ" }),
+    );
+    assert!(
+        plain
+            .problems
+            .iter()
+            .all(|p| p.code != "text_glyph_missing"),
+        "{:?}",
+        plain.problems
+    );
+}
+
 /// ISSUE-1585-a: a supplied date reaches the title block as its own field: recorded in the
 /// plan's date cell (not the revision's), drawn as a searchable run at that cell's centre with
 /// its ink inside the cell, and absent when not supplied. (Each of draftwright's clauses:
