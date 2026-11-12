@@ -101,6 +101,56 @@ pub(crate) fn fixed_stroke_contacts(plan: &Plan) -> Vec<Problem> {
     out
 }
 
+/// A callout's text keeps this from another dimension's line, page mm: the gap the callout
+/// router leaves between a shoulder and its text, and its padding around a settled label.
+const NOTE_CLEAR: f64 = 1.0;
+
+/// A linear dimension's own line or arrowhead within [`NOTE_CLEAR`] of a callout's text in
+/// the same view: beside its first or last glyph, or in the gap between the text and its
+/// shoulder, where it reads as part of the note. It crosses neither the label box nor the
+/// leader and may stay outside [`TEXT_CLEAR`], so no contact above reports it; the lane placer
+/// pads only extension lines around a settled callout, and the router scores the clearance
+/// without requiring it. Measured for the sheet search as a code and its two items, never
+/// published: a larger scale must not add one.
+pub(crate) fn note_line_contacts(plan: &Plan) -> Vec<(String, Vec<String>)> {
+    let mut out = Vec::new();
+    for c in plan.dimensions.iter().filter(|d| d.kind == "callout") {
+        let Some(t) = c.placed.as_ref().map(|p| p.label_box) else {
+            continue;
+        };
+        if t[2] <= t[0] || t[3] <= t[1] {
+            continue;
+        }
+        let pad = [
+            t[0] - NOTE_CLEAR,
+            t[1] - NOTE_CLEAR,
+            t[2] + NOTE_CLEAR,
+            t[3] + NOTE_CLEAR,
+        ];
+        for d in plan
+            .dimensions
+            .iter()
+            .filter(|d| d.kind == "linear" && d.view == c.view)
+        {
+            let Some(p) = &d.placed else {
+                continue;
+            };
+            if p.lines
+                .iter()
+                .skip(2)
+                .take(1)
+                .chain(&p.arrows)
+                .any(|l| crosses(*l, pad))
+            {
+                let mut subjects = vec![c.id.clone(), d.id.clone()];
+                subjects.sort();
+                out.push(("dimension_line_at_note".into(), subjects));
+            }
+        }
+    }
+    out
+}
+
 /// A candidate's new line/section-arrow contact can be cleared by extending
 /// the cutting-plane overrun. Its cut height, view placements and dimension ink
 /// stay fixed; accept only a strict contact improvement with no contact regression.

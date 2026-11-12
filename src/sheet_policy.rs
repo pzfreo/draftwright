@@ -711,6 +711,11 @@ fn isolated_contacts_readable(
     }
 }
 
+/// Whether *plan* draws the part at a larger scale than *reference*.
+fn enlarges(plan: &Plan, reference: &Plan) -> bool {
+    plan.sheet.scale_factor > reference.sheet.scale_factor + 1e-9
+}
+
 fn usable(analysis: &Analysis, plan: &Plan, reference: &Plan, floor: f64) -> Result<(), String> {
     usable_with_base_contacts(analysis, plan, reference, floor, None, false)
 }
@@ -841,6 +846,12 @@ fn usable_prepared(
                 .iter()
                 .map(problem_key),
         );
+    }
+    // A dimension line against a callout's text is in no report. A larger scale must not
+    // add one (10047 and 10063 at 2:1 each ran one beside a slot or bore note).
+    if strict_routes && enlarges(plan, reference) {
+        measured.extend(crate::dims::contacts::note_line_contacts(plan));
+        inherited.extend(crate::dims::contacts::note_line_contacts(reference));
     }
     measured.extend(frame_conflicts(plan));
     inherited.extend(frame_conflicts(reference));
@@ -3169,6 +3180,61 @@ mod tests {
         wide.views[0].area[2] += 1000.0;
         assert!(!sheet_fit::inside_frames(&a, &wide));
         assert!(!compact_may_help(&a, &wide));
+    }
+
+    /// A dimension line beside a callout's text is in no report (10047 and 10063 at 2:1 each
+    /// ran one against a slot or bore note): a larger scale that adds one is refused.
+    #[test]
+    fn a_larger_scale_may_not_run_a_dimension_line_beside_a_note() {
+        let a = model::analyse_native(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/rule_pins/grm04_drive_plate.step.gz"),
+        )
+        .unwrap()
+        .1;
+        let reference = model::plan_automatic(&a, &Spec::default()).unwrap();
+        let lined = |d: &&crate::dims::PlannedDimension| {
+            d.kind == "linear" && d.placed.as_ref().is_some_and(|p| p.lines.len() > 2)
+        };
+        // A callout's text with a linear dimension in its view.
+        let (note, text) = reference
+            .dimensions
+            .iter()
+            .filter(|c| c.kind == "callout")
+            .find_map(|c| {
+                let t = c.placed.as_ref()?.label_box;
+                (t[2] > t[0]
+                    && t[3] > t[1]
+                    && reference
+                        .dimensions
+                        .iter()
+                        .filter(lined)
+                        .any(|d| d.view == c.view))
+                .then(|| (c.clone(), t))
+            })
+            .expect("a callout beside a linear dimension");
+        // That dimension's line run half a millimetre beside the text's edge.
+        let judge = |larger: bool| {
+            let mut p = reference.clone();
+            if larger {
+                p.sheet.scale_factor *= 2.0;
+            }
+            let d = p
+                .dimensions
+                .iter_mut()
+                .find(|d| lined(&&**d) && d.view == note.view)
+                .unwrap();
+            d.placed.as_mut().unwrap().lines[2] =
+                [[text[0], text[1] - 0.5], [text[2], text[1] - 0.5]];
+            usable_prepared(&a, &p, &reference, 0.0, None, true, None, None)
+        };
+        let named = |r: &Result<(), String>| {
+            r.as_ref()
+                .is_err_and(|why| why.contains("dimension_line_at_note"))
+        };
+        assert!(named(&judge(true)), "{:?}", judge(true));
+        // The displaced drawing's own are inherited, and an unchanged scale is not measured.
+        assert!(!named(&judge(false)), "{:?}", judge(false));
     }
 
     #[test]
