@@ -1534,52 +1534,20 @@ fn pmi_drawing(stem: &str) -> Drawing {
 
 /// AutoCAD on Windows has neither STIXGeneral nor Arial Unicode: it substitutes
 /// simplex.shx and prints `?` for every GD&T symbol. No STYLE or DIMSTYLE may
-/// name a TTF, and the characteristic symbols are drawn as the strokes the
-/// drawing already holds for them (gdt.shx is not in QCAD or LibreCAD).
+/// name a TTF, and each characteristic symbol is a gdt-font switch inside its frame's
+/// TOLERANCE (gdt.shx in AutoCAD, gdt.cxf in QCAD), never text or loose linework.
 #[test]
-fn dxf_gdt_symbols_are_strokes_and_no_style_names_a_ttf() {
-    use draftwright::output::Item;
+fn dxf_gdt_symbols_are_gdt_font_in_tolerance_and_no_style_names_a_ttf() {
     const SYMBOLS: &str = "⏤⏥○⌭⌒⌓∠⟂∥⌖◎⌯↗⌰";
     for stem in ["nist_ctc_01_asme1_ap242-e1", "nist_ftc_07_asme1_ap242-e2"] {
         let drawing = pmi_drawing(stem);
-        let runs: Vec<_> = drawing
-            .text
-            .iter()
-            .enumerate()
-            .filter(|(_, r)| r.text.chars().count() == 1 && SYMBOLS.contains(&r.text))
-            .collect();
-        assert!(!runs.is_empty(), "{stem} has frames");
-        let stroked: BTreeSet<usize> = drawing
-            .layers
-            .iter()
-            .flat_map(|l| &l.items)
-            .filter_map(|i| match i {
-                Item::TextStroke(_, r) => Some(*r),
-                _ => None,
-            })
-            .collect();
-        for (i, r) in &runs {
-            assert!(stroked.contains(i), "{stem}: {:?} has strokes", r.text);
-        }
         let bytes = drawing.dxf();
         let pairs = dxf_pairs(&bytes);
         let mut kind = "";
-        let mut near = vec![false; runs.len()];
-        let mut at = [0.; 2];
+        let mut tolerances = Vec::new();
         for (code, value) in &pairs {
-            match *code {
-                0 => kind = value,
-                10 => at[0] = value.parse().unwrap_or(f64::NAN),
-                20 => {
-                    at[1] = value.parse().unwrap_or(f64::NAN);
-                    if matches!(kind, "LINE" | "ARC" | "CIRCLE") {
-                        for (n, (_, r)) in runs.iter().enumerate() {
-                            near[n] |= (at[0] - r.at[0]).abs() < r.size
-                                && (at[1] - r.at[1]).abs() < r.size;
-                        }
-                    }
-                }
-                _ => {}
+            if *code == 0 {
+                kind = value;
             }
             if matches!(kind, "STYLE" | "DIMSTYLE") {
                 assert!(
@@ -1587,14 +1555,21 @@ fn dxf_gdt_symbols_are_strokes_and_no_style_names_a_ttf() {
                     "{stem}: {kind} {value}"
                 );
             }
-            if kind == "TEXT" || kind == "MTEXT" {
+            if matches!(kind, "TEXT" | "MTEXT" | "TOLERANCE") && *code == 1 {
                 assert!(
-                    !(*code == 1 && value.chars().any(|c| SYMBOLS.contains(c))),
-                    "{stem}: symbol left as text: {value}"
+                    !value.chars().any(|c| SYMBOLS.contains(c)),
+                    "{stem}: symbol left as a character: {value}"
                 );
+                if kind == "TOLERANCE" {
+                    tolerances.push(value.clone());
+                }
             }
         }
-        assert!(near.iter().all(|n| *n), "{stem}: every symbol has linework");
+        assert!(
+            tolerances.iter().all(|t| t.starts_with("{\\Fgdt;")),
+            "{stem}: {tolerances:?}"
+        );
+        assert!(!tolerances.is_empty(), "{stem} has frames");
         let text = String::from_utf8_lossy(&bytes);
         assert!(!text.contains("STIXGeneral") && !text.contains("Arial Unicode"));
     }
