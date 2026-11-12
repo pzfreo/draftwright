@@ -174,11 +174,6 @@ impl DimStyle {
         if self.leader {
             name.push_str("-LEADER");
         }
-        name.push_str(match self.font {
-            "Arial Unicode.ttf" => "-SYMBOL",
-            "STIXGeneral.ttf" => "-GDT",
-            _ => "",
-        });
         name
     }
     /// Keep HEADER defaults, named styles and per-entity DSTYLE overrides in
@@ -270,13 +265,18 @@ fn live_label(d: &Dimension, kind: i32, inches: bool) -> String {
 fn override_text(label: &str) -> String {
     encode_mtext(&asme_words(label))
 }
-/// U+21A7 and the other hole glyphs have no outline in the fonts QCAD and
+/// U+21A7 and the other hole glyphs, and the circled modifiers, have no outline in the fonts QCAD and
 /// AutoCAD substitute, so they print as `?` in dimensions, callouts and hole
 /// tables alike. Use the ASME Y14.5 words instead.
 fn asme_words(text: &str) -> String {
     text.replace('↧', "DEEP")
         .replace('⌴', "CBORE")
         .replace('⌵', "CSK")
+        // Circled modifiers have no glyph in SHX fonts; ASME's plain-text form is (M).
+        .replace('Ⓜ', "(M)")
+        .replace('Ⓛ', "(L)")
+        .replace('Ⓕ', "(F)")
+        .replace('Ⓟ', "(P)")
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -339,6 +339,9 @@ struct Writer {
     weight: Option<i16>,
     colour: Option<u32>,
     continuous: bool,
+    /// Runs whose glyph is a GD&T symbol: written as the strokes already in the
+    /// drawing, never as text, because no font every CAD program has draws them.
+    symbol_runs: BTreeSet<usize>,
 }
 impl Writer {
     fn new() -> Self {
@@ -351,6 +354,7 @@ impl Writer {
             weight: None,
             colour: None,
             continuous: false,
+            symbol_runs: BTreeSet::new(),
         }
     }
     fn id(&mut self) -> u64 {
@@ -524,6 +528,9 @@ impl Writer {
     }
     fn item(&mut self, i: &Item, layer: &str, block: Option<usize>) -> Vec<u64> {
         match i {
+            Item::TextStroke(c, r) if self.symbol_runs.contains(r) => {
+                self.curve(c, layer, block).into_iter().collect()
+            }
             Item::Glyph(..) | Item::TextStroke(..) => Vec::new(),
             Item::Edge(c) => self.curve(c, layer, block).into_iter().collect(),
             Item::Face(w) => {
@@ -593,7 +600,10 @@ impl Writer {
         layer: &str,
         block: Option<usize>,
         attr: Option<(&str, bool)>,
-    ) -> u64 {
+    ) -> Option<u64> {
+        if is_symbol_run(r) {
+            return None;
+        }
         let multiline = r.text.contains('\n') && attr.is_none();
         let kind = attr.map_or(if multiline { "MTEXT" } else { "TEXT" }, |(_, def)| {
             if def { "ATTDEF" } else { "ATTRIB" }
@@ -700,7 +710,7 @@ impl Writer {
             }
         }
         self.put(t, block);
-        h
+        Some(h)
     }
 }
 fn font_data(font: &str) -> Option<&'static [u8]> {
@@ -886,6 +896,13 @@ fn dimension_text_box(items: &[Item], runs: &[usize], primary: [f64; 4]) -> [f64
 
 pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
     let mut w = Writer::new();
+    w.symbol_runs = drawing
+        .text
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| is_symbol_run(r))
+        .map(|(i, _)| i)
+        .collect();
     let model = w.block("*Model_Space".into(), [0., 0.]);
     w.model = w.blocks[model].record;
     w.block("*Paper_Space".into(), [0., 0.]);
@@ -985,7 +1002,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                 let h = *run_handles
                     .entry(r)
                     .or_insert_with(|| w.text(run, layer, block, None));
-                handles.push(h);
+                handles.extend(h);
                 runs.insert(r);
             }
         }
@@ -993,7 +1010,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             let precision = drawing.sheet.precision.get(&a.name).copied();
             let inches = drawing.sheet.units == crate::units::Units::In;
             let live = live_label(d, kind, inches);
-            let font = fallback_font(&d.label).unwrap_or("IBMPlexMono-Regular.ttf");
+            let font = "IBMPlexMono-Regular.ttf";
             let leader = matches!(kind, 3 | 4);
             let style = DimStyle {
                 font,
@@ -1112,7 +1129,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                         let h = *run_handles
                             .entry(*r)
                             .or_insert_with(|| w.text(run, layer, None, None));
-                        handles.push(h);
+                        handles.extend(h);
                         runs.insert(*r);
                     }
                 }
@@ -1862,21 +1879,18 @@ pub(crate) fn clip_loops(loops: Vec<Vec<P>>, rect: [f64; 4]) -> Vec<Vec<P>> {
         .collect()
 }
 
-/// R2013 supports UTF-8 TEXT. Fallbacks are ordinary named text styles, never
-/// per-glyph MTEXT font programs. Plex remains the style for ordinary labels.
-fn fallback_font(text: &str) -> Option<&'static str> {
-    // Hole glyphs are written as words, so they need no symbol font.
-    let text = asme_words(text);
-    if text.contains(['⏥', '⟂']) {
-        Some("STIXGeneral.ttf")
-    } else if text.chars().any(|c| symbol_font(c) && c != '−') {
-        Some("Arial Unicode.ttf")
-    } else {
-        None
-    }
+/// A run that is one GD&T characteristic symbol (a frame's first cell). No font
+/// every CAD program has draws these (AutoCAD without STIX or Arial Unicode
+/// substitutes simplex.shx and prints `?`), and gdt.shx is not available in
+/// QCAD or LibreCAD, so the DXF carries the symbol's strokes, which the drawing
+/// already holds as `Item::TextStroke`.
+fn is_symbol_run(r: &TextRun) -> bool {
+    let mut chars = r.text.chars();
+    matches!((chars.next(), chars.next()), (Some(c), None)
+        if (c as u32) >= 0x2100 && c != '⌀' && haecceity::presentation::text::Font.supports(c))
 }
 fn text_font(r: &TextRun) -> &str {
-    fallback_font(&r.text).unwrap_or(&r.font)
+    &r.font
 }
 
 fn encode_mtext(s: &str) -> String {
@@ -1927,10 +1941,6 @@ fn with_reactors(tags: &Tags, reactors: &BTreeMap<u64, Vec<u64>>) -> Tags {
         out.tag(code, pair[1]);
     }
     out
-}
-
-fn symbol_font(c: char) -> bool {
-    (c as u32) >= 0x2100 && c != '⌀'
 }
 
 fn hatch_phase(loops: &[Vec<P>]) -> f64 {
