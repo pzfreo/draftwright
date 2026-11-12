@@ -17,7 +17,7 @@ jobs:
     if: startsWith(github.event.release.tag_name || inputs.tag, 'v')
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     env:
       CARGO_TERM_COLOR: always
       CARGO_BUILD_JOBS: "8"
@@ -26,6 +26,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
+          persist-credentials: false
       - name: The tag and the pre-release flag agree
         env:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
@@ -76,6 +77,32 @@ jobs:
           cp LICENSE THIRD-PARTY-LICENSES fonts/LICENSE-IBMPlexMono-OFL.txt fonts/LICENSE-IBMPlexSansCondensed-OFL.txt crates/draftwright-wasm/pkg/
           tar -czf "$asset" -C crates/draftwright-wasm pkg
           sha256sum "$asset" > "$asset.sha256"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wasm-package
+          path: |
+            draftwright-wasm-*.tgz
+            draftwright-wasm-*.tgz.sha256
+          if-no-files-found: error
+
+  # Only this job can write to the repository. It builds nothing: it downloads the
+  # package, attaches it, and runs the first-party (stdlib-only) pin check.
+  attach:
+    needs: wasm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wasm-package
+          path: dist
       - name: Compare released quiddity pins and annotate release (warning only)
         continue-on-error: true
         env:
@@ -84,8 +111,5 @@ jobs:
       - name: Attach the package to this release
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          version="${RELEASE_TAG#v}"
-          asset="draftwright-wasm-${version}.tgz"
-          gh release upload "$RELEASE_TAG" "$asset" "$asset.sha256" --clobber
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber
