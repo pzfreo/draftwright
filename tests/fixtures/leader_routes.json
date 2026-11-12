@@ -935,41 +935,6 @@
         "section": 0,
         "text_extension": 0
       },
-      "d:f:hole:f8/bore.diameter": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 0,
-        "label": [
-          22.615806336261016,
-          -1.8232286021540034,
-          36.33480633626101,
-          0.4267713978459966
-        ],
-        "label_outline": false,
-        "length": 15.176919921797289,
-        "route": [
-          [
-            8.53031753961983,
-            -8.134654574379567
-          ],
-          [
-            20.865806336261016,
-            -0.6532286021540017
-          ],
-          [
-            20.865806336261016,
-            -0.6532286021540017
-          ],
-          [
-            21.615806336261016,
-            -0.6532286021540017
-          ]
-        ],
-        "run": 0.0,
-        "section": 0,
-        "text_extension": 0
-      },
       "d:f:hole:f23/bore.diameter": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -999,6 +964,41 @@
           [
             1.545072397138938,
             27.35863108715398
+          ]
+        ],
+        "run": 0.0,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:hole:f8/bore.diameter": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 0,
+        "label": [
+          22.615806336261016,
+          -1.8232286021540034,
+          36.33480633626101,
+          0.4267713978459966
+        ],
+        "label_outline": false,
+        "length": 15.176919921797289,
+        "route": [
+          [
+            8.53031753961983,
+            -8.134654574379567
+          ],
+          [
+            20.865806336261016,
+            -0.6532286021540017
+          ],
+          [
+            20.865806336261016,
+            -0.6532286021540017
+          ],
+          [
+            21.615806336261016,
+            -0.6532286021540017
           ]
         ],
         "run": 0.0,
@@ -1219,41 +1219,6 @@
         "section": 0,
         "text_extension": 0
       },
-      "d:f:section_recess:f8/pocket_width.length": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 0,
-        "label": [
-          -55.622314506402006,
-          -24.747593476004994,
-          -18.638314506401997,
-          -22.581593476004997
-        ],
-        "label_outline": false,
-        "length": 16.329999999999984,
-        "route": [
-          [
-            -1.308314506402013,
-            -23.661593476004995
-          ],
-          [
-            -14.638314506401997,
-            -23.661593476004995
-          ],
-          [
-            -14.638314506401997,
-            -23.661593476004995
-          ],
-          [
-            -17.638314506401997,
-            -23.661593476004995
-          ]
-        ],
-        "run": 0.09878094217458726,
-        "section": 0,
-        "text_extension": 0
-      },
       "d:f:section_recess:f16/polygon_across_flats.length": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -1321,6 +1286,41 @@
           ]
         ],
         "run": 1.8515043508504911,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:section_recess:f8/pocket_width.length": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 0,
+        "label": [
+          -55.622314506402006,
+          -24.747593476004994,
+          -18.638314506401997,
+          -22.581593476004997
+        ],
+        "label_outline": false,
+        "length": 16.329999999999984,
+        "route": [
+          [
+            -1.308314506402013,
+            -23.661593476004995
+          ],
+          [
+            -14.638314506401997,
+            -23.661593476004995
+          ],
+          [
+            -14.638314506401997,
+            -23.661593476004995
+          ],
+          [
+            -17.638314506401997,
+            -23.661593476004995
+          ]
+        ],
+        "run": 0.09878094217458726,
         "section": 0,
         "text_extension": 0
       }
@@ -1543,41 +1543,6 @@
       }
     },
     "10047": {
-      "d:f:section_recess:f2/round_bottom_blind_slot_flat_width.length": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 0,
-        "label": [
-          -61.45287448233101,
-          -5.8049436818235165,
-          -15.555874482331006,
-          4.161056318176492
-        ],
-        "label_outline": false,
-        "length": 9.0,
-        "route": [
-          [
-            -5.5558744823310064,
-            -0.8219436818235124
-          ],
-          [
-            -11.555874482331006,
-            -0.8219436818235124
-          ],
-          [
-            -11.555874482331006,
-            -0.8219436818235124
-          ],
-          [
-            -14.555874482331006,
-            -0.8219436818235124
-          ]
-        ],
-        "run": 1.2099999999999937,
-        "section": 0,
-        "text_extension": 0
-      },
       "d:f:section_recess:f12/round_bottom_blind_slot_flat_width.length": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -1610,6 +1575,41 @@
           ]
         ],
         "run": 0.0,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:section_recess:f2/round_bottom_blind_slot_flat_width.length": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 0,
+        "label": [
+          -61.45287448233101,
+          -5.8049436818235165,
+          -15.555874482331006,
+          4.161056318176492
+        ],
+        "label_outline": false,
+        "length": 9.0,
+        "route": [
+          [
+            -5.5558744823310064,
+            -0.8219436818235124
+          ],
+          [
+            -11.555874482331006,
+            -0.8219436818235124
+          ],
+          [
+            -11.555874482331006,
+            -0.8219436818235124
+          ],
+          [
+            -14.555874482331006,
+            -0.8219436818235124
+          ]
+        ],
+        "run": 1.2099999999999937,
         "section": 0,
         "text_extension": 0
       },
@@ -1685,41 +1685,6 @@
       }
     },
     "10049": {
-      "d:f:section_recess:f8/pocket_width.length": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 0,
-        "label": [
-          -71.20468359336502,
-          -4.766869341705487,
-          -23.420683593365,
-          -2.60086934170549
-        ],
-        "label_outline": false,
-        "length": 9.374694123642316,
-        "route": [
-          [
-            -16.420583593364995,
-            1.9437306582944984
-          ],
-          [
-            -19.420683593365,
-            -3.6808693417054883
-          ],
-          [
-            -19.420683593365,
-            -3.6808693417054883
-          ],
-          [
-            -22.420683593365,
-            -3.6808693417054883
-          ]
-        ],
-        "run": 0.0,
-        "section": 0,
-        "text_extension": 0
-      },
       "d:f:section_recess:f15/pocket_width.length": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -1787,6 +1752,41 @@
           ]
         ],
         "run": 0.9920000000000186,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:section_recess:f8/pocket_width.length": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 0,
+        "label": [
+          -71.20468359336502,
+          -4.766869341705487,
+          -23.420683593365,
+          -2.60086934170549
+        ],
+        "label_outline": false,
+        "length": 9.374694123642316,
+        "route": [
+          [
+            -16.420583593364995,
+            1.9437306582944984
+          ],
+          [
+            -19.420683593365,
+            -3.6808693417054883
+          ],
+          [
+            -19.420683593365,
+            -3.6808693417054883
+          ],
+          [
+            -22.420683593365,
+            -3.6808693417054883
+          ]
+        ],
+        "run": 0.0,
         "section": 0,
         "text_extension": 0
       }
@@ -2004,41 +2004,6 @@
         "section": 0,
         "text_extension": 0
       },
-      "d:f:hole:f6/bore.diameter": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 0,
-        "label": [
-          5.362239761843512,
-          20.119997734526507,
-          23.482239761843488,
-          22.369997734526507
-        ],
-        "label_outline": false,
-        "length": 7.4865646110332165,
-        "route": [
-          [
-            2.0884383510085627,
-            14.728036745693785
-          ],
-          [
-            3.6122397618435116,
-            21.28999773452651
-          ],
-          [
-            3.6122397618435116,
-            21.28999773452651
-          ],
-          [
-            4.362239761843512,
-            21.28999773452651
-          ]
-        ],
-        "run": 0.0,
-        "section": 0,
-        "text_extension": 0
-      },
       "d:f:hole:f23/bore.diameter": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -2068,6 +2033,41 @@
           [
             22.347056454702994,
             10.716227608473503
+          ]
+        ],
+        "run": 0.0,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:hole:f6/bore.diameter": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 0,
+        "label": [
+          5.362239761843512,
+          20.119997734526507,
+          23.482239761843488,
+          22.369997734526507
+        ],
+        "label_outline": false,
+        "length": 7.4865646110332165,
+        "route": [
+          [
+            2.0884383510085627,
+            14.728036745693785
+          ],
+          [
+            3.6122397618435116,
+            21.28999773452651
+          ],
+          [
+            3.6122397618435116,
+            21.28999773452651
+          ],
+          [
+            4.362239761843512,
+            21.28999773452651
           ]
         ],
         "run": 0.0,
@@ -3173,41 +3173,6 @@
       }
     },
     "nist_ctc_01_asme1_rd": {
-      "d:f:chamfer:f25/chamfer.length": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 0,
-        "label": [
-          87.0,
-          38.91399999999999,
-          92.02199999999999,
-          41.079999999999984
-        ],
-        "label_outline": false,
-        "length": 11.0,
-        "route": [
-          [
-            75.0,
-            40.0
-          ],
-          [
-            83.0,
-            40.0
-          ],
-          [
-            83.0,
-            40.0
-          ],
-          [
-            86.0,
-            40.0
-          ]
-        ],
-        "run": 0.0,
-        "section": 0,
-        "text_extension": 0
-      },
       "d:f:chamfer:f101/chamfer.length": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -3237,6 +3202,41 @@
           [
             -17.491199999999992,
             18.0
+          ]
+        ],
+        "run": 0.0,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:chamfer:f25/chamfer.length": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 0,
+        "label": [
+          87.0,
+          38.91399999999999,
+          92.02199999999999,
+          41.079999999999984
+        ],
+        "label_outline": false,
+        "length": 11.0,
+        "route": [
+          [
+            75.0,
+            40.0
+          ],
+          [
+            83.0,
+            40.0
+          ],
+          [
+            83.0,
+            40.0
+          ],
+          [
+            86.0,
+            40.0
           ]
         ],
         "run": 0.0,
@@ -3560,6 +3560,41 @@
       }
     },
     "nist_ctc_02_asme1_rc": {
+      "d:f:fillet:f170/fillet.radius": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 10,
+        "label": [
+          75.0,
+          -5.007400000000018,
+          85.04700000000003,
+          -2.877400000000023
+        ],
+        "label_outline": false,
+        "length": 67.87905432263945,
+        "route": [
+          [
+            6.121399999999994,
+            -3.678600000000017
+          ],
+          [
+            71.0,
+            -3.9214000000000055
+          ],
+          [
+            71.0,
+            -3.9214000000000055
+          ],
+          [
+            74.0,
+            -3.9214000000000055
+          ]
+        ],
+        "run": 0.0,
+        "section": 0,
+        "text_extension": 0
+      },
       "d:f:fillet:f212/fillet.radius": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -3659,41 +3694,6 @@
           [
             -44.4674,
             -89.0
-          ]
-        ],
-        "run": 0.0,
-        "section": 0,
-        "text_extension": 0
-      },
-      "d:f:fillet:f170/fillet.radius": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 10,
-        "label": [
-          75.0,
-          -5.007400000000018,
-          85.04700000000003,
-          -2.877400000000023
-        ],
-        "label_outline": false,
-        "length": 67.87905432263945,
-        "route": [
-          [
-            6.121399999999994,
-            -3.678600000000017
-          ],
-          [
-            71.0,
-            -3.9214000000000055
-          ],
-          [
-            71.0,
-            -3.9214000000000055
-          ],
-          [
-            74.0,
-            -3.9214000000000055
           ]
         ],
         "run": 0.0,
@@ -4159,41 +4159,6 @@
         "section": 0,
         "text_extension": 0
       },
-      "d:f:fillet:f256/fillet.radius": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 1,
-        "label": [
-          46.666074585398405,
-          -81.85177293441322,
-          56.668074585398415,
-          -79.68577293441322
-        ],
-        "label_outline": false,
-        "length": 18.000000000000004,
-        "route": [
-          [
-            37.84448260585097,
-            -66.56182099198662
-          ],
-          [
-            42.666074585398405,
-            -80.7657729344132
-          ],
-          [
-            42.666074585398405,
-            -80.7657729344132
-          ],
-          [
-            45.666074585398405,
-            -80.7657729344132
-          ]
-        ],
-        "run": 0.0,
-        "section": 0,
-        "text_extension": 0
-      },
       "d:f:fillet:f2/fillet.radius": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -4223,6 +4188,76 @@
           [
             -59.94011402961667,
             -75.87720775567789
+          ]
+        ],
+        "run": 0.0,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:fillet:f243/fillet.radius": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 0,
+        "label": [
+          -66.92833458412143,
+          -3.2580676343539636,
+          -56.97433458412143,
+          -1.0920676343539526
+        ],
+        "label_outline": false,
+        "length": 17.17169587438371,
+        "route": [
+          [
+            -38.923879532511286,
+            -0.3222901345699256
+          ],
+          [
+            -52.97433458412143,
+            -2.172067634353965
+          ],
+          [
+            -52.97433458412143,
+            -2.172067634353965
+          ],
+          [
+            -55.97433458412143,
+            -2.172067634353965
+          ]
+        ],
+        "run": 0.0,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:fillet:f256/fillet.radius": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 1,
+        "label": [
+          46.666074585398405,
+          -81.85177293441322,
+          56.668074585398415,
+          -79.68577293441322
+        ],
+        "label_outline": false,
+        "length": 18.000000000000004,
+        "route": [
+          [
+            37.84448260585097,
+            -66.56182099198662
+          ],
+          [
+            42.666074585398405,
+            -80.7657729344132
+          ],
+          [
+            42.666074585398405,
+            -80.7657729344132
+          ],
+          [
+            45.666074585398405,
+            -80.7657729344132
           ]
         ],
         "run": 0.0,
@@ -4261,41 +4296,6 @@
           ]
         ],
         "run": 1.2880473659070493,
-        "section": 0,
-        "text_extension": 0
-      },
-      "d:f:fillet:f243/fillet.radius": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 0,
-        "label": [
-          -66.92833458412143,
-          -3.2580676343539636,
-          -56.97433458412143,
-          -1.0920676343539526
-        ],
-        "label_outline": false,
-        "length": 17.17169587438371,
-        "route": [
-          [
-            -38.923879532511286,
-            -0.3222901345699256
-          ],
-          [
-            -52.97433458412143,
-            -2.172067634353965
-          ],
-          [
-            -52.97433458412143,
-            -2.172067634353965
-          ],
-          [
-            -55.97433458412143,
-            -2.172067634353965
-          ]
-        ],
-        "run": 0.0,
         "section": 0,
         "text_extension": 0
       },
@@ -4935,41 +4935,6 @@
       }
     },
     "nist_ftc_07_asme1_rd": {
-      "d:f:fillet:f73/fillet.radius": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 8,
-        "label": [
-          7.133600000000001,
-          38.18459094877504,
-          22.604600000000005,
-          40.350590948775036
-        ],
-        "label_outline": false,
-        "length": 31.368744818733674,
-        "route": [
-          [
-            -9.866399999999999,
-            14.05579999999999
-          ],
-          [
-            3.1336000000000013,
-            39.27059094877505
-          ],
-          [
-            3.1336000000000013,
-            39.27059094877505
-          ],
-          [
-            6.133600000000001,
-            39.27059094877505
-          ]
-        ],
-        "run": 0.17169905699761512,
-        "section": 0,
-        "text_extension": 0
-      },
       "d:f:fillet:f59/fillet.radius": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -5002,6 +4967,41 @@
           ]
         ],
         "run": 0.020679000000001193,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:fillet:f73/fillet.radius": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 8,
+        "label": [
+          7.133600000000001,
+          38.18459094877504,
+          22.604600000000005,
+          40.350590948775036
+        ],
+        "label_outline": false,
+        "length": 31.368744818733674,
+        "route": [
+          [
+            -9.866399999999999,
+            14.05579999999999
+          ],
+          [
+            3.1336000000000013,
+            39.27059094877505
+          ],
+          [
+            3.1336000000000013,
+            39.27059094877505
+          ],
+          [
+            6.133600000000001,
+            39.27059094877505
+          ]
+        ],
+        "run": 0.17169905699761512,
         "section": 0,
         "text_extension": 0
       },
@@ -5676,6 +5676,41 @@
       }
     },
     "nist_ftc_10_asme1_rb": {
+      "d:f:cylindrical_profile:f128/cylindrical_profile.radius": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 0,
+        "label": [
+          -97.256,
+          27.44999999999999,
+          -89.0,
+          29.579999999999984
+        ],
+        "label_outline": false,
+        "length": 9.0,
+        "route": [
+          [
+            -79.0,
+            28.5
+          ],
+          [
+            -85.0,
+            28.5
+          ],
+          [
+            -85.0,
+            28.5
+          ],
+          [
+            -88.0,
+            28.5
+          ]
+        ],
+        "run": 0.0,
+        "section": 0,
+        "text_extension": 0
+      },
       "d:f:cylindrical_profile:f94/cylindrical_profile.radius": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -5740,76 +5775,6 @@
           [
             -34.767910711589394,
             21.358325959788033
-          ]
-        ],
-        "run": 0.0,
-        "section": 0,
-        "text_extension": 0
-      },
-      "d:f:cylindrical_profile:f128/cylindrical_profile.radius": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 0,
-        "label": [
-          -97.256,
-          27.44999999999999,
-          -89.0,
-          29.579999999999984
-        ],
-        "label_outline": false,
-        "length": 9.0,
-        "route": [
-          [
-            -79.0,
-            28.5
-          ],
-          [
-            -85.0,
-            28.5
-          ],
-          [
-            -85.0,
-            28.5
-          ],
-          [
-            -88.0,
-            28.5
-          ]
-        ],
-        "run": 0.0,
-        "section": 0,
-        "text_extension": 0
-      },
-      "d:f:fillet:f40/fillet.radius": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 0,
-        "label": [
-          25.372548700754123,
-          36.57984058568536,
-          35.36254870075413,
-          38.74584058568536
-        ],
-        "label_outline": false,
-        "length": 9.00000000000001,
-        "route": [
-          [
-            15.42387953251125,
-            36.88268343236507
-          ],
-          [
-            21.372548700754123,
-            37.66584058568537
-          ],
-          [
-            21.372548700754123,
-            37.66584058568537
-          ],
-          [
-            24.372548700754123,
-            37.66584058568537
           ]
         ],
         "run": 0.0,
@@ -5883,6 +5848,41 @@
           ]
         ],
         "run": 1.4168220097497397,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:fillet:f40/fillet.radius": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 0,
+        "label": [
+          25.372548700754123,
+          36.57984058568536,
+          35.36254870075413,
+          38.74584058568536
+        ],
+        "label_outline": false,
+        "length": 9.00000000000001,
+        "route": [
+          [
+            15.42387953251125,
+            36.88268343236507
+          ],
+          [
+            21.372548700754123,
+            37.66584058568537
+          ],
+          [
+            21.372548700754123,
+            37.66584058568537
+          ],
+          [
+            24.372548700754123,
+            37.66584058568537
+          ]
+        ],
+        "run": 0.0,
         "section": 0,
         "text_extension": 0
       },
@@ -6135,41 +6135,6 @@
         "section": 0,
         "text_extension": 0
       },
-      "d:f:hole:f5/bore.diameter": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 0,
-        "label": [
-          -42.995,
-          20.08,
-          -23.0,
-          22.299999999999997
-        ],
-        "label_outline": false,
-        "length": 17.960719932006008,
-        "route": [
-          [
-            -4.208269819751486,
-            18.844108680435497
-          ],
-          [
-            -21.25,
-            21.25
-          ],
-          [
-            -21.25,
-            21.25
-          ],
-          [
-            -22.0,
-            21.25
-          ]
-        ],
-        "run": 0.0,
-        "section": 0,
-        "text_extension": 0
-      },
       "d:f:hole:f17/bore.diameter": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -6199,6 +6164,41 @@
           [
             7.0,
             -21.75
+          ]
+        ],
+        "run": 0.0,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:hole:f5/bore.diameter": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 0,
+        "label": [
+          -42.995,
+          20.08,
+          -23.0,
+          22.299999999999997
+        ],
+        "label_outline": false,
+        "length": 17.960719932006008,
+        "route": [
+          [
+            -4.208269819751486,
+            18.844108680435497
+          ],
+          [
+            -21.25,
+            21.25
+          ],
+          [
+            -21.25,
+            21.25
+          ],
+          [
+            -22.0,
+            21.25
           ]
         ],
         "run": 0.0,
@@ -6240,41 +6240,6 @@
         "section": 0,
         "text_extension": 0
       },
-      "d:f:turned_step:f6/step.diameter": {
-        "cutting_plane": 0,
-        "elbow_outline": false,
-        "head_extension": 0,
-        "hidden": 0,
-        "label": [
-          25.75,
-          0.5799999999999983,
-          29.007999999999996,
-          2.793999999999997
-        ],
-        "label_outline": false,
-        "length": 12.25,
-        "route": [
-          [
-            12.5,
-            1.75
-          ],
-          [
-            21.75,
-            1.75
-          ],
-          [
-            21.75,
-            1.75
-          ],
-          [
-            24.75,
-            1.75
-          ]
-        ],
-        "run": 0.0,
-        "section": 0,
-        "text_extension": 0
-      },
       "d:f:turned_step:f10/step.diameter": {
         "cutting_plane": 0,
         "elbow_outline": false,
@@ -6304,6 +6269,41 @@
           [
             24.75,
             -19.0
+          ]
+        ],
+        "run": 0.0,
+        "section": 0,
+        "text_extension": 0
+      },
+      "d:f:turned_step:f6/step.diameter": {
+        "cutting_plane": 0,
+        "elbow_outline": false,
+        "head_extension": 0,
+        "hidden": 0,
+        "label": [
+          25.75,
+          0.5799999999999983,
+          29.007999999999996,
+          2.793999999999997
+        ],
+        "label_outline": false,
+        "length": 12.25,
+        "route": [
+          [
+            12.5,
+            1.75
+          ],
+          [
+            21.75,
+            1.75
+          ],
+          [
+            21.75,
+            1.75
+          ],
+          [
+            24.75,
+            1.75
           ]
         ],
         "run": 0.0,
