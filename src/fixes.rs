@@ -390,6 +390,9 @@ pub(crate) fn attach(analysis: &crate::model::Analysis, plan: &mut crate::model:
     MEMO.insert(key, plan.problems.clone());
 }
 
+/// Marks a local fix that adds findings of its own, as `dims::local_placement_fix` words it.
+pub(crate) const TRADE_OFF: &str = " Trade-off: adds these findings: ";
+
 /// O(operations per offer), with no recovered-plan invocation per candidate.
 /// Existing bounded trials check the settled inventory and ink. Intent fields bypass
 /// automatic sheet selection and refitting on apply. Never advertise unconstrained allocation
@@ -410,6 +413,7 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
             .is_none_or(|s| s == &plan.sheet.scale);
     for problem in &mut plan.problems {
         let mut fixes = problem.offered_fixes();
+        let mut withheld = Vec::new();
         for fix in &mut fixes {
             // Choosing the title-block tolerance changes no view placement. Keep
             // this offer local without turning automatic paper selection into a pin.
@@ -486,6 +490,12 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
                     ));
                 }
             } else {
+                // The settled-ink trial that proved this edit assumed the rest of the sheet
+                // stays put. A whole-sheet layout does not promise that (a plate's 3 findings
+                // became 5 this way), so an edit widened to the sheet is withheld, not offered
+                // on a count nobody checked.
+                withheld.push(fix.ops.clone());
+                continue;
                 fix.minimum_scope = Some(Scope::Sheet);
                 fix.ops.retain(|op| {
                     !matches!(
@@ -502,6 +512,7 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
                 }
             }
         }
+        fixes.retain(|f| !withheld.contains(&f.ops));
         fixes.sort_by_key(Fix::scope);
         problem.fix = fixes.first().map(|f| f.ops.clone()).unwrap_or_default();
         problem.fixes = fixes;

@@ -5608,8 +5608,25 @@ pub(crate) fn local_placement_fix(
                 if added.is_empty() {
                     return Some(crate::fixes::Fix::new(description, ops));
                 }
+                // A trade is offered only when it leaves strictly fewer findings: the
+                // published findings on this item that the candidate clears must outnumber
+                // those it adds. Equal or worse is withheld, and nothing replaces it.
+                let removed = before
+                    .iter()
+                    .filter(|p| {
+                        p.subjects.contains(id)
+                            && plan.problems.iter().any(|old| same(p, old))
+                            && !after.iter().any(|a| a.id == p.id)
+                    })
+                    .count();
+                // The trial counts settled ink, not the sheet replanned around the edit, and was
+                // seen to miscount by one (10 cleared, 9 added, 57 findings before and after).
+                // A lead of one is inside that error, so the trade must win by at least two.
+                if added.len() + 2 > removed {
+                    return None;
+                }
                 if fallback.is_none() {
-                    description.push_str(" Trade-off: adds these findings: ");
+                    description.push_str(crate::fixes::TRADE_OFF);
                     description.push_str(
                         &added
                             .iter()

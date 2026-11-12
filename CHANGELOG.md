@@ -6,6 +6,11 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- A proposed fix now leaves the drawing with fewer findings than before, or is not proposed. A
+  placement fix that traded findings (its text said "Trade-off: adds these findings") is offered
+  only when it clears at least two more than it adds; fixes that widened to a whole-sheet layout
+  are withheld, since their count was not checked; and the unmeasured "move it above/left of the
+  view" guess is gone. Nothing replaces a withheld fix. Drawings are unchanged.
 - Python: `draftwright.Part`, the Python half of the build123d requirements API (0.6.0-alpha.2).
   Datums, holes (fit, thread, position, finish), part data and flatness/finish on faces are
   recorded as Specify answers; referenced faces get `f:` names in the exported STEP (written with OCCT's
