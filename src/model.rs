@@ -5323,6 +5323,32 @@ fn recover_tables(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan,
     Ok(scheduled)
 }
 
+/// A sheet-search candidate's drop-and-escalate: the hole table its dropped hole items earn,
+/// drawn on the candidate's own sheet and scale ([`schedule_recovered`]), so a scale whose only
+/// fault is hole items placed off the sheet is judged with its table, as the final drawing would
+/// be, not rejected for the drops the table resolves.
+pub(crate) fn schedule_candidate(analysis: &Analysis, candidate: Plan) -> Result<Plan, Invalid> {
+    let spec = candidate.spec.clone();
+    let scheduled = schedule_recovered(analysis, &spec, candidate)?;
+    if drops(&scheduled) == 0 {
+        return Ok(scheduled);
+    }
+    // The candidate's own composition left the table no place; the named sheet and scale
+    // planned from the start, as a Spec naming them is, composes its views around the table.
+    let recovered = plan_recovered(analysis, &spec)?;
+    Ok(
+        if drops(&recovered) == 0
+            && recovered.sheet.size == scheduled.sheet.size
+            && recovered.sheet.scale == scheduled.sheet.scale
+            && recovered.sheets.len() == scheduled.sheets.len()
+        {
+            recovered
+        } else {
+            scheduled
+        },
+    )
+}
+
 /// [`recover_tables`]'s schedule on the sheet its table-free recovery chose.
 fn schedule_recovered(
     analysis: &Analysis,

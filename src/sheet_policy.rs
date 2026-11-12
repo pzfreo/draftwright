@@ -1367,6 +1367,22 @@ fn select_scales_full(
                     );
                     return None;
                 }
+                // Dropped hole items escalate to a hole table in the final drawing; judge the
+                // candidate with the table it would carry before counting its drops.
+                if maximise
+                    && actual_space_drops(&plan) > 0
+                    && let Ok(scheduled) = model::schedule_candidate(analysis, plan.clone())
+                    && actual_space_drops(&scheduled) == 0
+                    && sheet_fit::inside_frames(fit, &scheduled)
+                {
+                    let tabulated = scheduled.hole_tables.len() > plan.hole_tables.len();
+                    plan = scheduled;
+                    plan.sheet.basis += if tabulated {
+                        "; dropped hole items tabulated at this scale"
+                    } else {
+                        "; dropped hole items placed by planning this sheet and scale directly"
+                    };
+                }
                 if maximise
                     && (actual_space_drops(&plan) > 0
                         || model::undrawn_gdt(&plan) > 0

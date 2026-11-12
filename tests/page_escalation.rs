@@ -369,9 +369,12 @@ fn an_info_or_view_box_finding_is_not_a_hard_failure() {
 /// The maintainer's directive of 2026-10-09 (nothing off the sheet: escalate scale or sheet as
 /// draftwright does, never clip): every planning entry point applies the recovery. cgb245's plan
 /// from the library (`api::plan_analysed`) and from the JSON operation the service and MCP answer
-/// (`api::call("plan")`) is the recovered plan, the same each time: A2 at 1:2, its failed
-/// recovery said (`layout_recovery_exhausted`, which only `model::recover` says). The drawing's
-/// reply (`review`) says it too. A sheet and scale the spec names are kept and nothing is tried;
+/// (`api::call("plan")`) is the recovered plan, the same each time: A3 at 1:2. (It was A2 at
+/// 1:2 with its recovery failed while A3 at 1:2 was refused for three hole items it dropped; a
+/// candidate whose only fault is dropped hole items is now planned on its own sheet and scale,
+/// which places them.) A failed recovery is said
+/// (`layout_recovery_exhausted`, which only `model::recover` says) by the plan and by the
+/// drawing's reply (`review`): 10046's. A sheet and scale the spec names are kept and nothing is tried;
 /// a sheet it names alone is kept. (ctc01 held this until the layout kept the isometric off the
 /// plan's bands, drawing quality 3: its label off the sheet is gone, and with it the re-plan.)
 #[test]
@@ -399,6 +402,17 @@ fn every_planning_entry_point_applies_the_recovery() {
         .unwrap()
         .join(facts::load("cgb245").binding.file);
     let review = api::review_analysed(&step, &analysis, &no_tables).unwrap();
+    let said: Vec<&str> = review.problems.iter().map(|p| p.code.as_str()).collect();
+    // cgb245's recovery succeeds now (A3 at 1:2), so neither its plan nor its review says a
+    // failed one. 10046's still fails, and its review says so as its plan does.
+    assert_eq!(sheet(&plan), ("A3", "1:2"), "{}", plan.sheet.basis);
+    assert!(!codes(&plan).contains(&"layout_recovery_exhausted"));
+    assert!(!said.contains(&"layout_recovery_exhausted"), "{said:?}");
+    let failing = corpus::dir().unwrap().join("mfcadpp/10046.step");
+    let failed = api::analyse_from(&failing, Features::Native).unwrap();
+    let plan46 = api::plan_analysed(&failed, &Spec::default()).unwrap();
+    assert!(codes(&plan46).contains(&"layout_recovery_exhausted"));
+    let review = api::review_analysed(&failing, &failed, &Spec::default()).unwrap();
     let said: Vec<&str> = review.problems.iter().map(|p| p.code.as_str()).collect();
     assert!(said.contains(&"layout_recovery_exhausted"), "{said:?}");
 
