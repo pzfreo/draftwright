@@ -1,0 +1,24 @@
+THIRD-PARTY LICENSES
+
+Draftwright statically links the Rust crates listed below. Each is used under the licence
+shown; where a crate offers a choice of licences, the licence texts are given once, with the
+crates they cover. The IBM Plex fonts embedded in the drawings are covered by the SIL Open Font
+License in LICENSE-IBMPlexMono-OFL.txt and LICENSE-IBMPlexSansCondensed-OFL.txt.
+
+Overview of licences:
+{{#each overview}}
+  * {{{name}}} ({{count}})
+{{/each}}
+
+{{#each licenses}}
+================================================================================
+{{{name}}}
+
+Used by:
+{{#each used_by}}
+  * {{crate.name}} {{crate.version}}{{#if crate.repository}} ({{crate.repository}}){{/if}}
+{{/each}}
+
+{{{text}}}
+
+{{/each}}

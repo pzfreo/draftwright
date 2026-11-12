@@ -17,8 +17,8 @@ on:
       - 'LICENSE'
       - '.github/workflows/crates.yml'
   # A published GitHub release publishes draftwright to crates.io: the maintainer's release is
-  # the approval. A pre-release is not published (a crates.io version can be yanked but never
-  # removed); a manual run can.
+  # the approval, pre-releases included. A crates.io version can be yanked but never removed, so
+  # the publish job refuses a release whose pre-release box disagrees with its tag (#402).
   release:
     types: [published]
   # Publishes an earlier release from its tag. Each run needs the maintainer's word.
@@ -60,7 +60,22 @@ jobs:
       id-token: write
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      PRERELEASE: ${{ github.event.release.prerelease }}
+      GH_TOKEN: ${{ github.token }}
     steps:
+      # Before anything else, and without the tag's checkout, so an old tag can be backfilled.
+      - name: The tag and the pre-release flag agree
+        run: |
+          # A release event carries the flag; a manual run asks GitHub for the tag's release.
+          prerelease="$PRERELEASE"
+          if [ -z "$prerelease" ]; then
+            prerelease=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .prerelease)
+          fi
+          case "$TAG" in *-*) tagged=true ;; *) tagged=false ;; esac
+          if [ "$tagged" != "$prerelease" ]; then
+            echo "::error::tag $TAG, release pre-release flag $prerelease: they must agree"
+            exit 1
+          fi
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: refs/tags/${{ env.TAG }}

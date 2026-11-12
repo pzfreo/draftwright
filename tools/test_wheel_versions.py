@@ -62,10 +62,32 @@ class WheelVersions(unittest.TestCase):
             capture_output=True, text=True,
         )
 
+    def run_flag(self, tag, flag):
+        # The flag-only mode needs no checkout, wheels or provenance.
+        args = [sys.executable, str(GUARD), "--tag", tag]
+        return subprocess.run(args + (["--prerelease", flag] if flag else ["--prerelease="]),
+                              capture_output=True, text=True)
+
     def refused(self, result, message):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn(message, result.stderr)
         self.assertIn("::error::", result.stderr)
+
+    def test_prerelease_flag_agrees(self):
+        for tag, flag in (("v0.6.0", "false"), ("v0.6.0-alpha.2", "true"), ("v0.6.0-rc.1", "true")):
+            result = self.run_flag(tag, flag)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("agree", result.stdout)
+
+    def test_stable_tag_marked_prerelease_is_refused(self):
+        self.refused(self.run_flag("v0.6.0", "true"), "stable release but the GitHub release is marked pre-release")
+
+    def test_prerelease_tag_not_marked_is_refused(self):
+        self.refused(self.run_flag("v0.6.0-alpha.2", "false"), "pre-release but the GitHub release is not marked pre-release")
+
+    def test_prerelease_flag_needs_a_valid_tag_and_flag(self):
+        self.refused(self.run_flag("0.6.0", "false"), "expected vX.Y.Z")
+        self.refused(self.run_flag("v0.6.0", ""), "expected true or false")
 
     def test_match(self):
         result = self.run_guard()
