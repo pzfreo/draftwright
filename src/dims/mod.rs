@@ -5465,6 +5465,9 @@ pub(crate) fn local_placement_fix(
     // Once a trade is found, inspect at most three further candidates for a clean
     // alternative. This uses the existing settled-ink trial, never another plan.
     let mut fallback = None;
+    // Set by the first candidate that adds findings, offered or not, so a withheld trade
+    // bounds the search just as an offered one does.
+    let mut traded = false;
     let mut remaining = 3usize;
     for id in &problem.subjects {
         let Some(index) = plan.dimensions.iter().position(|d| &d.id == id) else {
@@ -5527,7 +5530,7 @@ pub(crate) fn local_placement_fix(
                 .chain(&plan.sheets)
                 .find(|s| s.number == view.sheet)?;
             let mut offer = |placed: Placed, place: &Place| {
-                if fallback.is_some() {
+                if traded {
                     if remaining == 0 {
                         return fallback.take();
                     }
@@ -5608,8 +5611,28 @@ pub(crate) fn local_placement_fix(
                 if added.is_empty() {
                     return Some(crate::fixes::Fix::new(description, ops));
                 }
+                traded = true;
+                // A trade that stays local is offered only when it leaves strictly fewer
+                // findings: the published findings on this item that the candidate clears must
+                // outnumber those it adds. Equal or worse is withheld, and nothing replaces it.
+                // A trade that re-lays the sheet is offered as before: this count says nothing
+                // about that outcome, which a preview has to show.
+                let removed = before
+                    .iter()
+                    .filter(|p| {
+                        p.subjects.contains(id)
+                            && plan.problems.iter().any(|old| same(p, old))
+                            && !after.iter().any(|a| a.id == p.id)
+                    })
+                    .count();
+                // The trial counts settled ink, not the sheet replanned around the edit, and was
+                // seen to miscount by one (10 cleared, 9 added, 57 findings before and after).
+                // A lead of one is inside that error, so the trade must win by at least two.
+                if crate::fixes::keeps_layout(plan, &ops) && added.len() + 2 > removed {
+                    return None;
+                }
                 if fallback.is_none() {
-                    description.push_str(" Trade-off: adds these findings: ");
+                    description.push_str(crate::fixes::TRADE_OFF);
                     description.push_str(
                         &added
                             .iter()

@@ -1058,48 +1058,13 @@ pub(crate) fn finish(plan: &mut Plan, analysis: &Analysis) {
                 p.refs.push(id.clone());
             }
         }
-        if p.code.starts_with("annotation_") {
-            if let Some((_, path)) = p.subjects.iter().find_map(|id| pins.get_key_value(id)) {
-                p.fix = vec![Op::set(path, json!({}))];
-            } else if p.fix.is_empty() {
-                if let Some(d) = p
-                    .subjects
-                    .iter()
-                    .find_map(|id| plan.dimensions.iter().find(|d| d.id == *id))
-                {
-                    if let Some(placed) = &d.placed {
-                        let side = if placed.rotation == 90.0 {
-                            "left"
-                        } else {
-                            "above"
-                        };
-                        // A linear strip change must compose with other fixes:
-                        // let layout coordinate lanes and text stations rather
-                        // than promise lane zero/outside for every moved item.
-                        let place = if d.kind == "linear" {
-                            json!({"view":d.view.trim_start_matches("v:"),"side":side})
-                        } else {
-                            json!({"view":d.view.trim_start_matches("v:"),"side":side,"lane":0,"along":"outside"})
-                        };
-                        p.fix = vec![Op::set(format!("dimensions/{}/place", key(&d.id)), place)];
-                    }
-                } else if let Some(g) = p
-                    .subjects
-                    .iter()
-                    .find_map(|id| plan.gdt.iter().find(|g| g.id == *id))
-                {
-                    let side = match g.side.as_str() {
-                        "above" => "below",
-                        "below" => "above",
-                        "left" => "right",
-                        _ => "left",
-                    };
-                    p.fix = vec![Op::set(
-                        format!("annotations/{}/place", key(&g.id)),
-                        json!({"view":g.view.trim_start_matches("v:"),"side":side,"lane":0}),
-                    )];
-                }
-            }
+        if p.code.starts_with("annotation_")
+            && let Some((_, path)) = p.subjects.iter().find_map(|id| pins.get_key_value(id))
+        {
+            // Only this unpinning fix is stated here. No move is guessed: one nobody has
+            // measured can leave the drawing worse, and `fixes::attach` offers the placement
+            // it has checked against the settled ink.
+            p.fix = vec![Op::set(path, json!({}))];
         }
     }
     for (id, path) in pins {

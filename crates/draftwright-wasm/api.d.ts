@@ -22,6 +22,7 @@ export class Engine {
   setPmi(source: string, bytes: Uint8Array): void;
   setPmiOps(source: string, bytes: Uint8Array, ops: string): void;
   setSpec(json: string): void;
+  sheetDxf(sheet: number): Uint8Array;
   sheetFragments(sheet: number): string;
   sheetSvg(sheet: number): Uint8Array;
   snapshot(): string;
@@ -103,6 +104,7 @@ export interface InitOutput {
   readonly engine_setPmi: (a: number, b: number, c: number, d: number, e: number) => [number, number];
   readonly engine_setPmiOps: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
   readonly engine_setSpec: (a: number, b: number, c: number) => [number, number];
+  readonly engine_sheetDxf: (a: number, b: number) => [number, number, number, number];
   readonly engine_sheetFragments: (a: number, b: number) => [number, number, number, number];
   readonly engine_sheetSvg: (a: number, b: number) => [number, number, number, number];
   readonly engine_snapshot: (a: number) => [number, number, number, number];

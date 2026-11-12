@@ -3007,6 +3007,45 @@ mod tests {
         );
     }
 
+    /// When the layout cannot be kept (here the Spec asks for paper the plan did not use), a
+    /// local edit and a local move are both offered as whole-sheet ones, without the keep-layout
+    /// operations that would claim the sheet stays as it is.
+    #[test]
+    fn an_unkept_layout_widens_an_edit_and_a_move() {
+        let a = fixture();
+        let mut plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+        let dimension = plan.dimensions.iter().find(|d| d.placed.is_some()).unwrap();
+        let (key, view) = (crate::items::key(&dimension.id), dimension.view.clone());
+        plan.problems = vec![
+            model::Problem {
+                code: "tolerance_not_shown".into(),
+                fix: vec![crate::items::Op::set(
+                    format!("dimensions/{key}/tolerance"),
+                    json!("±0.1"),
+                )],
+                ..Default::default()
+            },
+            model::Problem {
+                code: "annotation_leader_crossing".into(),
+                fix: vec![crate::items::Op::set(
+                    format!("dimensions/{key}/place"),
+                    json!({"side": "left", "view": view}),
+                )],
+                ..Default::default()
+            },
+        ];
+        let other = if plan.sheet.size == "A2" { "A1" } else { "A2" };
+        plan.spec.sheet.size = Some(other.into());
+        crate::fixes::retain_local_layout(&mut plan);
+        for problem in &plan.problems {
+            let fixes = problem.offered_fixes();
+            assert_eq!(fixes.len(), 1, "{}", problem.code);
+            assert_eq!(fixes[0].scope(), crate::fixes::Scope::Sheet);
+            assert!(fixes[0].ops.iter().all(|op| !op.path.starts_with("sheet")));
+            assert_eq!(problem.fix, fixes[0].ops);
+        }
+    }
+
     #[test]
     fn page_fit_repair_keeps_a_clean_a4_at_full_size() {
         let Some(a) = corpus("mfcadpp/10247.step") else {

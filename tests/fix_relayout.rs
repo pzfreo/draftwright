@@ -83,8 +83,13 @@ fn dimension_line(lines: &[Line]) -> Option<(usize, f64, [f64; 2], [f64; 2])> {
     ))
 }
 
-/// The leader crossings on datum B, and the ops their fixes propose.
+/// The leader crossings on datum B, and the edits that move each crossed dimension to the left
+/// of the front view, with the constraints that keep the sheet (the form the engine's local
+/// fixes take). The engine no longer proposes these: each trades more findings for the crossing
+/// than it clears, so they are applied here explicitly, as an agent could request them. The
+/// tests below are about how such edits are applied and laid out.
 fn b_crossings(s: &Session) -> (Vec<String>, Vec<draftwright::items::Op>) {
+    use draftwright::items::Op;
     let crossings: Vec<_> = s
         .plan()
         .problems
@@ -94,9 +99,26 @@ fn b_crossings(s: &Session) -> (Vec<String>, Vec<draftwright::items::Op>) {
                 && p.subjects.first().is_some_and(|d| d.ends_with("t=B"))
         })
         .collect();
+    let plan = s.plan();
+    let ops = crossings
+        .iter()
+        .flat_map(|p| {
+            let id = &p.subjects[1];
+            [
+                Op::set(
+                    format!("dimensions/{}/place", draftwright::items::key(id)),
+                    serde_json::json!({"side": "left", "view": "front"}),
+                ),
+                Op::set("sheet/keep_layout", serde_json::json!(true)),
+                Op::set("sheet/size", serde_json::json!(plan.sheet.size)),
+                Op::set("sheet/scale", serde_json::json!(plan.sheet.scale)),
+                Op::set("sheets/max", serde_json::json!(1)),
+            ]
+        })
+        .collect();
     (
         crossings.iter().map(|p| p.subjects[1].clone()).collect(),
-        crossings.iter().flat_map(|p| p.fix.clone()).collect(),
+        ops,
     )
 }
 
@@ -121,9 +143,13 @@ fn applying_both_proposed_fixes_keeps_the_stack_apart_and_text_on_its_lines() {
     for p in s.plan().problems.iter().filter(|p| {
         moved.iter().any(|id| p.subjects.contains(id)) && p.code == "annotation_leader_crossing"
     }) {
-        assert_eq!(
-            p.offered_fixes()[0].scope(),
-            draftwright::fixes::Scope::Local
+        // Only the hole-table sheet remedy is offered: every local move trades as many
+        // findings as it clears, or more.
+        assert!(
+            p.offered_fixes()
+                .iter()
+                .all(|f| f.scope() != draftwright::fixes::Scope::Local),
+            "{p:?}"
         );
     }
     let errors = |s: &Session| -> Vec<String> {
@@ -314,20 +340,28 @@ fn ctc01_crossings_offer_local_edits_and_identify_the_sheet_remedy() {
         9
     );
     // CTC-01 plans no radius-centre table (its 4× R25 leader is not obstructed), so no
-    // dimension carries one, and every crossing's first offer is a local edit (on alpha.12
-    // only d:f:hole:f73/location.length.z's was; the table carriers' were sheet fixes). The rest
-    // of this test checks the table-carrier contract for a plan that has the table.
+    // dimension carries one. A crossing's first offer is a local edit when one leaves fewer
+    // findings than it clears; the other seven (the front-view hole location's five among them)
+    // have only local edits that trade as many findings as they clear, so keep just the sheet
+    // remedy. The rest of this test checks the table-carrier contract for a plan that has the table.
     if plan.radius_table.is_none() {
+        let mut local = 0;
         for p in &crossings {
             let fixes = p.offered_fixes();
             assert_eq!(p.fix, fixes[0].ops);
-            assert_eq!(
-                fixes[0].scope(),
-                draftwright::fixes::Scope::Local,
-                "{}",
-                p.id
-            );
+            if fixes[0].scope() == draftwright::fixes::Scope::Local {
+                local += 1;
+            } else {
+                assert!(
+                    fixes
+                        .iter()
+                        .all(|f| f.scope() == draftwright::fixes::Scope::Sheet),
+                    "{}",
+                    p.id
+                );
+            }
         }
+        assert_eq!(local, 2);
         return;
     }
     // Table-carrier edits cannot cheaply prove that automatic radius-centre
