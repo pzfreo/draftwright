@@ -535,9 +535,11 @@ fn release_members() -> BTreeSet<String> {
             std::fs::copy(from, to).unwrap();
         }
     }
-    for name in ["LICENSE", "README.md", "schemas", "docs"] {
+    for name in ["LICENSE", "README.md", "schemas", "docs", "fonts"] {
         copy_tree(&repo.join(name), &dir.0.join(name));
     }
+    // CI generates the notices with cargo-about before packaging; a stand-in is enough here.
+    std::fs::write(dir.0.join("THIRD-PARTY-LICENSES"), "fixture notices\n").unwrap();
     let bin = dir.0.join("target/fixture-native/release");
     std::fs::create_dir_all(&bin).unwrap();
     let suffix = std::env::consts::EXE_SUFFIX;
@@ -655,6 +657,9 @@ fn steer_298_agent_discovery() {
         "docs/model.md",
         "docs/mcp.md",
         "docs/rules/README.md",
+        "THIRD-PARTY-LICENSES",
+        "LICENSE-IBMPlexMono-OFL.txt",
+        "LICENSE-IBMPlexSansCondensed-OFL.txt",
     ] {
         let path = if path == "draftwright-mcp" {
             format!("{path}{}", std::env::consts::EXE_SUFFIX)
