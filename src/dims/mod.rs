@@ -5612,9 +5612,11 @@ pub(crate) fn local_placement_fix(
                     return Some(crate::fixes::Fix::new(description, ops));
                 }
                 traded = true;
-                // A trade is offered only when it leaves strictly fewer findings: the
-                // published findings on this item that the candidate clears must outnumber
-                // those it adds. Equal or worse is withheld, and nothing replaces it.
+                // A trade that stays local is offered only when it leaves strictly fewer
+                // findings: the published findings on this item that the candidate clears must
+                // outnumber those it adds. Equal or worse is withheld, and nothing replaces it.
+                // A trade that re-lays the sheet is offered as before: this count says nothing
+                // about that outcome, which a preview has to show.
                 let removed = before
                     .iter()
                     .filter(|p| {
@@ -5626,7 +5628,7 @@ pub(crate) fn local_placement_fix(
                 // The trial counts settled ink, not the sheet replanned around the edit, and was
                 // seen to miscount by one (10 cleared, 9 added, 57 findings before and after).
                 // A lead of one is inside that error, so the trade must win by at least two.
-                if added.len() + 2 > removed {
+                if crate::fixes::keeps_layout(plan, &ops) && added.len() + 2 > removed {
                     return None;
                 }
                 if fallback.is_none() {

@@ -6,11 +6,12 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
-- A proposed fix now leaves the drawing with fewer findings than before, or is not proposed. A
-  placement fix that traded findings (its text said "Trade-off: adds these findings") is offered
-  only when it clears at least two more than it adds; a placement fix that widened to a
-  whole-sheet layout is withheld, since its count was not checked; and the unmeasured "move it
-  above/left of the view" guess is gone. Nothing replaces a withheld fix. Drawings are unchanged.
+- A placement fix offered as a local edit now leaves the drawing with fewer findings than
+  before, or is not proposed. A local fix that traded findings (its text said "Trade-off: adds
+  these findings") is offered only when it clears at least two more than it adds, and the
+  unmeasured "move it above/left of the view" guess is gone. Nothing replaces a withheld fix. A
+  fix that lays the whole sheet out again is offered as before: its outcome is not known until
+  it is planned, so preview it before applying. Drawings are unchanged.
 - DXF: GD&T characteristic symbols (⏥ ⟂ ⌖ ⌓ …) are drawn as the lines and arcs of their strokes,
   and the circled modifiers Ⓜ Ⓛ are written `(M)` and `(L)`, so no text or dimension style names
   a TTF. AutoCAD on Windows had no STIXGeneral or Arial Unicode, substituted simplex.shx and

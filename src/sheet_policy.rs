@@ -2876,11 +2876,11 @@ mod tests {
         );
     }
 
-    /// When the layout cannot be kept (here the Spec asks for paper the plan did not use), an
-    /// untrialled local edit is offered as a whole-sheet one, and a trialled move, whose count
-    /// assumed the rest of the sheet stays put, is not offered at all.
+    /// When the layout cannot be kept (here the Spec asks for paper the plan did not use), a
+    /// local edit and a local move are both offered as whole-sheet ones, without the keep-layout
+    /// operations that would claim the sheet stays as it is.
     #[test]
-    fn an_unkept_layout_widens_an_edit_and_withholds_a_move() {
+    fn an_unkept_layout_widens_an_edit_and_a_move() {
         let a = fixture();
         let mut plan = model::plan_recovered(&a, &Spec::default()).unwrap();
         let dimension = plan.dimensions.iter().find(|d| d.placed.is_some()).unwrap();
@@ -2906,12 +2906,13 @@ mod tests {
         let other = if plan.sheet.size == "A2" { "A1" } else { "A2" };
         plan.spec.sheet.size = Some(other.into());
         crate::fixes::retain_local_layout(&mut plan);
-        let edits = plan.problems[0].offered_fixes();
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].scope(), crate::fixes::Scope::Sheet);
-        assert!(edits[0].ops.iter().all(|op| !op.path.starts_with("sheet")));
-        assert!(plan.problems[1].offered_fixes().is_empty());
-        assert!(plan.problems[1].fix.is_empty());
+        for problem in &plan.problems {
+            let fixes = problem.offered_fixes();
+            assert_eq!(fixes.len(), 1, "{}", problem.code);
+            assert_eq!(fixes[0].scope(), crate::fixes::Scope::Sheet);
+            assert!(fixes[0].ops.iter().all(|op| !op.path.starts_with("sheet")));
+            assert_eq!(problem.fix, fixes[0].ops);
+        }
     }
 
     #[test]

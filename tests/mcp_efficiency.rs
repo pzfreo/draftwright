@@ -768,8 +768,21 @@ fn crossing_remedies_are_scoped_and_ordered_in_mcp_rows() {
                                 .any(|op| op["path"] == "hole_table")
                         );
                     } else {
-                        // The local offer first; the others (the hole-table sheet remedy,
-                        // checked below) re-lay the whole sheet.
+                        // The local offer first, carrying the constraints that keep the
+                        // sheet; the others (the hole-table sheet remedy, checked below) re-lay
+                        // the whole sheet.
+                        let ops = fixes[0]["ops"].as_array().unwrap();
+                        for (path, value) in [
+                            ("sheet/keep_layout", json!(true)),
+                            ("sheet/size", json!("A3")),
+                            ("sheet/scale", json!("1:5")),
+                            ("sheets/max", json!(1)),
+                        ] {
+                            let constraints: Vec<_> =
+                                ops.iter().filter(|op| op["path"] == path).collect();
+                            assert_eq!(constraints.len(), 1, "{row}");
+                            assert_eq!(constraints[0]["value"], value);
+                        }
                         assert!(fixes[1..].iter().all(|fix| fix["scope"] == "sheet"));
                     }
                     assert_eq!(row["fix"], fixes[0]["ops"]);

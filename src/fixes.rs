@@ -390,27 +390,13 @@ pub(crate) fn attach(analysis: &crate::model::Analysis, plan: &mut crate::model:
     MEMO.insert(key, plan.problems.clone());
 }
 
-/// A placement the bounded trial of `dims::local_placement_fix` proposed: it sets an item's
-/// place to something (an unpinning sets it to nothing).
-fn is_trialled_move(ops: &[Op]) -> bool {
-    ops.iter().any(|op| {
-        op.path.ends_with("/place")
-            && op
-                .value
-                .as_ref()
-                .and_then(serde_json::Value::as_object)
-                .is_some_and(|o| !o.is_empty())
-    })
-}
-
 /// Marks a local fix that adds findings of its own, as `dims::local_placement_fix` words it.
 pub(crate) const TRADE_OFF: &str = " Trade-off: adds these findings: ";
 
-/// O(operations per offer), with no recovered-plan invocation per candidate.
-/// Existing bounded trials check the settled inventory and ink. Intent fields bypass
-/// automatic sheet selection and refitting on apply. Never advertise unconstrained allocation
-/// as local. Scope read from old JSON may widen, but cannot understate path scope.
-pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
+/// Whether applying `ops` keeps the settled sheet, so the fix can be offered as local. The
+/// sheet must be a single one at the size and scale the spec asked for (or left automatic),
+/// and the edit must not touch a radius table's carrier.
+pub(crate) fn keeps_layout(plan: &crate::model::Plan, ops: &[Op]) -> bool {
     let retainable = plan.sheets.is_empty()
         && plan
             .spec
@@ -424,9 +410,54 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
             .scale
             .as_ref()
             .is_none_or(|s| s == &plan.sheet.scale);
-    for problem in &mut plan.problems {
+    if !retainable {
+        return false;
+    }
+    // An automatic radius table's centre coordinates are extra information.
+    // A settled-ink trial cannot reconstruct the withdrawn leaders and prove
+    // that moving another item on their carrier will keep that table. Widen
+    // conservatively rather than advertise an unverified local promise.
+    let table_carrier = plan.radius_table.as_ref().is_some_and(|table| {
+        ops.iter().any(|op| {
+            if op.path.starts_with("annotations/") {
+                return true;
+            }
+            let Some(rest) = op.path.strip_prefix("dimensions/") else {
+                return false;
+            };
+            let id = rest
+                .split('/')
+                .next()
+                .unwrap_or("")
+                .replace("~1", "/")
+                .replace("~0", "~");
+            let affects = |view: &str| table.rows.iter().any(|r| r.view == view);
+            let old = plan
+                .dimensions
+                .iter()
+                .find(|d| d.id == id)
+                .is_some_and(|d| affects(&d.view));
+            let new = op
+                .value
+                .as_ref()
+                .and_then(|v| v.get("view"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|v| affects(&format!("v:{v}")));
+            old || new
+        })
+    });
+    !table_carrier
+}
+
+/// O(operations per offer), with no recovered-plan invocation per candidate.
+/// Existing bounded trials check the settled inventory and ink. Intent fields bypass
+/// automatic sheet selection and refitting on apply. Never advertise unconstrained allocation
+/// as local. Scope read from old JSON may widen, but cannot understate path scope.
+pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
+    // Taken out so the rest of the plan can be read while the offers are rewritten.
+    let mut problems = std::mem::take(&mut plan.problems);
+    for problem in &mut problems {
         let mut fixes = problem.offered_fixes();
-        let mut withheld = Vec::new();
         for fix in &mut fixes {
             // Choosing the title-block tolerance changes no view placement. Keep
             // this offer local without turning automatic paper selection into a pin.
@@ -442,40 +473,7 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
                 }
                 continue;
             }
-            // An automatic radius table's centre coordinates are extra information.
-            // A settled-ink trial cannot reconstruct the withdrawn leaders and prove
-            // that moving another item on their carrier will keep that table. Widen
-            // conservatively rather than advertise an unverified local promise.
-            let table_carrier = plan.radius_table.as_ref().is_some_and(|table| {
-                fix.ops.iter().any(|op| {
-                    if op.path.starts_with("annotations/") {
-                        return true;
-                    }
-                    let Some(rest) = op.path.strip_prefix("dimensions/") else {
-                        return false;
-                    };
-                    let id = rest
-                        .split('/')
-                        .next()
-                        .unwrap_or("")
-                        .replace("~1", "/")
-                        .replace("~0", "~");
-                    let affects = |view: &str| table.rows.iter().any(|r| r.view == view);
-                    let old = plan
-                        .dimensions
-                        .iter()
-                        .find(|d| d.id == id)
-                        .is_some_and(|d| affects(&d.view));
-                    let new = op
-                        .value
-                        .as_ref()
-                        .and_then(|v| v.get("view"))
-                        .and_then(serde_json::Value::as_str)
-                        .is_some_and(|v| affects(&format!("v:{v}")));
-                    old || new
-                })
-            });
-            if retainable && !table_carrier {
+            if keeps_layout(plan, &fix.ops) {
                 fix.ops.retain(|op| {
                     !matches!(
                         op.path.as_str(),
@@ -503,15 +501,9 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
                     ));
                 }
             } else {
-                // The settled-ink trial that proved a move assumed the rest of the sheet stays
-                // put. A whole-sheet layout does not promise that (a plate's 3 findings became 5
-                // this way), so a move widened to the sheet is withheld, not offered on a count
-                // nobody checked. Other edits (an unpin) were never trialled; they stay,
-                // widened to the sheet as before.
-                if is_trialled_move(&fix.ops) {
-                    withheld.push(fix.ops.clone());
-                    continue;
-                }
+                // The settled-ink trial assumed the rest of the sheet stays put, and a
+                // whole-sheet layout does not promise that. The fix is still offered, at sheet
+                // scope: its real outcome is for a preview to show (`Session::apply`).
                 fix.minimum_scope = Some(Scope::Sheet);
                 fix.ops.retain(|op| {
                     !matches!(
@@ -528,11 +520,11 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
                 }
             }
         }
-        fixes.retain(|f| !withheld.contains(&f.ops));
         fixes.sort_by_key(Fix::scope);
         problem.fix = fixes.first().map(|f| f.ops.clone()).unwrap_or_default();
         problem.fixes = fixes;
     }
+    plan.problems = problems;
 }
 
 /// Add remedies only after selecting the drawing. As with the existing placement

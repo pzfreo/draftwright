@@ -1,16 +1,20 @@
-//! A fix the engine offers must not make the drawing worse: applied, it leaves strictly fewer
-//! findings than before (a trade that adds as many findings as it removes is withheld).
+//! A fix the engine offers as local must not make the drawing worse: it applies, and leaves
+//! strictly fewer findings than before (a trade that adds as many findings as it removes is
+//! withheld).
+//! A fix that re-lays the whole sheet carries no such promise: the engine cannot tell its outcome
+//! without planning it, so a caller previews it (`Session::apply` without committing).
 //! Structural counts only, over the quality parts and the editor's samples.
 
 use std::io::Read as _;
 
-use draftwright::{model, session::Session};
+use draftwright::{fixes::Scope, model, session::Session};
 
 #[path = "common/corpus.rs"]
 mod corpus;
 
-/// Applies the offered fixes (first fix of each finding first, at most `CAP` distinct ones per
-/// part) and returns (distinct fixes offered, distinct fixes applied, the worse-or-equal ones).
+/// Applies the offered local fixes (first fix of each finding first, at most `CAP` distinct ones
+/// per part) and returns (distinct fixes offered, distinct fixes applied, the worse-or-equal
+/// ones). An audit also applies the wider fixes and prints every outcome.
 fn check(
     name: &str,
     part: draftwright::haecceity::Part,
@@ -38,16 +42,35 @@ fn check(
                 continue;
             }
             seen.push(fix.ops.clone());
-            if applied == CAP && !audit() {
+            let local = fix.scope() == Scope::Local;
+            if !audit() && (!local || applied == CAP) {
                 continue;
             }
-            // A fix the editor would refuse is not offered as an edit to judge.
+            // A local fix the engine then refuses to apply is no fix either.
             let Ok(delta) = session.apply(&fix.ops, false) else {
+                if audit() {
+                    eprintln!("REFUSED\t{name}\t{}\t{:?}", p.id, fix.scope());
+                }
+                if local {
+                    worse.push(format!(
+                        "{name}: fix for {} is refused: {}",
+                        p.id,
+                        fix.description()
+                    ));
+                }
                 continue;
             };
             applied += 1;
             let after = before + delta.problems_added.len() - delta.problems_resolved.len();
-            if after >= before {
+            if audit() {
+                eprintln!(
+                    "FIX\t{name}\t{}\t{before}\t{after}\t{:?}\t{}",
+                    p.id,
+                    fix.scope(),
+                    fix.description()
+                );
+            }
+            if local && after >= before {
                 worse.push(format!(
                     "{name}: fix for {} leaves {after} findings, was {before}: {}",
                     p.id,
@@ -80,7 +103,7 @@ fn verdict(worse: Vec<String>) {
 }
 
 #[test]
-fn offered_fixes_leave_fewer_findings_on_the_editor_samples() {
+fn local_fixes_leave_fewer_findings_on_the_editor_samples() {
     let mut worse = Vec::new();
     for file in [
         "mounting-plate.step.gz",
@@ -104,7 +127,7 @@ fn offered_fixes_leave_fewer_findings_on_the_editor_samples() {
 }
 
 #[test]
-fn offered_fixes_leave_fewer_findings_on_the_quality_parts() {
+fn local_fixes_leave_fewer_findings_on_the_quality_parts() {
     let Some(root) = corpus::dir() else { return };
     let list = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
