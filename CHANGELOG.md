@@ -11,6 +11,9 @@ All notable changes to draftwright-rust are recorded here, in the style of
   is still drawn, those characters as empty boxes, and no other drawing changes (#401).
 - Refuse an out-of-range `sheets.max` before the paper search sizes anything from it, and
   refuse gzip STEP input that decompresses to more than 1 GiB (256 MiB in WASM).
+- Legacy-ID migration no longer rewrites free text (note text, title block, table cells,
+  annotation label text) that looks like an ID, in any schema, and `Session::set_spec` and
+  `openSpec` now share one migration and give the same Spec for spec/3.
 - Python `make_drawing` returns `(svg_path, dxf_path)` again, as in 0.4, now that DXF output
   is editable. 0.6.0-alpha.1 returned `(svg_path, pdf_path)`; use `draftwright render
   --formats pdf` for PDF.

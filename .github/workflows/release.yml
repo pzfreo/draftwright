@@ -26,6 +26,18 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - name: The tag and the pre-release flag agree
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A release event carries the flag; a manual run asks GitHub for the tag's release.
+          prerelease="$PRERELEASE"
+          if [ -z "$prerelease" ]; then
+            prerelease=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .prerelease)
+          fi
+          python3 tools/check_wheel_versions.py --tag "$TAG" --prerelease "$prerelease"
       - name: Check the tag and package versions agree
         run: |
           python3 - <<'PYTHON'
@@ -44,6 +56,11 @@ jobs:
       - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2.87.19
         with:
           tool: wasm-pack@0.15.0
+      - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2.87.19
+        with:
+          tool: cargo-about@0.9.3
+      - name: Third-party licence notices
+        run: cargo about generate --locked --workspace --all-features about.hbs -o THIRD-PARTY-LICENSES
       - run: wasm-pack build crates/draftwright-wasm --target web --profile wasm-release --locked
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -56,7 +73,7 @@ jobs:
         run: |
           version="${RELEASE_TAG#v}"
           asset="draftwright-wasm-${version}.tgz"
-          cp LICENSE fonts/LICENSE-IBMPlexMono-OFL.txt fonts/LICENSE-IBMPlexSansCondensed-OFL.txt crates/draftwright-wasm/pkg/
+          cp LICENSE THIRD-PARTY-LICENSES fonts/LICENSE-IBMPlexMono-OFL.txt fonts/LICENSE-IBMPlexSansCondensed-OFL.txt crates/draftwright-wasm/pkg/
           tar -czf "$asset" -C crates/draftwright-wasm pkg
           sha256sum "$asset" > "$asset.sha256"
       - name: Compare released quiddity pins and annotate release (warning only)

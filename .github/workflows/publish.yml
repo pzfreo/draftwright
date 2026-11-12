@@ -21,6 +21,8 @@ on:
       - 'schemas/**'
       - 'README.md'
       - 'LICENSE'
+      - 'about.toml'
+      - 'about.hbs'
       - '.github/workflows/publish.yml'
       - 'tools/check_wheel_versions.py'
       - 'tools/test_wheel_versions.py'
@@ -43,6 +45,8 @@ on:
       - 'schemas/**'
       - 'README.md'
       - 'LICENSE'
+      - 'about.toml'
+      - 'about.hbs'
       - '.github/workflows/publish.yml'
       - 'tools/check_wheel_versions.py'
       - 'tools/test_wheel_versions.py'
@@ -79,7 +83,27 @@ jobs:
           fetch-depth: 0 # The guard resolves actual tag objects, including annotated tags.
       - run: python3 tools/test_wheel_versions.py -v
 
+  # cargo-about has no prebuilt binary for Intel macOS, so the notices are generated once here
+  # and every wheel job takes the same file.
+  notices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
+      - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2.87.19
+        with:
+          tool: cargo-about@0.9.3
+      - name: Third-party licence notices
+        run: cargo about generate --locked --workspace --all-features about.hbs -o THIRD-PARTY-LICENSES
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: third-party-licenses
+          path: THIRD-PARTY-LICENSES
+          if-no-files-found: error
+
   wheels:
+    needs: notices
     strategy:
       fail-fast: false
       matrix:
@@ -105,6 +129,10 @@ jobs:
           # Dispatch and release builds use the tag, never main's potentially newer commit.
           ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
           fetch-depth: 0 # The guard resolves actual tag objects, including annotated tags.
+      # Listed in pyproject.toml's license-files, so every wheel carries the notices.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: third-party-licenses
       # The toolchain comes from rust-toolchain.toml. One abi3 (Python 3.9+) extension
       # provides the small Python API and both console entry points on each platform.
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -172,6 +200,19 @@ jobs:
           pattern: wheel-*
           path: release
           merge-multiple: true
+      # The tag's -alpha.N must agree with the release's pre-release box (#402).
+      - name: The tag and the pre-release flag agree
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A release event carries the flag; a manual run asks GitHub for the tag's release.
+          prerelease="$PRERELEASE"
+          if [ -z "$prerelease" ]; then
+            prerelease=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .prerelease)
+          fi
+          python3 tools/check_wheel_versions.py --tag "$TAG" --prerelease "$prerelease"
       # As in crates.yml (#371), the tag is the Cargo version; wheel METADATA must agree too.
       # The tag must exist, HEAD and each wheel's recorded build commit must match it,
       # and all versions must agree. Missing provenance or artifacts refuses publication.

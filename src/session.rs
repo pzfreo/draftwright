@@ -853,6 +853,7 @@ impl Session {
     /// Replace the Spec with *spec* (read in its current form, [`model::migrate`]), as one
     /// committed edit of the top-level fields that differ; refused as [`Session::apply`] refuses.
     pub fn set_spec(&mut self, spec: &Spec) -> Result<(), Error> {
+        // Unlike open_spec, a spec/3 is not scanned for rank keys: it has already been opened.
         let spec = model::migrate(spec, self.analysis())?;
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         let old = serde_json::to_value(self.spec()).expect("spec serialises");

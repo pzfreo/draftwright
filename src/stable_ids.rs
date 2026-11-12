@@ -236,6 +236,44 @@ fn changes_indexed(
     }
 }
 
+/// Fields of authored prose, which can look like an ID but never is one: note text, the
+/// title block, table cells and annotation label text.
+fn free_text(v: &Value, key: &dyn Fn(&str) -> String) -> Vec<String> {
+    let mut out = vec!["/sheet/title".to_string()];
+    let each = |key: &str, field: &str, out: &mut Vec<String>| {
+        let n = v.get(key).and_then(Value::as_array).map_or(0, Vec::len);
+        out.extend((0..n).map(|i| format!("/{key}/{i}/{field}")));
+    };
+    each("notes", "text", &mut out);
+    each("tables", "rows", &mut out);
+    if let Some(a) = v.get("annotations").and_then(Value::as_object) {
+        out.extend(
+            a.keys()
+                .map(|k| format!("/annotations/{}/text", escape(&key(k)))),
+        );
+    }
+    out
+}
+fn strip_text(v: &mut Value) {
+    for p in free_text(&v.clone(), &|k| k.into()) {
+        if let Some(x) = v.pointer_mut(&p) {
+            *x = Value::Null;
+        }
+    }
+}
+/// Put the prose of *from* back into *to*, which was renamed and so keeps its shape.
+fn restore_text(from: &Value, to: &mut Value, ids: &BTreeMap<String, String>) {
+    let names = crate::revision_rename::Renamer::new(ids);
+    for (p, q) in free_text(from, &|k| k.into())
+        .into_iter()
+        .zip(free_text(from, &|k| names.rename(k)))
+    {
+        if let (Some(x), Some(y)) = (from.pointer(&p), to.pointer_mut(&q)) {
+            *y = x.clone();
+        }
+    }
+}
+
 fn unmapped(v: &Value, a: &Analysis) -> Vec<(String, String)> {
     fn visit(v: &Value, path: &str, a: &Analysis, out: &mut Vec<(String, String)>) {
         let scan = |s: &str, path: &str, out: &mut Vec<(String, String)>| {
@@ -424,10 +462,12 @@ fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
                 }
             }
         }
-        let original = serde_json::to_value(spec).expect("Spec serializes");
+        let mut original = serde_json::to_value(spec).expect("Spec serializes");
+        strip_text(&mut original);
         changes(&original, "", &map, &mut migrated);
         let before = serde_json::to_value(&out).expect("Spec serializes");
-        let value = crate::revision_rename::rename_spec(&before, &ids).map_err(invalid)?;
+        let mut value = crate::revision_rename::rename_spec(&before, &ids).map_err(invalid)?;
+        restore_text(&before, &mut value, &ids);
         // Apply the map on every schema, but preserve typed values and their ordinary
         // validation (including structured choices) when the rename changes nothing.
         if value != before {
@@ -435,7 +475,9 @@ fn migrate_indexed(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
         }
     }
     out.schema = SPEC_SCHEMA.into();
-    let unmapped = unmapped(&serde_json::to_value(&out).expect("Spec serializes"), a);
+    let mut checked = serde_json::to_value(&out).expect("Spec serializes");
+    strip_text(&mut checked);
+    let unmapped = unmapped(&checked, a);
     Ok(Migration {
         unmapped,
         spec: out,
@@ -643,6 +685,63 @@ mod tests {
             ))
         );
     }
+    #[test]
+    fn migration_leaves_free_text_alone_and_both_entry_points_agree() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/mounting_plate.step");
+        let (_, a) = crate::model::analyse_native(&path).unwrap();
+        let note = "DEBURR f:hole:1 AND f:hole:2 BEFORE PLATING";
+        let doc = |schema: &str| -> Spec {
+            serde_json::from_value(serde_json::json!({
+                "schema": schema,
+                "notes": [{"id": "n:1", "text": note}],
+                "sheet": {"title": {"title": "BRACKET f:hole:3"}},
+                "tables": [{"id": "t:1", "rows": [["ITEM"], ["f:hole:1"]]}],
+                "annotations": {"n:1": {"text": {"template": "see f:hole:1"}}},
+                "precision": {"d:f:hole:1/bore.diameter": 2}
+            }))
+            .unwrap()
+        };
+        // Current Spec: prose is untouched by either path; the open path still recovers a
+        // rank key an older reader marked spec/3, which set_spec (already opened) does not.
+        let current = doc("draftwright.spec/3");
+        let new = &ids(&a)["f:hole:1"];
+        let opened = migrate(&current, &a).unwrap().spec;
+        let set = crate::model::migrate(&current, &a).unwrap();
+        for out in [&opened, &set] {
+            assert_eq!(out.notes, current.notes);
+            assert_eq!(out.sheet.title, current.sheet.title);
+            assert_eq!(out.tables, current.tables);
+            assert_eq!(out.annotations, current.annotations);
+        }
+        assert!(
+            opened
+                .precision
+                .contains_key(&format!("d:{new}/bore.diameter"))
+        );
+        assert_eq!(set, current);
+        // Legacy Spec: ID keys move, prose does not, and the entry points agree.
+        let legacy = doc("draftwright.spec/2");
+        let opened = migrate(&legacy, &a).unwrap();
+        let set = crate::model::migrate(&legacy, &a).unwrap();
+        assert_eq!(opened.spec, set);
+        let out = opened.spec;
+        assert_eq!(out.notes[0].text, note);
+        assert_eq!(out.sheet.title["title"], "BRACKET f:hole:3");
+        assert_eq!(out.tables, legacy.tables);
+        assert_eq!(out.annotations, legacy.annotations);
+        assert!(
+            out.precision
+                .contains_key(&format!("d:{new}/bore.diameter"))
+        );
+        assert!(!out.precision.contains_key("d:f:hole:1/bore.diameter"));
+        assert!(opened.migrated.iter().all(|m| !m.path.contains("notes")
+            && !m.path.contains("title")
+            && !m.path.contains("tables")
+            && !m.path.contains("annotations/n:1/text")));
+        assert!(opened.unmapped.is_empty(), "{:?}", opened.unmapped);
+    }
+
     #[test]
     fn exact_whole_document_rename_and_collision() {
         let map = BTreeMap::from([("f:hole:1".into(), "f:hole:f21".into())]);
