@@ -425,9 +425,10 @@ fn every_planning_entry_point_applies_the_recovery() {
 }
 
 /// FTC-07 is usable on preferred A3 at 1:5, as on main, so no preference is exceeded.
-/// The planner's own table-free recovery still finds A2 at 1:2: wrapping clears the old
-/// pitch-line clash at A1 1:1, but that enlargement lengthens established leaders
-/// beyond their unchanged two-millimetre budget, so the complete A2 is retained.
+/// The planner's own table-free recovery finds A2 at 1:2 and then takes its one larger
+/// sheet, A1 at 1:1, valid and complete: wrapping clears the old pitch-line clash there, and
+/// its leaders grow with the scale without doubling, which no longer refuses an enlargement
+/// (the two-millimetre budget did; a leader that roughly doubles still does).
 #[test]
 fn ftc07_stays_on_preferred_a3_and_keeps_the_planner_search() {
     let Some(dir) = corpus::dir() else {
@@ -460,7 +461,7 @@ fn ftc07_stays_on_preferred_a3_and_keeps_the_planner_search() {
         model::plan_escalated(&analysis, &never).unwrap(),
     )
     .unwrap();
-    assert_eq!(sheet(&chosen), ("A2", "1:2"));
+    assert_eq!(sheet(&chosen), ("A1", "1:1"), "{}", chosen.sheet.basis);
     assert!(chosen.sheet.basis.contains("smallest fit A2 at 1:2"));
     sheet_rule::assert_rule("ftc07", &chosen);
     let a1 = chosen
@@ -469,13 +470,8 @@ fn ftc07_stays_on_preferred_a3_and_keeps_the_planner_search() {
         .split("; ")
         .find(|c| c.starts_with("A1 1:1 "))
         .unwrap_or_else(|| panic!("{}", chosen.sheet.basis));
-    assert!(a1.contains("leader length quality veto"), "{a1}");
-    assert!(
-        chosen
-            .sheet
-            .basis
-            .contains("lengthens an established leader by more than 2 mm")
-    );
+    assert!(a1.contains("valid and complete"), "{a1}");
+    assert!(!a1.contains("leader length quality veto"), "{a1}");
     assert!(
         !chosen.problems.iter().any(|p| matches!(
             p.code.as_str(),

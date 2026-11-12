@@ -2464,7 +2464,27 @@ pub(crate) fn note_final_conflicts(plan: &mut Plan) {
     }
 }
 
+/// A callout's leader and shoulder roughly double on the candidate: longer than twice its paper
+/// length on *baseline* and more than [`CALLOUT_GROWTH_FLOOR`] longer. A leader naturally
+/// lengthens when the view it serves is drawn larger, so growth by a few paper millimetres
+/// (the rule was 2 mm until 2026-11-12, maintainer's decision) is not a reason to refuse the
+/// larger scale; the floor keeps a short leader (3 mm to 7 mm, say) from being refused on the
+/// ratio alone.
 pub(crate) fn longer_callouts(candidate: &Plan, baseline: &Plan) -> bool {
+    callouts_grow(candidate, baseline, |now, before| {
+        now > 2.0 * before + 1e-6 && now > before + CALLOUT_GROWTH_FLOOR + 1e-6
+    })
+}
+
+/// A callout's leader and shoulder more than 2 paper mm longer on the candidate than on
+/// *baseline*: the rule a reduction keeps, where no view is drawn larger to lengthen a leader.
+pub(crate) fn lengthened_callouts(candidate: &Plan, baseline: &Plan) -> bool {
+    callouts_grow(candidate, baseline, |now, before| now > before + 2.0 + 1e-6)
+}
+
+/// Whether *longer* holds of the paper lengths, on the candidate and on *baseline*, of the
+/// leader and shoulder of any callout placed on both.
+fn callouts_grow(candidate: &Plan, baseline: &Plan, longer: impl Fn(f64, f64) -> bool) -> bool {
     let length = |d: &crate::dims::PlannedDimension| {
         d.placed.as_ref().map_or(0.0, |p| {
             p.lines
@@ -2482,9 +2502,13 @@ pub(crate) fn longer_callouts(candidate: &Plan, baseline: &Plan) -> bool {
                 .dimensions
                 .iter()
                 .find(|b| b.id == d.id && b.placed.is_some())
-                .is_some_and(|b| length(d) > length(b) + 2.0 + 1e-6)
+                .is_some_and(|b| longer(length(d), length(b)))
         })
 }
+
+/// The least a callout's leader and shoulder must lengthen, paper mm, before doubling counts
+/// ([`longer_callouts`]): one first dimension-line gap.
+pub(crate) const CALLOUT_GROWTH_FLOOR: f64 = 10.0;
 
 fn rect_overlap(a: [f64; 4], b: [f64; 4]) -> bool {
     a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
@@ -3271,7 +3295,7 @@ fn recover_recess_corridors(
         || crate::dims::extension_contacts(&trial.dimensions)
             > crate::dims::extension_contacts(&plan.dimensions)
         || !carried(plan).is_subset(&carried(&trial))
-        || longer_callouts(&trial, plan)
+        || lengthened_callouts(&trial, plan)
         || !drawn_items_fit(analysis, &trial)
         || crate::sheet_fit::illegible_steps(analysis, &trial) > 0
         || !crate::dims::labels_on_spans(&trial.dimensions)
@@ -4347,8 +4371,7 @@ fn recover_candidates(
             let prefix = format!("{} {} fill ", spec.pages()[c.sheet].0, scale_name(c.scale));
             for trace in tried.iter_mut().filter(|t| t.starts_with(&prefix)) {
                 *trace = trace.replacen("(valid and complete", "(leader length quality veto", 1);
-                *trace +=
-                    "; automatic enlargement lengthens an established leader by more than 2 mm";
+                *trace += "; automatic enlargement doubles an established leader's length";
             }
             false
         });

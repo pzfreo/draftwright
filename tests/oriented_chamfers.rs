@@ -472,8 +472,10 @@ fn bevel_run_midpoints_do_not_invent_locations_or_force_sheet_enlargement() {
                     && m.parameter.starts_with("location."))
         );
         if count == 1 {
+            // The chamfer callout forces no larger sheet; A4 holds the part at 2:1 now that a
+            // larger scale is refused for a leader that doubles, not for two millimetres.
             assert_eq!(p.sheet.size, "A4");
-            assert_eq!(p.sheet.scale, "1:1");
+            assert_eq!(p.sheet.scale, "2:1");
         }
     }
 }

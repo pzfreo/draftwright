@@ -716,6 +716,20 @@ fn enlarges(plan: &Plan, reference: &Plan) -> bool {
     plan.sheet.scale_factor > reference.sheet.scale_factor + 1e-9
 }
 
+/// A callout's leader grown too far on *plan* beside *before*. Where the part is drawn larger
+/// its leaders lengthen with it, and only one that roughly doubles refuses
+/// ([`model::longer_callouts`]). At the same scale or a smaller one nothing is drawn larger to
+/// lengthen a leader, so growth there is the tighter sheet pushing the callout away, and the
+/// 2 mm rule stands ([`model::lengthened_callouts`]; GRM-04's A4 at its A3's 5:1 sends
+/// ⌀2.4 THRU 22 mm past its view's area).
+fn grown_callouts(plan: &Plan, before: &Plan) -> bool {
+    if enlarges(plan, before) {
+        model::longer_callouts(plan, before)
+    } else {
+        model::lengthened_callouts(plan, before)
+    }
+}
+
 fn usable(analysis: &Analysis, plan: &Plan, reference: &Plan, floor: f64) -> Result<(), String> {
     usable_with_base_contacts(analysis, plan, reference, floor, None, false)
 }
@@ -780,10 +794,14 @@ fn usable_prepared(
     } else if !unreported_losses(plan).is_subset(&unreported_losses(reference)) {
         Some("unreported lost dimensions")
     } else if strict_routes
-        && model::longer_callouts(plan, reference)
-        && unbroken_routes.is_none_or(|p| model::longer_callouts(plan, p))
+        && grown_callouts(plan, reference)
+        && unbroken_routes.is_none_or(|p| grown_callouts(plan, p))
     {
-        Some("a callout grows more than 2 paper mm beyond the displaced drawing")
+        Some(if enlarges(plan, reference) {
+            "a callout's leader doubles beyond the displaced drawing"
+        } else {
+            "a callout grows more than 2 paper mm beyond the displaced drawing"
+        })
     } else if pictorial_only_sheet(&plan.spec, plan) {
         Some("a sheet carries only the pictorial view")
     } else {
@@ -3004,6 +3022,58 @@ mod tests {
         assert!(frame_conflicts(&plan).is_empty());
         assert!(sheet_fit::inside_frames(&a, &plan));
         assert!(model::findings(&plan).clean());
+    }
+
+    /// The maintainer's rule of 2026-11-12: a leader that grows with the drawing does not
+    /// refuse a larger scale; one that roughly doubles does, beyond a floor for short leaders.
+    #[test]
+    fn a_leader_refuses_a_larger_scale_when_it_doubles_not_when_it_grows() {
+        let a = model::analyse_native(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/rule_pins/grm04_drive_plate.step.gz"),
+        )
+        .unwrap()
+        .1;
+        let base = model::plan_recovered(&a, &Spec::default()).unwrap();
+        // Every placed callout's leader set to *length* paper mm in all.
+        let leaders = |length: f64| {
+            let mut plan = base.clone();
+            for d in plan.dimensions.iter_mut().filter(|d| d.kind == "callout") {
+                let Some(placed) = d.placed.as_mut() else {
+                    continue;
+                };
+                let now: f64 = placed
+                    .lines
+                    .iter()
+                    .map(|s| (s[1][0] - s[0][0]).hypot(s[1][1] - s[0][1]))
+                    .sum();
+                assert!(now > 0.0, "{}", d.id);
+                for [from, to] in &mut placed.lines {
+                    for (to, from) in to.iter_mut().zip(*from) {
+                        *to = from + (*to - from) * length / now;
+                    }
+                }
+            }
+            plan
+        };
+        assert!(
+            base.dimensions
+                .iter()
+                .any(|d| d.kind == "callout" && d.placed.is_some())
+        );
+        let longer =
+            |now: f64, before: f64| model::longer_callouts(&leaders(now), &leaders(before));
+        // 12 mm to 20 mm is eight millimetres more and not double: allowed (refused until now).
+        assert!(!longer(20.0, 12.0));
+        // 12 mm to 25 mm is more than double and more than the floor longer: refused.
+        assert!(longer(25.0, 12.0));
+        // 3 mm to 7 mm is more than double but a short leader still: allowed by the floor.
+        assert!(!longer(7.0, 3.0));
+        assert!(longer(3.0 + model::CALLOUT_GROWTH_FLOOR + 0.5, 3.0));
+        assert!(!longer(12.0, 12.0));
+        // A reduction keeps the 2 mm rule: no view is drawn larger there to lengthen a leader.
+        assert!(model::lengthened_callouts(&leaders(20.0), &leaders(12.0)));
+        assert!(!model::lengthened_callouts(&leaders(13.5), &leaders(12.0)));
     }
 
     #[test]
