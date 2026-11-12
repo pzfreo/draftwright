@@ -68,6 +68,67 @@ Custom `page` dimensions also raise `TypeError` naming the unsupported value. In
 as a nonpositive scale or an unknown projection, raise `DraftwrightError` from
 Rust. Unknown keywords raise Python's normal `TypeError`.
 
+## Requirements and drawings from build123d (`Part`, 0.6.0-alpha.2)
+
+State design intent where you build the faces. `Part` records each call as a
+[Specify](https://github.com/pzfreo/specify-core) answer (`datum.*`, `part.*`, `extra.*`),
+names the faces you pointed at in the exported STEP and writes the answers beside it.
+`import draftwright` still never imports build123d; only `Part` needs it.
+
+```python
+from build123d import *
+from draftwright import Part
+
+with BuildPart() as plate:
+    Box(120, 80, 20)
+    bore = CounterBoreHole(radius=6, counter_bore_radius=10, counter_bore_depth=5)
+    with GridLocations(90, 50, 2, 2):
+        mount = Hole(radius=3.3)
+
+p = Part(plate.part, "plate", number="DWG-002", title="Mounting plate")
+p.process("machined").material("6082-T6").general_tolerance("ISO 2768-mK")
+
+A = p.datum("A", plate.faces().sort_by(Axis.Z)[0])
+B = p.datum("B", plate.faces().sort_by(Axis.X)[0])
+C = p.datum("C", plate.faces().sort_by(Axis.Y)[0])
+
+p.hole(bore).fit("H7").finish(1.6)           # on the bore, not the counterbore
+p.holes(mount).position(0.1, A, B, C)
+p.face(plate.faces().sort_by(Axis.Z)[-1]).flatness(0.05)
+
+p.export_step("plate.step")   # plate.step, plate.answers.json, plate.pending.json
+dwg = p.drawing(sheet="A3").views(shaded=True)
+svg, dxf = dwg.render("plate")   # layout only; same (svg, dxf) as make_drawing
+```
+
+- **Objects expand to faces.** A face, a list of faces, or any shape (a hole's cutter, as
+  above) is matched to the part's own faces: faces of the part are taken as given; a
+  cutter or solid matches the part faces it coincides with (same surface, inside its
+  bounding box). Nothing matching raises `ValueError`, as does `hole()` on several holes
+  (use `holes()`), a fit on a shape with no cylinder, an unknown fit class, a fit and a
+  thread on one hole, a repeated datum, and a face name that would land on two faces.
+- **Face names** are `f:<part>.<label>.<n>`: `label` is `label=` if given, else
+  `datum_A`, `hole1`, `face1`... by a counter, and `n` follows the part's face order, so
+  they repeat across runs. The writer is a short OCP XCAF one: build123d's `export_step`
+  names assemblies and nodes but not sub-shapes (a test pins this), so `Part` adds a name
+  to each referenced face and sets `write.stepcaf.subshapes.name = 1`.
+- **`<stem>.answers.json`** is a plain Specify answer map; today's `specify-core
+  questions/write` and the editor read it. Face numbers are the faces' order in the
+  written STEP, so it belongs to that file. It carries no `_specify` evidence (that needs
+  Specify's analysis). Hole fit and finish are written as `extra.*` requirements on the
+  bore's cylinder, flatness and finish on a face likewise.
+- **`<stem>.pending.json`** holds what Specify keys to *recognised features*:
+  `hole.thread` (`hole.function: tapped:M6`) and `hole.position`/`hole.frame`. They are
+  listed by face name and applied by the Rust half. Nothing is dropped silently.
+- **`drawing()`** edits layout only: `sheet=`, `scale=`, `views(shaded=, omit=)`,
+  `section(id, through=<feature id string>)`. `spec()` returns the Spec. Title and number
+  come from `Part`; requirements are never written to the Spec.
+- **`check()` and `answer()`** raise `NotImplementedError`: they need Specify's question
+  queue and feature recognition, which arrive with the Rust half in 0.6.0-alpha.2.
+  The same half will accept `section(through=<object>)` and turn `hole`/`holes` into
+  `hole.*` answers keyed to the recognised feature, with the "one recognised feature"
+  check.
+
 ## Commands and interrupts
 
 `pip install` also installs `draftwright` and `draftwright-mcp` on PATH:

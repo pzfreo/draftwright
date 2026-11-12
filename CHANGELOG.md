@@ -6,6 +6,13 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Python: `draftwright.Part`, the Python half of the build123d requirements API (0.6.0-alpha.2).
+  Datums, holes (fit, thread, position, finish), part data and flatness/finish on faces are
+  recorded as Specify answers; referenced faces get `f:` names in the exported STEP (a short OCP
+  XCAF writer, since build123d's `export_step` does not name sub-shapes); `export_step` writes
+  `<stem>.answers.json` beside it; `drawing()` builds layout (sheet, scale, views, sections) and
+  renders. `check()` and `answer()` raise `NotImplementedError` until the Rust half; thread and
+  position intent goes to `<stem>.pending.json`. build123d remains an optional import.
 - Report a `text_glyph_missing` warning, naming the label and the characters, when a label holds a
   character none of the bundled fonts or the stroked GD&T symbols can draw (CJK, `✓`); the label
   is still drawn, those characters as empty boxes, and no other drawing changes (#401).
