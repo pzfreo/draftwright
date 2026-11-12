@@ -152,10 +152,11 @@ jobs:
           draftwright-mcp --version
           draftwright render tests/fixtures/parts/plate.step -o wheel-smoke --formats svg
           test -s wheel-smoke.svg
-      - name: Python API tests (installed wheel, no extra dependencies)
+      - name: Python API tests (installed wheel; build123d for the optional Part tests)
         if: matrix.name == 'linux-x86_64'
         run: |
           source .venv/bin/activate
+          uv pip install --python .venv build123d==0.13.0
           python -m unittest discover -s tests/python -v
       - name: Record the commit that built each wheel
         run: |

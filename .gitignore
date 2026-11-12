@@ -7,3 +7,6 @@ __pycache__/
 
 /artifacts/
 /THIRD-PARTY-LICENSES
+
+/python/draftwright/_native*.so
+/python/draftwright/_native*.pyd
