@@ -796,6 +796,52 @@ fn connector109_uses_a3_at_one_to_five_for_readable_steps() {
     sheet_rule::assert_rule("connector109", &p);
 }
 
+/// A sheet and scale whose drawing lacks room, and which the planner itself doubts, gets a
+/// second attempt with the height ladder reserved at lane pitch. FTC-06 takes A2 at 1:2 by
+/// it (A2 at 1:5 before, fill 13% to 40%), and its basis says so. A kept layout at that sheet
+/// and scale gets the same attempt, so a local edit keeps the drawing's ink on its sheet.
+#[test]
+fn ftc06_holds_one_to_two_on_a_second_attempt_and_a_kept_layout_holds_it_too() {
+    let Some(dir) = corpus::dir() else { return };
+    let a = model::analyse_native(&dir.join("nist/nist_ftc_06_asme1_rd.stp"))
+        .unwrap()
+        .1;
+    let kept: Spec = serde_json::from_value(json!({
+        "sheet": {
+            "size": "A2", "scale": "1:2", "dimension_spacing": "compact", "keep_layout": true
+        },
+        "sheets": { "max": 1 }
+    }))
+    .unwrap();
+    for spec in [Spec::default(), kept] {
+        let p = model::plan_recovered(&a, &spec).unwrap();
+        assert_eq!(
+            (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+            ("A2", "1:2"),
+            "{}",
+            p.sheet.basis
+        );
+        assert!(
+            p.sheet
+                .basis
+                .contains("height ladder reserved at lane pitch"),
+            "{}",
+            p.sheet.basis
+        );
+        let lost: Vec<_> = p
+            .problems
+            .iter()
+            .filter(|q| {
+                matches!(
+                    q.code.as_str(),
+                    "page_fit_uncertain" | "annotation_off_sheet" | "annotation_outside_area"
+                )
+            })
+            .collect();
+        assert!(lost.is_empty(), "{lost:?}");
+    }
+}
+
 #[test]
 fn step_legibility_uses_the_owning_view_and_keeps_baseline_intervals() {
     let mut a = model::analyse_native(

@@ -591,6 +591,15 @@ pub fn right_strip_depth(n_steps: usize, n_extra: usize) -> f64 {
     strip_gap() + SLOT_DIM_HEIGHT + (n - 1.0) * (STRIP_SPACING + SLOT_DIM_STEP)
 }
 
+/// The same ladder at the port's own lane pitch ([`lane_band`]): its vertical dimensions stack
+/// at [`crate::dims::lane_pitch`] with their labels turned along the dimension line, so the
+/// ladder itself takes this much and [`right_strip_depth`]'s slots are two to three times it.
+/// Sizing reserves this band only for a sheet trial whose slot-sized drawing does not fit
+/// (`demand::size_with_details`).
+pub fn lane_strip_depth(n_steps: usize, n_extra: usize) -> f64 {
+    lane_band(1 + n_steps + n_extra)
+}
+
 /// The tiers above the plan for X-location dimensions, one per distinct reference and one spare
 /// (draftwright's `_est_pv_above_depth`); none without references.
 pub fn plan_above_depth(distinct_x_refs: usize) -> f64 {

@@ -1088,6 +1088,9 @@ struct ForcedTrials {
     // One selection has one authored intent. Optional automatic detail recipes
     // belong to the presentation being judged, not to a new author request.
     plans: std::collections::BTreeMap<(String, u64, bool, usize), Result<Plan, Invalid>>,
+    /// The same trials planned once more with the height ladder at lane pitch
+    /// ([`crate::planning::lane_ladder`]); `None` where that drawing lacks room too.
+    lane_plans: std::collections::BTreeMap<(String, u64, bool, usize), Option<Plan>>,
     estimate: Option<Estimate>,
     compact_estimate: Option<Estimate>,
 }
@@ -1765,6 +1768,34 @@ fn select_scales_full(
                 } else {
                     plan
                 };
+                // The slots' height ladder left this sheet and scale no room, and the planner's
+                // own doubt of the pair still stands: plan it once more with the ladder at lane
+                // pitch, and judge that drawing where it has the room. A trial with room is
+                // never planned again, so every drawing the slots hold is the one they made.
+                let default_paper = size == "A4" && max == 1;
+                let plan = if doubted_without_room(fit, &plan, default_paper) {
+                    let trial_key = (
+                        size.to_string(),
+                        scale.to_bits(),
+                        forced.sheet.dimension_spacing == Some(model::DimensionSpacing::Compact),
+                        max,
+                    );
+                    let lanes = forced_trials
+                        .lane_plans
+                        .entry(trial_key)
+                        .or_insert_with(|| {
+                            lane_attempt(fit, default_paper, || {
+                                crate::planning::fixed_pair_with_radius_reference(
+                                    radius_reference.as_ref(),
+                                    || model::plan_automatic(analysis, &forced),
+                                )
+                            })
+                        })
+                        .clone();
+                    lanes.unwrap_or(plan)
+                } else {
+                    plan
+                };
                 // A complete single sheet is what a larger count permission returns too
                 // (the planner's max-only shortcut), so later counts reuse it unplanned.
                 let complete = max == 1
@@ -1778,16 +1809,9 @@ fn select_scales_full(
                 // earns compact spacing or the smaller scale; a routing refusal would only
                 // repeat itself.
                 let frame_conflict = !frame_conflicts(&plan).is_empty();
-                let default_frame_conflict = size == "A4" && max == 1 && frame_conflict;
+                let default_frame_conflict = default_paper && frame_conflict;
                 let findings = model::findings(&plan);
-                let cramped = default_frame_conflict
-                    || findings.hard > 0
-                    || findings.dropped > 0
-                    || plan
-                        .problems
-                        .iter()
-                        .any(|p| crate::hole_table::DROPS.contains(&p.code.as_str()))
-                    || !sheet_fit::inside_frames(fit, &plan);
+                let cramped = lacks_room(fit, &plan, default_paper);
                 cramped_first = if spaced && !cramped {
                     // Once compact ink fits, a remaining routing refusal does not
                     // earn a smaller scale merely because normal lanes were cramped.
@@ -2040,6 +2064,68 @@ fn retained_base(
     selected.sheet_candidates = candidates;
     selected_trial_basis(&mut selected);
     Ok(selected)
+}
+
+/// Whether a trial lacks room: clipping, hard layout findings or space drops, and on a single
+/// default A4 a conflict with the frame.
+fn lacks_room(fit: &Analysis, plan: &Plan, default_paper: bool) -> bool {
+    let findings = model::findings(plan);
+    (default_paper && !frame_conflicts(plan).is_empty())
+        || findings.hard > 0
+        || findings.dropped > 0
+        || plan
+            .problems
+            .iter()
+            .any(|p| crate::hole_table::DROPS.contains(&p.code.as_str()))
+        || !sheet_fit::inside_frames(fit, plan)
+}
+
+/// What a drawing's basis says when its height ladder is reserved at lane pitch
+/// ([`lane_attempt`]). A replay at that drawing's sheet and scale reads it ([`replayed_pair`]).
+pub(crate) const LANE_LADDER: &str = "height ladder reserved at lane pitch";
+
+/// Whether a drawing at a given sheet and scale earns a second attempt ([`lane_attempt`]): it
+/// lacks room, and the planner's own doubt of the pair (`page_fit_uncertain`) still stands.
+pub(crate) fn doubted_without_room(fit: &Analysis, plan: &Plan, default_paper: bool) -> bool {
+    lacks_room(fit, plan, default_paper)
+        && plan.problems.iter().any(|p| p.code == "page_fit_uncertain")
+}
+
+/// The second attempt at a sheet and scale whose drawing is [`doubted_without_room`]: *again*
+/// plans it with the height ladder at lane pitch ([`crate::planning::lane_ladder`]). That
+/// drawing is taken only where it has the room the reservation is for: nothing clipped, hard
+/// or dropped, and no annotation past the area reserved for its view. Its basis says so
+/// ([`LANE_LADDER`]), which is how a later replay at its sheet and scale draws it again.
+pub(crate) fn lane_attempt(
+    fit: &Analysis,
+    default_paper: bool,
+    again: impl FnOnce() -> Result<Plan, Invalid>,
+) -> Option<Plan> {
+    crate::planning::lane_ladder(again)
+        .ok()
+        .filter(|p| {
+            !lacks_room(fit, p, default_paper)
+                && !p
+                    .problems
+                    .iter()
+                    .any(|q| q.code == "annotation_outside_area")
+        })
+        .map(|mut p| {
+            p.sheet.basis += "; ";
+            p.sheet.basis += LANE_LADDER;
+            p
+        })
+}
+
+/// A replay at the canonical drawing's sheet and scale, with the height ladder that drawing
+/// was selected with.
+fn replayed_pair<T>(canonical: &Plan, run: impl FnOnce() -> T) -> T {
+    let run = || crate::planning::fixed_pair(run);
+    if canonical.sheet.basis.contains(LANE_LADDER) {
+        crate::planning::lane_ladder(run)
+    } else {
+        run()
+    }
 }
 
 /// Whether compact lanes could cure a cramped normal-spacing trial. Not when a view's own
@@ -2356,7 +2442,7 @@ fn replay_pins(
                 wide.sheet.scale = Some(canonical.sheet.scale.clone());
                 wide.sheets.get_or_insert_with(Default::default).max =
                     Some(spec.sheets.as_ref().and_then(|s| s.max).unwrap_or(9));
-                crate::planning::fixed_pair(|| model::plan_automatic(analysis, &wide))?
+                replayed_pair(&canonical, || model::plan_automatic(analysis, &wide))?
             };
             let mut plan =
             crate::sheets::replay_views(analysis, &source, &canonical).ok_or_else(|| Invalid {
@@ -2396,7 +2482,7 @@ fn replay_pins(
                 &canonical,
                 canonical.sheet.scale_factor,
             );
-            let same = crate::planning::fixed_pair(|| model::plan_automatic(analysis, &same))?;
+            let same = replayed_pair(&canonical, || model::plan_automatic(analysis, &same))?;
             // The same views on the same pages: pins may move frames within a page.
             let frames = |p: &Plan| {
                 p.views
@@ -2431,7 +2517,7 @@ fn replay_pins(
                     &canonical,
                     canonical.sheet.scale_factor,
                 );
-                crate::planning::fixed_pair(|| model::plan_automatic(analysis, &forced))?
+                replayed_pair(&canonical, || model::plan_automatic(analysis, &forced))?
             } else {
                 same
             }

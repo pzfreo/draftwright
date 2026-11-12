@@ -2978,65 +2978,70 @@ pub(crate) fn established_key(spec: &Spec) -> Vec<u8> {
 pub(crate) fn established_drawing(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     let key = established_key(spec);
     // A historical route template: the established normal-spacing drawing, whatever the
-    // candidate's dimension spacing.
-    let reference = crate::dims::with_compact(false, || {
-        crate::planning::memo(
-            analysis,
-            "prepared-established-drawing",
-            key.clone(),
-            || {
-                let reference = crate::lint::slots::without_recesses(analysis);
-                let mut base = Spec {
-                    units: spec.units,
-                    hole_table: spec.hole_table,
-                    pmi: spec.pmi,
-                    origin: spec.origin.clone(),
-                    ..Spec::default()
-                };
-                // This unrendered historical route template must not change with the
-                // paper preferences. The recipient has its own ordered sheet search, just
-                // as when packing annotation blocks from an explicit A0 template.
-                base.sheet.paper = Some(spec.paper());
-                base.sheet.preferred_max_size = Some(spec.pages()[4].0.into());
-                base.sheet.projection = spec.sheet.projection.clone();
-                base.sheet.references = spec.sheet.references;
-                // The reference leaves out the view the drawing does, judged on the whole
-                // Analysis and the spec (#222; the key holds what that reads from the spec).
-                let idle = crate::dims::idle_view(analysis, spec, &crate::demand::read(analysis))
-                    .map(|r| r.1);
-                crate::planning::with(&reference, || {
-                    // This recipe precedes the added notch bands as well as native recesses.
-                    // Otherwise a displaced leader becomes its own established route, and
-                    // refinement cannot detect the new model-edge or arrowhead contact.
-                    // Only the comparison scope omits these annotations; the final solve
-                    // retains the original source evidence and every notch requirement.
-                    crate::planning::store(
-                        &reference,
-                        "v_notches",
-                        Vec::new(),
-                        Vec::<crate::lint::notch_evidence::Notch>::new(),
-                    );
-                    // Preserve the established presentation when reserving old routes.
-                    // The actual drawing may move an occluded circular statement to its
-                    // visible profile after those other routes have claimed their ink.
-                    crate::planning::store(
-                        &reference,
-                        "canonical-circular-recipes",
-                        Vec::new(),
-                        true,
-                    );
-                    // Keep the established compact corridors as an unrendered
-                    // comparison; live placements are remeasured at faithful widths.
-                    crate::dims::with_idle_view(idle, || {
-                        if crate::nominal::geometry_eligible(&reference) {
-                            crate::nominal::with_comparison(|| plan_automatic(&reference, &base))
-                        } else {
-                            plan_automatic(&reference, &base)
-                        }
+    // candidate's dimension spacing and whichever attempt at its sheet and scale asks.
+    let reference = crate::planning::slot_ladder(|| {
+        crate::dims::with_compact(false, || {
+            crate::planning::memo(
+                analysis,
+                "prepared-established-drawing",
+                key.clone(),
+                || {
+                    let reference = crate::lint::slots::without_recesses(analysis);
+                    let mut base = Spec {
+                        units: spec.units,
+                        hole_table: spec.hole_table,
+                        pmi: spec.pmi,
+                        origin: spec.origin.clone(),
+                        ..Spec::default()
+                    };
+                    // This unrendered historical route template must not change with the
+                    // paper preferences. The recipient has its own ordered sheet search, just
+                    // as when packing annotation blocks from an explicit A0 template.
+                    base.sheet.paper = Some(spec.paper());
+                    base.sheet.preferred_max_size = Some(spec.pages()[4].0.into());
+                    base.sheet.projection = spec.sheet.projection.clone();
+                    base.sheet.references = spec.sheet.references;
+                    // The reference leaves out the view the drawing does, judged on the whole
+                    // Analysis and the spec (#222; the key holds what that reads from the spec).
+                    let idle =
+                        crate::dims::idle_view(analysis, spec, &crate::demand::read(analysis))
+                            .map(|r| r.1);
+                    crate::planning::with(&reference, || {
+                        // This recipe precedes the added notch bands as well as native recesses.
+                        // Otherwise a displaced leader becomes its own established route, and
+                        // refinement cannot detect the new model-edge or arrowhead contact.
+                        // Only the comparison scope omits these annotations; the final solve
+                        // retains the original source evidence and every notch requirement.
+                        crate::planning::store(
+                            &reference,
+                            "v_notches",
+                            Vec::new(),
+                            Vec::<crate::lint::notch_evidence::Notch>::new(),
+                        );
+                        // Preserve the established presentation when reserving old routes.
+                        // The actual drawing may move an occluded circular statement to its
+                        // visible profile after those other routes have claimed their ink.
+                        crate::planning::store(
+                            &reference,
+                            "canonical-circular-recipes",
+                            Vec::new(),
+                            true,
+                        );
+                        // Keep the established compact corridors as an unrendered
+                        // comparison; live placements are remeasured at faithful widths.
+                        crate::dims::with_idle_view(idle, || {
+                            if crate::nominal::geometry_eligible(&reference) {
+                                crate::nominal::with_comparison(|| {
+                                    plan_automatic(&reference, &base)
+                                })
+                            } else {
+                                plan_automatic(&reference, &base)
+                            }
+                        })
                     })
-                })
-            },
-        )
+                },
+            )
+        })
     });
     crate::planning::store(analysis, "established-drawing", key, reference.clone());
     if let Ok(plan) = &reference {
@@ -4810,6 +4815,16 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
         let plan = if spec.sheet.keep_layout == Some(true) {
             let fixed = crate::local_layout::forced(spec)?;
             let mut plan = crate::planning::fixed_pair(|| plan_automatic(analysis, &fixed))?;
+            // The search gives this sheet and scale a second attempt where its first lacks
+            // room; a kept layout is that same drawing, so it gets the same attempt.
+            let effective = crate::spec_gdt::effective(analysis, &fixed)?;
+            let default_paper = fixed.sheet.size.as_deref() == Some("A4");
+            if crate::sheet_policy::doubted_without_room(&effective, &plan, default_paper) {
+                let lanes = crate::sheet_policy::lane_attempt(&effective, default_paper, || {
+                    crate::planning::fixed_pair(|| plan_automatic(analysis, &fixed))
+                });
+                plan = lanes.unwrap_or(plan);
+            }
             plan.spec = spec.clone();
             plan
         } else {
@@ -4905,6 +4920,13 @@ pub(crate) fn plan_automatic(analysis: &Analysis, spec: &Spec) -> Result<Plan, I
                 && crate::planning::lookup::<Result<Plan, Invalid>>(analysis, "finished-plan", &key)
                     .is_some()
             {
+                activate_established(analysis, spec)?;
+            }
+            // The second attempt at a sheet and scale activates them before it plans. Planning
+            // inside its first attempt activates them part-way through, and only where that
+            // attempt is planned rather than reused from the candidates shared between
+            // sessions, so this drawing would otherwise depend on which of the two it followed.
+            if crate::planning::is_lane_ladder() {
                 activate_established(analysis, spec)?;
             }
             crate::planning::memo(analysis, "finished-plan", key, || {
