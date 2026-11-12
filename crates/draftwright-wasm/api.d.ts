@@ -22,6 +22,7 @@ export class Engine {
   setPmi(source: string, bytes: Uint8Array): void;
   setPmiOps(source: string, bytes: Uint8Array, ops: string): void;
   setSpec(json: string): void;
+  sheetDxf(sheet: number): Uint8Array;
   sheetFragments(sheet: number): string;
   sheetSvg(sheet: number): Uint8Array;
   snapshot(): string;

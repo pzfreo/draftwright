@@ -6,6 +6,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- WASM: `sheetDxf(sheet)` gives a sheet as editable DXF, as the native `render --formats dxf` does.
+
 - Python: `draftwright.Part`, the Python half of the build123d requirements API (0.6.0-alpha.2).
   Datums, holes (fit, thread, position, finish), part data and flatness/finish on faces are
   recorded as Specify answers; referenced faces get `f:` names in the exported STEP (written with OCCT's
