@@ -2399,12 +2399,51 @@ pub fn render(
     for [a, b] in &p.lines {
         items.push(Item::Edge(Curve::Line(*a, *b)));
     }
+    // A tolerance cell's `⌀` ring and the ring of its circled modifier are that cell's text, as
+    // its letters are: a writer that sets the run as text (DXF, `⌀0.6(M)`) must not draw them
+    // too. They are the full circles on the run's centre line, clear of the one-glyph cells
+    // (the characteristic symbol and the datum letters) either side.
+    let cell_rings: Vec<(P2, f64, usize)> = p
+        .arcs
+        .iter()
+        .filter(|a| (a[4] - a[3]).abs() >= 360.0)
+        .filter_map(|a| {
+            let (c, radius) = ([a[0], a[1]], a[2]);
+            let on_line = |r: &GdtText| (c[1] - r.at[1]).abs() < 0.1 * r.size;
+            let cell = p.runs.iter().position(|r| {
+                r.text.chars().count() > 1
+                    && r.text.contains(['⌀', 'Ⓜ', 'Ⓛ', 'Ⓕ', 'Ⓟ'])
+                    && on_line(r)
+                    && radius < 0.7 * r.size
+            })?;
+            let other = p
+                .runs
+                .iter()
+                .enumerate()
+                .any(|(i, r)| i != cell && on_line(r) && (c[0] - r.at[0]).abs() < r.size);
+            (!other).then_some((c, radius, first + cell))
+        })
+        .collect();
+    let cell_run = |points: &[P2]| {
+        cell_rings
+            .iter()
+            .find(|(c, radius, _)| {
+                points
+                    .iter()
+                    .all(|q| (q[0] - c[0]).hypot(q[1] - c[1]) <= 1.3 * radius)
+            })
+            .map(|(_, _, run)| *run)
+    };
     for [a, b] in &p.strokes {
         let curve = Curve::Line(*a, *b);
-        items.push(symbol_run(*a, *b).map_or_else(
-            || Item::Edge(curve.clone()),
-            |r| Item::TextStroke(curve.clone(), r),
-        ));
+        items.push(
+            symbol_run(*a, *b)
+                .or_else(|| cell_run(&[*a, *b]))
+                .map_or_else(
+                    || Item::Edge(curve.clone()),
+                    |r| Item::TextStroke(curve.clone(), r),
+                ),
+        );
     }
     for [tip, tail] in &p.arrows {
         let n = [tail[1] - tip[1], tip[0] - tail[0]];
@@ -2424,14 +2463,21 @@ pub fn render(
         items.push(Item::Face(vec![wire]));
     }
     for a in &p.arcs {
-        items.push(Item::Edge(Curve::Conic {
+        let curve = Curve::Conic {
             centre: [a[0], a[1]],
             radii: [a[2], a[2]],
             x_axis: [1.0, 0.0],
             y_axis: [0.0, 1.0],
             t0: a[3].to_radians(),
             t1: a[4].to_radians(),
-        }));
+        };
+        let ring = cell_rings
+            .iter()
+            .find(|(c, radius, _)| *c == [a[0], a[1]] && *radius == a[2]);
+        items.push(match ring {
+            Some((_, _, run)) => Item::TextStroke(curve, *run),
+            None => Item::Edge(curve),
+        });
     }
     let f = font();
     for l in &p.letters {

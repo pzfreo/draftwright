@@ -1991,7 +1991,17 @@ fn svg_item(item: &Item) -> String {
             t0,
             t1,
             ..
-        }) if (radii[0] - radii[1]).abs() <= 1e-12 * radii[0]
+        })
+        | Item::TextStroke(
+            Curve::Conic {
+                centre,
+                radii,
+                t0,
+                t1,
+                ..
+            },
+            _,
+        ) if (radii[0] - radii[1]).abs() <= 1e-12 * radii[0]
             && (t1 - t0).abs() >= 2.0 * PI - 1e-12 =>
         {
             format!(

@@ -1600,6 +1600,66 @@ fn dxf_gdt_symbols_are_strokes_and_no_style_names_a_ttf() {
     }
 }
 
+/// A frame's tolerance cell is written as text (`%%c1.016(M)`), so the rings the drawing holds
+/// for its `⌀` and its circled modifier are not written too: AutoCAD showed `(M)` with an empty
+/// circle beside it. The drawing itself still draws both rings.
+#[test]
+fn dxf_tolerance_cell_rings_are_not_drawn_beside_their_text() {
+    use draftwright::output::{Curve, Item};
+    let drawing = pmi_drawing("nist_ftc_07_asme1_ap242-e2");
+    let cells: Vec<usize> = drawing
+        .text
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.text.contains('⌀') && r.text.contains('Ⓜ'))
+        .map(|(i, _)| i)
+        .collect();
+    assert!(!cells.is_empty(), "a frame with a diameter zone at MMC");
+    let mut rings = Vec::new();
+    for cell in &cells {
+        let of_cell: Vec<_> = drawing
+            .layers
+            .iter()
+            .flat_map(|l| &l.items)
+            .filter_map(|i| match i {
+                Item::TextStroke(Curve::Conic { centre, radii, .. }, r) if r == cell => {
+                    Some((*centre, radii[0]))
+                }
+                _ => None,
+            })
+            .collect();
+        // The zone's ring left of the value and the modifier's larger ring right of it.
+        assert_eq!(of_cell.len(), 2, "{}", drawing.text[*cell].text);
+        let at = drawing.text[*cell].at[0];
+        assert!(of_cell.iter().any(|(c, _)| c[0] < at) && of_cell.iter().any(|(c, _)| c[0] > at));
+        rings.extend(of_cell);
+    }
+    let bytes = drawing.dxf();
+    let (mut kind, mut at) = (String::new(), [0.; 2]);
+    let mut modifiers = 0;
+    for (code, value) in dxf_pairs(&bytes) {
+        match code {
+            0 => kind = value,
+            1 if kind == "TEXT" && value.contains("(M)") => {
+                assert!(value.starts_with("%%c"), "{value}");
+                modifiers += 1;
+            }
+            10 => at[0] = value.parse().unwrap_or(f64::NAN),
+            20 if kind == "CIRCLE" => {
+                at[1] = value.parse().unwrap_or(f64::NAN);
+                for (c, radius) in &rings {
+                    assert!(
+                        (at[0] - c[0]).hypot(at[1] - c[1]) > *radius,
+                        "a circle at {at:?} beside the cell's text"
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(modifiers, cells.len());
+}
+
 /// Circled modifiers (Ⓜ Ⓛ) have no SHX glyph; they are written as ASME's (M) and (L),
 /// keeping the cell's laid-out width.
 #[test]
