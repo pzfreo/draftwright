@@ -8,8 +8,8 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 - Python: `draftwright.Part`, the Python half of the build123d requirements API (0.6.0-alpha.2).
   Datums, holes (fit, thread, position, finish), part data and flatness/finish on faces are
-  recorded as Specify answers; referenced faces get `f:` names in the exported STEP (a short OCP
-  XCAF writer, since build123d's `export_step` does not name sub-shapes); `export_step` writes
+  recorded as Specify answers; referenced faces get `f:` names in the exported STEP (written with OCCT's
+  STEP writer, since build123d's `export_step` does not name sub-shapes); `export_step` writes
   `<stem>.answers.json` beside it; `drawing()` builds layout (sheet, scale, views, sections) and
   renders. `check()` and `answer()` raise `NotImplementedError` until the Rust half; thread and
   position intent goes to `<stem>.pending.json`. build123d remains an optional import.

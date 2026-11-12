@@ -75,8 +75,13 @@ class HoleRef(_Ref):
     def fit(self, fit):
         if not _FIT.match(str(fit)):
             raise ValueError(f"{self.label}: {fit!r} is not an ISO 286 fit class such as H7")
+        if not str(fit)[0].isupper():
+            raise ValueError(f"{self.label}: {fit!r} is a shaft fit; a hole takes a capital class such as H7")
         self._set_function("fit", fit)
-        self._part._extra(self, "fit", str(fit), self.bores)
+        # Specify asks hole.function:<feature> itself; an extra fit would contradict its answer.
+        self._part._pending.append(
+            {"hole": self.label, "faces": self._part._names_of(self.faces),
+             "answer": "hole.function", "value": f"fit:{fit}"})
         return self
 
     def finish(self, ra):
@@ -101,6 +106,15 @@ class HoleRef(_Ref):
             {"hole": self.label, "faces": self._part._names_of(self.faces),
              "answer": "hole.position", "value": _number(tolerance), "datums": letters})
         return self
+
+
+def _axis(face):
+    """(point, unit direction) of a cylindrical face's axis, in world coordinates."""
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+
+    ax = BRepAdaptor_Surface(face.wrapped).Cylinder().Axis()
+    p, d = ax.Location(), ax.Direction()
+    return (p.X(), p.Y(), p.Z()), (d.X(), d.Y(), d.Z())
 
 
 def _finish(ra):
@@ -164,20 +178,36 @@ class Part:
         return self._hole(obj, label, single=False)
 
     def _hole(self, obj, label, single):
-        groups = self._resolve(obj, label or self._auto("hole"), "hole", split=True)
+        groups = self._find(obj, "hole")
         if single and len(groups) > 1:
             raise ValueError(
                 f"hole(): the object holds {len(groups)} separate holes; use holes() for several")
-        faces = [i for g in groups for i in g]
         bores = []
         for g in groups:
             cylinders = [i for i in g if self._faces[i].geom_type.name == "CYLINDER"]
             if not cylinders:
                 found = sorted({self._faces[i].geom_type.name for i in g})
                 raise ValueError(f"hole(): no cylindrical face among the {len(g)} faces found ({', '.join(found)})")
-            smallest = min(self._faces[i].radius for i in cylinders)
-            bores += [i for i in cylinders if abs(self._faces[i].radius - smallest) < _TOL]
-        return HoleRef(self, faces, self._last_label, bores)
+            walls = [i for i in cylinders if self._is_hole_wall(self._faces[i])]
+            if not walls:
+                raise ValueError(
+                    "hole(): the cylindrical faces found are bosses or shafts (material inside), not holes")
+            smallest = min(self._faces[i].radius for i in walls)
+            bores += [i for i in walls if abs(self._faces[i].radius - smallest) < _TOL]
+        flat = self._assign(groups, label or self._auto("hole"), "hole")
+        return HoleRef(self, flat, self._last_label, bores)
+
+    @staticmethod
+    def _is_hole_wall(face):
+        """The outward normal of a hole's wall points at its axis; a boss's points away."""
+        point = face.position_at(0.5, 0.5)
+        axis = _axis(face)
+        origin, direction = axis
+        offset = [point.X - origin[0], point.Y - origin[1], point.Z - origin[2]]
+        along = sum(o * d for o, d in zip(offset, direction))
+        radial = [o - along * d for o, d in zip(offset, direction)]  # axis -> point
+        normal = face.normal_at(point)
+        return normal.X * radial[0] + normal.Y * radial[1] + normal.Z * radial[2] < 0
 
     def _auto(self, role):
         self._groups[role] = self._groups.get(role, 0) + 1
@@ -189,48 +219,60 @@ class Part:
         self._extras.append({"label": ref.label, "kind": kind, "value": value, "faces": list(faces)})
 
     # ---- resolving build123d objects to faces of this part ---------------
-    def _resolve(self, obj, label, what, split=False):
-        """Faces of this part that ``obj`` denotes, named ``f:<name>.<label>.<n>``.
+    def _find(self, obj, what):
+        """Groups of face indices of this part that ``obj`` denotes; nothing is named yet.
 
-        Faces of the part are taken as given. Any other object (a hole's cutter,
-        a solid) expands to its faces, matched to the part's faces by geometry.
+        Faces of the part are taken as given (all of them, or it is an error). Any other
+        object (a hole's cutter, a solid) expands to its faces, matched to the part's
+        faces by geometry.
         """
         is_list = isinstance(obj, (list, tuple))
         given = list(obj) if is_list else list(obj.faces())
-        groups = self._exact(given)
+        found = [self._index(f) for f in given]
+        if is_list and None in found:
+            missing = [type(f).__name__ + f" #{k}" for k, (f, i) in enumerate(zip(given, found)) if i is None]
+            raise ValueError(
+                f"{what}: {len(missing)} of {len(given)} faces given are not faces of the part "
+                f"({', '.join(missing)}); nothing is guessed")
+        groups = [[i for i in found if i is not None]] if any(i is not None for i in found) else []
         # A boolean keeps some of a cutter's faces as the part's own, so a partial
         # overlap means "a tool", not "faces of the part": match it geometrically.
         if not is_list and (not groups or len(groups[0]) < len(given)):
             groups = self._geometric(obj) or groups
-        groups = [sorted(g) for g in groups if g]
+        groups = [sorted(set(g)) for g in groups if g]
         if not groups:
             raise ValueError(
                 f"{what}: none of the faces of {type(obj).__name__} is a face of the part "
                 f"(or coincides with one); the part has {len(self._faces)} faces")
+        return groups
+
+    def _assign(self, groups, label, what):
+        """Name the faces ``f:<part>.<label>.<n>``; all checks first, so a failure names nothing."""
         label = _safe(label)
-        self._last_label = label
         flat = sorted({i for g in groups for i in g})
+        new = {}
+        taken = {v: k for k, v in self._names.items()}
         for n, i in enumerate(flat, 1):
-            name = f"f:{self.name}.{label}.{n}"
             if i in self._names:
                 continue
-            clash = [j for j, existing in self._names.items() if existing == name]
-            if clash:
+            name = f"f:{self.name}.{label}.{n}"
+            if name in taken or name in new.values():
                 raise ValueError(
-                    f"{what}: the name {name} is already on face {clash[0]}; give this "
+                    f"{what}: the name {name} is already on face {taken.get(name, i)}; give this "
                     f"reference its own label")
-            self._names[i] = name
-        return groups if split else flat
+            new[i] = name
+        self._names.update(new)
+        self._last_label = label
+        return flat
+
+    def _resolve(self, obj, label, what):
+        return self._assign(self._find(obj, what), label, what)
 
     def _index(self, face):
         for i, own in enumerate(self._faces):
             if own.is_same(face):
                 return i
         return None
-
-    def _exact(self, faces):
-        found = [i for i in (self._index(f) for f in faces) if i is not None]
-        return [found] if found else []
 
     def _geometric(self, obj):
         solids = list(obj.solids()) if hasattr(obj, "solids") else []
@@ -257,7 +299,15 @@ class Part:
         if own.distance_to(tool) > _TOL:
             return False
         if kind == "CYLINDER":
-            return abs(own.radius - tool.radius) < _TOL
+            if abs(own.radius - tool.radius) > _TOL:
+                return False
+            (po, pd), (to, td) = _axis(own), _axis(tool)
+            cross = [pd[1] * td[2] - pd[2] * td[1], pd[2] * td[0] - pd[0] * td[2], pd[0] * td[1] - pd[1] * td[0]]
+            if sum(c * c for c in cross) > 1e-12:
+                return False  # not parallel
+            gap = [t - p for t, p in zip(to, po)]
+            along = sum(g * d for g, d in zip(gap, pd))
+            return sum((g - along * d) ** 2 for g, d in zip(gap, pd)) < _TOL * _TOL  # same axis line
         if kind == "PLANE":
             a, b = own.normal_at(), tool.normal_at()
             return abs(abs(a.X * b.X + a.Y * b.Y + a.Z * b.Z) - 1) < 1e-6
@@ -292,8 +342,8 @@ class Part:
 
         Returns ``{"step": ..., "answers": ..., "pending": ... or None}``. The answers
         file is ``<stem>.answers.json``, a plain Specify answer map (no ``_specify``
-        evidence: that needs Specify's analysis). Thread and position intent, which
-        Specify keys to recognised features, goes to ``<stem>.pending.json``.
+        evidence: that needs Specify's analysis). Fit, thread and position intent, which
+        Specify keys to recognised features (``hole.function``, ``hole.position``), goes to ``<stem>.pending.json``.
         """
         path = Path(os.fspath(path))
         names = write_step(self.shape, path, self._names, self._faces, self.name)
@@ -307,7 +357,8 @@ class Part:
         if self._pending:
             pending_path = pending_file
             pending_path.write_text(json.dumps(
-                {"note": "intent that Specify keys to recognised features; applied by the Rust half",
+                {"schema": "draftwright.pending/1",
+                 "note": "intent that Specify keys to recognised features; applied by the Rust half",
                  "requirements": self._pending}, indent=2) + "\n")
         elif pending_file.exists():
             pending_file.unlink()
@@ -326,51 +377,32 @@ def _step_names(path):
 def write_step(shape, path, names, faces, product):
     """Write ``shape`` as STEP with ``names`` (face index -> name) on its faces.
 
-    build123d's ``export_step`` names the product and its assembly nodes but not
-    sub-shapes, so this is the short XCAF writer the proposal asked about: the
-    same OCCT path with a name label on each sub-shape and
-    ``write.stepcaf.subshapes.name = 1``. Returns ``{name: face index in the STEP}``,
-    read back from the file, and raises unless every name landed on exactly one face.
+    build123d's ``export_step`` names assemblies and nodes but not sub-shapes, so
+    this writes the STEP with OCCT's writer and sets the name of each referenced
+    face's ADVANCED_FACE entity directly, found as the writer's own face lookup
+    finds it. (The XCAF route, ``write.stepcaf.subshapes.name``, silently loses the
+    names of faces that carry a TopLoc location, e.g. the planes of a filleted
+    box.) Returns ``{name: face index in the STEP}``, read back from the file, and
+    raises unless every name landed on exactly one face.
     """
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.Message import Message, Message_Gravity
-    from OCP.Interface import Interface_Static
-    from OCP.STEPCAFControl import STEPCAFControl_Controller, STEPCAFControl_Writer
-    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Controller
-    from OCP.TCollection import TCollection_ExtendedString
-    from OCP.TDataStd import TDataStd_Name
-    from OCP.TDocStd import TDocStd_Document
-    from OCP.XCAFApp import XCAFApp_Application
-    from OCP.XCAFDoc import XCAFDoc_DocumentTool
+    from OCP.STEPConstruct import STEPConstruct
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+    from OCP.TCollection import TCollection_HAsciiString
+    from OCP.TopLoc import TopLoc_Location
 
     for printer in Message.DefaultMessenger_s().Printers():  # as build123d: keep OCCT quiet
         printer.SetTraceLevel(Message_Gravity.Message_Fail)
-    doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
-    app = XCAFApp_Application.GetApplication_s()
-    app.NewDocument(TCollection_ExtendedString("MDTV-XCAF"), doc)
-    app.InitDocument(doc)
-    tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
-    top = tool.AddShape(shape.wrapped, False)
-    TDataStd_Name.Set_s(top, TCollection_ExtendedString(product))
+    writer = STEPControl_Writer()
+    writer.Transfer(shape.wrapped, STEPControl_AsIs)
+    finder = writer.WS().TransferWriter().FinderProcess()
     for index, name in sorted(names.items()):
-        label = tool.AddSubShape(top, faces[index].wrapped)
-        if label.IsNull():
-            raise RuntimeError(f"OCCT would not take {name} as a sub-shape of the part")
-        TDataStd_Name.Set_s(label, TCollection_ExtendedString(name))
-    # The static is only honoured once the controllers are initialised.
-    STEPCAFControl_Controller.Init_s()
-    STEPControl_Controller.Init_s()
-    key = "write.stepcaf.subshapes.name"
-    before = Interface_Static.IVal_s(key)
-    Interface_Static.SetIVal_s(key, 1)
-    try:
-        writer = STEPCAFControl_Writer()
-        writer.SetNameMode(True)
-        writer.Transfer(doc, STEPControl_AsIs)
-        status = writer.Write(os.fspath(path))
-    finally:
-        Interface_Static.SetIVal_s(key, before)
-    if status != IFSelect_RetDone:
+        item = STEPConstruct.FindEntity_s(finder, faces[index].wrapped, TopLoc_Location())
+        if item is None:
+            raise RuntimeError(f"OCCT wrote no STEP face for the face named {name}")
+        item.SetName(TCollection_HAsciiString(name))
+    if writer.Write(os.fspath(path)) != IFSelect_RetDone:
         raise RuntimeError("OCCT failed to write the STEP file")
     written = _step_names(path)
     numbers = {}
