@@ -15,7 +15,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
 - DXF: each feature control frame is one native TOLERANCE entity (layer A-PMI) that opens in a
   CAD program as an editable geometric tolerance, its symbols the gdt font's (`{\Fgdt;j}`:
   gdt.shx in AutoCAD, gdt.cxf in QCAD). No part of a frame is written as loose lines, circles
-  or text any more, and the guessed pairing of symbol strokes with text is gone. Other
+  or text any more, and the guessed pairing of symbol strokes with text is gone. The string is
+  AutoCAD's positional one, six slots always (symbol, tolerance 1, tolerance 2, datums 1 to 3):
+  `{\Fgdt;j}%%v{\Fgdt;n}1.143%%v%%vA%%vB%%vC`, so a datum is never read as a second tolerance
+  (a frame with more than three datums fits no slot and is written unpadded). Other
   circled modifiers stay `(F)`-style words. SVG and PDF are unchanged. Not yet opened in
   AutoCAD itself.
 - Python: `draftwright.Part`, the Python half of the build123d requirements API (0.6.0-alpha.2).

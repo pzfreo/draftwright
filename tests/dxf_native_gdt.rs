@@ -39,9 +39,12 @@ const GDT: &[(char, char)] = &[
     ('u', '⏤'),
 ];
 
-/// A TOLERANCE's text back to its cells.
+/// A TOLERANCE's text back to its cells. AutoCAD's string is positional (six slots: symbol,
+/// tolerance 1, tolerance 2, datums 1 to 3), so the empty slots are dropped to compare with
+/// the plan's cells.
 fn decode(s: &str) -> Vec<String> {
     s.split("%%v")
+        .filter(|cell| !cell.is_empty())
         .map(|cell| {
             let mut out = String::new();
             let mut rest = cell;
@@ -102,7 +105,16 @@ fn text_of(e: &Entity) -> String {
         .collect()
 }
 
-fn check(name: &str, drawing: &Drawing, plan: &Plan) -> usize {
+/// What one sheet held: its TOLERANCE strings as written, and how many of its frames carry a
+/// count over the box (`lead > 0`) or fills on the face (`fills > 0`).
+#[derive(Default)]
+struct Found {
+    written: Vec<String>,
+    counted: usize,
+    filled: usize,
+}
+
+fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
     let bytes = drawing.dxf();
     // (a) Text ink never reaches the DXF as geometry: emptying it leaves every geometry entity.
     let mut bare = drawing.clone();
@@ -140,11 +152,17 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> usize {
         .map(|g| g.cells.iter().map(|c| spelled(c)).collect())
         .collect();
     // (c) One TOLERANCE each, its cells the plan's.
-    let mut written: Vec<Vec<String>> = all
+    let raw: Vec<String> = all
         .iter()
         .filter(|e| e.kind == "TOLERANCE")
-        .map(|e| decode(&text_of(e)))
+        .map(text_of)
         .collect();
+    for t in &raw {
+        // Six slots, always, up to three datums.
+        let n = t.matches("%%v").count();
+        assert!(n == 5 || decode(t).len() > 5, "{name}: not positional: {t}");
+    }
+    let mut written: Vec<Vec<String>> = raw.iter().map(|t| decode(t)).collect();
     frames.sort();
     written.sort();
     assert_eq!(written, frames, "{name}: TOLERANCE cells");
@@ -214,7 +232,45 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> usize {
             assert!(t.is_ascii(), "{name}: {} has {t:?}", e.kind);
         }
     }
-    written.len()
+    // The arcs a frame owns (zone, material, characteristic) are the entity's; the rings at
+    // its bend (all-around, all-over) are drawn as circles.
+    let circles: Vec<[f64; 3]> = all
+        .iter()
+        .filter(|e| e.kind == "CIRCLE")
+        .map(|e| [10, 20, 40].map(|c| tag(e, c).and_then(|v| v.parse().ok()).unwrap_or(f64::NAN)))
+        .collect();
+    let mut found = Found::default();
+    for g in plan
+        .gdt
+        .iter()
+        .filter(|g| g.kind == "control_frame")
+        .filter(|g| drawing.sheet.items.iter().any(|i| i.name == g.id))
+    {
+        let p = g.placed.as_ref().unwrap();
+        let rings: usize = g
+            .modifiers
+            .iter()
+            .map(|m| if m == "all_over" { 2 } else { 1 })
+            .sum();
+        let has = |a: &[f64; 5]| {
+            circles.iter().any(|c| {
+                (c[0] - a[0]).abs() < 1e-6
+                    && (c[1] - a[1]).abs() < 1e-6
+                    && (c[2] - a[2]).abs() < 1e-6
+            })
+        };
+        let n = p.arcs.len();
+        for a in &p.arcs[..n - rings] {
+            assert!(!has(a), "{name}: {} has a loose frame arc", g.id);
+        }
+        for a in &p.arcs[n - rings..] {
+            assert!(has(a), "{name}: {} lost a bend ring", g.id);
+        }
+        found.counted += usize::from(p.runs.len() > g.cells.len());
+        found.filled += usize::from(!p.fills.is_empty());
+    }
+    found.written = raw;
+    found
 }
 
 fn drawings(a: &draftwright::model::Analysis, part: &draftwright::haecceity::Part) -> Vec<Drawing> {
@@ -225,16 +281,20 @@ fn drawings(a: &draftwright::model::Analysis, part: &draftwright::haecceity::Par
     model::render_sheets(part, a, &plan, &font).unwrap()
 }
 
-fn on(name: &str, part: &draftwright::haecceity::Part, a: &draftwright::model::Analysis) -> usize {
+fn on(name: &str, part: &draftwright::haecceity::Part, a: &draftwright::model::Analysis) -> Found {
     let plan = cache::default_plan(a, true);
-    drawings(a, part)
-        .iter()
-        .map(|d| check(name, d, &plan))
-        .sum()
+    let mut all = Found::default();
+    for d in drawings(a, part) {
+        let f = check(name, &d, &plan);
+        all.written.extend(f.written);
+        all.counted += f.counted;
+        all.filled += f.filled;
+    }
+    all
 }
 
 #[test]
-fn nist_and_pmi_fixtures_write_each_frame_as_one_tolerance() {
+fn nist_and_pmi_fixtures_write_each_frame_as_one_positional_tolerance() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let mut files: Vec<_> = std::fs::read_dir(root.join("pmi/step"))
         .unwrap()
@@ -259,11 +319,33 @@ fn nist_and_pmi_fixtures_write_each_frame_as_one_tolerance() {
         std::fs::remove_file(&path).unwrap();
         on(&name, &part, &a)
     });
-    assert!(results.iter().sum::<usize>() > 30, "{results:?}");
+    let written: Vec<&String> = results.iter().flat_map(|r| &r.written).collect();
+    // Counted when this was written: 9 files, 122 frames, 18 of them with a count.
+    assert!(written.len() >= 120, "frames found: {}", written.len());
+    // Frames as typed by hand from AutoCAD's positional string (symbol, tolerance 1, tolerance
+    // 2, datums 1 to 3), each read off the NIST fixtures: a position frame with a diameter
+    // zone, Ⓜ and three datums; flatness with no datums; profile of a surface; perpendicularity.
+    for expected in [
+        "{\\Fgdt;j}%%v{\\Fgdt;n}1.016{\\Fgdt;m}%%v%%vA%%vB%%vC",
+        "{\\Fgdt;c}%%v0.2%%v%%v%%v%%v",
+        "{\\Fgdt;d}%%v1.5%%v%%vA%%vB%%vC",
+        "{\\Fgdt;b}%%v{\\Fgdt;n}0.254%%v%%vA%%v%%v",
+    ] {
+        assert!(
+            written.iter().any(|w| w.as_str() == expected),
+            "no frame written as {expected}"
+        );
+    }
+    // The count over the box ("2X") is no compartment: frames that carry one are exercised.
+    let counted: usize = results.iter().map(|r| r.counted).sum();
+    assert!(counted >= 15, "frames with a count: {counted}");
+    // No fixture has a frame with fills on its face (`fills > 0`), so that case is not covered.
+    let filled: usize = results.iter().map(|r| r.filled).sum();
+    eprintln!("frames with fills: {filled}");
 }
 
 #[test]
-fn quality_parts_write_each_frame_as_one_tolerance() {
+fn quality_parts_write_no_text_as_geometry_and_only_ascii() {
     let Some(dir) = corpus::dir() else {
         eprintln!("SKIPPED: the corpus is not found");
         return;
@@ -273,8 +355,10 @@ fn quality_parts_write_each_frame_as_one_tolerance() {
         .iter()
         .zip(support::parallel(&files, |f| {
             let (part, a) = cache::native(&dir.join(f));
-            on(f, &part, &a)
+            on(f, &part, &a).written.len()
         }))
         .collect();
+    // The quality parts carry no PMI, so they hold no frame: what is checked here is that no
+    // text ink is geometry and all text is ASCII (`check`); the frame checks run on the fixtures.
     eprintln!("frames per part: {frames:?}");
 }

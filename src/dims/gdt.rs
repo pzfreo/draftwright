@@ -59,7 +59,8 @@
 //!
 //! Each item's text layer is its compartments as the plan states them (`⌖`, `⌀0.05Ⓜ`, `A`, …),
 //! one invisible run over each, so the PDF and SVG can be searched and lint reads it. The ink of
-//! the symbols is strokes, so the font need hold only the digits, letters and `ø` (checked by
+//! the symbols is strokes in the SVG and PDF (the DXF writes each frame as one native TOLERANCE
+//! with the gdt font's symbols instead, from [`frame`]), so the font need hold only the digits, letters and `ø` (checked by
 //! `tests/pmi_lowering.rs`); a label's text is drawn as the file states it, a character the font
 //! lacks as its missing-glyph box (as draftwright's FreeType draws it).
 
@@ -2480,34 +2481,39 @@ pub fn render(
 /// arrowheads and fills, the all-around and all-over rings at its bend, and the count over the
 /// box are not. Item offsets follow [`render`]'s push order; the rings are the last arcs, as
 /// the callout routes count them.
+///
+/// Every placed control frame has a frame: it needs only its box strokes to locate it. That its
+/// runs end in its cells and that it has the arcs its rings count on are what [`render`] builds,
+/// so they are asserted, not tested for.
 pub(crate) fn frame(g: &PlannedGdt) -> Option<crate::dxf_output::Frame> {
     let p = g.placed.as_ref().filter(|_| g.kind == "control_frame")?;
-    let lead = p.runs.len().checked_sub(g.cells.len())?;
-    if !p.runs[lead..]
-        .iter()
-        .zip(&g.cells)
-        .all(|(r, c)| r.text == *c)
-    {
-        return None;
-    }
+    let lead = p.runs.len().saturating_sub(g.cells.len());
+    debug_assert!(
+        p.runs.len() >= g.cells.len()
+            && p.runs[lead..]
+                .iter()
+                .zip(&g.cells)
+                .all(|(r, c)| r.text == *c),
+        "{}: runs are not the cells",
+        g.id
+    );
     let rings: usize = g
         .modifiers
         .iter()
         .map(|m| if m == "all_over" { 2 } else { 1 })
         .sum();
+    debug_assert!(p.arcs.len() >= rings, "{}: fewer arcs than rings", g.id);
+    let own_arcs = p.arcs.len().saturating_sub(rings);
     let first = p.lines.len();
     let arcs = first + p.strokes.len() + p.arrows.len() + p.fills.len();
     let (x0, y0, y1) = p.strokes.iter().flatten().fold(
         (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY),
         |(x, a, b), q| (x.min(q[0]), a.min(q[1]), b.max(q[1])),
     );
-    (x0.is_finite() && p.arcs.len() >= rings).then(|| crate::dxf_output::Frame {
+    x0.is_finite().then(|| crate::dxf_output::Frame {
         cells: g.cells.clone(),
         at: [x0, 0.5 * (y0 + y1)],
-        ink: vec![
-            first..first + p.strokes.len(),
-            arcs..arcs + p.arcs.len() - rings,
-        ],
+        ink: vec![first..first + p.strokes.len(), arcs..arcs + own_arcs],
         lead,
     })
 }

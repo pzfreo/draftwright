@@ -158,8 +158,11 @@ struct DimStyle {
     fixed: bool,
     leader: bool,
     inches: bool,
-    /// The style of a feature control frame: the text is the run's size and DIMGAP leaves the box
-    /// twice that tall, as the layout draws it.
+    /// The style of a feature control frame: DIMTXT is the run's size (`dims::TEXT`) and DIMGAP
+    /// half of it. Measured (QCAD 3.33 and Autodesk's online viewer, 2026-11-12): both draw the
+    /// box 2 x DIMTXT tall and ignore DIMGAP, so DIMTXT 3.0 gives the 6 mm box the layout draws.
+    /// DIMGAP 1.5 is kept so the documented DIMTXT + 2 x DIMGAP rule gives the same height.
+    /// Nothing is claimed here about desktop AutoCAD.
     frame: bool,
 }
 impl Default for DimStyle {
@@ -208,7 +211,11 @@ impl DimStyle {
             (
                 "DIMTXT",
                 140,
-                crate::dims::TEXT * if self.frame { 1. } else { 0.698 },
+                if self.frame {
+                    crate::dims::TEXT
+                } else {
+                    crate::dims::TEXT * 0.698
+                },
             ),
             // Geometry is in millimetres; inch sheets measure in inches.
             (
@@ -773,28 +780,33 @@ const GDT: [(char, char); 19] = [
     ('⌰', 't'),
     ('⏤', 'u'),
 ];
-/// A frame's cells as a TOLERANCE's text: cells separated by `%%v`, each symbol switched to
-/// the gdt font.
+/// A frame's cells as a TOLERANCE's text, in AutoCAD's positional form: six slots separated by
+/// `%%v` (symbol, tolerance 1, tolerance 2, datums 1 to 3), an empty slot kept so a datum never
+/// reads as a second tolerance. haecceity's cells are the symbol, the one tolerance cell and a
+/// cell per datum; a frame with more than three datums fits no slot, so its cells are joined
+/// as they are. Each symbol is switched to the gdt font.
 fn fcf_text(cells: &[String]) -> String {
-    cells
-        .iter()
-        .map(|cell| {
-            let mut out = String::new();
-            let mut plain = String::new();
-            for c in cell.chars() {
-                if let Some((_, g)) = GDT.iter().find(|(u, _)| *u == c) {
-                    out.push_str(&encode_mtext(&asme_words(&plain)));
-                    plain.clear();
-                    write!(out, "{{\\Fgdt;{g}}}").unwrap();
-                } else {
-                    plain.push(c);
-                }
-            }
+    let mut cells: Vec<String> = cells.iter().map(|c| fcf_cell(c)).collect();
+    if (2..=5).contains(&cells.len()) {
+        cells.insert(2, String::new());
+        cells.resize(6, String::new());
+    }
+    cells.join("%%v")
+}
+fn fcf_cell(cell: &str) -> String {
+    let mut out = String::new();
+    let mut plain = String::new();
+    for c in cell.chars() {
+        if let Some((_, g)) = GDT.iter().find(|(u, _)| *u == c) {
             out.push_str(&encode_mtext(&asme_words(&plain)));
-            out
-        })
-        .collect::<Vec<_>>()
-        .join("%%v")
+            plain.clear();
+            write!(out, "{{\\Fgdt;{g}}}").unwrap();
+        } else {
+            plain.push(c);
+        }
+    }
+    out.push_str(&encode_mtext(&asme_words(&plain)));
+    out
 }
 fn font_data(font: &str) -> Option<&'static [u8]> {
     match font {
