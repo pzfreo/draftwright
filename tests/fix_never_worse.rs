@@ -16,7 +16,7 @@ fn check(
     part: draftwright::haecceity::Part,
     analysis: model::Analysis,
 ) -> (usize, usize, Vec<String>) {
-    const CAP: usize = 8;
+    const CAP: usize = 3;
     let spec = serde_json::from_value(serde_json::json!({})).unwrap();
     let Ok(mut session) = Session::new(part, analysis, spec) else {
         return (0, 0, Vec::new());

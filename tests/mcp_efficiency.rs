@@ -307,12 +307,19 @@ fn one_feature_problem_query_returns_all_member_fixes() {
     // two label_crowded notices (line-work within 0.5 mm of 650 and 370). With #223–#225's
     // CTC-01 changes the 4× R25 label is no longer crowded before the fixes, so it has none
     // to clear.
-    assert_eq!(gone.len(), 8);
+    // Three fewer than before, one of them a label_crowded notice: a fix that trades as many
+    // findings as it clears is no longer offered, so the records it cleared stay.
+    assert_eq!(gone.len(), 5);
     assert_eq!(
         gone.iter().filter(|p| p["code"] == "label_crowded").count(),
-        2
+        1
     );
-    for p in &problems {
+    // Every finding that still offers a fix is cleared by it; one whose every fix traded as many
+    // findings as it cleared offers none, and stays.
+    for p in problems
+        .iter()
+        .filter(|p| !p["fix"].as_array().unwrap().is_empty())
+    {
         assert!(gone.iter().any(|resolved| resolved["id"] == p["id"]));
     }
     assert!(
@@ -724,7 +731,7 @@ fn crossing_remedies_are_scoped_and_ordered_in_mcp_rows() {
         for code in ["annotation_leader_crossing", "extension_through_feature"] {
             let mut cursor = 0;
             let mut count = 0;
-            let mut local_count = 0;
+            let mut sheet_only = 0;
             loop {
                 let rows = call(
                     &cache,
@@ -745,36 +752,20 @@ fn crossing_remedies_are_scoped_and_ordered_in_mcp_rows() {
                     };
                     let fixes = row["fixes"].as_array().unwrap();
                     assert!(!fixes.is_empty(), "{row}");
-                    // Radius-table carriers cannot promise information retention
-                    // from the bounded trial; only the front-view hole location
-                    // remains local. Keep the wire contract as strict as Session.
-                    let local = row["id"]
-                        .as_str()
-                        .unwrap()
-                        .contains("d:f:hole:f73/location.length.z");
-                    // CTC-01 plans no radius-centre table (its 4× R25 leader is not
-                    // obstructed), so no row is a table carrier and every first offer is local
-                    // (on alpha.12 only the front-view hole location's was).
-                    assert_eq!(fixes[0]["scope"], "local");
-                    if local {
-                        local_count += 1;
-                        let ops = fixes[0]["ops"].as_array().unwrap();
-                        for (path, value) in [
-                            ("sheet/keep_layout", json!(true)),
-                            ("sheet/size", json!("A3")),
-                            ("sheet/scale", json!("1:5")),
-                            ("sheets/max", json!(1)),
-                        ] {
-                            let constraints: Vec<_> =
-                                ops.iter().filter(|op| op["path"] == path).collect();
-                            assert_eq!(constraints.len(), 1);
-                            assert_eq!(constraints[0]["value"], value);
-                        }
+                    // A local edit is offered only if the bounded trial shows it leaves fewer
+                    // findings; a row whose every local edit trades as many findings as it
+                    // clears keeps only the hole-table sheet remedy.
+                    let local = fixes[0]["scope"] == "local";
+                    if !local {
+                        sheet_only += 1;
+                        assert_eq!(fixes.len(), 1, "{row}");
+                        assert_eq!(fixes[0]["scope"], "sheet");
                         assert!(
-                            fixes[0]["description"]
-                                .as_str()
+                            fixes[0]["ops"]
+                                .as_array()
                                 .unwrap()
-                                .contains("extension_through_feature")
+                                .iter()
+                                .any(|op| op["path"] == "hole_table")
                         );
                     } else {
                         // The local offer first; the others (the hole-table sheet remedy,
@@ -814,9 +805,11 @@ fn crossing_remedies_are_scoped_and_ordered_in_mcp_rows() {
                 cursor = next;
             }
             assert_eq!(
-                local_count,
+                sheet_only,
+                // Seven of the nine crossings (the five front-view hole locations and two more)
+                // had only local edits that trade as many findings as they clear, now withheld.
                 if code == "extension_through_feature" {
-                    5
+                    7
                 } else {
                     0
                 }

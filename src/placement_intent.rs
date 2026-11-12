@@ -1058,12 +1058,13 @@ pub(crate) fn finish(plan: &mut Plan, analysis: &Analysis) {
                 p.refs.push(id.clone());
             }
         }
-        if p.code.starts_with("annotation_") {
-            if let Some((_, path)) = p.subjects.iter().find_map(|id| pins.get_key_value(id)) {
-                p.fix = vec![Op::set(path, json!({}))];
-            }
-            // No fix is guessed here: a move nobody has measured can leave the drawing worse.
-            // `fixes::attach` offers the placement it has checked against the settled ink.
+        if p.code.starts_with("annotation_")
+            && let Some((_, path)) = p.subjects.iter().find_map(|id| pins.get_key_value(id))
+        {
+            // Only this unpinning fix is stated here. No move is guessed: one nobody has
+            // measured can leave the drawing worse, and `fixes::attach` offers the placement
+            // it has checked against the settled ink.
+            p.fix = vec![Op::set(path, json!({}))];
         }
     }
     for (id, path) in pins {

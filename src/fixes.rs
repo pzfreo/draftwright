@@ -496,20 +496,6 @@ pub(crate) fn retain_local_layout(plan: &mut crate::model::Plan) {
                 // on a count nobody checked.
                 withheld.push(fix.ops.clone());
                 continue;
-                fix.minimum_scope = Some(Scope::Sheet);
-                fix.ops.retain(|op| {
-                    !matches!(
-                        op.path.as_str(),
-                        "sheet/keep_layout"
-                            | "sheet/size"
-                            | "sheet/scale"
-                            | "sheets/max"
-                            | "sheet/dimension_spacing"
-                    )
-                });
-                if plan.spec.sheet.keep_layout == Some(true) {
-                    fix.ops.push(Op::remove("sheet/keep_layout"));
-                }
             }
         }
         fixes.retain(|f| !withheld.contains(&f.ops));
