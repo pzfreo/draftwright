@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::api::Error;
 use crate::model::Spec;
 use crate::session::{Delta, ItemAnswer, ItemFilter, ProblemFilter};
-use crate::stateless::{Cache, PAGE_BYTES, spec_hash};
+use crate::stateless::{Cache, PAGE_BYTES};
 use serde_json::{Value, json};
 
 pub const TOOLS: [&str; 14] = [
@@ -757,7 +757,7 @@ fn dispatch(cache: &Cache, tool: &str, args: &Value) -> Result<Value, Error> {
                     })
                     .collect::<Vec<_>>()
             });
-            let bytes = cache.render_sheet_with_ids(
+            let (bytes, version) = cache.render_sheet_with_ids(
                 part_ref,
                 &given,
                 region,
@@ -768,7 +768,7 @@ fn dispatch(cache: &Cache, tool: &str, args: &Value) -> Result<Value, Error> {
                 ids.as_deref(),
             )?;
             Ok(
-                json!({"artifact_ref":cache.artifact(&bytes,format)?,"mime_type":if format=="png"{"image/png"}else{"application/pdf"},"bytes":bytes.len(),"spec_version":spec_hash(cache.session(part_ref,&given)?.spec())}),
+                json!({"artifact_ref":cache.artifact(&bytes,format)?,"mime_type":if format=="png"{"image/png"}else{"application/pdf"},"bytes":bytes.len(),"spec_version":version}),
             )
         }
         _ => unreachable!(),
@@ -1414,6 +1414,24 @@ mod batch_tests {
                 .contains("32")
         );
         assert_eq!(work::take(), 0);
+    }
+
+    #[test]
+    fn render_tools_plan_once() {
+        let (cache, key, parent) = open("render-once", false);
+        for (tool, extra) in [
+            ("view_sheet", json!({})),
+            ("render_pdf", json!({})),
+            ("render", json!({"format":"png"})),
+        ] {
+            let mut args = json!({"part_ref":key});
+            args.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let out = call(&cache, tool, &args).unwrap();
+            assert_eq!(work::take(), 1, "{tool} planned more than once");
+            assert_eq!(out["spec_version"], parent);
+        }
     }
 
     #[test]

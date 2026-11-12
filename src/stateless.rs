@@ -471,6 +471,7 @@ impl Cache {
         sheet: u32,
     ) -> Result<Vec<u8>, Error> {
         self.render_sheet_with_ids(part_ref, spec, region, format, overlay, dpi, sheet, None)
+            .map(|(bytes, _)| bytes)
     }
     #[allow(clippy::too_many_arguments)]
     pub fn render_sheet_with_ids(
@@ -483,8 +484,9 @@ impl Cache {
         dpi: f64,
         sheet: u32,
         ids: Option<&[String]>,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<(Vec<u8>, String), Error> {
         let s = self.session(part_ref, spec)?;
+        let version = spec_hash(s.spec());
         s.state().check_sheet(sheet)?;
         let selected = ids
             .map(|ids| {
@@ -564,7 +566,7 @@ impl Cache {
                 }
             }
         }
-        match format {
+        let bytes = match format {
             "png" => drawing.png_region(dpi, region).map_err(Error::invalid),
             "pdf" if region.is_none() => Ok(drawing.pdf(&|name| match name {
                 "IBMPlexMono-Regular.ttf" => Some(api::MONO.to_vec()),
@@ -575,7 +577,8 @@ impl Cache {
                 choices: vec!["png (optional region)".into(), "pdf (whole sheet)".into()],
                 ..Error::invalid("choose PNG for a region or PDF for delivery")
             }),
-        }
+        }?;
+        Ok((bytes, version))
     }
     pub fn artifact(&self, bytes: &[u8], extension: &str) -> Result<String, Error> {
         let key = format!("{}.{}", hash(bytes), extension);
