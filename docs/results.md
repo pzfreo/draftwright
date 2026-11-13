@@ -25,7 +25,7 @@ cargo build --release --locked --bin draftwright
 From the sibling dw-examples clone, after changing the pinned tag in `drawings.toml`:
 
 ```sh
-python3 build.py --cli /Users/paul/.claude/jobs/41778893/tmp/cx-dw-readme/target/release/draftwright
+python3 build.py --cli ../draftwright/target/release/draftwright
 ```
 
 This uses the stock `render` and `review` commands for drawings, and `pack` for assemblies.

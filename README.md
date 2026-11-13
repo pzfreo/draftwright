@@ -39,9 +39,6 @@ These commands select the pre-release; unqualified installs can select older rel
 
 0.6 replaces the old Python package of the same name; pin `draftwright<0.6` to keep it.
 
-As checked on 2026-11-13, PyPI wheels and CLI archives are still alpha.1; the alpha.2 release
-currently has only WASM assets. The Cargo command above installs alpha.2.
-
 ## Command line
 
 ```sh
