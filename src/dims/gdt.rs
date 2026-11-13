@@ -1800,7 +1800,11 @@ fn plan_search(
                 })
                 .flatten(),
             protect_triangles: protect,
-            label_gap: if datum { 0.5 } else { 0.0 },
+            label_gap: if datum {
+                super::contacts::TEXT_CLEAR
+            } else {
+                0.0
+            },
             parallel_gap: (shape == Shape::Finish).then_some(FINISH_PARALLEL_GAP),
             triangles: triangles
                 .iter()

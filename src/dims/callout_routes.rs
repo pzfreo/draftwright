@@ -945,16 +945,26 @@ fn finish_with(
                         next.label_box[2] + 1.,
                         next.label_box[3] + 1.,
                     ];
+                    // A bent datum must not trade a crossing for a shaft that
+                    // reads as touching another letter box on the finished drawing.
+                    let shaft_gap = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
+                        super::contacts::TEXT_CLEAR
+                    } else {
+                        0.0
+                    };
                     if peers.iter().filter_map(|q| q.placed.as_ref()).any(|q| {
+                        let text = [
+                            q.label_box[0] - shaft_gap,
+                            q.label_box[1] - shaft_gap,
+                            q.label_box[2] + shaft_gap,
+                            q.label_box[3] + shaft_gap,
+                        ];
                         placement::boxes_overlap(pad, q.label_box)
                             || q.lines
                                 .iter()
                                 .chain(&q.arrows)
                                 .any(|s| placement::crosses(*s, pad))
-                            || next
-                                .lines
-                                .iter()
-                                .any(|s| placement::crosses(*s, q.label_box))
+                            || next.lines.iter().any(|s| placement::crosses(*s, text))
                     }) {
                         continue;
                     }

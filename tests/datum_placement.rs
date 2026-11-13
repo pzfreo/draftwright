@@ -411,6 +411,34 @@ fn dense_datums_are_separate(name: &str, expected: usize) -> Plan {
 }
 
 #[test]
+fn ftc07_bent_datum_shafts_keep_clear_of_other_datum_letters() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/pmi/step/nist_ftc_07_asme1_ap242-e2.stp.gz");
+    let (_, a) = model::analyse_native(&path).unwrap();
+    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    for letter in ["C", "D"] {
+        let datums: Vec<_> = plan
+            .gdt
+            .iter()
+            .filter(|g| g.kind == "datum_feature" && g.cells == [letter])
+            .collect();
+        assert_eq!(datums.len(), 1);
+        assert_eq!(datums[0].state, draftwright::items::State::Shown);
+        assert!(datums[0].placed.is_some(), "retain datum {letter}");
+    }
+    // The final bent C shaft used to pass within 0.5 mm of D's letter box,
+    // even though the initial placement had kept that same text clearance.
+    let touching: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| {
+            p.code == "label_crowded" && p.subjects.iter().any(|id| id.starts_with("pmi:datum."))
+        })
+        .collect();
+    assert!(touching.is_empty(), "{touching:#?}");
+}
+
+#[test]
 fn ftc10_coincident_projected_datums_do_not_touch() {
     // frame laid out as CAD's TOLERANCE (Paul 2026-11-12): the smaller boxes also let J fit.
     dense_datums_are_separate("nist_ftc_10_asme1_ap242-e2.stp.gz", 9);
