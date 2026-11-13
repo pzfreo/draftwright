@@ -3,16 +3,19 @@
 //! `annotations/_gdt.py` `render_gdt`, and `build123d_drafting`'s `FeatureControlFrame`,
 //! `DatumFeature`, `TextBlock` and `Leader`).
 //!
-//! - **A feature control frame** is draftwright's glyph at the dimensions' text height (3 mm):
-//!   cells two text heights tall, the characteristic's symbol drawn in strokes in the first, the
-//!   zone's `⌀` (a ring and a stroke) or `S⌀`, the magnitude and the material condition's
-//!   ringed letter in the second, one cell per datum letter after. Its leader runs straight from
+//! - **A feature control frame** is laid out as a CAD system lays out a native TOLERANCE, in
+//!   QCAD's `gdt` and `Standard` fonts (haecceity's `cad_control_frame`): text 2.5 mm tall, cells
+//!   two text heights (5 mm) tall and each as wide as its ink plus a text height, the
+//!   characteristic's symbol in the first, the zone's `⌀` or `S⌀`, the magnitude and the
+//!   material condition's ringed letter in the second, one cell per datum letter after. Its
+//!   leader runs straight from
 //!   its site into its strip, with an arrowhead at the site, a shelf of 2 mm, and the frame hung
 //!   from the shelf's end (draftwright's `Leader` with a callout), the all-around circle or the
 //!   all-over double circle at the bend.
 //! - **A datum feature symbol** is drawn as ISO 5459 and ASME Y14.5 draw it: a filled triangle
 //!   whose base sits on the datum's surface at its site, a line along the outward normal to a
-//!   square frame two text heights wide holding the letter. draftwright hangs its `DatumFeature`
+//!   frame two text heights (5 mm) tall, and as wide unless the letters need more, holding the
+//!   letter in the same font. draftwright hangs its `DatumFeature`
 //!   glyph (triangle, line and frame together) off an arrowed leader's shelf instead, so its
 //!   triangle sits beside the frame in mid-air, not on the surface.
 //! - **A surface texture symbol** (a face's AP242 surface texture) is ISO 1302's graphical
@@ -59,10 +62,13 @@
 //!
 //! Each item's text layer is its compartments as the plan states them (`⌖`, `⌀0.05Ⓜ`, `A`, …),
 //! one invisible run over each, so the PDF and SVG can be searched and lint reads it. The ink of
-//! the symbols is strokes in the SVG and PDF (the DXF writes each frame as one native TOLERANCE
-//! with the gdt font's symbols instead, from [`frame`]), so the font need hold only the digits, letters and `ø` (checked by
-//! `tests/pmi_lowering.rs`); a label's text is drawn as the file states it, a character the font
-//! lacks as its missing-glyph box (as draftwright's FreeType draws it).
+//! //! the symbols and of a frame's text is strokes and arcs in the SVG and PDF, drawn with the text
+//! pen ([`crate::output::TEXT_PEN`], [`crate::output::Item::FrameText`]); the DXF writes each
+//! frame as one native TOLERANCE with the gdt font's symbols instead, from [`frame`], and the
+//! same size, since its style's DIMTXT is the frame text's height. A character the CAD fonts lack
+//! is left out of the frame's ink and reported ([`frame_missing`]); a label's text is drawn as
+//! the file states it, a character the font lacks as its missing-glyph box (as draftwright's
+//! FreeType draws it).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -124,9 +130,16 @@ pub struct GdtPlaced {
     pub arrows: Vec<[P2; 2]>,
     /// The frame's box.
     pub label_box: [f64; 4],
-    /// The glyph's straight strokes: the frame's rules and dividers, the symbols' lines.
+    /// The glyph's straight strokes: the frame's rules and dividers, the symbols' lines and, in
+    /// a CAD-font frame, from index `frame_strokes` on, the strokes of its text.
     pub strokes: Vec<[P2; 2]>,
-    /// Its circles and arcs, `[cx, cy, r, from, to]` (degrees anticlockwise).
+    /// How many of the first `strokes` are lines of the glyph itself; the rest are text drawn
+    /// with the text pen ([`haecceity::presentation::gdt::TEXT_PEN`]). All of them in a glyph
+    /// that has no CAD-font text.
+    #[serde(default = "all_strokes", skip_serializing_if = "is_all_strokes")]
+    pub frame_strokes: usize,
+    /// Its circles and arcs, `[cx, cy, r, from, to]` (degrees anticlockwise). In a CAD-font
+    /// control frame the text's arcs come first and the all-around and all-over rings last.
     pub arcs: Vec<[f64; 5]>,
     /// Filled outlines: a datum's triangle.
     pub fills: Vec<Vec<P2>>,
@@ -134,6 +147,14 @@ pub struct GdtPlaced {
     pub letters: Vec<GdtText>,
     /// The text layer: each compartment's run, centred on its cell.
     pub runs: Vec<GdtText>,
+}
+
+fn all_strokes() -> usize {
+    usize::MAX
+}
+
+fn is_all_strokes(n: &usize) -> bool {
+    *n == usize::MAX
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -147,9 +168,9 @@ pub struct GdtText {
 /// draftwright's draft: the leader's shelf (`pad_around_text`), the frame's metrics
 /// (`_gdt_metrics`: cell padding, the zone sign's and the material ring's radii), and the
 /// datum symbol's triangle and frame (`DatumFeature`).
-const H: f64 = 2.0 * TEXT;
+/// A datum feature symbol's box side when its letter fits, twice the CAD text height.
+const H: f64 = 2.0 * haecceity::presentation::gdt::TEXT_HEIGHT;
 pub(super) const SHELF: f64 = 2.0;
-const PAD: f64 = 0.6 * TEXT;
 pub(super) const TRIANGLE: f64 = 1.4 * TEXT;
 const RING: f64 = 0.7 * ARROW;
 /// The clearance beyond the dimensions, and between tiers.
@@ -160,6 +181,8 @@ const TIERS: usize = 16;
 #[derive(Default)]
 struct Laid {
     strokes: Vec<[P2; 2]>,
+    /// How many of the first strokes are lines; the rest are CAD-font text. None: all lines.
+    frame_strokes: Option<usize>,
     arcs: Vec<[f64; 5]>,
     letters: Vec<GdtText>,
     runs: Vec<GdtText>,
@@ -187,8 +210,12 @@ fn width(s: &str, size: f64) -> f64 {
 }
 
 /// Frame *p* with the count of the *n* features it applies to (`4×`) over its box at its left end
-/// (ISO 1101: the number of features above the tolerance frame), its box grown to hold it.
+/// (ISO 1101: the number of features above the tolerance frame), its box grown to hold it. The
+/// count is drawn as the frame's text is: strokes and arcs of the CAD font at its text height,
+/// the ink starting half a text height in from the box's left edge. A character the CAD font
+/// lacks (it has `×` and the digits) is drawn from the sheet's font at the same height.
 pub(super) fn with_count(p: &mut GdtPlaced, n: usize) {
+    use haecceity::presentation::gdt::{TEXT_HEIGHT, cad_datum_frame, cad_frame_missing};
     let count = format!("{n}×");
     // Final witness repairs can revisit a frame already led to the same group.
     // Its translated glyph already carries the count and reserves its paper.
@@ -196,16 +223,50 @@ pub(super) fn with_count(p: &mut GdtPlaced, n: usize) {
         return;
     }
     let b = p.label_box;
-    let w = width(&count, TEXT);
-    let at = [b[0] + 0.5 * w, b[3] + PAD + 0.5 * TEXT];
-    // Drawn from the font, as the frame's own text is, and first on its text layer.
-    p.letters.push(text(&count, at, TEXT));
-    p.runs.insert(0, text(&count, at, TEXT));
-    p.label_box[3] = b[3] + 2.0 * PAD + TEXT;
+    let pad = 0.6 * TEXT_HEIGHT;
+    let base = b[3] + pad;
+    let centre = if cad_frame_missing(&count, &[]).is_empty() {
+        // The strokes of a datum frame's letter, which the CAD font draws centred on the origin
+        // with its baseline half a text height below it, are the count's.
+        let laid = cad_datum_frame(&count);
+        let text = laid.strokes.get(laid.frame_strokes..).unwrap_or_default();
+        let (mut lo, mut hi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+        let mut take = |q: P2| {
+            for k in 0..2 {
+                lo[k] = lo[k].min(q[k]);
+                hi[k] = hi[k].max(q[k]);
+            }
+        };
+        text.iter().flatten().for_each(|q| take(*q));
+        for a in &laid.arcs {
+            for i in 0..=32 {
+                let t = (a[3] + (a[4] - a[3]) * f64::from(i) / 32.0).to_radians();
+                take([a[0] + a[2] * t.cos(), a[1] + a[2] * t.sin()]);
+            }
+        }
+        let shift = [b[0] + 0.5 * TEXT_HEIGHT - lo[0], base + 0.5 * TEXT_HEIGHT];
+        let at = |q: &P2| [q[0] + shift[0], q[1] + shift[1]];
+        p.strokes.extend(text.iter().map(|[x, y]| [at(x), at(y)]));
+        p.arcs.splice(
+            0..0,
+            laid.arcs
+                .iter()
+                .map(|a| [a[0] + shift[0], a[1] + shift[1], a[2], a[3], a[4]]),
+        );
+        [0.5 * (lo[0] + hi[0]) + shift[0], base + 0.5 * TEXT_HEIGHT]
+    } else {
+        let w = width(&count, TEXT_HEIGHT);
+        let at = [b[0] + 0.5 * TEXT_HEIGHT + 0.5 * w, base + 0.5 * TEXT_HEIGHT];
+        p.letters.push(text(&count, at, TEXT_HEIGHT));
+        at
+    };
+    p.runs.insert(0, text(&count, centre, TEXT_HEIGHT));
+    p.label_box[3] = base + TEXT_HEIGHT + pad;
 }
 
 /// A feature control frame laid out from its lower left corner (`FeatureControlFrame`):
-/// haecceity's shared ISO 1101 frame (#258), its cells measured in the sheet's font.
+/// haecceity's CAD-font ISO 1101 frame, sized as a CAD system sizes a native TOLERANCE (text
+/// 2.5 mm, box 5 mm), its text strokes and arcs.
 fn control_frame(glyph: &Glyph) -> (Laid, Vec<String>) {
     let Glyph::ControlFrame {
         characteristic,
@@ -219,13 +280,12 @@ fn control_frame(glyph: &Glyph) -> (Laid, Vec<String>) {
         // Invariant: This branch is reached only for a control-frame annotation.
         unreachable!("a control frame")
     };
-    let c = haecceity::presentation::gdt::control_frame(
+    let c = haecceity::presentation::gdt::cad_control_frame(
         characteristic,
         tolerance,
         *zone,
         *material,
         datums,
-        &width,
     );
     let cells = c.cells.clone();
     (laid(c), cells)
@@ -239,6 +299,7 @@ fn laid(c: haecceity::presentation::Callout) -> Laid {
         size: t.size,
     };
     Laid {
+        frame_strokes: c.text_symbols.then_some(c.frame_strokes),
         strokes: c.strokes,
         arcs: c.arcs,
         letters: c.letters.into_iter().map(text).collect(),
@@ -247,11 +308,11 @@ fn laid(c: haecceity::presentation::Callout) -> Laid {
     }
 }
 
-/// A datum's frame laid out about its centre: haecceity's shared datum feature symbol frame
-/// (#258), which states the letter without measuring it, so its geometry does not depend on the
-/// sheet's font.
+/// A datum's frame laid out about its centre: haecceity's CAD-font datum feature symbol frame,
+/// a box twice the text height on a side, the letter drawn in the frame's font, so its geometry
+/// does not depend on the sheet's font.
 fn datum_frame(letter: &str) -> Laid {
-    laid(haecceity::presentation::datum(letter))
+    laid(haecceity::presentation::gdt::cad_datum_frame(letter))
 }
 
 /// A label's text laid out from its lower left corner, a text height tall per line: each line is
@@ -293,6 +354,7 @@ fn flag_note(number: usize) -> Laid {
         letters: vec![number.clone()],
         runs: vec![number],
         arcs: Vec::new(),
+        frame_strokes: None,
     }
 }
 
@@ -475,7 +537,10 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
             tip[0] + d[0] * 0.9 * TRIANGLE,
             tip[1] + d[1] * 0.9 * TRIANGLE,
         ];
-        let near = [centre[0] - d[0] * TEXT, centre[1] - d[1] * TEXT];
+        let near = [
+            centre[0] - d[0] * 0.5 * size[0],
+            centre[1] - d[1] * 0.5 * size[1],
+        ];
         return Candidate {
             lines: vec![[apex, near]],
             arrows: Vec::new(),
@@ -485,10 +550,10 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
                 [tip[0] - n[0] * half, tip[1] - n[1] * half],
             ]],
             label_box: [
-                centre[0] - TEXT,
-                centre[1] - TEXT,
-                centre[0] + TEXT,
-                centre[1] + TEXT,
+                centre[0] - 0.5 * size[0],
+                centre[1] - 0.5 * size[1],
+                centre[0] + 0.5 * size[0],
+                centre[1] + 0.5 * size[1],
             ],
             origin: centre,
             elbow: near,
@@ -514,12 +579,23 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
     }
 }
 
+/// Half a datum frame's extent across its strip and along it (outward from the view): its box is
+/// as wide as the letter needs and twice the text height tall, however the strip runs.
+fn datum_halves(side: &str, size: P2) -> (f64, f64) {
+    if outward(side)[0] == 0.0 {
+        (0.5 * size[0], 0.5 * size[1])
+    } else {
+        (0.5 * size[1], 0.5 * size[0])
+    }
+}
+
 /// An item's extent across strip *side* from its site, page mm: a frame's or label's leader,
 /// shelf and box above or below its view, its box centred on the leader left or right; a datum's
 /// frame centred on its line.
 fn span(shape: Shape, side: &str, size: P2) -> [f64; 2] {
     if shape == Shape::Datum {
-        [-TEXT, TEXT]
+        let (across, _) = datum_halves(side, size);
+        [-across, across]
     } else if shape == Shape::Finish {
         // From its leader: rightwards above or below the view, upwards beside it.
         if outward(side)[0] == 0.0 {
@@ -564,7 +640,8 @@ fn first_tier(shape: Shape, side: &str, tip: P2, o: [f64; 4], ink: &[[P2; 2]], s
     // A surface texture symbol's box starts at its leader's end beside the view, as a frame's
     // would without its shelf, so the same clearances hold.
     let (from_base, from_tip) = if shape == Shape::Datum {
-        (CLEAR + TEXT, 0.9 * TRIANGLE + 0.8 * TEXT + TEXT)
+        let (_, along) = datum_halves(side, size);
+        (CLEAR + along, 0.9 * TRIANGLE + 0.8 * TEXT + along)
     } else if horizontal {
         (CLEAR + size[1] / 2.0, ARROW + 1.0 + size[1] / 2.0)
     } else {
@@ -578,7 +655,9 @@ fn first_tier(shape: Shape, side: &str, tip: P2, o: [f64; 4], ink: &[[P2; 2]], s
 /// The step between tiers along the strip.
 fn step(shape: Shape, side: &str, size: P2) -> f64 {
     let horizontal = outward(side)[0] == 0.0;
-    if shape == Shape::Datum || horizontal {
+    if shape == Shape::Datum {
+        2.0 * datum_halves(side, size).1 + CLEAR
+    } else if horizontal {
         size[1] + CLEAR
     } else if shape == Shape::Finish {
         size[0] + CLEAR
@@ -609,13 +688,14 @@ fn inside_tiers(
     // Start at the attachment, not at the far end of the entire view. A shoulder
     // or face extension can have clear paper beside it inside the outline's span.
     // The obstacle grade requires proof of exterior paper within the view's box.
-    let first = dot(tip, d) + 0.9 * TRIANGLE + 0.8 * TEXT + TEXT;
+    let (half_across, half_along) = datum_halves(side, size);
+    let first = dot(tip, d) + 0.9 * TRIANGLE + 0.8 * TEXT + half_along;
     let across = usize::from(d[0] != 0.0);
     let nearest = ink
         .iter()
         .filter(|[a, b]| {
-            a[across].min(b[across]) < tip[across] + TEXT + CLEAR
-                && a[across].max(b[across]) > tip[across] - TEXT - CLEAR
+            a[across].min(b[across]) < tip[across] + half_across + CLEAR
+                && a[across].max(b[across]) > tip[across] - half_across - CLEAR
         })
         .flat_map(|l| l.iter().map(|p| dot(*p, d)))
         .filter(|v| *v > dot(tip, d) + 1e-6)
@@ -634,7 +714,7 @@ fn inside_tiers(
         .flat_map(|start| {
             (0..TIERS)
                 .map(move |k| start + k as f64 * step(Shape::Datum, side, size))
-                .take_while(move |p| *p + TEXT + CLEAR <= nearest)
+                .take_while(move |p| *p + half_along + CLEAR <= nearest)
                 .map(move |p| p * sign)
         })
         .collect();
@@ -1093,7 +1173,7 @@ pub(crate) fn demand_with_spec(
             let shape = Shape::of(&item.glyph);
             let datum = shape == Shape::Datum;
             let size = match &item.glyph {
-                Glyph::Datum { .. } => [H, H],
+                Glyph::Datum { letter, .. } => datum_frame(letter).size,
                 Glyph::Label { text } => label(text).size,
                 Glyph::FlagNote { number, .. } => flag_note(*number).size,
                 Glyph::Finish { texture, .. } => finish_symbol(texture, spec.units).0.size,
@@ -1104,7 +1184,7 @@ pub(crate) fn demand_with_spec(
             let p = f.page(item.site);
             let o = f.outline();
             let depth = if datum {
-                H
+                2.0 * datum_halves(item.side, size).1
             } else if horizontal {
                 size[1]
             } else if shape == Shape::Finish {
@@ -2045,6 +2125,7 @@ fn plan_search(
                 .iter()
                 .map(|[a, b]| [shift(*a), shift(*b)])
                 .collect(),
+            frame_strokes: laid.frame_strokes.unwrap_or(usize::MAX),
             arcs,
             fills: chosen.fills,
             letters: laid.letters.iter().map(moved).collect(),
@@ -2102,8 +2183,12 @@ fn plan_search(
 /// toward *side*, its frame in tier *tier* (0 nearest, as [`first_tier`] spaces it from a tip).
 pub(super) fn datum_at(letter: &str, tip: P2, side: &str, tier: usize) -> GdtPlaced {
     let d = outward(side);
-    let size = [H, H];
-    let reach = 0.9 * TRIANGLE + 0.8 * TEXT + TEXT + tier as f64 * step(Shape::Datum, side, size);
+    let laid = datum_frame(letter);
+    let size = laid.size;
+    let reach = 0.9 * TRIANGLE
+        + 0.8 * TEXT
+        + datum_halves(side, size).1
+        + tier as f64 * step(Shape::Datum, side, size);
     let pos = dot(tip, d) + reach;
     let c = candidate(
         Shape::Datum,
@@ -2112,7 +2197,6 @@ pub(super) fn datum_at(letter: &str, tip: P2, side: &str, tier: usize) -> GdtPla
         if d[0] + d[1] < 0.0 { -pos } else { pos },
         size,
     );
-    let laid = datum_frame(letter);
     let shift = |p: P2| [p[0] + c.origin[0], p[1] + c.origin[1]];
     let moved = |t: &GdtText| GdtText {
         text: t.text.clone(),
@@ -2129,7 +2213,15 @@ pub(super) fn datum_at(letter: &str, tip: P2, side: &str, tier: usize) -> GdtPla
             .iter()
             .map(|[a, b]| [shift(*a), shift(*b)])
             .collect(),
-        arcs: Vec::new(),
+        frame_strokes: laid.frame_strokes.unwrap_or(usize::MAX),
+        arcs: laid
+            .arcs
+            .iter()
+            .map(|a| {
+                let c = shift([a[0], a[1]]);
+                [c[0], c[1], a[2], a[3], a[4]]
+            })
+            .collect(),
         fills: c.fills,
         letters: laid.letters.iter().map(moved).collect(),
         runs: laid.runs.iter().map(moved).collect(),
@@ -2387,8 +2479,18 @@ pub fn render(
     for [a, b] in &p.lines {
         items.push(Item::Edge(Curve::Line(*a, *b)));
     }
-    for [a, b] in &p.strokes {
-        items.push(Item::Edge(Curve::Line(*a, *b)));
+    // A CAD-font frame's text is strokes and arcs after its lines, each tied to the run of the
+    // compartment it sits in and drawn with the text pen.
+    let run_of = text_run_of(p, g.cells.len(), first);
+    for (i, [a, b]) in p.strokes.iter().enumerate() {
+        items.push(if i < p.frame_strokes {
+            Item::Edge(Curve::Line(*a, *b))
+        } else {
+            Item::FrameText(
+                Curve::Line(*a, *b),
+                run_of([0, 1].map(|k| 0.5 * (a[k] + b[k]))),
+            )
+        });
     }
     for [tip, tail] in &p.arrows {
         let n = [tail[1] - tip[1], tip[0] - tail[0]];
@@ -2407,15 +2509,25 @@ pub fn render(
             .collect();
         items.push(Item::Face(vec![wire]));
     }
-    for a in &p.arcs {
-        items.push(Item::Edge(Curve::Conic {
+    let text_arcs = if p.frame_strokes == usize::MAX {
+        0
+    } else {
+        p.arcs.len().saturating_sub(ring_arcs(g))
+    };
+    for (i, a) in p.arcs.iter().enumerate() {
+        let curve = Curve::Conic {
             centre: [a[0], a[1]],
             radii: [a[2], a[2]],
             x_axis: [1.0, 0.0],
             y_axis: [0.0, 1.0],
             t0: a[3].to_radians(),
             t1: a[4].to_radians(),
-        }));
+        };
+        items.push(if i < text_arcs {
+            Item::FrameText(curve, run_of([a[0], a[1]]))
+        } else {
+            Item::Edge(curve)
+        });
     }
     let f = font();
     for l in &p.letters {
@@ -2475,6 +2587,59 @@ pub fn render(
     })
 }
 
+/// The characters of a placed frame's text that neither CAD font draws
+/// (`haecceity::presentation::gdt::cad_frame_missing`), as the frame leaves them out of its ink:
+/// in its tolerance cell without the zone sign and material letter the cell adds, and in its
+/// datum cells; for a datum symbol, its letter.
+pub(crate) fn frame_missing(g: &PlannedGdt) -> Vec<char> {
+    use haecceity::presentation::gdt::cad_frame_missing;
+    match (g.kind.as_str(), g.cells.as_slice()) {
+        ("control_frame", [_, tolerance, datums @ ..]) => {
+            let value = tolerance.trim_start_matches("S⌀").trim_start_matches('⌀');
+            let value = value.trim_end_matches(['Ⓜ', 'Ⓛ']);
+            cad_frame_missing(value, datums)
+        }
+        ("datum_feature", [letter]) => cad_frame_missing(letter, &[]),
+        _ => Vec::new(),
+    }
+}
+
+/// How many circles the leader's bend scope symbols add to the end of a frame's arcs.
+fn ring_arcs(g: &PlannedGdt) -> usize {
+    g.modifiers
+        .iter()
+        .map(|m| if m == "all_over" { 2 } else { 1 })
+        .sum()
+}
+
+/// The index, in the text run list that [`render`] builds from *first*, of the run whose
+/// compartment a point of *p*'s text falls in: a point above the frame's box is the count's, a
+/// point in the box is its cell's by the frame's dividers.
+fn text_run_of(p: &GdtPlaced, cells: usize, first: usize) -> impl Fn(P2) -> usize {
+    let lines = &p.strokes[..p.frame_strokes.min(p.strokes.len())];
+    let top = lines
+        .iter()
+        .flatten()
+        .map(|q| q[1])
+        .fold(f64::NEG_INFINITY, f64::max);
+    let mut dividers: Vec<f64> = lines
+        .iter()
+        .filter(|[a, b]| a[0] == b[0])
+        .map(|[a, _]| a[0])
+        .collect();
+    dividers.sort_by(f64::total_cmp);
+    dividers.dedup();
+    let lead = p.runs.len().saturating_sub(cells);
+    let last = p.runs.len().saturating_sub(1);
+    move |q| {
+        if lead > 0 && q[1] > top {
+            return first;
+        }
+        let cell = dividers.iter().filter(|x| **x < q[0]).count().max(1) - 1;
+        first + (lead + cell).min(last)
+    }
+}
+
 /// What [`render`] drew of a placed feature control frame that is the frame itself, for the
 /// DXF's one native frame entity to stand in for: the box, dividers and symbol strokes, the
 /// zone and material rings (the laid ink), and the compartments' runs. The leader's lines,
@@ -2497,16 +2662,14 @@ pub(crate) fn frame(g: &PlannedGdt) -> Option<crate::dxf_output::Frame> {
         "{}: runs are not the cells",
         g.id
     );
-    let rings: usize = g
-        .modifiers
-        .iter()
-        .map(|m| if m == "all_over" { 2 } else { 1 })
-        .sum();
+    let rings = ring_arcs(g);
     debug_assert!(p.arcs.len() >= rings, "{}: fewer arcs than rings", g.id);
     let own_arcs = p.arcs.len().saturating_sub(rings);
     let first = p.lines.len();
     let arcs = first + p.strokes.len() + p.arrows.len() + p.fills.len();
-    let (x0, y0, y1) = p.strokes.iter().flatten().fold(
+    // The box alone: the count above it and the text in it are not its extent.
+    let lines = &p.strokes[..p.frame_strokes.min(p.strokes.len())];
+    let (x0, y0, y1) = lines.iter().flatten().fold(
         (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY),
         |(x, a, b), q| (x.min(q[0]), a.min(q[1]), b.max(q[1])),
     );

@@ -936,7 +936,7 @@ fn ink_box<'a>(items: impl Iterator<Item = &'a Item>) -> [f64; 4] {
             Item::Face(wires) | Item::Glyph(wires, _) => {
                 wires.iter().flatten().for_each(&mut curve)
             }
-            Item::Edge(c) | Item::TextStroke(c, _) => curve(c),
+            Item::Edge(c) | Item::TextStroke(c, _) | Item::FrameText(c, _) => curve(c),
         }
     }
     b

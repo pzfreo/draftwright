@@ -543,6 +543,7 @@ fn a_datum_shaft_meets_its_frame_but_does_not_cross_its_letter() {
                 [[56.0, 56.0], [50.0, 56.0]],
                 [[50.0, 56.0], [50.0, 50.0]],
             ],
+            frame_strokes: usize::MAX,
             arcs: Vec::new(),
             fills: vec![vec![[40.0, 51.0], [42.0, 53.0], [40.0, 55.0]]],
             letters: vec![letter.clone()],

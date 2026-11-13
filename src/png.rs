@@ -95,6 +95,10 @@ impl Drawing {
                 ..Stroke::default()
             };
             for item in &layer.items {
+                stroke.width = match item {
+                    Item::FrameText(..) => (crate::output::TEXT_PEN * k) as f32,
+                    _ => (st.width * k) as f32,
+                };
                 if layer.name == "centres" {
                     stroke.dash = StrokeDash::new(
                         st.dash.unwrap().iter().map(|n| (n * k) as f32).collect(),
@@ -121,7 +125,7 @@ impl Drawing {
                     }
                 };
                 match item {
-                    Item::Edge(curve) | Item::TextStroke(curve, _) => {
+                    Item::Edge(curve) | Item::TextStroke(curve, _) | Item::FrameText(curve, _) => {
                         trace(std::slice::from_ref(curve))
                     }
                     Item::Face(wires) | Item::Glyph(wires, _) => {

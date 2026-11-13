@@ -119,7 +119,7 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
     // (a) Text ink never reaches the DXF as geometry: emptying it leaves every geometry entity.
     let mut bare = drawing.clone();
     for item in bare.layers.iter_mut().flat_map(|l| &mut l.items) {
-        if let Item::Glyph(_, r) | Item::TextStroke(_, r) = item {
+        if let Item::Glyph(_, r) | Item::TextStroke(_, r) | Item::FrameText(_, r) = item {
             *item = Item::Glyph(Vec::new(), *r);
         }
     }
