@@ -1210,6 +1210,9 @@ fn cad_frames_leave_room_for_the_complete_manufacturing_table() {
         .iter()
         .find(|t| t.id == "manufacturing_requirements")
         .unwrap();
+    // Both planners bind the unchanged requested intent to this exact source.
+    let mut bound = given.clone();
+    bound.binding = Some(a.binding.clone());
     let font =
         draftwright::text::Font::open(&root().join("fonts").join(draftwright::dims::FONT)).unwrap();
     for plan in [
@@ -1225,7 +1228,7 @@ fn cad_frames_leave_room_for_the_complete_manufacturing_table() {
         );
         assert_eq!(table.rows, original.rows);
         assert_eq!(table.row_claims, original.row_claims);
-        assert_eq!(plan.spec, given);
+        assert_eq!(plan.spec, bound);
         assert!(
             !plan
                 .problems
