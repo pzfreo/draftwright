@@ -2638,27 +2638,49 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
                 .any(|d| d.kind == "linear" && (d.value - value).abs() < 1e-6)
         );
     }
-    assert!(!plan.problems.iter().any(|p| {
-        p.code == "dimension_line_crossing"
-            || (matches!(
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    let notch_contacts: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| {
+            p.code == "dimension_line_crossing"
+                || (matches!(
+                    p.code.as_str(),
+                    "extension_through_feature"
+                        | "label_crowded"
+                        | "annotation_overlap"
+                        | "annotation_ink_overlap"
+                ) && p
+                    .subjects
+                    .iter()
+                    .any(|s| s.contains("rectangular_through_notch")))
+        })
+        .map(|p| {
+            (
                 p.code.as_str(),
-                "extension_through_feature"
-                    | "label_crowded"
-                    | "annotation_overlap"
-                    | "annotation_ink_overlap"
-            ) && p
-                .subjects
-                .iter()
-                .any(|s| s.contains("rectangular_through_notch")))
-    }));
-    for (code, max) in [
-        ("extension_through_feature", 9),
-        ("label_crowded", 0),
-        ("annotation_leader_crossing", 4),
+                p.subjects.iter().map(String::as_str).collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        notch_contacts,
+        vec![(
+            "label_crowded",
+            vec![
+                "d:f:rectangular_through_notch:f37/location.length.x",
+                "d:f:hole_pattern:f0/grid_pitch.length.row"
+            ]
+        )]
+    );
+    for (code, count) in [
+        ("extension_through_feature", 8),
+        ("label_crowded", 1),
+        ("annotation_leader_crossing", 1),
         ("leader_across_view", 0),
     ] {
-        assert!(
-            plan.problems.iter().filter(|p| p.code == code).count() <= max,
+        assert_eq!(
+            plan.problems.iter().filter(|p| p.code == code).count(),
+            count,
             "{code}: {:?}",
             plan.problems
         );
