@@ -12363,6 +12363,11 @@ fn render_annotations_with_cuts(
         .filter(|d| d.placed.is_some())
         .map(|d| (d.id.clone(), crate::dxf_output::Dimension::from(d)))
         .collect();
+    sheet.dxf.frames = plan
+        .gdt
+        .iter()
+        .filter_map(|g| Some((g.id.clone(), crate::dims::gdt::frame(g)?)))
+        .collect();
     let missing_glyphs = crate::output::missing_glyphs(&text);
     Ok(Drawing {
         page: plan.sheet.page,

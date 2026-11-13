@@ -59,7 +59,8 @@
 //!
 //! Each item's text layer is its compartments as the plan states them (`⌖`, `⌀0.05Ⓜ`, `A`, …),
 //! one invisible run over each, so the PDF and SVG can be searched and lint reads it. The ink of
-//! the symbols is strokes, so the font need hold only the digits, letters and `ø` (checked by
+//! the symbols is strokes in the SVG and PDF (the DXF writes each frame as one native TOLERANCE
+//! with the gdt font's symbols instead, from [`frame`]), so the font need hold only the digits, letters and `ø` (checked by
 //! `tests/pmi_lowering.rs`); a label's text is drawn as the file states it, a character the font
 //! lacks as its missing-glyph box (as draftwright's FreeType draws it).
 
@@ -2383,28 +2384,11 @@ pub fn render(
     }
     let p = g.placed.as_ref()?;
     let first = text.len();
-    let symbol_run = |a: P2, b: P2| {
-        p.runs
-            .iter()
-            .enumerate()
-            .find(|(_, r)| {
-                r.text.chars().count() == 1
-                    && r.text.chars().any(|c| (c as u32) >= 0x2100)
-                    && [a, b]
-                        .iter()
-                        .all(|p| (0..2).all(|k| (p[k] - r.at[k]).abs() < 0.75 * r.size))
-            })
-            .map(|(i, _)| first + i)
-    };
     for [a, b] in &p.lines {
         items.push(Item::Edge(Curve::Line(*a, *b)));
     }
     for [a, b] in &p.strokes {
-        let curve = Curve::Line(*a, *b);
-        items.push(symbol_run(*a, *b).map_or_else(
-            || Item::Edge(curve.clone()),
-            |r| Item::TextStroke(curve.clone(), r),
-        ));
+        items.push(Item::Edge(Curve::Line(*a, *b)));
     }
     for [tip, tail] in &p.arrows {
         let n = [tail[1] - tip[1], tip[0] - tail[0]];
@@ -2488,6 +2472,49 @@ pub fn render(
         view: Some(g.view.clone()),
         runs: (first..text.len()).collect(),
         claims: Vec::new(),
+    })
+}
+
+/// What [`render`] drew of a placed feature control frame that is the frame itself, for the
+/// DXF's one native frame entity to stand in for: the box, dividers and symbol strokes, the
+/// zone and material rings (the laid ink), and the compartments' runs. The leader's lines,
+/// arrowheads and fills, the all-around and all-over rings at its bend, and the count over the
+/// box are not. Item offsets follow [`render`]'s push order; the rings are the last arcs, as
+/// the callout routes count them.
+///
+/// Every placed control frame has a frame: it needs only its box strokes to locate it. That its
+/// runs end in its cells and that it has the arcs its rings count on are what [`render`] builds,
+/// so they are asserted, not tested for.
+pub(crate) fn frame(g: &PlannedGdt) -> Option<crate::dxf_output::Frame> {
+    let p = g.placed.as_ref().filter(|_| g.kind == "control_frame")?;
+    let lead = p.runs.len().saturating_sub(g.cells.len());
+    debug_assert!(
+        p.runs.len() >= g.cells.len()
+            && p.runs[lead..]
+                .iter()
+                .zip(&g.cells)
+                .all(|(r, c)| r.text == *c),
+        "{}: runs are not the cells",
+        g.id
+    );
+    let rings: usize = g
+        .modifiers
+        .iter()
+        .map(|m| if m == "all_over" { 2 } else { 1 })
+        .sum();
+    debug_assert!(p.arcs.len() >= rings, "{}: fewer arcs than rings", g.id);
+    let own_arcs = p.arcs.len().saturating_sub(rings);
+    let first = p.lines.len();
+    let arcs = first + p.strokes.len() + p.arrows.len() + p.fills.len();
+    let (x0, y0, y1) = p.strokes.iter().flatten().fold(
+        (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY),
+        |(x, a, b), q| (x.min(q[0]), a.min(q[1]), b.max(q[1])),
+    );
+    x0.is_finite().then(|| crate::dxf_output::Frame {
+        cells: g.cells.clone(),
+        at: [x0, 0.5 * (y0 + y1)],
+        ink: vec![first..first + p.strokes.len(), arcs..arcs + own_arcs],
+        lead,
     })
 }
 
