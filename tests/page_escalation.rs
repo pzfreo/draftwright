@@ -374,7 +374,11 @@ fn an_info_or_view_box_finding_is_not_a_hard_failure() {
 /// candidate whose only fault is dropped hole items is now planned on its own sheet and scale,
 /// which places them.) A failed recovery is said
 /// (`layout_recovery_exhausted`, which only `model::recover` says) by the plan and by the
-/// drawing's reply (`review`): 10046's. A sheet and scale the spec names are kept and nothing is tried;
+/// drawing's reply (`review`): 10046's with its depth dimension placed four lanes out, which
+/// rules A4 at 2:1 out (the aligned front and side views need more than A4's width) and keeps
+/// A4 at 1:1, clean. (10046 on its own was the specimen until its isometric cleared the frame
+/// gutter and A4 at 2:1 was taken; no part in the test manifest fails recovery on its own.) A
+/// sheet and scale the spec names are kept and nothing is tried;
 /// a sheet it names alone is kept. (ctc01 held this until the layout kept the isometric off the
 /// plan's bands, drawing quality 3: its label off the sheet is gone, and with it the re-plan.)
 #[test]
@@ -404,15 +408,31 @@ fn every_planning_entry_point_applies_the_recovery() {
     let review = api::review_analysed(&step, &analysis, &no_tables).unwrap();
     let said: Vec<&str> = review.problems.iter().map(|p| p.code.as_str()).collect();
     // cgb245's recovery succeeds now (A3 at 1:2), so neither its plan nor its review says a
-    // failed one. 10046's still fails, and its review says so as its plan does.
+    // failed one. 10046's with the placement fails, and its review says so as its plan does.
     assert_eq!(sheet(&plan), ("A3", "1:2"), "{}", plan.sheet.basis);
     assert!(!codes(&plan).contains(&"layout_recovery_exhausted"));
     assert!(!said.contains(&"layout_recovery_exhausted"), "{said:?}");
     let failing = corpus::dir().unwrap().join("mfcadpp/10046.step");
     let failed = api::analyse_from(&failing, Features::Native).unwrap();
-    let plan46 = api::plan_analysed(&failed, &Spec::default()).unwrap();
+    let placed: Spec = serde_json::from_value(json!({
+        "dimensions": {"d:envelope/depth.length": {"place": {"side": "right", "lane": 4}}}
+    }))
+    .unwrap();
+    let plan46 = api::plan_analysed(&failed, &placed).unwrap();
+    assert_eq!(sheet(&plan46), ("A4", "1:1"), "{}", plan46.sheet.basis);
     assert!(codes(&plan46).contains(&"layout_recovery_exhausted"));
-    let review = api::review_analysed(&failing, &failed, &Spec::default()).unwrap();
+    // model::recover's exhausted branch: the first estimate kept with its findings.
+    assert!(
+        plan46
+            .problems
+            .iter()
+            .any(|p| p.code == "layout_recovery_exhausted"
+                && p.message
+                    .contains("so this drawing and its findings are kept")),
+        "{:?}",
+        plan46.problems
+    );
+    let review = api::review_analysed(&failing, &failed, &placed).unwrap();
     let said: Vec<&str> = review.problems.iter().map(|p| p.code.as_str()).collect();
     assert!(said.contains(&"layout_recovery_exhausted"), "{said:?}");
 

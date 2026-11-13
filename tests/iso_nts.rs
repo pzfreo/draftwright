@@ -499,6 +499,33 @@ fn hanger_authored_dimensions_leave_the_nts_caption_clear_of_ink() {
     }
 }
 
+/// mfcadpp/10046 at A4 2:1 leaves the isometric the 37 mm strip beside the title block. The
+/// fit's 2 % is 0.37 mm of it, less than the outline's stroke, which the sheet policy reads as
+/// ink at the frame gutter: the scale was refused for it and the part stayed at 1:1. The
+/// isometric clears the gutter by its stroke, and the part is drawn at 2:1.
+#[test]
+fn an_isometric_shrunk_beside_the_frame_gutter_clears_it_by_its_stroke() {
+    let Some(corpus) = corpus::dir() else { return };
+    let (_, analysis) = model::analyse_native(&corpus.join("mfcadpp/10046.step")).unwrap();
+    let plan = model::plan_recovered(&analysis, &model::Spec::default()).unwrap();
+    assert_eq!(
+        (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+        ("A4", "2:1")
+    );
+    assert!(iso_ratio(&plan) < 1.0, "the isometric is shrunk to fit");
+    let iso = plan.views.iter().find(|v| v.id == "v:iso").unwrap();
+    let clear = draftwright::layout::margin() + draftwright::output::layer_styles()[0].1.width;
+    let [w, h] = plan.sheet.page;
+    assert!(
+        iso.area[0] >= clear
+            && iso.area[1] >= clear
+            && iso.area[2] <= w - clear
+            && iso.area[3] <= h - clear,
+        "{:?} within {clear} mm of the sheet's edges",
+        iso.area
+    );
+}
+
 #[test]
 fn pinned_refits_snap_the_isometric_to_sheet_scale() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
