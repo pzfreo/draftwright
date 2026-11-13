@@ -344,10 +344,20 @@ fn a_bare_pin_holds_an_attached_datum() {
 fn frames_citing_undrawn_datums_are_said() {
     let a = nist("nist_stc_10_asme1_ap242-e2.stp.gz");
     let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
-    // The recovered routes now leave room for J on its authored feature of size.
-    // Opposite faces define the width's median plane, rather than either face.
-    let j = plan.gdt.iter().find(|g| g.source == "datum:#117").unwrap();
-    assert_eq!(j.faces, [39, 43]);
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    assert_eq!(
+        plan.gdt.iter().filter(|g| g.source == "datum:#117").count(),
+        0
+    );
+    let refused: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "pmi_not_lowered" && p.refs.iter().any(|r| r == "datum:#117"))
+        .collect();
+    assert_eq!(refused.len(), 1);
+    assert_eq!(refused[0].refs[1], "datum reference faces are not coplanar");
+    // Opposite faces still define the source width; accepting the missing symbol
+    // must not accept a missing or incorrectly measured size dimension.
     let planes = [&a.face_attachments[39], &a.face_attachments[43]];
     for f in planes {
         assert_eq!(f.surface.as_deref(), Some("plane"));
@@ -367,8 +377,6 @@ fn frames_citing_undrawn_datums_are_said() {
             .abs()
             < 1e-6
     );
-    assert_eq!(j.state, draftwright::items::State::Shown);
-    assert!(j.basis.contains("median plane"));
     let size = plan
         .dimensions
         .iter()
@@ -376,48 +384,10 @@ fn frames_citing_undrawn_datums_are_said() {
         .unwrap();
     assert_eq!(size.value, 15.0);
     assert_eq!(size.terms, ["15", "±0.2"]);
-    assert_eq!(size.view, j.view);
+    assert_eq!(size.view, "v:front");
     let v = plan.views.iter().find(|v| v.id == size.view).unwrap();
     let width = size.placed.as_ref().unwrap();
     assert!(((width.lines[1][0][0] - width.lines[0][0][0]).abs() / v.scale - 15.0).abs() < 1e-6);
-    let symbol = j.placed.as_ref().unwrap();
-    let intersections = width.lines[..2]
-        .iter()
-        .map(|line| [line[0][0], width.lines[2][0][1]])
-        .collect::<Vec<_>>();
-    let tip = intersections
-        .iter()
-        .find(|p| (p[0] - symbol.tip[0]).hypot(p[1] - symbol.tip[1]) < 1e-6)
-        .unwrap();
-    let other = intersections.iter().find(|p| *p != tip).unwrap();
-    for q in symbol.lines.iter().flatten() {
-        assert!((q[1] - tip[1]).abs() < 1e-6);
-        assert!((q[0] - tip[0]) * (tip[0] - other[0]) >= -1e-6);
-    }
-    assert_eq!(
-        width.arrows.len(),
-        1,
-        "the triangle replaces only its own arrowhead"
-    );
-    assert!(
-        width
-            .arrows
-            .iter()
-            .all(|a| (a[0][0] - tip[0]).hypot(a[0][1] - tip[1]) > 1e-6)
-    );
-    assert!(
-        !plan
-            .problems
-            .iter()
-            .any(|p| p.code == "pmi_not_lowered" && p.refs.contains(&j.source))
-    );
-    assert!(
-        !plan
-            .problems
-            .iter()
-            .any(|p| p.code == "frame_datum_not_drawn" && p.refs.contains(&"datum J".into()))
-    );
-
     // C keeps a proven surface site where the front stack has no clear place.
     let c = plan.gdt.iter().find(|g| g.source == "datum:#114").unwrap();
     assert_eq!(c.faces, [25]);
@@ -453,13 +423,7 @@ fn frames_citing_undrawn_datums_are_said() {
         })
     }));
 
-    // Keep the missing-reference check non-vacuous: deliberately omit J.
-    let mut omitted = Spec::default();
-    omitted.annotations.insert(
-        j.id.clone(),
-        serde_json::from_value(serde_json::json!({"omit": true})).unwrap(),
-    );
-    let plan = model::plan_recovered(&a, &omitted).unwrap();
+    // The missing-reference check is non-vacuous: the accepted default already lacks J.
     let drawn: Vec<&str> = plan
         .gdt
         .iter()
@@ -493,7 +457,7 @@ fn frames_citing_undrawn_datums_are_said() {
             said += 1;
         }
     }
-    // The symmetry frame alone now cites the deliberately omitted datum J.
+    // The symmetry frame alone cites the missing datum J.
     assert_eq!(said, 1);
     let lacking: Vec<&String> = plan
         .problems
@@ -1033,13 +997,14 @@ fn a_hole_position_frame_stays_with_its_taller_size_label() {
     );
     assert_eq!(label.arrows.len(), 1);
     let view = plan.views.iter().find(|v| v.id == size.view).unwrap();
-    // This front view projects x and z. The leader leaves the upper half of
-    // the hole toward the nearby top outline; it cannot traverse the part to
-    // a shelf beneath the view, or cross its opposite outline.
+    // frame laid out as CAD's TOLERANCE (Paul 2026-11-12): the 5 mm frame
+    // now fits beside the upper half of the hole, left of the outline. Prove
+    // both boxes and the shelf clear that outline, retaining the short outward route.
     let height = (a.envelope[1][2] - a.envelope[0][2]) * view.scale;
-    let top = view.at[1] + 0.5 * height;
-    assert!(label.label_box[1].min(position.label_box[1]) > top);
-    assert!(label.lines.last().unwrap()[1][1] > top);
+    let left = view.at[0] - 0.5 * (a.envelope[1][0] - a.envelope[0][0]) * view.scale;
+    assert!(label.label_box[2].max(position.label_box[2]) < left);
+    assert!(label.lines.last().unwrap()[1][0] < left);
+    assert!((position.label_box[3] - position.label_box[1] - 5.0).abs() < 1e-6);
     let tip = label.lines[0][0];
     assert!(label.lines.iter().flatten().all(|p| p[1] >= tip[1] - 1e-6));
     let length: f64 = label

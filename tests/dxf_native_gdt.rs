@@ -173,6 +173,20 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
             "{name}: box {} mm tall",
             hi - lo
         );
+        if let Some([_, end]) = p.lines.last() {
+            let (left, right) = lines
+                .iter()
+                .flatten()
+                .fold((f64::MAX, f64::MIN), |(left, right), q| {
+                    (left.min(q[0]), right.max(q[0]))
+                });
+            assert!(
+                (end[0] - left).abs().min((end[0] - right).abs()) < 1e-9
+                    && end[1] >= lo - 1e-9
+                    && end[1] <= hi + 1e-9,
+                "{name}: leader ends at {end:?}, away from the drawn frame [{left}, {lo}, {right}, {hi}]"
+            );
+        }
         assert!(p.letters.is_empty(), "{name}: a frame's text is geometry");
     }
     let text_ink = drawing

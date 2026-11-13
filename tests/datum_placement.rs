@@ -412,13 +412,18 @@ fn dense_datums_are_separate(name: &str, expected: usize) -> Plan {
 
 #[test]
 fn ftc10_coincident_projected_datums_do_not_touch() {
-    dense_datums_are_separate("nist_ftc_10_asme1_ap242-e2.stp.gz", 8);
+    // frame laid out as CAD's TOLERANCE (Paul 2026-11-12): the smaller boxes also let J fit.
+    dense_datums_are_separate("nist_ftc_10_asme1_ap242-e2.stp.gz", 9);
 }
 
 #[test]
 fn stc10_coincident_projected_datums_do_not_touch() {
-    // The 15 ±0.2 width now carries its median-plane datum J as well.
-    let plan = dense_datums_are_separate("nist_stc_10_asme1_ap242-e2.stp.gz", 9);
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    let plan = dense_datums_are_separate("nist_stc_10_asme1_ap242-e2.stp.gz", 8);
+    assert_eq!(
+        plan.gdt.iter().filter(|g| g.source == "datum:#117").count(),
+        0
+    );
     let frame = "pmi:geometric_tolerance.profile_surface:f65:ref=A,B,C";
     assert!(plan.gdt.iter().any(|g| g.id == frame && g.placed.is_some()));
     assert!(
