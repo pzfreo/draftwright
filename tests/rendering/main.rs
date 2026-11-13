@@ -7,6 +7,8 @@ mod bands;
 mod centrelines;
 #[path = "../detail_views.rs"]
 mod detail_views;
+#[path = "../dxf_native_gdt.rs"]
+mod dxf_native_gdt;
 #[path = "../fix_relayout.rs"]
 mod fix_relayout;
 #[path = "../gdt_band.rs"]

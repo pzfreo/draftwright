@@ -12,10 +12,15 @@ All notable changes to draftwright-rust are recorded here, in the style of
   unmeasured "move it above/left of the view" guess is gone. Nothing replaces a withheld fix. A
   fix that lays the whole sheet out again is offered as before: its outcome is not known until
   it is planned, so preview it before applying. Drawings are unchanged.
-- DXF: GD&T characteristic symbols (⏥ ⟂ ⌖ ⌓ …) are drawn as the lines and arcs of their strokes,
-  and the circled modifiers Ⓜ Ⓛ are written `(M)` and `(L)`, so no text or dimension style names
-  a TTF. AutoCAD on Windows had no STIXGeneral or Arial Unicode, substituted simplex.shx and
-  printed `?` for every symbol.
+- DXF: each feature control frame is one native TOLERANCE entity (layer A-PMI) that opens in a
+  CAD program as an editable geometric tolerance, its symbols the gdt font's (`{\Fgdt;j}`:
+  gdt.shx in AutoCAD, gdt.cxf in QCAD). No part of a frame is written as loose lines, circles
+  or text any more, and the guessed pairing of symbol strokes with text is gone. The string is
+  AutoCAD's positional one, six slots always (symbol, tolerance 1, tolerance 2, datums 1 to 3):
+  `{\Fgdt;j}%%v{\Fgdt;n}1.143%%v%%vA%%vB%%vC`, so a datum is never read as a second tolerance
+  (a frame with more than three datums fits no slot and is written unpadded). Other
+  circled modifiers stay `(F)`-style words. SVG and PDF are unchanged. Not yet opened in
+  AutoCAD itself.
 - Python: `draftwright.Part`, the Python half of the build123d requirements API (0.6.0-alpha.2).
   Datums, holes (fit, thread, position, finish), part data and flatness/finish on faces are
   recorded as Specify answers; referenced faces get `f:` names in the exported STEP (written with OCCT's

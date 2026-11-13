@@ -27,6 +27,7 @@ pub struct Structure {
     pub furniture: BTreeMap<String, Range<usize>>,
     pub furniture_views: BTreeMap<String, String>,
     pub dimensions: BTreeMap<String, Dimension>,
+    pub frames: BTreeMap<String, Frame>,
     pub title: Range<usize>,
     pub labels: Vec<TextRun>,
     pub title_fields: Vec<(String, TextRun)>,
@@ -36,6 +37,18 @@ pub struct CuttingPlane {
     pub name: String,
     pub view: String,
     pub items: Range<usize>,
+}
+/// A feature control frame, written as one TOLERANCE entity ([`crate::dims::gdt::frame`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Frame {
+    /// The compartments' text, as the plan states them.
+    pub cells: Vec<String>,
+    /// The box's left edge at mid height.
+    pub at: P,
+    /// Offsets of the annotation's items that are the frame's own ink, drawn by the entity.
+    pub ink: Vec<Range<usize>>,
+    /// How many of the annotation's first runs are not compartments (the count over the box).
+    pub lead: usize,
 }
 /// Only the plan fields needed by DXF: avoid cloning planning explanations,
 /// claims and placement history on the SVG/PDF/PNG path.
@@ -145,6 +158,12 @@ struct DimStyle {
     fixed: bool,
     leader: bool,
     inches: bool,
+    /// The style of a feature control frame: DIMTXT is the run's size (`dims::TEXT`) and DIMGAP
+    /// half of it. Measured (QCAD 3.33 and Autodesk's online viewer, 2026-11-12): both draw the
+    /// box 2 x DIMTXT tall and ignore DIMGAP, so DIMTXT 3.0 gives the 6 mm box the layout draws.
+    /// DIMGAP 1.5 is kept so the documented DIMTXT + 2 x DIMGAP rule gives the same height.
+    /// Nothing is claimed here about desktop AutoCAD.
+    frame: bool,
 }
 impl Default for DimStyle {
     fn default() -> Self {
@@ -155,6 +174,7 @@ impl Default for DimStyle {
             fixed: false,
             leader: false,
             inches: false,
+            frame: false,
         }
     }
 }
@@ -174,6 +194,9 @@ impl DimStyle {
         if self.leader {
             name.push_str("-LEADER");
         }
+        if self.frame {
+            name.push_str("-FCF");
+        }
         name
     }
     /// Keep HEADER defaults, named styles and per-entity DSTYLE overrides in
@@ -185,7 +208,15 @@ impl DimStyle {
             ("DIMASZ", 41, crate::dims::ARROW),
             ("DIMEXO", 42, crate::dims::GAP),
             ("DIMEXE", 44, 1.),
-            ("DIMTXT", 140, crate::dims::TEXT * 0.698),
+            (
+                "DIMTXT",
+                140,
+                if self.frame {
+                    crate::dims::TEXT
+                } else {
+                    crate::dims::TEXT * 0.698
+                },
+            ),
             // Geometry is in millimetres; inch sheets measure in inches.
             (
                 "DIMLFAC",
@@ -196,7 +227,15 @@ impl DimStyle {
                     self.factor
                 },
             ),
-            ("DIMGAP", 147, 0.8),
+            (
+                "DIMGAP",
+                147,
+                if self.frame {
+                    0.5 * crate::dims::TEXT
+                } else {
+                    0.8
+                },
+            ),
             ("DIMDEC", 271, self.precision.into()),
             ("DIMADEC", 179, self.precision.into()),
             // Inch values drop the leading zero and keep trailing ones (.312, 1.000).
@@ -339,9 +378,6 @@ struct Writer {
     weight: Option<i16>,
     colour: Option<u32>,
     continuous: bool,
-    /// Runs whose glyph is a GD&T symbol: written as the strokes already in the
-    /// drawing, never as text, because no font every CAD program has draws them.
-    symbol_runs: BTreeSet<usize>,
 }
 impl Writer {
     fn new() -> Self {
@@ -354,7 +390,6 @@ impl Writer {
             weight: None,
             colour: None,
             continuous: false,
-            symbol_runs: BTreeSet::new(),
         }
     }
     fn id(&mut self) -> u64 {
@@ -528,9 +563,6 @@ impl Writer {
     }
     fn item(&mut self, i: &Item, layer: &str, block: Option<usize>) -> Vec<u64> {
         match i {
-            Item::TextStroke(c, r) if self.symbol_runs.contains(r) => {
-                self.curve(c, layer, block).into_iter().collect()
-            }
             Item::Glyph(..) | Item::TextStroke(..) => Vec::new(),
             Item::Edge(c) => self.curve(c, layer, block).into_iter().collect(),
             Item::Face(w) => {
@@ -601,9 +633,6 @@ impl Writer {
         block: Option<usize>,
         attr: Option<(&str, bool)>,
     ) -> Option<u64> {
-        if is_symbol_run(r) {
-            return None;
-        }
         let multiline = r.text.contains('\n') && attr.is_none();
         let kind = attr.map_or(if multiline { "MTEXT" } else { "TEXT" }, |(_, def)| {
             if def { "ATTDEF" } else { "ATTRIB" }
@@ -712,6 +741,72 @@ impl Writer {
         self.put(t, block);
         Some(h)
     }
+}
+impl Writer {
+    /// A feature control frame as one TOLERANCE entity (AcDbFcf): editable as a geometric
+    /// tolerance, its box drawn by the reader from the style's DIMTXT and DIMGAP.
+    fn tolerance(&mut self, f: &Frame, layer: &str, style: &str) -> u64 {
+        let (h, mut t) = self.entity("TOLERANCE", layer, None);
+        t.tag(100, "AcDbFcf");
+        t.tag(3, style);
+        t.point(10, f.at);
+        t.tag(1, fcf_text(&f.cells));
+        t.point(11, [1., 0.]);
+        self.put(t, None);
+        h
+    }
+}
+/// The letters of gdt.shx (AutoCAD; QCAD ships the same mapping as gdt.cxf) that draw the
+/// symbols haecceity writes in a frame: its characteristics, the zone's diameter sign and the
+/// circled modifiers. Any other symbol is written as plain text (`asme_words`).
+const GDT: [(char, char); 19] = [
+    ('∠', 'a'),
+    ('⟂', 'b'),
+    ('⏥', 'c'),
+    ('⌓', 'd'),
+    ('○', 'e'),
+    ('∥', 'f'),
+    ('⌭', 'g'),
+    ('↗', 'h'),
+    ('⌯', 'i'),
+    ('⌖', 'j'),
+    ('⌒', 'k'),
+    ('Ⓛ', 'l'),
+    ('Ⓜ', 'm'),
+    ('⌀', 'n'),
+    ('Ⓟ', 'p'),
+    ('◎', 'r'),
+    ('Ⓢ', 's'),
+    ('⌰', 't'),
+    ('⏤', 'u'),
+];
+/// A frame's cells as a TOLERANCE's text, in AutoCAD's positional form: six slots separated by
+/// `%%v` (symbol, tolerance 1, tolerance 2, datums 1 to 3), an empty slot kept so a datum never
+/// reads as a second tolerance. haecceity's cells are the symbol, the one tolerance cell and a
+/// cell per datum; a frame with more than three datums fits no slot, so its cells are joined
+/// as they are. Each symbol is switched to the gdt font.
+fn fcf_text(cells: &[String]) -> String {
+    let mut cells: Vec<String> = cells.iter().map(|c| fcf_cell(c)).collect();
+    if (2..=5).contains(&cells.len()) {
+        cells.insert(2, String::new());
+        cells.resize(6, String::new());
+    }
+    cells.join("%%v")
+}
+fn fcf_cell(cell: &str) -> String {
+    let mut out = String::new();
+    let mut plain = String::new();
+    for c in cell.chars() {
+        if let Some((_, g)) = GDT.iter().find(|(u, _)| *u == c) {
+            out.push_str(&encode_mtext(&asme_words(&plain)));
+            plain.clear();
+            write!(out, "{{\\Fgdt;{g}}}").unwrap();
+        } else {
+            plain.push(c);
+        }
+    }
+    out.push_str(&encode_mtext(&asme_words(&plain)));
+    out
 }
 fn font_data(font: &str) -> Option<&'static [u8]> {
     match font {
@@ -896,13 +991,6 @@ fn dimension_text_box(items: &[Item], runs: &[usize], primary: [f64; 4]) -> [f64
 
 pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
     let mut w = Writer::new();
-    w.symbol_runs = drawing
-        .text
-        .iter()
-        .enumerate()
-        .filter(|(_, r)| is_symbol_run(r))
-        .map(|(i, _)| i)
-        .collect();
     let model = w.block("*Model_Space".into(), [0., 0.]);
     w.model = w.blocks[model].record;
     w.block("*Paper_Space".into(), [0., 0.]);
@@ -980,15 +1068,32 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             w.block(format!("*D{dim_index}"), [0., 0.])
         });
         let mut handles = Vec::new();
+        let frame = drawing.sheet.dxf.frames.get(&a.name);
         if let Some(l) = drawing.layers.get(2) {
             for i in range.clone() {
                 if let Some(item) = l.items.get(i) {
-                    handles.extend(w.item(item, layer, block));
+                    let own =
+                        frame.is_some_and(|f| f.ink.iter().any(|r| r.contains(&(i - range.start))));
+                    if !own {
+                        handles.extend(w.item(item, layer, block));
+                    }
                     consumed.insert((2, i));
                 }
             }
         }
-        for &r in &a.runs {
+        if let Some(f) = frame {
+            let style = DimStyle {
+                frame: true,
+                ..DimStyle::default()
+            };
+            styles.insert(style.name(), style);
+            handles.push(w.tolerance(f, layer, &style.name()));
+        }
+        for (n, &r) in a.runs.iter().enumerate() {
+            if frame.is_some_and(|f| n >= f.lead) {
+                runs.insert(r);
+                continue;
+            }
             if drawing
                 .sheet
                 .dxf
@@ -1019,6 +1124,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                 fixed: precision.is_some(),
                 leader,
                 inches,
+                frame: false,
             };
             let name = style.name();
             styles.insert(name.clone(), style);
@@ -1879,16 +1985,6 @@ pub(crate) fn clip_loops(loops: Vec<Vec<P>>, rect: [f64; 4]) -> Vec<Vec<P>> {
         .collect()
 }
 
-/// A run that is one GD&T characteristic symbol (a frame's first cell). No font
-/// every CAD program has draws these (AutoCAD without STIX or Arial Unicode
-/// substitutes simplex.shx and prints `?`), and gdt.shx is not available in
-/// QCAD or LibreCAD, so the DXF carries the symbol's strokes, which the drawing
-/// already holds as `Item::TextStroke`.
-fn is_symbol_run(r: &TextRun) -> bool {
-    let mut chars = r.text.chars();
-    matches!((chars.next(), chars.next()), (Some(c), None)
-        if (c as u32) >= 0x2100 && c != '⌀' && haecceity::presentation::text::Font.supports(c))
-}
 fn text_font(r: &TextRun) -> &str {
     &r.font
 }
