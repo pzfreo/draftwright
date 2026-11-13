@@ -224,6 +224,62 @@ pub(super) fn furniture(plan: &Plan) -> Vec<PlannedDimension> {
     fixed
 }
 
+/// Generic callout routes leave a text gap and centre on the full reservation.
+/// A frame instead meets its actual rule, below any count above the box. Do this
+/// before checking the candidate, so collisions see exactly the printed route.
+fn meet_frame(g: &gdt::PlannedGdt, next: &mut Placed) -> bool {
+    let Some(p) = g.placed.as_ref().filter(|_| g.kind == "control_frame") else {
+        return true;
+    };
+    if p.frame_strokes == 0 || p.strokes.is_empty() || next.lines.is_empty() {
+        return false;
+    }
+    let bounds = p.strokes.iter().take(p.frame_strokes).flatten().fold(
+        [
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ],
+        |b, q| {
+            [
+                b[0].min(q[0]),
+                b[1].min(q[1]),
+                b[2].max(q[0]),
+                b[3].max(q[1]),
+            ]
+        },
+    );
+    let dx = next.label_box[0] - p.label_box[0];
+    let dy = next.label_box[1] - p.label_box[1];
+    let y = 0.5 * (bounds[1] + bounds[3]) + dy;
+    let last = next.lines.len() - 1;
+    let shelf = &mut next.lines[last];
+    let x = if shelf[1][0] >= shelf[0][0] {
+        bounds[0]
+    } else {
+        bounds[2]
+    } + dx;
+    shelf[1] = [x, y];
+    if last > 0 {
+        shelf[0][1] = y;
+        let bend = shelf[0];
+        next.lines[last - 1][1] = bend;
+    }
+    if last <= 1 {
+        let shaft = next.lines[0];
+        if (shaft[1][0] - shaft[0][0]).hypot(shaft[1][1] - shaft[0][1]) + 1e-9 < super::ARROW {
+            return false;
+        }
+        for arrow in &mut next.arrows {
+            if arrow[0] == shaft[0] {
+                *arrow = placement::arrow(shaft[0], shaft[1]);
+            }
+        }
+    }
+    true
+}
+
 fn rehang(g: &mut gdt::PlannedGdt, next: &Placed) {
     let p = g.placed.as_mut().expect("placed glyph");
     let delta = [
@@ -234,7 +290,7 @@ fn rehang(g: &mut gdt::PlannedGdt, next: &Placed) {
         q[0] += delta[0];
         q[1] += delta[1];
     };
-    // The glyph and text move as one rigid object: all compartment widths and 3 mm text stay.
+    // The glyph and text move as one rigid object: compartment widths and text size stay.
     for line in &mut p.strokes {
         for q in line {
             shift(q);
@@ -897,7 +953,12 @@ fn finish_with(
                 } else {
                     40
                 };
-                for next in candidates.into_iter().take(limit) {
+                for mut next in candidates.into_iter().take(limit) {
+                    if let Some(g) = &glyph
+                        && !meet_frame(g, &mut next)
+                    {
+                        continue;
+                    }
                     // The all-around/all-over marks travel with the bend. Reserve
                     // their actual extent as well as the proxy's shaft and frame.
                     if let Some(g) = glyph.as_ref().filter(|g| !g.modifiers.is_empty()) {
@@ -945,16 +1006,26 @@ fn finish_with(
                         next.label_box[2] + 1.,
                         next.label_box[3] + 1.,
                     ];
+                    // A bent datum must not trade a crossing for a shaft that
+                    // reads as touching another letter box on the finished drawing.
+                    let shaft_gap = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
+                        super::contacts::TEXT_CLEAR
+                    } else {
+                        0.0
+                    };
                     if peers.iter().filter_map(|q| q.placed.as_ref()).any(|q| {
+                        let text = [
+                            q.label_box[0] - shaft_gap,
+                            q.label_box[1] - shaft_gap,
+                            q.label_box[2] + shaft_gap,
+                            q.label_box[3] + shaft_gap,
+                        ];
                         placement::boxes_overlap(pad, q.label_box)
                             || q.lines
                                 .iter()
                                 .chain(&q.arrows)
                                 .any(|s| placement::crosses(*s, pad))
-                            || next
-                                .lines
-                                .iter()
-                                .any(|s| placement::crosses(*s, q.label_box))
+                            || next.lines.iter().any(|s| placement::crosses(*s, text))
                     }) {
                         continue;
                     }
@@ -1148,6 +1219,49 @@ mod tests {
                 ..Default::default()
             }]
         ));
+    }
+
+    #[test]
+    fn repaired_frame_routes_meet_both_rules_below_the_count() {
+        let g: gdt::PlannedGdt = serde_json::from_value(serde_json::json!({
+            "id":"frame", "kind":"control_frame", "view":"v:front", "cells":["position","0.1"],
+            "side":"right", "source":"test", "faces":[], "label":"position 0.1",
+            "default":true, "basis":"test", "state":{"kind":"shown"},
+            "placed":{
+                "tip":[-10.,0.], "label_box":[0.,0.,20.,10.5], "lines":[], "arrows":[],
+                "strokes":[[[0.,0.],[20.,0.]],[[20.,0.],[20.,5.]],[[20.,5.],[0.,5.]],[[0.,5.],[0.,0.]]],
+                "frame_strokes":4, "arcs":[], "fills":[], "letters":[], "runs":[]
+            }
+        })).unwrap();
+        for (tip, bend, text_end, edge) in [
+            ([30., 40.], [35., 55.25], [39., 55.25], 40.),
+            ([70., 40.], [65., 55.25], [61., 55.25], 60.),
+        ] {
+            let mut next = Placed {
+                lines: vec![[tip, bend], [bend, text_end]],
+                arrows: vec![placement::arrow(tip, bend)],
+                label_box: [40., 50., 60., 60.5],
+                label_at: [40., 50.],
+                rotation: 0.,
+            };
+            assert!(meet_frame(&g, &mut next));
+            assert_eq!(next.lines[1][1], [edge, 52.5]);
+            assert_eq!(next.lines[0][1], next.lines[1][0]);
+            assert_eq!(next.lines[1][0][1], next.lines[1][1][1]);
+            assert_eq!(next.arrows, [placement::arrow(tip, next.lines[0][1])]);
+            assert_eq!(next.label_box, [40., 50., 60., 60.5]);
+        }
+        let mut short = Placed {
+            lines: vec![[[35., 52.], [35., 55.25]], [[35., 55.25], [39., 55.25]]],
+            arrows: vec![placement::arrow([35., 52.], [35., 55.25])],
+            label_box: [40., 50., 60., 60.5],
+            label_at: [40., 50.],
+            rotation: 0.,
+        };
+        assert!(
+            !meet_frame(&g, &mut short),
+            "the adjusted shaft must carry its whole arrow"
+        );
     }
 
     #[test]

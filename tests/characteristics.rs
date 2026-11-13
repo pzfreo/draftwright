@@ -200,10 +200,8 @@ fn numbered_pmi_round_trips_to_items_and_clear_rings() {
         let p = model::plan_recovered(&a, &on()).unwrap();
         // Main's #254 fixtures, with the same UDA edits and balloons enabled.
         let (paper, scale, crossings, extensions) = match name {
-            // Drawn at 2:1 now that covered PMI spans leave no empty rungs (main: 1:1, one
-            // leader crossing and one extension crossing). The two numbers whose carriers stand
-            // deep inside the plan view take rings just outside it.
-            "tests/fixtures/parts/editor_pmi.step" => ("A3", "2:1", 0, 0),
+            // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+            "tests/fixtures/parts/editor_pmi.step" => ("A4", "1:2", 1, 0),
             "tests/fixtures/pmi/step/GRM-03_thumbwheel_drive_screw_AP242_PMI.step.gz" => {
                 ("A4", "2:1", 0, 0)
             }
@@ -214,11 +212,12 @@ fn numbered_pmi_round_trips_to_items_and_clear_rings() {
             ("annotation_leader_crossing", crossings),
             ("extension_through_feature", extensions),
         ] {
-            assert!(
-                p.problems.iter().filter(|p| p.code == code).count() <= maximum,
-                "{name}: {code}: {:?}",
-                p.problems
-            );
+            let actual = p.problems.iter().filter(|p| p.code == code).count();
+            if name == "tests/fixtures/parts/editor_pmi.step" {
+                assert_eq!(actual, maximum, "{name}: {code}: {:?}", p.problems);
+            } else {
+                assert!(actual <= maximum, "{name}: {code}: {:?}", p.problems);
+            }
         }
         let stem = Path::new(name).file_stem().unwrap().to_string_lossy();
         std::fs::write(
@@ -470,7 +469,13 @@ fn hole_rows_use_number_rings_separate_from_their_table_tags() {
     let (part, a) = analysed(&b);
     let mut s = on();
     s.hole_table = draftwright::hole_table::Setting::Always;
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    // Hold the schedule's explicit paper so the accepted default without a
+    // schedule does not remove the row/ring ownership checks.
+    s.sheet.size = Some("A3".into());
+    s.sheet.scale = Some("2:1".into());
     let p = model::plan_recovered(&a, &s).unwrap();
+    assert_eq!((&*p.sheet.size, &*p.sheet.scale), ("A3", "2:1"));
     std::fs::write(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("target/balloons-fixtures/table.plan.json"),
         serde_json::to_vec(&p).unwrap(),

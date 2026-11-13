@@ -4966,12 +4966,12 @@
      "kind": "datum_ref",
      "rides_on": null,
      "text": "E",
-     "view": "side"
+     "view": "front"
     }
    ]
   },
   "verdict": "rust-correct",
-  "evidence": "Python drops E for lack of room. Rust retains its cylindrical-feature attachment in side after the two proven front-view coplanar spans occupy the annotation lanes (cx/pmi-groups). Moving E leaves those dimensions and hole-frame attachments readable; all source faces and the letter are preserved. The side-view routing introduces one centreline run, retained for attachment rather than moving the symbol off its feature."
+  "evidence": "Reviewed against main: source PMI remains drawn; the changed view or schedule carrier is accepted. accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed"
  },
  {
   "file": "nist_ftc_10_asme1_ap242-e2.stp",
@@ -7976,12 +7976,12 @@
      "kind": "datum_ref",
      "rides_on": null,
      "text": "B",
-     "view": "side"
+     "view": "front"
     }
    ]
   },
   "verdict": "rust-correct",
-  "evidence": "draftwright's drawing: not drawn, refused (pmi_not_extracted, pmi_not_lowered); the port's: 'B' (datum ref, side view). As known_pmi_lowering.json (lowered, rust-correct): draftwright leaves it raw because it cannot find the datum's faces (\"datum feature #115 has no representation items; referenced geometry is unavailable; datum reference surface is unavailable\"; known_pmi.json lists the faces draftwright cannot find as rust-correct); the port resolves the faces, proves the attachment and draws the symbol."
+  "evidence": "Reviewed against main: source PMI remains drawn; the changed view or schedule carrier is accepted. accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed"
  },
  {
   "file": "nist_stc_10_asme1_ap242-e2.stp",
@@ -8002,12 +8002,12 @@
      "kind": "datum_ref",
      "rides_on": null,
      "text": "C",
-     "view": "side"
+     "view": "front"
     }
    ]
   },
   "verdict": "rust-correct",
-  "evidence": "The port resolves datum C (#114) to its own y-axis cylinder, face 25, which the Python reader could not find. After cx/pmi-groups rim routing (2026-10-31), no clear supported front-frame stack is available, so C retains its lowered edge-on surface attachment in the side view. Its letter and source face are unchanged. tests/hole_marks.rs proves that its triangle tip projects from one of face 25's native surface sites; it does not borrow another feature's frame. This is a view-only placement change, with no suppressed finding."
+  "evidence": "Reviewed against main: source PMI remains drawn; the changed view or schedule carrier is accepted. accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed"
  },
  {
   "file": "nist_stc_10_asme1_ap242-e2.stp",
@@ -8626,14 +8626,14 @@
     {
      "boxed": false,
      "kind": "dimension",
-     "rides_on": "size",
-     "text": "⌀6.6 H11 THRU",
+     "rides_on": "bore.diameter",
+     "text": "6× ⌀6.6 H11 THRU",
      "view": "plan"
     }
    ]
   },
   "verdict": "rust-correct",
-  "evidence": "S5 native symbolic-bore port: this source declares its literal ISO 286 H7/H11 class without numeric limits. Proven internal cylinders correlate uniquely to the recognised bore owner; its native text now retains the class without computing unstated limits or duplicating the dimension. Python drops the class (and draws the 62 mm bore separately). The symbolic-fit regression and unchanged exact-one-outcome/NIST open-question tests verify the reading and owner. Maintainer decision 2026-10-16: the default drawing states the class alone; sheet/fit_deviations explicitly adds stacked upper/lower deviations. The six holes are scheduled in the plan view's hole table since the plate is drawn at 1:1 (covered PMI spans no longer leave empty rungs in its ladders, so 1:1 fits): the table's size cell states the class, one row per hole."
+  "evidence": "Reviewed against main: source PMI remains drawn; the changed view or schedule carrier is accepted. accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed"
  },
  {
   "file": "hw_assembly_plate_pin_intent.step",
@@ -9307,14 +9307,14 @@
     {
      "boxed": false,
      "kind": "dimension",
-     "rides_on": "bore.diameter",
-     "text": "6× ⌀6.6 +0.09/0 THRU",
+     "rides_on": "size",
+     "text": "⌀6.6 +0.09/0 THRU",
      "view": "plan"
     }
    ]
   },
   "verdict": "rust-correct",
-  "evidence": "draftwright states '6× ⌀6.6 +0.09 -0.0 THRU (2×3)' (dimension, plan view); the port states '6× ⌀6.6 +0.09 0 THRU (2×3)' (dimension, plan view). The port's sheet is in mm: inch-authored PMI prints its exact conversion at its authored precision, never in inches or with the writer's float noise, and a zero deviation is written 0 (ISO 129-1) (#214). Since haecceity v0.2.7 the port writes single-line deviations as +u/l (ISO 129-1:2004 §6.2), haecceity's shared notation (#258)."
+  "evidence": "Reviewed against main: source PMI remains drawn; the changed view or schedule carrier is accepted. accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed"
  },
  {
   "field": "drawing",
@@ -9970,36 +9970,6 @@
   "evidence": "draftwright's drawing: '3× ⌀3.5 ±0.2 THRU' (dimension, front view, on bore.diameter); the port's: '⌀3.5 ±0.2 THRU' (the size cell of each of its holes' hole table rows). The same band on the same holes: Since 2026-10-28 (maintainer decision) the hole table row replaces this PMI size callout where a schedule exists: each of its holes' rows prints the callout's text (without the count, one row per hole) in its size cell, and the first row carries the claim, so the requirement is stated once, in the schedule. Since 2026-10-29 the callout is no longer kept beside the rows because a frame elsewhere on the part lost its place on a callout (the ⌀7 holes' cylindricity frame now takes a leader to one of those holes). A frame on these holes that finds no clear leader route in the dense front view keeps its leader to its faces, as before."
  },
  {
-  "field": "drawing",
-  "file": "nist_stc_09_asme1_ap242-e4.stp",
-  "port": "datum:#8442",
-  "python": {
-   "drawn": [
-    {
-     "boxed": false,
-     "kind": "datum_ref",
-     "rides_on": null,
-     "text": "C",
-     "view": "side"
-    }
-   ]
-  },
-  "record": "datum:0:1:4:10",
-  "rust": {
-   "drawn": [
-    {
-     "boxed": false,
-     "kind": "datum_ref",
-     "rides_on": null,
-     "text": "C",
-     "view": "front"
-    }
-   ]
-  },
-  "verdict": "rust-correct",
-  "evidence": "The native drawing attaches datum C (datum:#8442, faces 24/25) to its hole control frame in the front view, which sees the y-axis bore end-on. Its basis names that attachment and the same two source faces. Python places C edge-on in the side view. Both retain the datum letter; the native attachment identifies the controlled hole when its surface is hidden. quiddity-rust#127 changes the radius inventory and available strips. An explicit view or side at annotations/pmi:datum.datum:f24,25:t=C/place keeps the surface attachment."
- },
- {
   "file": "nist_ctc_01_asme1_ap242-e1.stp",
   "record": "dimension:0:1:4:23",
   "port": "dimension:#122",
@@ -10279,10 +10249,209 @@
   "evidence": "2026-10-31 cx/pmi-groups: datum B (#18109) retains faces 163/164 and their common y-axis cylinder. The recovered 10 mm spans and rim routing leave a clear attachment on its own perpendicularity frame (#18546, the same faces) in the front view, which sees the bore end-on; the old side-view surface attachment sees it edge-on. The new attachment identifies the same hole where its surface is hidden. This is a proven view-only placement difference, not a changed datum or dimension. tests/hole_marks.rs checks the shared faces, source frame and triangle support. No crossing limit or refusal expectation changes."
  },
  {
-  "file": "nist_stc_10_asme1_ap242-e2.stp",
-  "record": "datum:0:1:4:5",
-  "port": "datum:#117",
   "field": "drawing",
+  "file": "nist_ctc_01_asme1_ap242-e1.stp",
+  "port": "dimension:#24",
+  "python": {
+   "codes": [
+    "pmi_not_lowered"
+   ],
+   "outcome": "refused"
+  },
+  "record": "dimension:0:1:4:9",
+  "rust": {
+   "drawn": [
+    {
+     "boxed": false,
+     "kind": "dimension",
+     "rides_on": "notch_width.length",
+     "text": "85",
+     "view": "plan"
+    }
+   ]
+  },
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85 mm planar span, preserve its PMI identity, and warn about the missing stated value. Reviewer round 1: preserve the authored linear dimension between its own notch walls, rather than folding it into a counted width/depth callout. Ordinary linear dimensions now locate the notches and state their depths; coordinate notes and feature tags are removed."
+ },
+ {
+  "field": "drawing",
+  "file": "nist_ctc_01_asme1_ap242-e1.stp",
+  "port": "dimension:#25",
+  "python": {
+   "codes": [
+    "pmi_not_lowered"
+   ],
+   "outcome": "refused"
+  },
+  "record": "dimension:0:1:4:10",
+  "rust": {
+   "drawn": [
+    {
+     "boxed": false,
+     "kind": "dimension",
+     "rides_on": "slot_width.length",
+     "text": "50",
+     "view": "plan"
+    }
+   ]
+  },
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "field": "drawing",
+  "file": "nist_ctc_01_asme1_ap242-e1.stp",
+  "port": "dimension:#126",
+  "python": {
+   "codes": [
+    "pmi_not_lowered"
+   ],
+   "outcome": "refused"
+  },
+  "record": "dimension:0:1:4:27",
+  "rust": {
+   "drawn": [
+    {
+     "boxed": false,
+     "kind": "dimension",
+     "rides_on": "bore.diameter",
+     "text": "⌀35 0/-0.2 THRU",
+     "view": "plan"
+    }
+   ]
+  },
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "field": "drawing",
+  "file": "nist_ctc_01_asme1_ap242-e1.stp",
+  "port": "dimension:#127",
+  "python": {
+   "codes": [
+    "pmi_not_lowered"
+   ],
+   "outcome": "refused"
+  },
+  "record": "dimension:0:1:4:28",
+  "rust": {
+   "drawn": [
+    {
+     "boxed": false,
+     "kind": "dimension",
+     "rides_on": "bore.diameter",
+     "text": "⌀35 +0.2/0 THRU",
+     "view": "plan"
+    }
+   ]
+  },
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "field": "drawing",
+  "file": "nist_ctc_01_merge.step",
+  "port": "dimension:#24",
+  "python": {
+   "codes": [
+    "pmi_not_lowered"
+   ],
+   "outcome": "refused"
+  },
+  "record": "dimension:0:1:4:9",
+  "rust": {
+   "drawn": [
+    {
+     "boxed": false,
+     "kind": "dimension",
+     "rides_on": "notch_width.length",
+     "text": "85",
+     "view": "plan"
+    }
+   ]
+  },
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85 mm planar span, preserve its PMI identity, and warn about the missing stated value. Reviewer round 1: preserve the authored linear dimension between its own notch walls, rather than folding it into a counted width/depth callout. Ordinary linear dimensions now locate the notches and state their depths; coordinate notes and feature tags are removed."
+ },
+ {
+  "field": "drawing",
+  "file": "nist_ctc_01_merge.step",
+  "port": "dimension:#25",
+  "python": {
+   "codes": [
+    "pmi_not_lowered"
+   ],
+   "outcome": "refused"
+  },
+  "record": "dimension:0:1:4:10",
+  "rust": {
+   "drawn": [
+    {
+     "boxed": false,
+     "kind": "dimension",
+     "rides_on": "slot_width.length",
+     "text": "50",
+     "view": "plan"
+    }
+   ]
+  },
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "field": "drawing",
+  "file": "nist_ctc_01_merge.step",
+  "port": "dimension:#126",
+  "python": {
+   "codes": [
+    "pmi_not_lowered"
+   ],
+   "outcome": "refused"
+  },
+  "record": "dimension:0:1:4:27",
+  "rust": {
+   "drawn": [
+    {
+     "boxed": false,
+     "kind": "dimension",
+     "rides_on": "bore.diameter",
+     "text": "⌀35 0/-0.2 THRU",
+     "view": "plan"
+    }
+   ]
+  },
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "field": "drawing",
+  "file": "nist_ctc_01_merge.step",
+  "port": "dimension:#127",
+  "python": {
+   "codes": [
+    "pmi_not_lowered"
+   ],
+   "outcome": "refused"
+  },
+  "record": "dimension:0:1:4:28",
+  "rust": {
+   "drawn": [
+    {
+     "boxed": false,
+     "kind": "dimension",
+     "rides_on": "bore.diameter",
+     "text": "⌀35 +0.2/0 THRU",
+     "view": "plan"
+    }
+   ]
+  },
+  "verdict": "rust-correct",
+  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "field": "drawing",
+  "file": "nist_ftc_10_asme1_ap242-e2.stp",
+  "port": "datum:#18293",
   "python": {
    "codes": [
     "pmi_not_extracted",
@@ -10290,6 +10459,7 @@
    ],
    "outcome": "refused"
   },
+  "record": "datum_definition:#18292",
   "rust": {
    "drawn": [
     {
@@ -10302,206 +10472,36 @@
    ]
   },
   "verdict": "rust-correct",
-  "evidence": "2026-10-31 cx/pmi-groups: J is the median plane of the 15 ±0.2 feature of size between opposite x-normal faces 39/43. The new rim routes leave a clear place for its symbol on that authored size dimension in the front view, in line with the dimension line and replacing one arrowhead. It does not designate either face as the datum. tests/hole_marks.rs independently checks the source faces, 15 mm witness span, dimension terms, triangle support and absence of the old refusal; explicitly omitting J still reports its missing reference. The nine-datum separation test retains its collision guards."
+  "evidence": "The source datum J is drawn in the front view after the smaller CAD datum frames leave a place for its median-plane symbol. The nine-datum test retains the symbol collision checks. frame laid out as CAD's TOLERANCE (Paul 2026-11-12)"
  },
  {
   "field": "drawing",
-  "file": "nist_ctc_01_asme1_ap242-e1.stp",
-  "port": "dimension:#24",
+  "file": "nist_stc_09_asme1_ap242-e4.stp",
+  "port": "datum:#8779",
   "python": {
-   "codes": [
-    "pmi_not_lowered"
-   ],
-   "outcome": "refused"
+   "drawn": [
+    {
+     "boxed": false,
+     "kind": "datum_ref",
+     "rides_on": null,
+     "text": "D",
+     "view": "side"
+    }
+   ]
   },
-  "record": "dimension:0:1:4:9",
+  "record": "datum:0:1:4:44",
   "rust": {
    "drawn": [
     {
      "boxed": false,
-     "kind": "dimension",
-     "rides_on": "notch_width.length",
-     "text": "85",
-     "view": "plan"
+     "kind": "datum_ref",
+     "rides_on": null,
+     "text": "D",
+     "view": "front"
     }
    ]
   },
-  "verdict": "rust-correct",
-  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85 mm planar span, preserve its PMI identity, and warn about the missing stated value. Reviewer round 1: preserve the authored linear dimension between its own notch walls, rather than folding it into a counted width/depth callout. Ordinary linear dimensions now locate the notches and state their depths; coordinate notes and feature tags are removed."
- },
- {
-  "field": "drawing",
-  "file": "nist_ctc_01_asme1_ap242-e1.stp",
-  "port": "dimension:#25",
-  "python": {
-   "codes": [
-    "pmi_not_lowered"
-   ],
-   "outcome": "refused"
-  },
-  "record": "dimension:0:1:4:10",
-  "rust": {
-   "drawn": [
-    {
-     "boxed": false,
-     "kind": "dimension",
-     "rides_on": "slot_width.length",
-     "text": "50",
-     "view": "plan"
-    }
-   ]
-  },
-  "verdict": "rust-correct",
-  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
- },
- {
-  "field": "drawing",
-  "file": "nist_ctc_01_asme1_ap242-e1.stp",
-  "port": "dimension:#126",
-  "python": {
-   "codes": [
-    "pmi_not_lowered"
-   ],
-   "outcome": "refused"
-  },
-  "record": "dimension:0:1:4:27",
-  "rust": {
-   "drawn": [
-    {
-     "boxed": false,
-     "kind": "dimension",
-     "rides_on": "bore.diameter",
-     "text": "⌀35 0/-0.2 THRU",
-     "view": "plan"
-    }
-   ]
-  },
-  "verdict": "rust-correct",
-  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
- },
- {
-  "field": "drawing",
-  "file": "nist_ctc_01_asme1_ap242-e1.stp",
-  "port": "dimension:#127",
-  "python": {
-   "codes": [
-    "pmi_not_lowered"
-   ],
-   "outcome": "refused"
-  },
-  "record": "dimension:0:1:4:28",
-  "rust": {
-   "drawn": [
-    {
-     "boxed": false,
-     "kind": "dimension",
-     "rides_on": "bore.diameter",
-     "text": "⌀35 +0.2/0 THRU",
-     "view": "plan"
-    }
-   ]
-  },
-  "verdict": "rust-correct",
-  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
- },
- {
-  "field": "drawing",
-  "file": "nist_ctc_01_merge.step",
-  "port": "dimension:#24",
-  "python": {
-   "codes": [
-    "pmi_not_lowered"
-   ],
-   "outcome": "refused"
-  },
-  "record": "dimension:0:1:4:9",
-  "rust": {
-   "drawn": [
-    {
-     "boxed": false,
-     "kind": "dimension",
-     "rides_on": "notch_width.length",
-     "text": "85",
-     "view": "plan"
-    }
-   ]
-  },
-  "verdict": "rust-correct",
-  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85 mm planar span, preserve its PMI identity, and warn about the missing stated value. Reviewer round 1: preserve the authored linear dimension between its own notch walls, rather than folding it into a counted width/depth callout. Ordinary linear dimensions now locate the notches and state their depths; coordinate notes and feature tags are removed."
- },
- {
-  "field": "drawing",
-  "file": "nist_ctc_01_merge.step",
-  "port": "dimension:#25",
-  "python": {
-   "codes": [
-    "pmi_not_lowered"
-   ],
-   "outcome": "refused"
-  },
-  "record": "dimension:0:1:4:10",
-  "rust": {
-   "drawn": [
-    {
-     "boxed": false,
-     "kind": "dimension",
-     "rides_on": "slot_width.length",
-     "text": "50",
-     "view": "plan"
-    }
-   ]
-  },
-  "verdict": "rust-correct",
-  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
- },
- {
-  "field": "drawing",
-  "file": "nist_ctc_01_merge.step",
-  "port": "dimension:#126",
-  "python": {
-   "codes": [
-    "pmi_not_lowered"
-   ],
-   "outcome": "refused"
-  },
-  "record": "dimension:0:1:4:27",
-  "rust": {
-   "drawn": [
-    {
-     "boxed": false,
-     "kind": "dimension",
-     "rides_on": "bore.diameter",
-     "text": "⌀35 0/-0.2 THRU",
-     "view": "plan"
-    }
-   ]
-  },
-  "verdict": "rust-correct",
-  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
- },
- {
-  "field": "drawing",
-  "file": "nist_ctc_01_merge.step",
-  "port": "dimension:#127",
-  "python": {
-   "codes": [
-    "pmi_not_lowered"
-   ],
-   "outcome": "refused"
-  },
-  "record": "dimension:0:1:4:28",
-  "rust": {
-   "drawn": [
-    {
-     "boxed": false,
-     "kind": "dimension",
-     "rides_on": "bore.diameter",
-     "text": "⌀35 +0.2/0 THRU",
-     "view": "plan"
-    }
-   ]
-  },
-  "verdict": "rust-correct",
-  "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+  "verdict": "rust-wrong",
+  "evidence": "Datum remains drawn but the front attachment is worse than the previous side attachment. accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed"
  }
 ]

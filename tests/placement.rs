@@ -206,7 +206,7 @@ fn ink(d: &PlannedDimension) -> Vec<[f64; 2]> {
     };
     for item in &items {
         match item {
-            Item::Edge(c) | Item::TextStroke(c, _) => curve(c),
+            Item::Edge(c) | Item::TextStroke(c, _) | Item::FrameText(c, _) => curve(c),
             Item::Face(wires) | Item::Glyph(wires, _) => {
                 wires.iter().flatten().for_each(&mut curve)
             }

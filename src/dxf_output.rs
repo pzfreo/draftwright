@@ -158,11 +158,13 @@ struct DimStyle {
     fixed: bool,
     leader: bool,
     inches: bool,
-    /// The style of a feature control frame: DIMTXT is the run's size (`dims::TEXT`) and DIMGAP
-    /// half of it. Measured (QCAD 3.33 and Autodesk's online viewer, 2026-11-12): both draw the
-    /// box 2 x DIMTXT tall and ignore DIMGAP, so DIMTXT 3.0 gives the 6 mm box the layout draws.
-    /// DIMGAP 1.5 is kept so the documented DIMTXT + 2 x DIMGAP rule gives the same height.
-    /// Nothing is claimed here about desktop AutoCAD.
+    /// The style of a feature control frame: DIMTXT is the frame text's height
+    /// (`haecceity::presentation::gdt::TEXT_HEIGHT`, 2.5) and DIMGAP half of it. Measured (QCAD
+    /// 3.33 and Autodesk's online viewer, 2026-11-12): both draw the box 2 x DIMTXT tall, each
+    /// cell its ink plus DIMTXT wide, and ignore DIMGAP, which is exactly how haecceity lays out
+    /// the frame the sheet draws (`cad_control_frame`), so the two have one size. DIMGAP 1.25 is
+    /// kept so the documented DIMTXT + 2 x DIMGAP rule gives the same height. Nothing is claimed
+    /// here about desktop AutoCAD.
     frame: bool,
 }
 impl Default for DimStyle {
@@ -212,7 +214,7 @@ impl DimStyle {
                 "DIMTXT",
                 140,
                 if self.frame {
-                    crate::dims::TEXT
+                    haecceity::presentation::gdt::TEXT_HEIGHT
                 } else {
                     crate::dims::TEXT * 0.698
                 },
@@ -231,7 +233,7 @@ impl DimStyle {
                 "DIMGAP",
                 147,
                 if self.frame {
-                    0.5 * crate::dims::TEXT
+                    0.5 * haecceity::presentation::gdt::TEXT_HEIGHT
                 } else {
                     0.8
                 },
@@ -563,7 +565,7 @@ impl Writer {
     }
     fn item(&mut self, i: &Item, layer: &str, block: Option<usize>) -> Vec<u64> {
         match i {
-            Item::Glyph(..) | Item::TextStroke(..) => Vec::new(),
+            Item::Glyph(..) | Item::TextStroke(..) | Item::FrameText(..) => Vec::new(),
             Item::Edge(c) => self.curve(c, layer, block).into_iter().collect(),
             Item::Face(w) => {
                 // SOLID supports triangular and quadrilateral arrowheads directly.
@@ -984,7 +986,7 @@ fn dimension_text_box(items: &[Item], runs: &[usize], primary: [f64; 4]) -> [f64
     // Group 11 is the midpoint of the complete dimension text, including its
     // continuation lines, rather than that first line alone.
     crate::output::items_bbox(items.iter().filter(
-        |item| matches!(item, Item::Glyph(_, r) | Item::TextStroke(_, r) if runs.contains(r)),
+        |item| matches!(item, Item::Glyph(_, r) | Item::TextStroke(_, r) | Item::FrameText(_, r) if runs.contains(r)),
     ))
     .unwrap_or(primary)
 }
@@ -1229,7 +1231,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                         handles.extend(w.item(item, layer, None));
                         consumed.insert((2, i));
                     }
-                    if let Item::Glyph(_, r) | Item::TextStroke(_, r) = item
+                    if let Item::Glyph(_, r) | Item::TextStroke(_, r) | Item::FrameText(_, r) = item
                         && let Some(run) = drawing.text.get(*r)
                     {
                         let h = *run_handles

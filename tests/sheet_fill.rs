@@ -257,13 +257,14 @@ fn manufacturing_plate() -> Analysis {
 /// measured candidates can exist; the independent sheet-rule oracle must
 /// still select the fuller allowed drawing rather than compacting the plate.
 #[test]
-fn specify_plate_pmi_fits_a3_at_full_size_with_every_frame_clear() {
+fn manufacturing_plate_keeps_all_requirements_on_the_accepted_paper() {
     let a = manufacturing_plate();
     let p = model::plan_recovered(&a, &Spec::default()).unwrap();
     sheet_rule::assert_rule("manufacturing-pmi", &p);
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
     assert_eq!(
         (p.sheet.size.as_str(), p.sheet.scale.as_str()),
-        ("A3", "2:1")
+        ("A4", "1:2")
     );
     // #127's fixed-size source note must remain drawn, without rewarding a
     // compact 1:5 diagram after PMI covers the generated dimensions.

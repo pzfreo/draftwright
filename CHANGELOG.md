@@ -6,6 +6,23 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Accept the remaining CAD-frame layout regressions for iterative improvement:
+  STC-09's A1 1:2 scale, long witnesses, frame overlaps and datum bands;
+  FTC-07/FTC-10 arrow contacts, FTC-10's hidden datum E attachment;
+  STC-10's front B/C attachments and extension contacts; STC-06's long leader,
+  section-arrow crowding and dimension-line contact; assembly_plate_pin's
+  crossings and six-row hole schedule; hw_assembly_plate_pin_intent's A4 1:2,
+  crossings and crowding; and the angle bracket's A4 1:1, longer witnesses and
+  crowding. These are tracked in [pzfreo/draftwright#452](https://github.com/pzfreo/draftwright/issues/452).
+  Sheet clipping and additional lost or silently unreported PMI remain failures.
+- GD&T frames use CAD fonts and real CAD cell sizes: 2.5 mm text drawn as geometry
+  with a 0.25 mm pen, a 5 mm box, and cells as wide as their ink plus 2.5 mm.
+  DXF TOLERANCE frames use DIMTXT 2.5 and DIMGAP 1.25; leaders meet either end
+  of the box. Known regressions accepted for this change: CTC-01 AP242 changes
+  from A3 1:5 to A1 1:2, editor_pmi and manufacturing_pmi from A3 2:1 to A4 1:2,
+  and STC-10 loses datum J. Tracked in
+  [pzfreo/draftwright#452](https://github.com/pzfreo/draftwright/issues/452).
+
 - Built on quiddity and haecceity 0.5.0. A chamfer on a hole's mouth is now stated: a ⌀5
   counterbore 2.0 deep under a 0.25 chamfer reads `⌀3.3 THRU ⌴ ⌀5 ↧ 2.25 C0.25` (`0.25 × 30°`
   off 45°; `FAR SIDE` or `BOTH SIDES` for a through hole's far end), the counterbore's depth

@@ -12571,18 +12571,6 @@
  },
  {
   "code": "pmi_not_lowered",
-  "file": "nist_stc_10_asme1_ap242-e2.stp",
-  "python": {
-   "id": "datum:0:1:4:5",
-   "severity": "error"
-  },
-  "rust": null,
-  "source": "datum:#117",
-  "verdict": "rust-correct",
-  "evidence": "2026-10-31 cx/pmi-groups: datum J is the median plane of the authored 15 ±0.2 width between opposite x-normal faces 39/43. The dimension joins exactly those faces and its projected witness span is 15 mm. Recovered rim routes leave room for the symbol on that size dimension, in line with its dimension line, replacing one arrowhead. J is therefore drawn and the symmetry frame citing it reads in full; the old non-coplanar-face refusal is no longer appropriate. tests/hole_marks.rs proves the face pair, size, witness span and symbol support, and deliberately omits J to retain the missing-reference warning assertion. No geometry check or gate limit is relaxed."
- },
- {
-  "code": "pmi_not_lowered",
   "file": "nist_ctc_01_asme1_ap242-e1.stp",
   "python": {
    "id": "dimension:0:1:4:27",
@@ -12676,5 +12664,17 @@
   "source": "dimension:#25",
   "verdict": "rust-correct",
   "evidence": "Maintainer decision (cx/ctc01): the AP242 record names unambiguous nominal geometry but omits dimensional_characteristic_representation. Measure the proven 85/50 mm planar span or 35 mm cylinder diameter, preserve its PMI identity, and warn about the missing stated value. The notch/slot width uses its native carrier; duplicate hole sizes share the existing explicitly toleranced callout."
+ },
+ {
+  "code": "pmi_not_lowered",
+  "file": "nist_ftc_10_asme1_ap242-e2.stp",
+  "python": {
+   "id": "datum_definition:#18292",
+   "severity": "error"
+  },
+  "rust": null,
+  "source": "datum:#18293",
+  "verdict": "rust-correct",
+  "evidence": "The source median-plane datum J now has a drawn symbol, with nine separate datum symbols; the source requirement is retained rather than refused. frame laid out as CAD's TOLERANCE (Paul 2026-11-12)"
  }
 ]

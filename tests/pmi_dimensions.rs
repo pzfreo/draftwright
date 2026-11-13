@@ -2406,6 +2406,11 @@ fn recovered_thicknesses_leave_the_bend_angle_defined() {
         gunzip(&std::fs::read(fixtures().join("specify-main-angle-bracket.step.gz")).unwrap());
     let (_, a) = analysed("specify-main-angle-bracket.step", &bytes);
     let plan = cache::default_plan(&a, true);
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    assert_eq!(
+        (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+        ("A4", "1:1")
+    );
     assert!(
         plan.dimensions
             .iter()
@@ -2431,11 +2436,18 @@ fn recovered_thicknesses_leave_the_bend_angle_defined() {
             .unwrap();
         assert_eq!(d.value, 8.);
         let p = d.placed.as_ref().expect("both authored thicknesses draw");
-        // Local witnesses stay near their arm instead of traversing the bend and
-        // crossing the opposite overall dimension (over 40 mm in the regression).
+        // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
         for [a, b] in p.lines[..2].iter().filter(|_| id == 774) {
-            assert!((a[0] - b[0]).hypot(a[1] - b[1]) < 25., "{d:?}");
+            assert_eq!(
+                ((a[0] - b[0]).hypot(a[1] - b[1]) * 1_000_000.).round() as i64,
+                31_464_102,
+                "{d:?}"
+            );
         }
+        assert!(!plan.problems.iter().any(|p| {
+            ["annotation_ink_overlap", "dimension_line_crossing"].contains(&p.code.as_str())
+                && p.subjects.contains(&d.id)
+        }));
     }
 }
 
@@ -2603,8 +2615,9 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
             .iter()
             .all(|n| !n.id.contains("rectangular_through_notch"))
     );
-    assert_eq!(plan.sheet.size, "A3");
-    assert_eq!(plan.sheet.scale, "1:5");
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    assert_eq!(plan.sheet.size, "A1");
+    assert_eq!(plan.sheet.scale, "1:2");
     let locators: Vec<_> = plan
         .dimensions
         .iter()
@@ -2633,27 +2646,49 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
                 .any(|d| d.kind == "linear" && (d.value - value).abs() < 1e-6)
         );
     }
-    assert!(!plan.problems.iter().any(|p| {
-        p.code == "dimension_line_crossing"
-            || (matches!(
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    let notch_contacts: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| {
+            p.code == "dimension_line_crossing"
+                || (matches!(
+                    p.code.as_str(),
+                    "extension_through_feature"
+                        | "label_crowded"
+                        | "annotation_overlap"
+                        | "annotation_ink_overlap"
+                ) && p
+                    .subjects
+                    .iter()
+                    .any(|s| s.contains("rectangular_through_notch")))
+        })
+        .map(|p| {
+            (
                 p.code.as_str(),
-                "extension_through_feature"
-                    | "label_crowded"
-                    | "annotation_overlap"
-                    | "annotation_ink_overlap"
-            ) && p
-                .subjects
-                .iter()
-                .any(|s| s.contains("rectangular_through_notch")))
-    }));
-    for (code, max) in [
-        ("extension_through_feature", 9),
-        ("label_crowded", 0),
-        ("annotation_leader_crossing", 4),
+                p.subjects.iter().map(String::as_str).collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        notch_contacts,
+        vec![(
+            "label_crowded",
+            vec![
+                "d:f:rectangular_through_notch:f37/location.length.x",
+                "d:f:hole_pattern:f0/grid_pitch.length.row"
+            ]
+        )]
+    );
+    for (code, count) in [
+        ("extension_through_feature", 8),
+        ("label_crowded", 1),
+        ("annotation_leader_crossing", 1),
         ("leader_across_view", 0),
     ] {
-        assert!(
-            plan.problems.iter().filter(|p| p.code == code).count() <= max,
+        assert_eq!(
+            plan.problems.iter().filter(|p| p.code == code).count(),
+            count,
             "{code}: {:?}",
             plan.problems
         );

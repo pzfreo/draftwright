@@ -770,10 +770,12 @@ pub(crate) fn ink(
             *list = std::mem::take(list)
                 .into_iter()
                 .flat_map(|i| match i {
-                    Item::Edge(c) | Item::TextStroke(c, _) => crate::detail::clip(c, rect)
-                        .into_iter()
-                        .map(Item::Edge)
-                        .collect(),
+                    Item::Edge(c) | Item::TextStroke(c, _) | Item::FrameText(c, _) => {
+                        crate::detail::clip(c, rect)
+                            .into_iter()
+                            .map(Item::Edge)
+                            .collect()
+                    }
                     Item::Face(_) | Item::Glyph(_, _) => Vec::new(),
                 })
                 .collect();

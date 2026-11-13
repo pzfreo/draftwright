@@ -119,7 +119,7 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
     // (a) Text ink never reaches the DXF as geometry: emptying it leaves every geometry entity.
     let mut bare = drawing.clone();
     for item in bare.layers.iter_mut().flat_map(|l| &mut l.items) {
-        if let Item::Glyph(_, r) | Item::TextStroke(_, r) = item {
+        if let Item::Glyph(_, r) | Item::TextStroke(_, r) | Item::FrameText(_, r) = item {
             *item = Item::Glyph(Vec::new(), *r);
         }
     }
@@ -151,6 +151,51 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
         .filter(|g| g.kind == "control_frame")
         .map(|g| g.cells.iter().map(|c| spelled(c)).collect())
         .collect();
+    // (d) A frame is drawn as CAD draws a TOLERANCE: its box twice the text height (2.5 mm) tall,
+    // its text strokes and arcs after the box lines, painted with the text pen.
+    let boxes: Vec<_> = plan
+        .gdt
+        .iter()
+        .filter(|g| g.kind == "control_frame")
+        .filter(|g| drawing.sheet.items.iter().any(|i| i.name == g.id))
+        .filter_map(|g| g.placed.as_ref())
+        .collect();
+    for p in &boxes {
+        let lines = &p.strokes[..p.frame_strokes];
+        let (lo, hi) = lines
+            .iter()
+            .flatten()
+            .fold((f64::MAX, f64::MIN), |(lo, hi), q| {
+                (lo.min(q[1]), hi.max(q[1]))
+            });
+        assert!(
+            (hi - lo - 5.0).abs() < 1e-9,
+            "{name}: box {} mm tall",
+            hi - lo
+        );
+        if let Some([_, end]) = p.lines.last() {
+            let (left, right) = lines
+                .iter()
+                .flatten()
+                .fold((f64::MAX, f64::MIN), |(left, right), q| {
+                    (left.min(q[0]), right.max(q[0]))
+                });
+            assert!(
+                (end[0] - left).abs().min((end[0] - right).abs()) < 1e-9
+                    && end[1] >= lo - 1e-9
+                    && end[1] <= hi + 1e-9,
+                "{name}: leader ends at {end:?}, away from the drawn frame [{left}, {lo}, {right}, {hi}]"
+            );
+        }
+        assert!(p.letters.is_empty(), "{name}: a frame's text is geometry");
+    }
+    let text_ink = drawing
+        .layers
+        .iter()
+        .flat_map(|l| &l.items)
+        .filter(|i| matches!(i, Item::FrameText(..)))
+        .count();
+    assert_eq!(text_ink > 0, !boxes.is_empty(), "{name}: frame text ink");
     // (c) One TOLERANCE each, its cells the plan's.
     let raw: Vec<String> = all
         .iter()

@@ -598,6 +598,21 @@ class MultiSheetMeasurements(unittest.TestCase):
 
 
 class CrossingKinds(unittest.TestCase):
+    def test_regression_recorders_require_a_review_reason_before_writing(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'baseline.json'
+            target.write_text('unchanged')
+            for tool, source in [('check_leader_crossings.py', ['unused']),
+                                 ('check_label_lanes.py', ['--current', 'unused'])]:
+                for reason in ([], ['--reason', '   ']):
+                    result = subprocess.run([sys.executable, '-I', str(root / 'tools' / tool),
+                                             *source, '--record', str(target), *reason],
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn('nonempty --reason', result.stderr)
+                    self.assertEqual(target.read_text(), 'unchanged')
+
     def test_old_geometry_matches_additive_metadata_and_counts_each_kind_once(self):
         far = [[20, 20], [30, 20]]
         vertical = [[5, -5], [5, 5]]

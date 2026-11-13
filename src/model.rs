@@ -10549,7 +10549,9 @@ impl RenderedItem {
         }
         items.extend(self.items.into_iter().map(|mut i| {
             match &mut i {
-                Item::Glyph(_, run) | Item::TextStroke(_, run) if *run != usize::MAX => {
+                Item::Glyph(_, run) | Item::TextStroke(_, run) | Item::FrameText(_, run)
+                    if *run != usize::MAX =>
+                {
                     *run += offset
                 }
                 _ => {}
@@ -10984,7 +10986,9 @@ fn render_annotations_with_cuts(
                     .visible
                     .iter()
                     .filter_map(|i| match i {
-                        Item::Edge(c) | Item::TextStroke(c, _) => Some(c.clone()),
+                        Item::Edge(c) | Item::TextStroke(c, _) | Item::FrameText(c, _) => {
+                            Some(c.clone())
+                        }
                         Item::Face(_) | Item::Glyph(_, _) => None,
                     })
                     .collect(),
@@ -11169,10 +11173,12 @@ fn render_annotations_with_cuts(
         let ink: Vec<Item> = source_ink
             .into_iter()
             .flat_map(|item| match item {
-                Item::Edge(c) | Item::TextStroke(c, _) => crate::detail::clip(c, keep)
-                    .into_iter()
-                    .map(Item::Edge)
-                    .collect(),
+                Item::Edge(c) | Item::TextStroke(c, _) | Item::FrameText(c, _) => {
+                    crate::detail::clip(c, keep)
+                        .into_iter()
+                        .map(Item::Edge)
+                        .collect()
+                }
                 item => vec![item],
             })
             .collect();
@@ -12536,7 +12542,8 @@ fn render_annotations_with_cuts(
         .iter()
         .filter_map(|g| Some((g.id.clone(), crate::dims::gdt::frame(g)?)))
         .collect();
-    let missing_glyphs = crate::output::missing_glyphs(&text);
+    let mut missing_glyphs = crate::output::missing_glyphs(&text);
+    missing_glyphs.extend(crate::output::missing_frame_glyphs(&plan.gdt));
     Ok(Drawing {
         page: plan.sheet.page,
         layers,

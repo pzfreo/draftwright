@@ -745,6 +745,76 @@ fn one(file: &str, stem: &str, bytes: &[u8]) -> (Vec<Diff>, usize, String) {
     let (part, a) = analysed(file, bytes);
     let plan = cache::default_plan(&a, true);
     let drawing = drawn(&part, &a, &plan);
+    let inventory = serde_json::from_str::<Value>(
+        &std::fs::read_to_string(fixtures().join("pmi_drawings/cad_frame_information.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    if let Some(expected) = inventory["parts"].get(file) {
+        let sources = |key: &str| -> BTreeSet<String> {
+            expected[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s.as_str().unwrap().to_owned())
+                .collect()
+        };
+        // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+        // J alone may leave the main inventory; FTC10 additionally draws its J.
+        let expected: BTreeSet<_> = sources("main_drawn_sources")
+            .difference(&sources("accepted_missing_sources"))
+            .cloned()
+            .chain(sources("additional_sources"))
+            .collect();
+        let actual: BTreeSet<_> = records(&a)
+            .iter()
+            .filter(|r| {
+                rust_projection(
+                    Some(drawing.as_ref().expect("PMI must render")),
+                    &plan,
+                    &a,
+                    r,
+                )
+                .get("drawn")
+                .is_some()
+            })
+            .map(|r| r.source_id.clone())
+            .collect();
+        assert_eq!(actual, expected, "{file}: main PMI information changed");
+    }
+    if file == "assembly_plate_pin.step" {
+        // The former 6× callout is now six placed schedule rows, not six lost sizes.
+        let table = plan
+            .hole_tables
+            .iter()
+            .find(|t| t.id == "hole_schedule_plan")
+            .unwrap();
+        let holes: Vec<_> = table
+            .rows
+            .iter()
+            .filter(|r| r.cells[1] == "⌀6.6 +0.09/0 THRU")
+            .collect();
+        assert_eq!(
+            holes
+                .iter()
+                .map(|r| (r.tag.as_str(), r.feature.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("C1", "f:hole:f6"),
+                ("C2", "f:hole:f7"),
+                ("C3", "f:hole:f8"),
+                ("C4", "f:hole:f9"),
+                ("C5", "f:hole:f10"),
+                ("C6", "f:hole:f12")
+            ]
+        );
+        assert!(!table.blocks.is_empty() && table.blocks.iter().all(|b| b.placed.is_some()));
+        for row in holes {
+            assert!(row.measurements.iter().any(|m| m.feature == row.feature
+                && m.parameter == "bore.diameter"
+                && m.value == 6.6));
+        }
+    }
     let d = compare(file, &py, &reading, &a, &plan, &drawing);
     let n = py["items"].as_array().unwrap().len();
     let python_drawn = py["items"]

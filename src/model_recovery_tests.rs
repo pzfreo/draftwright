@@ -173,18 +173,87 @@ fn new_recess_locations_clear_established_pmi_ink() {
             .cloned()
             .collect();
         assert!(lost.is_empty(), "existing rooted locations lost: {lost:?}");
-        let new: Vec<_> = actual.difference(&original).collect();
-        assert!(
-            new.is_empty(),
-            "new hard findings: {new:#?}; grade {:?}; {}; new placements {:#?}",
-            gdt_misplaced(&trial),
-            trial.sheet.basis,
-            trial
-                .dimensions
-                .iter()
-                .filter(|d| d.id.starts_with("d:f:section_recess:"))
-                .map(|d| (&d.id, &d.placed))
-                .collect::<Vec<_>>()
+        // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+        let accepted: BTreeSet<_> = [
+            ("annotation_ink_overlap", &["d:envelope/width.length", "pmi:geometric_tolerance.perpendicularity:f89:ref=A:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:envelope/width.length", "pmi:geometric_tolerance.position:f34,35,36,37,92,93:ref=A,G,H:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:envelope/width.length", "pmi:geometric_tolerance.position:f95,97,99,101,159,160,161,162:ref=A,B,C:mod=maximum_material_requirement"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f0/location.length.x", "d:f:slot:f102/slot_length.length"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f0/location.length.z", "pmi:geometric_tolerance.position:f0,1,121,122:ref=A,B,C:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f121/location.length.x", "d:f:hole:f42/location.length.x"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f121/location.length.x", "d:f:hole_pattern:f18/location.length.x"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f121/location.length.x", "d:f:hole_pattern:f48/pitch.length"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f121/location.length.x", "d:f:slot:f102/slot_length.length"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f26/location.length.z", "d:f:section_recess:f59/seat_diameter.diameter"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f34/location.length.x", "d:f:hole:f42/location.length.x"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f34/location.length.x", "d:f:hole_pattern:f18/location.length.x"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f34/location.length.x", "d:f:hole_pattern:f48/pitch.length"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f34/location.length.x", "pmi:geometric_tolerance.perpendicularity:f89:ref=A:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f34/location.length.x", "pmi:geometric_tolerance.position:f34,35,36,37,92,93:ref=A,G,H:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f34/location.length.x", "pmi:geometric_tolerance.position:f95,97,99,101,159,160,161,162:ref=A,B,C:mod=maximum_material_requirement"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f34/location.length.z", "d:pmi:dimension.linear:f94,96,98,100/linear"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f34/location.length.z", "pmi:geometric_tolerance.position:f89:ref=A,B,C:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f36/location.length.x", "d:f:hole:f42/location.length.x"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f36/location.length.x", "d:f:hole_pattern:f18/location.length.x"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f36/location.length.x", "d:f:hole_pattern:f48/pitch.length"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f36/location.length.x", "pmi:geometric_tolerance.perpendicularity:f89:ref=A:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f36/location.length.x", "pmi:geometric_tolerance.position:f95,97,99,101,159,160,161,162:ref=A,B,C:mod=maximum_material_requirement"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f36/location.length.z", "d:f:hole_pattern:f18/grid_pitch.length.row"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f36/location.length.z", "d:pmi:dimension.linear:f94,96,98,100/linear"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f36/location.length.z", "pmi:geometric_tolerance.position:f18,19,22,23:ref=A,B,C:mod=diameter_zone,maximum_material_requirement"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f42/bore.diameter", "pmi:geometric_tolerance.profile_surface:f91:ref=A,G,H"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f42/location.length.x", "d:f:hole:f89/location.length.x"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f89/location.length.x", "d:f:hole_pattern:f18/location.length.x"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f89/location.length.x", "d:f:hole_pattern:f48/pitch.length"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f89/location.length.x", "d:f:slot:f102/slot_length.length"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f92/location.length.z", "d:f:hole_pattern:f18/grid_pitch.length.row"][..]),
+            ("annotation_ink_overlap", &["d:f:hole:f92/location.length.z", "d:pmi:dimension.linear:f94,96,98,100/linear"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f18/grid_pitch.length.col", "pmi:geometric_tolerance.perpendicularity:f89:ref=A:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f18/grid_pitch.length.col", "pmi:geometric_tolerance.position:f34,35,36,37,92,93:ref=A,G,H:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f18/grid_pitch.length.col", "pmi:geometric_tolerance.position:f95,97,99,101,159,160,161,162:ref=A,B,C:mod=maximum_material_requirement"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f18/grid_pitch.length.row", "d:f:hole_pattern:f18/location.length.z"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f18/grid_pitch.length.row", "d:step_level/step_height.length.f56"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f18/grid_pitch.length.row", "pmi:geometric_tolerance.position:f18,19,22,23:ref=A,B,C:mod=diameter_zone,maximum_material_requirement"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f18/location.length.z", "d:pmi:dimension.linear:f94,96,98,100/linear"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f18/location.length.z", "pmi:geometric_tolerance.position:f18,19,22,23:ref=A,B,C:mod=diameter_zone,maximum_material_requirement"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f18/location.length.z", "pmi:geometric_tolerance.position:f89:ref=A,B,C:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f30/location.length.z", "pmi:geometric_tolerance.position:f42,43,44,45,46,47,54,55:ref=A,B,C:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f30/pitch.length", "pmi:geometric_tolerance.position:f42,43,44,45,46,47,54,55:ref=A,B,C:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f38/pitch.length", "pmi:geometric_tolerance.perpendicularity:f84,85:ref=A:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f38/pitch.length", "pmi:geometric_tolerance.position:f80,81,82,83:ref=A,D,B:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:hole_pattern:f38/pitch.length", "pmi:geometric_tolerance.position:f84,85:ref=A,B,C:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:section_recess:f59/seat_diameter.diameter", "d:step_level/step_height.length.f124"][..]),
+            ("annotation_ink_overlap", &["d:f:section_recess:f59/seat_location.location.z", "pmi:geometric_tolerance.position:f42,43,44,45,46,47,54,55:ref=A,B,C:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:slot:f102/location_slot_across.length", "d:pmi:dimension.linear:f94,96,98,100/linear"][..]),
+            ("annotation_ink_overlap", &["d:f:slot:f102/slot_length.length", "d:f:slot:f94/location_slot.length"][..]),
+            ("annotation_ink_overlap", &["d:f:slot:f102/slot_length.length", "pmi:geometric_tolerance.perpendicularity:f89:ref=A:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:slot:f102/slot_length.length", "pmi:geometric_tolerance.position:f34,35,36,37,92,93:ref=A,G,H:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:f:slot:f102/slot_length.length", "pmi:geometric_tolerance.position:f95,97,99,101,159,160,161,162:ref=A,B,C:mod=maximum_material_requirement"][..]),
+            ("annotation_ink_overlap", &["d:f:slot:f102/slot_width.length", "d:f:slot:f94/slot_width.length"][..]),
+            ("annotation_ink_overlap", &["d:f:slot:f94/slot_width.length", "d:pmi:dimension.linear:f102,104/linear"][..]),
+            ("annotation_ink_overlap", &["d:pmi:dimension.linear:f102,104/linear", "d:pmi:dimension.linear:f94,96,98,100/linear"][..]),
+            ("annotation_ink_overlap", &["d:pmi:dimension.linear:f94,96,98,100/linear", "d:step_level/step_height.length.f56"][..]),
+            ("annotation_ink_overlap", &["d:pmi:dimension.linear:f94,96,98,100/linear", "pmi:geometric_tolerance.position:f18,19,22,23:ref=A,B,C:mod=diameter_zone,maximum_material_requirement"][..]),
+            ("annotation_ink_overlap", &["d:pmi:dimension.linear:f94,96,98,100/linear", "pmi:geometric_tolerance.position:f89:ref=A,B,C:mod=diameter_zone"][..]),
+            ("annotation_ink_overlap", &["d:step_level/step_height.length.f132", "pmi:geometric_tolerance.position:f38,39,40,41,86,87:ref=A,B,C:t=position%201.52"][..]),
+            ("annotation_ink_overlap", &["d:step_level/step_height.length.f56", "pmi:geometric_tolerance.position:f18,19,22,23:ref=A,B,C:mod=diameter_zone,maximum_material_requirement"][..]),
+            ("annotation_ink_overlap", &["pmi:datum.datum:f20,21:t=B", "pmi:datum.datum:f24,25:t=C"][..]),
+            ("annotation_ink_overlap", &["pmi:datum.datum:f24,25:t=C", "pmi:datum.datum:f84,85:t=D"][..]),
+            ("annotation_ink_overlap", &["pmi:datum.datum:f24,25:t=C", "pmi:datum.datum:f89:t=G"][..]),
+            ("annotation_ink_overlap", &["pmi:geometric_tolerance.perpendicularity:f84,85:ref=A:mod=diameter_zone", "pmi:geometric_tolerance.profile_surface:f2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,112,113,114,115,116,117,118,119:ref=A,B,C:mod=all_around"][..]),
+            ("annotation_ink_overlap", &["pmi:geometric_tolerance.position:f80,81,82,83:ref=A,D,B:mod=diameter_zone", "pmi:geometric_tolerance.profile_surface:f2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,112,113,114,115,116,117,118,119:ref=A,B,C:mod=all_around"][..]),
+            ("annotation_ink_overlap", &["pmi:geometric_tolerance.position:f84,85:ref=A,B,C:mod=diameter_zone", "pmi:geometric_tolerance.profile_surface:f2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,112,113,114,115,116,117,118,119:ref=A,B,C:mod=all_around"][..]),
+            ("annotation_overlap", &["d:f:chamfer:f119/chamfer.length", "d:f:section_recess:f59/seat_location.location.z"][..]),
+            ("annotation_overlap", &["d:f:hole:f26/location.length.z", "d:f:hole_pattern:f30/bore.diameter"][..]),
+            ("annotation_overlap", &["d:f:hole:f42/bore.diameter", "pmi:geometric_tolerance.position:f94,96,98,100:ref=A,B,C:mod=maximum_material_requirement"][..]),
+            ("annotation_overlap", &["d:f:hole:f84/bore.diameter", "d:f:hole_pattern:f48/bore.diameter"][..]),
+            ("annotation_overlap", &["d:f:hole_pattern:f30/bore.diameter", "d:step_level/step_height.length.f124"][..]),
+            ("annotation_overlap", &["d:f:hole_pattern:f30/pitch.length", "d:f:section_recess:f59/seat_diameter.diameter"][..]),
+        ].into_iter().map(|(code, ids)| (code.to_string(), ids.iter().map(|s| s.to_string()).collect::<Vec<_>>())).collect();
+        let new: BTreeSet<_> = actual.difference(&original).cloned().collect();
+        assert_eq!(
+            new, accepted,
+            "new hard findings beyond the reviewed CAD frame layout"
         );
         let auto = plan_escalated_with(&a, &Spec::default(), false, None, false).unwrap();
         assert!(non_locations(&auto).is_subset(&non_locations(&trial)));
@@ -489,4 +558,127 @@ fn a_larger_sheet_is_refused_for_a_doubled_leader_and_the_trace_says_so() {
         "{}",
         tried[3]
     );
+}
+
+#[test]
+fn a_manufacturing_table_with_no_place_falls_back_to_full_callouts() {
+    fn claimed<'a>(plan: &'a Plan, a: &Analysis, source: &str) -> Vec<(&'a str, &'a str)> {
+        let Some(crate::pmi::Reading::Read(report)) = &a.pmi else {
+            panic!("PMI read")
+        };
+        let feature = &report.identities().ids[source];
+        plan.dimensions
+            .iter()
+            .filter(|d| d.measurements.iter().any(|m| &m.feature == feature))
+            .map(|d| (d.id.as_str(), d.label.as_str()))
+            .collect()
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (part, a) = analyse_native(
+        &root.join("tests/fixtures/pmi/step/GRM-03_thumbwheel_drive_screw_AP242_PMI.step.gz"),
+    )
+    .unwrap();
+    let spec = |sheet: serde_json::Value| -> Spec {
+        let mut sheet = sheet;
+        sheet["callouts"] = serde_json::json!({"style": "note"});
+        // Both declared datums drawn, as when this case was recorded: undrawn, datum A leaves
+        // the table room on A4 at 5:1.
+        sheet["uncited_datums"] = serde_json::json!(true);
+        // Keep this a genuine no-place fallback: the new split form has its own test below.
+        sheet["table_columns"] = serde_json::json!({"manufacturing_requirements":1});
+        serde_json::from_value(serde_json::json!({ "sheet": sheet })).unwrap()
+    };
+    // With room, the requirements go to the table, as before.
+    let roomy = plan(&a, &spec(serde_json::json!({}))).unwrap();
+    let table = roomy
+        .tables
+        .iter()
+        .find(|t| t.id == "manufacturing_requirements")
+        .expect("the table, with room");
+    assert!(table.placed.is_some());
+    let font = crate::text::Font::open(&root.join("fonts").join(crate::dims::FONT)).unwrap();
+    let given = spec(serde_json::json!({"size": "A4", "scale": "5:1"}));
+    // frame laid out as CAD's TOLERANCE (Paul 2026-11-12): the smaller symbols
+    // leave the 5:1 table room. Inject its no-place decision, keeping both real
+    // replanning paths and every rendered requirement/claim assertion below.
+    for replan in [plan, plan_recovered] {
+        let mut unavailable = replan(&a, &given).unwrap();
+        let table = unavailable
+            .tables
+            .iter_mut()
+            .find(|t| t.id == "manufacturing_requirements")
+            .unwrap();
+        assert!(table.placed.is_some());
+        table.placed = None;
+        table.state = ItemState::NotDrawable {
+            reason_code: "table_not_placed".into(),
+        };
+        unavailable.problems.push(Problem {
+            id: "p:table_not_placed:manufacturing_requirements".into(),
+            code: "table_not_placed".into(),
+            severity: "error".into(),
+            subjects: vec!["manufacturing_requirements".into()],
+            ..Default::default()
+        });
+        let plan = manufacturing_fallback(&a, &given, unavailable, |s| replan(&a, s)).unwrap();
+        assert!(
+            !plan.problems.iter().any(|p| p.code == "table_not_placed"),
+            "{:#?}",
+            plan.problems
+        );
+        assert!(
+            plan.tables
+                .iter()
+                .all(|t| t.id != "manufacturing_requirements")
+        );
+        // The requested spec stays the plan's: the fallback is no authored override.
+        assert_eq!(plan.spec.sheet, given.sheet);
+        assert!(plan.spec.features.is_empty());
+        // The fallback says what it did, naming the requirements printed in full.
+        let fallback = plan
+            .problems
+            .iter()
+            .find(|p| p.code == "manufacturing_table_fallback")
+            .expect("an info finding naming the fallback");
+        assert_eq!(fallback.severity, "info");
+        assert!(fallback.refs.len() >= 2, "{fallback:#?}");
+        for source in &fallback.refs {
+            let labels = claimed(&plan, &a, source);
+            assert_eq!(labels.len(), 1, "{source}: {labels:?}");
+            let (id, label) = labels[0];
+            assert!(!label.contains("SEE MFG"), "{source}: {label:?}");
+            let basis = &plan.dimensions.iter().find(|d| d.id == id).unwrap().basis;
+            assert!(
+                basis.contains("manufacturing table fallback")
+                    && basis.contains("table has no place on the sheet")
+                    && !basis.contains("callouts/style Full"),
+                "{basis}"
+            );
+        }
+        let thread = plan
+            .dimensions
+            .iter()
+            .map(|d| d.label.split_whitespace().collect::<Vec<_>>().join(" "))
+            .find(|l| l.contains("MIN FULL THREAD"))
+            .expect("the thread in full");
+        assert!(thread.contains("M2 x 0.4-6H RH"), "{thread}");
+        // No hard finding: not in the plan, and not on the rendered sheet.
+        let errors: Vec<_> = plan
+            .problems
+            .iter()
+            .filter(|p| p.severity == "error")
+            .map(|p| &p.id)
+            .collect();
+        assert!(errors.is_empty(), "{errors:?}");
+        let drawing = render(&part, &a, &plan, &font).unwrap();
+        let found: Vec<_> = crate::lint::lint(&a, &drawing)
+            .into_iter()
+            .chain(crate::lint::structural::check_sheets(std::slice::from_ref(
+                &drawing,
+            )))
+            .filter(|i| i.severity == crate::lint::Severity::Error)
+            .map(|i| i.id)
+            .collect();
+        assert!(found.is_empty(), "{found:?}");
+    }
 }

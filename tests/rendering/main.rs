@@ -3,6 +3,8 @@
 
 #[path = "../bands.rs"]
 mod bands;
+#[path = "../cad_frame_regressions.rs"]
+mod cad_frame_regressions;
 #[path = "../centrelines.rs"]
 mod centrelines;
 #[path = "../detail_views.rs"]

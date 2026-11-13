@@ -1189,83 +1189,53 @@ fn an_internal_threads_bore_fit_stays_on_its_tapping_drill() {
     assert_eq!(d.label, "M2-6H ↧ 2.5\n⌀1.6 H7 ↧ 4");
 }
 
-/// ISSUE-1298-a, draftwright's fallback (`_place_manufacturing_schedule`): a manufacturing
-/// requirements table with no place on the sheet is an alternative presentation that is not
-/// used, so no callout says `SEE MFG n` and each prints its requirement in full, with no
-/// `table_not_placed` error. GRM-03's AP242 thumbwheel on A4 at 5:1: its views and callouts fit,
-/// its 95.6 × 42 mm table does not (before the fallback: `table_not_placed`, three
-/// `manufacturing_reference_unresolved` and two `pmi_source_text_mismatch` errors). The fallback
-/// drawing has no error of any kind, in the plan or found on the rendered sheet.
+/// frame laid out as CAD's TOLERANCE (Paul 2026-11-12): the smaller symbols
+/// leave room for the complete table. The injected no-place case in the model's
+/// recovery tests retains the full-callout fallback and rendered-claim coverage.
 #[test]
-fn a_manufacturing_table_with_no_place_falls_back_to_full_callouts() {
+fn cad_frames_leave_room_for_the_complete_manufacturing_table() {
     let (part, a) = analysed("GRM-03_thumbwheel_drive_screw_AP242_PMI");
-    let spec = |sheet: serde_json::Value| -> Spec {
-        let mut sheet = sheet;
-        sheet["callouts"] = serde_json::json!({"style": "note"});
-        // Both declared datums drawn, as when this case was recorded: undrawn, datum A leaves
-        // the table room on A4 at 5:1.
-        sheet["uncited_datums"] = serde_json::json!(true);
-        // Keep this a genuine no-place fallback: the new split form has its own test below.
-        sheet["table_columns"] = serde_json::json!({"manufacturing_requirements":1});
-        serde_json::from_value(serde_json::json!({ "sheet": sheet })).unwrap()
-    };
-    // With room, the requirements go to the table, as before.
-    let roomy = model::plan(&a, &spec(serde_json::json!({}))).unwrap();
-    let table = roomy
+    let given: Spec = serde_json::from_value(serde_json::json!({
+        "sheet":{"size":"A4","scale":"5:1","callouts":{"style":"note"},
+        "uncited_datums":true,"table_columns":{"manufacturing_requirements":1}}
+    }))
+    .unwrap();
+    let roomy: Spec = serde_json::from_value(serde_json::json!({
+        "sheet":{"callouts":{"style":"note"},"uncited_datums":true}
+    }))
+    .unwrap();
+    let reference = model::plan(&a, &roomy).unwrap();
+    let original = reference
         .tables
         .iter()
         .find(|t| t.id == "manufacturing_requirements")
-        .expect("the table, with room");
-    assert!(table.placed.is_some());
+        .unwrap();
+    // Both planners bind the unchanged requested intent to this exact source.
+    let mut bound = given.clone();
+    bound.binding = Some(a.binding.clone());
     let font =
         draftwright::text::Font::open(&root().join("fonts").join(draftwright::dims::FONT)).unwrap();
-    let given = spec(serde_json::json!({"size": "A4", "scale": "5:1"}));
     for plan in [
         model::plan(&a, &given).unwrap(),
         model::plan_recovered(&a, &given).unwrap(),
     ] {
-        assert!(
-            !plan.problems.iter().any(|p| p.code == "table_not_placed"),
-            "{:#?}",
-            plan.problems
+        assert_eq!((&*plan.sheet.size, &*plan.sheet.scale), ("A4", "5:1"));
+        let table = plan.tables.iter().find(|t| t.id == original.id).unwrap();
+        assert_eq!(
+            table.placed.as_ref().unwrap().blocks.len(),
+            0,
+            "one unsplit table"
         );
+        assert_eq!(table.rows, original.rows);
+        assert_eq!(table.row_claims, original.row_claims);
+        assert_eq!(plan.spec, bound);
         assert!(
-            plan.tables
+            !plan
+                .problems
                 .iter()
-                .all(|t| t.id != "manufacturing_requirements")
+                .any(|p| p.code == "manufacturing_table_fallback")
         );
-        // The requested spec stays the plan's: the fallback is no authored override.
-        assert_eq!(plan.spec.sheet, given.sheet);
-        assert!(plan.spec.features.is_empty());
-        // The fallback says what it did, naming the requirements printed in full.
-        let fallback = plan
-            .problems
-            .iter()
-            .find(|p| p.code == "manufacturing_table_fallback")
-            .expect("an info finding naming the fallback");
-        assert_eq!(fallback.severity, "info");
-        assert!(fallback.refs.len() >= 2, "{fallback:#?}");
-        for source in &fallback.refs {
-            let labels = claimed(&plan, &a, source);
-            assert_eq!(labels.len(), 1, "{source}: {labels:?}");
-            let (id, label) = labels[0];
-            assert!(!label.contains("SEE MFG"), "{source}: {label:?}");
-            let basis = &plan.dimensions.iter().find(|d| d.id == id).unwrap().basis;
-            assert!(
-                basis.contains("manufacturing table fallback")
-                    && basis.contains("table has no place on the sheet")
-                    && !basis.contains("callouts/style Full"),
-                "{basis}"
-            );
-        }
-        let thread = plan
-            .dimensions
-            .iter()
-            .map(|d| d.label.split_whitespace().collect::<Vec<_>>().join(" "))
-            .find(|l| l.contains("MIN FULL THREAD"))
-            .expect("the thread in full");
-        assert!(thread.contains("M2 x 0.4-6H RH"), "{thread}");
-        // No hard finding: not in the plan, and not on the rendered sheet.
+        let drawing = model::render(&part, &a, &plan, &font).unwrap();
         let errors: Vec<_> = plan
             .problems
             .iter()
@@ -1273,16 +1243,14 @@ fn a_manufacturing_table_with_no_place_falls_back_to_full_callouts() {
             .map(|p| &p.id)
             .collect();
         assert!(errors.is_empty(), "{errors:?}");
-        let drawing = model::render(&part, &a, &plan, &font).unwrap();
-        let found: Vec<_> = draftwright::lint::lint(&a, &drawing)
+        let errors: Vec<_> = draftwright::lint::lint(&a, &drawing)
             .into_iter()
             .chain(draftwright::lint::structural::check_sheets(
                 std::slice::from_ref(&drawing),
             ))
-            .filter(|i| i.severity == draftwright::lint::Severity::Error)
-            .map(|i| i.id)
+            .filter(|p| p.severity == draftwright::lint::Severity::Error)
             .collect();
-        assert!(found.is_empty(), "{found:?}");
+        assert!(errors.is_empty(), "{errors:?}");
     }
 }
 
@@ -1301,6 +1269,11 @@ fn a_split_manufacturing_table_keeps_every_requirement_and_its_claims() {
         .unwrap();
     spec.sheet.size = Some("A4".into());
     spec.sheet.scale = Some("5:1".into());
+    // frame laid out as CAD's TOLERANCE (Paul 2026-11-12): a whole table now
+    // fits at 5:1. Request the two-block form to keep the split/claim coverage.
+    spec.sheet
+        .table_columns
+        .insert("manufacturing_requirements".into(), 2);
     let font =
         draftwright::text::Font::open(&root().join("fonts").join(draftwright::dims::FONT)).unwrap();
     for plan in [
@@ -1308,7 +1281,7 @@ fn a_split_manufacturing_table_keeps_every_requirement_and_its_claims() {
         model::plan_recovered(&a, &spec).unwrap(),
     ] {
         let table = plan.tables.iter().find(|t| t.id == original.id).unwrap();
-        assert!(table.placed.as_ref().unwrap().blocks.len() >= 2);
+        assert_eq!(table.placed.as_ref().unwrap().blocks.len(), 2);
         assert_eq!(table.rows, original.rows);
         assert_eq!(table.row_claims, original.row_claims);
         assert!(

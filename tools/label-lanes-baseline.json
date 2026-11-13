@@ -1,0 +1,14 @@
+{
+  "format": "draftwright.label-lanes/1",
+  "reason": "accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed",
+  "stc09": {
+    "part": "nist_stc_09_asme1_ap242-e4",
+    "dimension": "d:f:slot:f102/slot_length.length",
+    "sheet": "A1",
+    "scale": "1:2",
+    "witness_lengths_um": [
+      67070,
+      67070
+    ]
+  }
+}

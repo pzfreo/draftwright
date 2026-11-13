@@ -1370,7 +1370,7 @@ fn faces_inside(drawing: &Drawing, b: [f64; 4]) -> usize {
             Item::Face(wires) | Item::Glyph(wires, _) => {
                 wires.iter().flatten().all(|c| points(c).iter().all(within))
             }
-            Item::Edge(_) | Item::TextStroke(_, _) => false,
+            Item::Edge(_) | Item::TextStroke(_, _) | Item::FrameText(_, _) => false,
         })
         .count()
 }

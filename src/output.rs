@@ -304,7 +304,7 @@ pub fn items_bbox<'a>(items: impl IntoIterator<Item = &'a Item>) -> Option<[f64;
     let mut out: Option<[f64; 4]> = None;
     for item in items {
         let curves: Vec<&Curve> = match item {
-            Item::Edge(c) | Item::TextStroke(c, _) => vec![c],
+            Item::Edge(c) | Item::TextStroke(c, _) | Item::FrameText(c, _) => vec![c],
             Item::Face(wires) | Item::Glyph(wires, _) => wires.iter().flatten().collect(),
         };
         for c in curves {
@@ -332,7 +332,14 @@ pub enum Item {
     Glyph(Vec<Vec<Curve>>, usize),
     /// A font-independent callout symbol stroke, replaced by native text in DXF.
     TextStroke(Curve, usize),
+    /// A stroke or arc of the CAD-font text of a GD&T frame ([`crate::dims::gdt`]): painted
+    /// with the text pen ([`TEXT_PEN`]) whatever its layer's width, and replaced by native text
+    /// in DXF as a [`Item::TextStroke`] is.
+    FrameText(Curve, usize),
 }
+
+/// The pen of a GD&T frame's text, mm: haecceity's ISO 3098 type B pen for 2.5 mm text.
+pub const TEXT_PEN: f64 = haecceity::presentation::gdt::TEXT_PEN;
 
 #[derive(Clone, Debug)]
 pub struct Style {
@@ -1075,6 +1082,14 @@ impl Drawing {
                         pdf_curve(&mut c, curve);
                         c.stroke();
                     }
+                    Item::FrameText(curve, _) => {
+                        let s = curve.start();
+                        c.set_line_width(TEXT_PEN as f32);
+                        c.move_to(s[0] as f32, s[1] as f32);
+                        pdf_curve(&mut c, curve);
+                        c.stroke();
+                        c.set_line_width(st.width as f32);
+                    }
                     Item::Face(wires) | Item::Glyph(wires, _) => {
                         for wire in wires {
                             let s = wire[0].start();
@@ -1577,24 +1592,54 @@ pub fn missing_glyphs(text: &[TextRun]) -> Vec<Problem> {
                 .filter(|c| !faces.iter().any(|f| f.supports(*c)))
                 .filter(|c| !haecceity::presentation::text::Font.supports(*c))
                 .collect();
-            (!missing.is_empty()).then(|| Problem {
-                id: format!("p:text_glyph_missing:{}", run.text),
-                code: "text_glyph_missing".into(),
-                severity: "warning".into(),
-                message: format!(
-                    "The label {:?} has {} that no bundled font draws, so {} drawn as an empty box: {}. Use characters IBM Plex has, or word it in plain text.",
-                    run.text,
-                    if missing.len() == 1 { "a character" } else { "characters" },
-                    if missing.len() == 1 { "it is" } else { "they are" },
-                    missing
-                        .iter()
-                        .map(|c| format!("{c} (U+{:04X})", *c as u32))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-                ..Default::default()
-            })
+            (!missing.is_empty()).then(|| glyph_problem(&run.text, &missing))
         })
+        .collect()
+}
+
+fn glyph_problem(label: &str, missing: &BTreeSet<char>) -> Problem {
+    Problem {
+        id: format!("p:text_glyph_missing:{label}"),
+        code: "text_glyph_missing".into(),
+        severity: "warning".into(),
+        message: format!(
+            "The label {:?} has {} that no bundled font draws, so {} drawn as an empty box: {}. Use characters IBM Plex has, or word it in plain text.",
+            label,
+            if missing.len() == 1 {
+                "a character"
+            } else {
+                "characters"
+            },
+            if missing.len() == 1 {
+                "it is"
+            } else {
+                "they are"
+            },
+            missing
+                .iter()
+                .map(|c| format!("{c} (U+{:04X})", *c as u32))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        ..Default::default()
+    }
+}
+
+/// A `text_glyph_missing` warning for each GD&T frame with a character neither CAD font draws
+/// (`cad_frame_missing`): the frame leaves it out of its ink, nothing substituted, so its
+/// readable cells say what the ink does not. The sheet-font check above does not see these
+/// characters: the frame's text is not drawn from that font.
+pub fn missing_frame_glyphs<'a>(
+    gdt: impl IntoIterator<Item = &'a crate::dims::gdt::PlannedGdt>,
+) -> Vec<Problem> {
+    let mut seen = BTreeSet::new();
+    gdt.into_iter()
+        .filter(|g| g.placed.is_some())
+        .filter_map(|g| {
+            let missing: BTreeSet<char> = crate::dims::gdt::frame_missing(g).into_iter().collect();
+            (!missing.is_empty()).then(|| glyph_problem(&g.cells.join(" "), &missing))
+        })
+        .filter(|p| seen.insert(p.id.clone()))
         .collect()
 }
 
@@ -1976,6 +2021,14 @@ fn svg_segments(curve: &Curve, d: &mut String) {
 
 fn svg_item(item: &Item) -> String {
     match item {
+        // The text pen, whatever the layer's width.
+        Item::FrameText(curve, _) => {
+            let ink = svg_item(&Item::Edge(curve.clone()));
+            match ink.strip_suffix(" />") {
+                Some(open) => format!("{open} stroke-width=\"{}\" />", num(TEXT_PEN)),
+                None => ink,
+            }
+        }
         Item::Edge(Curve::Line(a, b)) | Item::TextStroke(Curve::Line(a, b), _) => {
             format!(
                 "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" />",

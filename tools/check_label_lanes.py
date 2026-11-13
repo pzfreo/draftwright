@@ -3,6 +3,8 @@
 Usage: python3 -I tools/check_label_lanes.py before-dir after-dir
 Or: --current quality-dir --after-binary target/release/draftwright (CI locality gate).
 Binary options regenerate stc09.plan.json from the committed compressed STEP.
+Record reviewed STC09 witness geometry with --current quality-dir
+--record tools/label-lanes-baseline.json --reason 'review reason'.
 """
 import itertools
 import argparse
@@ -85,10 +87,16 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('before', type=Path, nargs='?')
 parser.add_argument('after', type=Path, nargs='?')
 parser.add_argument('--current', type=Path)
+parser.add_argument('--record', type=Path)
+parser.add_argument('--reason')
 parser.add_argument('--before-binary', type=Path)
 parser.add_argument('--after-binary', type=Path)
 parser.add_argument('--corpus', type=Path, default=os.environ.get('DRAFTWRIGHT_CORPUS'))
 args = parser.parse_args()
+if args.record and (not args.current or not args.reason or not args.reason.strip()):
+    parser.error('--record requires --current and a nonempty --reason')
+if args.reason and not args.record:
+    parser.error('--reason requires --record')
 before, after = args.before, args.after
 if args.current:
     after = args.current
@@ -125,7 +133,24 @@ if args.current:
              if d.get('placed') and d['kind'] == 'linear' and d.get('view') == view
              and d['placed']['rotation'] == slot['rotation'] and d['placed']['arrows'][0][0][1] < slot['lines'][0][0][1]]
     assert abs(slot['arrows'][0][0][1] - max(lanes)) <= 14 + 1e-6, 'slot skipped its next lane'
-    assert all(abs(a[1] - b[1]) < 60 for a, b in slot['lines'][:2]), 'slot witnesses cross the tower'
+    # Only this reviewed witness regression is accepted, at its exact measured size.
+    # Off-sheet ink and missing requirements are not exceptions to this gate.
+    assert not any(p['code'] in {'annotation_off_sheet', 'pinned_view_off_sheet'}
+                   for p in plan['problems']), 'STC09 ink off sheet'
+    witnesses = dict(part='nist_stc_09_asme1_ap242-e4',
+                     dimension='d:f:slot:f102/slot_length.length',
+                     sheet=plan['sheet']['size'], scale=plan['sheet']['scale'],
+                     witness_lengths_um=[round(abs(a[1] - b[1]) * 1000)
+                                         for a, b in slot['lines'][:2]])
+    baseline = args.record or root / 'tools/label-lanes-baseline.json'
+    if args.record:
+        baseline.write_text(json.dumps(dict(format='draftwright.label-lanes/1',
+            reason=args.reason.strip(), stc09=witnesses), indent=2) + '\n')
+        print('Recorded STC09 witnesses:', args.reason.strip())
+    recorded = json.loads(baseline.read_text())
+    assert recorded['format'] == 'draftwright.label-lanes/1'
+    assert recorded['reason'].strip(), 'missing witness review reason'
+    assert witnesses == recorded['stc09'], ('STC09 witness geometry changed', witnesses)
     # string_post's inspection-end baseline replaces the old 1.1 mm chain link.
     # Its retained 1 mm terminal-band length (turned_step:3/step.length) is now
     # the short local span: its outside-arrow label must stay beside its own tips,

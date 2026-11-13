@@ -1303,7 +1303,16 @@ fn pmi_slot_layout_retries_physical_witnesses_without_changing_authored_intent()
         "fixtures/pmi/mounting-plate.specify018.step.gz"
     ));
     let p = plan(&a, &Spec::default());
-    assert_eq!(p.sheet.size, "A4");
+    // frame laid out as CAD's TOLERANCE (Paul 2026-11-12): the 1:1 drawing
+    // is larger and clears all four crossings of the former A4 1:2 drawing.
+    assert_eq!((&*p.sheet.size, &*p.sheet.scale), ("A3", "1:1"));
+    assert_eq!(
+        p.problems
+            .iter()
+            .filter(|p| p.code == "annotation_leader_crossing")
+            .count(),
+        0
+    );
     assert!(
         !p.problems.iter().any(|p| p.code == "feature_not_located"),
         "shared pitches retain every pattern location constraint"
