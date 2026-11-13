@@ -5,9 +5,9 @@ DXF. It recognises manufacturing features, reads requirements from the STEP file
 views and dimensions, and lays them out on standard sheets. It reports what it could not state.
 
 <p align="center">
-  <img src="docs/images/hero-nist-ctc-03.png" alt="An A3 drawing of NIST test part CTC-03, a sheet-metal bracket, with plan and elevation views, an isometric view, a hole table, datums and GD&T frames" width="100%">
+  <img src="docs/images/hero-nist-ctc-02.png" alt="An A2 drawing of NIST test part CTC-02 with plan and elevation views, a section, an isometric view, hole tables, datums and GD&T frames" width="100%">
   <br>
-  <sub>NIST CTC-03, drawn from its AP242 STEP file with only the title set. Every view, dimension,
+  <sub>NIST CTC-02, drawn by 0.6.0-alpha.2 from its AP242 STEP file with only the title set. Every view, dimension,
   hole-table entry, datum and GD&amp;T frame is placed automatically.</sub>
 </p>
 
