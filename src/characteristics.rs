@@ -340,7 +340,13 @@ mod tests {
         let mut s = Spec::default();
         s.sheet.balloons = Mode::All;
         s.hole_table = crate::hole_table::Setting::Always;
+        // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+        // The default A4 1:2 has no schedule. Keep this row-transfer test on
+        // explicit paper where its six rows exist, rather than losing that coverage.
+        s.sheet.size = Some("A3".into());
+        s.sheet.scale = Some("2:1".into());
         let mut p = model::plan_recovered(&a, &s).unwrap();
+        assert_eq!((&*p.sheet.size, &*p.sheet.scale), ("A3", "2:1"));
         assert!(p.characteristics.iter().any(|c| {
             c.source == source
                 && c.drawn_item

@@ -687,9 +687,10 @@ fn the_plan_and_lint_agree_on_a_leader_cutting_back_into_the_material() {
         let at = text.find(before).unwrap_or_else(|| panic!("{text}")) + before.len();
         text[at..].split(' ').next().unwrap().to_string()
     };
-    // Down as well as out: the inclined pin's own callouts (ø10, ø6, ⌀4.2 ↧ 8) share the view and
-    // move its default place, so straight out from there now clears the plate.
-    let (planned, linted, plan) = reports([15.0, -15.0]);
+    // frame laid out as CAD's TOLERANCE (Paul 2026-11-12): the canonical bend
+    // stands higher. Pin it down 30 mm to cross the plate (8.9 mm of material),
+    // retaining the negative case and both independent depth checks.
+    let (planned, linted, plan) = reports([15.0, -30.0]);
     assert_eq!(planned.len(), 1, "{planned:#?}");
     assert_eq!(linted.len(), 1, "{linted:#?}");
     assert_eq!(linted[0].annotation.as_deref(), Some(ID));

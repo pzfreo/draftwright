@@ -983,6 +983,8 @@ struct Obstacles<'a> {
     /// Proven exterior paper beside a shoulder inside the whole-view box.
     exterior: Option<(&'a PlannedView, &'a super::interior::Proof)>,
     protect_triangles: bool,
+    /// Datum shafts must clear text by the same half millimetre the final contact audit uses.
+    label_gap: f64,
     /// A finish's leader and shelf keep this clear of any line they run alongside.
     parallel_gap: Option<f64>,
     triangles: Vec<Vec<P2>>,
@@ -1070,15 +1072,19 @@ impl Obstacles<'_> {
         if !furniture {
             return 3;
         }
+        let padded = |b: [f64; 4]| {
+            let gap = self.label_gap;
+            [b[0] - gap, b[1] - gap, b[2] + gap, b[3] + gap]
+        };
         let lines_clear =
             self.page.views().iter().all(|(id, v)| {
                 *id == self.own.as_str() || !c.lines.iter().any(|l| crosses(*l, *v))
             }) && !c.lines.iter().any(|l| crosses(*l, self.page.title_block()))
-                && !self.lines.iter().any(|l| crosses(*l, b))
+                && !self.lines.iter().any(|l| crosses(*l, padded(b)))
                 && !c
                     .lines
                     .iter()
-                    .any(|l| self.labels.iter().any(|x| crosses(*l, *x)));
+                    .any(|l| self.labels.iter().any(|x| crosses(*l, padded(*x))));
         // A finish's leader run close alongside a dimension or extension line reads as a
         // doubled line: as bad as a line through a label.
         let alongside = self.parallel_gap.is_some_and(|gap| {
@@ -1794,6 +1800,7 @@ fn plan_search(
                 })
                 .flatten(),
             protect_triangles: protect,
+            label_gap: if datum { 0.5 } else { 0.0 },
             parallel_gap: (shape == Shape::Finish).then_some(FINISH_PARALLEL_GAP),
             triangles: triangles
                 .iter()
@@ -3125,6 +3132,7 @@ mod tests {
             area: None,
             exterior: None,
             protect_triangles: true,
+            label_gap: 0.5,
             parallel_gap: None,
             triangles: first.fills.clone(),
             labels: std::iter::once(first.label_box)
@@ -3147,6 +3155,39 @@ mod tests {
             [H, H],
         );
         assert!(obstacles.clearance_grade(&clear) < 4);
+    }
+
+    #[test]
+    fn a_datum_shaft_reserves_the_reporters_text_clearance() {
+        let analysis: Analysis = serde_json::from_value(serde_json::json!({
+            "schema": crate::model::ANALYSIS_SCHEMA,
+            "binding":{"source_sha256":"", "part":"plate", "face_count":0, "loader":"test"},
+            "envelope":[[0,0,0],[100,60,10]], "iso_bounds":[0,0,100,60]
+        }))
+        .unwrap();
+        let plan = crate::model::plan(&analysis, &Spec::default()).unwrap();
+        let page = Page::new(&analysis, &plan.sheet, &[]);
+        let c = candidate(Shape::Datum, [30.0, 180.0], "right", 50.0, [H, H]);
+        let mut obstacles = Obstacles {
+            page: &page,
+            own: "v:front".into(),
+            area: None,
+            exterior: None,
+            protect_triangles: true,
+            label_gap: 0.5,
+            parallel_gap: None,
+            triangles: Vec::new(),
+            labels: vec![[40.0, 180.25, 45.0, 185.25]],
+            lines: Vec::new(),
+        };
+        // The shaft misses the box, but its 0.25 mm gap reads as touching text.
+        assert_eq!(obstacles.clearance_grade(&c), 2);
+        obstacles.labels[0] = [40.0, 180.75, 45.0, 185.75];
+        assert_eq!(obstacles.clearance_grade(&c), 0);
+        // Existing dimension ink must also keep this gap from a new letter box.
+        obstacles.labels.clear();
+        obstacles.lines = vec![[[48.0, 182.75], [52.0, 182.75]]];
+        assert_eq!(obstacles.clearance_grade(&c), 2);
     }
 
     #[test]

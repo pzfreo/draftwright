@@ -490,3 +490,126 @@ fn a_larger_sheet_is_refused_for_a_doubled_leader_and_the_trace_says_so() {
         tried[3]
     );
 }
+
+#[test]
+fn a_manufacturing_table_with_no_place_falls_back_to_full_callouts() {
+    fn claimed<'a>(plan: &'a Plan, a: &Analysis, source: &str) -> Vec<(&'a str, &'a str)> {
+        let Some(crate::pmi::Reading::Read(report)) = &a.pmi else {
+            panic!("PMI read")
+        };
+        let feature = &report.identities().ids[source];
+        plan.dimensions
+            .iter()
+            .filter(|d| d.measurements.iter().any(|m| &m.feature == feature))
+            .map(|d| (d.id.as_str(), d.label.as_str()))
+            .collect()
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (part, a) = analyse_native(
+        &root.join("tests/fixtures/pmi/step/GRM-03_thumbwheel_drive_screw_AP242_PMI.step.gz"),
+    )
+    .unwrap();
+    let spec = |sheet: serde_json::Value| -> Spec {
+        let mut sheet = sheet;
+        sheet["callouts"] = serde_json::json!({"style": "note"});
+        // Both declared datums drawn, as when this case was recorded: undrawn, datum A leaves
+        // the table room on A4 at 5:1.
+        sheet["uncited_datums"] = serde_json::json!(true);
+        // Keep this a genuine no-place fallback: the new split form has its own test below.
+        sheet["table_columns"] = serde_json::json!({"manufacturing_requirements":1});
+        serde_json::from_value(serde_json::json!({ "sheet": sheet })).unwrap()
+    };
+    // With room, the requirements go to the table, as before.
+    let roomy = plan(&a, &spec(serde_json::json!({}))).unwrap();
+    let table = roomy
+        .tables
+        .iter()
+        .find(|t| t.id == "manufacturing_requirements")
+        .expect("the table, with room");
+    assert!(table.placed.is_some());
+    let font = crate::text::Font::open(&root.join("fonts").join(crate::dims::FONT)).unwrap();
+    let given = spec(serde_json::json!({"size": "A4", "scale": "5:1"}));
+    // frame laid out as CAD's TOLERANCE (Paul 2026-11-12): the smaller symbols
+    // leave the 5:1 table room. Inject its no-place decision, keeping both real
+    // replanning paths and every rendered requirement/claim assertion below.
+    for replan in [plan, plan_recovered] {
+        let mut unavailable = replan(&a, &given).unwrap();
+        let table = unavailable
+            .tables
+            .iter_mut()
+            .find(|t| t.id == "manufacturing_requirements")
+            .unwrap();
+        assert!(table.placed.is_some());
+        table.placed = None;
+        table.state = ItemState::NotDrawable {
+            reason_code: "table_not_placed".into(),
+        };
+        unavailable.problems.push(Problem {
+            id: "p:table_not_placed:manufacturing_requirements".into(),
+            code: "table_not_placed".into(),
+            severity: "error".into(),
+            subjects: vec!["manufacturing_requirements".into()],
+            ..Default::default()
+        });
+        let plan = manufacturing_fallback(&a, &given, unavailable, |s| replan(&a, s)).unwrap();
+        assert!(
+            !plan.problems.iter().any(|p| p.code == "table_not_placed"),
+            "{:#?}",
+            plan.problems
+        );
+        assert!(
+            plan.tables
+                .iter()
+                .all(|t| t.id != "manufacturing_requirements")
+        );
+        // The requested spec stays the plan's: the fallback is no authored override.
+        assert_eq!(plan.spec.sheet, given.sheet);
+        assert!(plan.spec.features.is_empty());
+        // The fallback says what it did, naming the requirements printed in full.
+        let fallback = plan
+            .problems
+            .iter()
+            .find(|p| p.code == "manufacturing_table_fallback")
+            .expect("an info finding naming the fallback");
+        assert_eq!(fallback.severity, "info");
+        assert!(fallback.refs.len() >= 2, "{fallback:#?}");
+        for source in &fallback.refs {
+            let labels = claimed(&plan, &a, source);
+            assert_eq!(labels.len(), 1, "{source}: {labels:?}");
+            let (id, label) = labels[0];
+            assert!(!label.contains("SEE MFG"), "{source}: {label:?}");
+            let basis = &plan.dimensions.iter().find(|d| d.id == id).unwrap().basis;
+            assert!(
+                basis.contains("manufacturing table fallback")
+                    && basis.contains("table has no place on the sheet")
+                    && !basis.contains("callouts/style Full"),
+                "{basis}"
+            );
+        }
+        let thread = plan
+            .dimensions
+            .iter()
+            .map(|d| d.label.split_whitespace().collect::<Vec<_>>().join(" "))
+            .find(|l| l.contains("MIN FULL THREAD"))
+            .expect("the thread in full");
+        assert!(thread.contains("M2 x 0.4-6H RH"), "{thread}");
+        // No hard finding: not in the plan, and not on the rendered sheet.
+        let errors: Vec<_> = plan
+            .problems
+            .iter()
+            .filter(|p| p.severity == "error")
+            .map(|p| &p.id)
+            .collect();
+        assert!(errors.is_empty(), "{errors:?}");
+        let drawing = render(&part, &a, &plan, &font).unwrap();
+        let found: Vec<_> = crate::lint::lint(&a, &drawing)
+            .into_iter()
+            .chain(crate::lint::structural::check_sheets(std::slice::from_ref(
+                &drawing,
+            )))
+            .filter(|i| i.severity == crate::lint::Severity::Error)
+            .map(|i| i.id)
+            .collect();
+        assert!(found.is_empty(), "{found:?}");
+    }
+}

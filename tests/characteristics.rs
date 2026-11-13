@@ -469,7 +469,13 @@ fn hole_rows_use_number_rings_separate_from_their_table_tags() {
     let (part, a) = analysed(&b);
     let mut s = on();
     s.hole_table = draftwright::hole_table::Setting::Always;
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    // Hold the schedule's explicit paper so the accepted default without a
+    // schedule does not remove the row/ring ownership checks.
+    s.sheet.size = Some("A3".into());
+    s.sheet.scale = Some("2:1".into());
     let p = model::plan_recovered(&a, &s).unwrap();
+    assert_eq!((&*p.sheet.size, &*p.sheet.scale), ("A3", "2:1"));
     std::fs::write(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("target/balloons-fixtures/table.plan.json"),
         serde_json::to_vec(&p).unwrap(),
