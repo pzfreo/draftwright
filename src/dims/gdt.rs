@@ -168,8 +168,9 @@ pub struct GdtText {
 /// draftwright's draft: the leader's shelf (`pad_around_text`), the frame's metrics
 /// (`_gdt_metrics`: cell padding, the zone sign's and the material ring's radii), and the
 /// datum symbol's triangle and frame (`DatumFeature`).
-/// A datum feature symbol's box side when its letter fits, twice the CAD text height.
-const H: f64 = 2.0 * haecceity::presentation::gdt::TEXT_HEIGHT;
+/// A datum feature symbol's reserved box side, twice the dimensions' text height
+/// ([`reserved`]): the symbol itself is drawn smaller, in CAD's 5 mm box.
+const H: f64 = 2.0 * TEXT;
 pub(super) const SHELF: f64 = 2.0;
 pub(super) const TRIANGLE: f64 = 1.4 * TEXT;
 const RING: f64 = 0.7 * ARROW;
@@ -282,7 +283,9 @@ pub(super) fn with_count(p: &mut GdtPlaced, n: usize) {
         at
     };
     p.runs.insert(0, text(&count, centre, TEXT_HEIGHT));
-    p.label_box[3] = p.label_box[3].max(base + TEXT_HEIGHT + pad);
+    // The paper reserved above the frame is main's: the count's own height and padding, as the
+    // sheet's text height sets them.
+    p.label_box[3] += 2.0 * 0.6 * TEXT + TEXT;
 }
 
 /// A feature control frame laid out from its lower left corner (`FeatureControlFrame`):
