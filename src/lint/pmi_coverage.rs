@@ -1010,7 +1010,7 @@ pub fn manufacturing_references(analysis: &Analysis, drawing: &Drawing) -> Vec<L
             let entry = analysis
                 .features
                 .iter()
-                .find(|f| f.id == o.id && f.kind == "hole")
+                .find(|f| f.id == o.owner && f.kind == "hole")
                 .and_then(|f| {
                     crate::bridge::holes::Hole::read(f, &crate::bridge::holes::frame(analysis)).ok()
                 })
