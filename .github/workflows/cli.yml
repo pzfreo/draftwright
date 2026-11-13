@@ -1,10 +1,16 @@
 name: Release command line
 
 # The draftwright command line for Linux, macOS and Windows, attached to each release. A change to
-# this workflow builds and tries all three on its pull request, without attaching anything.
+# this workflow builds and tries all three on its pull request, without attaching anything. A manual
+# run builds an existing release tag and attaches to it, for a release whose own run failed.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and attach the command line to (e.g. v0.6.0-alpha.2)
+        required: true
   pull_request:
     paths: ['.github/workflows/cli.yml', 'about.toml', 'about.hbs']
 
@@ -13,7 +19,7 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name == 'pull_request' || startsWith(github.event.release.tag_name, 'v')
+    if: github.event_name == 'pull_request' || startsWith(github.event.release.tag_name || inputs.tag, 'v')
     strategy:
       fail-fast: false
       matrix:
@@ -24,7 +30,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
       # rustc's thin-LTO threads overflow Windows' default stack on step-io.
       RUST_MIN_STACK: '67108864'
     defaults:
@@ -33,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.release.tag_name || github.sha }}
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.sha }}
       - name: The tag and the pre-release flag agree
         if: github.event_name == 'release'
         env:
@@ -89,10 +95,10 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  # Only this job can write to the repository, and only for a release.
+  # Only this job can write to the repository, and only for a release or a manual run.
   attach:
     needs: build
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -106,5 +112,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: gh release upload "$RELEASE_TAG" dist/* --clobber

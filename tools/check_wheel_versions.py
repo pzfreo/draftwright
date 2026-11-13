@@ -5,7 +5,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import tomllib
 import zipfile
 
 
@@ -55,6 +54,9 @@ def check_versions(tag: str, root: Path, dist: Path, provenance: Path) -> str:
     head = git_commit(root, "HEAD^{commit}")
     if head != tag_commit:
         raise ValueError(f"checked-out commit {head} does not match tag {tag} ({tag_commit})")
+    # Imported here: the pre-release check also runs on ubuntu-22.04, whose Python 3.10 has no tomllib.
+    import tomllib
+
     for manifest in MANIFESTS:
         with (root / manifest).open("rb") as source:
             actual = tomllib.load(source)["package"]["version"]
