@@ -183,6 +183,9 @@ struct Laid {
     strokes: Vec<[P2; 2]>,
     /// How many of the first strokes are lines; the rest are CAD-font text. None: all lines.
     frame_strokes: Option<usize>,
+    /// Paper reserved around the drawn frame beyond its own size, `size` less the drawn box
+    /// ([`reserved`]).
+    slack: P2,
     arcs: Vec<[f64; 5]>,
     letters: Vec<GdtText>,
     runs: Vec<GdtText>,
@@ -222,7 +225,25 @@ pub(super) fn with_count(p: &mut GdtPlaced, n: usize) {
     if p.runs.iter().any(|run| run.text == count) {
         return;
     }
-    let b = p.label_box;
+    // The drawn frame's box, which stands inside the paper reserved for it.
+    let lines = &p.strokes[..p.frame_strokes.min(p.strokes.len())];
+    let b = lines.iter().flatten().fold(
+        [
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ],
+        |b, q| {
+            [
+                b[0].min(q[0]),
+                b[1].min(q[1]),
+                b[2].max(q[0]),
+                b[3].max(q[1]),
+            ]
+        },
+    );
+    let b = if b[0].is_finite() { b } else { p.label_box };
     let pad = 0.6 * TEXT_HEIGHT;
     let base = b[3] + pad;
     let centre = if cad_frame_missing(&count, &[]).is_empty() {
@@ -261,7 +282,7 @@ pub(super) fn with_count(p: &mut GdtPlaced, n: usize) {
         at
     };
     p.runs.insert(0, text(&count, centre, TEXT_HEIGHT));
-    p.label_box[3] = base + TEXT_HEIGHT + pad;
+    p.label_box[3] = p.label_box[3].max(base + TEXT_HEIGHT + pad);
 }
 
 /// A feature control frame laid out from its lower left corner (`FeatureControlFrame`):
@@ -288,7 +309,16 @@ fn control_frame(glyph: &Glyph) -> (Laid, Vec<String>) {
         datums,
     );
     let cells = c.cells.clone();
-    (laid(c), cells)
+    let old = haecceity::presentation::gdt::control_frame(
+        characteristic,
+        tolerance,
+        *zone,
+        *material,
+        datums,
+        &width,
+    )
+    .size;
+    (reserved(laid(c), old), cells)
 }
 
 /// A callout of haecceity's shared notation as this module lays it out.
@@ -300,6 +330,7 @@ fn laid(c: haecceity::presentation::Callout) -> Laid {
     };
     Laid {
         frame_strokes: c.text_symbols.then_some(c.frame_strokes),
+        slack: [0.0; 2],
         strokes: c.strokes,
         arcs: c.arcs,
         letters: c.letters.into_iter().map(text).collect(),
@@ -312,39 +343,37 @@ fn laid(c: haecceity::presentation::Callout) -> Laid {
 /// a box twice the text height on a side, the letter drawn in the frame's font, so its geometry
 /// does not depend on the sheet's font.
 fn datum_frame(letter: &str) -> Laid {
-    laid(haecceity::presentation::gdt::cad_datum_frame(letter))
+    reserved(
+        laid(haecceity::presentation::gdt::cad_datum_frame(letter)),
+        [2.0 * TEXT, 2.0 * TEXT],
+    )
 }
 
-/// The paper the layout has always reserved for a control frame: two text heights of the
-/// dimensions' text (6 mm) tall, its cells as wide as the sheet's font measures them. The frames
-/// are drawn smaller now (CAD's 5 mm and its cell widths, `cad_control_frame`), but the dimension
-/// bands and the sheet and scale search were tuned with this much paper reserved around them:
-/// where the frames' own paper shrank, bands the dimension lanes need (a lane overflowing across
-/// its view; a left lane fitting where the right one was forced) lost their slack and a sheet
-/// that fits at main's scale was rejected (nist_ctc_01 A3 1:5 became A1 1:2, editor_pmi A3 2:1
-/// became A4 1:2). Reserving the old size keeps those layouts; the placement search itself uses
-/// the drawn size.
-fn reserved_frame(glyph: &Glyph) -> P2 {
-    let Glyph::ControlFrame {
-        characteristic,
-        tolerance,
-        zone,
-        material,
-        datums,
-        ..
-    } = glyph
-    else {
-        return [0.0, 0.0];
-    };
-    haecceity::presentation::gdt::control_frame(
-        characteristic,
-        tolerance,
-        *zone,
-        *material,
-        datums,
-        &width,
-    )
-    .size
+/// The paper the layout has always reserved for a frame: two text heights of the dimensions'
+/// text (6 mm) tall, a control frame's cells as wide as the sheet's font measures them
+/// ([`haecceity::presentation::gdt::control_frame`]). The frames are drawn smaller now (CAD's
+/// 5 mm and its cell widths, `cad_control_frame`), but the dimension bands, the placement search
+/// and the sheet and scale search were tuned with this much paper reserved around them: where
+/// the frames' own paper shrank, bands the dimension lanes need (a lane overflowing across its
+/// view; a left lane fitting where the right one was forced) lost their slack and sheets that
+/// fit at main's scale were rejected or drawn with new crossings (nist_ctc_01 A3 1:5 became A1
+/// 1:2, editor_pmi A3 2:1 gained an extension through a hole). So a frame is laid out, placed and
+/// reserved as a box of at least that size, and drawn inside it against its leader's end.
+fn reserved(mut laid: Laid, old: P2) -> Laid {
+    let drawn = laid.size;
+    let size = [drawn[0].max(old[0]), drawn[1].max(old[1])];
+    laid.slack = [size[0] - drawn[0], size[1] - drawn[1]];
+    laid.size = size;
+    laid
+}
+
+/// Where a laid frame's ink stands in its reserved box: centred across, and against the shelf's
+/// end along it (*dir* the shelf's direction).
+fn inset(laid: &Laid, dir: f64) -> P2 {
+    [
+        if dir < 0.0 { laid.slack[0] } else { 0.0 },
+        0.5 * laid.slack[1],
+    ]
 }
 
 /// A label's text laid out from its lower left corner, a text height tall per line: each line is
@@ -387,6 +416,7 @@ fn flag_note(number: usize) -> Laid {
         runs: vec![number],
         arcs: Vec::new(),
         frame_strokes: None,
+        slack: [0.0; 2],
     }
 }
 
@@ -1209,11 +1239,7 @@ pub(crate) fn demand_with_spec(
                 Glyph::Label { text } => label(text).size,
                 Glyph::FlagNote { number, .. } => flag_note(*number).size,
                 Glyph::Finish { texture, .. } => finish_symbol(texture, spec.units).0.size,
-                g => {
-                    let laid = control_frame(g).0.size;
-                    let old = reserved_frame(g);
-                    [laid[0].max(old[0]), laid[1].max(old[1])]
-                }
+                g => control_frame(g).0.size,
             };
             let horizontal = outward(item.side)[0] == 0.0;
             let f = &frames[item.view];
@@ -2110,7 +2136,7 @@ fn plan_search(
             }
         }
         // Invariant: The finite tier loop always evaluates its first candidate without pruning.
-        let (_, side, chosen, tip, alternative) = best.expect("a tier");
+        let (_, side, mut chosen, tip, alternative) = best.expect("a tier");
         if sites[alternative].2.is_some() {
             planned.basis += "; on an extension of its planar face beyond the view outline";
         } else if alternative > 0 {
@@ -2124,7 +2150,29 @@ fn plan_search(
             );
             planned.side = side.into();
         }
-        let shift = |p: P2| [p[0] + chosen.origin[0], p[1] + chosen.origin[1]];
+        // A datum symbol is centred in its box; a control frame stands against its shelf.
+        let dir = chosen
+            .lines
+            .last()
+            .map_or(1.0, |[a, b]| (b[0] - a[0]).signum());
+        let off = if datum { [0.0; 2] } else { inset(&laid, dir) };
+        if datum && let Some(line) = chosen.lines.last_mut() {
+            // The leader runs on to the drawn frame's edge.
+            let d = outward(&planned.side);
+            let along = 0.5
+                * if d[0] == 0.0 {
+                    laid.slack[1]
+                } else {
+                    laid.slack[0]
+                };
+            line[1] = [line[1][0] + d[0] * along, line[1][1] + d[1] * along];
+        }
+        let shift = |p: P2| {
+            [
+                p[0] + chosen.origin[0] + off[0],
+                p[1] + chosen.origin[1] + off[1],
+            ]
+        };
         let moved = |t: &GdtText| GdtText {
             text: t.text.clone(),
             at: shift(t.at),
@@ -2239,9 +2287,20 @@ pub(super) fn datum_at(letter: &str, tip: P2, side: &str, tier: usize) -> GdtPla
         at: shift(t.at),
         size: t.size,
     };
+    let mut lines = c.lines;
+    if let Some(line) = lines.last_mut() {
+        // The leader runs on to the drawn frame's edge.
+        let along = 0.5
+            * if d[0] == 0.0 {
+                laid.slack[1]
+            } else {
+                laid.slack[0]
+            };
+        line[1] = [line[1][0] + d[0] * along, line[1][1] + d[1] * along];
+    }
     GdtPlaced {
         tip,
-        lines: c.lines,
+        lines,
         arrows: c.arrows,
         label_box: c.label_box,
         strokes: laid
