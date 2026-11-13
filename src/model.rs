@@ -2158,7 +2158,9 @@ pub fn recognise_document(
                     A::Feature { .. } => FaceGroup::Feature,
                     A::Body { .. } => FaceGroup::Body,
                     A::Refused { .. } => FaceGroup::Refused,
-                    A::Unexplained => FaceGroup::Unexplained,
+                    // `FaceAccounting` is non-exhaustive: a group this reader does not know
+                    // is not claimed as explained.
+                    A::Unexplained | _ => FaceGroup::Unexplained,
                 })
                 .collect()
         });
