@@ -1,18 +1,8 @@
-<p align="center">
-  <img src="docs/images/draftwright-logo.png" alt="draftwright: technical drawings, generated" width="460">
-</p>
+# draftwright
 
-<p align="center">
-  <a href="https://crates.io/crates/draftwright"><img src="https://img.shields.io/crates/v/draftwright.svg" alt="crates.io"></a>
-  <a href="https://github.com/pzfreo/draftwright/actions/workflows/ci.yml"><img src="https://github.com/pzfreo/draftwright/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-AGPL--3.0-blue.svg" alt="Licence: AGPL-3.0"></a>
-</p>
-
-**Draftwright turns a 3D STEP file into a complete, dimensioned engineering drawing.** It
-recognises the part's features (holes, patterns, slots, pockets, turned steps, threads),
-decides what to dimension and where, reads tolerances and GD&T from AP242 files, lays out the
-views on a standard sheet, and tells you anything it could not state. One Rust binary, one
-command, one repeatable drawing.
+Draftwright turns a STEP model into a dimensioned engineering drawing: SVG, PDF or editable
+DXF. It recognises manufacturing features, reads requirements from the STEP file, chooses
+views and dimensions, and lays them out on standard sheets. It reports what it could not state.
 
 <p align="center">
   <img src="docs/images/hero-nist-ctc-03.png" alt="An A3 drawing of NIST test part CTC-03, a sheet-metal bracket, with plan and elevation views, an isometric view, a hole table, datums and GD&T frames" width="100%">
@@ -21,77 +11,59 @@ command, one repeatable drawing.
   hole-table entry, datum and GD&amp;T frame is placed automatically.</sub>
 </p>
 
+**Contents:** [Results](#results) · [Install](#install) · [Command line](#command-line) · [Output and the Spec](#output-and-the-spec) · [Python](#python) · [What it does](#what-it-does) · [Assemblies and revisions](#assemblies-and-revisions) · [With agents](#with-agents) · [Examples](#examples) · [Documentation](#documentation) · [How it's built](#how-its-built) · [Related projects](#related-projects) · [Licence and contributing](#licence-and-contributing)
 
-## Python
+0.6.0 is in alpha (pre-release); the current version is **0.6.0-alpha.2**. The Rust half of
+the build123d API remains to be completed; layout regressions are tracked in
+[#452](https://github.com/pzfreo/draftwright/issues/452).
 
-```sh
-pip install draftwright
-```
+## Results
 
-```python
-from draftwright import make_drawing
-svg_path, dxf_path = make_drawing("part.step", out="drawing", title="Bracket")
-```
-
-STEP paths and build123d shapes are supported (install build123d separately for
-shapes). The wheel also installs `draftwright` and `draftwright-mcp` on PATH.
-
-**Changed from 0.4:** `make_drawing` still returns `(svg_path, dxf_path)` as strings,
-and the DXF is now editable in CAD; the other old Python
-classes/functions are unavailable. Unsupported options with non-default values
-raise `TypeError`; old names/imports give migration guidance. Pin
-`draftwright<0.6` to keep the old API. The Rust engine uses a [Spec](docs/model.md).
-See the [Python API, keyword mapping and interrupt behaviour](docs/python.md).
-
-## Ways to use it
-
-- **In the browser:** [draftwright.io](https://draftwright.io). Open a STEP file, see the drawing,
-  move and edit dimensions, add requirements, and export PDF or STEP. The whole engine runs in
-  the browser as WebAssembly.
-- **With an AI agent:** the hosted MCP server at `mcp.draftwright.io` lets Claude, ChatGPT and
-  other MCP clients open parts, read drawings and make changes. See [docs/mcp.md](docs/mcp.md).
-- **On the command line:** `draftwright render part.step -o part` (below).
-- **From Rust:** the `draftwright` crate's five stateless operations (`analyse`, `plan`, `edit`,
-  `render`, `review`). See [docs/model.md](docs/model.md).
+Built **54 drawings and 3 assembly packs** from six public sources with 0.6.0-alpha.2.
+**40/54 drawings have zero reported errors**; drawing reviews total **1,094 errors, 1,830 warnings and 2,382 info findings**.
+These are unreviewed output. Draftwright reports what it could not state.
+See [full results and commands](docs/results.md), [layout regressions (#452)](https://github.com/pzfreo/draftwright/issues/452)
+and [known limitations](docs/engine.md#known-limitations).
 
 ## Install
 
-With a recent stable Rust toolchain:
+These commands select the pre-release; unqualified installs can select older releases.
+
+| You use | Install | Platforms |
+| --- | --- | --- |
+| **Python 3.9+ (abi3)** | `pip install --pre draftwright` ([PyPI](https://pypi.org/project/draftwright/), [Python guide](docs/python.md)); no Rust needed | Linux x86_64 and aarch64, macOS arm64 and x86_64, Windows x64 |
+| **Command line** | `uv tool install --prerelease allow draftwright`; installs `draftwright` and `draftwright-mcp` | The same five wheel platforms |
+| **Rust crate** | `cargo install draftwright --version 0.6.0-alpha.2` for both binaries; `draftwright = "=0.6.0-alpha.2"` for the library ([operations](docs/model.md#the-five-operations)) | Native Rust toolchain |
+| **Prebuilt archives** | Download a CLI archive from [Releases](https://github.com/pzfreo/draftwright/releases); includes both binaries, schemas and agent docs | macOS arm64, Linux x86_64, Windows x64 |
+| **Browser** | [draftwright.io](https://draftwright.io) | WebAssembly ([package guide](docs/wasm.md)) |
+
+0.6 replaces the old Python package of the same name; pin `draftwright<0.6` to keep it.
+
+As checked on 2026-11-13, PyPI wheels and CLI archives are still alpha.1; the alpha.2 release
+currently has only WASM assets. The Cargo command above installs alpha.2.
+
+## Command line
 
 ```sh
-cargo install draftwright        # installs draftwright and draftwright-mcp
+draftwright render part.step -o part --formats svg,pdf,dxf  # includes editable DXF in alpha.2
+draftwright render part.step -o part --units in --paper ansi
+draftwright review part.step
 ```
 
-Without Rust, download a ready-built archive for macOS (Apple silicon), Linux x86_64 or
-Windows x86_64 from the [latest release](https://github.com/pzfreo/draftwright/releases/latest).
+`review` prints JSON containing the drawing as SVG text, the problems and lint's findings.
+The [engine guide](docs/engine.md#using-it) covers the full command line, including
+`--shaded`, `--below` and paper choices. `draftwright completions zsh` prints a completion
+script; the same guide gives installation commands and the other supported shells.
 
-From 0.6.0, the same two commands install from PyPI without Rust:
+## Output and the Spec
 
-```sh
-uv tool install draftwright      # or: pipx install draftwright
-```
+A **Spec** is a small JSON file of drawing settings and edits. Without one, draftwright uses
+its automatic choices. `render` writes `part.svg`, `part.pdf` and `part.dxf` for the first
+command above (SVG and PDF by default); PNG is also available. Extra sheets get numbered
+files, while PDF holds all the sheets. Each format embeds the Spec that made it, and the
+command prints JSON listing the files and problems.
 
-PyPI releases before 0.6 use the archived
-[Python implementation](https://github.com/pzfreo/draftwright-python). Starting with
-0.6, this Rust project provides both commands and the small
-[Python API](docs/python.md). Pin `draftwright<0.6` to keep the full old API.
-The old command form `draftwright part.step [options]` still renders a drawing;
-see [CLI migration](docs/cli-migration.md) for the options it keeps.
-
-Shell completion: `draftwright completions zsh` (or `bash`, `fish`, `powershell`, `elvish`)
-prints a completion script; see [docs/engine.md](docs/engine.md#using-it) for where to put it.
-
-## Quick start
-
-```sh
-draftwright render part.step -o part                     # part.svg and part.pdf
-draftwright render part.step -o part --shaded --below    # shaded views from above and below
-draftwright render part.step -o part --formats pdf,png   # choose formats
-draftwright review part.step                             # the drawing as text, with what it could not state
-```
-
-A drawing is adjusted with a **Spec**: a small JSON file naming only what you want different
-from the automatic drawing. For example, to fill in the title block:
+For example, save this as `part.drawing.json` to fill in the title block:
 
 ```json
 { "sheet": { "title": { "title": "Mounting plate", "number": "MP-001" } } }
@@ -99,44 +71,66 @@ from the automatic drawing. For example, to fill in the title block:
 
 ```sh
 draftwright render part.step --spec part.drawing.json -o part
-draftwright spec part.pdf            # every drawing carries its Spec; this reads it back
+draftwright spec part.pdf  # read the embedded Spec
 ```
 
-More:
+The [model and Spec reference](docs/model.md) describes the settings, documents and Rust API.
 
-```sh
-draftwright diff old.step new.step --spec part.drawing.json -o changes   # carry a drawing to a new revision
-draftwright pack assembly.step -o pack                                   # drawings and parts list for an assembly
-draftwright --help
+## Python
+
+```python
+from draftwright import make_drawing, Part
+svg, dxf = make_drawing("part.step", out="drawing", title="Bracket")
+from build123d import Box
+part = Part(Box(120, 80, 20), "plate", title="Mounting plate")
+svg, dxf = part.drawing(sheet="A3").render("plate")
 ```
+
+Install build123d separately for shapes and `Part`. See the [Python guide](docs/python.md)
+for requirements, layout edits and the parts of the build123d API still being completed.
+
+Moving from 0.4: see [Python migration](docs/python.md#migrating-from-python-0-4) and [CLI migration](docs/cli-migration.md).
 
 ## What it does
 
-- **Recognises features** from the B-rep with [quiddity](https://github.com/pzfreo/quiddity):
-  holes and counterbores, hole patterns, slots, pockets and recesses, turned steps, grooves,
-  chamfers and fillets, threads. Anything it cannot read is reported, not guessed.
-- **Dimensions completely.** Each feature family has its own rules. Dimensions are placed
-  without collisions, and every omission is reported with a reason.
-- **Reads PMI.** Tolerances, fits, datums, GD&T frames, threads and surface finish come from
-  AP242 semantic PMI. [Specify](https://github.com/pzfreo/specify-core) writes requirements back
-  into STEP.
-- **US drawings.** `draftwright render part.step --units in --paper ansi` prints decimal
-  inches on landscape ANSI A–E paper. Use `--paper arch` for ARCH A–E, or `--paper iso`
-  for ISO A4–A0. In Python, use `make_drawing(part, units="in", page="ANSI B")`.
-- **Lays out sheets.** Views, sections, detail views and hole tables go on landscape ISO, ANSI or ARCH
-  sheets with an ISO 7200 title block. Sheet size and scale are chosen automatically, using more sheets when
-  needed.
-- **Is deterministic.** The same inputs give the same bytes. SVG and PDF carry real, searchable
-  text and embed the Spec that made them.
-- **Handles assemblies.** `pack` draws each made part once and writes an ISO 7573 parts list,
-  item numbers and a CSV/JSON bill of materials.
-- **Tracks revisions.** `diff` carries a drawing's edits to a new revision of the part and marks
-  up what changed.
+- **Recognises features** with [quiddity](https://github.com/pzfreo/quiddity): holes,
+  counterbores, patterns, slots, pockets, turned steps, grooves, chamfers, fillets and threads.
+- **Dimensions features** with rules for each family; omissions and placement failures are
+  reported with a reason.
+- **Reads AP242 PMI (tolerances and GD&T stored in the STEP file)**, including fits, datums,
+  threads and surface finish. Unsupported requirements are reported.
+- **Lays out sheets** with views, sections, details, hole tables and an ISO 7200 title block;
+  it chooses scale and paper size, using more sheets when needed.
+- **Produces deterministic output:** the same inputs give the same bytes. SVG and PDF carry
+  real, searchable text; DXF has editable text, dimensions, blocks and title-block attributes.
+
+## Assemblies and revisions
+
+```sh
+draftwright pack assembly.step -o pack
+draftwright diff old.step new.step --spec part.drawing.json -o changes
+```
+
+`pack` draws each made part once and writes an ISO 7573 parts list, item numbers and a CSV/JSON
+bill of materials. `diff` carries the Spec to a new revision, marks up what changed and reports
+edits that need a decision. See [bills of materials](docs/bom.md) and [the engine guide](docs/engine.md#using-it).
+
+## With agents
+
+The CLI release archives include **`draftwright-mcp`**, a local stdio MCP server for Claude
+and other MCP clients; the wheel and Cargo installs provide it too. Clients can inspect a
+part, edit its Spec, render the drawing and read the findings. The [MCP guide](docs/mcp.md)
+also covers the newer local `draftwright mcp-stdio` and `draftwright mcp-http` adapters.
+
+The Spec is the steering surface: an agent inspects the drawing and findings, changes settings
+or edits by item ID, then renders and reviews again. Requirements belong in STEP; the Spec
+controls the drawing.
 
 ## Examples
 
-Drawings of NIST test parts, FreeCAD and build123d parts, and assemblies, rebuilt by CI on every
-release, are in **[pzfreo/dw-examples](https://github.com/pzfreo/dw-examples)**.
+NIST test parts, FreeCAD and build123d parts, and assemblies are in
+**[pzfreo/dw-examples](https://github.com/pzfreo/dw-examples)**. Its CI rebuilds the examples
+when the pinned draftwright tag in `drawings.toml` is bumped.
 
 <table>
   <tr>
@@ -163,22 +157,21 @@ release, are in **[pzfreo/dw-examples](https://github.com/pzfreo/dw-examples)**.
   [Finding impact](docs/finding-impact.md)
 - [Changelog](CHANGELOG.md)
 
-## Status
+## How it's built
 
-Draftwright is young and moving quickly: 0.2.x releases come every few days. Drawings report what
-they do not state, but dense parts can still be less tidy than a hand-made drawing; see
-[Known limitations](docs/engine.md#known-limitations). Issues and example parts are welcome.
+Draftwright is AI-coded with Claude and Codex, directed by its maintainer. Large changes get
+independent review. The output is deterministic, and the public examples are built by the
+stock CLI; their reported findings are measured in [Results](docs/results.md).
 
 ## Related projects
 
-- [quiddity](https://github.com/pzfreo/quiddity): feature recognition from STEP B-rep, and the
-  haecceity geometry kernel Draftwright is built on.
-- [Specify](https://github.com/pzfreo/specify-core): writes requirements (tolerances, fits, GD&T,
-  BOM data) into STEP as AP242 PMI. It is the Specify view at
-  [draftwright.io/specify](https://draftwright.io/specify).
-- [dw-examples](https://github.com/pzfreo/dw-examples): the example drawings.
-- [draftwright-python](https://github.com/pzfreo/draftwright-python): the original Python
-  implementation, no longer developed.
+- [quiddity](https://github.com/pzfreo/quiddity): feature recognition from STEP B-rep, built on
+  the haecceity geometry kernel that draftwright uses.
+- [Specify](https://github.com/pzfreo/specify-core): writes tolerances, fits, GD&T and BOM data
+  into STEP as AP242 PMI; available at [draftwright.io/specify](https://draftwright.io/specify).
+- [dw-examples](https://github.com/pzfreo/dw-examples): the public example drawings.
+- [draftwright-python](https://github.com/pzfreo/draftwright-python): the earlier Python
+  implementation, being retired.
 
 ## Licence and contributing
 
