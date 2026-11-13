@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to draftwright-rust are recorded here, in the style of
+All notable changes to draftwright are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/).
 

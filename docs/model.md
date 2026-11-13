@@ -24,7 +24,7 @@ is separate from whether a drawing can be generated. Unknown document versions,
 malformed notes/tables and unsupported representation syntax remain unreadable
 instructions, rather than presentation shortcomings.
 
-This note describes how a drawing is described, edited and produced in draftwright-rust. It
+This note describes how a drawing is described, edited and produced in draftwright. It
 replaces the Python implementation's authoring DSL (the fluent `Sheet` facade, the script
 emitter and the deferred-intent compiler) with a small, stateless API. A command line, a
 JSON-lines service and an MCP server can all sit thinly on top of it. The decision and the

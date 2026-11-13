@@ -3,7 +3,7 @@
 Install the platform wheel (Python 3.9 or newer; Rust is not required):
 
 ```sh
-pip install draftwright
+pip install --pre draftwright
 ```
 
 ```python
@@ -129,7 +129,7 @@ svg, dxf = dwg.render("plate")   # layout only; same (svg, dxf) as make_drawing
   `section(id, through=<feature id string>)`. `spec()` returns the Spec. Title and number
   come from `Part`; requirements are never written to the Spec.
 - **`check()` and `answer()`** raise `NotImplementedError`: they need Specify's question
-  queue and feature recognition, which arrive with the Rust half in 0.6.0-alpha.2.
+  queue and feature recognition, which remain work for the Rust half of the API.
   The same half will accept `section(through=<object>)` and turn `hole`/`holes` into
   `hole.*` answers keyed to the recognised feature, with the "one recognised feature"
   check.
@@ -163,8 +163,8 @@ cancellation can run their drawing in a subprocess.
 
 Visible changes from 0.4:
 
-- The return value is still `(svg_path, dxf_path)`. 0.6.0-alpha.1 briefly returned
-  `(svg_path, pdf_path)`.
+- The return value is still `(svg_path, dxf_path)`, both strings, and the DXF is now
+  editable in CAD. 0.6.0-alpha.1 briefly returned `(svg_path, pdf_path)`.
 - The sheet frame is always drawn, even with `frame=False`; the projection
   symbol is always drawn as well.
 - Unsupported keywords accept only their old defaults. Non-default values raise
@@ -179,7 +179,7 @@ PMI's default is deliberately preserved: omitted `pmi`, `pmi=None`, `pmi="off"`
 and `pmi="report"` all inventory the source without drawing PMI annotations.
 Use `pmi="annotate"` to opt in, including when `auto_dims=False`.
 
-This is a small API over the Rust engine, not the archived Python implementation.
+This is a small API over the Rust engine. The earlier Python implementation is being retired.
 `Drawing`, `Sheet`, `build_drawing` and the rest of the old public surface are not
 included. Removed attributes raise an `AttributeError`-compatible migration error;
 removed imports raise an `ImportError`-compatible error with the same explanation
@@ -207,5 +207,5 @@ Pin `draftwright<0.6` to continue
 using the old API. `draftwright.__version__` is the Cargo package version.
 
 The wheel contains an abi3 extension (`draftwright._native`) and Python wrappers.
-The published Rust crate has no PyO3 dependency. `cargo install draftwright`
+The published Rust crate has no PyO3 dependency. `cargo install draftwright --version 0.6.0-alpha.2`
 continues to install the two native commands.
