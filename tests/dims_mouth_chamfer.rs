@@ -6,6 +6,9 @@
 //! deep from the boss top, and a 0.25 chamfer on the counterbore's mouth.
 use std::path::PathBuf;
 
+#[path = "common/corpus.rs"]
+mod corpus;
+
 use draftwright::model::{self, Analysis, Plan, Spec};
 use draftwright::text::Font;
 use serde_json::json;
@@ -236,4 +239,40 @@ fn a_hole_without_a_mouth_chamfer_is_unchanged() {
         h.remove("mouth_chamfers");
     });
     assert_eq!(words, "⌀3.3 THRU ⌴ ⌀5 ↧ 2");
+}
+
+/// `flanged_spool_132` (the corpus's cadgenbench part): six ⌀10 through holes on a ⌀90 bolt circle,
+/// each chamfered 1 × 45° on the top face. quiddity records each hole drilled up from the flange's
+/// far face (axis +z) with the chamfer at the other end, but the plan view looks down on the
+/// chamfered face, so the callout states the chamfer without a side: the end seen, not the one
+/// quiddity calls the opening. The ⌀70 counterbore has no chamfer and is unchanged.
+#[test]
+fn a_chamfer_on_the_face_the_view_looks_at_has_no_side() {
+    let Some(corpus) = corpus::dir() else {
+        eprintln!("SKIPPED: the corpus is not found; set DRAFTWRIGHT_CORPUS");
+        return;
+    };
+    let (_, a) = model::analyse_native(&corpus.join("cadgenbench/flanged_spool_132.step")).unwrap();
+    let plan = plan_of(&a);
+    let words: Vec<String> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "callout")
+        .map(|d| {
+            d.terms
+                .iter()
+                .map(String::as_str)
+                .filter(|t| !t.trim().is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    assert!(
+        words.contains(&"6× ⌀10 THRU C1 EQ SP ON ø90 BC".to_string()),
+        "{words:?}"
+    );
+    assert!(
+        words.contains(&"⌀62 THRU ⌴ ⌀70 ↧ 10".to_string()),
+        "{words:?}"
+    );
 }

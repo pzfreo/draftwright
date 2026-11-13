@@ -84,7 +84,7 @@ mod grooves;
 pub(crate) mod hole_marks;
 mod holes;
 pub(crate) mod size_datums;
-pub(crate) use holes::grid_lattice;
+pub(crate) use holes::{grid_lattice, toward_viewer};
 pub(crate) mod inspection;
 pub(crate) mod interior;
 pub(crate) use interior::{finish_attached_openings, finish_openings, openings_need_settling};

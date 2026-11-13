@@ -78,8 +78,8 @@ pub struct HoleSizes {
     pub outer_steps: Vec<Recess>,
     pub spotface: Option<Recess>,
     pub countersink: Option<Countersink>,
-    /// The chamfer on the mouth it is drilled from, and the far end's when that differs
-    /// ([`Hole::chamfers`]); `both` says the far end has the near end's.
+    /// The chamfer on the end its callout's view looks at, and the other end's when that differs
+    /// ([`Hole::chamfers`]); `both` says the far end has the seen end's.
     pub near_chamfer: Option<MouthChamfer>,
     pub far_chamfer: Option<MouthChamfer>,
     pub both_chamfers: bool,

@@ -1477,9 +1477,10 @@ basis, placed, reference?, determined_by?}`:
   `0.25 × 30°`. The recess's depth then reads from the surface its mouth opens on: the
   cylinder's length plus the chamfer's axial depth, so a ⌀5 counterbore 2.0 deep under a 0.25
   chamfer is `⌴ ⌀5 ↧ 2.25 C0.25`, and the floor is not located 0.25 mm too shallow. A bore's own
-  depth stays the cylinder's, as quiddity measures it. On a through hole, the end the hole is
-  not drilled from says `FAR SIDE` after its chamfer, and the same chamfer at both ends says
-  `BOTH SIDES`. The size (and the angle, off 45°) is a requirement lint checks
+  depth stays the cylinder's, as quiddity measures it. On a through hole the chamfer is the
+  one at the end the callout's view looks at (the plan view sees the top face), whichever end
+  quiddity calls the opening; the other end's says `FAR SIDE` after its chamfer, and the same
+  chamfer at both ends says `BOTH SIDES`. The size (and the angle, off 45°) is a requirement lint checks
   (`mouth_chamfer.size`, `mouth_chamfer.angle`, and `far_mouth_chamfer.*`). A chamfered hole
   is a different requirement from one without, so it is not counted with it, and it keeps its
   own callout beside a hole-table row rather than being replaced by the row. A ⌀2 bore with a

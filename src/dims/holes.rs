@@ -33,8 +33,8 @@ pub(super) const PLANNER: Planner = Planner {
 /// lint read it; [`super::label_ink`] draws it as one symbol, the letters inside the box.
 pub(super) const SPOTFACE: &str = "⌴SF";
 
-/// The qualifier of a mouth chamfer on the far end of a through hole, the end the hole is not
-/// drilled from.
+/// The qualifier of a mouth chamfer on the far end of a through hole, the end its callout's view
+/// does not look at.
 pub(crate) const FAR_SIDE: &str = "FAR SIDE";
 
 /// A hole's mouth chamfer as a callout states it, as every chamfer is: `C0.25` for equal legs at
@@ -261,6 +261,12 @@ pub(super) fn oblique_axes(d: P3) -> Vec<usize> {
     let mut axes: Vec<usize> = (0..3).filter(|&k| d[k].abs() >= 1e-6).collect();
     axes.sort_by(|&i, &j| d[j].abs().total_cmp(&d[i].abs()).then(i.cmp(&j)));
     axes
+}
+
+/// The direction toward the viewer of the view a hole of direction *d* is called out in: the view
+/// along its axis, or, inclined, the one it is seen most nearly end-on in ([`oblique_axes`]).
+pub(crate) fn toward_viewer(d: P3) -> P3 {
+    toward(oblique_axes(d)[0])
 }
 
 /// The direction toward the viewer of the view along world axis *k*.
