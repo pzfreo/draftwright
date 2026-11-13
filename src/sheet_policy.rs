@@ -3244,7 +3244,9 @@ mod tests {
         );
         assert!(model::findings(&plan).clean());
         assert!(
-            plan.sheet.basis.contains("A4 at 2:1"),
+            plan.sheet
+                .basis
+                .contains("A4 at 2:1: not planned: aligned front and side views need"),
             "{}",
             plan.sheet.basis
         );
