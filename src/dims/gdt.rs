@@ -367,6 +367,19 @@ fn reserved(mut laid: Laid, old: P2) -> Laid {
     laid
 }
 
+/// Where a datum symbol's ink stands in its reserved box: centred across its strip, and against
+/// its leader's end (toward the view) along it.
+fn datum_inset(laid: &Laid, side: &str) -> P2 {
+    let d = outward(side);
+    let along = 0.5
+        * if d[0] == 0.0 {
+            laid.slack[1]
+        } else {
+            laid.slack[0]
+        };
+    [-d[0] * along, -d[1] * along]
+}
+
 /// Where a laid frame's ink stands in its reserved box: centred across, and against the shelf's
 /// end along it (*dir* the shelf's direction).
 fn inset(laid: &Laid, dir: f64) -> P2 {
@@ -2136,7 +2149,7 @@ fn plan_search(
             }
         }
         // Invariant: The finite tier loop always evaluates its first candidate without pruning.
-        let (_, side, mut chosen, tip, alternative) = best.expect("a tier");
+        let (_, side, chosen, tip, alternative) = best.expect("a tier");
         if sites[alternative].2.is_some() {
             planned.basis += "; on an extension of its planar face beyond the view outline";
         } else if alternative > 0 {
@@ -2150,23 +2163,16 @@ fn plan_search(
             );
             planned.side = side.into();
         }
-        // A datum symbol is centred in its box; a control frame stands against its shelf.
+        // A control frame stands against its shelf; a datum symbol against its leader.
         let dir = chosen
             .lines
             .last()
             .map_or(1.0, |[a, b]| (b[0] - a[0]).signum());
-        let off = if datum { [0.0; 2] } else { inset(&laid, dir) };
-        if datum && let Some(line) = chosen.lines.last_mut() {
-            // The leader runs on to the drawn frame's edge.
-            let d = outward(&planned.side);
-            let along = 0.5
-                * if d[0] == 0.0 {
-                    laid.slack[1]
-                } else {
-                    laid.slack[0]
-                };
-            line[1] = [line[1][0] + d[0] * along, line[1][1] + d[1] * along];
-        }
+        let off = if datum {
+            datum_inset(&laid, &planned.side)
+        } else {
+            inset(&laid, dir)
+        };
         let shift = |p: P2| {
             [
                 p[0] + chosen.origin[0] + off[0],
@@ -2281,26 +2287,16 @@ pub(super) fn datum_at(letter: &str, tip: P2, side: &str, tier: usize) -> GdtPla
         if d[0] + d[1] < 0.0 { -pos } else { pos },
         size,
     );
-    let shift = |p: P2| [p[0] + c.origin[0], p[1] + c.origin[1]];
+    let off = datum_inset(&laid, side);
+    let shift = |p: P2| [p[0] + c.origin[0] + off[0], p[1] + c.origin[1] + off[1]];
     let moved = |t: &GdtText| GdtText {
         text: t.text.clone(),
         at: shift(t.at),
         size: t.size,
     };
-    let mut lines = c.lines;
-    if let Some(line) = lines.last_mut() {
-        // The leader runs on to the drawn frame's edge.
-        let along = 0.5
-            * if d[0] == 0.0 {
-                laid.slack[1]
-            } else {
-                laid.slack[0]
-            };
-        line[1] = [line[1][0] + d[0] * along, line[1][1] + d[1] * along];
-    }
     GdtPlaced {
         tip,
-        lines,
+        lines: c.lines,
         arrows: c.arrows,
         label_box: c.label_box,
         strokes: laid
