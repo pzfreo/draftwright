@@ -6,6 +6,14 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- GD&T frames use CAD fonts and real CAD cell sizes: 2.5 mm text drawn as geometry
+  with a 0.25 mm pen, a 5 mm box, and cells as wide as their ink plus 2.5 mm.
+  DXF TOLERANCE frames use DIMTXT 2.5 and DIMGAP 1.25; leaders meet either end
+  of the box. Known regressions accepted for this change: CTC-01 AP242 changes
+  from A3 1:5 to A1 1:2, editor_pmi and manufacturing_pmi from A3 2:1 to A4 1:2,
+  and STC-10 loses datum J. Tracked in
+  [pzfreo/draftwright#452](https://github.com/pzfreo/draftwright/issues/452).
+
 - Built on quiddity and haecceity 0.5.0. A chamfer on a hole's mouth is now stated: a ⌀5
   counterbore 2.0 deep under a 0.25 chamfer reads `⌀3.3 THRU ⌴ ⌀5 ↧ 2.25 C0.25` (`0.25 × 30°`
   off 45°; `FAR SIDE` or `BOTH SIDES` for a through hole's far end), the counterbore's depth
