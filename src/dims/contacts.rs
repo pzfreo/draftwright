@@ -135,10 +135,10 @@ pub(crate) fn note_line_contacts(plan: &Plan) -> Vec<(String, Vec<String>)> {
             let Some(p) = &d.placed else {
                 continue;
             };
+            // Every dimension-line segment: a line split around its label is two or more.
             if p.lines
                 .iter()
                 .skip(2)
-                .take(1)
                 .chain(&p.arrows)
                 .any(|l| crosses(*l, pad))
             {
@@ -751,6 +751,52 @@ mod tests {
         through.placed.as_mut().unwrap().lines = vec![[[40., 51.], [60., 51.]]];
         p.dimensions = vec![peer, through];
         assert!(found(&p).is_empty());
+    }
+
+    /// A dimension line split around its label is two or more segments after the extension
+    /// lines; a segment other than the first beside a callout's text is a contact too.
+    #[test]
+    fn every_segment_of_a_split_dimension_line_is_read_beside_a_note() {
+        let mut p = plan();
+        let base = p.dimensions[0].clone();
+        let note = item(&base, "d:note", "callout", vec![], [50., 50., 60., 52.]);
+        let far = [[10., 30.], [20., 30.]];
+        // Two extension lines, then the dimension line in two parts around its label: the
+        // second part ends 0.5 mm from the note's text.
+        let split = item(
+            &base,
+            "d:split",
+            "linear",
+            vec![far, far, far, [[30., 51.], [49.5, 51.]]],
+            [10., 10., 12., 12.],
+        );
+        p.dimensions = vec![note.clone(), split];
+        assert_eq!(
+            note_line_contacts(&p),
+            [(
+                "dimension_line_at_note".into(),
+                vec!["d:note".into(), "d:split".into()]
+            )]
+        );
+        // The same line in one part is read as before, and one clear of the text is not.
+        let whole = item(
+            &base,
+            "d:whole",
+            "linear",
+            vec![far, far, [[30., 51.], [49.5, 51.]]],
+            [10., 10., 12., 12.],
+        );
+        p.dimensions = vec![note.clone(), whole];
+        assert_eq!(note_line_contacts(&p).len(), 1);
+        let clear = item(
+            &base,
+            "d:clear",
+            "linear",
+            vec![far, far, far, [[30., 51.], [48.5, 51.]]],
+            [10., 10., 12., 12.],
+        );
+        p.dimensions = vec![note, clear];
+        assert!(note_line_contacts(&p).is_empty());
     }
 
     #[test]
