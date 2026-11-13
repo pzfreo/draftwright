@@ -315,6 +315,38 @@ fn datum_frame(letter: &str) -> Laid {
     laid(haecceity::presentation::gdt::cad_datum_frame(letter))
 }
 
+/// The paper the layout has always reserved for a control frame: two text heights of the
+/// dimensions' text (6 mm) tall, its cells as wide as the sheet's font measures them. The frames
+/// are drawn smaller now (CAD's 5 mm and its cell widths, `cad_control_frame`), but the dimension
+/// bands and the sheet and scale search were tuned with this much paper reserved around them:
+/// where the frames' own paper shrank, bands the dimension lanes need (a lane overflowing across
+/// its view; a left lane fitting where the right one was forced) lost their slack and a sheet
+/// that fits at main's scale was rejected (nist_ctc_01 A3 1:5 became A1 1:2, editor_pmi A3 2:1
+/// became A4 1:2). Reserving the old size keeps those layouts; the placement search itself uses
+/// the drawn size.
+fn reserved_frame(glyph: &Glyph) -> P2 {
+    let Glyph::ControlFrame {
+        characteristic,
+        tolerance,
+        zone,
+        material,
+        datums,
+        ..
+    } = glyph
+    else {
+        return [0.0, 0.0];
+    };
+    haecceity::presentation::gdt::control_frame(
+        characteristic,
+        tolerance,
+        *zone,
+        *material,
+        datums,
+        &width,
+    )
+    .size
+}
+
 /// A label's text laid out from its lower left corner, a text height tall per line: each line is
 /// haecceity's shared label (#258) measured in the sheet's font, its run set unpadded in the
 /// label's lines (the lanes and leaders that place a label are this module's).
@@ -1177,7 +1209,11 @@ pub(crate) fn demand_with_spec(
                 Glyph::Label { text } => label(text).size,
                 Glyph::FlagNote { number, .. } => flag_note(*number).size,
                 Glyph::Finish { texture, .. } => finish_symbol(texture, spec.units).0.size,
-                g => control_frame(g).0.size,
+                g => {
+                    let laid = control_frame(g).0.size;
+                    let old = reserved_frame(g);
+                    [laid[0].max(old[0]), laid[1].max(old[1])]
+                }
             };
             let horizontal = outward(item.side)[0] == 0.0;
             let f = &frames[item.view];
