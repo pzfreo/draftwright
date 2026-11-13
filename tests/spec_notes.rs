@@ -295,11 +295,12 @@ fn m10_and_a_knurl_on_the_spindle_print_after_their_diameters() {
     .unwrap();
     let refused = problems(&plan, "pmi_not_lowered");
     assert_eq!(refused.len(), 3, "{:?}", plan.problems);
-    // A tap deeper than its blind hole (ISSUE-1360-a).
+    // A tap deeper than its blind hole (ISSUE-1360-a). The hole's depth is 10 from the surface it
+    // opens on (the 9.2 cylinder and the 0.8 mouth chamfer's entry, quiddity 0.5.0).
     assert!(
         refused
             .iter()
-            .any(|p| p.message.contains("exceeds its hole's depth 9.2"))
+            .any(|p| p.message.contains("exceeds its hole's depth 10"))
     );
     assert!(
         refused
@@ -371,7 +372,10 @@ fn a_feature_note_and_a_sheet_note_are_drawn() {
     assert!(note.basis.starts_with("spec-authored"), "{}", note.basis);
     assert!(note.placed.is_some());
     let hole = a.features.iter().find(|f| f.id == "f:hole:f3").unwrap();
-    assert_eq!(note.faces, hole.faces);
+    // A note on a feature is attached to its cylinders ([`spec_gdt::feature_faces`]); quiddity
+    // 0.5.0 gives this blind hole its floor (face 5) as well as its wall (face 3).
+    assert_eq!(hole.faces, [3, 5]);
+    assert_eq!(note.faces, [3]);
     assert_eq!(plan.notes.len(), 1);
     assert_eq!(plan.notes[0].rows, ["1  BREAK ALL SHARP EDGES"]);
     no_pmi_problems(&plan);
@@ -415,7 +419,9 @@ fn spec_finish_threads_and_knurls_win_over_step_pmi_with_a_problem() {
     );
     assert_eq!(
         dimension(&plan, "d:f:hole:f3/bore.diameter").label,
-        "M5-6H ↧ 8\n⌀4.2 ↧ 9.2"
+        // quiddity 0.5.0 (#244) recognises the hole's 0.8 × 45° mouth chamfer; the callout states it, and
+        // the depth runs from the surface the hole opens on: the 9.2 cylinder and the 0.8 entry.
+        "M5-6H ↧ 8\n⌀4.2 ↧ 10 C0.8"
     );
     let finishes: Vec<_> = plan
         .requirements
@@ -700,7 +706,9 @@ fn specify_thread_designation_refines_its_marked_requirement_and_retains_length(
     );
     assert_eq!(
         dimension(&plan, "d:f:hole:f3/bore.diameter").label,
-        "M5-6H ↧ 6.5\n⌀4.2 ↧ 9.2"
+        // quiddity 0.5.0 (#244) recognises the hole's 0.8 × 45° mouth chamfer; the callout states it, and
+        // the depth runs from the surface the hole opens on: the 9.2 cylinder and the 0.8 entry.
+        "M5-6H ↧ 6.5\n⌀4.2 ↧ 10 C0.8"
     );
     let overrides = problems(&plan, "spec_overrides_pmi");
     assert_eq!(overrides.len(), 1);

@@ -1005,7 +1005,22 @@ pub fn manufacturing_references(analysis: &Analysis, drawing: &Drawing) -> Vec<L
             text += &super::schedule_evidence::text(drawing, a);
         }
         let states = if let Some(t) = o.thread() {
+            // A source states its drill's depth as its cylinder's length; the callout states it
+            // from the surface the hole opens on, a mouth chamfer's entry further: either is it.
+            let entry = analysis
+                .features
+                .iter()
+                .find(|f| f.id == o.owner && f.kind == "hole")
+                .and_then(|f| {
+                    crate::bridge::holes::Hole::read(f, &crate::bridge::holes::frame(analysis)).ok()
+                })
+                .map_or(0.0, |h| h.entry);
             thread_text_states(t, &text, drawing.sheet.units)
+                || (entry > 0.0 && {
+                    let mut deeper = t.clone();
+                    deeper.drill_depth = t.drill_depth.map(|d| d + entry);
+                    thread_text_states(&deeper, &text, drawing.sheet.units)
+                })
         } else if let Some((pattern, pitch, maximum)) = o.knurl_values() {
             let words: Vec<_> = text
                 .split_whitespace()

@@ -35,9 +35,7 @@ pub(crate) fn is_break(term: &str) -> bool {
 }
 
 pub const WIDTH: f64 = 48.0;
-/// The qualifier of a recess cut alike at both mouths of a through hole (#104). Ending a
-/// callout, it rides on the requirement's last line: the 48 mm wrap applies to the requirement.
-pub const BOTH_SIDES: &str = "BOTH SIDES";
+pub use crate::bridge::holes::{BOTH_SIDES, FAR_SIDE};
 /// The same font-derived baseline advance used by ordinary multiline font text.
 pub fn line_spacing() -> f64 {
     crate::dims::font().line_spacing(crate::dims::TEXT)

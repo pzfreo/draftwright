@@ -1484,12 +1484,11 @@ fn the_reader_refuses_what_it_does_not_know() {
     let e = refused(&|d| d.complete = Some(false));
     assert!(e.contains("recognition is incomplete"), "{e}");
     let e = refused(&|d| {
-        d.failures.push(quiddity::features::FamilyFailure {
-            family: "holes".into(),
-            stage: "recognition".into(),
-            message: Some("injected failure".into()),
-            blocked_by: Vec::new(),
-        });
+        d.failures.push(quiddity::features::FamilyFailure::panicked(
+            "holes".into(),
+            "recognition".into(),
+            "injected failure".into(),
+        ));
     });
     assert!(e.contains("holes") && e.contains("injected failure"), "{e}");
     let e = refused(&|d| d.schema_version = "quiddity-rust/recognition/1".into());

@@ -1627,6 +1627,59 @@ pub(crate) fn attachments(analysis: &Analysis, plan: &Plan) -> BTreeMap<String, 
         .collect()
 }
 
+/// The hole size callouts of *plan* whose hole a frame or datum symbol leads to where the view
+/// draws it hidden ([`led_to_hidden`]): the symbol has no place on the hole itself, so its
+/// callout, where one exists, is the better place, and a hole table row that replaced the callout
+/// would leave the symbol none (ctc05's ⌀254 blind bore).
+pub(crate) fn hidden_carriers(analysis: &Analysis, plan: &Plan) -> BTreeSet<String> {
+    let mut finished = plan.clone();
+    attach(analysis, &plan.spec, &mut finished);
+    let hidden: Vec<&gdt::PlannedGdt> = finished.gdt.iter().filter(|g| led_to_hidden(g)).collect();
+    if hidden.is_empty() {
+        return BTreeSet::new();
+    }
+    let patterns = analysis
+        .recognition
+        .as_ref()
+        .map_or(&[][..], |r| r.patterns.as_slice());
+    let led = |hole: &str| {
+        analysis
+            .features
+            .iter()
+            .find(|f| f.id == hole && f.kind == "hole")
+            .is_some_and(|f| {
+                hidden
+                    .iter()
+                    .any(|g| g.faces.iter().any(|face| f.faces.contains(face)))
+            })
+    };
+    plan.dimensions
+        .iter()
+        .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole"))
+        // One hole's callout. A counted group's rows state each of its holes, and the frames
+        // led to them state their own count (`3×`, FTC-10's front holes): a group's callout kept
+        // beside its rows is a duplicate, which the drawings of FTC-10 and STC-10 are pinned
+        // against, where a lone hole's callout is the only place its frame has.
+        .filter(|d| {
+            d.measurements
+                .iter()
+                .filter(|m| m.parameter == "bore.diameter")
+                .count()
+                == 1
+        })
+        .filter(|d| {
+            d.measurements.iter().any(|m| {
+                led(&m.feature)
+                    || patterns
+                        .iter()
+                        .find(|p| p.id == m.feature)
+                        .is_some_and(|p| p.members.iter().any(|h| led(h)))
+            })
+        })
+        .map(|d| d.id.clone())
+        .collect()
+}
+
 /// Whether glyph *g* was attached to a hole's mark here, so a pin on it holds that ink rather
 /// than naming the view it was lowered into.
 pub(crate) fn attached(g: &gdt::PlannedGdt) -> bool {

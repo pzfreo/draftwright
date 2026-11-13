@@ -346,7 +346,14 @@ fn hole_depth_span(a: &Analysis, f: &crate::bridge::Feature) -> Option<Span> {
     let axis = super::parameters::direction(&frame(a), p.get("axis"))?;
     let k = principal(axis)?;
     let at = to_part(&frame(a), point(p.get("location"))?);
-    Some(Span::new(k, at[k], at[k] + axis[k].signum() * depth))
+    // The depth is stated from the surface the hole opens on: a mouth chamfer's entry lies this far
+    // beyond quiddity's cylindrical location.
+    let entry = crate::bridge::holes::Hole::read(f, &frame(a)).map_or(0.0, |h| h.entry);
+    Some(Span::new(
+        k,
+        at[k] - axis[k].signum() * entry,
+        at[k] + axis[k].signum() * depth,
+    ))
 }
 
 /// ADR1-8: the support planes of a blind depth a callout states: a circular blind step's, from

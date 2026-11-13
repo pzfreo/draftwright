@@ -1471,7 +1471,33 @@ basis, placed, reference?, determined_by?}`:
   one symbol with the font's `SF` in the box), where draftwright prints the counterbore's `⌴`. A
   hole with both a counterbore and a spotface states both (`⌴ ⌀11 ↧ 6.4 ⌴SF ⌀20 ↧ 1`, counterbore
   first), where draftwright prints only the counterbore and loses the spotface its own lint
-  requires.
+  requires. A chamfer on a hole's mouth (quiddity 0.5.0's nested `mouth_chamfers`; its cone is
+  not one of the hole's own faces, but quiddity's face accounting claims it) is stated after the
+  recess it breaks, as every other chamfer is: `C0.25` for equal legs at 45°, otherwise
+  `0.4 × 30°`. In that form the first number is the chamfer's size across the hole (its radial
+  leg, the one `C` states) and the angle is the cone's angle **from the face the hole opens on**,
+  not from the hole's axis (a 0.4 × 30° chamfer is 0.4 wide and 0.23 deep); this is the oriented
+  chamfers' rule (first leg × section angle from its face). No table header restates it.
+  **Depths are measured from the surface the hole opens on** (ISO 129-1, ASME Y14.5), which a
+  mouth chamfer's axial entry lies beyond quiddity's cylinder: a ⌀5 counterbore 2.0 deep under a
+  0.25 chamfer is `⌴ ⌀5 ↧ 2.25`, and a blind ⌀4.2 bore 9.2 long under a 0.8 chamfer is
+  `⌀4.2 ↧ 10 C0.8`, so no depth stops short of the floor. The same depth is the claim lint
+  checks (`bore.depth`, `counterbore.depth`), the hole table's depth, and the entry plane of its
+  row (the surface, not the cylinder). Which end a chamfer is on is judged from the end the rest
+  of the callout is stated from: a hole with a recess (`⌴`, a spotface, a countersink) from
+  quiddity's opening, where the recess is; a plain through hole from the end its view looks at
+  (the plan view sees the top face), whichever end quiddity calls the opening; a blind hole has
+  one mouth. The other end's chamfer says `FAR SIDE` after it, and the same chamfer (size,
+  angle and the diameter it breaks) at both ends says `BOTH SIDES`: a counterbore's `C0.25` and
+  the far bore's `C0.25` are two chamfers (`⌴ ⌀10 ↧ 2 C0.25 C0.25 FAR SIDE`). The size (and the
+  angle, off 45°) is a requirement lint checks (`mouth_chamfer.size`, `mouth_chamfer.angle`, and
+  `far_mouth_chamfer.*`). Holes alike but for a chamfer, or for the physical face it breaks,
+  are not counted together. A hole table's size cell states the chamfer with the rest of the
+  callout, and the callout whose hole a frame or datum symbol is led to where the view draws it
+  hidden stays beside its row. A ⌀2 bore with a 0.5 × 45° edge stays a ⌀3 × 90° countersink
+  (`⌵ ⌀3 × 90°`): geometry cannot tell intent, and quiddity keeps that boundary. A closed
+  rectangular pocket with floor rounds on all four walls (quiddity reports FTC-08's long slot so
+  from 0.5.0) is read back as the slot and fillets it was.
 - **Locations** (`location.length.<axis>`) from the part's box, or the same inspection end
   for an axial location on a whole turned profile, in the hole's view, one
   dimension per distance; patterns by their centre (or a linear pattern by its first member), with

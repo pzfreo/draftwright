@@ -3761,7 +3761,10 @@ struct Owner {
     /// A step's or boss's span along its axis; a hole's none.
     span: Option<[f64; 2]>,
     through: bool,
+    /// A hole's cylinder depth, as the source's drill depth states it.
     depth: Option<f64>,
+    /// The axial entry of the chamfer on a hole's mouth, which depths from the surface include.
+    entry: f64,
 }
 
 /// The features that may own a thread or knurl: each hole the callouts state on its own (a
@@ -3800,6 +3803,7 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
                 span: None,
                 through: h.through,
                 depth: h.depth,
+                entry: h.entry,
             });
             taken.extend(members);
         }
@@ -3818,6 +3822,7 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
             span: None,
             through: h.through,
             depth: h.depth,
+            entry: h.entry,
         });
     }
     if let Ok(steps) = crate::lint::turned::bands(analysis) {
@@ -3832,6 +3837,7 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
                     span: Some([b.lo, b.hi]),
                     through: false,
                     depth: None,
+                    entry: 0.0,
                 });
             }
         }
@@ -3872,6 +3878,7 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
             span,
             through: false,
             depth: None,
+            entry: 0.0,
         });
     }
     out
@@ -4009,12 +4016,12 @@ fn authored(
             ));
         }
         if let (Some(l), Some(d), false) = (length, o.depth, o.through)
-            && l > d + 0.01
+            && l > d + o.entry + 0.01
         {
             return Err(format!(
                 "its thread length {} exceeds its hole's depth {}",
                 num(l),
-                num(d)
+                num(d + o.entry)
             ));
         }
     } else {
@@ -4059,8 +4066,10 @@ fn authored(
                 full_available_length: !internal && length.is_none(),
                 minimum_full_thread: length,
                 drill_diameter: internal.then_some(o.diameter),
+                // The Spec's thread states the drill the callout prints: from the surface the hole
+                // opens on. (A source's own drill depth is matched against the cylinder, above.)
                 drill_depth: if internal && !o.through {
-                    o.depth
+                    o.depth.map(|d| d + o.entry)
                 } else {
                     None
                 },

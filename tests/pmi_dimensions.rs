@@ -666,7 +666,8 @@ fn a_toleranced_bore_annotates_its_callout_and_a_spec_tolerance_wins() {
         .iter()
         .find(|d| d.id == "d:f:hole_pattern:f0/bore.diameter")
         .unwrap();
-    assert_eq!(callout.label, "6× ⌀10 +0.09/0 THRU EQ SP\nON ø90 BC");
+    // quiddity 0.5.0 (#244) recognises the holes' 1 × 45° mouth chamfer on the top face; the callout states it.
+    assert_eq!(callout.label, "6× ⌀10 +0.09/0 THRU C1 EQ\nSP ON ø90 BC");
     assert!(callout.basis.contains("lower_ap242_hole_tolerances"));
     let feature = callout
         .measurements
@@ -698,7 +699,8 @@ fn a_toleranced_bore_annotates_its_callout_and_a_spec_tolerance_wins() {
         .iter()
         .find(|d| d.id == callout.id)
         .unwrap();
-    assert_eq!(c.label, "6× ⌀10 ±0.05 THRU EQ SP ON\nø90 BC");
+    // The holes' 1 × 45° mouth chamfer (quiddity 0.5.0, #244) is stated: `C1`.
+    assert_eq!(c.label, "6× ⌀10 ±0.05 THRU C1 EQ SP\nON ø90 BC");
     assert!(
         c.measurements
             .iter()
@@ -745,14 +747,14 @@ fn a_toleranced_bore_annotates_its_callout_and_a_spec_tolerance_wins() {
         (c, edited.problems)
     };
     let (c, problems) = fitted(&holes);
-    assert_eq!(c.label, "6× ⌀10 H7 THRU EQ SP ON ø90\nBC");
+    assert_eq!(c.label, "6× ⌀10 H7 THRU C1 EQ SP ON\nø90 BC");
     assert!(problems.iter().any(|p| p.code == "pmi_not_lowered"
         && p.refs.contains(&source)
         && p.message.contains("its own fit")
         && !p.message.contains("cannot be printed")));
     // A fit on some of them is withheld: the label states neither, and the report says so.
     let (c, problems) = fitted(&holes[..1]);
-    assert_eq!(c.label, "6× ⌀10 THRU EQ SP ON ø90 BC");
+    assert_eq!(c.label, "6× ⌀10 THRU C1 EQ SP ON ø90\nBC");
     assert!(problems.iter().any(|p| p.code == "tolerance_withheld"));
     assert!(problems.iter().any(|p| p.code == "pmi_not_lowered"
         && p.refs.contains(&source)

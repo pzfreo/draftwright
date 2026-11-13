@@ -35,6 +35,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 mod flats;
+pub(crate) mod floor_pockets;
 pub mod holes;
 pub mod native;
 pub mod recess_patterns;

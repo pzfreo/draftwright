@@ -533,18 +533,20 @@ fn graphical_links_use_part_qualified_semantic_ids() {
         assert!(!read.parts[p].dimensions.is_empty());
     }
     read.callouts = (0..2)
-        .map(|p| hpmi::GraphicalCallout {
-            id: 900000 + p as u64,
-            name: "same decoded text".into(),
-            links: vec![hpmi::CalloutLink {
-                association: 900100 + p as u64,
-                definition: 900200 + p as u64,
-                entity: "dimensional_size".into(),
-                targets: vec![hpmi::CalloutTarget {
-                    part: hpmi::PartId(p),
-                    item: hpmi::PresentedItem::Dimension(hpmi::DimensionId(0)),
-                }],
-            }],
+        .map(|p| {
+            hpmi::GraphicalCallout::new(
+                900000 + p as u64,
+                "same decoded text".into(),
+                vec![hpmi::CalloutLink::new(
+                    900100 + p as u64,
+                    900200 + p as u64,
+                    vec![hpmi::CalloutTarget {
+                        part: hpmi::PartId(p),
+                        item: hpmi::PresentedItem::Dimension(hpmi::DimensionId(0)),
+                    }],
+                    "dimensional_size".into(),
+                )],
+            )
         })
         .collect();
     let report = pmi::report(&doc, &defs, &part, &read).unwrap();
@@ -617,19 +619,19 @@ fn graphical_native_manufacturing_targets_use_their_lowered_definition_roots() {
             .iter()
             .find(|r| r.part == 0 && r.kind == kind)
             .unwrap();
-        read.callouts = vec![hpmi::GraphicalCallout {
-            id: 900000,
-            name: "Native manufacturing target".into(),
-            links: vec![hpmi::CalloutLink {
-                association: 900001,
-                definition: expected.part21_id,
-                entity: kind.into(),
-                targets: vec![hpmi::CalloutTarget {
+        read.callouts = vec![hpmi::GraphicalCallout::new(
+            900000,
+            "Native manufacturing target".into(),
+            vec![hpmi::CalloutLink::new(
+                900001,
+                expected.part21_id,
+                vec![hpmi::CalloutTarget {
                     part: hpmi::PartId(0),
                     item: target,
                 }],
-            }],
-        }];
+                kind.into(),
+            )],
+        )];
         let report = pmi::report(&doc, &defs, &part, &read).unwrap();
         assert_eq!(
             report.reader.callouts[0].links[0].targets[0]
@@ -752,20 +754,20 @@ fn haecceity_findings_are_sources_or_record_blockers() {
         .find(|r| r.category == Category::GeometricTolerance && r.blockers.is_empty())
         .unwrap()
         .clone();
-    read.findings.push(hpmi::Finding {
-        kind: hpmi::FindingKind::Unsupported,
-        part: Some(hpmi::PartId(0)),
-        ids: vec![99_999_999],
-        entity: "planted_entity".into(),
-        detail: "a construct the reader does not read".into(),
-    });
-    read.findings.push(hpmi::Finding {
-        kind: hpmi::FindingKind::NotModelled,
-        part: Some(hpmi::PartId(0)),
-        ids: vec![on.part21_id],
-        entity: "position_tolerance".into(),
-        detail: "planted on a read tolerance".into(),
-    });
+    read.findings.push(hpmi::Finding::new(
+        hpmi::FindingKind::Unsupported,
+        Some(hpmi::PartId(0)),
+        vec![99_999_999],
+        "planted_entity".into(),
+        "a construct the reader does not read".into(),
+    ));
+    read.findings.push(hpmi::Finding::new(
+        hpmi::FindingKind::NotModelled,
+        Some(hpmi::PartId(0)),
+        vec![on.part21_id],
+        "position_tolerance".into(),
+        "planted on a read tolerance".into(),
+    ));
     let r = pmi::report(&doc, &defs, &part, &read).unwrap();
     let s = r
         .sources
@@ -806,13 +808,13 @@ fn reader_facts_are_information_without_blockers_or_unread_sources() {
         (vec![99_999_999], "standalone preserved statement"),
         (Vec::new(), "preserved statement without entity ids"),
     ] {
-        read.findings.push(hpmi::Finding {
-            kind: hpmi::FindingKind::Fact,
-            part: Some(hpmi::PartId(0)),
+        read.findings.push(hpmi::Finding::new(
+            hpmi::FindingKind::Fact,
+            Some(hpmi::PartId(0)),
             ids,
-            entity: "projected_zone_definition".into(),
-            detail: detail.into(),
-        });
+            "projected_zone_definition".into(),
+            detail.into(),
+        ));
     }
     let report = pmi::report(&doc, &defs, &part, &read).unwrap();
     assert_eq!(report.records, base.records);

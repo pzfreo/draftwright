@@ -28,8 +28,63 @@ const IDENTITY: [[f64; 3]; 4] = [[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Recess {
     pub diameter: f64,
+    /// The cylinder's own length, as quiddity measures it (an entry cone is not in it).
     pub depth: Option<f64>,
+    /// The axial depth of a mouth chamfer cut into this recess's mouth ([`MouthChamfer`]), or 0.
+    /// A depth read from the surface the mouth opens on includes it ([`Recess::from_mouth`]).
+    pub entry: f64,
 }
+
+impl Recess {
+    /// Its depth from the surface its mouth opens on: the cylinder's length and, when a mouth
+    /// chamfer is cut into its mouth, the chamfer's axial depth (quiddity-rust#244: ⌴⌀5 ↧ 2.25
+    /// for a 2.0 mm cylinder under a 0.25 mm entry). The one depth a drawing states.
+    pub fn from_mouth(&self) -> Option<f64> {
+        self.depth.map(|d| d + self.entry)
+    }
+}
+
+/// A conical chamfer on the mouth of a hole (quiddity's `mouth_chamfers`, quiddity-rust#244), a
+/// nested claim on the hole: its cone is not one of the hole's own faces.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MouthChamfer {
+    /// The diameter of the cylinder whose mouth it breaks (the bore's, or a recess's).
+    pub diameter: f64,
+    /// Its radial size.
+    pub size: f64,
+    /// Its axial depth.
+    pub depth: f64,
+    /// Its angle (degrees) from the transverse face, not the cone's included angle.
+    pub angle: f64,
+    /// The direction out of the hole at the end it breaks, unit, in the part's frame.
+    pub outward: [f64; 3],
+    /// Whether it breaks the hole's opening, where quiddity records the hole and its recesses
+    /// (its axis, which points into the hole, runs with the hole's own), rather than the other
+    /// end of a through hole.
+    pub at_opening: bool,
+}
+
+impl MouthChamfer {
+    /// Whether it is called out `C<size>`, as every other chamfer is
+    /// ([`crate::dims::c_form`]): equal legs at 45°.
+    pub fn is_c_form(&self) -> bool {
+        crate::dims::c_form(self.size, self.depth, self.angle)
+    }
+
+    /// Whether *other* is the same chamfer (size, angle and the diameter it breaks) at the other
+    /// end: a chamfer on a counterbore's mouth and one on the bore's far mouth are not.
+    pub fn matches(&self, other: &MouthChamfer) -> bool {
+        (self.size - other.size).abs() < 1e-3
+            && (self.angle - other.angle).abs() < 1e-2
+            && (self.diameter - other.diameter).abs() < 1e-3
+    }
+}
+
+/// The qualifier of a recess or mouth chamfer cut alike at both mouths of a through hole (#104).
+pub const BOTH_SIDES: &str = "BOTH SIDES";
+/// The qualifier of a mouth chamfer on the far end of a through hole, the end its callout's
+/// reference does not look at ([`Hole::chamfers`]).
+pub const FAR_SIDE: &str = "FAR SIDE";
 
 /// A countersink: its major diameter, and its included angle (degrees) when quiddity gives one.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -68,6 +123,11 @@ pub struct Hole<'a> {
     pub outer_steps: Vec<Recess>,
     pub spotface: Option<Recess>,
     pub countersink: Option<Countersink>,
+    /// Its mouth chamfers, the opening's first.
+    pub mouth_chamfers: Vec<MouthChamfer>,
+    /// The axial depth of the chamfer on its opening's mouth, or 0: its stated depths start at the
+    /// surface the hole opens on, which lies this far beyond quiddity's cylindrical `location`.
+    pub entry: f64,
     /// quiddity's frame it was read through, for its pattern's points.
     pub frame: [[f64; 3]; 4],
 }
@@ -123,6 +183,49 @@ pub fn dir_to_part(frame: &[[f64; 3]; 4], d: [f64; 3]) -> [f64; 3] {
     [0, 1, 2].map(|k| (0..3).map(|j| d[j] * frame[j + 1][k]).sum::<f64>())
 }
 
+/// A record's `mouth_chamfers` (`{axis, diameter, size, depth, angle, …}` each): empty when
+/// absent, an error when unreadable. The opening's come first.
+fn mouth_chamfers(
+    p: &Map<String, Value>,
+    axis: [f64; 3],
+    frame: &[[f64; 3]; 4],
+) -> Result<Vec<MouthChamfer>, String> {
+    let mut out = match p.get("mouth_chamfers") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(entries)) => entries
+            .iter()
+            .map(|entry| {
+                let r = entry
+                    .as_object()
+                    .ok_or_else(|| format!("its mouth chamfer {entry} is not a record"))?;
+                let size = |name: &str| {
+                    r.get(name)
+                        .and_then(Value::as_f64)
+                        .filter(|v| v.is_finite() && *v > 0.0)
+                        .ok_or_else(|| format!("its mouth chamfer has no {name}"))
+                };
+                let into = point(r.get("axis")).ok_or("its mouth chamfer has no axis")?;
+                let out = dir_to_part(frame, into);
+                let n = out.iter().map(|c| c * c).sum::<f64>().sqrt();
+                if n == 0.0 {
+                    return Err("its mouth chamfer's axis is a zero vector".into());
+                }
+                Ok(MouthChamfer {
+                    diameter: size("diameter")?,
+                    size: size("size")?,
+                    depth: size("depth")?,
+                    angle: size("angle")?,
+                    outward: out.map(|c| -c / n),
+                    at_opening: (0..3).map(|k| into[k] * axis[k]).sum::<f64>() > 0.0,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?,
+        Some(v) => return Err(format!("its mouth_chamfers is {v}, not a list")),
+    };
+    out.sort_by_key(|c| !c.at_opening);
+    Ok(out)
+}
+
 /// A recess or countersink record's two sizes (*first* required, *second* optional): none when
 /// absent, an error when unreadable.
 fn sized(
@@ -161,6 +264,7 @@ fn outer_steps(p: &Map<String, Value>) -> Result<Vec<Recess>, String> {
                         .and_then(Value::as_f64)
                         .ok_or("its outer step has no diameter")?,
                     depth: r.get("depth").and_then(Value::as_f64),
+                    entry: 0.0,
                 })
             })
             .collect(),
@@ -183,8 +287,24 @@ impl<'a> Hole<'a> {
         let direction = d.map(|c| c / n);
         let bottom = p.get("bottom").and_then(Value::as_str);
         let recess = |name: &str| {
-            sized(p, name, "diameter", "depth")
-                .map(|r| r.map(|(diameter, depth)| Recess { diameter, depth }))
+            sized(p, name, "diameter", "depth").map(|r| {
+                r.map(|(diameter, depth)| Recess {
+                    diameter,
+                    depth,
+                    entry: 0.0,
+                })
+            })
+        };
+        let chamfers = mouth_chamfers(p, axis, frame)?;
+        // The opening's chamfer lengthens the depth of the recess whose mouth it breaks.
+        let entered = |r: Option<Recess>| {
+            r.map(|r| Recess {
+                entry: chamfers
+                    .iter()
+                    .find(|c| c.at_opening && (c.diameter - r.diameter).abs() < 1e-3)
+                    .map_or(0.0, |c| c.depth),
+                ..r
+            })
         };
         Ok(Hole {
             feature: f,
@@ -198,13 +318,29 @@ impl<'a> Hole<'a> {
             through: bottom == Some("through"),
             bottom,
             depth: p.get("depth").and_then(Value::as_f64),
-            counterbore: recess("cbore")?,
-            outer_steps: outer_steps(p)?,
-            spotface: recess("spotface")?,
+            counterbore: entered(recess("cbore")?),
+            outer_steps: outer_steps(p)?
+                .into_iter()
+                .map(|r| entered(Some(r)).unwrap_or(r))
+                .collect(),
+            spotface: entered(recess("spotface")?),
             countersink: sized(p, "csink", "major_diameter", "included_angle")?
                 .map(|(diameter, angle)| Countersink { diameter, angle }),
+            entry: chamfers
+                .iter()
+                .find(|c| c.at_opening)
+                .map_or(0.0, |c| c.depth),
+            mouth_chamfers: chamfers,
             frame: *frame,
         })
+    }
+
+    /// A blind hole's depth from the surface it opens on (ISO 129-1, ASME Y14.5): the bore's own
+    /// length and the axial entry of the chamfer on its mouth. quiddity measures the cylinder from
+    /// its own opening (quiddity-rust#244), so `⌀4.2 ↧ 9.2` under a 0.8 chamfer is `↧ 10`.
+    /// A through hole states none.
+    pub fn depth_from_mouth(&self) -> Option<f64> {
+        self.depth.filter(|_| !self.through).map(|d| d + self.entry)
     }
 
     /// What makes two holes one machining requirement (quiddity's `HoleSpec`, compared at
@@ -234,7 +370,61 @@ impl<'a> Hole<'a> {
             Some(c) => k.extend([1, size_key(c.diameter), opt(c.angle)]),
             None => k.push(0),
         }
+        // Mouth chamfers last, so a hole without them keeps the key it had before they existed.
+        for c in &self.mouth_chamfers {
+            k.extend([
+                3,
+                // The physical face it breaks, not quiddity's opening, a presentation gauge.
+                size_key(c.outward[0]),
+                size_key(c.outward[1]),
+                size_key(c.outward[2]),
+                size_key(c.diameter),
+                size_key(c.size),
+                size_key(c.angle),
+            ]);
+        }
         k
+    }
+
+    /// The mouth chamfers a callout states, first the one at its reference end and then the one at
+    /// the other end unless it is the same chamfer (then the first says so: both ends).
+    ///
+    /// The reference is the end the rest of the callout is stated from. A hole with a recess
+    /// (`⌴`, a spotface, a countersink) states it at quiddity's opening, so its chamfers are
+    /// judged from there: the chamfer on the recess's mouth is plain, the far bore's is the far
+    /// side. A plain through hole has no such end (quiddity's opening is a gauge), so its
+    /// reference is the end its view looks at ([`Hole::toward_viewer`]): flanged_spool_132's
+    /// holes, drilled up and chamfered on the top face, are seen from above. A blind hole has one
+    /// mouth, its opening, and never a far side.
+    pub fn chamfers(&self) -> (Option<MouthChamfer>, Option<MouthChamfer>, bool) {
+        if !self.through {
+            let mouth = self.mouth_chamfers.iter().find(|c| c.at_opening).copied();
+            return (mouth, None, false);
+        }
+        let toward = self.toward_viewer();
+        let recessed = self.counterbore.is_some()
+            || self.spotface.is_some()
+            || !self.outer_steps.is_empty()
+            || self.countersink.is_some();
+        let seen = |c: &&MouthChamfer| {
+            if recessed {
+                c.at_opening
+            } else {
+                (0..3).map(|k| c.outward[k] * toward[k]).sum::<f64>() >= 0.0
+            }
+        };
+        let near = self.mouth_chamfers.iter().find(seen).copied();
+        let far = self.mouth_chamfers.iter().find(|c| !seen(c)).copied();
+        match (near, far) {
+            (Some(n), Some(f)) if n.matches(&f) => (near, None, true),
+            _ => (near, far, false),
+        }
+    }
+
+    /// The direction towards the viewer of the view its callout is drawn in ([`crate::dims`]:
+    /// the view that looks along its axis).
+    pub fn toward_viewer(&self) -> [f64; 3] {
+        crate::dims::toward_viewer(self.direction)
     }
 
     /// Its recesses from the bore outward: the counterbore, the outer steps innermost first,
@@ -496,6 +686,100 @@ mod tests {
         assert_eq!(
             Hole::read(&odd, &IDENTITY).unwrap_err(),
             "its csink has no major_diameter"
+        );
+    }
+
+    /// quiddity-rust#244: a hole's mouth chamfers are read from `mouth_chamfers`, the opening's
+    /// first; the opening's lengthens the depth of the recess whose mouth it breaks, and only
+    /// that one's; holes alike but for a chamfer are not one requirement.
+    #[test]
+    fn mouth_chamfers_are_read_and_deepen_the_recess_they_break() {
+        let entry = |diameter: f64, axis: f64| {
+            json!({ "axis": [0.0, 0.0, axis], "location": [0.0, 0.0, 2.0], "diameter": diameter,
+                    "size": 0.25, "depth": 0.25, "angle": 45.0, "faces": [1] })
+        };
+        let hole = |chamfers: Value| {
+            feature(json!({
+                "axis": [0.0, 0.0, -1.0], "location": [0.0, 0.0, 1.75], "diameter": 3.3,
+                "depth": 4.75, "bottom": "through", "cbore": { "diameter": 5.0, "depth": 2.0 },
+                "mouth_chamfers": chamfers,
+            }))
+        };
+        fn read(f: &Feature) -> Hole<'_> {
+            Hole::read(f, &IDENTITY).unwrap()
+        }
+        // The repro: 2.0 plus its 0.25 entry is 2.25 from the mouth; the cylinder stays 2.0.
+        let f = hole(json!([entry(5.0, -1.0)]));
+        let h = read(&f);
+        let cbore = h.counterbore.unwrap();
+        assert_eq!(
+            (cbore.depth, cbore.entry, cbore.from_mouth()),
+            (Some(2.0), 0.25, Some(2.25))
+        );
+        assert!(h.mouth_chamfers[0].at_opening && h.mouth_chamfers[0].is_c_form());
+        // On the bore's diameter, or the far end's (its axis against the hole's), it is not the
+        // counterbore's.
+        for other in [entry(3.3, -1.0), entry(5.0, 1.0)] {
+            let f = hole(json!([other]));
+            assert_eq!(read(&f).counterbore.unwrap().from_mouth(), Some(2.0));
+        }
+        // The opening's chamfer comes first whatever the file's order; the same size and angle
+        // at both ends is one chamfer, `both`.
+        let f = hole(json!([entry(5.0, 1.0), entry(5.0, -1.0)]));
+        let h = read(&f);
+        assert!(h.mouth_chamfers[0].at_opening && !h.mouth_chamfers[1].at_opening);
+        let (near, far, both) = h.chamfers();
+        assert!(near.is_some() && far.is_none() && both);
+        // A chamfer is part of the requirement; holes without one keep the key they had.
+        let plain = hole(json!([]));
+        assert_ne!(
+            read(&plain).requirement(),
+            read(&hole(json!([entry(5.0, -1.0)]))).requirement()
+        );
+        let mut old = plain.clone();
+        old.parameters.remove("mouth_chamfers");
+        assert_eq!(read(&plain).requirement(), read(&old).requirement());
+        // The chamfer a callout states first is the one at the end its view looks at, not the
+        // opening's: a hole drilled up (+z) from a flange's far face and chamfered at the top
+        // (flanged_spool_132's ⌀10) is seen from above, where its chamfer is.
+        let up = feature(json!({
+            "axis": [0.0, 0.0, 1.0], "location": [0.0, 0.0, 128.0], "diameter": 10.0,
+            "depth": 11.0, "bottom": "through",
+            "mouth_chamfers": [entry(10.0, -1.0)],
+        }));
+        let h = read(&up);
+        assert!(!h.mouth_chamfers[0].at_opening);
+        assert_eq!(h.toward_viewer(), [0.0, 0.0, 1.0]);
+        let (seen, other, both) = h.chamfers();
+        assert!(seen.is_some() && other.is_none() && !both);
+        // Seen from below it would be the other end's.
+        let down = feature(json!({
+            "axis": [0.0, 0.0, -1.0], "location": [0.0, 0.0, 140.0], "diameter": 10.0,
+            "depth": 11.0, "bottom": "through",
+            "mouth_chamfers": [entry(10.0, 1.0)],
+        }));
+        let (seen, other, _) = read(&down).chamfers();
+        assert!(seen.is_none() && other.is_some());
+        // The chamfer's part of the requirement is the physical face it breaks, not quiddity's
+        // opening: a through hole recorded drilled up and one drilled down, each chamfered on the
+        // top face, differ only in their drilling direction.
+        let through = |axis: f64, chamfer_axis: f64| {
+            feature(json!({
+                "axis": [0.0, 0.0, axis], "location": [0.0, 0.0, 0.0], "diameter": 6.0,
+                "depth": 5.0, "bottom": "through",
+                "mouth_chamfers": [entry(6.0, chamfer_axis)],
+            }))
+        };
+        let tail = |f: &Feature| read(f).requirement()[3..].to_vec();
+        // Down (-z) with the chamfer's axis into the hole (-z): on the top face. Up (+z) with the
+        // chamfer's axis -z: the same top face, not its opening.
+        assert_eq!(tail(&through(-1.0, -1.0)), tail(&through(1.0, -1.0)));
+        assert_ne!(tail(&through(-1.0, -1.0)), tail(&through(-1.0, 1.0)));
+        // An entry that cannot be read is said.
+        let f = hole(json!([{ "axis": [0.0, 0.0, -1.0], "diameter": 5.0, "size": 0.25 }]));
+        assert_eq!(
+            Hole::read(&f, &IDENTITY).unwrap_err(),
+            "its mouth chamfer has no depth"
         );
     }
 

@@ -2119,6 +2119,7 @@ pub fn recognise_document(
     use crate::bridge::native;
     let mut doc = native::in_file_axes(doc);
     crate::bridge::refused_threads::complete(part, &mut doc);
+    crate::bridge::floor_pockets::restore(part, &mut doc);
     let doc = &doc;
     let read = native::read(part, doc)?;
     let mut features = read.holes;
@@ -2158,7 +2159,9 @@ pub fn recognise_document(
                     A::Feature { .. } => FaceGroup::Feature,
                     A::Body { .. } => FaceGroup::Body,
                     A::Refused { .. } => FaceGroup::Refused,
-                    A::Unexplained => FaceGroup::Unexplained,
+                    // `FaceAccounting` is non-exhaustive: a group this reader does not know
+                    // is not claimed as explained.
+                    A::Unexplained | _ => FaceGroup::Unexplained,
                 })
                 .collect()
         });
@@ -5279,6 +5282,18 @@ fn install_schedules(
         .filter(|d| d.state == crate::items::State::Shown && d.placed.is_some())
         .map(|d| d.id.as_str())
         .collect();
+    // A frame or datum symbol led to a hole the view draws hidden has no place but its callout:
+    // the callout stays beside its row.
+    let carriers = crate::dims::hole_marks::hidden_carriers(analysis, replacing);
+    if carriers.iter().any(|c| !shown.contains(c.as_str())) {
+        let kept = crate::hole_table::select_keeping(analysis, unscheduled, &carriers);
+        if !kept.tables.is_empty()
+            && let Some(kept) = install_selection(analysis, &kept, &plan)?
+            && errors(&kept).is_subset(&errors(unscheduled))
+        {
+            return Ok(Some(kept));
+        }
+    }
     let held_back: BTreeSet<String> = crate::dims::hole_marks::attachments(analysis, unscheduled)
         .into_iter()
         .filter(|(_, callout)| callout.as_deref().is_some_and(|c| !shown.contains(c)))

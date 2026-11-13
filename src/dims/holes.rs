@@ -33,6 +33,22 @@ pub(super) const PLANNER: Planner = Planner {
 /// lint read it; [`super::label_ink`] draws it as one symbol, the letters inside the box.
 pub(super) const SPOTFACE: &str = "⌴SF";
 
+/// A hole's mouth chamfer as a callout states it, as every chamfer is: `C0.25` for equal legs at
+/// 45°, otherwise `size × angle°` (`0.25 × 30°`). It follows the recess it breaks, whose depth
+/// then reads from the surface ([`holes::Recess::from_mouth`]).
+fn chamfer_terms(c: &holes::MouthChamfer, units: crate::units::Units) -> Vec<String> {
+    let fmt = |v| crate::dims::fmt_in(v, units);
+    if c.is_c_form() {
+        vec![format!("C{}", fmt(c.size))]
+    } else {
+        vec![
+            fmt(c.size),
+            "×".into(),
+            format!("{}°", crate::dims::fmt(c.angle)),
+        ]
+    }
+}
+
 /// Member sites projected into a view, as integer keys.
 type Sites = Vec<(i64, i64)>;
 
@@ -100,8 +116,8 @@ impl Hole<'_> {
     fn terms(&self, units: crate::units::Units) -> Vec<String> {
         let fmt = |v| crate::dims::fmt_in(v, units);
         let mut t = vec![format!("⌀{}", fmt(self.diameter))];
-        match self.depth {
-            Some(depth) if !self.through => t.extend(["↧".into(), fmt(depth)]),
+        match self.depth_from_mouth() {
+            Some(depth) => t.extend(["↧".into(), fmt(depth)]),
             _ => t.push("THRU".into()),
         }
         let recesses = self.recesses();
@@ -111,7 +127,7 @@ impl Hole<'_> {
                 t.push(crate::callouts::BREAK.into());
             }
             t.extend([symbol.into(), format!("⌀{}", fmt(r.diameter))]);
-            if let Some(depth) = r.depth {
+            if let Some(depth) = r.from_mouth() {
                 t.extend(["↧".into(), fmt(depth)]);
             }
         }
@@ -124,6 +140,17 @@ impl Hole<'_> {
                 t.extend(["×".into(), format!("{}°", crate::dims::fmt(a))]);
             }
         }
+        let (near, far, both) = self.chamfers();
+        if let Some(c) = near {
+            t.extend(chamfer_terms(&c, units));
+            if both {
+                t.push(crate::callouts::BOTH_SIDES.into());
+            }
+        }
+        if let Some(c) = far {
+            t.extend(chamfer_terms(&c, units));
+            t.push(crate::callouts::FAR_SIDE.into());
+        }
         t
     }
 
@@ -135,12 +162,12 @@ impl Hole<'_> {
             value: v,
         };
         let mut out = vec![m("bore.diameter", self.diameter)];
-        if let Some(depth) = self.depth.filter(|_| !self.through) {
+        if let Some(depth) = self.depth_from_mouth() {
             out.push(m("bore.depth", depth));
         }
         for (role, _, r) in self.recesses() {
             out.push(m(&format!("{role}.diameter"), r.diameter));
-            if let Some(depth) = r.depth {
+            if let Some(depth) = r.from_mouth() {
                 out.push(m(&format!("{role}.depth"), depth));
             }
         }
@@ -148,6 +175,15 @@ impl Hole<'_> {
             out.push(m("countersink.diameter", c.diameter));
             if let Some(a) = c.angle {
                 out.push(m("countersink.angle", a));
+            }
+        }
+        let (near, far, _) = self.chamfers();
+        for (c, which) in [(near, "mouth_chamfer"), (far, "far_mouth_chamfer")] {
+            if let Some(c) = c {
+                out.push(m(&format!("{which}.size"), c.size));
+                if !c.is_c_form() {
+                    out.push(m(&format!("{which}.angle"), c.angle));
+                }
             }
         }
         out
@@ -221,6 +257,12 @@ pub(super) fn oblique_axes(d: P3) -> Vec<usize> {
     let mut axes: Vec<usize> = (0..3).filter(|&k| d[k].abs() >= 1e-6).collect();
     axes.sort_by(|&i, &j| d[j].abs().total_cmp(&d[i].abs()).then(i.cmp(&j)));
     axes
+}
+
+/// The direction toward the viewer of the view a hole of direction *d* is called out in: the view
+/// along its axis, or, inclined, the one it is seen most nearly end-on in ([`oblique_axes`]).
+pub(crate) fn toward_viewer(d: P3) -> P3 {
+    toward(oblique_axes(d)[0])
 }
 
 /// The direction toward the viewer of the view along world axis *k*.
