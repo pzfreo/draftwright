@@ -3217,25 +3217,50 @@ mod tests {
         }
     }
 
+    /// A clean first estimate kept because every larger scale was turned away is reported as
+    /// that ("no alternative ... passed every check"), not as no valid drawing existing. 10046
+    /// held this on its own until its isometric cleared the frame gutter and A4 at 2:1 was
+    /// taken; with its depth dimension placed four lanes out, the aligned front and side views
+    /// need more than A4's width at 2:1, the search turns the scale away, and A4 at 1:1 is kept
+    /// clean, as before.
     #[test]
     fn retained_clean_layout_does_not_claim_no_valid_layout_exists() {
         let Some(a) = corpus("mfcadpp/10046.step") else {
             return;
         };
-        let plan = select(&a, &Spec::default()).unwrap();
+        assert_eq!(
+            select(&a, &Spec::default()).unwrap().sheet.scale,
+            "2:1",
+            "10046 is drawn at 2:1 unless something keeps it at 1:1"
+        );
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "dimensions": {"d:envelope/depth.length": {"place": {"side": "right", "lane": 4}}}
+        }))
+        .unwrap();
+        let plan = select(&a, &spec).unwrap();
+        assert_eq!(
+            (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+            ("A4", "1:1")
+        );
         assert!(model::findings(&plan).clean());
         assert!(
-            plan.sheet.basis.contains("A4 at 2:1 (Normal): refused"),
+            plan.sheet.basis.contains("A4 at 2:1"),
             "{}",
             plan.sheet.basis
         );
-        for problem in plan
+        let exhausted: Vec<_> = plan
             .problems
             .iter()
             .filter(|p| p.code == "layout_recovery_exhausted")
-        {
+            .collect();
+        assert_eq!(exhausted.len(), 1, "{:?}", plan.problems);
+        for problem in exhausted {
+            assert_eq!(problem.severity, "info");
+            assert!(problem.message.contains("A4 at 2:1"), "{}", problem.message);
             assert!(
-                problem.message.contains("A4 at 2:1 (Normal): refused"),
+                problem
+                    .message
+                    .contains("has no hard layout findings or space drops"),
                 "{}",
                 problem.message
             );

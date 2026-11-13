@@ -7196,7 +7196,28 @@ fn plan_with_presentation(
     }
     let ib = analysis.drawing_iso_bounds().map(|b| b * pick.scale);
     let iso_factor = spec.iso_scale_factor.unwrap_or_else(|| {
-        layout::iso_factor_with_detail(g.iso, g.iso_centre, ib, !g.derived.is_empty())
+        let fit = layout::iso_factor_with_detail(g.iso, g.iso_centre, ib, !g.derived.is_empty());
+        if fit >= 1.0 {
+            return fit;
+        }
+        // A shrunk isometric keeps 2 % of its rectangle, which in a small one is less than its
+        // outline's stroke. Beside the frame gutter a view's stroke must clear it (the sheet
+        // policy's `annotation_off_sheet`), so there the isometric is shrunk to clear it.
+        let clear = layout::margin() + crate::output::layer_styles()[0].1.width;
+        let mut cleared = fit;
+        for k in 0..2 {
+            if ib[k] < 0.0 {
+                cleared = cleared.min((g.iso_centre[k] - clear) / -ib[k]);
+            }
+            if ib[k + 2] > 0.0 {
+                cleared = cleared.min((pick.page[k] - clear - g.iso_centre[k]) / ib[k + 2]);
+            }
+        }
+        if cleared < fit && cleared > 0.0 {
+            (cleared * 10000.0).floor() / 10000.0
+        } else {
+            fit
+        }
     });
     if shown("iso") && spec.iso_scale_factor.is_some() && analysis.drawing_iso_bounds() != [0.0; 4]
     {
