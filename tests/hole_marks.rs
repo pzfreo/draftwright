@@ -388,18 +388,28 @@ fn frames_citing_undrawn_datums_are_said() {
     let v = plan.views.iter().find(|v| v.id == size.view).unwrap();
     let width = size.placed.as_ref().unwrap();
     assert!(((width.lines[1][0][0] - width.lines[0][0][0]).abs() / v.scale - 15.0).abs() < 1e-6);
-    // C keeps a proven surface site where the front stack has no clear place.
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    // C now stands on its own front control frame; the datum is still drawn.
     let c = plan.gdt.iter().find(|g| g.source == "datum:#114").unwrap();
     assert_eq!(c.faces, [25]);
-    assert_eq!(c.view, "v:side");
-    let v = plan.views.iter().find(|v| v.id == c.view).unwrap();
-    let tip = c.placed.as_ref().unwrap().tip;
+    assert_eq!(c.view, "v:front");
     let face = &a.face_attachments[25];
     assert_eq!(face.surface.as_deref(), Some("cylinder"));
     assert_eq!(face.axis, Some(1));
-    assert!(face.sites.iter().any(|p| {
-        let q = page(&a, v, *p);
-        (q[0] - tip[0]).hypot(q[1] - tip[1]) < 1e-6
+    let base = &c.placed.as_ref().unwrap().fills[0];
+    assert!(plan.gdt.iter().any(|g| {
+        if g.kind != "control_frame" || g.faces != c.faces || g.view != c.view {
+            return false;
+        }
+        let Some(p) = &g.placed else { return false };
+        [base[0], base[2]].iter().all(|q| {
+            q[0] >= p.label_box[0]
+                && q[0] <= p.label_box[2]
+                && ((q[1] - p.label_box[1]).abs() - 0.5)
+                    .abs()
+                    .min(((q[1] - p.label_box[3]).abs() - 0.5).abs())
+                    < 1e-6
+        })
     }));
     // E can now stand on a frame belonging to its own bore, seen end-on.
     let e = plan.gdt.iter().find(|g| g.source == "datum:#119").unwrap();

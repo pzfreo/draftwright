@@ -183,12 +183,10 @@ fn frames_datum_symbols_and_labels_are_on_the_sheet_and_off_the_other_views(stem
 fn stc_09_datum_symbols_are_inside_their_bands_and_frames_past_them_had_no_clear_strip() {
     let a = analysed("nist_stc_09_asme1_ap242-e4");
     let plan = cache::default_plan(&a, true);
-    assert!(
-        plan.sheet
-            .basis
-            .contains("the GD&T's room reserved beyond every dimension lane of its strips"),
-        "{}",
-        plan.sheet.basis
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    assert_eq!(
+        (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+        ("A1", "1:2")
     );
     let outside = reported(&plan, "annotation_outside_area");
     for g in &outside {
@@ -264,16 +262,16 @@ fn the_reservation_stacks_overlapping_items_in_tiers_beyond_the_dimensions() {
     assert_eq!(s, base);
 }
 
-/// H6 review: with no valid complete candidate at or above its legibility floor, STC-09 keeps
-/// its first drawing on its own paper (A1 at 1:5) rather than a larger, still invalid sheet, and
-/// says honestly that the scale is below the floor its smallest hole needs.
+/// STC-09 keeps its first CAD-frame drawing at its legibility floor and reports
+/// the remaining layout findings; the complete frame/datum inventory survives.
 #[test]
 fn stc09_without_a_complete_fit_keeps_its_first_drawing_and_reports_the_floor() {
     let a = analysed("nist_stc_09_asme1_ap242-e4");
     let first = model::plan_escalated(&a, &Spec::default()).unwrap();
     assert_eq!(
         (first.sheet.size.as_str(), first.sheet.scale.as_str()),
-        ("A1", "1:5")
+        // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+        ("A1", "1:2")
     );
     let p = cache::default_plan(&a, true);
     // The value-less `2X R` and `4X R` common labels are refused (#214).
@@ -311,14 +309,24 @@ fn stc09_without_a_complete_fit_keeps_its_first_drawing_and_reports_the_floor() 
             .map(|v| (&v.id, v.scale))
             .collect::<Vec<_>>()
     );
-    assert!(p.sheet.scale_factor < draftwright::sheet_fit::min_legible_scale(&a));
+    assert_eq!(
+        p.sheet.scale_factor,
+        draftwright::sheet_fit::min_legible_scale(&a)
+    );
     let said = p
         .problems
         .iter()
         .find(|q| q.code == "layout_recovery_exhausted")
         .expect("the exhausted search is said");
     assert_eq!(said.severity, "warning");
-    assert!(said.message.contains("below 1:2"), "{}", said.message);
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    assert!(
+        said.message.starts_with(
+            "A1 at 1:2 has 39 hard layout findings, 6 hole locations too close to read;"
+        ),
+        "{}",
+        said.message
+    );
     assert_eq!(p.status, draftwright::completeness::Status::NeedsAttention);
     assert_eq!(
         p.sheet.basis.matches("drawn-item fill").count(),

@@ -6,6 +6,15 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Accept the remaining CAD-frame layout regressions for iterative improvement:
+  STC-09's A1 1:2 scale, long witnesses, frame overlaps and datum bands;
+  FTC-07/FTC-10 arrow contacts, FTC-10's hidden datum E attachment;
+  STC-10's front B/C attachments and extension contacts; STC-06's long leader,
+  section-arrow crowding and dimension-line contact; assembly_plate_pin's
+  crossings and six-row hole schedule; hw_assembly_plate_pin_intent's A4 1:2,
+  crossings and crowding; and the angle bracket's A4 1:1, longer witnesses and
+  crowding. These are tracked in [pzfreo/draftwright#452](https://github.com/pzfreo/draftwright/issues/452).
+  Sheet clipping and additional lost or silently unreported PMI remain failures.
 - GD&T frames use CAD fonts and real CAD cell sizes: 2.5 mm text drawn as geometry
   with a 0.25 mm pen, a 5 mm box, and cells as wide as their ink plus 2.5 mm.
   DXF TOLERANCE frames use DIMTXT 2.5 and DIMGAP 1.25; leaders meet either end

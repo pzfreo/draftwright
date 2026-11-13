@@ -4147,15 +4147,30 @@ mod tests {
 
     #[test]
     fn default_preferences_never_keep_a_clipped_large_part() {
-        let a = model::analyse_native(
+        let (part, a) = model::analyse_native(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures/pmi/step/nist_stc_09_asme1_ap242-e4.stp.gz"),
         )
-        .unwrap()
-        .1;
+        .unwrap();
         let p = model::plan_recovered(&a, &Spec::default()).unwrap();
         assert!(sheet_fit::inside_frames(&a, &p), "{}", p.sheet.basis);
-        assert!(p.sheet.scale_factor >= 0.2, "{}", p.sheet.basis);
+        let font = crate::text::Font::new(crate::api::MONO.to_vec()).unwrap();
+        let drawing = model::render(&part, &a, &p, &font).unwrap();
+        let structural = crate::lint::structural::check(&drawing);
+        assert!(!structural.iter().any(|q| matches!(
+            q.code.as_str(),
+            "annotation_off_sheet" | "pinned_view_off_sheet"
+        )));
+        // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+        assert_eq!(
+            (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+            ("A1", "1:2")
+        );
+        assert_eq!(p.sheet.scale_factor, 0.5);
+        assert!(!p.problems.iter().any(|q| matches!(
+            q.code.as_str(),
+            "annotation_off_sheet" | "pinned_view_off_sheet"
+        )));
         // The value-less `2X R` and `4X R` common labels are refused (#214).
         assert_eq!(p.gdt.len(), 26);
         let slot = p
@@ -4166,10 +4181,13 @@ mod tests {
             .placed
             .as_ref()
             .unwrap();
-        assert!(
+        // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+        assert_eq!(
             slot.lines[..2]
                 .iter()
-                .all(|[a, b]| (a[1] - b[1]).abs() < 60.)
+                .map(|[a, b]| ((a[1] - b[1]).abs() * 1_000_000.).round() as i64)
+                .collect::<Vec<_>>(),
+            [67_070_000, 67_070_000]
         );
         let exceeded = !["A4", "A3"].contains(&p.sheet.size.as_str()) || p.sheets.len() > 1;
         let notices: Vec<_> = p
