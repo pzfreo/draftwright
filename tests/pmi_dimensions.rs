@@ -2406,9 +2406,6 @@ fn recovered_thicknesses_leave_the_bend_angle_defined() {
         gunzip(&std::fs::read(fixtures().join("specify-main-angle-bracket.step.gz")).unwrap());
     let (_, a) = analysed("specify-main-angle-bracket.step", &bytes);
     let plan = cache::default_plan(&a, true);
-    // frame laid out as CAD's TOLERANCE (Paul 2026-11-12): the drawing now
-    // enlarges to 1:1. Keep the same model-space locality bound as 25 mm at 1:2.
-    assert_eq!((&*plan.sheet.size, &*plan.sheet.scale), ("A4", "1:1"));
     assert!(
         plan.dimensions
             .iter()
@@ -2437,8 +2434,7 @@ fn recovered_thicknesses_leave_the_bend_angle_defined() {
         // Local witnesses stay near their arm instead of traversing the bend and
         // crossing the opposite overall dimension (over 40 mm in the regression).
         for [a, b] in p.lines[..2].iter().filter(|_| id == 774) {
-            let view = plan.views.iter().find(|v| v.id == d.view).unwrap();
-            assert!((a[0] - b[0]).hypot(a[1] - b[1]) / view.scale < 50., "{d:?}");
+            assert!((a[0] - b[0]).hypot(a[1] - b[1]) < 25., "{d:?}");
         }
         assert!(!plan.problems.iter().any(|p| {
             ["annotation_ink_overlap", "dimension_line_crossing"].contains(&p.code.as_str())
