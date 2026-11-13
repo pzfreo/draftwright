@@ -340,10 +340,40 @@ impl Matching {
         }
         let entries: BTreeMap<&str, &qc::Entry<String>> =
             corr.features.iter().map(|e| (e.old.as_str(), e)).collect();
-        let to_new = |record: &String, k: &str| {
+        // Where one record carries several features of a kind (a pocket's floor rounds, each its
+        // own fillet), the one sharing faces with the old feature, as the faces carried, is it.
+        let carried: BTreeMap<usize, usize> = corr
+            .faces
+            .iter()
+            .filter(|e| matches!(e.class, Class::Carried | Class::Adapted))
+            .filter_map(|e| Some((e.old, e.new?)))
+            .collect();
+        let to_new = |record: &String, k: &str, old_faces: &[usize]| {
             by_record.get(record).and_then(|on| {
-                on.iter()
-                    .find(|(_, nk)| nk.as_deref() == Some(k))
+                let same: Vec<&(String, Option<String>)> = on
+                    .iter()
+                    .filter(|(_, nk)| nk.as_deref() == Some(k))
+                    .collect();
+                if same.len() > 1 {
+                    let now: Vec<usize> = old_faces
+                        .iter()
+                        .filter_map(|f| carried.get(f).copied())
+                        .collect();
+                    let sharing: Vec<_> = same
+                        .iter()
+                        .filter(|(f, _)| {
+                            new.features
+                                .iter()
+                                .find(|g| g.id == *f)
+                                .is_some_and(|g| g.faces.iter().any(|i| now.contains(i)))
+                        })
+                        .collect();
+                    if let [one] = sharing[..] {
+                        return Some(one.0.clone());
+                    }
+                }
+                same.first()
+                    .copied()
                     .or(if on.len() == 1 { on.first() } else { None })
                     .map(|(f, _)| f.clone())
             })
@@ -357,12 +387,12 @@ impl Matching {
                         Class::Carried | Class::Adapted => e
                             .new
                             .as_ref()
-                            .and_then(|r| to_new(r, &f.kind))
+                            .and_then(|r| to_new(r, &f.kind, &f.faces))
                             .map_or(Bind::Orphaned, Bind::To),
                         Class::Ambiguous => Bind::Ambiguous(
                             e.candidates
                                 .iter()
-                                .filter_map(|r| to_new(r, &f.kind))
+                                .filter_map(|r| to_new(r, &f.kind, &f.faces))
                                 .collect(),
                         ),
                         _ => Bind::Orphaned,

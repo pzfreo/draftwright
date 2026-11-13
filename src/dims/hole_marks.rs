@@ -1635,10 +1635,31 @@ pub(crate) fn hidden_carriers(analysis: &Analysis, plan: &Plan) -> BTreeSet<Stri
     let mut finished = plan.clone();
     attach(analysis, &plan.spec, &mut finished);
     let hidden: Vec<&gdt::PlannedGdt> = finished.gdt.iter().filter(|g| led_to_hidden(g)).collect();
+    if hidden.is_empty() {
+        return BTreeSet::new();
+    }
+    let patterns = analysis
+        .recognition
+        .as_ref()
+        .map_or(&[][..], |r| r.patterns.as_slice());
+    let led = |hole: &str| {
+        analysis
+            .features
+            .iter()
+            .find(|f| f.id == hole && f.kind == "hole")
+            .is_some_and(|f| {
+                hidden
+                    .iter()
+                    .any(|g| g.faces.iter().any(|face| f.faces.contains(face)))
+            })
+    };
     plan.dimensions
         .iter()
-        .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
-        // One hole's callout: a counted group's rows state each of its holes.
+        .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole"))
+        // One hole's callout. A counted group's rows state each of its holes, and the frames
+        // led to them state their own count (`3×`, FTC-10's front holes): a group's callout kept
+        // beside its rows is a duplicate, which the drawings of FTC-10 and STC-10 are pinned
+        // against, where a lone hole's callout is the only place its frame has.
         .filter(|d| {
             d.measurements
                 .iter()
@@ -1648,15 +1669,11 @@ pub(crate) fn hidden_carriers(analysis: &Analysis, plan: &Plan) -> BTreeSet<Stri
         })
         .filter(|d| {
             d.measurements.iter().any(|m| {
-                analysis
-                    .features
-                    .iter()
-                    .find(|f| f.id == m.feature && f.kind == "hole")
-                    .is_some_and(|f| {
-                        hidden
-                            .iter()
-                            .any(|g| g.faces.iter().any(|face| f.faces.contains(face)))
-                    })
+                led(&m.feature)
+                    || patterns
+                        .iter()
+                        .find(|p| p.id == m.feature)
+                        .is_some_and(|p| p.members.iter().any(|h| led(h)))
             })
         })
         .map(|d| d.id.clone())

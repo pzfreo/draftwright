@@ -33,10 +33,6 @@ pub(super) const PLANNER: Planner = Planner {
 /// lint read it; [`super::label_ink`] draws it as one symbol, the letters inside the box.
 pub(super) const SPOTFACE: &str = "⌴SF";
 
-/// The qualifier of a mouth chamfer on the far end of a through hole, the end its callout's view
-/// does not look at.
-pub(crate) const FAR_SIDE: &str = "FAR SIDE";
-
 /// A hole's mouth chamfer as a callout states it, as every chamfer is: `C0.25` for equal legs at
 /// 45°, otherwise `size × angle°` (`0.25 × 30°`). It follows the recess it breaks, whose depth
 /// then reads from the surface ([`holes::Recess::from_mouth`]).
@@ -120,8 +116,8 @@ impl Hole<'_> {
     fn terms(&self, units: crate::units::Units) -> Vec<String> {
         let fmt = |v| crate::dims::fmt_in(v, units);
         let mut t = vec![format!("⌀{}", fmt(self.diameter))];
-        match self.depth {
-            Some(depth) if !self.through => t.extend(["↧".into(), fmt(depth)]),
+        match self.depth_from_mouth() {
+            Some(depth) => t.extend(["↧".into(), fmt(depth)]),
             _ => t.push("THRU".into()),
         }
         let recesses = self.recesses();
@@ -153,7 +149,7 @@ impl Hole<'_> {
         }
         if let Some(c) = far {
             t.extend(chamfer_terms(&c, units));
-            t.push(FAR_SIDE.into());
+            t.push(crate::callouts::FAR_SIDE.into());
         }
         t
     }
@@ -166,7 +162,7 @@ impl Hole<'_> {
             value: v,
         };
         let mut out = vec![m("bore.diameter", self.diameter)];
-        if let Some(depth) = self.depth.filter(|_| !self.through) {
+        if let Some(depth) = self.depth_from_mouth() {
             out.push(m("bore.depth", depth));
         }
         for (role, _, r) in self.recesses() {

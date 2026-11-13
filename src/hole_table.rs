@@ -2791,7 +2791,7 @@ fn select_with(
                     let mut drill = format!("⌀{}", schedule_number(h.diameter, plan.spec.units));
                     if h.through {
                         drill += " THRU";
-                    } else if let Some(depth) = h.depth {
+                    } else if let Some(depth) = h.depth_from_mouth() {
                         drill += &format!(" ↧ {}", schedule_number(depth, plan.spec.units));
                     }
                     size = format!("{drill} {size}");
@@ -2844,10 +2844,13 @@ fn select_with(
                         });
                     }
                 }
+                // The entry plane is the surface the hole opens on, which a mouth chamfer's entry
+                // lies beyond quiddity's cylindrical location.
+                let surface: [f64; 3] = std::array::from_fn(|k| h.at[k] - h.direction[k] * h.entry);
                 cells.push(entry_cell(
                     analysis,
                     view.direction,
-                    h.at,
+                    surface,
                     h.direction,
                     plan.spec.units,
                 ));

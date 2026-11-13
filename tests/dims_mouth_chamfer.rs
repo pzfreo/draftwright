@@ -189,12 +189,60 @@ fn a_plain_holes_mouth_chamfer_follows_its_bore() {
     );
 }
 
-/// Only the chamfer on the counterbore's own mouth deepens it: a chamfer on another diameter
-/// does not move the counterbore's depth. (A record edit: quiddity recognises no chamfer there.)
+/// Only the chamfer on a recess mouth deepens it: a chamfer on the bore's far mouth does not move
+/// the counterbore's depth, and is the far side.
 #[test]
 fn only_the_chamfer_on_a_recess_mouth_adds_to_its_depth() {
-    let words = says(|h| h["mouth_chamfers"][0]["diameter"] = json!(3.3));
-    assert_eq!(words, "⌀3.3 THRU ⌴ ⌀5 ↧ 2 C0.25");
+    assert_eq!(
+        fixture("cbore_far_only").1,
+        "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25 FAR SIDE"
+    );
+}
+
+/// The chamfer is judged from the end the rest of the callout is stated from: a counterbore cut
+/// from the underside and seen in plan is stated at its own mouth, plain, whatever the view; the
+/// far bore's chamfer is the far side, and is not the counterbore's chamfer's twin (`BOTH SIDES`)
+/// though both are `C0.25`.
+#[test]
+fn a_counterbores_chamfers_are_judged_from_its_own_mouth() {
+    assert_eq!(fixture("cbore_under").1, "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25");
+    assert_eq!(
+        fixture("cbore_far").1,
+        "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25 C0.25 FAR SIDE"
+    );
+}
+
+/// A blind bore's depth, like a counterbore's, is stated from the surface it opens on (ISO 129-1,
+/// ASME Y14.5): the 2.5 mm cylinder under a 0.5 chamfer is `↧ 3`, and its claim says so.
+#[test]
+fn a_blind_bores_depth_includes_its_mouth_chamfer() {
+    let (a, words, measured) = fixture("blind");
+    assert_eq!(words, "⌀4 ↧ 3 C0.5");
+    assert!(
+        measured
+            .iter()
+            .any(|(p, v)| p == "bore.depth" && (v - 3.0).abs() < 1e-9)
+    );
+    let hole = a.features.iter().find(|f| f.kind == "hole").unwrap();
+    assert_eq!(hole.parameters["depth"], 2.5);
+}
+
+/// A hole table's row states the chamfer in its size cell, and its entry plane is the surface the
+/// hole opens on (the chamfer's 0.25 lies above the counterbore's cylinder).
+#[test]
+fn a_hole_table_row_states_the_chamfer() {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/mouth_cbore_far.step");
+    let a = model::analyse_native(&path).unwrap().1;
+    let spec = Spec {
+        hole_table: draftwright::hole_table::Setting::Always,
+        ..Spec::default()
+    };
+    let plan = model::plan_recovered(&a, &spec).unwrap();
+    let rows: Vec<_> = plan.hole_tables.iter().flat_map(|t| &t.rows).collect();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].cells[1], "⌀6 THRU ⌴ ⌀10 ↧ 2 C0.25 C0.25 FAR SIDE");
+    assert_eq!(rows[0].cells[4], "5 / −Z");
 }
 
 /// A through hole chamfered at both ends says so once; one chamfered only at the end its view
@@ -206,20 +254,10 @@ fn the_far_end_of_a_through_hole_is_said() {
     assert_eq!(fixture("far_side").1, "⌀6 THRU C0.5 FAR SIDE");
 }
 
-/// Two different chamfers are stated each. A record edit: the generator makes one chamfer size
-/// per fixture.
+/// Two different chamfers are stated each, the far end's with its side.
 #[test]
 fn a_different_far_chamfer_is_stated_as_well() {
-    let two = says(|h| {
-        h["cbore"] = json!(null);
-        h["mouth_chamfers"][0]["diameter"] = json!(3.3);
-        let mut far = h["mouth_chamfers"][0].clone();
-        far["axis"] = json!([0.0, 0.0, 1.0]);
-        far["angle"] = json!(30.0);
-        far["size"] = json!(0.5);
-        h["mouth_chamfers"].as_array_mut().unwrap().push(far);
-    });
-    assert_eq!(two, "⌀3.3 THRU C0.25 0.5 × 30° FAR SIDE");
+    assert_eq!(fixture("mixed").1, "⌀6 THRU C0.5 0.4 × 30° FAR SIDE");
 }
 
 /// A countersink is not a mouth chamfer: a 0.5 × 45° edge on a ⌀2 bore is, to quiddity, a ⌀3 × 90°

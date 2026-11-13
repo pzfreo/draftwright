@@ -91,7 +91,7 @@ impl HoleSizes {
         HoleSizes {
             diameter: h.diameter,
             through: h.through,
-            depth: h.depth,
+            depth: h.depth_from_mouth().or(h.depth),
             counterbore: h.counterbore,
             outer_steps: h.outer_steps.clone(),
             spotface: h.spotface,
@@ -186,12 +186,12 @@ impl HoleGroup {
         if let Some(c) = &s.near_chamfer {
             out += &chamfer(c);
             if s.both_chamfers {
-                out += " BOTH SIDES";
+                out += &format!(" {}", holes::BOTH_SIDES);
             }
         }
         if let Some(c) = &s.far_chamfer {
             out += &chamfer(c);
-            out += " FAR SIDE";
+            out += &format!(" {}", holes::FAR_SIDE);
         }
         out
     }

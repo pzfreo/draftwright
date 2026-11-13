@@ -289,3 +289,34 @@ fn an_unapplied_edit_on_both_revisions_does_not_ask_for_a_new_decision() {
     );
     assert!(r.new.plan().dimensions.iter().any(|d| d.placed.is_some()));
 }
+
+/// FTC-08's floor rounds are four fillets on one quiddity record (a pocket quiddity 0.5.0 reports
+/// in place of a slot and its rounds, read back as both by the bridge). A Spec entry on each
+/// carries through a revision to the same round, rather than all four reaching the first.
+#[test]
+fn spec_entries_on_a_pockets_floor_rounds_each_carry_to_their_own_round() {
+    let Some(corpus) = std::env::var_os("DRAFTWRIGHT_CORPUS")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join("repos/quiddity/tests/corpus"))
+        })
+        .filter(|d| d.is_dir())
+    else {
+        eprintln!("SKIPPED: the corpus is not found; set DRAFTWRIGHT_CORPUS");
+        return;
+    };
+    let part = corpus.join("nist/nist_ftc_08_asme1_rc.stp");
+    let features: serde_json::Map<String, Value> = ["f84", "f85", "f135", "f82"]
+        .iter()
+        .map(|f| (format!("f:fillet:{f}"), json!({ "note": "BREAK ALL" })))
+        .collect();
+    let spec = json!({ "schema": "draftwright.spec/3", "sheet": {}, "features": features });
+    let r = diff(&part, &part, None, &spec).unwrap();
+    let listed: Vec<_> = r
+        .report
+        .spec
+        .iter()
+        .map(|e| (e.path.as_str(), e.class.as_str()))
+        .collect();
+    assert!(listed.is_empty(), "{listed:?}");
+}

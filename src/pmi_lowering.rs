@@ -3799,7 +3799,7 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
                 at: h.at,
                 span: None,
                 through: h.through,
-                depth: h.depth,
+                depth: h.depth_from_mouth().or(h.depth),
             });
             taken.extend(members);
         }
@@ -3817,7 +3817,7 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
             at: h.at,
             span: None,
             through: h.through,
-            depth: h.depth,
+            depth: h.depth_from_mouth().or(h.depth),
         });
     }
     if let Ok(steps) = crate::lint::turned::bands(analysis) {

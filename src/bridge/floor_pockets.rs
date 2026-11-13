@@ -36,6 +36,7 @@ pub(crate) fn restore(part: &Part, doc: &mut RecognitionDocument) {
     let mut fillets = doc.records.iter().filter(|r| r.family == "fillets").count();
     let mut added = Vec::new();
     let mut renamed: Vec<(String, String)> = Vec::new();
+    let mut handled: Vec<Vec<usize>> = Vec::new();
     for r in &mut doc.records {
         if r.family != "pockets" || r.record_type != "Pocket" {
             continue;
@@ -60,7 +61,9 @@ pub(crate) fn restore(part: &Part, doc: &mut RecognitionDocument) {
             .collect();
         walls.sort_unstable();
         walls.dedup();
-        if walls.len() < 2 {
+        // A slot is its four walls: floor rounds on its end walls alone name too few of them,
+        // and the pocket stays unread rather than become a slot on faces that are not its walls.
+        if walls.len() < 4 {
             continue;
         }
         let mut slot: Map<String, Value> = SLOT_KEYS
@@ -76,6 +79,7 @@ pub(crate) fn restore(part: &Part, doc: &mut RecognitionDocument) {
         r.family = "slots".into();
         r.record_type = "Slot".into();
         let all = std::mem::replace(&mut r.faces, walls.clone());
+        handled.push(all.clone());
         r.parameters = slot;
         for x in &rounds {
             let (Some(f), Some(w), Some(radius)) = (
@@ -122,6 +126,28 @@ pub(crate) fn restore(part: &Part, doc: &mut RecognitionDocument) {
             }
         }
     }
+    // quiddity's refusal to read the same pocket as a section recess says nothing the slot's own
+    // dimensions do not: a `SectionRecessRefusal` whose defining faces are all the pocket's goes.
+    doc.records.retain(|r| {
+        if r.record_type != "SectionRecessRefusal" {
+            return true;
+        }
+        let defining: Vec<usize> = r
+            .parameters
+            .get("evidence")
+            .and_then(|e| e.get("defining_faces"))
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|f| f.as_u64().map(|f| f as usize))
+                    .collect()
+            })
+            .unwrap_or_default();
+        defining.is_empty()
+            || !handled
+                .iter()
+                .any(|h| defining.iter().all(|f| h.contains(f)))
+    });
     doc.records.extend(added);
 }
 

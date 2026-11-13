@@ -32,9 +32,10 @@
 //!
 //! A hole's faces are the document's: the faces that define it (its cylinders, a counterbore's
 //! or spotface's included). Python's bridge gives a hole its constituent faces, which add the
-//! face that closes it (a drill point's cone, a blind hole's floor); Rust quiddity finds that
-//! face too, but its document does not carry it (`tests/native.rs` lists every such
-//! difference). The other families' faces are the document's defining faces too, which for a
+//! face that closes it (a drill point's cone, a blind hole's floor); since quiddity 0.5.0 the
+//! document carries a blind hole's flat floor too (`tests/native.rs` lists what still differs),
+//! and a drill point's cone not yet. A mouth chamfer's cone is not one of the hole's faces: it is
+//! a nested claim (`mouth_chamfers`), credited to the hole by the face accounting. The other families' faces are the document's defining faces too, which for a
 //! boss leave out the face at its free end, and for an angled step the flat that closes it, that
 //! Python's constituent faces add. The document carries no `named_dimensions` (Python's
 //! enrichment), so the fingerprint sizes Python's bridge takes from them (a boss's
