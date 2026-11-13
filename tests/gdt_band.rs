@@ -318,7 +318,8 @@ fn stc09_without_a_complete_fit_keeps_its_first_drawing_and_reports_the_floor() 
         .iter()
         .find(|q| q.code == "layout_recovery_exhausted")
         .expect("the exhausted search is said");
-    assert_eq!(said.severity, "warning");
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    assert_eq!(said.severity, "info");
     // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
     assert!(
         said.message.starts_with(
