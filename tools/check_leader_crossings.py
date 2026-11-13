@@ -2,7 +2,7 @@
 
 Record from origin/main quality.py drawings with this single command (also after
 #141 merges, if this stream merges second):
-  python3 -I tools/check_leader_crossings.py /tmp/main-quality --record tools/leader-crossings-baseline.json
+  python3 -I tools/check_leader_crossings.py /tmp/main-quality --record tools/leader-crossings-baseline.json --reason 'review reason'
 Generate /tmp/main-quality with quality.py and an origin/main release binary first.
 The geometry fallback classifies old plans without requiring the new problem fields.
 CI's quality-gate job compares fresh drawings to this record; zero stays zero,
@@ -64,13 +64,19 @@ def main():
     p.add_argument('drawings', type=Path)
     p.add_argument('--baseline', type=Path, default=ROOT / 'tools/leader-crossings-baseline.json')
     p.add_argument('--record', type=Path)
+    p.add_argument('--reason', help='Required review reason for --record')
     p.add_argument('--base-ref', default='origin/main', help='Source revision of drawings when recording')
     p.add_argument('--report', type=Path)
     args = p.parse_args()
+    if args.record and (not args.reason or not args.reason.strip()):
+        p.error('--record requires a nonempty --reason')
+    if args.reason and not args.record:
+        p.error('--reason requires --record')
     parts = collect(args.drawings)
     if args.record:
         revision = subprocess.check_output(['git', 'rev-parse', args.base_ref], cwd=ROOT, text=True).strip()
-        args.record.write_text(json.dumps(dict(format=FORMAT, base=revision, parts=parts), indent=2, sort_keys=True) + '\n')
+        args.record.write_text(json.dumps(dict(format=FORMAT, base=revision,
+            reason=args.reason.strip(), parts=parts), indent=2, sort_keys=True) + '\n')
         return 0
     baseline = json.loads(args.baseline.read_text())
     if baseline.get('format') != FORMAT:

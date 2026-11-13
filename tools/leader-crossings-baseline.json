@@ -1,5 +1,5 @@
 {
-  "base": "c8460cc27a080902a2757c904704e276ee45b47f",
+  "base": "65cc6e29a1c544dbf8984631e66a6f19fe3aa2ae",
   "format": "draftwright.leader-crossings/1",
   "parts": {
     "1000": {
@@ -149,8 +149,8 @@
     "nist_ctc_01_asme1_ap242-e1": {
       "dimension_dimension": 0,
       "leader_arrow": 0,
-      "leader_dimension_line": 2,
-      "leader_extension_line": 2,
+      "leader_dimension_line": 0,
+      "leader_extension_line": 1,
       "leader_leader": 0,
       "leader_text": 0
     },
@@ -212,10 +212,10 @@
     },
     "nist_ftc_07_asme1_ap242-e2": {
       "dimension_dimension": 0,
-      "leader_arrow": 3,
-      "leader_dimension_line": 8,
-      "leader_extension_line": 9,
-      "leader_leader": 6,
+      "leader_arrow": 4,
+      "leader_dimension_line": 4,
+      "leader_extension_line": 5,
+      "leader_leader": 4,
       "leader_text": 0
     },
     "nist_ftc_07_asme1_rd": {
@@ -244,11 +244,11 @@
     },
     "nist_ftc_10_asme1_ap242-e2": {
       "dimension_dimension": 0,
-      "leader_arrow": 13,
-      "leader_dimension_line": 20,
-      "leader_extension_line": 43,
-      "leader_leader": 22,
-      "leader_text": 1
+      "leader_arrow": 15,
+      "leader_dimension_line": 17,
+      "leader_extension_line": 33,
+      "leader_leader": 20,
+      "leader_text": 0
     },
     "nist_ftc_10_asme1_rb": {
       "dimension_dimension": 0,
@@ -274,5 +274,6 @@
       "leader_leader": 0,
       "leader_text": 0
     }
-  }
+  },
+  "reason": "accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed"
 }
