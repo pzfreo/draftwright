@@ -2482,6 +2482,19 @@ pub(crate) fn lengthened_callouts(candidate: &Plan, baseline: &Plan) -> bool {
     callouts_grow(candidate, baseline, |now, before| now > before + 2.0 + 1e-6)
 }
 
+/// A callout's leader grown too far on *candidate* beside *baseline*: doubled where the part is
+/// drawn at a larger scale ([`longer_callouts`]; the maintainer's rule of 2026-11-12 is about
+/// refusing a larger scale), and more than 2 mm longer anywhere else ([`lengthened_callouts`]):
+/// at the same scale, on a larger sheet or at a smaller scale nothing is drawn larger to
+/// lengthen a leader, so growth there is the layout pushing the callout away.
+pub(crate) fn grown_callouts(candidate: &Plan, baseline: &Plan) -> bool {
+    if candidate.sheet.scale_factor > baseline.sheet.scale_factor + 1e-9 {
+        longer_callouts(candidate, baseline)
+    } else {
+        lengthened_callouts(candidate, baseline)
+    }
+}
+
 /// Whether *longer* holds of the paper lengths, on the candidate and on *baseline*, of the
 /// leader and shoulder of any callout placed on both.
 fn callouts_grow(candidate: &Plan, baseline: &Plan, longer: impl Fn(f64, f64) -> bool) -> bool {
@@ -3716,6 +3729,35 @@ fn recover_paper(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, 
     recover_candidates(analysis, spec, first, true, false)
 }
 
+/// The automatic enlargement veto on *candidates* beside the smallest sheet's drawing
+/// *reference* (sheet index *sheet*): a candidate on a larger sheet whose established leader
+/// has grown too far ([`grown_callouts`]: doubled at a larger scale, more than 2 mm longer
+/// otherwise) is dropped, and its trace in *tried* says so.
+fn veto_grown_leaders(
+    spec: &Spec,
+    candidates: &mut Vec<(crate::sheet_fit::Candidate, Plan)>,
+    tried: &mut [String],
+    sheet: usize,
+    reference: &Plan,
+) {
+    candidates.retain(|(c, p)| {
+        if c.sheet <= sheet || !grown_callouts(p, reference) {
+            return true;
+        }
+        let prefix = format!("{} {} fill ", spec.pages()[c.sheet].0, scale_name(c.scale));
+        let why = if p.sheet.scale_factor > reference.sheet.scale_factor + 1e-9 {
+            "; automatic enlargement doubles an established leader's length"
+        } else {
+            "; automatic enlargement lengthens an established leader by more than 2 mm without a larger scale"
+        };
+        for trace in tried.iter_mut().filter(|t| t.starts_with(&prefix)) {
+            *trace = trace.replacen("(valid and complete", "(leader length quality veto", 1);
+            *trace += why;
+        }
+        false
+    });
+}
+
 fn recover_candidates(
     analysis: &Analysis,
     spec: &Spec,
@@ -4196,7 +4238,7 @@ fn recover_candidates(
                     && (ink_findings(&p) > ink_findings(&first)
                         || feature_crossings(&p) > feature_crossings(&first)
                         || (p.views.iter().any(|v| v.detail.is_some())
-                            && longer_callouts(&p, &first)));
+                            && grown_callouts(&p, &first)));
                 let mut hard_codes = hard_layout_codes(&p);
                 if !actual_fit {
                     hard_codes.insert("finished_items_do_not_fit", 1);
@@ -4364,17 +4406,7 @@ fn recover_candidates(
     {
         let reference = candidates[small].1.clone();
         let sheet = candidates[small].0.sheet;
-        candidates.retain(|(c, p)| {
-            if c.sheet <= sheet || !longer_callouts(p, &reference) {
-                return true;
-            }
-            let prefix = format!("{} {} fill ", spec.pages()[c.sheet].0, scale_name(c.scale));
-            for trace in tried.iter_mut().filter(|t| t.starts_with(&prefix)) {
-                *trace = trace.replacen("(valid and complete", "(leader length quality veto", 1);
-                *trace += "; automatic enlargement doubles an established leader's length";
-            }
-            false
-        });
+        veto_grown_leaders(spec, &mut candidates, &mut tried, sheet, &reference);
     }
     let keys: Vec<_> = candidates.iter().map(|(c, _)| *c).collect();
     let Some((choice, (i, s))) =
@@ -4841,6 +4873,8 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
             // The search gives this sheet and scale a second attempt where its first lacks
             // room; a kept layout is that same drawing, so it gets the same attempt.
             let effective = crate::spec_gdt::effective(analysis, &fixed)?;
+            // The search's default paper is A4 with one sheet; a kept layout is always one
+            // sheet (`local_layout::forced` requires `sheets.max` of 1), so A4 alone says it.
             let default_paper = fixed.sheet.size.as_deref() == Some("A4");
             if crate::sheet_policy::doubted_without_room(&effective, &plan, default_paper) {
                 let lanes = crate::sheet_policy::lane_attempt(&effective, default_paper, || {
@@ -5352,7 +5386,21 @@ fn recover_tables(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan,
 /// be, not rejected for the drops the table resolves.
 pub(crate) fn schedule_candidate(analysis: &Analysis, candidate: Plan) -> Result<Plan, Invalid> {
     let spec = candidate.spec.clone();
+    let pair = |p: &Plan| (p.sheet.size.clone(), p.sheet.scale.clone(), p.sheets.len());
+    let own = pair(&candidate);
     let scheduled = schedule_recovered(analysis, &spec, candidate)?;
+    if pair(&scheduled) != own {
+        // The schedule is judged as this candidate; one on other paper is another candidate.
+        return Err(Invalid {
+            message: format!(
+                "the hole table moved the candidate from {} {} to {} {}",
+                own.0, own.1, scheduled.sheet.size, scheduled.sheet.scale
+            ),
+            choices: Vec::new(),
+            path: None,
+            also: Vec::new(),
+        });
+    }
     if drops(&scheduled) == 0 {
         return Ok(scheduled);
     }
@@ -6963,6 +7011,17 @@ fn plan_with_presentation(
         if p.fallback.is_none() {
             (request, pick, strips) = (bare, p, s);
         }
+    }
+    // A second attempt's trial whose sizing found the ladder at lane pitch no more room than
+    // the slots would draw the first attempt again; it stops here, and the first is kept
+    // (`sheet_policy::lane_attempt`).
+    if pick.lanes_short && crate::planning::is_lane_trial() {
+        return Err(Invalid {
+            message: "the height ladder at lane pitch has no more room than the slots".into(),
+            choices: Vec::new(),
+            path: None,
+            also: Vec::new(),
+        });
     }
     // An automatic radius schedule is a presentation choice. Reserve it around
     // the existing sheet/scale pair only when it fits; it cannot spend more paper
@@ -8785,7 +8844,9 @@ fn plan_with_presentation(
             ink_findings(&bare),
             feature_crossings(&bare),
         );
-        let longer_routes = longer_callouts(&plan, &bare);
+        // The detail is judged at the drawing's own sheet and scale, where nothing is drawn
+        // larger to lengthen a leader: the 2 mm rule.
+        let longer_routes = lengthened_callouts(&plan, &bare);
         if (new.0.hard, new.0.dropped, over_views(&bare), new.1, new.2)
             < (old.0.hard, old.0.dropped, over_views(&plan), old.1, old.2)
             || (longer_routes && new.0.hard <= old.0.hard && new.0.dropped <= old.0.dropped)

@@ -649,6 +649,8 @@ pub(crate) fn size_with_details(
     if lanes.0.fallback.is_none() {
         lanes
     } else {
+        let mut slots = slots;
+        slots.0.lanes_short = true;
         slots
     }
 }

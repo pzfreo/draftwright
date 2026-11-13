@@ -415,3 +415,78 @@ fn fixed_page_fit_warning_keeps_real_view_and_title_overlaps() {
         );
     }
 }
+
+/// The automatic enlargement veto ([`veto_grown_leaders`]) at the smallest sheet's established
+/// leader: a larger sheet at a larger scale is dropped when the leader doubles, not when it
+/// grows by a few millimetres (maintainer's rule of 2026-11-12); a larger sheet at the same
+/// scale keeps the 2 mm rule, since nothing is drawn larger there to lengthen a leader.
+#[test]
+fn a_larger_sheet_is_refused_for_a_doubled_leader_and_the_trace_says_so() {
+    let analysis: Analysis = serde_json::from_value(serde_json::json!({
+        "schema": ANALYSIS_SCHEMA,
+        "binding":{"source_sha256":"", "part":"plate", "face_count":0, "loader":"test"},
+        "envelope":[[0,0,0],[100,60,10]], "iso_bounds":[0,0,100,60]
+    }))
+    .unwrap();
+    let spec = Spec::default();
+    let base = plan(&analysis, &spec).unwrap();
+    let with_leader = |length: f64, sheet: &str, scale: f64| {
+        let mut p = base.clone();
+        let mut d = p.dimensions[0].clone();
+        d.id = "d:f:hole:1/bore.diameter".into();
+        d.kind = "callout".into();
+        d.placed = Some(crate::dims::Placed {
+            lines: vec![[[0.0, 0.0], [length, 0.0]]],
+            arrows: Vec::new(),
+            label_at: [length, 0.0],
+            rotation: 0.0,
+            label_box: [length, -1.0, length + 10.0, 1.0],
+        });
+        p.dimensions = vec![d];
+        p.sheet.size = sheet.into();
+        p.sheet.scale = scale_name(scale);
+        p.sheet.scale_factor = scale;
+        p
+    };
+    let candidate = |sheet: usize, scale: f64| crate::sheet_fit::Candidate {
+        sheet,
+        scale,
+        width: spec.pages()[sheet].1,
+        fill: 0.5,
+        extra_crossings: 0,
+    };
+    let reference = with_leader(12.0, "A4", 1.0);
+    let trace = |sheet: usize, scale: f64| {
+        format!(
+            "{} {} fill 50.0% (valid and complete)",
+            spec.pages()[sheet].0,
+            scale_name(scale)
+        )
+    };
+    // A3 at 2:1 with the leader 25 mm (doubled), A2 at 2:1 with it 20 mm (not doubled), and
+    // A3 at 1:1 with it 15 mm (3 mm longer at the same scale).
+    let mut candidates = vec![
+        (candidate(0, 1.0), reference.clone()),
+        (candidate(1, 2.0), with_leader(25.0, "A3", 2.0)),
+        (candidate(2, 2.0), with_leader(20.0, "A2", 2.0)),
+        (candidate(1, 1.0), with_leader(15.0, "A3", 1.0)),
+    ];
+    let mut tried = vec![trace(0, 1.0), trace(1, 2.0), trace(2, 2.0), trace(1, 1.0)];
+    veto_grown_leaders(&spec, &mut candidates, &mut tried, 0, &reference);
+    let kept: Vec<_> = candidates.iter().map(|(c, _)| (c.sheet, c.scale)).collect();
+    assert_eq!(kept, [(0, 1.0), (2, 2.0)]);
+    assert_eq!(tried[0], trace(0, 1.0));
+    assert!(
+        tried[1].contains("(leader length quality veto")
+            && tried[1].ends_with("automatic enlargement doubles an established leader's length"),
+        "{}",
+        tried[1]
+    );
+    assert_eq!(tried[2], trace(2, 2.0));
+    assert!(
+        tried[3]
+            .ends_with("lengthens an established leader by more than 2 mm without a larger scale"),
+        "{}",
+        tried[3]
+    );
+}

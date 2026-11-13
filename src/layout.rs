@@ -1594,6 +1594,9 @@ pub struct Pick {
     pub tb_w: f64,
     pub arrangement: Arrangement,
     pub fallback: Option<Fallback>,
+    /// On a second attempt at a pinned sheet and scale ([`crate::planning::lane_ladder`]), the
+    /// ladder at lane pitch had no more room than the slots, so the slots stand.
+    pub lanes_short: bool,
 }
 
 /// Chooses the scale, sheet and arrangement as draftwright does (`compose.choose_scale`):
@@ -1628,6 +1631,7 @@ pub fn choose(
         tb_w: tb_of(p[0]),
         arrangement: a,
         fallback,
+        lanes_short: false,
     };
     let fit = |s: f64, p: [f64; 2], a: Arrangement, packed: bool| {
         let g = geometry(req, &scaled(s), s, p, tb_of(p[0]), a, None);

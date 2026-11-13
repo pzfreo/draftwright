@@ -28,6 +28,26 @@ thread_local! {
     static TRIAL_RADIUS_REFERENCE: RefCell<Option<(crate::model::Plan, [u8; 32])>> = const { RefCell::new(None) };
     static PIN_REFERENCE: RefCell<Option<(crate::model::Plan, [u8; 32])>> = const { RefCell::new(None) };
     static DEFER_NOMINALS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LANE_TRIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The second attempt at a sheet and scale as a trial ([`crate::sheet_policy::lane_attempt`]):
+/// planning may stop as soon as its sizing finds the ladder at lane pitch no more room than the
+/// slots, since the drawing would then be the first attempt's again. A replay of a drawing that
+/// attempt made ([`lane_ladder`] alone) is not a trial, and is drawn through.
+pub(crate) fn lane_trial<T>(run: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            LANE_TRIAL.set(self.0);
+        }
+    }
+    let _restore = Restore(LANE_TRIAL.replace(true));
+    run()
+}
+
+pub(crate) fn is_lane_trial() -> bool {
+    LANE_TRIAL.get()
 }
 
 /// Recovery helpers can compare intermediate presentations without polishing

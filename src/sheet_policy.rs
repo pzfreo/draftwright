@@ -723,11 +723,7 @@ fn enlarges(plan: &Plan, reference: &Plan) -> bool {
 /// 2 mm rule stands ([`model::lengthened_callouts`]; GRM-04's A4 at its A3's 5:1 sends
 /// ⌀2.4 THRU 22 mm past its view's area).
 fn grown_callouts(plan: &Plan, before: &Plan) -> bool {
-    if enlarges(plan, before) {
-        model::longer_callouts(plan, before)
-    } else {
-        model::lengthened_callouts(plan, before)
-    }
+    model::grown_callouts(plan, before)
 }
 
 fn usable(analysis: &Analysis, plan: &Plan, reference: &Plan, floor: f64) -> Result<(), String> {
@@ -2140,13 +2136,16 @@ pub(crate) fn doubted_without_room(fit: &Analysis, plan: &Plan, default_paper: b
 /// plans it with the height ladder at lane pitch ([`crate::planning::lane_ladder`]). That
 /// drawing is taken only where it has the room the reservation is for: nothing clipped, hard
 /// or dropped, and no annotation past the area reserved for its view. Its basis says so
-/// ([`LANE_LADDER`]), which is how a later replay at its sheet and scale draws it again.
+/// ([`LANE_LADDER`]), which is how a later replay at its sheet and scale draws it again. The
+/// attempt is a trial ([`crate::planning::lane_trial`]): where its sizing finds the lane-pitch
+/// ladder no more room than the slots, the planner stops there rather than draw the first
+/// attempt again.
 pub(crate) fn lane_attempt(
     fit: &Analysis,
     default_paper: bool,
     again: impl FnOnce() -> Result<Plan, Invalid>,
 ) -> Option<Plan> {
-    crate::planning::lane_ladder(again)
+    crate::planning::lane_trial(|| crate::planning::lane_ladder(again))
         .ok()
         .filter(|p| {
             !lacks_room(fit, p, default_paper)
