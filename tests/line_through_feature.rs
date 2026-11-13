@@ -165,7 +165,7 @@ fn hex_leader_avoids_the_blind_hole_band_it_previously_crossed() {
 }
 
 #[test]
-fn underside_cavity_containment_is_not_a_crossing_and_extensions_are_report_only() {
+fn underside_cavity_containment_is_not_a_crossing() {
     let Some(c) = corpus::dir() else { return };
     let (_, a) = model::analyse_native(&c.join("nist/nist_ftc_08_asme1_rc.stp")).unwrap();
     let plan = model::plan_recovered(
@@ -200,6 +200,27 @@ fn underside_cavity_containment_is_not_a_crossing_and_extensions_are_report_only
             plan.problems
         );
     }
+}
+
+/// An extension line through a feature is reported, never repaired by moving ink: its offered
+/// fixes are local to the dimension, and `hole_table: never` is not overridden by a table remedy.
+/// Asserted on FTC-10 (A1, 65 findings, 24 with fixes). FTC-08 carried these six findings until
+/// quiddity 0.5.0 (#228) recognised its long slot `f:slot:f213` as a pocket, which draftwright
+/// does not draw: all six were extension lines of other slots' dimensions crossing that slot, and
+/// none remains.
+#[test]
+fn extensions_are_report_only_and_hole_table_never_keeps_its_scope() {
+    let Some(c) = corpus::dir() else { return };
+    let (_, a) = model::analyse_native(&c.join("nist/nist_ftc_10_asme1_rb.stp")).unwrap();
+    let plan = model::plan_recovered(
+        &a,
+        &Spec {
+            hole_table: draftwright::hole_table::Setting::Never,
+            sheet: serde_json::from_value(serde_json::json!({"size":"A1"})).unwrap(),
+            ..Spec::default()
+        },
+    )
+    .unwrap();
     let extensions: Vec<_> = plan
         .problems
         .iter()

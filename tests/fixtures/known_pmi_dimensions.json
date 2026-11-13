@@ -1433,9 +1433,9 @@
   "port": "dimension:#6360",
   "python": "6× ⌀10 +0.09 -0.0 THRU EQ SP ON ⌀90 BC",
   "record": "dimension:0:1:4:2",
-  "rust": "6× ⌀10 +0.09/0 THRU EQ SP\nON ⌀90 BC",
+  "rust": "6× ⌀10 +0.09/0 THRU C1 EQ\nSP ON ⌀90 BC",
   "verdict": "equivalent",
-  "evidence": "Callout presentation now wraps at 48 mm and uses compact thread identities and source-bound manufacturing notes; source values and claims remain checked. See docs/thread-callouts.md. The port's sheet is in mm: inch-authored PMI prints its exact conversion at its authored precision, never in inches or with the writer's float noise, and a zero deviation is written 0 (ISO 129-1) (#214). Since haecceity v0.2.7 the port writes single-line deviations as +u/l (ISO 129-1:2004 §6.2), haecceity's shared notation (#258)."
+  "evidence": "Callout presentation now wraps at 48 mm and uses compact thread identities and source-bound manufacturing notes; source values and claims remain checked. See docs/thread-callouts.md. The port's sheet is in mm: inch-authored PMI prints its exact conversion at its authored precision, never in inches or with the writer's float noise, and a zero deviation is written 0 (ISO 129-1) (#214). Since haecceity v0.2.7 the port writes single-line deviations as +u/l (ISO 129-1:2004 §6.2), haecceity's shared notation (#258). quiddity 0.5.0 (#244) recognises the six holes' 1 × 45° mouth chamfer on the top face, so the callout also states it (C1); Python's recognition has no such field."
  },
  {
   "field": "label",
@@ -1469,9 +1469,9 @@
   "port": "dimension:#6392",
   "python": "6× ⌀10 THRU EQ SP ON ⌀90 BC",
   "record": "dimension:0:1:4:2",
-  "rust": "6× ⌀10 H11 THRU EQ SP ON\n⌀90 BC",
+  "rust": "6× ⌀10 H11 THRU C1 EQ SP ON\n⌀90 BC",
   "verdict": "rust-correct",
-  "evidence": "S5 native symbolic-bore port: the AP242 record states its ISO 286 bore class (H7/H11) without numeric limits. Proven internal cylinders correlate to exactly one recognised bore callout; the class is printed on that owner alone by default (maintainer decision 2026-10-16; sheet/fit_deviations opts into stacked deviations) (draftwright's fits table; the maintainer's decision of 2026-10-11, hidden by sheet/fit_limits: false), and no duplicate dimension. Python drops that class from its text (and draws the 62 mm bore separately); the native claim and literal text now retain the authored requirement. Reading, geometric ambiguity and conflicting-class blockers still refuse lowering; existing exact-one outcome and NIST open-question tests remain unchanged. Callout presentation now wraps at 48 mm and uses compact thread identities and source-bound manufacturing notes; source values and claims remain checked. See docs/thread-callouts.md. Callout presentation now wraps at 48 mm and uses compact thread identities and source-bound manufacturing notes; source values and claims remain checked. See docs/thread-callouts.md."
+  "evidence": "S5 native symbolic-bore port: the AP242 record states its ISO 286 bore class (H7/H11) without numeric limits. Proven internal cylinders correlate to exactly one recognised bore callout; the class is printed on that owner alone by default (maintainer decision 2026-10-16; sheet/fit_deviations opts into stacked deviations) (draftwright's fits table; the maintainer's decision of 2026-10-11, hidden by sheet/fit_limits: false), and no duplicate dimension. Python drops that class from its text (and draws the 62 mm bore separately); the native claim and literal text now retain the authored requirement. Reading, geometric ambiguity and conflicting-class blockers still refuse lowering; existing exact-one outcome and NIST open-question tests remain unchanged. Callout presentation now wraps at 48 mm and uses compact thread identities and source-bound manufacturing notes; source values and claims remain checked. See docs/thread-callouts.md. Callout presentation now wraps at 48 mm and uses compact thread identities and source-bound manufacturing notes; source values and claims remain checked. See docs/thread-callouts.md. quiddity 0.5.0 (#244) recognises the six holes' 1 × 45° mouth chamfer on the top face, so the callout also states it (C1); Python's recognition has no such field."
  },
  {
   "field": "label",

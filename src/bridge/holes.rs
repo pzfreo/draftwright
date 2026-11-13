@@ -362,7 +362,15 @@ impl<'a> Hole<'a> {
     /// The mouth chamfers a callout states: the one at the end its view looks at
     /// ([`Hole::toward_viewer`]), then the one at the other end unless it is the same chamfer
     /// (then the last says so: both ends).
+    ///
+    /// A blind hole has one mouth, its opening: its chamfer is stated whichever way the view
+    /// looks (ctc05's ⌀254 blind bore is drilled up from the underside and called out in the plan
+    /// view), never as a far side.
     pub fn chamfers(&self) -> (Option<MouthChamfer>, Option<MouthChamfer>, bool) {
+        if !self.through {
+            let mouth = self.mouth_chamfers.iter().find(|c| c.at_opening).copied();
+            return (mouth, None, false);
+        }
         let toward = self.toward_viewer();
         let seen = |c: &&MouthChamfer| (0..3).map(|k| c.outward[k] * toward[k]).sum::<f64>() >= 0.0;
         let near = self.mouth_chamfers.iter().find(seen).copied();

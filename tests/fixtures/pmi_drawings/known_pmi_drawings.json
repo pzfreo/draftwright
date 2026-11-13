@@ -8515,13 +8515,13 @@
      "boxed": false,
      "kind": "dimension",
      "rides_on": "bore.diameter",
-     "text": "6× ⌀10 +0.09/0 THRU EQ SP ON ⌀90 BC",
+     "text": "6× ⌀10 +0.09/0 THRU C1 EQ SP ON ⌀90 BC",
      "view": "plan"
     }
    ]
   },
   "verdict": "rust-correct",
-  "evidence": "draftwright states '6× ⌀10 +0.09 -0.0 THRU EQ SP ON ⌀90 BC' (dimension, plan view); the port states '6× ⌀10 +0.09 0 THRU EQ SP ON ⌀90 BC' (dimension, plan view). The port's sheet is in mm: inch-authored PMI prints its exact conversion at its authored precision, never in inches or with the writer's float noise, and a zero deviation is written 0 (ISO 129-1) (#214). Since haecceity v0.2.7 the port writes single-line deviations as +u/l (ISO 129-1:2004 §6.2), haecceity's shared notation (#258)."
+  "evidence": "draftwright states '6× ⌀10 +0.09 -0.0 THRU EQ SP ON ⌀90 BC' (dimension, plan view); the port states '6× ⌀10 +0.09 0 THRU EQ SP ON ⌀90 BC' (dimension, plan view). The port's sheet is in mm: inch-authored PMI prints its exact conversion at its authored precision, never in inches or with the writer's float noise, and a zero deviation is written 0 (ISO 129-1) (#214). Since haecceity v0.2.7 the port writes single-line deviations as +u/l (ISO 129-1:2004 §6.2), haecceity's shared notation (#258). quiddity 0.5.0 (#244) recognises the six holes' 1 × 45° mouth chamfer on the top face, so draftwright's callout also states it (C1); the port and Python do not."
  },
  {
   "file": "spool_fits.step",
@@ -8729,13 +8729,13 @@
      "boxed": false,
      "kind": "dimension",
      "rides_on": "bore.diameter",
-     "text": "6× ⌀10 H11 THRU EQ SP ON ⌀90 BC",
+     "text": "6× ⌀10 H11 THRU C1 EQ SP ON ⌀90 BC",
      "view": "plan"
     }
    ]
   },
   "verdict": "rust-correct",
-  "evidence": "S5 native symbolic-bore port: this source declares its literal ISO 286 H7/H11 class without numeric limits. Proven internal cylinders correlate uniquely to the recognised bore owner; its native text now retains the class without computing unstated limits or duplicating the dimension. Python drops the class (and draws the 62 mm bore separately). The symbolic-fit regression and unchanged exact-one-outcome/NIST open-question tests verify the reading and owner. Maintainer decision 2026-10-16: the default drawing states the class alone; sheet/fit_deviations explicitly adds stacked upper/lower deviations."
+  "evidence": "S5 native symbolic-bore port: this source declares its literal ISO 286 H7/H11 class without numeric limits. Proven internal cylinders correlate uniquely to the recognised bore owner; its native text now retains the class without computing unstated limits or duplicating the dimension. Python drops the class (and draws the 62 mm bore separately). The symbolic-fit regression and unchanged exact-one-outcome/NIST open-question tests verify the reading and owner. Maintainer decision 2026-10-16: the default drawing states the class alone; sheet/fit_deviations explicitly adds stacked upper/lower deviations. quiddity 0.5.0 (#244) recognises the six holes' 1 × 45° mouth chamfer on the top face, so draftwright's callout also states it (C1); the port and Python do not."
  },
  {
   "file": "hw_spool_fits_intent.step",

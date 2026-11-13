@@ -652,36 +652,6 @@
   {
     "set": "pads",
     "part": "whistle_frame_reference",
-    "subject": "f:hole:f204",
-    "field": "faces",
-    "python": "[204, 207]",
-    "rust": "[204]",
-    "verdict": "rust-wrong",
-    "evidence": "Python's bridge gives the hole its constituent faces; the native document (quiddity-rust/recognition/2) carries only the defining ones. The other face, 207, is a plane of area 4.524 (pi x 1.2^2): the flat floor of this D2.4, 1.5 deep blind hole (bottom flat on both sides). quiddity-rust finds it as the hole occurrence's context (holes::discover), but recognition::document drops the context, so the native feature lacks a face that belongs to it, and its fingerprint's position and neighbourhood change with it. Fix: the document carries constituent faces (a quiddity-rust schema change), as for the other parts' holes."
-  },
-  {
-    "set": "pads",
-    "part": "whistle_frame_reference",
-    "subject": "f:hole:f205",
-    "field": "faces",
-    "python": "[205, 208]",
-    "rust": "[205]",
-    "verdict": "rust-wrong",
-    "evidence": "Python's bridge gives the hole its constituent faces; the native document (quiddity-rust/recognition/2) carries only the defining ones. The other face, 208, is a plane of area 4.524 (pi x 1.2^2): the flat floor of this D2.4, 1.5 deep blind hole (bottom flat on both sides). quiddity-rust finds it as the hole occurrence's context (holes::discover), but recognition::document drops the context, so the native feature lacks a face that belongs to it, and its fingerprint's position and neighbourhood change with it. Fix: the document carries constituent faces (a quiddity-rust schema change), as for the other parts' holes."
-  },
-  {
-    "set": "pads",
-    "part": "whistle_frame_reference",
-    "subject": "f:hole:f206",
-    "field": "faces",
-    "python": "[206, 209]",
-    "rust": "[206]",
-    "verdict": "rust-wrong",
-    "evidence": "Python's bridge gives the hole its constituent faces; the native document (quiddity-rust/recognition/2) carries only the defining ones. The other face, 209, is a plane of area 4.524 (pi x 1.2^2): the flat floor of this D2.4, 1.5 deep blind hole (bottom flat on both sides). quiddity-rust finds it as the hole occurrence's context (holes::discover), but recognition::document drops the context, so the native feature lacks a face that belongs to it, and its fingerprint's position and neighbourhood change with it. Fix: the document carries constituent faces (a quiddity-rust schema change), as for the other parts' holes."
-  },
-  {
-    "set": "pads",
-    "part": "whistle_frame_reference",
     "subject": "f:pad:f119",
     "field": "parameters.named_dimensions",
     "python": "{\"height_above_base\":0.3}",
@@ -4452,16 +4422,6 @@
   {
     "set": "corpus",
     "part": "grm03",
-    "subject": "f:hole:f12",
-    "field": "faces",
-    "python": "[12, 13]",
-    "rust": "[12]",
-    "verdict": "rust-wrong",
-    "evidence": "Python's bridge gives the hole its constituent faces; the native document (quiddity-rust/recognition/1) carries only the defining ones. Face 13, a plane (the blind floor) closes the hole: quiddity-rust finds it, as the hole occurrence's context (holes::discover at 1bf3db2), but recognition::document drops the context, so the native feature lacks a face that belongs to it, and its fingerprint's position and neighbourhood change with it. Fix: the document carries constituent faces (a quiddity-rust schema change)."
-  },
-  {
-    "set": "corpus",
-    "part": "grm03",
     "subject": "f:turned_step:f2",
     "field": "parameters.named_dimensions",
     "python": "{\"axial_length\":3.0}",
@@ -5461,6 +5421,66 @@
   },
   {
     "set": "corpus",
+    "part": "spool132",
+    "subject": "f:hole:f0",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[1.0],\"location\":[-22.5,-38.971143,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "corpus",
+    "part": "spool132",
+    "subject": "f:hole:f16",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[35.0],\"location\":[22.5,-38.971143,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "corpus",
+    "part": "spool132",
+    "subject": "f:hole:f17",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[36.0],\"location\":[-45.0,0.0,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "corpus",
+    "part": "spool132",
+    "subject": "f:hole:f18",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[37.0],\"location\":[-22.5,38.971143,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "corpus",
+    "part": "spool132",
+    "subject": "f:hole:f20",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[38.0],\"location\":[45.0,0.0,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "corpus",
+    "part": "spool132",
+    "subject": "f:hole:f21",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[39.0],\"location\":[22.5,38.971143,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "corpus",
     "part": "string_post",
     "subject": "f:flat:f11",
     "field": "parameters.stock_span",
@@ -5478,16 +5498,6 @@
     "rust": "[-7.2,0.0]",
     "verdict": "equivalent",
     "evidence": "quiddity-rust 0.1.1 (draftwright alpha.13): the flat's stock span along its axis, given against the opposite axis sense ([-7.2, 0] for [0, 7.2]); Python keeps 0.000313 of frame round-off. Frame-dependent senses from 0.1.0, accepted for alpha.13."
-  },
-  {
-    "set": "corpus",
-    "part": "string_post",
-    "subject": "f:hole:f17",
-    "field": "faces",
-    "python": "[17, 19]",
-    "rust": "[17]",
-    "verdict": "rust-wrong",
-    "evidence": "Python's bridge gives the hole its constituent faces; the native document (quiddity-rust/recognition/1) carries only the defining ones. Face 19, a plane (the blind floor) closes the hole: quiddity-rust finds it, as the hole occurrence's context (holes::discover at 1bf3db2), but recognition::document drops the context, so the native feature lacks a face that belongs to it, and its fingerprint's position and neighbourhood change with it. Fix: the document carries constituent faces (a quiddity-rust schema change)."
   },
   {
     "set": "corpus",
@@ -9152,16 +9162,6 @@
   {
     "set": "sheets",
     "part": "grm03",
-    "subject": "f:hole:f12",
-    "field": "faces",
-    "python": "[12, 13]",
-    "rust": "[12]",
-    "verdict": "rust-wrong",
-    "evidence": "Python's bridge gives the hole its constituent faces; the native document (quiddity-rust/recognition/1) carries only the defining ones. Face 13, a plane (the blind floor) closes the hole: quiddity-rust finds it, as the hole occurrence's context (holes::discover at 1bf3db2), but recognition::document drops the context, so the native feature lacks a face that belongs to it, and its fingerprint's position and neighbourhood change with it. Fix: the document carries constituent faces (a quiddity-rust schema change)."
-  },
-  {
-    "set": "sheets",
-    "part": "grm03",
     "subject": "f:turned_step:f2",
     "field": "parameters.named_dimensions",
     "python": "{\"axial_length\":3.0}",
@@ -10161,6 +10161,66 @@
   },
   {
     "set": "sheets",
+    "part": "spool132",
+    "subject": "f:hole:f0",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[1.0],\"location\":[-22.5,-38.971143,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "sheets",
+    "part": "spool132",
+    "subject": "f:hole:f16",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[35.0],\"location\":[22.5,-38.971143,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "sheets",
+    "part": "spool132",
+    "subject": "f:hole:f17",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[36.0],\"location\":[-45.0,0.0,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "sheets",
+    "part": "spool132",
+    "subject": "f:hole:f18",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[37.0],\"location\":[-22.5,38.971143,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "sheets",
+    "part": "spool132",
+    "subject": "f:hole:f20",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[38.0],\"location\":[45.0,0.0,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "sheets",
+    "part": "spool132",
+    "subject": "f:hole:f21",
+    "field": "parameters.mouth_chamfers",
+    "python": "-",
+    "rust": "[{\"angle\":45.0,\"axis\":[0.0,0.0,-1.0],\"depth\":1.0,\"diameter\":10.0,\"faces\":[39.0],\"location\":[22.5,38.971143,140.0],\"size\":1.0}]",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#244) records the hole mouth's conical edge break as a nested mouth_chamfers claim (1 x 45 degrees on the top face; the one cone face listed, which the document's face accounting credits to the hole). The stored Python record predates the field. The callout now states it as C1."
+  },
+  {
+    "set": "sheets",
     "part": "string_post",
     "subject": "f:flat:f11",
     "field": "parameters.stock_span",
@@ -10178,16 +10238,6 @@
     "rust": "[-7.2,0.0]",
     "verdict": "equivalent",
     "evidence": "quiddity-rust 0.1.1 (draftwright alpha.13): the flat's stock span along its axis, given against the opposite axis sense ([-7.2, 0] for [0, 7.2]); Python keeps 0.000313 of frame round-off. Frame-dependent senses from 0.1.0, accepted for alpha.13."
-  },
-  {
-    "set": "sheets",
-    "part": "string_post",
-    "subject": "f:hole:f17",
-    "field": "faces",
-    "python": "[17, 19]",
-    "rust": "[17]",
-    "verdict": "rust-wrong",
-    "evidence": "Python's bridge gives the hole its constituent faces; the native document (quiddity-rust/recognition/1) carries only the defining ones. Face 19, a plane (the blind floor) closes the hole: quiddity-rust finds it, as the hole occurrence's context (holes::discover at 1bf3db2), but recognition::document drops the context, so the native feature lacks a face that belongs to it, and its fingerprint's position and neighbourhood change with it. Fix: the document carries constituent faces (a quiddity-rust schema change)."
   },
   {
     "set": "sheets",
@@ -11181,6 +11231,26 @@
   },
   {
     "set": "dims",
+    "part": "m10245",
+    "subject": "f:boss:f30",
+    "field": "parameters.superseded_by",
+    "python": "-",
+    "rust": "\"annular_grooves/0\"",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#204, #206) adds an optional superseded_by reference on a groove-derived hole or boss naming the annular groove that explains it; both records and their claims are retained. The stored Python record predates the field. draftwright does not read it, so the drawing is unchanged."
+  },
+  {
+    "set": "dims",
+    "part": "m10245",
+    "subject": "f:hole:f12",
+    "field": "parameters.superseded_by",
+    "python": "-",
+    "rust": "\"annular_grooves/0\"",
+    "verdict": "rust-correct",
+    "evidence": "quiddity 0.5.0 (#204, #206) adds an optional superseded_by reference on a groove-derived hole or boss naming the annular groove that explains it; both records and their claims are retained. The stored Python record predates the field. draftwright does not read it, so the drawing is unchanged."
+  },
+  {
+    "set": "dims",
     "part": "m11512",
     "subject": "f:plate:f1",
     "field": "parameters.named_dimensions",
@@ -11232,16 +11302,6 @@
   {
     "set": "steps",
     "part": "h363",
-    "subject": "f:hole:f23",
-    "field": "faces",
-    "python": "[23, 28]",
-    "rust": "[23]",
-    "verdict": "rust-wrong",
-    "evidence": "Python's bridge gives the hole its constituent faces; the native document (quiddity-rust/recognition/1) carries only the defining ones. Face 28, a plane (the blind floor) closes the hole: quiddity-rust finds it, as the hole occurrence's context (holes::discover at dff320c), but recognition::document drops the context, so the native feature lacks a face that belongs to it, and its fingerprint's position and neighbourhood change with it. Fix: the document carries constituent faces (a quiddity-rust schema change)."
-  },
-  {
-    "set": "steps",
-    "part": "h363",
     "subject": "f:paired_ramp_step:f4",
     "field": "parameters.half_widths",
     "python": "[13.26,16.667]",
@@ -11278,16 +11338,6 @@
     "rust": "f:circular_blind_step:f20 [20, 24] {\"axis\":\"z\",\"centreline\":[[33.3163,0.0,17.1386],[33.3163,0.0,20.4972]],\"length\":3.35864,\"radius\":4.55039,\"section\":[[33.3163,4.55038],[33.3163,0.0],[28.7659,0.0]]}",
     "verdict": "rust-correct",
     "evidence": "quiddity v0.4.9 (#208, #215) proves the intact cylindrical wall (face 20) and blind floor (face 24) despite the secondary cut adding a convex planar neighbour. The analytic Z-axis wall has radius 4.55039 mm and spans Z 17.1386 to 20.4972 (depth 3.35864 mm). This circular blind step replaces the residual cylindrical_profile:2; Python has no corresponding step. The drawing now states its radius and depth rather than only the profile radius."
-  },
-  {
-    "set": "steps",
-    "part": "m10000",
-    "subject": "f:hole:f23",
-    "field": "faces",
-    "python": "[23, 26]",
-    "rust": "[23]",
-    "verdict": "rust-wrong",
-    "evidence": "Python's bridge gives the hole its constituent faces; the native document (quiddity-rust/recognition/1) carries only the defining ones. Face 26, a plane (the blind floor) closes the hole: quiddity-rust finds it, as the hole occurrence's context (holes::discover at dff320c), but recognition::document drops the context, so the native feature lacks a face that belongs to it, and its fingerprint's position and neighbourhood change with it. Fix: the document carries constituent faces (a quiddity-rust schema change)."
   },
   {
     "set": "steps",

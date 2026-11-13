@@ -669,10 +669,43 @@ fn unexplained_shapes_are_read_from_the_part() {
                     .any(|m| m.feature == f.id && m.parameter == "cylindrical_profile.radius")
         }));
     }
-    let scallops: Vec<_> = profiles
+    let mut scallops: Vec<_> = profiles
         .iter()
         .flat_map(|f| f.faces.iter().copied())
         .collect();
+    // quiddity 0.5.0 (#244) claims each ⌀10 hole's 1 × 45° mouth chamfer as part of the hole, and
+    // the callout states it (`C1`), so the six cones are explained: the detector reports none of
+    // them. Prove that, then withdraw the claim as the scallops' is withdrawn, so the detector's
+    // own reading of the part's topology is still exercised below.
+    let cones: Vec<usize> = spool
+        .features
+        .iter()
+        .filter(|f| f.kind == "hole")
+        .flat_map(|f| {
+            f.parameters
+                .get("mouth_chamfers")
+                .and_then(|c| c.as_array())
+                .into_iter()
+                .flatten()
+                .flat_map(|c| c["faces"].as_array().into_iter().flatten())
+                .filter_map(|face| face.as_u64().map(|face| face as usize))
+        })
+        .collect();
+    assert_eq!(cones.len(), 6, "{cones:?}");
+    assert!(
+        !spool.unexplained_shapes.iter().any(|s| s
+            .chamfer
+            .as_ref()
+            .is_some_and(|c| (c.diameter - 10.0).abs() < 1e-6)),
+        "{:?}",
+        spool.unexplained_shapes
+    );
+    assert!(
+        cones
+            .iter()
+            .all(|&f| spool.face_accounting.as_ref().unwrap()[f] == model::FaceGroup::Feature)
+    );
+    scallops.extend(cones);
     let accounting = spool.face_accounting.as_mut().unwrap();
     for face in scallops {
         accounting[face] = model::FaceGroup::Unexplained;
