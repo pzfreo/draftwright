@@ -496,9 +496,19 @@ fn x_refs(holes: &[Hole]) -> Vec<f64> {
 /// The bands the features need with *n_steps* steps on the height ladder (draftwright's
 /// `_compose_anno_boxes` reduced to `StripDepths`), for the principal views *views*.
 pub fn strips(d: &Demand, n_steps: usize, plan_shown: bool) -> Strips {
-    let mut right = layout::right_strip_depth(n_steps, d.z_boss_heights);
+    strips_on(d, n_steps, plan_shown, layout::right_strip_depth)
+}
+
+/// [`strips`] with the height ladder's band measured by *ladder*.
+fn strips_on(
+    d: &Demand,
+    n_steps: usize,
+    plan_shown: bool,
+    ladder: fn(usize, usize) -> f64,
+) -> Strips {
+    let mut right = ladder(n_steps, d.z_boss_heights);
     if d.y_radial {
-        right = right.max(layout::right_strip_depth(0, 0) + layout::RADIAL_REACH);
+        right = right.max(ladder(0, 0) + layout::RADIAL_REACH);
     }
     let mut xs = x_refs(&d.holes);
     xs.sort_by(f64::total_cmp);
@@ -622,7 +632,41 @@ pub(crate) fn size_with_details(
     allow_larger: bool,
     details: &impl Fn(f64) -> Scaled,
 ) -> (Pick, Strips, usize) {
-    let measure = |n: usize| strips(d, n, request.views.plan);
+    // The height ladder is reserved in draftwright's slots, as every drawing so far is composed.
+    // Only on a sheet trial's second attempt ([`crate::planning::lane_ladder`]: the first
+    // drawing at this sheet and scale did not fit), and only where the slots do not fit the
+    // given pair, is the ladder reserved at the port's lane pitch instead, when that fits.
+    let sized = |ladder| size_on(d, request, scale, page, base, allow_larger, details, ladder);
+    let slots = sized(layout::right_strip_depth);
+    if slots.0.fallback.is_none()
+        || scale.is_none()
+        || page.is_none()
+        || !crate::planning::is_lane_ladder()
+    {
+        return slots;
+    }
+    let lanes = sized(layout::lane_strip_depth);
+    if lanes.0.fallback.is_none() {
+        lanes
+    } else {
+        let mut slots = slots;
+        slots.0.lanes_short = true;
+        slots
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn size_on(
+    d: &Demand,
+    request: &Request,
+    scale: Option<f64>,
+    page: Option<[f64; 2]>,
+    base: f64,
+    allow_larger: bool,
+    details: &impl Fn(f64) -> Scaled,
+    ladder: fn(usize, usize) -> f64,
+) -> (Pick, Strips, usize) {
+    let measure = |n: usize| strips_on(d, n, request.views.plan, ladder);
     let choose = |strips: &Strips| {
         let req = Request {
             strips: strips.clone(),
@@ -776,6 +820,44 @@ mod tests {
         assert_eq!((s.cut_y, s.holes), (10.0, 2));
         let tie = [at(10.0, true, false), at(-4.0, true, false)];
         assert_eq!(section(&tie, 0.0).unwrap().cut_y, -4.0);
+    }
+
+    /// The height ladder is reserved in draftwright's slots. Only a sheet trial's second
+    /// attempt ([`crate::planning::lane_ladder`]) reserves it at the lane pitch, and only at a
+    /// given sheet and scale the slots do not fit.
+    #[test]
+    fn the_ladder_takes_the_lane_pitch_only_on_a_second_attempt_the_slots_do_not_fit() {
+        let d = Demand {
+            step_zs: vec![14.0, 21.0, 28.0, 35.0],
+            ..Default::default()
+        };
+        let a4 = Some([297.0, 210.0]);
+        let sized = |width: f64, scale: Option<f64>, page: Option<[f64; 2]>| {
+            let request = Request::new([width, 30.0, 50.0], layout::Principals::ALL, true);
+            let (pick, strips, _) = size(&d, &request, scale, page, 0.0);
+            (pick.scale, pick.page, pick.fallback, strips.right)
+        };
+        // Four steps take 86 mm in slots and 42 mm in lanes. A part 120 mm wide does not fit
+        // A4 at 1:1 beside the slots; one 100 mm wide does.
+        let slots = sized(120.0, Some(1.0), a4);
+        assert_eq!(
+            (slots.2, slots.3),
+            (Some(layout::Fallback::Uncertain), 86.0)
+        );
+        let fits = sized(100.0, Some(1.0), a4);
+        assert_eq!((fits.2, fits.3), (None, 86.0));
+        let automatic = [sized(120.0, None, a4), sized(120.0, Some(1.0), None)];
+        crate::planning::lane_ladder(|| {
+            let lanes = sized(120.0, Some(1.0), a4);
+            assert_eq!((lanes.2, lanes.3), (None, 42.0));
+            // The slots stay where they fit, and wherever the scale or the sheet is chosen.
+            assert_eq!(sized(100.0, Some(1.0), a4), fits);
+            assert_eq!(
+                [sized(120.0, None, a4), sized(120.0, Some(1.0), None)],
+                automatic
+            );
+        });
+        assert_eq!(sized(120.0, Some(1.0), a4), slots);
     }
 
     #[test]

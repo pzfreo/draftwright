@@ -24,9 +24,30 @@ thread_local! {
     static ACTIVE: RefCell<Option<Active>> = const { RefCell::new(None) };
     static FIXED_PAIR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static EXPLICIT_TRIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LANE_LADDER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static TRIAL_RADIUS_REFERENCE: RefCell<Option<(crate::model::Plan, [u8; 32])>> = const { RefCell::new(None) };
     static PIN_REFERENCE: RefCell<Option<(crate::model::Plan, [u8; 32])>> = const { RefCell::new(None) };
     static DEFER_NOMINALS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LANE_TRIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The second attempt at a sheet and scale as a trial ([`crate::sheet_policy::lane_attempt`]):
+/// planning may stop as soon as its sizing finds the ladder at lane pitch no more room than the
+/// slots, since the drawing would then be the first attempt's again. A replay of a drawing that
+/// attempt made ([`lane_ladder`] alone) is not a trial, and is drawn through.
+pub(crate) fn lane_trial<T>(run: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            LANE_TRIAL.set(self.0);
+        }
+    }
+    let _restore = Restore(LANE_TRIAL.replace(true));
+    run()
+}
+
+pub(crate) fn is_lane_trial() -> bool {
+    LANE_TRIAL.get()
 }
 
 /// Recovery helpers can compare intermediate presentations without polishing
@@ -57,6 +78,34 @@ pub(crate) fn fixed_pair<T>(run: impl FnOnce() -> T) -> T {
     }
     let _restore = Restore(FIXED_PAIR.replace(true));
     run()
+}
+
+/// A sheet trial's second attempt at a sheet and scale its first drawing does not fit: the
+/// height ladder is reserved at the lane pitch where draftwright's slots do not fit the pair
+/// ([`crate::demand::size_with_details`]). Every planning memo is keyed by it.
+pub(crate) fn lane_ladder<T>(run: impl FnOnce() -> T) -> T {
+    with_lane_ladder(true, run)
+}
+
+/// Planning that is not that second attempt even when it is reached from one: the established
+/// route template is one drawing, whatever ladder the candidate reserves.
+pub(crate) fn slot_ladder<T>(run: impl FnOnce() -> T) -> T {
+    with_lane_ladder(false, run)
+}
+
+fn with_lane_ladder<T>(on: bool, run: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            LANE_LADDER.set(self.0);
+        }
+    }
+    let _restore = Restore(LANE_LADDER.replace(on));
+    run()
+}
+
+pub(crate) fn is_lane_ladder() -> bool {
+    LANE_LADDER.get()
 }
 
 /// Replay the user's explicit-pair presentation within an automatic paper trial.
@@ -161,15 +210,7 @@ pub(crate) fn with_retained<T>(analysis: &Analysis, run: impl FnOnce() -> T) -> 
         // These are policies activated by this invocation, not immutable preparation.
         // Keeping them from a previous automatic plan changes explicit-scale edits.
         // The expensive prepared reference remains cached under its separate key.
-        values.borrow_mut().retain(|(name, _), _| {
-            !matches!(
-                *name,
-                "established-drawing"
-                    | "established-route-policy"
-                    | "established-clear-witnesses"
-                    | "canonical-interior-statements"
-            )
-        });
+        values.borrow_mut().retain(|(name, _), _| !activated(name));
         retained.push_front((key, values.clone()));
         retained.truncate(4);
         values
@@ -259,7 +300,7 @@ pub(crate) fn lookup<T: Clone + 'static>(
         active
             .values
             .borrow()
-            .get(&(name, spaced(key.to_vec())))
+            .get(&(name, held(name, key.to_vec())))
             // Invariant: Preparation keys include TypeId::of::<T>(); only T is stored for that key.
             .map(|v| v.downcast_ref::<T>().expect("preparation type").clone())
     })
@@ -275,7 +316,7 @@ pub(crate) fn store<T: 'static>(analysis: &Analysis, name: &'static str, key: Ve
             active
                 .values
                 .borrow_mut()
-                .insert((name, spaced(key)), Box::new(value));
+                .insert((name, held(name, key)), Box::new(value));
         }
     });
 }
@@ -287,6 +328,29 @@ pub(crate) fn enabled(analysis: &Analysis) -> bool {
             .as_ref()
             .is_some_and(|a| a.analysis == analysis as *const Analysis as usize)
     })
+}
+
+/// The policies a planning invocation activates, as opposed to its immutable preparation.
+fn activated(name: &str) -> bool {
+    matches!(
+        name,
+        "established-drawing"
+            | "established-route-policy"
+            | "established-clear-witnesses"
+            | "canonical-interior-statements"
+    )
+}
+
+/// The key a looked-up or stored value is held under. A second attempt at a sheet and scale
+/// ([`lane_ladder`]) changes that attempt's sizing, not what the selection established, so it
+/// reads and writes the selection's policies: a first attempt read from the shared memos
+/// activates none of its own, and the two attempts must not then be routed differently.
+fn held(name: &str, key: Vec<u8>) -> Vec<u8> {
+    if activated(name) {
+        slot_ladder(|| spaced(key))
+    } else {
+        spaced(key)
+    }
 }
 
 /// Compact dimension spacing ([`crate::dims::compact`]) and a non-default frame gutter
@@ -302,6 +366,9 @@ fn spaced(mut key: Vec<u8>) -> Vec<u8> {
         key.extend_from_slice(b"\xffframe-gutter");
         key.extend_from_slice(&gutter.to_bits().to_le_bytes());
     }
+    if is_lane_ladder() {
+        key.extend_from_slice(b"\xfflane-ladder");
+    }
     key
 }
 
@@ -310,7 +377,7 @@ fn spaced(mut key: Vec<u8>) -> Vec<u8> {
 /// and stay shared.
 pub(crate) fn spaced_digest(key: &[u8; 32]) -> [u8; 32] {
     let gutter = crate::layout::gutter();
-    if !crate::dims::compact() && gutter == crate::layout::FRAME_GUTTER {
+    if !crate::dims::compact() && gutter == crate::layout::FRAME_GUTTER && !is_lane_ladder() {
         return *key;
     }
     let mut hasher = Sha256::new();
@@ -321,6 +388,9 @@ pub(crate) fn spaced_digest(key: &[u8; 32]) -> [u8; 32] {
     if gutter != crate::layout::FRAME_GUTTER {
         hasher.update(b"frame-gutter");
         hasher.update(gutter.to_bits().to_le_bytes());
+    }
+    if is_lane_ladder() {
+        hasher.update(b"lane-ladder");
     }
     hasher.finalize().into()
 }
@@ -339,6 +409,7 @@ pub(crate) fn policy_key(
     bool,
     Option<Option<&'static str>>,
     bool,
+    bool,
 ) {
     (
         lookup::<bool>(analysis, "canonical-circular-recipes", &[]).unwrap_or(false),
@@ -349,6 +420,7 @@ pub(crate) fn policy_key(
         crate::dims::compact(),
         crate::dims::idle_given(),
         EXPLICIT_TRIAL.get(),
+        is_lane_ladder(),
     )
 }
 
