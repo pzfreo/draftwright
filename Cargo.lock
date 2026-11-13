@@ -298,7 +298,7 @@ dependencies = [
 
 [[package]]
 name = "draftwright"
-version = "0.6.0-alpha.1"
+version = "0.6.0-alpha.2"
 dependencies = [
  "base64",
  "chrono",
@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "draftwright-py"
-version = "0.6.0-alpha.1"
+version = "0.6.0-alpha.2"
 dependencies = [
  "draftwright",
  "pyo3",
@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "draftwright-wasm"
-version = "0.6.0-alpha.1"
+version = "0.6.0-alpha.2"
 dependencies = [
  "console_error_panic_hook",
  "draftwright",
