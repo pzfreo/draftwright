@@ -15,6 +15,10 @@ All notable changes to draftwright-rust are recorded here, in the style of
   countersink. quiddity 0.5.0's fingerprints are `fingerprint/4` and its assembly manifests
   `quiddity-manifest/2`; draftwright never stores either (a revision compares fingerprints it
   derives from both files' own geometry), so no saved Spec, plan or pack is affected.
+- quiddity 0.5.0 reports a closed rectangular recess with floor rounds as a `Pocket` (it was a
+  `Slot` and one `Fillet` per round); draftwright reads such a pocket as the slot and fillets it
+  was, so FTC-08's long slot keeps its four dimensions and `4× R0.762`. A hole size callout that
+  a frame or datum symbol is led to a hidden hole from stays beside its table row.
 
 - A placement fix offered as a local edit now leaves the drawing with fewer findings than
   before, or is not proposed. A local fix that traded findings (its text said "Trade-off: adds

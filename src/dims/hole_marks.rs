@@ -1638,6 +1638,14 @@ pub(crate) fn hidden_carriers(analysis: &Analysis, plan: &Plan) -> BTreeSet<Stri
     plan.dimensions
         .iter()
         .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        // One hole's callout: a counted group's rows state each of its holes.
+        .filter(|d| {
+            d.measurements
+                .iter()
+                .filter(|m| m.parameter == "bore.diameter")
+                .count()
+                == 1
+        })
         .filter(|d| {
             d.measurements.iter().any(|m| {
                 analysis
