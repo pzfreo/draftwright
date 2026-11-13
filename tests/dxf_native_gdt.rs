@@ -151,6 +151,37 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
         .filter(|g| g.kind == "control_frame")
         .map(|g| g.cells.iter().map(|c| spelled(c)).collect())
         .collect();
+    // (d) A frame is drawn as CAD draws a TOLERANCE: its box twice the text height (2.5 mm) tall,
+    // its text strokes and arcs after the box lines, painted with the text pen.
+    let boxes: Vec<_> = plan
+        .gdt
+        .iter()
+        .filter(|g| g.kind == "control_frame")
+        .filter(|g| drawing.sheet.items.iter().any(|i| i.name == g.id))
+        .filter_map(|g| g.placed.as_ref())
+        .collect();
+    for p in &boxes {
+        let lines = &p.strokes[..p.frame_strokes];
+        let (lo, hi) = lines
+            .iter()
+            .flatten()
+            .fold((f64::MAX, f64::MIN), |(lo, hi), q| {
+                (lo.min(q[1]), hi.max(q[1]))
+            });
+        assert!(
+            (hi - lo - 5.0).abs() < 1e-9,
+            "{name}: box {} mm tall",
+            hi - lo
+        );
+        assert!(p.letters.is_empty(), "{name}: a frame's text is geometry");
+    }
+    let text_ink = drawing
+        .layers
+        .iter()
+        .flat_map(|l| &l.items)
+        .filter(|i| matches!(i, Item::FrameText(..)))
+        .count();
+    assert_eq!(text_ink > 0, !boxes.is_empty(), "{name}: frame text ink");
     // (c) One TOLERANCE each, its cells the plan's.
     let raw: Vec<String> = all
         .iter()
