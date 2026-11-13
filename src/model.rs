@@ -5213,6 +5213,17 @@ fn install_schedules(
     {
         return Ok(Some(kept));
     }
+    // A hole size callout whose hole carries a frame or datum symbol stays beside its row, whatever
+    // the symbol could do instead: the row is no place for it (ctc05's ⌀254 bore, its chamfer
+    // stated).
+    if crate::dims::hole_marks::carried(analysis, unscheduled)
+        .iter()
+        .any(|c| !shown.contains(c.as_str()))
+        && let Some(kept) = keeping()?
+        && errors(&kept).is_subset(&errors(unscheduled))
+    {
+        return Ok(Some(kept));
+    }
     let held_back: BTreeSet<String> = crate::dims::hole_marks::attachments(analysis, unscheduled)
         .into_iter()
         .filter(|(_, callout)| callout.as_deref().is_some_and(|c| !shown.contains(c)))

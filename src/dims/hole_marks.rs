@@ -1605,24 +1605,6 @@ fn target<'h>(
 /// by a leader to a hole drawn hidden (directly or through the frame it stands on), is left out:
 /// its holes' callout, where one exists, is the better place.
 pub(crate) fn attachments(analysis: &Analysis, plan: &Plan) -> BTreeMap<String, Option<String>> {
-    attachments_with(analysis, plan, false)
-}
-
-/// The size callouts of *plan* that carry a frame or datum symbol ([`attach`]), including one
-/// whose hole the view draws hidden: the symbol stands on its callout, and a hole table row that
-/// replaced the callout would take the symbol away from it.
-pub(crate) fn carried(analysis: &Analysis, plan: &Plan) -> BTreeSet<String> {
-    attachments_with(analysis, plan, true)
-        .into_values()
-        .flatten()
-        .collect()
-}
-
-fn attachments_with(
-    analysis: &Analysis,
-    plan: &Plan,
-    hidden: bool,
-) -> BTreeMap<String, Option<String>> {
     let mut finished = plan.clone();
     attach(analysis, &plan.spec, &mut finished);
     let read = crate::bridge::holes::read(analysis);
@@ -1630,7 +1612,7 @@ fn attachments_with(
     finished
         .gdt
         .iter()
-        .filter(|g| attached(g) && (hidden || !led_to_hidden(g)))
+        .filter(|g| attached(g) && !led_to_hidden(g))
         .map(|g| {
             let on_callout = g.side != LEADER
                 && !g.basis.contains(ON_FRAME)
@@ -1642,6 +1624,30 @@ fn attachments_with(
                 .map(|m| m.id);
             (g.id.clone(), callout)
         })
+        .collect()
+}
+
+/// The hole size callouts of *plan* whose hole has a frame or datum symbol on its faces: the
+/// symbol stands on its callout, and a hole table row that replaced the callout would take the
+/// symbol's place from it.
+pub(crate) fn carried(analysis: &Analysis, plan: &Plan) -> BTreeSet<String> {
+    plan.dimensions
+        .iter()
+        .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
+        .filter(|d| {
+            d.measurements.iter().any(|m| {
+                analysis
+                    .features
+                    .iter()
+                    .find(|f| f.id == m.feature && f.kind == "hole")
+                    .is_some_and(|f| {
+                        plan.gdt
+                            .iter()
+                            .any(|g| g.faces.iter().any(|face| f.faces.contains(face)))
+                    })
+            })
+        })
+        .map(|d| d.id.clone())
         .collect()
 }
 
