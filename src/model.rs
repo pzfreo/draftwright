@@ -5203,20 +5203,9 @@ fn install_schedules(
         .filter(|d| d.state == crate::items::State::Shown && d.placed.is_some())
         .map(|d| d.id.as_str())
         .collect();
-    // A callout that carries a frame or datum symbol stays beside its row, whatever the symbol
-    // could do instead: the row is no place for it (ctc05's ⌀254 bore, with its chamfer stated).
-    if crate::dims::hole_marks::carried(analysis, unscheduled)
-        .iter()
-        .any(|c| !shown.contains(c.as_str()))
-        && let Some(kept) = keeping()?
-        && errors(&kept).is_subset(&errors(unscheduled))
-    {
-        return Ok(Some(kept));
-    }
-    // A hole size callout whose hole carries a frame or datum symbol stays beside its row, whatever
-    // the symbol could do instead: the row is no place for it (ctc05's ⌀254 bore, its chamfer
-    // stated).
-    if crate::dims::hole_marks::carried(analysis, unscheduled)
+    // A frame or datum symbol led to a hole the view draws hidden has no place but its callout:
+    // the callout stays beside its row.
+    if crate::dims::hole_marks::hidden_carriers(analysis, replacing)
         .iter()
         .any(|c| !shown.contains(c.as_str()))
         && let Some(kept) = keeping()?

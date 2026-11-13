@@ -1627,10 +1627,14 @@ pub(crate) fn attachments(analysis: &Analysis, plan: &Plan) -> BTreeMap<String, 
         .collect()
 }
 
-/// The hole size callouts of *plan* whose hole has a frame or datum symbol on its faces: the
-/// symbol stands on its callout, and a hole table row that replaced the callout would take the
-/// symbol's place from it.
-pub(crate) fn carried(analysis: &Analysis, plan: &Plan) -> BTreeSet<String> {
+/// The hole size callouts of *plan* whose hole a frame or datum symbol leads to where the view
+/// draws it hidden ([`led_to_hidden`]): the symbol has no place on the hole itself, so its
+/// callout, where one exists, is the better place, and a hole table row that replaced the callout
+/// would leave the symbol none (ctc05's ⌀254 blind bore).
+pub(crate) fn hidden_carriers(analysis: &Analysis, plan: &Plan) -> BTreeSet<String> {
+    let mut finished = plan.clone();
+    attach(analysis, &plan.spec, &mut finished);
+    let hidden: Vec<&gdt::PlannedGdt> = finished.gdt.iter().filter(|g| led_to_hidden(g)).collect();
     plan.dimensions
         .iter()
         .filter(|d| d.kind == "callout" && d.id.starts_with("d:f:hole:"))
@@ -1641,7 +1645,7 @@ pub(crate) fn carried(analysis: &Analysis, plan: &Plan) -> BTreeSet<String> {
                     .iter()
                     .find(|f| f.id == m.feature && f.kind == "hole")
                     .is_some_and(|f| {
-                        plan.gdt
+                        hidden
                             .iter()
                             .any(|g| g.faces.iter().any(|face| f.faces.contains(face)))
                     })
