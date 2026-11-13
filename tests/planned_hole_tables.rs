@@ -401,11 +401,8 @@ fn non_hole_pins_keep_the_settled_schedule_and_isometric_frame() {
                     .any(|m| m.parameter == "fillet.radius")
         })
         .unwrap();
-    // quiddity 0.5.0 (#228) recognises FTC-08's long slot f213 as a pocket, which draftwright does
-    // not dimension; the pin it carried moves to the plan's other slot, f117, a dimension of the
-    // same kind (a slot's width).
     let ops: Vec<_> = [
-        "d:f:slot:f117/slot_width.length",
+        "d:f:slot:f213/slot_width.length",
         radius.id.as_str(),
         "d:f:slot:f220/location_slot.length",
     ]
@@ -1282,11 +1279,8 @@ fn a_profile_radius_and_view_pin_keep_the_recovered_hole_schedule() {
     let (_, analysis) = cache::native(&corpus.join("nist/nist_ftc_08_asme1_rc.stp"));
     let base = cache::default_plan(&analysis, true);
     let mut spec = Spec::default();
-    // The first pin was slot f213's across-location until quiddity 0.5.0 (#228) recognised that
-    // slot as a pocket, which draftwright does not dimension; it moves to slot f152's, the same
-    // kind of dimension on a slot that remains.
     for id in [
-        "d:f:slot:f152/location_slot_across.length",
+        "d:f:slot:f213/location_slot_across.length",
         "d:f:slot:f152/slot_end_radius.radius",
         "d:f:cylindrical_profile:f210/cylindrical_profile.radius",
         "d:f:slot:f117/location_slot.length",

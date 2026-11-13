@@ -52,6 +52,16 @@ fn callout(plan: &Plan) -> (String, String, Vec<(String, f64)>) {
     (d.label.clone(), words, measured)
 }
 
+/// The words, and measurements, of the one hole callout of fixture `parts/mouth_<case>.step`, its
+/// mouth chamfers read from real geometry (generated: `tests/fixtures/parts/mouth_chamfers.md`).
+fn fixture(case: &str) -> (Analysis, String, Vec<(String, f64)>) {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("tests/fixtures/parts/mouth_{case}.step"));
+    let a = model::analyse_native(&path).unwrap().1;
+    let (_, words, measured) = callout(&plan_of(&a));
+    (a, words, measured)
+}
+
 fn plan_of(a: &Analysis) -> Plan {
     model::plan_recovered(a, &Spec::default()).unwrap()
 }
@@ -148,20 +158,13 @@ fn the_counterbore_mouth_chamfer_is_stated_from_the_record_to_the_svg() {
 /// A chamfer that is not equal legs at 45° says its size and angle, and claims both.
 #[test]
 fn a_chamfer_off_45_degrees_states_its_size_and_angle() {
-    let mut a = analysis();
-    {
-        let hole = hole_mut(&mut a);
-        hole["mouth_chamfers"][0]["angle"] = json!(30.0);
-        hole["mouth_chamfers"][0]["size"] = json!(0.4);
-        hole["mouth_chamfers"][0]["depth"] = json!(0.231);
-    }
-    let (_, words, measured) = callout(&plan_of(&a));
-    assert_eq!(words, "⌀3.3 THRU ⌴ ⌀5 ↧ 2.231 0.4 × 30°");
+    let (_, words, measured) = fixture("angled");
+    assert_eq!(words, "⌀6 THRU 0.4 × 30°");
     for (parameter, value) in [("mouth_chamfer.size", 0.4), ("mouth_chamfer.angle", 30.0)] {
         assert!(
             measured
                 .iter()
-                .any(|(p, v)| p == parameter && (v - value).abs() < 1e-9),
+                .any(|(p, v)| p == parameter && (v - value).abs() < 1e-3),
             "{parameter}: {measured:?}"
         );
     }
@@ -170,39 +173,43 @@ fn a_chamfer_off_45_degrees_states_its_size_and_angle() {
 /// A plain hole's mouth chamfer follows its bore; there is no recess whose depth changes.
 #[test]
 fn a_plain_holes_mouth_chamfer_follows_its_bore() {
-    let words = says(|h| {
-        h["cbore"] = json!(null);
-        h["mouth_chamfers"][0]["diameter"] = json!(3.3);
-    });
-    assert_eq!(words, "⌀3.3 THRU C0.25");
+    let (a, words, measured) = fixture("plain");
+    assert_eq!(words, "⌀6 THRU C0.5");
+    assert!(
+        measured
+            .iter()
+            .any(|(p, v)| p == "mouth_chamfer.size" && *v == 0.5)
+    );
+    // Its cone is explained by the hole.
+    assert!(
+        !plan_of(&a)
+            .problems
+            .iter()
+            .any(|p| p.code == "shape_not_recognised")
+    );
 }
 
 /// Only the chamfer on the counterbore's own mouth deepens it: a chamfer on another diameter
-/// does not move the counterbore's depth.
+/// does not move the counterbore's depth. (A record edit: quiddity recognises no chamfer there.)
 #[test]
 fn only_the_chamfer_on_a_recess_mouth_adds_to_its_depth() {
     let words = says(|h| h["mouth_chamfers"][0]["diameter"] = json!(3.3));
     assert_eq!(words, "⌀3.3 THRU ⌴ ⌀5 ↧ 2 C0.25");
 }
 
-/// A through hole chamfered at both ends says so once; one chamfered only at the far end says
-/// which end, and a different far chamfer is stated as well.
+/// A through hole chamfered at both ends says so once; one chamfered only at the end its view
+/// does not look at says which end. The plan view looks down on the top face, whichever end
+/// quiddity calls the hole's opening.
 #[test]
 fn the_far_end_of_a_through_hole_is_said() {
-    let both = says(|h| {
-        h["cbore"] = json!(null);
-        h["mouth_chamfers"][0]["diameter"] = json!(3.3);
-        let mut far = h["mouth_chamfers"][0].clone();
-        far["axis"] = json!([0.0, 0.0, 1.0]);
-        h["mouth_chamfers"].as_array_mut().unwrap().push(far);
-    });
-    assert_eq!(both, "⌀3.3 THRU C0.25 BOTH SIDES");
-    let far_only = says(|h| {
-        h["cbore"] = json!(null);
-        h["mouth_chamfers"][0]["diameter"] = json!(3.3);
-        h["mouth_chamfers"][0]["axis"] = json!([0.0, 0.0, 1.0]);
-    });
-    assert_eq!(far_only, "⌀3.3 THRU C0.25 FAR SIDE");
+    assert_eq!(fixture("both").1, "⌀6 THRU C0.5 BOTH SIDES");
+    assert_eq!(fixture("far_side").1, "⌀6 THRU C0.5 FAR SIDE");
+}
+
+/// Two different chamfers are stated each. A record edit: the generator makes one chamfer size
+/// per fixture.
+#[test]
+fn a_different_far_chamfer_is_stated_as_well() {
     let two = says(|h| {
         h["cbore"] = json!(null);
         h["mouth_chamfers"][0]["diameter"] = json!(3.3);
@@ -219,16 +226,14 @@ fn the_far_end_of_a_through_hole_is_said() {
 /// countersink (geometry cannot tell intent), and is stated as one.
 #[test]
 fn a_countersink_stays_a_countersink() {
-    let words = says(|h| {
-        h["cbore"] = json!(null);
-        h["mouth_chamfers"] = json!([]);
-        h["diameter"] = json!(2.0);
-        h["csink"] = json!({ "major_diameter": 3.0, "included_angle": 90.0 });
-    });
+    let (a, words, _) = fixture("countersink");
     assert_eq!(words, "⌀2 THRU ⌵ ⌀3 × 90°");
+    let hole = a.features.iter().find(|f| f.kind == "hole").unwrap();
+    assert!(hole.parameters.get("mouth_chamfers").is_none());
 }
 
-/// A hole without a mouth chamfer keeps the callout it had.
+/// A hole without a mouth chamfer keeps the callout it had; an older record lacks the field (a
+/// record edit).
 #[test]
 fn a_hole_without_a_mouth_chamfer_is_unchanged() {
     let words = says(|h| {

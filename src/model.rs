@@ -2119,6 +2119,7 @@ pub fn recognise_document(
     use crate::bridge::native;
     let mut doc = native::in_file_axes(doc);
     crate::bridge::refused_threads::complete(part, &mut doc);
+    crate::bridge::floor_pockets::restore(part, &mut doc);
     let doc = &doc;
     let read = native::read(part, doc)?;
     let mut features = read.holes;
@@ -5202,6 +5203,16 @@ fn install_schedules(
         .filter(|d| d.state == crate::items::State::Shown && d.placed.is_some())
         .map(|d| d.id.as_str())
         .collect();
+    // A callout that carries a frame or datum symbol stays beside its row, whatever the symbol
+    // could do instead: the row is no place for it (ctc05's ⌀254 bore, with its chamfer stated).
+    if crate::dims::hole_marks::carried(analysis, unscheduled)
+        .iter()
+        .any(|c| !shown.contains(c.as_str()))
+        && let Some(kept) = keeping()?
+        && errors(&kept).is_subset(&errors(unscheduled))
+    {
+        return Ok(Some(kept));
+    }
     let held_back: BTreeSet<String> = crate::dims::hole_marks::attachments(analysis, unscheduled)
         .into_iter()
         .filter(|(_, callout)| callout.as_deref().is_some_and(|c| !shown.contains(c)))
