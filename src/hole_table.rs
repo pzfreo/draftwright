@@ -2473,17 +2473,32 @@ fn datum_corner(analysis: &Analysis, axes: &[usize]) -> Option<[f64; 3]> {
 /// threshold is in annotation density, never in a part's identity. Bolt circles already have
 /// their PCD note and are left intact unless the author explicitly requests a schedule.
 pub(crate) fn select(analysis: &Analysis, plan: &Plan) -> Selection {
-    select_with(analysis, plan, true)
+    select_with(analysis, plan, true, &BTreeSet::new())
 }
 
 /// [`select`] with every callout whose size comes from PMI kept beside its row: the fallback when
 /// replacing those callouts would add an error to the drawing ([`crate::model`]'s schedule
 /// installation).
 pub(crate) fn select_keeping_pmi(analysis: &Analysis, plan: &Plan) -> Selection {
-    select_with(analysis, plan, false)
+    select_with(analysis, plan, false, &BTreeSet::new())
 }
 
-fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection {
+/// [`select`] with only the callouts *keep* names kept beside their rows: those a frame or datum
+/// symbol stands on that no row can carry.
+pub(crate) fn select_keeping(
+    analysis: &Analysis,
+    plan: &Plan,
+    keep: &BTreeSet<String>,
+) -> Selection {
+    select_with(analysis, plan, true, keep)
+}
+
+fn select_with(
+    analysis: &Analysis,
+    plan: &Plan,
+    replace_pmi: bool,
+    keep: &BTreeSet<String>,
+) -> Selection {
     let mut selection = Selection {
         scale: plan.sheet.scale_factor,
         page: plan.sheet.page,
@@ -2742,6 +2757,7 @@ fn select_with(analysis: &Analysis, plan: &Plan, replace_pmi: bool) -> Selection
                         > 1
             });
             let kept = pinned(plan, d)
+                || keep.contains(&d.id)
                 || authored_size
                 || crate::label_text::overridden(d)
                 || (semantic && !replace_pmi && !shared_thread);
