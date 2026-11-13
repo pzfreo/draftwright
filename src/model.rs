@@ -2464,7 +2464,40 @@ pub(crate) fn note_final_conflicts(plan: &mut Plan) {
     }
 }
 
+/// A callout's leader and shoulder roughly double on the candidate: longer than twice its paper
+/// length on *baseline* and more than [`CALLOUT_GROWTH_FLOOR`] longer. A leader naturally
+/// lengthens when the view it serves is drawn larger, so growth by a few paper millimetres
+/// (the rule was 2 mm until 2026-11-12, maintainer's decision) is not a reason to refuse the
+/// larger scale; the floor keeps a short leader (3 mm to 7 mm, say) from being refused on the
+/// ratio alone.
 pub(crate) fn longer_callouts(candidate: &Plan, baseline: &Plan) -> bool {
+    callouts_grow(candidate, baseline, |now, before| {
+        now > 2.0 * before + 1e-6 && now > before + CALLOUT_GROWTH_FLOOR + 1e-6
+    })
+}
+
+/// A callout's leader and shoulder more than 2 paper mm longer on the candidate than on
+/// *baseline*: the rule a reduction keeps, where no view is drawn larger to lengthen a leader.
+pub(crate) fn lengthened_callouts(candidate: &Plan, baseline: &Plan) -> bool {
+    callouts_grow(candidate, baseline, |now, before| now > before + 2.0 + 1e-6)
+}
+
+/// A callout's leader grown too far on *candidate* beside *baseline*: doubled where the part is
+/// drawn at a larger scale ([`longer_callouts`]; the maintainer's rule of 2026-11-12 is about
+/// refusing a larger scale), and more than 2 mm longer anywhere else ([`lengthened_callouts`]):
+/// at the same scale, on a larger sheet or at a smaller scale nothing is drawn larger to
+/// lengthen a leader, so growth there is the layout pushing the callout away.
+pub(crate) fn grown_callouts(candidate: &Plan, baseline: &Plan) -> bool {
+    if candidate.sheet.scale_factor > baseline.sheet.scale_factor + 1e-9 {
+        longer_callouts(candidate, baseline)
+    } else {
+        lengthened_callouts(candidate, baseline)
+    }
+}
+
+/// Whether *longer* holds of the paper lengths, on the candidate and on *baseline*, of the
+/// leader and shoulder of any callout placed on both.
+fn callouts_grow(candidate: &Plan, baseline: &Plan, longer: impl Fn(f64, f64) -> bool) -> bool {
     let length = |d: &crate::dims::PlannedDimension| {
         d.placed.as_ref().map_or(0.0, |p| {
             p.lines
@@ -2482,9 +2515,13 @@ pub(crate) fn longer_callouts(candidate: &Plan, baseline: &Plan) -> bool {
                 .dimensions
                 .iter()
                 .find(|b| b.id == d.id && b.placed.is_some())
-                .is_some_and(|b| length(d) > length(b) + 2.0 + 1e-6)
+                .is_some_and(|b| longer(length(d), length(b)))
         })
 }
+
+/// The least a callout's leader and shoulder must lengthen, paper mm, before doubling counts
+/// ([`longer_callouts`]): one first dimension-line gap.
+pub(crate) const CALLOUT_GROWTH_FLOOR: f64 = 10.0;
 
 fn rect_overlap(a: [f64; 4], b: [f64; 4]) -> bool {
     a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
@@ -2978,65 +3015,70 @@ pub(crate) fn established_key(spec: &Spec) -> Vec<u8> {
 pub(crate) fn established_drawing(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
     let key = established_key(spec);
     // A historical route template: the established normal-spacing drawing, whatever the
-    // candidate's dimension spacing.
-    let reference = crate::dims::with_compact(false, || {
-        crate::planning::memo(
-            analysis,
-            "prepared-established-drawing",
-            key.clone(),
-            || {
-                let reference = crate::lint::slots::without_recesses(analysis);
-                let mut base = Spec {
-                    units: spec.units,
-                    hole_table: spec.hole_table,
-                    pmi: spec.pmi,
-                    origin: spec.origin.clone(),
-                    ..Spec::default()
-                };
-                // This unrendered historical route template must not change with the
-                // paper preferences. The recipient has its own ordered sheet search, just
-                // as when packing annotation blocks from an explicit A0 template.
-                base.sheet.paper = Some(spec.paper());
-                base.sheet.preferred_max_size = Some(spec.pages()[4].0.into());
-                base.sheet.projection = spec.sheet.projection.clone();
-                base.sheet.references = spec.sheet.references;
-                // The reference leaves out the view the drawing does, judged on the whole
-                // Analysis and the spec (#222; the key holds what that reads from the spec).
-                let idle = crate::dims::idle_view(analysis, spec, &crate::demand::read(analysis))
-                    .map(|r| r.1);
-                crate::planning::with(&reference, || {
-                    // This recipe precedes the added notch bands as well as native recesses.
-                    // Otherwise a displaced leader becomes its own established route, and
-                    // refinement cannot detect the new model-edge or arrowhead contact.
-                    // Only the comparison scope omits these annotations; the final solve
-                    // retains the original source evidence and every notch requirement.
-                    crate::planning::store(
-                        &reference,
-                        "v_notches",
-                        Vec::new(),
-                        Vec::<crate::lint::notch_evidence::Notch>::new(),
-                    );
-                    // Preserve the established presentation when reserving old routes.
-                    // The actual drawing may move an occluded circular statement to its
-                    // visible profile after those other routes have claimed their ink.
-                    crate::planning::store(
-                        &reference,
-                        "canonical-circular-recipes",
-                        Vec::new(),
-                        true,
-                    );
-                    // Keep the established compact corridors as an unrendered
-                    // comparison; live placements are remeasured at faithful widths.
-                    crate::dims::with_idle_view(idle, || {
-                        if crate::nominal::geometry_eligible(&reference) {
-                            crate::nominal::with_comparison(|| plan_automatic(&reference, &base))
-                        } else {
-                            plan_automatic(&reference, &base)
-                        }
+    // candidate's dimension spacing and whichever attempt at its sheet and scale asks.
+    let reference = crate::planning::slot_ladder(|| {
+        crate::dims::with_compact(false, || {
+            crate::planning::memo(
+                analysis,
+                "prepared-established-drawing",
+                key.clone(),
+                || {
+                    let reference = crate::lint::slots::without_recesses(analysis);
+                    let mut base = Spec {
+                        units: spec.units,
+                        hole_table: spec.hole_table,
+                        pmi: spec.pmi,
+                        origin: spec.origin.clone(),
+                        ..Spec::default()
+                    };
+                    // This unrendered historical route template must not change with the
+                    // paper preferences. The recipient has its own ordered sheet search, just
+                    // as when packing annotation blocks from an explicit A0 template.
+                    base.sheet.paper = Some(spec.paper());
+                    base.sheet.preferred_max_size = Some(spec.pages()[4].0.into());
+                    base.sheet.projection = spec.sheet.projection.clone();
+                    base.sheet.references = spec.sheet.references;
+                    // The reference leaves out the view the drawing does, judged on the whole
+                    // Analysis and the spec (#222; the key holds what that reads from the spec).
+                    let idle =
+                        crate::dims::idle_view(analysis, spec, &crate::demand::read(analysis))
+                            .map(|r| r.1);
+                    crate::planning::with(&reference, || {
+                        // This recipe precedes the added notch bands as well as native recesses.
+                        // Otherwise a displaced leader becomes its own established route, and
+                        // refinement cannot detect the new model-edge or arrowhead contact.
+                        // Only the comparison scope omits these annotations; the final solve
+                        // retains the original source evidence and every notch requirement.
+                        crate::planning::store(
+                            &reference,
+                            "v_notches",
+                            Vec::new(),
+                            Vec::<crate::lint::notch_evidence::Notch>::new(),
+                        );
+                        // Preserve the established presentation when reserving old routes.
+                        // The actual drawing may move an occluded circular statement to its
+                        // visible profile after those other routes have claimed their ink.
+                        crate::planning::store(
+                            &reference,
+                            "canonical-circular-recipes",
+                            Vec::new(),
+                            true,
+                        );
+                        // Keep the established compact corridors as an unrendered
+                        // comparison; live placements are remeasured at faithful widths.
+                        crate::dims::with_idle_view(idle, || {
+                            if crate::nominal::geometry_eligible(&reference) {
+                                crate::nominal::with_comparison(|| {
+                                    plan_automatic(&reference, &base)
+                                })
+                            } else {
+                                plan_automatic(&reference, &base)
+                            }
+                        })
                     })
-                })
-            },
-        )
+                },
+            )
+        })
     });
     crate::planning::store(analysis, "established-drawing", key, reference.clone());
     if let Ok(plan) = &reference {
@@ -3266,7 +3308,7 @@ fn recover_recess_corridors(
         || crate::dims::extension_contacts(&trial.dimensions)
             > crate::dims::extension_contacts(&plan.dimensions)
         || !carried(plan).is_subset(&carried(&trial))
-        || longer_callouts(&trial, plan)
+        || lengthened_callouts(&trial, plan)
         || !drawn_items_fit(analysis, &trial)
         || crate::sheet_fit::illegible_steps(analysis, &trial) > 0
         || !crate::dims::labels_on_spans(&trial.dimensions)
@@ -3685,6 +3727,35 @@ fn recover_paper(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, 
         return Ok(detailed);
     }
     recover_candidates(analysis, spec, first, true, false)
+}
+
+/// The automatic enlargement veto on *candidates* beside the smallest sheet's drawing
+/// *reference* (sheet index *sheet*): a candidate on a larger sheet whose established leader
+/// has grown too far ([`grown_callouts`]: doubled at a larger scale, more than 2 mm longer
+/// otherwise) is dropped, and its trace in *tried* says so.
+fn veto_grown_leaders(
+    spec: &Spec,
+    candidates: &mut Vec<(crate::sheet_fit::Candidate, Plan)>,
+    tried: &mut [String],
+    sheet: usize,
+    reference: &Plan,
+) {
+    candidates.retain(|(c, p)| {
+        if c.sheet <= sheet || !grown_callouts(p, reference) {
+            return true;
+        }
+        let prefix = format!("{} {} fill ", spec.pages()[c.sheet].0, scale_name(c.scale));
+        let why = if p.sheet.scale_factor > reference.sheet.scale_factor + 1e-9 {
+            "; automatic enlargement doubles an established leader's length"
+        } else {
+            "; automatic enlargement lengthens an established leader by more than 2 mm without a larger scale"
+        };
+        for trace in tried.iter_mut().filter(|t| t.starts_with(&prefix)) {
+            *trace = trace.replacen("(valid and complete", "(leader length quality veto", 1);
+            *trace += why;
+        }
+        false
+    });
 }
 
 fn recover_candidates(
@@ -4167,7 +4238,7 @@ fn recover_candidates(
                     && (ink_findings(&p) > ink_findings(&first)
                         || feature_crossings(&p) > feature_crossings(&first)
                         || (p.views.iter().any(|v| v.detail.is_some())
-                            && longer_callouts(&p, &first)));
+                            && grown_callouts(&p, &first)));
                 let mut hard_codes = hard_layout_codes(&p);
                 if !actual_fit {
                     hard_codes.insert("finished_items_do_not_fit", 1);
@@ -4335,18 +4406,7 @@ fn recover_candidates(
     {
         let reference = candidates[small].1.clone();
         let sheet = candidates[small].0.sheet;
-        candidates.retain(|(c, p)| {
-            if c.sheet <= sheet || !longer_callouts(p, &reference) {
-                return true;
-            }
-            let prefix = format!("{} {} fill ", spec.pages()[c.sheet].0, scale_name(c.scale));
-            for trace in tried.iter_mut().filter(|t| t.starts_with(&prefix)) {
-                *trace = trace.replacen("(valid and complete", "(leader length quality veto", 1);
-                *trace +=
-                    "; automatic enlargement lengthens an established leader by more than 2 mm";
-            }
-            false
-        });
+        veto_grown_leaders(spec, &mut candidates, &mut tried, sheet, &reference);
     }
     let keys: Vec<_> = candidates.iter().map(|(c, _)| *c).collect();
     let Some((choice, (i, s))) =
@@ -4810,6 +4870,18 @@ fn plan_recovered_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invali
         let plan = if spec.sheet.keep_layout == Some(true) {
             let fixed = crate::local_layout::forced(spec)?;
             let mut plan = crate::planning::fixed_pair(|| plan_automatic(analysis, &fixed))?;
+            // The search gives this sheet and scale a second attempt where its first lacks
+            // room; a kept layout is that same drawing, so it gets the same attempt.
+            let effective = crate::spec_gdt::effective(analysis, &fixed)?;
+            // The search's default paper is A4 with one sheet; a kept layout is always one
+            // sheet (`local_layout::forced` requires `sheets.max` of 1), so A4 alone says it.
+            let default_paper = fixed.sheet.size.as_deref() == Some("A4");
+            if crate::sheet_policy::doubted_without_room(&effective, &plan, default_paper) {
+                let lanes = crate::sheet_policy::lane_attempt(&effective, default_paper, || {
+                    crate::planning::fixed_pair(|| plan_automatic(analysis, &fixed))
+                });
+                plan = lanes.unwrap_or(plan);
+            }
             plan.spec = spec.clone();
             plan
         } else {
@@ -4905,6 +4977,13 @@ pub(crate) fn plan_automatic(analysis: &Analysis, spec: &Spec) -> Result<Plan, I
                 && crate::planning::lookup::<Result<Plan, Invalid>>(analysis, "finished-plan", &key)
                     .is_some()
             {
+                activate_established(analysis, spec)?;
+            }
+            // The second attempt at a sheet and scale activates them before it plans. Planning
+            // inside its first attempt activates them part-way through, and only where that
+            // attempt is planned rather than reused from the candidates shared between
+            // sessions, so this drawing would otherwise depend on which of the two it followed.
+            if crate::planning::is_lane_ladder() {
                 activate_established(analysis, spec)?;
             }
             crate::planning::memo(analysis, "finished-plan", key, || {
@@ -5299,6 +5378,46 @@ fn recover_tables(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan,
         }
     }
     Ok(scheduled)
+}
+
+/// A sheet-search candidate's drop-and-escalate: the hole table its dropped hole items earn,
+/// drawn on the candidate's own sheet and scale ([`schedule_recovered`]), so a scale whose only
+/// fault is hole items placed off the sheet is judged with its table, as the final drawing would
+/// be, not rejected for the drops the table resolves.
+pub(crate) fn schedule_candidate(analysis: &Analysis, candidate: Plan) -> Result<Plan, Invalid> {
+    let spec = candidate.spec.clone();
+    let pair = |p: &Plan| (p.sheet.size.clone(), p.sheet.scale.clone(), p.sheets.len());
+    let own = pair(&candidate);
+    let scheduled = schedule_recovered(analysis, &spec, candidate)?;
+    if pair(&scheduled) != own {
+        // The schedule is judged as this candidate; one on other paper is another candidate.
+        return Err(Invalid {
+            message: format!(
+                "the hole table moved the candidate from {} {} to {} {}",
+                own.0, own.1, scheduled.sheet.size, scheduled.sheet.scale
+            ),
+            choices: Vec::new(),
+            path: None,
+            also: Vec::new(),
+        });
+    }
+    if drops(&scheduled) == 0 {
+        return Ok(scheduled);
+    }
+    // The candidate's own composition left the table no place; the named sheet and scale
+    // planned from the start, as a Spec naming them is, composes its views around the table.
+    let recovered = plan_recovered(analysis, &spec)?;
+    Ok(
+        if drops(&recovered) == 0
+            && recovered.sheet.size == scheduled.sheet.size
+            && recovered.sheet.scale == scheduled.sheet.scale
+            && recovered.sheets.len() == scheduled.sheets.len()
+        {
+            recovered
+        } else {
+            scheduled
+        },
+    )
 }
 
 /// [`recover_tables`]'s schedule on the sheet its table-free recovery chose.
@@ -6892,6 +7011,17 @@ fn plan_with_presentation(
         if p.fallback.is_none() {
             (request, pick, strips) = (bare, p, s);
         }
+    }
+    // A second attempt's trial whose sizing found the ladder at lane pitch no more room than
+    // the slots would draw the first attempt again; it stops here, and the first is kept
+    // (`sheet_policy::lane_attempt`).
+    if pick.lanes_short && crate::planning::is_lane_trial() {
+        return Err(Invalid {
+            message: "the height ladder at lane pitch has no more room than the slots".into(),
+            choices: Vec::new(),
+            path: None,
+            also: Vec::new(),
+        });
     }
     // An automatic radius schedule is a presentation choice. Reserve it around
     // the existing sheet/scale pair only when it fits; it cannot spend more paper
@@ -8714,7 +8844,9 @@ fn plan_with_presentation(
             ink_findings(&bare),
             feature_crossings(&bare),
         );
-        let longer_routes = longer_callouts(&plan, &bare);
+        // The detail is judged at the drawing's own sheet and scale, where nothing is drawn
+        // larger to lengthen a leader: the 2 mm rule.
+        let longer_routes = lengthened_callouts(&plan, &bare);
         if (new.0.hard, new.0.dropped, over_views(&bare), new.1, new.2)
             < (old.0.hard, old.0.dropped, over_views(&plan), old.1, old.2)
             || (longer_routes && new.0.hard <= old.0.hard && new.0.dropped <= old.0.dropped)
