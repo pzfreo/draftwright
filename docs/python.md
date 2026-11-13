@@ -158,6 +158,8 @@ signal handlers alone. With Python's default handler, `KeyboardInterrupt` can be
 deferred until the native call returns. Applications needing immediate process
 cancellation can run their drawing in a subprocess.
 
+<a id="migrating-from-python-0-4"></a>
+
 ## Migrating from Python 0.4
 
 

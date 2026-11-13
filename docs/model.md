@@ -550,7 +550,7 @@ sheet first, descending through its scale ladder before considering the next she
 ANSI zoning uses ASME Y14.1-2012, Table 4-1 and §5.5.1: columns × rows are
 A 2×2, B 4×2, C 4×4, D 8×4, E 8×8. A/B zoning is optional in that standard;
 draftwright enables it with the existing `sheet/zones` control. See the
-[standard text, Table 4-1](https://studylib.net/doc/28396607/asme-y14.1--2012--drawing-sheet-size-and-format).
+[ASME's catalogue](https://www.asme.org/codes-standards/find-codes-standards/drawing-sheet-size-and-format).
 ARCH sizes are outside that table: draftwright explicitly uses the same A–E zone
 counts as a convention, scaled to the ARCH page. ISO zone counts are unchanged.
 
@@ -2512,8 +2512,8 @@ calls.
 | `analyse` | STEP file | Analysis |
 | `plan` | Analysis, Spec | Plan (with problems); rebinds first if the spec's binding differs |
 | `edit` | Spec, ops | Spec, or a validation error |
-| `render` | Plan, formats, dpi | SVG, DXF and PDF by default, and PNG at `dpi` (150) when asked, each with the spec embedded |
-| `review` | Plan | a rendered image, the problems and lint's findings on the drawing, for a check |
+| `render` | Plan, formats, dpi | SVG and PDF by default; editable DXF and PNG at `dpi` (150) when asked, each with the Spec embedded |
+| `review` | Plan | the drawing as SVG text, the problems and lint's findings on the drawing |
 
 **`edit` operations** are small and addressed by path:
 

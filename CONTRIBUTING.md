@@ -29,8 +29,9 @@ reproduces it instead.
 The repository is `pzfreo/draftwright`; `pzfreo/draftwright-python` is the earlier
 Python implementation, being retired.
 
-The current release is 0.6.0-alpha.2; 0.6.0 is in alpha (pre-release). The release commit updates the native, WASM and Python-extension Cargo versions
-together, `Cargo.lock`, README status and CHANGELOG. Wheel packaging lives in the root
+The current release is 0.6.0-alpha.2; 0.6.0 is in alpha (pre-release). The release commit
+updates the native, WASM and Python-extension Cargo versions together, `Cargo.lock`,
+README status and CHANGELOG. Wheel packaging lives in the root
 `pyproject.toml`, using maturin's `bindings = "pyo3"`, the unpublished
 `crates/draftwright-py` manifest and a dynamic Cargo-derived version. The mixed
 package lives in `python/draftwright`; the extension is `draftwright._native`
@@ -52,8 +53,9 @@ for macOS Intel/Apple silicon, manylinux 2_28 x86_64/aarch64 and Windows x86_64.
 sdist: these installs should not unexpectedly require Rust on unsupported platforms.
 The wheel workflow also runs for relevant main pushes and PRs; a manual run on main can
 request publishing with `publish: true` and an explicit `tag`, such as `v0.6.0`.
-Dispatch and release builds check out that tag, including in the publish job. Pre-release tags must agree with the GitHub release's pre-release flag;
-pre-release wheels are published too. Each wheel artifact includes its build commit in a separate
+Dispatch and release builds check out that tag, including in the publish job. Pre-release
+tags must agree with the GitHub release's pre-release flag; pre-release wheels are published
+too. Each wheel artifact includes its build commit in a separate
 provenance directory; this directory is checked but never uploaded to PyPI.
 `tools/check_wheel_versions.py` checks that the tag exists, HEAD and every wheel's build
 commit match the tag's commit, and all three Cargo manifests and all downloaded wheels agree
