@@ -106,13 +106,10 @@ jobs:
     needs: notices
     strategy:
       fail-fast: false
+      # Pull requests skip the macOS wheels: the account shares five macOS runners, and main
+      # pushes, releases and dispatches still build and check all five platforms.
       matrix:
-        include:
-          - { name: linux-x86_64, os: ubuntu-22.04, target: x86_64, manylinux: '2_28' }
-          - { name: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64, manylinux: '2_28' }
-          - { name: macos-arm64, os: macos-latest, target: aarch64-apple-darwin }
-          - { name: macos-x86_64, os: macos-15-intel, target: x86_64-apple-darwin }
-          - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"name":"linux-x86_64","os":"ubuntu-22.04","target":"x86_64","manylinux":"2_28"},{"name":"linux-aarch64","os":"ubuntu-24.04-arm","target":"aarch64","manylinux":"2_28"},{"name":"windows-x64","os":"windows-latest","target":"x86_64-pc-windows-msvc"}]' || '[{"name":"linux-x86_64","os":"ubuntu-22.04","target":"x86_64","manylinux":"2_28"},{"name":"linux-aarch64","os":"ubuntu-24.04-arm","target":"aarch64","manylinux":"2_28"},{"name":"macos-arm64","os":"macos-latest","target":"aarch64-apple-darwin"},{"name":"macos-x86_64","os":"macos-15-intel","target":"x86_64-apple-darwin"},{"name":"windows-x64","os":"windows-latest","target":"x86_64-pc-windows-msvc"}]') }}
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
