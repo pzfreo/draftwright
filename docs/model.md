@@ -1471,7 +1471,20 @@ basis, placed, reference?, determined_by?}`:
   one symbol with the font's `SF` in the box), where draftwright prints the counterbore's `⌴`. A
   hole with both a counterbore and a spotface states both (`⌴ ⌀11 ↧ 6.4 ⌴SF ⌀20 ↧ 1`, counterbore
   first), where draftwright prints only the counterbore and loses the spotface its own lint
-  requires.
+  requires. A chamfer on a hole's mouth (quiddity 0.5.0's nested `mouth_chamfers`; its cone is
+  not one of the hole's own faces, but quiddity's face accounting claims it) is stated after the
+  recess it breaks, as every other chamfer is: `C0.25` for equal legs at 45°, otherwise
+  `0.25 × 30°`. The recess's depth then reads from the surface its mouth opens on: the
+  cylinder's length plus the chamfer's axial depth, so a ⌀5 counterbore 2.0 deep under a 0.25
+  chamfer is `⌴ ⌀5 ↧ 2.25 C0.25`, and the floor is not located 0.25 mm too shallow. A bore's own
+  depth stays the cylinder's, as quiddity measures it. On a through hole, the end the hole is
+  not drilled from says `FAR SIDE` after its chamfer, and the same chamfer at both ends says
+  `BOTH SIDES`. The size (and the angle, off 45°) is a requirement lint checks
+  (`mouth_chamfer.size`, `mouth_chamfer.angle`, and `far_mouth_chamfer.*`). A chamfered hole
+  is a different requirement from one without, so it is not counted with it, and it keeps its
+  own callout beside a hole-table row rather than being replaced by the row. A ⌀2 bore with a
+  0.5 × 45° edge stays a ⌀3 × 90° countersink (`⌵ ⌀3 × 90°`): geometry cannot tell intent, and
+  quiddity keeps that boundary.
 - **Locations** (`location.length.<axis>`) from the part's box, or the same inspection end
   for an axial location on a whole turned profile, in the hole's view, one
   dimension per distance; patterns by their centre (or a linear pattern by its first member), with

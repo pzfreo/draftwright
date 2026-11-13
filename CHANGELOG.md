@@ -6,6 +6,16 @@ All notable changes to draftwright-rust are recorded here, in the style of
 
 ## Unreleased
 
+- Built on quiddity and haecceity 0.5.0. A chamfer on a hole's mouth is now stated: a ⌀5
+  counterbore 2.0 deep under a 0.25 chamfer reads `⌀3.3 THRU ⌴ ⌀5 ↧ 2.25 C0.25` (`0.25 × 30°`
+  off 45°; `FAR SIDE` or `BOTH SIDES` for a through hole's far end), the counterbore's depth
+  measured from the surface the mouth opens on, and lint checks the chamfer's size and angle.
+  Before, the chamfer was not on the drawing and the counterbore read `↧ 2`, a floor 0.25 mm too
+  shallow. The cone counts as explained. A ⌀2 bore with a 0.5 × 45° edge is still a ⌀3 × 90°
+  countersink. quiddity 0.5.0's fingerprints are `fingerprint/4` and its assembly manifests
+  `quiddity-manifest/2`; draftwright never stores either (a revision compares fingerprints it
+  derives from both files' own geometry), so no saved Spec, plan or pack is affected.
+
 - A placement fix offered as a local edit now leaves the drawing with fewer findings than
   before, or is not proposed. A local fix that traded findings (its text said "Trade-off: adds
   these findings") is offered only when it clears at least two more than it adds, and the

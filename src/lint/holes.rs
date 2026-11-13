@@ -45,7 +45,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{LintIssue, Mark, Requirement, Severity};
-use crate::bridge::holes::{self, Countersink, Hole, Recess};
+use crate::bridge::holes::{self, Countersink, Hole, MouthChamfer, Recess};
 use crate::model::Analysis;
 
 /// Holes that share one machining specification, and so one callout.
@@ -78,10 +78,16 @@ pub struct HoleSizes {
     pub outer_steps: Vec<Recess>,
     pub spotface: Option<Recess>,
     pub countersink: Option<Countersink>,
+    /// The chamfer on the mouth it is drilled from, and the far end's when that differs
+    /// ([`Hole::chamfers`]); `both` says the far end has the near end's.
+    pub near_chamfer: Option<MouthChamfer>,
+    pub far_chamfer: Option<MouthChamfer>,
+    pub both_chamfers: bool,
 }
 
 impl HoleSizes {
     fn of(h: &Hole) -> HoleSizes {
+        let (near_chamfer, far_chamfer, both_chamfers) = h.chamfers();
         HoleSizes {
             diameter: h.diameter,
             through: h.through,
@@ -90,6 +96,9 @@ impl HoleSizes {
             outer_steps: h.outer_steps.clone(),
             spotface: h.spotface,
             countersink: h.countersink,
+            near_chamfer,
+            far_chamfer,
+            both_chamfers,
         }
     }
 }
@@ -107,7 +116,7 @@ impl HoleGroup {
         } else {
             out.push(("bore.depth".into(), s.depth));
         }
-        let recess = |r: Option<Recess>| r.map(|r| (r.diameter, r.depth));
+        let recess = |r: Option<Recess>| r.map(|r| (r.diameter, r.from_mouth()));
         let mut sizes = vec![("counterbore".to_string(), recess(s.counterbore))];
         sizes.extend(
             s.outer_steps
@@ -125,6 +134,17 @@ impl HoleGroup {
         if let Some(c) = s.countersink {
             out.push(("countersink.diameter".into(), Some(c.diameter)));
             out.push(("countersink.angle".into(), c.angle));
+        }
+        for (c, which) in [
+            (s.near_chamfer, "mouth_chamfer"),
+            (s.far_chamfer, "far_mouth_chamfer"),
+        ] {
+            if let Some(c) = c {
+                out.push((format!("{which}.size"), Some(c.size)));
+                if !c.is_c_form() {
+                    out.push((format!("{which}.angle"), Some(c.angle)));
+                }
+            }
         }
         if self.drillings > 1 {
             out.push(("grouping.count".into(), Some(self.drillings as f64)));
@@ -148,13 +168,30 @@ impl HoleGroup {
             format!(" ↧ {}", f(s.depth))
         };
         for r in s.counterbore.iter().chain(s.outer_steps.iter().rev()) {
-            out += &format!(" ⌴ ⌀{} ↧ {}", fmt(r.diameter), f(r.depth));
+            out += &format!(" ⌴ ⌀{} ↧ {}", fmt(r.diameter), f(r.from_mouth()));
         }
         if let Some(r) = s.spotface {
-            out += &format!(" ⌴SF ⌀{} ↧ {}", fmt(r.diameter), f(r.depth));
+            out += &format!(" ⌴SF ⌀{} ↧ {}", fmt(r.diameter), f(r.from_mouth()));
         }
         if let Some(c) = s.countersink {
             out += &format!(" ⌵ ⌀{} × {}°", fmt(c.diameter), f(c.angle));
+        }
+        let chamfer = |c: &MouthChamfer| {
+            if c.is_c_form() {
+                format!(" C{}", fmt(c.size))
+            } else {
+                format!(" {} × {}°", fmt(c.size), fmt(c.angle))
+            }
+        };
+        if let Some(c) = &s.near_chamfer {
+            out += &chamfer(c);
+            if s.both_chamfers {
+                out += " BOTH SIDES";
+            }
+        }
+        if let Some(c) = &s.far_chamfer {
+            out += &chamfer(c);
+            out += " FAR SIDE";
         }
         out
     }
@@ -372,6 +409,18 @@ fn says_thru(text: &str) -> bool {
         .any(|w| w == "THRU")
 }
 
+/// Whether the number at *from* is followed by `°`: a chamfer's angle.
+fn degrees_after(chars: &[char], from: usize) -> bool {
+    let mut i = from;
+    while chars
+        .get(i)
+        .is_some_and(|c| c.is_ascii_digit() || *c == '.')
+    {
+        i += 1;
+    }
+    i > from && chars.get(i) == Some(&'°')
+}
+
 /// What opened a segment of a hole callout: the bore, `⌴` (a counterbore, or draftwright's
 /// spotface), the spotface symbol `⌴SF` (ASME Y14.5-2018's, as the port prints it) or a bare
 /// `SF`, `⌵`, or a `⌀` printed after the bore's with no symbol (a captured sheet's text runs lose
@@ -422,8 +471,19 @@ struct Callout {
     units: crate::output::Units,
     count: Option<usize>,
     segments: Vec<Segment>,
+    /// The mouth chamfers it states, in print order.
+    chamfers: Vec<Chamfer>,
     /// The numbers no term owns.
     loose: Vec<(f64, usize)>,
+}
+
+/// A mouth chamfer a callout states: `C<size>`, or `<size> × <angle>°`; `far` when `FAR SIDE`
+/// follows it.
+#[derive(Clone, Debug, PartialEq)]
+struct Chamfer {
+    size: (f64, usize),
+    angle: Option<(f64, usize)>,
+    far: bool,
 }
 
 impl Callout {
@@ -454,8 +514,12 @@ impl Callout {
             units,
             count: None,
             segments: vec![Segment::new(Opened::Bore)],
+            chamfers: Vec::new(),
             loose: Vec::new(),
         };
+        // A chamfer size just read: its angle is the number before the `°` that follows.
+        let mut angle_of: Option<usize> = None;
+        let mut c_form = false;
         let (mut diameter, mut depth, mut thru, mut first) = (false, false, false, true);
         let mut i = 0;
         while i < chars.len() {
@@ -503,6 +567,28 @@ impl Callout {
                 {
                     out.count = Some(v as usize);
                     i = k;
+                } else if std::mem::take(&mut c_form) {
+                    out.chamfers.push(Chamfer {
+                        size: (v, decimals),
+                        angle: None,
+                        far: false,
+                    });
+                } else if !diameter
+                    && !depth
+                    && chars.get(j) == Some(&'×')
+                    && degrees_after(&chars, k)
+                {
+                    // `0.25 × 30°`: a chamfer's size and, next, its angle.
+                    out.chamfers.push(Chamfer {
+                        size: (v, decimals),
+                        angle: None,
+                        far: false,
+                    });
+                    angle_of = Some(out.chamfers.len() - 1);
+                    i = k;
+                } else if let (Some(n), Some('°')) = (angle_of, chars.get(i)) {
+                    out.chamfers[n].angle = Some((v, decimals));
+                    angle_of = None;
                 } else if signed {
                     // A tolerance's deviation.
                 } else if chars.get(i) == Some(&'°') {
@@ -529,6 +615,16 @@ impl Callout {
                 (diameter, depth, first) = (false, false, false);
                 continue;
             }
+            // `C0.25`: the chamfer's form, its size the number after.
+            if c == 'C'
+                && (i == 0 || chars[i - 1].is_whitespace())
+                && chars.get(i + 1).is_some_and(char::is_ascii_digit)
+            {
+                c_form = true;
+                first = false;
+                i += 1;
+                continue;
+            }
             if c.is_alphabetic() && c != 'ø' && c != 'Ø' {
                 let start = i;
                 while i < chars.len() && chars[i].is_alphanumeric() {
@@ -544,6 +640,11 @@ impl Callout {
                         }
                         _ => out.segments.push(Segment::new(Opened::Spotface)),
                     },
+                    "FAR" => {
+                        if let Some(c) = out.chamfers.last_mut() {
+                            c.far = true;
+                        }
+                    }
                     "EQ" | "ON" | "BC" => break,
                     _ => {}
                 }
@@ -608,6 +709,18 @@ impl Callout {
             "spotface.depth" => spotface()?.depth,
             "countersink.diameter" => countersink()?.diameter,
             "countersink.angle" => countersink()?.angle,
+            "mouth_chamfer.size"
+            | "mouth_chamfer.angle"
+            | "far_mouth_chamfer.size"
+            | "far_mouth_chamfer.angle" => {
+                let far = parameter.starts_with("far_");
+                let c = self.chamfers.iter().find(|c| c.far == far)?;
+                if parameter.ends_with(".size") {
+                    Some(c.size)
+                } else {
+                    c.angle
+                }
+            }
             _ => None,
         }
     }
@@ -1460,6 +1573,40 @@ mod tests {
                 "hole_requirement_missing f:hole:2 countersink.angle"
             ]
         );
+    }
+
+    /// quiddity-rust#244: a mouth chamfer is read from its own term, `C0.25` or `0.25 × 30°`, the
+    /// far end's from `FAR SIDE`; it is not a depth, an angle of a countersink or a loose number.
+    #[test]
+    fn a_mouth_chamfer_is_read_from_its_own_term() {
+        let term = |text: &str, parameter: &str| {
+            Callout::read(text).term(parameter, true, 0).map(|(v, _)| v)
+        };
+        let c_form = "⌀3.3 THRU ⌴ ⌀5 ↧ 2.25 C0.25";
+        assert_eq!(term(c_form, "counterbore.depth"), Some(2.25));
+        assert_eq!(term(c_form, "mouth_chamfer.size"), Some(0.25));
+        assert_eq!(term(c_form, "mouth_chamfer.angle"), None);
+        assert_eq!(term(c_form, "far_mouth_chamfer.size"), None);
+        assert!(Callout::read(c_form).loose.is_empty());
+        let angled = "⌀3.3 THRU ⌴ ⌀5 ↧ 2.23 0.4 × 30°";
+        assert_eq!(term(angled, "counterbore.depth"), Some(2.23));
+        assert_eq!(term(angled, "mouth_chamfer.size"), Some(0.4));
+        assert_eq!(term(angled, "mouth_chamfer.angle"), Some(30.0));
+        assert_eq!(term(angled, "countersink.angle"), None);
+        // The far end's, alone and after the near end's.
+        let far = "⌀3.3 THRU C0.25 FAR SIDE";
+        assert_eq!(term(far, "mouth_chamfer.size"), None);
+        assert_eq!(term(far, "far_mouth_chamfer.size"), Some(0.25));
+        let both = "⌀3.3 THRU C0.25 0.5 × 30° FAR SIDE";
+        assert_eq!(term(both, "mouth_chamfer.size"), Some(0.25));
+        assert_eq!(term(both, "far_mouth_chamfer.size"), Some(0.5));
+        assert_eq!(term(both, "far_mouth_chamfer.angle"), Some(30.0));
+        // A countersink's `⌀d × a°` is not a chamfer.
+        let sunk = "⌀6.6 THRU ⌵ ⌀12.4 × 90°";
+        assert_eq!(term(sunk, "countersink.angle"), Some(90.0));
+        assert_eq!(term(sunk, "mouth_chamfer.size"), None);
+        // A thread's `M2 x 0.4` is not one either.
+        assert_eq!(term("⌀1.6 ↧ 4 M2 x 0.4-6H", "mouth_chamfer.size"), None);
     }
 
     #[test]

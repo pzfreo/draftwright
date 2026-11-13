@@ -45,7 +45,7 @@ pub(super) const PLANNER: Planner = Planner {
 };
 
 /// Whether a chamfer of these sizes is called out `C<leg>`: draftwright's `_fmt_chamfer`.
-fn c_form(leg1: f64, leg2: f64, angle: f64) -> bool {
+pub(crate) fn c_form(leg1: f64, leg2: f64, angle: f64) -> bool {
     (leg1 - leg2).abs() < 0.05 && (angle - 45.0).abs() < 0.5
 }
 

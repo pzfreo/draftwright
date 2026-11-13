@@ -23,6 +23,8 @@ mod dims_edges;
 mod dims_grooves_flats;
 #[path = "../dims_gussets.rs"]
 mod dims_gussets;
+#[path = "../dims_mouth_chamfer.rs"]
+mod dims_mouth_chamfer;
 #[path = "../dims_plates.rs"]
 mod dims_plates;
 #[path = "../dims_recesses.rs"]

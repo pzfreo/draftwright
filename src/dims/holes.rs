@@ -33,6 +33,26 @@ pub(super) const PLANNER: Planner = Planner {
 /// lint read it; [`super::label_ink`] draws it as one symbol, the letters inside the box.
 pub(super) const SPOTFACE: &str = "⌴SF";
 
+/// The qualifier of a mouth chamfer on the far end of a through hole, the end the hole is not
+/// drilled from.
+pub(crate) const FAR_SIDE: &str = "FAR SIDE";
+
+/// A hole's mouth chamfer as a callout states it, as every chamfer is: `C0.25` for equal legs at
+/// 45°, otherwise `size × angle°` (`0.25 × 30°`). It follows the recess it breaks, whose depth
+/// then reads from the surface ([`holes::Recess::from_mouth`]).
+fn chamfer_terms(c: &holes::MouthChamfer, units: crate::units::Units) -> Vec<String> {
+    let fmt = |v| crate::dims::fmt_in(v, units);
+    if c.is_c_form() {
+        vec![format!("C{}", fmt(c.size))]
+    } else {
+        vec![
+            fmt(c.size),
+            "×".into(),
+            format!("{}°", crate::dims::fmt(c.angle)),
+        ]
+    }
+}
+
 /// Member sites projected into a view, as integer keys.
 type Sites = Vec<(i64, i64)>;
 
@@ -111,7 +131,7 @@ impl Hole<'_> {
                 t.push(crate::callouts::BREAK.into());
             }
             t.extend([symbol.into(), format!("⌀{}", fmt(r.diameter))]);
-            if let Some(depth) = r.depth {
+            if let Some(depth) = r.from_mouth() {
                 t.extend(["↧".into(), fmt(depth)]);
             }
         }
@@ -123,6 +143,17 @@ impl Hole<'_> {
             if let Some(a) = c.angle {
                 t.extend(["×".into(), format!("{}°", crate::dims::fmt(a))]);
             }
+        }
+        let (near, far, both) = self.chamfers();
+        if let Some(c) = near {
+            t.extend(chamfer_terms(&c, units));
+            if both {
+                t.push(crate::callouts::BOTH_SIDES.into());
+            }
+        }
+        if let Some(c) = far {
+            t.extend(chamfer_terms(&c, units));
+            t.push(FAR_SIDE.into());
         }
         t
     }
@@ -140,7 +171,7 @@ impl Hole<'_> {
         }
         for (role, _, r) in self.recesses() {
             out.push(m(&format!("{role}.diameter"), r.diameter));
-            if let Some(depth) = r.depth {
+            if let Some(depth) = r.from_mouth() {
                 out.push(m(&format!("{role}.depth"), depth));
             }
         }
@@ -148,6 +179,15 @@ impl Hole<'_> {
             out.push(m("countersink.diameter", c.diameter));
             if let Some(a) = c.angle {
                 out.push(m("countersink.angle", a));
+            }
+        }
+        let (near, far, _) = self.chamfers();
+        for (c, which) in [(near, "mouth_chamfer"), (far, "far_mouth_chamfer")] {
+            if let Some(c) = c {
+                out.push(m(&format!("{which}.size"), c.size));
+                if !c.is_c_form() {
+                    out.push(m(&format!("{which}.angle"), c.angle));
+                }
             }
         }
         out

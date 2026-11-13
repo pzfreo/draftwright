@@ -73,6 +73,7 @@ pub(crate) mod blends;
 mod bosses;
 mod callouts;
 mod edges;
+pub(crate) use edges::c_form;
 mod envelope;
 mod established;
 pub(crate) use established::retain as retain_established;
