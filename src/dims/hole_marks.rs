@@ -77,6 +77,16 @@ struct Mark {
 /// the view that sees them end-on, where it has a clear place; the problems of what moved are
 /// checked again.
 pub(crate) fn attach(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
+    attach_with(analysis, spec, plan, false);
+}
+
+/// Retry cylinder size/rim attachments after free routes settle. Hole-frame
+/// stacks remain fixed units, including their shared count and leader.
+pub(crate) fn attach_cylinders(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
+    attach_with(analysis, spec, plan, true);
+}
+
+fn attach_with(analysis: &Analysis, spec: &Spec, plan: &mut Plan, cylinders_only: bool) {
     if !plan
         .gdt
         .iter()
@@ -117,6 +127,9 @@ pub(crate) fn attach(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
         ("control_frame", true, Pass::Any),
         ("datum_feature", false, Pass::Any),
     ] {
+        if cylinders_only && !cylinders {
+            continue;
+        }
         let marks_only = matches!(pass, Pass::Marks);
         for gi in 0..plan.gdt.len() {
             let g = &plan.gdt[gi];

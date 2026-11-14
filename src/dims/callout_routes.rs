@@ -645,6 +645,16 @@ pub(crate) fn finish_frames(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
         && !crate::planning::lookup::<bool>(analysis, "canonical-circular-recipes", &[])
             .unwrap_or(false)
     {
+        // An incomplete recovery drawing keeps its first geometry (#469).
+        // This pass polishes valid finished ink rather than changing that recovery.
+        if crate::model::findings(plan).hard > 0
+            && plan
+                .problems
+                .iter()
+                .any(|p| p.code == "layout_recovery_exhausted")
+        {
+            return;
+        }
         // Both sides of the full-drawing ratchet must include the same
         // finished-ink diagnostics, including pre-existing contact notices.
         super::contacts::report(analysis, plan);
@@ -665,6 +675,7 @@ pub(crate) fn finish_frames(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
             let reference = plan.clone();
             finish_with(analysis, spec, plan, false, Some((&ids, &reference)));
         }
+        super::hole_marks::attach_cylinders(analysis, spec, plan);
         super::contacts::report(analysis, plan);
         // Attachment-dependent diagnostics must also respect the complete
         // published drawing's budgets, not just one moved proxy's contacts.
@@ -864,7 +875,8 @@ fn finish_with(
         && !plan.gdt.iter().any(|g| {
             g.placed.is_some()
                 && affected_ids.contains(&g.id)
-                && (!super::hole_marks::attached(g) || g.side == "leader")
+                && (!super::hole_marks::attached(g)
+                    || (new_contacts.is_none() && g.side == "leader"))
         })
     {
         return;
@@ -926,6 +938,13 @@ fn finish_with(
                             })))
                     || !affected_ids.contains(&d.id)
                     || (new_contacts.is_some() && i < dimension_count && coupled.contains(&d.id))
+                    || (new_contacts.is_some()
+                        && i >= dimension_count
+                        && plan
+                            .gdt
+                            .iter()
+                            .find(|g| g.id == d.id)
+                            .is_some_and(super::hole_marks::attached))
                     || d.kind != "callout"
                     || d.placed.is_none()
                     || spec
