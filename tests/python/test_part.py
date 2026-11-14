@@ -1,4 +1,4 @@
-"""draftwright.Part (build123d requirements API, Python half).
+"""draftwright.Part (build123d requirements API, in-memory haecceity PMI).
 
 Needs build123d (optional); skipped without it. Run with the other Python tests:
 python -m unittest discover -s tests/python -v
@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 try:
@@ -75,7 +76,7 @@ class PartAPI(unittest.TestCase):
         bd.export_step(plate.part, path)
         self.assertEqual(set(FACE.findall(path.read_text())), {""})
 
-    def test_plate_step_names_and_answers(self):
+    def test_plate_step_names_and_in_memory_pmi(self):
         plate, p = build_plate()
         result, names = self.export(p)
         self.assertEqual(len(names), 13)
@@ -90,60 +91,37 @@ class PartAPI(unittest.TestCase):
         # C the -Y side, the flatness face the top, the fit the radius-6 bore.
         faces = list(plate.part.faces())
         self.assertEqual(len(faces), 13)
-        answers = json.loads(result["answers"].read_text())
         by_name = {n: i for i, n in enumerate(names) if n}
-        self.assertEqual(answers["datum.A"], [by_name["f:plate.datum_A.1"]])
-        self.assertEqual(answers["datum.B"], [by_name["f:plate.datum_B.1"]])
-        self.assertEqual(answers["datum.C"], [by_name["f:plate.datum_C.1"]])
-        self.assertEqual(answers["extra.face1.flatness"],
-                         {"faces": [by_name["f:plate.face1.1"]], "kind": "flatness", "value": "0.05"})
-        finish = answers["extra.hole1.finish"]
-        self.assertEqual(len(finish["faces"]), 1)  # the Ø12 bore, not the Ø20 counterbore
-        self.assertEqual(finish, {"faces": finish["faces"], "kind": "finish", "value": "Ra 1.6"})
-        self.assertEqual({k: v for k, v in answers.items() if k.startswith("part.")},
-                         {"part.material": "6082-T6", "part.process": "machined",
-                          "part.general_tolerance": "ISO 2768-mK"})
-        self.assertEqual(sorted(answers), sorted([
-            "datum.A", "datum.B", "datum.C", "part.material", "part.process",
-            "part.general_tolerance", "extra.face1.flatness", "extra.hole1.finish"]))
-        self.assertEqual(result["answers"].name, "plate.answers.json")
-        # Position intent waits for Specify's feature ids (Rust half): written by name.
-        pending = json.loads(result["pending"].read_text())["requirements"]
-        self.assertEqual(json.loads(result["pending"].read_text())["schema"], "draftwright.pending/1")
-        self.assertEqual([r["answer"] for r in pending], ["hole.function", "hole.position"])
-        # The fit is Specify's own question (hole.function:<id>), so it is pending by
-        # face name and never written as a second, contradicting requirement.
-        self.assertEqual(pending[0]["value"], "fit:H7")
-        self.assertEqual(len(pending[0]["faces"]), 3)
-        self.assertEqual(pending[1]["datums"], ["A", "B", "C"])
-        self.assertEqual(len(pending[1]["faces"]), 4)
+        self.assertEqual(result["faces"], by_name)
+        self.assertEqual(sorted(f.name for f in self.directory.iterdir()), ["plate.step"])
+        # export_step is intentionally plain geometry. Rendering consumes the native PMI.
+        from draftwright import _native
+        analysis = json.loads(_native.inspect_step(str(result["step"])))
+        self.assertNotIn("H7", json.dumps(analysis.get("pmi")))
+        report = json.loads(p._geometry().inspect(p._pmi))
+        records = report["records"]
+        self.assertEqual({r["label"] for r in records if r["kind"] == "datum"}, {"A", "B", "C"})
+        self.assertEqual([r["fit"] for r in records if r["fit"]], ["H7"])
+        self.assertEqual([r["value"] for r in records if r["kind"] == "flatness"], [0.05])
+        positions = [r for r in records if r["kind"] == "position"]
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0]["value"], 0.1)
+        self.assertEqual(positions[0]["datum_refs"], ["A", "B", "C"])
+        self.assertEqual(len(positions[0]["faces"]), 4)
+        finish = [r for r in records if r["kind"] == "surface_finish"]
+        self.assertEqual(len(finish), 1)
+        self.assertIn("Ra 1.6", finish[0]["label"])
+        self.assertEqual(len(finish[0]["faces"]), 1)
+        fitted = [r for r in records if r["fit"] == "H7"][0]
+        self.assertEqual(fitted["faces"], finish[0]["faces"])
+        self.assertEqual(report["materials"][0]["designation"], "6082-T6")
+        self.assertEqual([r["label"] for r in records if r["kind"] == "general_tolerances"], ["ISO 2768-mK"])
+        self.assertIn("PROCESS: machined", [r["label"] for r in records])
 
     def test_names_are_deterministic(self):
         _, first = build_plate()
         _, second = build_plate()
         self.assertEqual(self.export(first, "one.step")[1], self.export(second, "two.step")[1])
-
-    def test_specify_cli_reads_the_answers_on_the_named_faces(self):
-        cli = shutil.which("specify-core")
-        if cli is None:
-            self.skipTest("specify-core is not installed")
-        _, p = build_plate()
-        result, names = self.export(p)
-        analysis = self.directory / "a.json"
-        subprocess.run([cli, "analyse", str(result["step"]), "-o", str(analysis)],
-                       check=True, capture_output=True)
-        faces = json.loads(analysis.read_text())["faces"]
-        self.assertEqual([f.get("name") for f in faces], [n or None for n in names])
-        out = subprocess.run(
-            [cli, "write", str(result["step"]), str(analysis), str(result["answers"]),
-             "-o", str(self.directory / "pmi.step"), "--accept-defaults"],
-            check=True, capture_output=True, text=True)
-        written = json.loads(out.stdout)["written"]
-        self.assertIn("flatness 0.05 on added", written)
-        # The fit waits for the Rust half: no H7 yet, and one Ø12 callout, not two.
-        self.assertFalse([w for w in written if "H7" in w], written)
-        self.assertEqual(len([w for w in written if w.startswith("Ø12 ")]), 1, written)
-        self.assertIn("material 6082-T6", written)
 
     def test_loud_failures(self):
         plate, bore, mount = plate_parts()
@@ -208,14 +186,22 @@ class PartAPI(unittest.TestCase):
             p.face(face, label="q").flatness(0.1)
             result, names = self.export(p, f"fil{i}.step")
             self.assertEqual([n for n in names if n], ["f:fil.q.1"], face.geom_type)
-            answer = json.loads(result["answers"].read_text())["extra.q.flatness"]
-            self.assertEqual(answer["faces"], [names.index("f:fil.q.1")])
+            self.assertEqual(result["faces"]["f:fil.q.1"], names.index("f:fil.q.1"))
 
-    def test_check_and_answer_wait_for_the_rust_half(self):
-        _, p = build_plate()
-        for call in (p.check, lambda: p.answer("part.material", "x")):
-            with self.assertRaisesRegex(NotImplementedError, "0.6.0-alpha.2"):
-                call()
+    def test_reference_keys_and_sections_accept_objects(self):
+        plate, bore, _ = plate_parts()
+        p = draftwright.Part(plate.part, "plate")
+        ref = p.hole(bore)
+        feature = p.feature_id(ref)
+        self.assertTrue(feature.startswith("f:hole:"), feature)
+        bottom = plate.faces().sort_by(bd.Axis.Z)[0]
+        self.assertTrue(p.reference_key(bottom).startswith("face:v1:"))
+        self.assertEqual(p.reference_key(bottom), p.reference_key(bottom))
+        spec = p.drawing().section("A-A", through=ref).spec()
+        self.assertEqual(spec["views"]["sections"][0]["through"], feature)
+        with self.assertRaisesRegex(ValueError, "one feature"):
+            p.feature_id(list(plate.faces()))
+
 
     def test_drawing_is_layout_only(self):
         _, p = build_plate()
@@ -228,7 +214,7 @@ class PartAPI(unittest.TestCase):
             "views": {"iso": {"style": "shaded"}, "side": {"omit": True},
                       "sections": [{"id": "A", "through": "f:section_recess:f133"}]},
         })
-        with self.assertRaises(NotImplementedError):
+        with self.assertRaises((ValueError, AttributeError)):
             p.drawing().section("B", through=object())
 
     def test_render(self):
@@ -237,6 +223,108 @@ class PartAPI(unittest.TestCase):
         self.assertEqual(Path(svg), self.directory / "plate.svg")
         self.assertIn("<svg", Path(svg).read_text())
         self.assertTrue(Path(dxf).exists())
+
+    def test_plain_proposal_plate_draws_its_requirements(self):
+        _, p = build_plate()
+        drawing = p.drawing(sheet="A3")
+        svg, pdf = drawing.render(self.directory / "proposal", formats=("svg", "pdf"))
+        text = Path(svg).read_text()
+        for expected in ("H7", "Ra 1.6", "6082-T6", "ISO 2768-mK"):
+            self.assertIn(expected, text)
+        self.assertTrue(Path(pdf).read_bytes().startswith(b"%PDF-"))
+        self.assertFalse((self.directory / "proposal.step").exists())
+        self.assertEqual(list(self.directory.glob("*.json")), [])
+
+    def test_layout_update_title_and_requirement_boundary(self):
+        _, p = build_plate()
+        drawing = p.drawing(sheet="A3").title(drawn_by="PA", date="2026-11-14", revision="B")
+        drawing.update({"sheet": {"zones": False}, "views": {"iso": {"style": "shaded"}}})
+        before = drawing.spec()
+        self.assertEqual(before["sheet"]["title"]["title"], "Mounting plate")
+        for patch in ({"process": "machined"}, {"sheet": {"title": {"material": "steel"}}},
+                      {"features": {"f:hole:f1": {"fit": "H7"}}},
+                      {"features": {"f:hole:f1": {"modelled_thread": {"designation": "M3"}}}},
+                      {"dimensions": {"d:a": {"tolerance": "±0.1"}}}, {"notes": ["Test"]}):
+            with self.assertRaisesRegex(draftwright.DraftwrightError, r"Part\."):
+                drawing.update(patch)
+            self.assertEqual(drawing.spec(), before)
+        for patch in ({"sheet": {"unknown": True}}, {"sheet": {"title": {"date": 12}}},
+                      {"views": {"iso": {"style": "bad"}}}):
+            with self.assertRaises(draftwright.DraftwrightError):
+                drawing.update(patch)
+        copy = drawing.spec()
+        copy["sheet"]["title"]["title"] = "Changed"
+        self.assertEqual(drawing.spec(), before)
+
+    def test_shank_requirements_reach_sheet_and_binding_is_exported_step(self):
+        # A turned body with separate axial H7 and radial tapped bores, as #459.
+        with bd.BuildPart() as shank:
+            bd.Cylinder(10, 40)
+            bd.Cylinder(4, 40, mode=bd.Mode.SUBTRACT)
+            with bd.Locations((0, 0, 10)):
+                bd.Cylinder(1.25, 24, rotation=(90, 0, 0), mode=bd.Mode.SUBTRACT)
+        p = draftwright.Part(shank.part, "shank", number="GRM-01", title="SHANK")
+        p.material("BRASS H62 (CuZn40)").process("machined").general_tolerance("±0.05")
+        p.datum("A", shank.faces().sort_by(bd.Axis.Z)[0])
+        bores = [f for f in shank.faces().filter_by(bd.GeomType.CYLINDER)
+                 if p._is_hole_wall(f)]
+        p.hole([f for f in bores if abs(f.radius - 4) < 1e-4]).fit("H7").finish(1.6)
+        p.holes([f for f in bores if abs(f.radius - 1.25) < 1e-4]).thread("M3x0.5-6H")
+        exported = p.export_step(self.directory / "GRM-01.step")
+        original = exported["step"].read_bytes()
+        pmi = json.loads(p._geometry().inspect(p._pmi))
+        self.assertEqual([r["label"] for r in pmi["records"] if r["kind"] == "datum"], ["A"])
+        self.assertEqual([r["kind"] for r in pmi["records"] if r["kind"] == "internal_thread"], ["internal_thread"])
+        self.assertNotIn("specify_core", sys.modules)
+
+        drawing = p.drawing(sheet="A3").title(drawn_by="PA", revision="C")
+        outputs = drawing.render(self.directory / "GRM-01", formats=("svg", "pdf"),
+                                 spec={"sheet": {"zones": False, "title": {"date": "2026-11-14"}}})
+        svg = Path(outputs[0]).read_text()
+        for text in ("H7", "M3", "Ra 1.6", "BRASS H62", "±0.05", "PA", "2026-11-14"):
+            self.assertIn(text, svg)
+        text_nodes = list(ET.fromstring(svg).iter("{http://www.w3.org/2000/svg}text"))
+        self.assertIn("A", [node.text for node in text_nodes])
+        title_text = " ".join(node.text or "" for node in text_nodes if node.attrib.get("font-family") == "sans-serif")
+        self.assertIn("BRASS H62 (CuZn40)", title_text)
+        self.assertIn("±0.05", title_text)
+        from draftwright import _native
+        analysis = json.loads(_native.inspect_step(str(exported["step"])))
+        self.assertEqual(analysis["product_name"], "SHANK")
+        self.assertEqual(exported["step"].read_bytes(), original)
+        self.assertIsInstance(drawing.problems, list)
+        self.assertTrue(Path(outputs[1]).read_bytes().startswith(b"%PDF-"))
+        # Verify the deliverable through an independent PDF text reader.
+        if shutil.which("pdftotext"):
+            pdf_text = subprocess.check_output(["pdftotext", str(outputs[1]), "-"], text=True)
+        else:
+            from pypdf import PdfReader
+            pdf_text = "\n".join(page.extract_text() for page in PdfReader(outputs[1]).pages)
+        for text in ("H7", "M3", "Ra", "1.6", "BRASS", "±0.05"):
+            self.assertIn(text, pdf_text)
+        self.assertIn("A", [line.strip() for line in pdf_text.splitlines()])
+        self.assertFalse([problem for problem in drawing.problems if problem["code"] == "pmi_not_lowered"], drawing.problems)
+        # The one-render patch does not mutate the builder.
+        self.assertNotIn("date", drawing.spec()["sheet"]["title"])
+        self.assertNotIn("material", drawing.spec()["sheet"]["title"])
+        self.assertNotIn("process", drawing.spec())
+
+    def test_formats_and_multiple_sheets_one_pdf(self):
+        _, p = build_plate()
+        drawing = p.drawing(sheet="A3").update({"sheets": {"max": 2}, "views": {"iso": {"sheet": 2}}})
+        paths = drawing.render(self.directory / "multi", formats=("svg", "pdf", "png", "dxf"))
+        pdfs = [Path(path) for path in paths if path.endswith(".pdf")]
+        self.assertEqual(len(pdfs), 1)
+        pdf = pdfs[0].read_bytes()
+        self.assertIn(b"/Count 2", pdf)
+        self.assertEqual(len([p for p in paths if p.endswith(".svg")]), 2)
+        self.assertEqual(len([p for p in paths if p.endswith(".png")]), 2)
+        self.assertEqual(len([p for p in paths if p.endswith(".dxf")]), 2)
+        for formats in (("bad",), (), ("svg", "svg")):
+            with self.assertRaises(ValueError):
+                drawing.render(self.directory / "bad", formats=formats)
+        with self.assertRaises(TypeError):
+            drawing.render(self.directory / "bad", formats="pdf")
 
 
 if __name__ == "__main__":

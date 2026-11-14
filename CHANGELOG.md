@@ -6,6 +6,17 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Python `Part` now builds haecceity's semantic PMI model in memory: datums,
+  hole fits/internal threads/positions, face flatness/finish and part material,
+  general tolerance and process reach drawings through the same lowering as AP242.
+  `api::render_model` accepts a native shape, its Analysis and caller-owned PMI.
+  No extra package, questionnaire or answer/pending sidecars are needed. STEP export
+  remains plain named geometry; AP242 PMI export is deferred.
+- Python drawings accept SVG/PDF/PNG/DXF selections (one PDF for all sheets),
+  validated layout patches through `update()` or `render(spec=...)`, title fields,
+  object-based sections and stable `feature_id()`/`reference_key()` bridges.
+  Render findings are available as `drawing.problems`.
+
 - Accept the remaining CAD-frame layout regressions for iterative improvement:
   STC-09's A1 1:2 scale, long witnesses, frame overlaps and datum bands;
   FTC-07/FTC-10 arrow contacts, FTC-10's hidden datum E attachment;

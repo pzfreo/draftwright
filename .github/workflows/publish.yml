@@ -153,7 +153,7 @@ jobs:
         if: matrix.name == 'linux-x86_64'
         run: |
           source .venv/bin/activate
-          uv pip install --python .venv build123d==0.13.0
+          uv pip install --python .venv build123d==0.13.0 pypdf
           python -m unittest discover -s tests/python -v
       - name: Record the commit that built each wheel
         run: |
