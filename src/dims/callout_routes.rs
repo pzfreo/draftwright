@@ -27,6 +27,7 @@ fn route_issue(code: &str) -> bool {
             | "annotation_over_view"
             | "annotation_line_over_view"
             | "annotation_leader_long"
+            | "leader_across_view"
     )
 }
 
@@ -692,11 +693,20 @@ fn finish_with(
     };
     // Added lanes must not leave an otherwise unreported leader alongside
     // an extension. Use the placer's existing one-mm contact predicate.
-    let extension_sets = if openings || pmi_retry || new_contacts.is_some() {
-        extension_sets(plan)
-    } else {
-        BTreeMap::new()
-    };
+    let across_view = super::contacts::leader_ends(analysis, plan)
+        .into_iter()
+        .filter(|p| p.code == "leader_across_view")
+        .collect::<Vec<_>>();
+    let across_ids: BTreeSet<_> = across_view
+        .iter()
+        .flat_map(|p| p.subjects.iter().cloned())
+        .collect();
+    let extension_sets =
+        if openings || pmi_retry || new_contacts.is_some() || !across_view.is_empty() {
+            extension_sets(plan)
+        } else {
+            BTreeMap::new()
+        };
     // Attached marks move with their authored unit. Before attachment, PMI
     // callouts may retry their changed witness corridors; the ordinary hole
     // attachment pass then proves a place for each frame beside the new label.
@@ -734,7 +744,7 @@ fn finish_with(
                 .then(|| d.id.clone())
         })
         .collect();
-    let initial_contacts = if openings || new_contacts.is_some() {
+    let mut initial_contacts = if openings || new_contacts.is_some() {
         let mut found = super::contacts::contacts(plan);
         if new_contacts.is_some() {
             found.extend(super::contacts::fixed_stroke_contacts(plan));
@@ -743,6 +753,10 @@ fn finish_with(
     } else {
         Vec::new()
     };
+    // A leader running across its own view has the same bounded escape routes
+    // as a crossing leader. Judge the physical-edge audit before selecting paper,
+    // rather than discovering the avoidable detour only on the published drawing.
+    initial_contacts.extend(across_view);
     if crate::nominal::comparison()
         || crate::planning::lookup::<bool>(analysis, "canonical-circular-recipes", &[])
             .unwrap_or(false)
@@ -855,7 +869,9 @@ fn finish_with(
                 };
                 let mut before =
                     placement::collisions_for(analysis, &all, sheet, &plan.views, &cache, &d.id);
-                if (openings || new_contacts.is_some()) && i < dimension_count {
+                if (openings || new_contacts.is_some() || across_ids.contains(&d.id))
+                    && i < dimension_count
+                {
                     before.extend(crowding(
                         analysis,
                         plan,
@@ -865,8 +881,10 @@ fn finish_with(
                         new_contacts.is_some(),
                     ));
                 }
-                let extension_retry =
-                    only_frames || new_contacts.is_some() || extension_bad.contains(&d.id);
+                let extension_retry = only_frames
+                    || new_contacts.is_some()
+                    || extension_bad.contains(&d.id)
+                    || across_ids.contains(&d.id);
                 let extension_budget = |p: &Placed| {
                     if !extension_retry {
                         return (0, 0);
@@ -1034,7 +1052,9 @@ fn finish_with(
                     // A free source callout can need a little more of its view's
                     // annotation band after witness lanes move. Reuse the hole
                     // attachment proof: grow only into vacant drawable paper.
-                    let area = if ((pmi_retry && extension_retry) || new_contacts.is_some())
+                    let area = if ((pmi_retry && extension_retry)
+                        || new_contacts.is_some()
+                        || across_ids.contains(&id))
                         && i < dimension_count
                     {
                         super::ink_box(&all[i]).and_then(|ink| {
@@ -1056,7 +1076,9 @@ fn finish_with(
                         &cache,
                         &id,
                     );
-                    if (openings || new_contacts.is_some()) && i < dimension_count {
+                    if (openings || new_contacts.is_some() || across_ids.contains(&id))
+                        && i < dimension_count
+                    {
                         after.extend(crowding(
                             analysis,
                             plan,
