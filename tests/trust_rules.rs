@@ -1172,7 +1172,7 @@ fn lint_issue_serialization_preserves_every_inspection_channel() {
         serde_json::to_value(issue).unwrap(),
         json!({
             "id":"l:example:f:hole:2/location.length.x", "sheet":2, "code":"example", "severity":"warning",
-            "impact":"advisory", "group":"example",
+            "tier":"information", "impact":"advisory", "group":"example",
             "message":"The X cell is absent", "at":[12.0,34.0], "view":"v:plan", "subjects":["f:hole:2"],
             "requirements":[{"feature":"f:hole:2","parameter":"location.length.x"}],
             "measurements":["f:hole:2/location.length.x"], "sources":["dimension:#42"], "stage":"placement",
