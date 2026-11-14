@@ -27,7 +27,6 @@ fn route_issue(code: &str) -> bool {
             | "annotation_over_view"
             | "annotation_line_over_view"
             | "annotation_leader_long"
-            | "leader_across_view"
     )
 }
 
@@ -48,6 +47,7 @@ fn improves_with_contacts(before: &[Problem], after: &[Problem], contacts: bool)
                         && matches!(
                             code.as_str(),
                             "leader_along_centreline"
+                                | "leader_across_view"
                                 | "annotation_outside_area"
                                 | "leader_through_feature"
                                 | "leader_centerline_overlap"
@@ -691,21 +691,25 @@ fn finish_with(
                         | "leader_centerline_overlap"
                 ))
     };
-    // Detect bore leaders crossing their view before the final contact report.
-    // They use the existing bounded sweep; other feature families retain their
-    // established routing policy. Added lanes use its one-mm extension budget.
-    let across_view = super::contacts::leader_ends(analysis, plan)
-        .into_iter()
-        .filter(|p| {
-            p.code == "leader_across_view"
-                && plan.dimensions.iter().any(|d| {
-                    p.subjects.contains(&d.id)
-                        && d.measurements
-                            .iter()
-                            .any(|m| m.parameter == "bore.diameter")
-                })
-        })
-        .collect::<Vec<_>>();
+    // Detect bore leaders against settled nominal ink, before the final contact
+    // report. Deferred allocation trials retain their original recipe ordering;
+    // the completed paper previews and published drawing use the same sweep.
+    let across_view = if crate::planning::nominals_deferred() {
+        Vec::new()
+    } else {
+        super::contacts::leader_ends(analysis, plan)
+            .into_iter()
+            .filter(|p| {
+                p.code == "leader_across_view"
+                    && plan.dimensions.iter().any(|d| {
+                        p.subjects.contains(&d.id)
+                            && d.measurements
+                                .iter()
+                                .any(|m| m.parameter == "bore.diameter")
+                    })
+            })
+            .collect::<Vec<_>>()
+    };
     let across_ids: BTreeSet<_> = across_view
         .iter()
         .flat_map(|p| p.subjects.iter().cloned())
@@ -774,7 +778,8 @@ fn finish_with(
             .iter()
             .chain(&initial_contacts)
             .any(|p| repair_issue(&p.code))
-            && extension_bad.is_empty())
+            && extension_bad.is_empty()
+            && across_ids.is_empty())
     {
         return;
     }
@@ -786,6 +791,7 @@ fn finish_with(
         .flat_map(|p| p.subjects.iter().cloned())
         .collect();
     affected_ids.extend(extension_bad.iter().cloned());
+    affected_ids.extend(across_ids.iter().cloned());
     if let Some((ids, _)) = new_contacts {
         affected_ids.retain(|id| ids.contains(id));
     }
@@ -903,7 +909,10 @@ fn finish_with(
                     })
                 };
                 let before_extension = extension_budget(d.placed.as_ref().expect("placed callout"));
-                if !before.iter().any(|p| repair_issue(&p.code)) && before_extension.0 == 0 {
+                if !before.iter().any(|p| repair_issue(&p.code))
+                    && before_extension.0 == 0
+                    && !across_ids.contains(&d.id)
+                {
                     continue;
                 }
                 let glyph = plan.gdt.iter().find(|g| g.id == d.id).cloned();
@@ -1112,7 +1121,7 @@ fn finish_with(
                     let next_extension = extension_budget(&next);
                     if next_extension.0 <= before_extension.0
                         && next_extension.1 <= before_extension.1
-                        && ((if new_contacts.is_some() {
+                        && ((if new_contacts.is_some() || across_ids.contains(&id) {
                             improves_with_contacts(&before, &after, true)
                         } else {
                             improves(&before, &after)

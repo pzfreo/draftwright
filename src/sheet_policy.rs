@@ -2224,18 +2224,6 @@ fn compact_may_help(analysis: &Analysis, plan: &Plan) -> bool {
                 saving[k] += compact_savings(plan, &view.id, outline)[k];
             }
         }
-        // An auxiliary section can reflow independently at compact spacing.
-        // Its normal placement may have spread the principal row; that origin
-        // is not a lower bound on the compact trial's width (FTC-06).
-        if plan.views.iter().any(|v| v.cut.is_some()) {
-            let mut geometry = Estimate::new(analysis, plan);
-            for (_, _, band) in &mut geometry.views {
-                *band = [0.; 2];
-            }
-            if geometry.fits(&plan.sheet.size, 1, plan.sheet.scale_factor) {
-                return true;
-            }
-        }
         // The annotated views' total extent beyond the frame's span, against the most that
         // compact lanes could save across every view.
         return (0..2).all(|k| ink[k + 2] - ink[k] - (frame[k + 2] - frame[k]) <= saving[k] + 1e-6);

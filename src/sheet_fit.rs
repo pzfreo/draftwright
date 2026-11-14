@@ -1350,6 +1350,13 @@ pub(crate) fn rank(a: (f64, f64, f64), b: (f64, f64, f64)) -> std::cmp::Ordering
     band(b).cmp(&band(a)).then_with(|| {
         if band(a) && band(b) {
             b.0.total_cmp(&a.0).then_with(|| a.1.total_cmp(&b.1))
+        } else if crate::nominal::comparison() {
+            // This is the unrendered historical circular-route reference, not
+            // a live paper choice. Keep its 2026-10-12 recipe so a new paper
+            // preference cannot move established callouts to another view.
+            b.2.total_cmp(&a.2)
+                .then_with(|| a.1.total_cmp(&b.1))
+                .then_with(|| b.0.total_cmp(&a.0))
         } else {
             // Maintainer decision, 2026-11-14: below the target band, keep the
             // smaller sheet. Enlargement earns more paper only by reaching the band.
@@ -1779,41 +1786,6 @@ pub(crate) fn reserve_linear_corridors(
         .zip(&old)
         .all(|(v, (_, a, _))| v.area == *a)
     {
-        // A lane-pitch replay can leave an old, much taller isometric reservation
-        // after its orientation view has been fitted above the section. Preserve
-        // its exact ink and caption rather than rejecting the single-sheet trial
-        // for empty paper overlapping that section (FTC-06).
-        if plan.spec.sheet.keep_layout != Some(true)
-            && !crate::placement_intent::has_pins(&plan.spec)
-            && !plan.spec.views.contains_key("iso")
-            && !plan.dimensions.iter().any(|d| d.view == "v:iso")
-            && !plan.gdt.iter().any(|g| g.view == "v:iso")
-            && let Some(i) = plan.views.iter().position(|v| v.id == "v:iso")
-        {
-            let mut ink = footprints(analysis, plan)[i];
-            for c in plan.captions.iter().filter(|c| c.view == "v:iso") {
-                include(&mut ink, [c.ink[0], c.ink[1]]);
-                include(&mut ink, [c.ink[2], c.ink[3]]);
-            }
-            let overlap =
-                |a: Rect, b: Rect| a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
-            let same_sheet =
-                |j: usize, v: &crate::model::PlannedView| j != i && v.sheet == plan.views[i].sheet;
-            if plan
-                .views
-                .iter()
-                .enumerate()
-                .any(|(j, v)| same_sheet(j, v) && overlap(plan.views[i].area, v.area))
-                && !plan
-                    .views
-                    .iter()
-                    .enumerate()
-                    .any(|(j, v)| same_sheet(j, v) && overlap(ink, v.area))
-                && !overlap(ink, plan.sheet.title_block)
-            {
-                plan.views[i].area = ink;
-            }
-        }
         return;
     }
     // Placement has already checked this settled ink. Keep its collision
@@ -2364,6 +2336,15 @@ mod tests {
     fn below_the_band_the_fullest_valid_pair_wins_on_less_paper() {
         let set = [c(0, 1.0, 0.170), c(1, 2.0, 0.149)];
         assert_eq!(choose(&set, false, true), Some((Some(0), (0, 1.0))));
+    }
+    #[test]
+    fn historical_route_reference_keeps_its_original_paper_recipe() {
+        let small = candidate(1.0, 297.0, 0.30);
+        let large = candidate(2.0, 420.0, 0.40);
+        assert!(rank(small, large).is_lt());
+        // Changing the live paper rule must not relocate the historical
+        // reference's circular callouts (FTC-06's boss moved front -> plan).
+        assert!(crate::nominal::with_comparison(|| rank(large, small)).is_lt());
     }
     #[test]
     fn only_the_smallest_fits_largest_scale_and_one_enlarged_step_compete() {
