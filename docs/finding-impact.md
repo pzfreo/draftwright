@@ -19,7 +19,8 @@ need fixing because the measurement cannot be trusted to apply to the intended f
 Unknown externally supplied codes use `information`; the inventory test forbids unknown engine codes.
 
 The plan schema stays `draftwright.plan/1`; old plans remain readable and labels are computed
-again on serialization. `draftwright plan|render|review ... --human` groups findings by tier,
+again on serialization. The source `analysis_sha256` keeps the pre-tier byte stream,
+so derived labels do not change saved-plan provenance. `draftwright plan|render|review ... --human` groups findings by tier,
 with counts and fix-before-printing first. Machine JSON retains its original list order.
 Severity, codes and drawing output keep their existing meanings.
 

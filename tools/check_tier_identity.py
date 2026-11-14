@@ -1,7 +1,8 @@
 """Compare main and candidate drawing bytes and problem data, excluding only the new tier.
 
 Includes every STEP/STP (plain or gzip) under DRAFTWRIGHT_CORPUS and tests/fixtures/pmi.
-Evidence stays in --out; no absolute output hashes or recorded baselines are used.
+Evidence stays in --out; --reference can reuse complete main captures from an earlier run.
+No absolute output hashes or pinned baselines are used.
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -31,6 +32,16 @@ def inputs(corpus):
                   if p.is_file() and p.name.lower().endswith(('.step', '.stp', '.step.gz', '.stp.gz')))
 
 
+def read_capture(directory):
+    replies = {key: json.loads((directory / f'{key}.json').read_text())
+               for key in ('plan', 'render', 'review')}
+    files = {p.name: p.read_bytes() for p in directory.iterdir() if p.suffix in ('.svg', '.dxf')}
+    if not any(p.endswith('.svg') for p in files) or not any(p.endswith('.dxf') for p in files):
+        raise ValueError(f'{directory}: missing drawing outputs')
+    del replies['render']['written']
+    return replies, files
+
+
 def capture(binary, part, directory):
     directory.mkdir(parents=True)
     def run(*args):
@@ -43,12 +54,7 @@ def capture(binary, part, directory):
     (directory / 'render.json').write_text(json.dumps(render))
     review = run('review', part)
     (directory / 'review.json').write_text(json.dumps(review))
-    files = {p.name: p.read_bytes() for p in directory.iterdir() if p.suffix in ('.svg', '.dxf')}
-    if not files or not any(p.endswith('.svg') for p in files) or not any(p.endswith('.dxf') for p in files):
-        raise ValueError(f'{part}: missing drawing outputs')
-    # Output destinations necessarily differ, but every returned problem must agree.
-    del render['written']
-    return {'plan': plan, 'render': render, 'review': review}, files
+    return read_capture(directory)
 
 
 def main():
@@ -58,6 +64,7 @@ def main():
     parser.add_argument('--corpus', type=Path, default=os.environ.get('DRAFTWRIGHT_CORPUS'))
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--workers', type=int, default=4)
+    parser.add_argument('--reference', type=Path, help='Reuse complete main captures from an earlier run; every byte is still compared')
     args = parser.parse_args()
     if args.corpus is None or not args.corpus.is_dir() or args.out.exists():
         parser.error('a corpus and fresh output directory are required')
@@ -67,7 +74,11 @@ def main():
     def check(task):
         i, part = task
         directory = args.out / f'{i:03}-{part.name}'
-        before, old_files = capture(args.before.resolve(), part, directory / 'before')
+        reference = args.reference / directory.name / 'before' if args.reference else None
+        if reference and all((reference / f'{key}.json').is_file() for key in ('plan', 'render', 'review')):
+            before, old_files = read_capture(reference)
+        else:
+            before, old_files = capture(args.before.resolve(), part, directory / 'before')
         after, new_files = capture(args.after.resolve(), part, directory / 'after')
         if without_tier(before) != without_tier(after, candidate=True):
             raise ValueError(f'{part}: plan/render/review changed apart from tier')
