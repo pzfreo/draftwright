@@ -965,6 +965,7 @@ pub(crate) fn correct_estimate(analysis: &Analysis, plan: &mut Plan) {
     if lift <= 0.0 {
         return;
     }
+    let title = plan.sheet.title_block;
     for (i, v) in plan
         .views
         .iter_mut()
@@ -975,6 +976,21 @@ pub(crate) fn correct_estimate(analysis: &Analysis, plan: &mut Plan) {
         crate::centrelines::shift(v, [0.0, lift]);
         let b = groups[i];
         v.area = [b[0] - 1.0, b[1] + lift - 1.0, b[2] + 1.0, b[3] + lift + 1.0];
+        // The added one-mm reservation is vacant paper. Where only that pad
+        // reaches a title cell, retain all measured ink and trim the empty pad
+        // rather than rejecting an otherwise fitting full-size A4 (10247).
+        let ink = [b[0], b[1] + lift, b[2], b[3] + lift];
+        if crate::sheets::overlap(v.area, title) && !crate::sheets::overlap(ink, title) {
+            if ink[1] >= title[3] {
+                v.area[1] = v.area[1].max(title[3]);
+            } else if ink[2] <= title[0] {
+                v.area[2] = v.area[2].min(title[0]);
+            } else if ink[0] >= title[2] {
+                v.area[0] = v.area[0].max(title[2]);
+            } else if ink[3] <= title[1] {
+                v.area[3] = v.area[3].min(title[1]);
+            }
+        }
         v.basis += "; free projection row lifted together using measured annotation bounds";
         groups[i] = v.area;
     }
@@ -1964,7 +1980,7 @@ pub(crate) fn reserve_linear_corridors(
         });
         let lift = [0, 1].map(|k| {
             let minimum = margin() - lower[k];
-            if settled_overflow || compact {
+            if settled_overflow || (compact && !crate::model::annotation_text_edited(&plan.spec)) {
                 let upper = group
                     .iter()
                     .map(|&i| plan.views[i].area[k + 2] + shifts[i][k])

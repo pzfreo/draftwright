@@ -3126,7 +3126,7 @@ pub(crate) fn dimension_text_edited(spec: &Spec) -> bool {
             == 1
 }
 
-fn annotation_text_edited(spec: &Spec) -> bool {
+pub(crate) fn annotation_text_edited(spec: &Spec) -> bool {
     spec.dimensions
         .values()
         .any(|d| d.tolerance.is_some() || d.text.is_some() || d.style.is_some())
@@ -4105,6 +4105,7 @@ fn recover_candidates(
                 let sparse_a4 = i == 0
                     && p.sheet.scale_factor >= 1.0
                     && p.gdt.is_empty()
+                    && !annotation_text_edited(spec)
                     && (ink_findings(&p) > 0 || findings(&p).dropped > 0);
                 if !p.gdt.is_empty()
                     || sparse_a4

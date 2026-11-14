@@ -1016,6 +1016,8 @@ struct Obstacles<'a> {
     triangles: Vec<Vec<P2>>,
     labels: Vec<[f64; 4]>,
     lines: Vec<[P2; 2]>,
+    /// Control-frame shafts, independently of ordinary dimension witnesses.
+    frame_leaders: Vec<[P2; 2]>,
 }
 
 impl Obstacles<'_> {
@@ -1066,7 +1068,7 @@ impl Obstacles<'_> {
     fn text_grade(&self, c: &Candidate) -> Grade {
         let clearance = self.clearance_grade(c);
         let contacts = if clearance == 2 && c.frame_rule {
-            self.lines
+            self.frame_leaders
                 .iter()
                 .filter(|l| crosses(**l, c.label_box))
                 .count()
@@ -1658,6 +1660,17 @@ fn plan_search(
                 .copied()
         })
         .collect();
+    let control_ids: BTreeSet<_> = items
+        .iter()
+        .filter(|i| matches!(i.glyph, Glyph::ControlFrame { .. }))
+        .map(|i| i.id.clone())
+        .collect();
+    let mut frame_leaders: Vec<_> = dims
+        .iter()
+        .filter(|d| control_ids.contains(&d.id))
+        .filter_map(|d| d.placed.as_ref())
+        .flat_map(|p| p.lines.iter().copied())
+        .collect();
     let exterior = if protect && items.iter().any(|i| matches!(i.glyph, Glyph::Datum { .. })) {
         super::interior::exterior_proofs(analysis, views)
     } else {
@@ -1805,6 +1818,9 @@ fn plan_search(
                 triangles.extend(p.fills.iter().cloned());
             }
             lines.extend(p.lines.iter().copied());
+            if matches!(item.glyph, Glyph::ControlFrame { .. }) {
+                frame_leaders.extend(p.lines.iter().copied());
+            }
             planned.side = g.side.clone();
             planned.view.clone_from(&g.view);
             if super::hole_marks::attached(g) {
@@ -1856,6 +1872,7 @@ fn plan_search(
                 .collect(),
             labels: labels.clone(),
             lines: lines.clone(),
+            frame_leaders: frame_leaders.clone(),
         };
         let sides: Vec<&str> = if shape != Shape::Frame || intent.is_some_and(|p| p.side.is_some())
         {
@@ -2123,6 +2140,9 @@ fn plan_search(
                     triangles.extend(p.fills.iter().cloned());
                 }
                 lines.extend(p.lines.iter().copied());
+                if matches!(item.glyph, Glyph::ControlFrame { .. }) {
+                    frame_leaders.extend(p.lines.iter().copied());
+                }
                 planned.side.clone_from(&g.side);
                 planned.state = State::Shown;
                 planned.placed = Some(p);
@@ -2171,6 +2191,9 @@ fn plan_search(
             triangles.extend(chosen.fills.iter().cloned());
         }
         lines.extend(chosen.lines.iter().copied());
+        if chosen.frame_rule {
+            frame_leaders.extend(chosen.lines.iter().copied());
+        }
         planned.state = State::Shown;
         planned.placed = Some(GdtPlaced {
             tip,
@@ -3189,6 +3212,7 @@ mod tests {
                 .chain(first.fills.iter().map(|f| fill_box(f)))
                 .collect(),
             lines: first.lines.clone(),
+            frame_leaders: Vec::new(),
         };
         // The letter boxes and shafts are disjoint in every case. Identical,
         // overlapping and just-touching triangles must still be rejected.
@@ -3229,6 +3253,7 @@ mod tests {
             triangles: Vec::new(),
             labels: vec![[40.0, 180.25, 45.0, 185.25]],
             lines: Vec::new(),
+            frame_leaders: Vec::new(),
         };
         // The shaft misses the box, but its 0.25 mm gap reads as touching text.
         assert_eq!(obstacles.clearance_grade(&c), 2);
@@ -3262,6 +3287,7 @@ mod tests {
             triangles: Vec::new(),
             // Both left-hand tiers cross this label on their way from the face.
             labels: vec![[57., 80., 59., 85.], right.label_box],
+            frame_leaders: right.lines.clone(),
             lines: right.lines,
         };
         let beside = candidate(Shape::Frame, [58., 100.], "below", 47.5, [29.4, 5.]);
