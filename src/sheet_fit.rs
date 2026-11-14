@@ -1957,7 +1957,7 @@ pub(crate) fn reserve_linear_corridors(
         });
         let lift = [0, 1].map(|k| {
             let minimum = margin() - lower[k];
-            if settled_overflow {
+            if settled_overflow || compact {
                 let upper = group
                     .iter()
                     .map(|&i| plan.views[i].area[k + 2] + shifts[i][k])
@@ -1966,6 +1966,9 @@ pub(crate) fn reserve_linear_corridors(
                 if minimum <= maximum {
                     // The nearest rigid translation preserves projection alignment,
                     // authored sides/lanes and every settled witness/leader route.
+                    // Measured bands may need to move down as well as up: the
+                    // estimate's centred column can leave the top lane off sheet
+                    // even though the complete annotated assembly fits (CTC-01).
                     return 0.0_f64.clamp(minimum, maximum);
                 }
             }
