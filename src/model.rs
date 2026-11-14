@@ -4103,7 +4103,7 @@ fn recover_candidates(
                 // measured-gap layout when an estimated band leaves its leaders
                 // across dimensions: sparse parts should not need larger paper.
                 if !p.gdt.is_empty()
-                    || (i == 0 && ink_findings(&p) > 0)
+                    || (i == 0 && (ink_findings(&p) > 0 || findings(&p).dropped > 0))
                     || (findings(&p).hard > 0
                         && crate::dims::has_new_native_recess_dimensions(analysis)
                         && p.problems.iter().any(|q| q.code == "dimension_line_shared")

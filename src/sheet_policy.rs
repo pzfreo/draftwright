@@ -2224,6 +2224,18 @@ fn compact_may_help(analysis: &Analysis, plan: &Plan) -> bool {
                 saving[k] += compact_savings(plan, &view.id, outline)[k];
             }
         }
+        // An auxiliary section can reflow independently at compact spacing.
+        // Its normal placement may have spread the principal row; that origin
+        // is not a lower bound on the compact trial's width (FTC-06).
+        if plan.views.iter().any(|v| v.cut.is_some()) {
+            let mut geometry = Estimate::new(analysis, plan);
+            for (_, _, band) in &mut geometry.views {
+                *band = [0.; 2];
+            }
+            if geometry.fits(&plan.sheet.size, 1, plan.sheet.scale_factor) {
+                return true;
+            }
+        }
         // The annotated views' total extent beyond the frame's span, against the most that
         // compact lanes could save across every view.
         return (0..2).all(|k| ink[k + 2] - ink[k] - (frame[k + 2] - frame[k]) <= saving[k] + 1e-6);
@@ -4940,5 +4952,58 @@ mod compact_sheet_regressions {
         let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
         let shaft = d.placed.as_ref().unwrap().lines[0];
         assert!((shaft[1][0] - shaft[0][0]).hypot(shaft[1][1] - shaft[0][1]) < 20.0);
+    }
+
+    fn corpus_analysis(file: &str) -> Option<model::Analysis> {
+        let root = std::env::var_os("DRAFTWRIGHT_CORPUS")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| Path::new(&h).join("repos/quiddity/tests/corpus"))
+            })?;
+        root.is_dir()
+            .then(|| model::analyse_native(&root.join(file)).unwrap().1)
+    }
+
+    #[test]
+    fn a4_measured_packing_keeps_10033_leaders_off_extensions() {
+        let Some(a) = corpus_analysis("mfcadpp/10033.step") else {
+            return;
+        };
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert_eq!(p.sheet.size, "A4");
+        assert!(model::findings(&p).clean());
+        assert!(model::finished_sheets_fit(&a, &p));
+        assert!(crate::dims::leader_on_extension(&p.dimensions).is_empty());
+        assert!(
+            !p.problems
+                .iter()
+                .any(|q| q.code == "annotation_leader_crossing")
+        );
+    }
+
+    #[test]
+    fn a4_measured_packing_keeps_10163_holes_on_practical_paper() {
+        let Some(a) = corpus_analysis("mfcadpp/10163.step") else {
+            return;
+        };
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert_eq!(p.sheet.size, "A4");
+        assert!(p.sheet.scale_factor >= 1.0);
+        assert!(model::findings(&p).clean());
+        assert!(model::finished_sheets_fit(&a, &p));
+    }
+
+    #[test]
+    fn ftc06_auxiliary_section_does_not_rule_out_compact_half_scale() {
+        let Some(a) = corpus_analysis("nist/nist_ftc_06_asme1_rd.stp") else {
+            return;
+        };
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert_eq!(
+            (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+            ("A2", "1:2")
+        );
+        assert!(model::findings(&p).clean());
+        assert!(model::finished_sheets_fit(&a, &p));
     }
 }
