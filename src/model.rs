@@ -864,7 +864,7 @@ pub struct Plan {
     pub recognition_corrections: Vec<crate::recognition_corrections::Applied>,
     pub schema: String,
     pub binding: Binding,
-    /// Digest of the complete Analysis, including the supplied recognition, that determined
+    /// Digest of the complete Analysis (excluding derived tier labels), including the supplied recognition, that determined
     /// this plan. Absent only in older saved plans. The Spec is embedded separately.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub analysis_sha256: Option<String>,
@@ -1189,14 +1189,39 @@ impl Problem {
         fixes
     }
 }
+thread_local! {
+    // Tier is a derived presentation label, not a change to the source Analysis binding.
+    static SERIALIZE_PROBLEM_TIER: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// Keep the pre-tier Analysis byte stream for saved-plan provenance. Ordinary public
+/// serialization always includes tiers; only this synchronous digest scope omits them.
+pub(crate) fn analysis_sha256(analysis: &Analysis) -> String {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SERIALIZE_PROBLEM_TIER.set(self.0);
+        }
+    }
+    let _restore = Restore(SERIALIZE_PROBLEM_TIER.replace(false));
+    Sha256::digest(serde_json::to_vec(analysis).expect("analysis serializes"))
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 impl Serialize for Problem {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("Problem", 12)?;
+        let tier = SERIALIZE_PROBLEM_TIER.get();
+        let mut s = serializer.serialize_struct("Problem", 12 + usize::from(tier))?;
         s.serialize_field("id", &self.id)?;
         s.serialize_field("code", &self.code)?;
         s.serialize_field("severity", &self.severity)?;
         let labels = self.labels();
+        if tier {
+            s.serialize_field("tier", &labels.tier)?;
+        }
         s.serialize_field("impact", &labels.impact)?;
         s.serialize_field("group", &labels.group)?;
         s.serialize_field("message", &self.message)?;
@@ -8606,11 +8631,7 @@ fn plan_with_presentation(
             "analysis_sha256",
             Vec::new(),
             || {
-                // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
-                Sha256::digest(serde_json::to_vec(analysis).expect("analysis serializes"))
-                    .iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect()
+                analysis_sha256(analysis)
             },
         )),
         feature_dispositions: crate::dims::feature_dispositions(analysis),
@@ -13240,5 +13261,99 @@ mod gzip_limit_tests {
         assert!(err.contains("more than 2 MB"), "{err}");
         let text = step_bytes_within(&bomb, 3 << 20).unwrap();
         assert_eq!(text.len(), 3 << 20);
+    }
+}
+
+#[cfg(test)]
+mod tier_identity_tests {
+    use super::*;
+
+    #[test]
+    fn derived_tiers_preserve_source_digest_but_diagnostic_changes_do_not() {
+        use crate::pmi::{Accounting, ReaderEvidence, Reading, Report};
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
+        let (_, mut analysis) = analyse_native_part(&path, None).unwrap();
+        assert!(!analysis.features.is_empty());
+        // An ordinary source parameter with this name must remain in the digest.
+        analysis.features[0]
+            .parameters
+            .insert("tier".into(), serde_json::json!("information"));
+        let problem = Problem {
+            id: "p:reader".into(),
+            code: "pmi_read_fact".into(),
+            severity: "info".into(),
+            message: "A source interpretation, with \"tier\" in the text.".into(),
+            ..Default::default()
+        };
+        analysis.pmi = Some(crate::pmi::Reading::Read(Report {
+            schema: "draftwright.pmi/1".into(),
+            parts: vec![],
+            sources: vec![],
+            records: vec![],
+            accounting: Accounting::default(),
+            materials: vec![],
+            drawn: None,
+            spec_problems: vec![],
+            reader: Box::new(ReaderEvidence {
+                problems: vec![problem.clone()],
+                ..Default::default()
+            }),
+        }));
+        let public_problem = serde_json::to_string(&problem).unwrap();
+        let legacy_problem = public_problem.replacen(",\"tier\":\"information\"", "", 1);
+        assert_ne!(public_problem, legacy_problem);
+        let public_analysis = serde_json::to_string(&analysis).unwrap();
+        assert_eq!(public_analysis.matches(&public_problem).count(), 1);
+        // Reconstruct the old stream structurally at the one known Problem occurrence,
+        // preserving every other byte and every ordinary parameter named tier.
+        let legacy_analysis = public_analysis.replace(&public_problem, &legacy_problem);
+        let expected: String = Sha256::digest(legacy_analysis.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(analysis_sha256(&analysis), expected);
+        assert_eq!(
+            serde_json::to_string(&analysis).unwrap(),
+            public_analysis,
+            "public tier serialization must be restored after hashing"
+        );
+        for mode in [PmiMode::First, PmiMode::Ignore] {
+            let spec = Spec {
+                pmi: mode,
+                ..Default::default()
+            };
+            let mut plan = plan(&analysis, &spec).unwrap();
+            assert_eq!(plan.analysis_sha256.as_deref(), Some(expected.as_str()));
+            crate::modelled_threads::source_hash(&analysis, true, &mut plan);
+            assert_eq!(plan.analysis_sha256.as_deref(), Some(expected.as_str()));
+        }
+        let ignored = crate::dims::pmi_policy::ignore(
+            &analysis,
+            &Spec {
+                pmi: PmiMode::Ignore,
+                ..Default::default()
+            },
+            plan,
+        )
+        .unwrap();
+        assert_eq!(ignored.analysis_sha256.as_deref(), Some(expected.as_str()));
+        let mut changed = analysis.clone();
+        let Some(Reading::Read(report)) = &mut changed.pmi else {
+            unreachable!()
+        };
+        report.reader.problems[0].message.push_str(" changed");
+        assert_ne!(
+            analysis_sha256(&changed),
+            expected,
+            "source diagnostics remain bound"
+        );
+        analysis.features[0]
+            .parameters
+            .insert("tier".into(), serde_json::json!("changed"));
+        assert_ne!(
+            analysis_sha256(&analysis),
+            expected,
+            "ordinary source fields remain bound"
+        );
     }
 }

@@ -67,7 +67,7 @@ Use different drawing references for independent branches/tasks.
 | `inspect_part` | `step` and optional `features` to register, or `part_ref`; `detail`, `problem_filter` | Compact sheet summary, bounded key item IDs/labels, counts, default/current input Spec hash; optional `problem_filter` adds a paged corrective answer; detail adds a lossless Plan artifact |
 | `list_items` | `filter`, `cursor`, `limit`, `detail` | Paged IDs, labels, kind, view, typed state; detail adds Session item answers |
 | `get_item` | `id`, `detail` | Label, state, value, basis and allowed operations; detail adds resolved placement/anchors/features |
-| `list_problems` | `filter`, `cursor`, `limit`, `detail` | Paged ID, code, severity and subjects; default includes corrective ops; detail adds message |
+| `list_problems` | `filter`, `cursor`, `limit`, `detail` | Paged ID, code, severity, tier and subjects; default includes corrective ops; detail adds message |
 | `item_options` | `id` | Operations, relative placements, compatible view anchors and scales, plus every settable escaped Spec path and its choices/forms/ranges |
 | `preview_ops` | `ops`, `cursor`, `limit`, `detail` | Paged delta events, planner count and lossless delta artifact; no Spec version/head is kept |
 | `apply_ops` | `parent`, `ops`, `drawing_ref`, `limit`, `detail` | Immutable new Spec hash and paged delta; stale parent refuses with current head in message and choices |

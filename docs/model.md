@@ -1179,7 +1179,9 @@ reproduces the same geometry (`tests/placement_intent.rs`, SVG, DXF, PDF and PNG
 
 ### Plan: what the sheet will say
 
-`analysis_sha256` identifies the complete effective Analysis used for planning, including its
+`analysis_sha256` omits derived problem tiers, preserving source identity when triage labels are
+added. The diagnostics themselves remain bound. It identifies the complete effective Analysis
+used for planning, including its
 recognition records and recogniser, beside the STEP `binding` and embedded `spec`. It is a
 SHA-256 digest of the deterministic JSON serialization, not merely the source-file hash;
 changing `--features` therefore changes the run's provenance even for the same STEP and Spec.
@@ -3692,3 +3694,13 @@ in JSON/CSV, but bought parts get no invented process. In a pack, override a par
 `parts/<part-key>/drawing/process`, using its existing per-part drawing Spec.
 Insert and printed-thread
 hole callouts await Specify's hole functions and are outside this change.
+
+### Issue tiers
+
+Every problem and lint finding carries an engine-computed `tier`: `fix_before_printing`,
+`tidy`, or `information`. This is additive to `draftwright.plan/1`; old plans remain readable.
+See [the exhaustive code table](finding-impact.md) for each tier and the explicit severity
+rule for coverage and PMI diagnostics. Severity, impact, finding order and drawing output
+retain their existing meaning. MCP, WASM/JS JSON, and Python `drawing.problems` expose the
+same field. Tiers group issues; they never block export. They set which editor Issues group
+opens first, while printing and export remain available at every tier. CLI output stays JSON.

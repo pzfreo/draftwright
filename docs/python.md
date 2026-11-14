@@ -193,7 +193,9 @@ layout edits.
 selects any distinct subset and returns a tuple of **all** written paths, in format
 order. SVG, PNG and DXF have one file per sheet (`name.sheet2.svg`, etc.); PDF is
 one document containing every sheet. PNG uses the engine's default resolution.
-`drawing.problems` contains the most recent successful render's findings.
+`drawing.problems` contains the most recent successful render's findings. Every dictionary
+includes the engine-owned `tier`: `fix_before_printing`, `tidy`, or `information`.
+See the [code-to-tier table](finding-impact.md), including its explicit severity-dependent rules.
 
 ## Commands and interrupts
 

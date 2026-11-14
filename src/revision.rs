@@ -134,6 +134,7 @@ pub struct Problems {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ProblemRef {
+    pub tier: crate::finding::Tier,
     pub code: String,
     pub severity: String,
     pub message: String,
@@ -864,6 +865,7 @@ fn problems(old: &Session, new: &Session, m: &Matching) -> Problems {
     let before: BTreeSet<_> = old.state().problems.iter().map(|p| key(p, true)).collect();
     let after: BTreeSet<_> = new.state().problems.iter().map(|p| key(p, false)).collect();
     let r = |p: &model::Problem| ProblemRef {
+        tier: p.labels().tier,
         code: p.code.clone(),
         severity: p.severity.clone(),
         message: p.message.clone(),

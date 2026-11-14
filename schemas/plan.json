@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Draftwright Plan hole-table presentation fields",
-  "description": "The hole-table presentation portion of draftwright.plan/1. Other Plan and annotation fields remain unconstrained by this schema. Optional recovery metadata is preserved in saved plans.",
+  "description": "The hole-table presentation portion of draftwright.plan/1. Other Plan and annotation fields remain unconstrained by this schema. Optional recovery metadata is preserved in saved plans. Problems carry an additive engine-owned printing-priority tier. Older saved plans may omit it; serialization recomputes it.",
   "type": "object",
   "required": [
     "schema"
@@ -30,6 +30,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/balloon"
+      }
+    },
+    "problems": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/problem"
       }
     }
   },
@@ -125,6 +131,19 @@
             }
           ],
           "description": "Exact original transported text bounds, retained when a final label changes width. Recovery restores these bounds without floating-point reconstruction."
+        }
+      }
+    },
+    "problem": {
+      "type": "object",
+      "properties": {
+        "tier": {
+          "enum": [
+            "fix_before_printing",
+            "tidy",
+            "information"
+          ],
+          "description": "Engine-owned printing priority; see docs/finding-impact.md for exhaustive code mapping and severity-dependent coverage rules."
         }
       }
     }

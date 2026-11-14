@@ -303,7 +303,7 @@ fn small(cache: &Cache, row: Value) -> Result<Value, Error> {
     if row.get("code").is_some() && row.get("subjects").is_some() {
         let mut summary = json!({"id":row["id"],"code":row["code"],
             "severity":row["severity"],"subjects":row["subjects"],"detail_ref":detail});
-        for field in ["impact", "group"] {
+        for field in ["tier", "impact", "group"] {
             if let Some(label) = row.get(field) {
                 summary[field] = label.clone();
             }
@@ -329,7 +329,11 @@ fn small(cache: &Cache, row: Value) -> Result<Value, Error> {
         .get("id")
         .or_else(|| row.pointer("/item/id"))
         .filter(|id| id.as_str().is_some_and(|s| s.len() <= 256));
-    Ok(json!({"id":id,"detail_ref":detail}))
+    let mut stub = json!({"id":id,"detail_ref":detail});
+    if let Some(tier) = row.get("tier").or_else(|| row.pointer("/problem/tier")) {
+        stub["tier"] = tier.clone();
+    }
+    Ok(stub)
 }
 fn value_bytes(v: &Value) -> usize {
     serde_json::to_vec(v).unwrap().len()
@@ -369,7 +373,7 @@ fn problem_summary(p: &crate::model::Problem) -> Value {
     let labels = p.labels();
     let fixes = p.offered_fixes();
     let preferred = fixes.first().map(|f| f.ops.as_slice()).unwrap_or_default();
-    json!({"id":p.id,"code":p.code,"severity":p.severity,"impact":labels.impact,"group":labels.group,"subjects":p.subjects,"fix":preferred,"fixes":fixes})
+    json!({"id":p.id,"code":p.code,"severity":p.severity,"tier":labels.tier,"impact":labels.impact,"group":labels.group,"subjects":p.subjects,"fix":preferred,"fixes":fixes})
 }
 fn delta_page(cache: &Cache, delta: &Delta, args: &Value) -> Result<Value, Error> {
     let detail = args["detail"].as_bool().unwrap_or(false);
@@ -389,7 +393,7 @@ fn delta_page(cache: &Cache, delta: &Delta, args: &Value) -> Result<Value, Error
     ] {
         for p in problems {
             let labels = p.labels();
-            rows.push(json!({"change":change,"problem":if detail || change == "notice"{value(p)}else{json!({"id":p.id,"code":p.code,"severity":p.severity,"impact":labels.impact,"group":labels.group,"subjects":p.subjects})}}));
+            rows.push(json!({"change":change,"problem":if detail || change == "notice"{value(p)}else{json!({"id":p.id,"code":p.code,"severity":p.severity,"tier":labels.tier,"impact":labels.impact,"group":labels.group,"subjects":p.subjects})}}));
         }
     }
     Ok(
@@ -1194,6 +1198,35 @@ pub fn run(args: &[String]) -> Result<(), Error> {
 #[cfg(test)]
 mod batch_tests {
     #[test]
+    fn oversized_problem_references_keep_the_engine_tier() {
+        let root = std::env::temp_dir().join(format!("tier-overflow-{}", std::process::id()));
+        let cache = Cache::new(root.clone());
+        let problem = crate::model::Problem {
+            id: "p:overflow".into(),
+            code: "annotation_ink_overlap".into(),
+            severity: "warning".into(),
+            subjects: (0..1000).map(|i| format!("d:long-subject-{i}")).collect(),
+            ..Default::default()
+        };
+        let wire = serde_json::to_value(&problem).unwrap();
+        let stub = small(&cache, wire.clone()).unwrap();
+        assert_eq!(stub["tier"], "fix_before_printing");
+        assert!(stub["detail_ref"].is_string());
+        assert!(value_bytes(&stub) < PAGE_BYTES / 4);
+        let full: Value = serde_json::from_slice(
+            &cache
+                .artifact_bytes(stub["detail_ref"].as_str().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(full, wire);
+        let delta_stub = small(&cache, json!({"change":"problem_added", "problem":wire})).unwrap();
+        assert_eq!(delta_stub["tier"], "fix_before_printing");
+        assert!(delta_stub["detail_ref"].is_string());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn summaries_keep_scoped_alternatives_in_order() {
         use crate::{fixes::Fix, items::Op, model::Problem};
         let problem = Problem {
@@ -1209,6 +1242,7 @@ mod batch_tests {
         };
         let summary = super::problem_summary(&problem);
         let wire = serde_json::to_value(&problem).unwrap();
+        assert_eq!(summary["tier"], wire["tier"]);
         assert_eq!(summary["impact"], wire["impact"]);
         assert_eq!(summary["group"], wire["group"]);
         assert_eq!(summary["fixes"], wire["fixes"]);

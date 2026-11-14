@@ -28,7 +28,8 @@ operation_scopes={'type':'object','additionalProperties':scope}
 fix=obj({'scope':scope,'description':S,'ops':arr(ref('op'))},['scope','description','ops'])
 item=obj({'operation_scopes':operation_scopes,'item':{'type':'object'},'value':nullable(N),'dimension_kind':nullable(S),'placement':nullable({'type':'object'}),'anchors':arr(S),'features':arr(S),'basis':S,'operations':arr(S)},['item','value','dimension_kind','placement','anchors','features','basis','operations'])
 impact={'enum':['incomplete','decision','readability','advisory']}
-labels={'impact':impact,'group':S}
+tier={'enum':['fix_before_printing','tidy','information']}
+labels={'tier':tier,'impact':impact,'group':S}
 problem=obj({**labels,'id':S,'code':S,'severity':S,'message':S,'subjects':arr(S),'refs':arr(S),'crossing_kinds':arr(S),'ink_is_leader':B,'fix':arr(ref('op')),'fixes':arr(fix)},['id','code','severity','message','subjects'])
 rectangle=arr(N,minItems=4,maxItems=4)
 filter_=obj({'sheet':nullable(SHEET),'view':nullable(S),'kind':nullable(S),'state':nullable(ref('state')),'feature':nullable(S),'region':nullable(rectangle),'near':nullable(S),'radius':nullable({'type':'number','minimum':0})})
@@ -68,7 +69,7 @@ del spec['properties']['feature_declarations']['items']['type']
 # The shared map pattern already requires dimensions and every entry to be objects.
 spec_read={**spec,'properties':{**spec['properties'],'dimensions':{'additionalProperties':{k:v for k,v in dimension.items() if k != 'type'}},'annotations':{'additionalProperties':{'properties':{'text':ref('x')}}}}}
 defs={'x':label_text,'state':state,'spec':spec,'spec_read':spec_read,'op':op,'item':item,'compact':compact,'problem':problem,'error':obj({'code':{'enum':['invalid','failed']},'message':S,'choices':arr(S),'path':S},['code','message'])}
-stub=obj({'id':nullable(S),'detail_ref':S},['id','detail_ref'])
+stub=obj({'id':nullable(S),'detail_ref':S,'tier':tier},['id','detail_ref'])
 problem_small=obj({**labels,'id':S,'code':S,'severity':S,'subjects':arr(S),'fix':arr(ref('op')),'fixes':arr(fix),'detail_ref':S,'scope':scope,'description':S},['id','code','severity','subjects'])
 defs.update({'stub':stub, 'problem_small':problem_small})
 row_item={'anyOf':[ref('compact'),ref('item'),ref('stub')]}

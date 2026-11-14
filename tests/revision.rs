@@ -158,6 +158,10 @@ fn a_resized_boss_is_one_changed_callout() {
         .map(|p| p.code.as_str())
         .collect();
     assert_eq!(added, ["leader_along_centreline"]);
+    for problem in &r.report.problems.added {
+        assert_eq!(problem.tier, draftwright::finding::Tier::Tidy);
+        assert_eq!(serde_json::to_value(problem).unwrap()["tier"], "tidy");
+    }
     assert!(r.report.problems.resolved.is_empty());
     assert_eq!(r.report.verdict, "problems");
 }

@@ -857,7 +857,7 @@ fn an_oversized_trade_keeps_the_finding_inline_and_the_remedy_lossless() {
     let ops = json!([{"op":"set", "path":"dimensions/d:example/place", "value":{"side":"below"}}]);
     let description = "Trade-off: adds an extension crossing. ".repeat(100);
     let row = json!({"id":"p:example", "code":"extension_through_feature",
-        "severity":"warning", "impact":"readability", "group":"extension-path",
+        "severity":"warning", "impact":"readability", "group":"extension-path", "tier":"tidy",
         "subjects":["d:example", "f:slot:f4"], "fix":ops,
         "fixes":[{"scope":"local", "description":description, "ops":ops}]});
     let page = mcp::page(&cache, vec![row.clone()], &json!({})).unwrap();
@@ -865,6 +865,7 @@ fn an_oversized_trade_keeps_the_finding_inline_and_the_remedy_lossless() {
     assert_eq!(inline["code"], row["code"]);
     assert_eq!(inline["subjects"], row["subjects"]);
     assert_eq!(inline["impact"], row["impact"]);
+    assert_eq!(inline["tier"], row["tier"]);
     assert_eq!(inline["group"], row["group"]);
     assert!(
         inline.get("fix").is_none(),
