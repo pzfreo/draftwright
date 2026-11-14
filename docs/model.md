@@ -1179,7 +1179,9 @@ reproduces the same geometry (`tests/placement_intent.rs`, SVG, DXF, PDF and PNG
 
 ### Plan: what the sheet will say
 
-`analysis_sha256` identifies the complete effective Analysis used for planning, including its
+`analysis_sha256` omits derived problem tiers, preserving source identity when triage labels are
+added. The diagnostics themselves remain bound. It identifies the complete effective Analysis
+used for planning, including its
 recognition records and recogniser, beside the STEP `binding` and embedded `spec`. It is a
 SHA-256 digest of the deterministic JSON serialization, not merely the source-file hash;
 changing `--features` therefore changes the run's provenance even for the same STEP and Spec.
