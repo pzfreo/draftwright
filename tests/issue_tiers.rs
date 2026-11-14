@@ -33,6 +33,20 @@ fn severity_only_changes_explicit_context_dependent_codes() {
         assert_eq!(tier("annotation_leader_crossing", severity), Tier::Tidy);
         assert_eq!(tier("unclaimed_geometry", severity), Tier::Information);
         assert_eq!(tier("possible_thread", severity), Tier::Information);
+        assert_eq!(tier("spec_overrides_pmi", severity), Tier::Information);
+        for code in [
+            "geometry_below_resolution",
+            "shape_not_recognised",
+            "features_not_recognised",
+            "dimensions_not_ported",
+            "unrecognised_defining_geometry",
+            "views_overlap",
+        ] {
+            assert_eq!(tier(code, severity), Tier::Tidy, "{code}: {severity}");
+        }
+        for code in ["annotation_edit_unapplied", "view_overlap"] {
+            assert_eq!(tier(code, severity), Tier::FixBeforePrinting);
+        }
     }
     assert_eq!(tier("pmi_not_extracted", "info"), Tier::Information);
     assert_eq!(tier("pmi_not_extracted", "error"), Tier::FixBeforePrinting);
@@ -41,6 +55,16 @@ fn severity_only_changes_explicit_context_dependent_codes() {
         tier("feature_not_located", "warning"),
         Tier::FixBeforePrinting
     );
+    assert_eq!(tier("hole_requirement_missing", "info"), Tier::Information);
+    assert_eq!(
+        tier("hole_requirement_unverifiable", "info"),
+        Tier::Information
+    );
+    for severity in ["warning", "error"] {
+        for code in ["hole_requirement_missing", "hole_requirement_unverifiable"] {
+            assert_eq!(tier(code, severity), Tier::FixBeforePrinting);
+        }
+    }
 }
 
 #[test]
@@ -110,7 +134,7 @@ fn a_fully_drawn_plate_has_no_fix_before_printing_and_a_removed_size_does() {
     let incomplete = api::review(&step, Some(&features), &spec).unwrap();
     assert!(
         urgent(&incomplete) > 0,
-        "a removed hole size must stop printing"
+        "a removed hole size belongs in fix_before_printing"
     );
 }
 

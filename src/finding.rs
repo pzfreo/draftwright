@@ -23,7 +23,7 @@ enum Group {
     Shape,
 }
 
-/// Printing priority, independent of diagnostic severity and impact.
+/// Issues panel grouping, independent of severity and impact; never an export gate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Tier {
@@ -33,7 +33,7 @@ pub enum Tier {
 }
 
 impl Tier {
-    /// Display and wire order: urgent findings first.
+    /// Default Issues panel group order.
     pub const ALL: [Self; 3] = [Self::FixBeforePrinting, Self::Tidy, Self::Information];
 
     pub fn as_str(self) -> &'static str {
@@ -187,7 +187,7 @@ catalogue! {
     dimension_text_stray => Readability, FixBeforePrinting, Code, "Dimension text is displaced from its own span.";
     dimension_view_not_shown => Incomplete, Requirement, Code, "The dimension requires a view that is not drawn.";
     dimension_witness_detached => Incomplete, Requirement, Code, "A detached witness or depth leader misstates where the dimension applies; the required measurement cannot be verified on the drawing.";
-    dimensions_not_ported => Incomplete, Requirement, Feature, "No implemented dimension grammar states this feature requirement.";
+    dimensions_not_ported => Incomplete, Tidy, Feature, "An unimplemented dimension grammar is a drafting-quality hint for this feature.";
     duplicate_measurement => Advisory, Tidy, Code, "The same measurement is repeated on the drawing.";
     edges_not_drawn => Incomplete, Requirement, Code, "Failed projection left model edges absent from the drawing.";
     extension_off_centreline => Readability, FixBeforePrinting, Code, "An extension line lies just beside a centre line, so it reads as locating that centre.";
@@ -198,7 +198,7 @@ catalogue! {
     feature_not_dimensioned => Incomplete, Requirement, Feature, "The feature has no drawn dimension that states its requirement.";
     feature_not_located => Incomplete, Requirement, Feature, "The drawing does not state the feature location.";
     feature_not_sized => Incomplete, Requirement, Feature, "The drawing does not state the feature size.";
-    features_not_recognised => Incomplete, Requirement, Code, "Unsupported recognition leaves required feature information unstated.";
+    features_not_recognised => Incomplete, Tidy, Code, "Unsupported recognition is a drafting-quality hint; unowned faces need not be a problem.";
     fillet_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
     fillet_requirement_unverifiable => Incomplete, Requirement, Requirement, "The drawing does not prove this required feature parameter.";
     fit_deviations_unavailable => Advisory, Information, Code, "The valid fit class states the requirement; optional numerical deviations are unavailable.";
@@ -216,7 +216,7 @@ catalogue! {
     gear_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
     gear_semantics_missing => Decision, FixBeforePrinting, Code, "Gear manufacturing semantics must be supplied by the user.";
     general_tolerance_missing => Decision, FixBeforePrinting, Code, "Only the user can choose the general tolerance.";
-    geometry_below_resolution => Readability, FixBeforePrinting, Code, "The requested scale projects geometry below normal drawing resolution.";
+    geometry_below_resolution => Readability, Tidy, Code, "Geometry projected below normal drawing resolution is a drafting-quality concern.";
     groove_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
     groove_requirement_unverifiable => Incomplete, Requirement, Requirement, "The drawing does not prove this required feature parameter.";
     gusset_rib_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
@@ -355,7 +355,7 @@ catalogue! {
     semicircular_blind_slot_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
     semicircular_blind_slot_requirement_unverifiable => Incomplete, Requirement, Requirement, "The drawing does not prove this required feature parameter.";
     shaded_view_unresolved => Decision, Tidy, Code, "The requested shaded style could not be resolved; ordinary pictorial lines preserve the drawing.";
-    shape_not_recognised => Incomplete, Requirement, Shape, "A recognisable shape among unexplained faces is neither sized nor located.";
+    shape_not_recognised => Incomplete, Tidy, Shape, "A recognisable shape among unexplained faces is a drafting-quality hint.";
     sheet_assignment_unused => Advisory, Information, Code, "A sheet assignment has no corresponding drawing item.";
     sheet_below_smallest_scale => Readability, Tidy, Code, "The sheet uses views below the requested legibility scale.";
     sheet_label_replaced => Advisory, Information, Code, "Automatic document numbering replaces the authored sheet label.";
@@ -368,7 +368,7 @@ catalogue! {
     slot_requirement_unverifiable => Incomplete, Requirement, Requirement, "The drawing does not prove this required feature parameter.";
     spec_entries_inactive => Decision, Information, Code, "Authored settings do not apply to any current item.";
     spec_from_other_revision => Decision, FixBeforePrinting, Code, "The user must decide whether to rebind settings from another revision.";
-    spec_overrides_pmi => Decision, FixBeforePrinting, Code, "The user-authored control replaces a different PMI control.";
+    spec_overrides_pmi => Decision, Information, Code, "The deliberate user-authored override of PMI is informational.";
     spec_refines_pmi => Advisory, Information, Code, "The authored designation refines a Specify-written thread.";
     step_diameter_leader_target_mismatch => Readability, FixBeforePrinting, Code, "The turned diameter leader points at the wrong geometry.";
     step_diameter_leader_target_unverifiable => Readability, FixBeforePrinting, Code, "The turned diameter leader target cannot be verified.";
@@ -395,7 +395,7 @@ catalogue! {
     turned_step_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
     turned_step_requirement_unverifiable => Incomplete, Requirement, Requirement, "The drawing does not prove this required feature parameter.";
     unclaimed_geometry => Advisory, Information, Code, "Unclaimed faces can be ordinary stock faces, not missing requirements.";
-    unrecognised_defining_geometry => Incomplete, Requirement, Code, "The drawing does not define the unrecognised principal geometry.";
+    unrecognised_defining_geometry => Incomplete, Tidy, Code, "Unrecognised principal geometry is a drafting-quality hint.";
     v_channel_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
     v_channel_requirement_unverifiable => Incomplete, Requirement, Requirement, "The drawing does not prove this required feature parameter.";
     view_annotation_inside_extents => Advisory, Information, Code, "An annotation inside a view extent is informational.";
@@ -438,8 +438,8 @@ fn source_kind(id: &str) -> Option<String> {
         .then(|| kind.to_owned())
 }
 
-/// No message text or occurrence IDs enter the grouping key. An unknown external code is
-/// conservatively advisory; the source-inventory test forbids unclassified crate codes.
+/// No message text or occurrence IDs enter the grouping key. Unknown external codes are
+/// informational and advisory; the source-inventory test forbids unclassified crate codes.
 pub fn labels(
     code: &str,
     info: bool,
@@ -540,6 +540,19 @@ impl Summary {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_external_codes_remain_informational_and_advisory() {
+        let code = "external_unregistered_diagnostic";
+        assert!(classification(code).is_none());
+        for info in [false, true] {
+            let label = labels(code, info, &[], std::iter::empty::<&str>(), &[], &[], None);
+            assert_eq!(label.tier, Tier::Information);
+            assert_eq!(label.impact, Impact::Advisory);
+            assert_eq!(label.group, code);
+            assert_eq!(serde_json::to_value(label).unwrap()["tier"], "information");
+        }
+    }
 
     #[test]
     fn every_registered_code_resolves_both_contexts() {

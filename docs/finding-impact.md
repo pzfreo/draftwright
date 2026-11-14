@@ -1,7 +1,10 @@
 # Finding tiers, impact and repeated causes
 
 Every problem and lint finding, including structural findings, carries additive `tier`, `impact`
-and `group` fields. `tier` is owned by the engine in the same exhaustive code registry:
+and `group` fields. `tier` is owned by the engine in the same exhaustive code registry.
+
+Tiers group issues; they never block export. They set which group the editor's Issues panel
+opens first; printing and export remain available at every tier.
 
 - `fix_before_printing`: wrong, missing, unreadable or ambiguously attached manufacturing information.
 - `tidy`: drafting quality, placement intent or redundancy that leaves the requirements readable.
@@ -16,12 +19,14 @@ obscured by ink still needs fixing. `pmi_note_unattached` needs fixing because t
 its feature association even though its text survives. Target mismatch/unverifiable warnings
 need fixing because the measurement cannot be trusted to apply to the intended feature.
 `possible_thread` is recognition advice: a smooth cylinder is not proof of an unstated thread.
+Recognition and dimension-grammar hints remain `tidy` at every severity; unclaimed geometry
+remains `information`. Deliberate Spec overrides of PMI are `information`, and geometry below
+normal drawing resolution is `tidy`.
 Unknown externally supplied codes use `information`; the inventory test forbids unknown engine codes.
 
 The plan schema stays `draftwright.plan/1`; old plans remain readable and labels are computed
 again on serialization. The source `analysis_sha256` keeps the pre-tier byte stream,
-so derived labels do not change saved-plan provenance. `draftwright plan|render|review ... --human` groups findings by tier,
-with counts and fix-before-printing first. Machine JSON retains its original list order.
+so derived labels do not change saved-plan provenance. Machine JSON retains its original list order.
 Severity, codes and drawing output keep their existing meanings.
 
 - `incomplete`: required information is absent or cannot be verified on the drawing.
@@ -132,7 +137,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `dimension_text_stray` | readability | fix_before_printing | Dimension text is displaced from its own span. |
 | `dimension_view_not_shown` | incomplete | fix_before_printing (information when severity=info) | The dimension requires a view that is not drawn. |
 | `dimension_witness_detached` | incomplete | fix_before_printing (information when severity=info) | A detached witness or depth leader misstates where the dimension applies; the required measurement cannot be verified on the drawing. |
-| `dimensions_not_ported` | incomplete | fix_before_printing (information when severity=info) | No implemented dimension grammar states this feature requirement. |
+| `dimensions_not_ported` | incomplete | tidy | An unimplemented dimension grammar is a drafting-quality hint for this feature. |
 | `duplicate_measurement` | advisory | tidy | The same measurement is repeated on the drawing. |
 | `edges_not_drawn` | incomplete | fix_before_printing (information when severity=info) | Failed projection left model edges absent from the drawing. |
 | `extension_off_centreline` | readability | fix_before_printing | An extension line lies just beside a centre line, so it reads as locating that centre. |
@@ -143,7 +148,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `feature_not_dimensioned` | incomplete | fix_before_printing (information when severity=info) | The feature has no drawn dimension that states its requirement. |
 | `feature_not_located` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state the feature location. |
 | `feature_not_sized` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state the feature size. |
-| `features_not_recognised` | incomplete | fix_before_printing (information when severity=info) | Unsupported recognition leaves required feature information unstated. |
+| `features_not_recognised` | incomplete | tidy | Unsupported recognition is a drafting-quality hint; unowned faces need not be a problem. |
 | `fillet_requirement_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state this required feature parameter. |
 | `fillet_requirement_unverifiable` | incomplete | fix_before_printing (information when severity=info) | The drawing does not prove this required feature parameter. |
 | `fit_deviations_unavailable` | advisory | information | The valid fit class states the requirement; optional numerical deviations are unavailable. |
@@ -161,7 +166,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `gear_requirement_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state this required feature parameter. |
 | `gear_semantics_missing` | decision | fix_before_printing | Gear manufacturing semantics must be supplied by the user. |
 | `general_tolerance_missing` | decision | fix_before_printing | Only the user can choose the general tolerance. |
-| `geometry_below_resolution` | readability | fix_before_printing | The requested scale projects geometry below normal drawing resolution. |
+| `geometry_below_resolution` | readability | tidy | Geometry projected below normal drawing resolution is a drafting-quality concern. |
 | `groove_requirement_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state this required feature parameter. |
 | `groove_requirement_unverifiable` | incomplete | fix_before_printing (information when severity=info) | The drawing does not prove this required feature parameter. |
 | `gusset_rib_requirement_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state this required feature parameter. |
@@ -300,7 +305,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `semicircular_blind_slot_requirement_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state this required feature parameter. |
 | `semicircular_blind_slot_requirement_unverifiable` | incomplete | fix_before_printing (information when severity=info) | The drawing does not prove this required feature parameter. |
 | `shaded_view_unresolved` | decision | tidy | The requested shaded style could not be resolved; ordinary pictorial lines preserve the drawing. |
-| `shape_not_recognised` | incomplete | fix_before_printing (information when severity=info) | A recognisable shape among unexplained faces is neither sized nor located. |
+| `shape_not_recognised` | incomplete | tidy | A recognisable shape among unexplained faces is a drafting-quality hint. |
 | `sheet_assignment_unused` | advisory | information | A sheet assignment has no corresponding drawing item. |
 | `sheet_below_smallest_scale` | readability | tidy | The sheet uses views below the requested legibility scale. |
 | `sheet_label_replaced` | advisory | information | Automatic document numbering replaces the authored sheet label. |
@@ -313,7 +318,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `slot_requirement_unverifiable` | incomplete | fix_before_printing (information when severity=info) | The drawing does not prove this required feature parameter. |
 | `spec_entries_inactive` | decision | information | Authored settings do not apply to any current item. |
 | `spec_from_other_revision` | decision | fix_before_printing | The user must decide whether to rebind settings from another revision. |
-| `spec_overrides_pmi` | decision | fix_before_printing | The user-authored control replaces a different PMI control. |
+| `spec_overrides_pmi` | decision | information | The deliberate user-authored override of PMI is informational. |
 | `spec_refines_pmi` | advisory | information | The authored designation refines a Specify-written thread. |
 | `step_diameter_leader_target_mismatch` | readability | fix_before_printing | The turned diameter leader points at the wrong geometry. |
 | `step_diameter_leader_target_unverifiable` | readability | fix_before_printing | The turned diameter leader target cannot be verified. |
@@ -340,7 +345,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `turned_step_requirement_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state this required feature parameter. |
 | `turned_step_requirement_unverifiable` | incomplete | fix_before_printing (information when severity=info) | The drawing does not prove this required feature parameter. |
 | `unclaimed_geometry` | advisory | information | Unclaimed faces can be ordinary stock faces, not missing requirements. |
-| `unrecognised_defining_geometry` | incomplete | fix_before_printing (information when severity=info) | The drawing does not define the unrecognised principal geometry. |
+| `unrecognised_defining_geometry` | incomplete | tidy | Unrecognised principal geometry is a drafting-quality hint. |
 | `v_channel_requirement_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state this required feature parameter. |
 | `v_channel_requirement_unverifiable` | incomplete | fix_before_printing (information when severity=info) | The drawing does not prove this required feature parameter. |
 | `view_annotation_inside_extents` | advisory | information | An annotation inside a view extent is informational. |

@@ -189,9 +189,6 @@ fn scale_ratio(scale: f64) -> Result<String, Error> {
     about = "Render a STEP file using the common Python CLI options",
     after_help = "Subcommand names take priority over file names. Use ./render for a file named render.\nFor more controls use draftwright render --help and --spec.")]
 struct Bare {
-    /// Show findings grouped by printing priority, with counts
-    #[arg(long)]
-    human: bool,
     step: String,
     #[command(flatten)]
     sheet: SheetOptions,
@@ -209,7 +206,7 @@ struct Bare {
 }
 
 pub(super) fn is_bare(args: &[std::ffi::OsString]) -> bool {
-    let Some(first) = args.iter().skip(1).find(|arg| *arg != "--human") else {
+    let Some(first) = args.get(1) else {
         return false;
     };
     let first = first.to_string_lossy();
@@ -260,7 +257,6 @@ pub(super) fn parse(args: Vec<std::ffi::OsString>) -> Result<Given, clap::Error>
         pictorial: bare.pictorial,
         spec: bare.spec,
         bare: true,
-        human: bare.human,
         ..Given::default()
     })
 }
