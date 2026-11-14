@@ -92,6 +92,9 @@ JSON-lines serve: {\"op\":\"hello\"} lists operations; spec_schema and item_opti
     args_override_self = true
 )]
 struct Cli {
+    /// Show findings grouped by printing priority, with counts (default: JSON)
+    #[arg(long, global = true)]
+    human: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -271,6 +274,7 @@ struct Given {
     pictorial: compat::PictorialOptions,
     out_dir: Option<String>,
     bare: bool,
+    human: bool,
 }
 
 impl Given {
@@ -299,7 +303,7 @@ pub fn main(args: Vec<std::ffi::OsString>) -> u8 {
         Ok(cli) => cli,
         Err(error) => return parse_error(error),
     };
-    let (name, given) = match cli.command {
+    let (name, mut given) = match cli.command {
         Command::Completions { shell } => {
             clap_complete::generate(
                 shell,
@@ -435,6 +439,7 @@ pub fn main(args: Vec<std::ffi::OsString>) -> u8 {
             },
         ),
     };
+    given.human = cli.human;
     finish(name, &given)
 }
 
@@ -498,10 +503,47 @@ pub fn make_drawing(
     Ok((path(".svg")?, path(".dxf")?))
 }
 
+// Consume the engine's serialized tier; no CLI code-to-tier table.
+fn human_findings(out: &Value) -> String {
+    use std::fmt::Write as _;
+    let mut text = String::new();
+    for path in out["written"].as_array().into_iter().flatten() {
+        if let Some(path) = path.as_str() {
+            writeln!(text, "Written: {path}").unwrap();
+        }
+    }
+    let findings: Vec<_> = ["problems", "lint", "structural"]
+        .into_iter()
+        .flat_map(|key| out[key].as_array().into_iter().flatten())
+        .collect();
+    for tier in crate::finding::Tier::ALL {
+        let rows: Vec<_> = findings
+            .iter()
+            .filter(|p| p["tier"] == tier.as_str())
+            .collect();
+        writeln!(text, "{} ({})", tier.as_str().replace('_', " "), rows.len()).unwrap();
+        for problem in rows {
+            writeln!(
+                text,
+                "  [{}] {}: {}",
+                problem["severity"].as_str().unwrap_or(""),
+                problem["code"].as_str().unwrap_or(""),
+                problem["message"].as_str().unwrap_or("")
+            )
+            .unwrap();
+        }
+    }
+    text
+}
+
 fn finish(name: &str, given: &Given) -> u8 {
     match run(name, given) {
         Ok(out) => {
-            println!("{}", serde_json::to_string_pretty(&out).expect("JSON"));
+            if given.human {
+                print!("{}", human_findings(&out));
+            } else {
+                println!("{}", serde_json::to_string_pretty(&out).expect("JSON"));
+            }
             0
         }
         Err(error) => {
@@ -825,5 +867,46 @@ fn reply(request: &Value, service: &mut api::Service) -> Value {
     match result {
         Ok(result) => json!({ "id": id, "ok": true, "result": result }),
         Err(error) => json!({ "id": id, "ok": false, "error": error }),
+    }
+}
+
+#[cfg(test)]
+mod tier_tests {
+    use super::*;
+
+    #[test]
+    fn human_output_groups_all_findings_with_counts_and_retains_within_tier_order() {
+        let urgent = |code: &str| json!({"code":code,"tier":"fix_before_printing","severity":"warning","message":code});
+        let out = json!({"problems":[
+            {"code":"crossing","tier":"tidy","severity":"warning","message":"Crossing"},
+            urgent("first")],
+            "lint":[urgent("second")],
+            "structural":[{"code":"source","tier":"information","severity":"info","message":"Source"}]});
+        assert_eq!(
+            human_findings(&out),
+            "fix before printing (2)\n  [warning] first: first\n  [warning] second: second\ntidy (1)\n  [warning] crossing: Crossing\ninformation (1)\n  [info] source: Source\n"
+        );
+        assert_eq!(
+            human_findings(&json!({})),
+            "fix before printing (0)\ntidy (0)\ninformation (0)\n"
+        );
+        let args = |words: &[&str]| {
+            std::iter::once("draftwright")
+                .chain(words.iter().copied())
+                .map(Into::into)
+                .collect::<Vec<_>>()
+        };
+        for words in [
+            vec!["plan", "part.step", "--human"],
+            vec!["--human", "plan", "part.step"],
+        ] {
+            assert!(!compat::is_bare(&args(&words)));
+            assert!(Cli::try_parse_from(args(&words)).unwrap().human);
+        }
+        assert!(
+            compat::parse(args(&["part.step", "--human"]))
+                .unwrap()
+                .human
+        );
     }
 }

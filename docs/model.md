@@ -3692,3 +3692,13 @@ in JSON/CSV, but bought parts get no invented process. In a pack, override a par
 `parts/<part-key>/drawing/process`, using its existing per-part drawing Spec.
 Insert and printed-thread
 hole callouts await Specify's hole functions and are outside this change.
+
+### Printing-priority tiers
+
+Every problem and lint finding carries an engine-computed `tier`: `fix_before_printing`,
+`tidy`, or `information`. This is additive to `draftwright.plan/1`; old plans remain readable.
+See [the exhaustive code table](finding-impact.md) for each tier and the explicit severity
+rule for coverage and PMI diagnostics. Severity, impact, finding order and drawing output
+retain their existing meaning. MCP, WASM/JS JSON, and Python `drawing.problems` expose the
+same field. Use `draftwright plan|render|review ... --human` for grouped CLI text with counts;
+the default output stays JSON.

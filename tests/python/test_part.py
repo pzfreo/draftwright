@@ -318,6 +318,9 @@ class PartAPI(unittest.TestCase):
         self.assertEqual(analysis["product_name"], "SHANK")
         self.assertEqual(exported["step"].read_bytes(), original)
         self.assertIsInstance(drawing.problems, list)
+        self.assertTrue(drawing.problems)
+        for problem in drawing.problems:
+            self.assertIn(problem["tier"], ("fix_before_printing", "tidy", "information"))
         self.assertTrue(Path(outputs[1]).read_bytes().startswith(b"%PDF-"))
         # Verify the deliverable through an independent PDF text reader.
         delivered = pdf_text(outputs[1])
