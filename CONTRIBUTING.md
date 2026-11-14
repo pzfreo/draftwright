@@ -48,7 +48,9 @@ entries. Local latency assertions stay enabled.
   routes, label lanes and repeated spans. This is **10 jobs**, down from 22; the target is
   roughly **10–12 minutes** with warm build caches, subject to runner queues and new tests' durations. Two shards
   leave headroom for process startup and unrecorded tests; one would carry about 34
-  estimated test-minutes before that overhead.
+  estimated test-minutes before that overhead. Relevant WASM/API/binding changes also
+  run the cheap WASM safeguard unit tests in lint; generated API and size checks require
+  the full WASM build and remain in the full tier.
 - **Main:** every push runs the full ten balanced shards, harnesses, all acceptance jobs
   (including budgets) and browser WASM parity: **22 jobs**, roughly **25 minutes**.
   The full nine-cell random-pin sweep (270 additional drawings), budgets and WASM are

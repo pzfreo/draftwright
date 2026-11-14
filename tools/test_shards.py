@@ -18,13 +18,15 @@ take precedence over it; it takes precedence over the `default` profile's hand-k
 
 --max-seconds 10 selects recorded tests of at most 10 seconds AND all unrecorded tests,
 then balances that tier as usual. Harness binaries remain in CI's separate whole-binary job.
---check-tiers checks that the two PR shards plus the slow set cover all ten main shards,
-without duplicates or omissions; it runs against the built inventory on every CI build.
+--check-tiers compares independently evaluated nextest listings of the two PR filters
+(--pr-list, repeated) plus recorded slow tests with the full nextest listing (--list).
+It never derives the expected full inventory from the PR selection predicate.
 
 Refresh the record from the JUnit reports of a CI run's test shards (artifacts test-junit-*):
   python3 tools/test_shards.py --record junit-dir
 """
 import argparse
+from collections import Counter
 import json
 import math
 from pathlib import Path
@@ -64,18 +66,19 @@ def select(tests, durations, max_seconds=None):
             or durations.get(f'{test[0]} {test[1]}', 0) <= max_seconds]
 
 
-def check_tiers(tests, durations, max_seconds):
-    fast = select(tests, durations, max_seconds)
-    slow = [t for t in tests if durations.get(f'{t[0]} {t[1]}', 0) > max_seconds]
-    pr, _ = assign(fast, durations, 2)
-    main, _ = assign(select(tests, durations), durations, 10)
-    pr_tests = [t for shard in pr for t in shard]
-    main_tests = [t for shard in main for t in shard]
-    if (len(set(tests)) != len(tests) or sorted(main_tests) != sorted(tests)
-            or sorted(pr_tests + slow) != sorted(main_tests)
-            or set(pr_tests) & set(slow)):
-        raise ValueError('PR shards plus slow tests must partition every main test exactly once')
-    for label, tier in [('PR', fast), ('slow', slow), ('main', tests)]:
+def check_tiers(tests, pr_tests, durations, max_seconds):
+    """Compare actual nextest PR-filter matches against an independently listed full suite.
+
+    Derive slow identities from the duration record, not by inverting select(). Nextest,
+    rather than this script, evaluates the generated filters in the --pr-list inventories.
+    """
+    full = set(tests)
+    slow = {tuple(key.split(' ', 1)) for key, seconds in durations.items()
+            if seconds > max_seconds} & full
+    if (len(full) != len(tests) or set(pr_tests) & slow
+            or Counter(pr_tests) + Counter(slow) != Counter(tests)):
+        raise ValueError('evaluated PR filters plus recorded slow tests must partition the full nextest list exactly once')
+    for label, tier in [('PR', pr_tests), ('slow', slow), ('main', tests)]:
         minutes = sum(durations.get(f'{b} {t}', 0) for b, t in tier) / 60
         unknown = sum(f'{b} {t}' not in durations for b, t in tier)
         print(f'{label}: {len(tier)} tests, {minutes:.2f} recorded test-minutes, '
@@ -134,6 +137,8 @@ def main():
                         help='Also write the shard\'s longest-first nextest tool config here')
     parser.add_argument('--max-seconds', type=seconds_arg, metavar='SECONDS',
                         help='Keep tests at or below this duration, plus every unrecorded test')
+    parser.add_argument('--pr-list', type=Path, action='append', default=[], metavar='JSON',
+                        help='Independently evaluated nextest PR filter listing; repeat for each shard')
     parser.add_argument('--check-tiers', action='store_true',
                         help='Assert PR + slow = full main inventory (requires --max-seconds)')
     parser.add_argument('--record', type=Path, metavar='JUNIT_DIR')
@@ -141,9 +146,10 @@ def main():
     if args.record:
         return record(args.record)
     if args.check_tiers:
-        if not args.list or args.max_seconds is None or args.shard:
-            parser.error('--check-tiers requires --list and --max-seconds, without --shard')
+        if not args.list or not args.pr_list or args.max_seconds is None or args.shard:
+            parser.error('--check-tiers requires --list, --pr-list and --max-seconds, without --shard')
         return check_tiers(listed(json.loads(args.list.read_text())),
+                           [test for path in args.pr_list for test in listed(json.loads(path.read_text()))],
                            json.loads(DURATIONS.read_text()), args.max_seconds)
     if not (args.list and args.shard):
         parser.error('give --list and --shard, or --record')

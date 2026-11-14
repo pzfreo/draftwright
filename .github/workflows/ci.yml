@@ -42,6 +42,7 @@ jobs:
       quality_shards: ${{ steps.tier.outputs.quality_shards }}
       quality_count: ${{ steps.tier.outputs.quality_count }}
       tier: ${{ steps.tier.outputs.tier }}
+      wasm_changed: ${{ steps.wasm.outputs.changed || 'false' }}
     steps:
       - id: tier
         env:
@@ -58,6 +59,29 @@ jobs:
             echo 'quality_shards=[1,2]' >> "$GITHUB_OUTPUT"
             echo 'quality_count=2' >> "$GITHUB_OUTPUT"
             echo 'shards=["1/2","2/2","harness"]' >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        if: github.event_name == 'pull_request'
+        with:
+          # Both parents of the PR merge commit suffice for the base/head tree diff.
+          fetch-depth: 2
+      - id: wasm
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git diff --quiet "$BASE_REF" "$HEAD_REF" -- \
+            crates/draftwright-wasm src schemas fonts Cargo.toml Cargo.lock \
+            build.rs build_support.rs rust-toolchain.toml \
+            tools/wasm-parity.test.mjs tools/check_wasm_api.py tools/wasm_size.py \
+            tools/test_wasm_safeguards.py tools/wasm-size-budget.json .github/workflows/ci.yml; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            if [ "$result" != 1 ]; then exit "$result"; fi
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
 
   lint:
@@ -82,9 +106,15 @@ jobs:
           key: warm
       - run: python3 tools/check_test_binaries.py
       - run: python3 -m unittest discover -s tools -p 'test_check_test_binaries.py'
-      - run: python3 -m unittest discover -s tools -p 'test_ci_tiers.py'
+      - run: |
+          python3 -m venv target/ci-python
+          target/ci-python/bin/python -m pip install 'PyYAML==6.0.3'
+      - run: target/ci-python/bin/python -m unittest discover -s tools -p 'test_ci_tiers.py'
       - run: python3 -m unittest discover -s tools -p 'test_release_ci.py'
       - run: python3 -m unittest discover -s tools -p 'test_ci_acceptance.py'
+      - name: PR WASM safeguards
+        if: github.event_name == 'pull_request' && needs.changes.outputs.wasm_changed == 'true'
+        run: python3 -m unittest discover -s tools -p 'test_wasm_safeguards.py'
       - run: cargo fmt --all --check
       # The native analysis and default plan of each of the 68 survey parts, made once by this
       # commit's executable, for the test shards to read instead of making them again
@@ -123,7 +153,15 @@ jobs:
         run: |
           cargo nextest list --archive-file nextest-archive.tar.zst \
             --workspace-remap . --profile ci --message-format json > nextest-list.json
-          python3 -I tools/test_shards.py --list nextest-list.json --max-seconds 10 --check-tiers
+          # Have nextest independently evaluate the actual filters, rather than trusting
+          # the Python selector to prove its own coverage. Keep each filter below ARG_MAX.
+          for k in 1 2; do
+            filter=$(python3 -I tools/test_shards.py --list nextest-list.json --shard "$k/2" --max-seconds 10)
+            cargo nextest list --archive-file nextest-archive.tar.zst \
+              --workspace-remap . --profile ci -E "$filter" --message-format json > "pr-list-$k.json"
+          done
+          python3 -I tools/test_shards.py --list nextest-list.json --max-seconds 10 --check-tiers \
+            --pr-list pr-list-1.json --pr-list pr-list-2.json
       - run: cargo test --doc --release
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
