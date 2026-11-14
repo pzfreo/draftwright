@@ -23,6 +23,13 @@ import draftwright
 FACE = re.compile(r"ADVANCED_FACE\('([^']*)'")
 
 
+def pdf_text(path):
+    if shutil.which("pdftotext"):
+        return subprocess.check_output(["pdftotext", str(path), "-"], text=True)
+    from pypdf import PdfReader
+    return "\n".join(page.extract_text() for page in PdfReader(path).pages)
+
+
 def plate_parts():
     with bd.BuildPart() as plate:
         bd.Box(120, 80, 20)
@@ -232,6 +239,10 @@ class PartAPI(unittest.TestCase):
         for expected in ("H7", "Ra 1.6", "6082-T6", "ISO 2768-mK"):
             self.assertIn(expected, text)
         self.assertTrue(Path(pdf).read_bytes().startswith(b"%PDF-"))
+        delivered = pdf_text(pdf)
+        for expected in ("⌖", "⏥", "0.1", "0.05", "H7", "Ra 1.6"):
+            self.assertIn(expected, delivered)
+        self.assertFalse([problem for problem in drawing.problems if problem["code"] == "pmi_not_lowered"], drawing.problems)
         self.assertFalse((self.directory / "proposal.step").exists())
         self.assertEqual(list(self.directory.glob("*.json")), [])
 
@@ -256,7 +267,7 @@ class PartAPI(unittest.TestCase):
         copy["sheet"]["title"]["title"] = "Changed"
         self.assertEqual(drawing.spec(), before)
 
-    def test_shank_requirements_reach_sheet_and_binding_is_exported_step(self):
+    def test_shank_requirements_reach_svg_pdf_without_specify(self):
         # A turned body with separate axial H7 and radial tapped bores, as #459.
         with bd.BuildPart() as shank:
             bd.Cylinder(10, 40)
@@ -295,14 +306,10 @@ class PartAPI(unittest.TestCase):
         self.assertIsInstance(drawing.problems, list)
         self.assertTrue(Path(outputs[1]).read_bytes().startswith(b"%PDF-"))
         # Verify the deliverable through an independent PDF text reader.
-        if shutil.which("pdftotext"):
-            pdf_text = subprocess.check_output(["pdftotext", str(outputs[1]), "-"], text=True)
-        else:
-            from pypdf import PdfReader
-            pdf_text = "\n".join(page.extract_text() for page in PdfReader(outputs[1]).pages)
+        delivered = pdf_text(outputs[1])
         for text in ("H7", "M3", "Ra", "1.6", "BRASS", "±0.05"):
-            self.assertIn(text, pdf_text)
-        self.assertIn("A", [line.strip() for line in pdf_text.splitlines()])
+            self.assertIn(text, delivered)
+        self.assertIn("A", [line.strip() for line in delivered.splitlines()])
         self.assertFalse([problem for problem in drawing.problems if problem["code"] == "pmi_not_lowered"], drawing.problems)
         # The one-render patch does not mutate the builder.
         self.assertNotIn("date", drawing.spec()["sheet"]["title"])
