@@ -25,7 +25,8 @@ def api(endpoint):
 
 
 def check(repo, tag, fetch=api):
-    commit = fetch(f'repos/{repo}/commits/{quote(f'refs/tags/{tag}', safe="")}')[0]['sha']
+    ref = quote(f'refs/tags/{tag}', safe='')
+    commit = fetch(f'repos/{repo}/commits/{ref}')[0]['sha']
     pages = fetch(f'repos/{repo}/actions/workflows/ci.yml/runs'
                   f'?head_sha={commit}&branch=main&event=push&status=success&per_page=100')
     for page in pages:

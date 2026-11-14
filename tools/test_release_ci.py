@@ -25,6 +25,7 @@ class ReleaseCI(unittest.TestCase):
 
     def test_exact_commit_all_jobs_and_paginated_attempt(self):
         guard.check('owner/repo', 'v1.0', self.fetch)
+        self.assertTrue(self.calls[0].endswith('/commits/refs%2Ftags%2Fv1.0'))
         self.assertIn('head_sha=abc123&branch=main&event=push', self.calls[1])
         self.assertIn('/attempts/2/jobs?', self.calls[2])
 
