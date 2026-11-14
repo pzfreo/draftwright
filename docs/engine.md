@@ -4,17 +4,16 @@ This is the engine's technical guide: building it, the command line in full, wha
 does not do, known limitations, and how to check a change. For an overview, see the
 [README](../README.md).
 
-**Status: 0.2.15** (2026-11-09, on quiddity `0.4.9`). Alpha 1's gates are in
-[alpha1.md](alpha1.md); what changed is in [CHANGELOG.md](../CHANGELOG.md). It is an early
-release: every drawing reports what it does not state, but drawings are not yet as clean as
-Python draftwright's on dense parts (see "Known limitations"). The port is checked against what
-Python draftwright produces, and every difference has a verdict (rust-correct, rust-wrong,
-equivalent, undetermined or not-applicable) in a known-differences list under
-`tests/fixtures/` (`known_*.json`).
+**Status: 0.6.0-alpha.2**, on quiddity `0.5.1` (see `Cargo.toml`). 0.6.0 is in
+alpha (pre-release). The Rust half of the build123d API remains to be completed;
+layout regressions are tracked in [#452](https://github.com/pzfreo/draftwright/issues/452).
+Every drawing reports what it could not state; the output still needs review.
+See [the measured public examples](results.md), [known limitations](#known-limitations)
+and [CHANGELOG.md](../CHANGELOG.md). The original alpha 1 gates are retained in
+[alpha1.md](alpha1.md) as historical context.
 
-The next release is **0.6.0**, using the same version for the GitHub tag, Cargo/crates.io
-and PyPI. The number jumps because PyPI's `draftwright` name already has releases from
-the earlier Python draftwright, up to 0.5.0rc13; the Rust engine takes that name over.
+0.6 replaces the earlier Python package of the same name, which is being retired.
+The GitHub tag, Cargo/crates.io and PyPI versions now share the same release number.
 
 ## Building
 
@@ -50,7 +49,7 @@ conversion instructions using 0.6.8.
 
 On the command line, `analyse`, `plan`, `render` and `review` take the part's features from
 Rust quiddity's recognition, run on the part (`src/bridge/native.rs`); the Analysis names it
-(`recognition.recogniser`, `quiddity-rust <version> (quiddity-rust/recognition/3)`).
+(`recognition.recogniser`, `quiddity-rust <version> (quiddity-rust/recognition/6)`).
 `--features` passes Python quiddity's recognition JSON instead, written once with
 `tools/recognise.py`; `--no-features` draws with none (no feature dimensions, sections or
 lint); `--analysis` reuses an Analysis that `analyse` printed for the same file:
@@ -154,10 +153,10 @@ To use the MCP server from an MCP client, register the `draftwright-mcp` binary 
 server (for Claude Code: `claude mcp add draftwright -- /path/to/draftwright-mcp`). It has not
 yet been tried in a real client.
 
-## What alpha 1 does
+## What it does
 
 - **Recognition.** Features come from Rust quiddity's recognition document
-  (`quiddity-rust/recognition/3`), read fail-closed: an unknown schema, family or record type is
+  (`quiddity-rust/recognition/6`), read fail-closed: an unknown schema, family or record type is
   refused with the reason, never guessed. The families read are listed in
   `src/bridge/native.rs` (`READ`). Families the document has but the reader does not take are
   named in the Analysis (`unrecognised`) and reported by the plan (`features_not_recognised`).
@@ -214,7 +213,7 @@ findings and distinct groups per impact, plus findings per group, across problem
 structural findings. These labels also appear on serve, WASM and MCP findings; MCP review
 includes the summary. See [finding impact](finding-impact.md) for all codes and reasons.
 
-## What alpha 1 does not do
+## Limitations and partial support
 
 - **PMI, not drawn yet:** a cone's angle (an angle no view
   shows true), diameters or radii not along x, y or z, a size several faces state together that
@@ -238,9 +237,9 @@ includes the summary. See [finding impact](finding-impact.md) for all codes and 
 - **Native recognition gaps** (`tests/fixtures/known_native.json`): a hole's faces lack the face
   that closes it (a drill point's cone, a blind floor), and a boss its free-end face, as the
   document carries only defining faces (rust-wrong).
-- **Revisions:** a spec made for another revision of the part keeps its sheet, view and
-  envelope choices, but its feature entries stay inactive until revision rebinding (ADR R3) is
-  implemented.
+- **Revisions:** `diff` carries a Spec to a new revision through feature correspondence
+  (ADR R3). Ambiguous or removed features still require a decision; PMI frames and datums
+  are not yet compared.
 - **Callouts inside a view:** hole, radius, chamfer, thread and other shared feature callouts
   can retry over proven blank face in their own view. Whole 3 mm horizontal labels, shoulders
   and short leaders clear projected visible/hidden edges, centre marks and other annotations.
@@ -259,6 +258,9 @@ includes the summary. See [finding impact](finding-impact.md) for all codes and 
   remain selectable named groups.
 
 ## Known limitations
+
+Current layout regressions are tracked in [#452](https://github.com/pzfreo/draftwright/issues/452).
+The [public-example results](results.md) report the current findings without claiming visual approval.
 
 Automatic layout tries `sheet/preferred_max_size` (default A3) and
 `sheet/preferred_max_sheets` (default 2) before larger paper, and tries compact

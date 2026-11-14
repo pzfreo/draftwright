@@ -27,6 +27,15 @@ on Linux without an unbounded wait. Bare-LF blank lines terminate reading prompt
 and are refused by header parsing with 400. This read deadline excludes tool
 computation. Cold computation runs synchronously here; production jobs are below.
 
+## Standalone server for MCP clients
+
+CLI release archives contain `draftwright-mcp` (or `draftwright-mcp.exe` on Windows),
+`schemas/`, this guide and the model reference. Wheel and Cargo installs provide the
+same server command. Register its executable path as a stdio server in Claude or another
+MCP client. It retains the document-passing compatibility API; new integrations can use
+`draftwright mcp-stdio` as described above. The standalone binary and the subcommands
+have different tool lists.
+
 ## Drawing packs in the compatibility adapter
 
 The `draftwright-mcp` executable exposes `pack` with `step` (a path or registered
