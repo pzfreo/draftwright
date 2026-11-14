@@ -542,29 +542,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_registered_code_resolves_and_serializes_both_contexts() {
+    fn every_registered_code_resolves_both_contexts() {
         for entry in CODES {
             for info in [false, true] {
-                let p = crate::model::Problem {
-                    code: entry.code.into(),
-                    severity: if info { "info" } else { "warning" }.into(),
-                    ..Default::default()
-                };
-                let labels = p.labels();
-                assert!(Tier::ALL.contains(&labels.tier));
-                assert_eq!(labels.tier, entry.kind.tier_rule().resolve(info));
-                assert_eq!(
-                    serde_json::to_value(&p).unwrap()["tier"],
-                    labels.tier.as_str()
+                let label = labels(
+                    entry.code,
+                    info,
+                    &[],
+                    std::iter::empty::<&str>(),
+                    &[],
+                    &[],
+                    None,
                 );
-                // Reading an old plan, or a stale client-provided tier, cannot override policy.
-                let mut old = serde_json::to_value(&p).unwrap();
-                old.as_object_mut().unwrap().remove("tier");
-                let decoded: crate::model::Problem = serde_json::from_value(old.clone()).unwrap();
-                assert_eq!(decoded.labels().tier, labels.tier);
-                old["tier"] = serde_json::json!("client_label");
-                let decoded: crate::model::Problem = serde_json::from_value(old).unwrap();
-                assert_eq!(decoded.labels().tier, labels.tier);
+                assert!(Tier::ALL.contains(&label.tier));
+                assert_eq!(label.tier, entry.kind.tier_rule().resolve(info));
+                assert_eq!(
+                    serde_json::to_value(&label).unwrap()["tier"],
+                    label.tier.as_str()
+                );
             }
         }
     }

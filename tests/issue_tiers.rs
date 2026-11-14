@@ -113,3 +113,30 @@ fn a_fully_drawn_plate_has_no_fix_before_printing_and_a_removed_size_does() {
         "a removed hole size must stop printing"
     );
 }
+
+#[test]
+fn every_documented_code_serializes_tier_and_old_values_recompute_it() {
+    for row in include_str!("../docs/finding-impact.md")
+        .lines()
+        .filter(|row| row.starts_with("| `"))
+    {
+        let code = row.split('`').nth(1).unwrap();
+        for info in [false, true] {
+            let problem = Problem {
+                code: code.into(),
+                severity: if info { "info" } else { "warning" }.into(),
+                ..Default::default()
+            };
+            let labels = problem.labels();
+            let mut wire = serde_json::to_value(&problem).unwrap();
+            assert_eq!(wire["tier"], labels.tier.as_str());
+            // Old saved values and client-supplied labels cannot override engine policy.
+            wire.as_object_mut().unwrap().remove("tier");
+            let decoded: Problem = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(decoded.labels().tier, labels.tier);
+            wire["tier"] = serde_json::json!("client_label");
+            let decoded: Problem = serde_json::from_value(wire).unwrap();
+            assert_eq!(decoded.labels().tier, labels.tier);
+        }
+    }
+}
