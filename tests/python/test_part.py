@@ -163,6 +163,10 @@ class PartAPI(unittest.TestCase):
             p.datum("A", plate.faces()[1])
         with self.assertRaisesRegex(ValueError, "not been declared"):
             p.hole(bore, label="b2").position(0.1, "B")
+        other = draftwright.Part(plate.part, "other")
+        foreign = other.datum("A", top)
+        with self.assertRaisesRegex(ValueError, "datum belongs to another Part"):
+            p.hole(bore, label="foreign_datum").position(0.1, foreign)
         # The same label on two groups would put one name on two faces.
         with self.assertRaisesRegex(ValueError, "already on face"):
             p.datum("B", plate.faces()[1], label="x")

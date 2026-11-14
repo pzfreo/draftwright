@@ -78,6 +78,8 @@ class HoleRef(_Ref):
 
     def position(self, tolerance, *datums):
         """A diametral position tolerance relative to the named datums."""
+        if any(isinstance(d, Datum) and d._part is not self._part for d in datums):
+            raise ValueError(f"{self.label}: a datum belongs to another Part")
         letters = [d.letter if isinstance(d, Datum) else str(d) for d in datums]
         for letter in letters:
             if letter not in self._part._datums:
