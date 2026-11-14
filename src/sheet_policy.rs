@@ -610,7 +610,8 @@ fn finished_preview(
         // A settled callout can leave the estimate's band even though its ink
         // fits the paper (GRM-04's archived recognition). Reuse whole-block
         // packing after routing, keeping every witness and leader unchanged.
-        if model::findings(&preview).clean()
+        if !crate::nominal::comparison()
+            && model::findings(&preview).clean()
             && preview
                 .problems
                 .iter()
