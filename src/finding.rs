@@ -303,6 +303,7 @@ catalogue! {
     pmi_datum_suppressed => Advisory, Information, Code, "The datum was deliberately suppressed by policy.";
     pmi_dimensions_not_ported => Incomplete, Requirement, Code, "The source dimension has no implemented drawing grammar.";
     pmi_graphical_not_drawn => Incomplete, Requirement, Source, "A graphical source annotation has no resolved semantic PMI coverage.";
+    pmi_hole_depth_mismatch => Decision, Requirement, Source, "The authored PMI hole depth disagrees with the recognised geometry; the authored depth is drawn.";
     pmi_ignored => Advisory, Information, Code, "The selected dimension-source policy ignores this PMI.";
     pmi_not_drawn => Incomplete, Requirement, Source, "The planned PMI annotation is absent from the sheet.";
     pmi_not_extracted => Incomplete, Requirement, Source, "A source PMI record was not extracted into a drawable requirement.";

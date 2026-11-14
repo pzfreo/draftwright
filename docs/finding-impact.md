@@ -253,6 +253,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `pmi_datum_suppressed` | advisory | information | The datum was deliberately suppressed by policy. |
 | `pmi_dimensions_not_ported` | incomplete | fix_before_printing (information when severity=info) | The source dimension has no implemented drawing grammar. |
 | `pmi_graphical_not_drawn` | incomplete | fix_before_printing (information when severity=info) | A graphical source annotation has no resolved semantic PMI coverage. |
+| `pmi_hole_depth_mismatch` | decision | fix_before_printing (information when severity=info) | The authored PMI hole depth disagrees with the recognised geometry; the authored depth is drawn. |
 | `pmi_ignored` | advisory | information | The selected dimension-source policy ignores this PMI. |
 | `pmi_not_drawn` | incomplete | fix_before_printing (information when severity=info) | The planned PMI annotation is absent from the sheet. |
 | `pmi_not_extracted` | incomplete | fix_before_printing (information when severity=info) | A source PMI record was not extracted into a drawable requirement. |

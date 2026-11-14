@@ -81,23 +81,25 @@ def ap242_fixtures():
     return sorted({*step.glob('nist_ctc_0*_ap242*.gz'), *step.glob('nist_ftc_*_ap242*.gz')})
 
 
-def quality_tasks():
-    """Every measurement of the quality-pins job: each quality part unpinned, each part in
-    each of the nine random-pin cells, each AP242 CTC/FTC source, and the rest of the
+def quality_tasks(tier="full"):
+    """Every quality-pins measurement: each quality part unpinned, each part in the nine
+    random-pin cells (full tier only), each AP242 CTC/FTC source, and the rest of the
     repeated-span survey (its verdict reads the plan, so the unpinned quality and AP242
     measurements serve the survey for their parts)."""
     parts = sorted(names(manifest('quality_parts.txt')))
     ap242 = [Path(f.stem).stem for f in ap242_fixtures()]
     rest = sorted(survey_names() - set(parts) - set(ap242))
-    return ([('quality', p) for p in parts] + [(f'pins-{c}', p) for c in PIN_CELLS for p in parts]
+    require(tier in ('pr', 'full'), f'unknown quality tier: {tier}')
+    pins = [(f'pins-{c}', p) for c in PIN_CELLS for p in parts] if tier == 'full' else []
+    return ([('quality', p) for p in parts] + pins
             + [('ap242', p) for p in ap242] + [('survey', p) for p in rest])
 
 
-def shard_tasks(k, n):
+def shard_tasks(k, n, tier="full"):
     """The K-th of N shards of quality_tasks(): heaviest task first to the least-loaded shard.
     Deterministic, and the N shards partition the tasks."""
     load, shards = [0.0] * n, [[] for _ in range(n)]
-    for task in sorted(quality_tasks(), key=lambda t: (-WEIGHTS.get(t[1], 10), t)):
+    for task in sorted(quality_tasks(tier), key=lambda t: (-WEIGHTS.get(t[1], 10), t)):
         i = min(range(n), key=lambda j: (load[j], j))
         load[i] += WEIGHTS.get(task[1], 10)
         shards[i].append(task)
@@ -249,7 +251,8 @@ class Run:
         except AssertionError as error:
             self.steps.append({'name': 'survey-inputs', 'passed': False, 'error': str(error)})
             return
-        tasks = shard_tasks(k, n)
+        tier = getattr(args, 'tier', 'full')
+        tasks = shard_tasks(k, n, tier)
         plans, lock = {}, threading.Lock()
 
         def unpinned(name):
@@ -297,7 +300,7 @@ class Run:
         results = {}
         for (kind, name), row in rows.items():
             results.setdefault(kind, {})[name] = row
-        write(out / 'shard.json', {'shard': [k, n], 'tasks': [list(t) for t in tasks], 'results': results,
+        write(out / 'shard.json', {'tier': tier, 'shard': [k, n], 'tasks': [list(t) for t in tasks], 'results': results,
                                    'binary_sha256': hashlib.sha256(Path(binary).read_bytes()).hexdigest()})
         failed = sorted(f'{kind}/{name}: {row["error"]}' for (kind, name), row in rows.items() if 'error' in row)
         record = {'name': f'quality-shard-{k}-{n}', 'tasks': len(tasks), 'passed': not failed,
@@ -313,10 +316,13 @@ class Run:
         import shutil
         args, out, binary = self.args, self.out, self.args.binary
         py = [sys.executable, '-I']
-        record = {'name': 'shards'}
+        tier = getattr(args, 'tier', 'full')
+        record = {'name': 'shards', 'tier': tier}
         try:
             found = [(path.parent, read(path)) for path in sorted(Path(shards_dir).glob('**/shard.json'))]
             require(found, f'no quality-pins shard evidence under {shards_dir}')
+            require(all(s.get('tier', 'full') == tier for _, s in found),
+                    'shard tier differs from the requested gate tier')
             n = found[0][1]['shard'][1]
             seen = sorted(tuple(s['shard']) for _, s in found)
             require(seen == [(k, n) for k in range(1, n + 1)], f'incomplete/duplicate shards: {seen}')
@@ -326,10 +332,10 @@ class Run:
             merged = {}
             for _, s in found:
                 k = s['shard'][0]
-                require([tuple(t) for t in s['tasks']] == shard_tasks(k, n), f'shard {k}/{n} ran other tasks')
-                for kind, name in shard_tasks(k, n):
+                require([tuple(t) for t in s['tasks']] == shard_tasks(k, n, tier), f'shard {k}/{n} ran other tasks')
+                for kind, name in shard_tasks(k, n, tier):
                     merged.setdefault(kind, {})[name] = s['results'][kind][name]
-            expected = quality_tasks()
+            expected = quality_tasks(tier)
             require(sum(map(len, merged.values())) == len(expected) and
                     all(name in merged.get(kind, {}) for kind, name in expected), 'shards miss a task')
             record.update(passed=True, shards=n, tasks=len(expected))
@@ -385,7 +391,7 @@ class Run:
         else:
             self.steps.append({'name': 'survey', 'passed': False, 'error': 'unreviewed repeated-span verdict'})
         baseline = merged['quality']
-        for cell in PIN_CELLS:
+        for cell in (PIN_CELLS if tier == 'full' else ()):
             seed, pins = map(int, cell.split('-'))
             parts = {}
             for name, row in merged[f'pins-{cell}'].items():
@@ -441,11 +447,13 @@ def main():
                         help='Run this job; repeat to run several in turn in one runner (default: all)')
     parser.add_argument('--shard', type=survey.shard_arg, default=(1, 1), metavar='K/N',
                         help='Measure one of N shards of the quality-pins tasks (quality-gate compares them)')
+    parser.add_argument('--tier', choices=('full', 'pr'), default='full',
+                        help='PR: all unpinned drawing checks and survey; full also requires all pin cells')
     parser.add_argument('--shards-dir', type=Path,
                         help='quality-gate: directory holding every quality-pins shard (default: --out)')
     parser.add_argument('--require-go', action='store_true',
                         help='Assert that this run enforces the full nine-cell random-pin grid: rejected '
-                             'unless --job is all or quality-gate (which always require every cell GO)')
+                             'unless the full tier runs --job all or quality-gate')
     parser.add_argument('--survey-shard', type=survey.shard_arg, default=(1, 1), metavar='K/N',
                         help='Run one of N slices of the repeated-span survey')
     parser.add_argument('--part-timeout', type=int, help='Override local quality/survey operation timeouts')
@@ -464,7 +472,9 @@ def main():
     args.job = 'all' if not args.job or 'all' in args.job else args.job[0] if len(jobs) == 1 else 'several'
     if any(t is not None and t <= 0 for t in (args.part_timeout, args.step_timeout)):
         parser.error('timeouts must be positive')
-    if args.require_go and (args.job not in ('all', 'quality-gate') or args.check_results):
+    if args.tier == 'pr' and (args.job not in ('quality-pins', 'quality-gate') or args.check_results):
+        parser.error('--tier pr requires --job quality-pins or quality-gate')
+    if args.require_go and (args.tier != 'full' or args.job not in ('all', 'quality-gate') or args.check_results):
         parser.error('--require-go requires the full random-pin grid: --job all or quality-gate')
     if args.shard != (1, 1) and args.job != 'quality-pins':
         parser.error('--shard requires --job quality-pins')
@@ -487,7 +497,7 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
     summary = {'format': 'draftwright.ci-acceptance/1', 'passed': False, 'jobs': {},
-               'corpus_revision': CORPUS_REV, 'corpus_revision_note': 'CI checkout pin; local files hashed below'}
+               'tier': args.tier, 'corpus_revision': CORPUS_REV, 'corpus_revision_note': 'CI checkout pin; local files hashed below'}
     try:
         args.binary = args.binary.resolve()
         args.baseline = args.baseline.resolve()

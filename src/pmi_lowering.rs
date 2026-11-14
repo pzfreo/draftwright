@@ -1595,6 +1595,200 @@ fn cylinder(part: &Part, f: usize) -> Result<Cylinder, &'static str> {
     })
 }
 
+/// A linear location's two endpoints on a bore axis, proven from adjacent entry/floor
+/// faces, circular rim edges or finite axis points on trimmed cylinder ends. Kept even
+/// when its nominal disagrees with the geometry.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HoleDepth {
+    pub cylinder: Cylinder,
+    pub ends: [[f64; 3]; 2],
+}
+
+/// Correlate endpoint topology before consulting any recognised feature or authored value.
+/// Every reference must participate: coincident support planes alone are insufficient.
+fn hole_depth_geometry(part: &Part, r: &Record) -> Vec<HoleDepth> {
+    use haecceity::geom::{Curve, dot};
+    if r.type_code != Some(2)
+        || r.face_groups.len() != 2
+        || crate::pmi::placements_reason(r).is_some()
+    {
+        return Vec::new();
+    }
+    let mut covered_faces = [BTreeSet::new(), BTreeSet::new()];
+    let mut covered_edges = [BTreeSet::new(), BTreeSet::new()];
+    let mut out = Vec::new();
+    for (f, face) in part.faces.iter().enumerate() {
+        let Ok(c) = cylinder(part, f) else { continue };
+        if !c.internal {
+            continue;
+        }
+        let mut rim: BTreeSet<usize> = face
+            .loops
+            .iter()
+            .flat_map(|l| l.edges.iter().map(|e| e.0))
+            .collect();
+        // A mouth chamfer separates the entry plane from the bore rim. Cross exactly
+        // one coaxial cone to its larger circular rim; never bridge arbitrary adjacent
+        // faces, counterbore walls, or the smaller rim of a drill-point cone.
+        let bore_rim = rim.clone();
+        let neighbours: BTreeSet<_> = bore_rim
+            .iter()
+            .flat_map(|&e| part.edge_faces()[e].iter().copied())
+            .collect();
+        for neighbour in neighbours {
+            let cone = &part.faces[neighbour];
+            let Surface::Cone { frame, .. } = &cone.surface else {
+                continue;
+            };
+            let delta = [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]);
+            let t = dot(delta, c.direction);
+            if (dot(frame.z, c.direction).abs() - 1.).abs() > 1e-6
+                || (0..3).any(|k| (delta[k] - t * c.direction[k]).abs() > 1e-6)
+            {
+                continue;
+            }
+            for edge in cone.loops.iter().flat_map(|l| &l.edges) {
+                let Curve::Circle { frame, radius } = &part.edges[edge.0].curve else {
+                    continue;
+                };
+                let station = dot(
+                    [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]),
+                    c.direction,
+                );
+                if *radius > c.radius + 1e-6
+                    && (dot(frame.z, c.direction).abs() - 1.).abs() < 1e-6
+                    && (station < c.interval[0] - 1e-6 || station > c.interval[1] + 1e-6)
+                {
+                    rim.insert(edge.0);
+                }
+            }
+        }
+        let mut ends = [Vec::new(), Vec::new()];
+        let mut point_faces = [BTreeSet::new(), BTreeSet::new()];
+        for (side, endpoints) in ends.iter_mut().enumerate() {
+            for &f in &r.face_groups[side] {
+                let face = &part.faces[f];
+                let Surface::Plane { frame } = &face.surface else {
+                    continue;
+                };
+                if !face
+                    .loops
+                    .iter()
+                    .flat_map(|l| &l.edges)
+                    .any(|e| rim.contains(&e.0))
+                {
+                    continue;
+                }
+                let denom = dot(c.direction, frame.z);
+                if denom.abs() < 1e-9 {
+                    continue;
+                }
+                let delta = [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]);
+                let t = dot(delta, frame.z) / denom;
+                endpoints.push((
+                    [0, 1, 2].map(|k| c.origin[k] + t * c.direction[k]),
+                    Some(f),
+                    None,
+                ));
+            }
+            for point in r
+                .geometry
+                .iter()
+                .flat_map(|g| g.axis_points.get(side))
+                .flatten()
+            {
+                if !point.faces.contains(&f) {
+                    continue;
+                }
+                let delta = [0, 1, 2].map(|k| point.point[k] - c.origin[k]);
+                let t = dot(delta, c.direction);
+                if (0..3).any(|k| (delta[k] - t * c.direction[k]).abs() > 1e-6) {
+                    continue;
+                }
+                // Its station must be a real end of the deriving cylinder's trimmed extent,
+                // as a sloping mouth's finite point is defined. An arbitrary point on an
+                // infinite axis must never supply a hole entry or floor.
+                let bounds: Option<Vec<_>> = point
+                    .faces
+                    .iter()
+                    .map(|&g| {
+                        let cy = cylinder(part, g).ok()?;
+                        let delta = [0, 1, 2].map(|k| cy.origin[k] - c.origin[k]);
+                        let t = dot(delta, c.direction);
+                        ((dot(cy.direction, c.direction).abs() - 1.).abs() < 1e-9
+                            && (cy.radius - c.radius).abs() < 1e-6
+                            && (0..3).all(|k| (delta[k] - t * c.direction[k]).abs() <= 1e-6))
+                        .then(|| part.face_projection_bounds(g, c.direction))
+                        .flatten()
+                    })
+                    .collect();
+                let Some(bounds) = bounds else { continue };
+                let lo = bounds.iter().map(|b| b.0).fold(f64::INFINITY, f64::min);
+                let hi = bounds.iter().map(|b| b.1).fold(f64::NEG_INFINITY, f64::max);
+                let station = dot(point.point, c.direction);
+                if (station - lo).abs().min((station - hi).abs()) > 1e-6 {
+                    continue;
+                }
+                point_faces[side].extend(&point.faces);
+                endpoints.push((point.point, None, None));
+            }
+            for &e in r.edge_groups.get(side).into_iter().flatten() {
+                if !rim.contains(&e) {
+                    continue;
+                }
+                let Curve::Circle { frame, radius } = &part.edges[e].curve else {
+                    continue;
+                };
+                if (radius - c.radius).abs() > 1e-6
+                    || (dot(frame.z, c.direction).abs() - 1.).abs() > 1e-6
+                {
+                    continue;
+                }
+                let delta = [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]);
+                let t = dot(delta, c.direction);
+                if (0..3).any(|k| (delta[k] - t * c.direction[k]).abs() > 1e-6) {
+                    continue;
+                }
+                endpoints.push((frame.origin, None, Some(e)));
+            }
+        }
+        if ends.iter().any(Vec::is_empty) {
+            continue;
+        }
+        // Several references on one side must resolve to the same axial point.
+        if ends.iter().any(|es| {
+            es.iter()
+                .any(|e| (0..3).any(|k| (e.0[k] - es[0].0[k]).abs() > 1e-6))
+        }) {
+            continue;
+        }
+        for side in 0..2 {
+            covered_faces[side].extend(&point_faces[side]);
+            for &(_, face, edge) in &ends[side] {
+                covered_faces[side].extend(face);
+                covered_edges[side].extend(edge);
+            }
+        }
+        out.push(HoleDepth {
+            cylinder: c,
+            ends: [ends[0][0].0, ends[1][0].0],
+        });
+    }
+    if (0..2).any(|i| {
+        r.face_groups[i]
+            .iter()
+            .any(|f| !covered_faces[i].contains(f))
+            || r.edge_groups
+                .get(i)
+                .into_iter()
+                .flatten()
+                .any(|e| !covered_edges[i].contains(e))
+    }) {
+        return Vec::new();
+    }
+    out
+}
+
 /// Where a dimension attaches, from its faces (draftwright's `_proved_planar_linear` with
 /// `_linear_reference_stations` for a linear or thickness dimension, `_cylindrical_references`
 /// with `_diameter_reference_blockers` for a diameter): what [`crate::dims`] draws it from, and
@@ -1608,12 +1802,23 @@ pub fn dimension_geometry(part: &Part, r: &Record) -> Geometry {
             .geometry
             .as_ref()
             .map_or_else(Vec::new, |g| g.targets.clone()),
+        axis_points: r
+            .geometry
+            .as_ref()
+            .map_or_else(Vec::new, |g| g.axis_points.clone()),
+        axis_point_reasons: r
+            .geometry
+            .as_ref()
+            .map_or_else(Vec::new, |g| g.axis_point_reasons.clone()),
         ..Geometry::default()
     };
     g.reasons.extend(crate::pmi::placements_reason(r));
     let value = r.value;
     match r.kind.as_str() {
-        "linear" | "thickness" => linear_geometry(part, r, value, &mut g),
+        "linear" | "thickness" => {
+            linear_geometry(part, r, value, &mut g);
+            g.hole_depths = hole_depth_geometry(part, r);
+        }
         "diameter" | "radius" => cylinder_geometry(part, r, value, &mut g),
         "angular" => crate::dims::angular::geometry(part, r, &mut g),
         "common_label" => return label_geometry(part, r),
