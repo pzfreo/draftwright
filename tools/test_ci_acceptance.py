@@ -159,18 +159,23 @@ class Acceptance(unittest.TestCase):
     def test_hosted_quality_shards_cover_every_task_and_the_gate_needs_them(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         job = workflow[workflow.index('  quality-pins:'):workflow.index('  quality-gate:')]
-        n = int(re.search(r'--shard \$\{\{ matrix.shard \}\}/(\d+) ', job).group(1))
-        shards = re.search(r'shard: \[([\d, ]+)\]', job).group(1)
-        self.assertEqual([int(k) for k in shards.split(',')], list(range(1, n + 1)))
-        self.assertIn(f'name: acceptance-quality-pins-${{{{ matrix.shard }}}}-{n}', job)
-        self.assertIn(f'name: quality-gate-input-${{{{ matrix.shard }}}}-{n}', job)
+        setup = workflow.split('  changes:', 1)[1].split('  lint:', 1)[0]
+        matrices = re.findall(r"echo 'quality_shards=(\[[^\]]*\])'", setup)
+        self.assertEqual([json.loads(v) for v in matrices], [[1, 2, 3, 4], [1, 2]])
+        self.assertIn('shard: ${{ fromJSON(needs.changes.outputs.quality_shards) }}', job)
+        self.assertIn('--shard ${{ matrix.shard }}/${{ needs.changes.outputs.quality_count }}', job)
+        self.assertIn('--tier ${{ needs.changes.outputs.tier }}', job)
+        self.assertIn('name: acceptance-quality-pins-${{ matrix.shard }}-${{ needs.changes.outputs.quality_count }}', job)
+        self.assertIn('name: quality-gate-input-${{ matrix.shard }}-${{ needs.changes.outputs.quality_count }}', job)
         gate = workflow[workflow.index('  quality-gate:'):]
-        self.assertIn('needs: [binary, quality-pins]', gate[:400])
+        self.assertIn('needs: [changes, binary, quality-pins]', gate[:450])
+        self.assertIn('gate_args=(--require-go)', gate)
+        self.assertIn('if [ "$TIER" = pr ]; then gate_args=(); fi', gate)
         self.assertIn('--job quality-gate', gate)
         self.assertIn('--require-go', gate)
         self.assertIn('pattern: quality-gate-input-*', gate)
 
-    def fake_shards(self, runner, tmp, n, pinned=None):
+    def fake_shards(self, runner, tmp, n, pinned=None, tier="full"):
         """Run every shard with a stand-in renderer; the gate's subprocess checks are patched."""
         def one(f, dw, out, spec=None, timeout=600, review=True):
             name = os.path.basename(str(f)).split('.')[0]
@@ -191,7 +196,7 @@ class Acceptance(unittest.TestCase):
             for k in range(1, n + 1):
                 out = Path(tmp) / f'shard-{k}'
                 out.mkdir()
-                run = runner.Run(SimpleNamespace(binary=self.binary(tmp), corpus=Path(tmp), shard=(k, n)), out)
+                run = runner.Run(SimpleNamespace(binary=self.binary(tmp), corpus=Path(tmp), shard=(k, n), tier=tier), out)
                 run.execute('quality-pins')
                 self.assertTrue(all(step['passed'] for step in run.steps), run.steps)
 
@@ -200,14 +205,14 @@ class Acceptance(unittest.TestCase):
         path.write_bytes(content)
         return path
 
-    def gate(self, runner, tmp, shards_dir, name='gate'):
+    def gate(self, runner, tmp, shards_dir, name='gate', tier='full'):
         baseline = Path(tmp) / 'committed.json'
         baseline.write_text(json.dumps({'metrics': KEYS, 'parts': {
             n: {**dict.fromkeys(KEYS, 0), 'ink': 2} for n in NAMES}}))
         out = Path(tmp) / name
         out.mkdir()
         run = runner.Run(SimpleNamespace(binary=Path(tmp) / 'draftwright', baseline=baseline,
-                                         shards_dir=shards_dir), out)
+                                         shards_dir=shards_dir, tier=tier), out)
         with patch.object(run, 'step', return_value=True) as step, \
                 patch.object(runner.subprocess, 'run', return_value=SimpleNamespace(returncode=1)):
             run.execute('quality-gate')
@@ -250,6 +255,46 @@ class Acceptance(unittest.TestCase):
             failed = {s['name']: s.get('error', '') for s in run.steps if not s['passed']}
             self.assertEqual(set(failed), {'pins-' + c for c in runner.PIN_CELLS})
             self.assertTrue(all('pin bar' in e for e in failed.values()))
+
+    def test_pr_quality_tasks_keep_every_unpinned_drawing_and_full_survey(self):
+        runner = self.runner()
+        pr = runner.quality_tasks('pr')
+        full = runner.quality_tasks()
+        self.assertEqual(len(pr), 68)
+        self.assertEqual(pr, [t for t in full if not t[0].startswith('pins-')])
+        self.assertEqual(len(full) - len(pr), 270)
+        self.assertEqual({name for _, name in pr}, runner.survey_names())
+        groups = [runner.shard_tasks(k, 2, 'pr') for k in (1, 2)]
+        self.assertEqual(sorted(t for g in groups for t in g), sorted(pr))
+
+    def test_pr_gate_enforces_drawing_checks_and_full_gate_refuses_pr_evidence(self):
+        runner = self.runner()
+        with tempfile.TemporaryDirectory() as tmp:
+            self.fake_shards(runner, tmp, 2, tier='pr')
+            run, steps, out = self.gate(runner, tmp, Path(tmp), tier='pr')
+            self.assertTrue(all(s['passed'] for s in run.steps), run.steps)
+            self.assertEqual(steps, ['leader-crossings', 'leader-routes', 'label-lane-locality'])
+            self.assertEqual([s['name'] for s in run.steps],
+                             ['shards', 'quality', 'ap242-quality', 'reject-deliberate-regression', 'survey'])
+            self.assertEqual(len(json.loads((out / 'survey/baseline.json').read_text())), 68)
+            self.assertEqual(len(json.loads((out / 'quality/baseline.json').read_text())), 30)
+            full, calls, _ = self.gate(runner, tmp, Path(tmp), 'full-refuses-pr')
+            self.assertIn('tier differs', full.steps[0]['error'])
+            self.assertEqual(calls, [])
+            # A drawing regression still fails the PR gate.
+            path = Path(tmp) / 'shard-1/shard.json'
+            report = json.loads(path.read_text())
+            name = next(iter(report['results']['quality']))
+            report['results']['quality'][name]['ink'] = 999
+            path.write_text(json.dumps(report))
+            bad, _, _ = self.gate(runner, tmp, Path(tmp), 'bad-pr', tier='pr')
+            self.assertTrue(any(s['name'] == 'quality' and not s['passed'] for s in bad.steps))
+
+    def test_pr_cannot_claim_to_require_the_full_pin_grid(self):
+        result = subprocess.run([sys.executable, '-I', str(RUNNER), '--job', 'quality-gate',
+                                 '--tier', 'pr', '--require-go'], capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('full random-pin grid', result.stderr)
 
     def test_survey_budgets_allow_observed_hosted_slowdown(self):
         runner = self.runner()
