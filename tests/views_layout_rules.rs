@@ -41,7 +41,7 @@ fn explicit_scales_preserve_requested_scale_with_legibility_warnings() {
     );
     let tiny = pinned(&a, "1:1000").unwrap();
     assert_eq!(tiny.sheet.scale, "1:1000");
-    let (part, _) = model::analyse_native(&root().join("tests/fixtures/parts/plate.step")).unwrap();
+    let (part, _) = cache::native(&root().join("tests/fixtures/parts/plate.step"));
     let font = draftwright::text::Font::new(draftwright::api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &a, &tiny, &font).unwrap();
     assert!(drawing.svg().contains("<svg"));
@@ -192,7 +192,7 @@ fn every_source_and_explicit_linear_corridor_is_reserved() {
         "nist/nist_ctc_01_asme1_rd.stp",
         "nist/nist_ftc_08_asme1_rc.stp",
     ] {
-        let a = model::analyse_native(&dir.join(f)).unwrap().1;
+        let a = cache::native(&dir.join(f)).1;
         let p = model::plan_recovered(
             &a,
             &serde_json::from_value(serde_json::json!({"sheet":{"preferred_max_size":"A0"}}))
@@ -496,9 +496,7 @@ fn gap_tangent_and_outside_sections_are_reported_without_false_cut_ink() {
 
 #[test]
 fn explicit_dimensions_that_reflow_keep_their_reserved_corridors() {
-    let a = model::analyse_native(&corpus::dir().unwrap().join("nist/nist_ctc_01_asme1_rd.stp"))
-        .unwrap()
-        .1;
+    let a = cache::native(&corpus::dir().unwrap().join("nist/nist_ctc_01_asme1_rd.stp")).1;
     let source = model::plan(&a, &Spec::default()).unwrap();
     let slot = source
         .dimensions
@@ -553,9 +551,7 @@ fn reserved_location_corridors_choose_witnesses_clear_of_foreign_holes() {
             vec!["f:hole:f185", "f:hole:f186", "f:hole:f187"],
         ),
     ] {
-        let a = model::analyse_native(&corpus::dir().unwrap().join(file))
-            .unwrap()
-            .1;
+        let a = cache::native(&corpus::dir().unwrap().join(file)).1;
         let p = model::plan_recovered(
             &a,
             &serde_json::from_value(serde_json::json!({"sheet":{"preferred_max_size":"A0"}}))
@@ -599,12 +595,11 @@ fn reserved_location_corridors_choose_witnesses_clear_of_foreign_holes() {
 
 #[test]
 fn isometric_hidden_ink_obeys_visible_line_precedence() {
-    let (part, a) = model::analyse_native(
+    let (part, a) = cache::native(
         &corpus::dir()
             .unwrap()
             .join("cadgenbench_inputs/cgb207.step"),
-    )
-    .unwrap();
+    );
     let default = cache::default_plan(&a, true);
     let g =
         model::render_geometry(&part, &a, &default, &mut model::Projections::default()).unwrap();

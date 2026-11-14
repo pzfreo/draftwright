@@ -70,7 +70,7 @@ fn reported<'a>(plan: &'a Plan, code: &str) -> Vec<&'a draftwright::dims::gdt::P
 }
 
 #[test]
-fn ctc_02_frames_and_datum_symbols_are_inside_their_bands_and_on_the_sheet() {
+fn ctc02_gdt_stays_in_bands_on_sheet_and_clear_of_other_views() {
     let a = analysed("nist_ctc_02_asme1_ap242-e2");
     let plan = cache::default_plan(&a, true);
     assert_eq!(plan.sheet.size, "A2", "a tall table must not force A0");
@@ -154,59 +154,29 @@ fn ctc_02_frames_and_datum_symbols_are_inside_their_bands_and_on_the_sheet() {
         let b = g.placed.as_ref().unwrap().label_box;
         assert!(b[0] >= drawable, "{id} at {b:?}");
     }
+    check_frames_on_sheet("nist_ctc_02_asme1_ap242-e2", &plan);
 }
 
 part_cases!(frames_datum_symbols_and_labels_are_on_the_sheet_and_off_the_other_views;
-    nist_ctc_02_asme1_ap242_e2 => "nist_ctc_02_asme1_ap242-e2",
     nist_stc_09_asme1_ap242_e4 => "nist_stc_09_asme1_ap242-e4",
     spool_fits => "spool_fits",
     thumbwheel_thread_knurl => "thumbwheel_thread_knurl",
 );
 fn frames_datum_symbols_and_labels_are_on_the_sheet_and_off_the_other_views(stem: &str) {
     let plan = cache::default_plan(&analysed(stem), true);
+    check_frames_on_sheet(stem, &plan);
+}
+
+fn check_frames_on_sheet(stem: &str, plan: &Plan) {
     assert!(!plan.gdt.is_empty(), "{stem} has GD&T");
     for code in [
         "annotation_off_sheet",
         "annotation_over_view",
         "annotation_line_over_view",
     ] {
-        let ids: Vec<&str> = reported(&plan, code)
-            .iter()
-            .map(|g| g.id.as_str())
-            .collect();
+        let ids: Vec<&str> = reported(plan, code).iter().map(|g| g.id.as_str()).collect();
         assert!(ids.is_empty(), "{stem}: {code} {ids:?}");
     }
-}
-
-#[test]
-fn stc_09_datum_symbols_are_inside_their_bands_and_frames_past_them_had_no_clear_strip() {
-    let a = analysed("nist_stc_09_asme1_ap242-e4");
-    let plan = cache::default_plan(&a, true);
-    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
-    assert_eq!(
-        (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
-        ("A1", "1:2")
-    );
-    let outside = reported(&plan, "annotation_outside_area");
-    for g in &outside {
-        assert_eq!(g.kind, "control_frame", "{} past its area", g.id);
-        assert!(
-            g.basis.contains("strip has no clear place, so it stands"),
-            "{} is past its area in its own strip: {}",
-            g.id,
-            g.basis
-        );
-    }
-    // 12 frames and 4 datum symbols stood past their areas before the reservation; 1 frame,
-    // moved to a strip across or beside its view, remained (2 while the value-less `2X R` and
-    // `4X R` labels were drawn, #214), until it stood beneath its holes' `4× ⌀6.35` callout
-    // (#224).
-    assert_eq!(
-        outside.len(),
-        0,
-        "{:?}",
-        outside.iter().map(|g| &g.id).collect::<Vec<_>>()
-    );
 }
 
 /// The reservation is the strip's dimensions' room and its items' tiers packed first fit: two
@@ -264,7 +234,7 @@ fn the_reservation_stacks_overlapping_items_in_tiers_beyond_the_dimensions() {
 /// STC-09 keeps its first CAD-frame drawing at its legibility floor and reports
 /// the remaining layout findings; the complete frame/datum inventory survives.
 #[test]
-fn stc09_without_a_complete_fit_keeps_its_first_drawing_and_reports_the_floor() {
+fn stc09_keeps_its_first_drawing_reports_the_floor_and_respects_datum_bands() {
     let a = analysed("nist_stc_09_asme1_ap242-e4");
     let first = model::plan_escalated(&a, &Spec::default()).unwrap();
     assert_eq!(
@@ -339,4 +309,33 @@ fn stc09_without_a_complete_fit_keeps_its_first_drawing_and_reports_the_floor() 
         "{}",
         p.sheet.basis
     );
+    {
+        let plan = &p;
+
+        // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+        assert_eq!(
+            (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+            ("A1", "1:2")
+        );
+        let outside = reported(plan, "annotation_outside_area");
+        for g in &outside {
+            assert_eq!(g.kind, "control_frame", "{} past its area", g.id);
+            assert!(
+                g.basis.contains("strip has no clear place, so it stands"),
+                "{} is past its area in its own strip: {}",
+                g.id,
+                g.basis
+            );
+        }
+        // 12 frames and 4 datum symbols stood past their areas before the reservation; 1 frame,
+        // moved to a strip across or beside its view, remained (2 while the value-less `2X R` and
+        // `4X R` labels were drawn, #214), until it stood beneath its holes' `4× ⌀6.35` callout
+        // (#224).
+        assert_eq!(
+            outside.len(),
+            0,
+            "{:?}",
+            outside.iter().map(|g| &g.id).collect::<Vec<_>>()
+        );
+    }
 }

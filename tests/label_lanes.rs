@@ -10,13 +10,11 @@ fn plan(path: &str) -> Option<model::Plan> {
 
 fn plan_with(path: &str, spec: &Spec) -> Option<model::Plan> {
     let a = cache::native(&corpus::dir()?.join(path)).1;
-    Some(
-        if serde_json::to_value(spec).unwrap() == serde_json::to_value(Spec::default()).unwrap() {
-            cache::default_plan(&a, true)
-        } else {
-            model::plan_recovered(&a, spec).unwrap()
-        },
-    )
+    Some(if *spec == Spec::default() {
+        cache::default_plan(&a, true)
+    } else {
+        model::plan_recovered(&a, spec).unwrap()
+    })
 }
 
 fn adjacent(d: &draftwright::dims::PlannedDimension) -> bool {

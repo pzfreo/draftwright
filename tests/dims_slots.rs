@@ -1183,9 +1183,7 @@ fn a_slot_split_by_the_spec_is_dimensioned_by_its_end_centres() {
 #[test]
 fn keyhole_slots_are_not_called_out_together() {
     let Some(dir) = corpus::dir() else { return };
-    let a = model::analyse_native(&dir.join("nist/nist_ftc_08_asme1_rc.stp"))
-        .unwrap()
-        .1;
+    let a = cache::native(&dir.join("nist/nist_ftc_08_asme1_rc.stp")).1;
     let keyholes = ["f:slot:f152", "f:slot:f220"];
     let bare = draftwright::lint::slots::without_recesses(&a);
     assert!(bare.features.iter().all(|f| f.kind != "section_recess"));
@@ -1220,7 +1218,7 @@ fn ftc09_slot_callout_leader_crosses_no_other_feature() {
         eprintln!("SKIPPED: the corpus is not found; set DRAFTWRIGHT_CORPUS");
         return;
     };
-    let (part, a) = model::analyse_native(&corpus.join("nist/nist_ftc_09_asme1_rd.stp")).unwrap();
+    let (part, a) = cache::native(&corpus.join("nist/nist_ftc_09_asme1_rd.stp"));
     let plan = cache::default_plan(&a, true);
     let callout = plan
         .dimensions
@@ -1255,7 +1253,7 @@ fn a_pocket_with_floor_rounds_is_dimensioned_as_the_slot_it_was() {
         eprintln!("SKIPPED: the corpus is not found; set DRAFTWRIGHT_CORPUS");
         return;
     };
-    let (_, a) = model::analyse_native(&corpus.join("nist/nist_ftc_08_asme1_rc.stp")).unwrap();
+    let (_, a) = cache::native(&corpus.join("nist/nist_ftc_08_asme1_rc.stp"));
     let slot = a
         .features
         .iter()

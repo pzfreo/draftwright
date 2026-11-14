@@ -25,8 +25,7 @@ fn drawing_with(
     spec: &Spec,
 ) -> (model::Analysis, model::Plan, draftwright::output::Drawing) {
     let (part, a) = cache::native(file);
-    let p = if serde_json::to_value(spec).unwrap() == serde_json::to_value(Spec::default()).unwrap()
-    {
+    let p = if *spec == Spec::default() {
         cache::default_plan(&a, true)
     } else {
         model::plan_recovered(&a, spec).unwrap()

@@ -9,7 +9,7 @@ use draftwright::haecceity::{
 };
 use draftwright::{
     api,
-    model::{self, Spec},
+    model::{self},
     output::{Curve, Item},
     text::Font,
 };
@@ -183,13 +183,10 @@ fn section(file: &str, check_hidden: bool) {
     assert!(count > 0, "{file}: cut material must be hatched");
 }
 #[test]
-fn ftc10_section_has_no_hidden_ink() {
+fn ftc10_section_has_no_hidden_ink_and_hatches_only_cut_material() {
     section("nist/nist_ftc_10_asme1_rb.stp", true);
 }
-#[test]
-fn ftc10_hatch_covers_only_cut_material() {
-    section("nist/nist_ftc_10_asme1_rb.stp", false);
-}
+
 #[test]
 fn string_post_section_bores_are_unhatched() {
     section("gramel/string_post.step", true);

@@ -17,13 +17,11 @@ fn analysed(name: &str) -> Analysis {
         return if features.is_file() {
             model::analyse_with(&fixture, Some(&features)).unwrap().1
         } else {
-            model::analyse_native(&fixture).unwrap().1
+            cache::native(&fixture).1
         };
     }
     let corpus = std::env::var("DRAFTWRIGHT_CORPUS").unwrap();
-    model::analyse_native(&Path::new(&corpus).join(name))
-        .unwrap()
-        .1
+    cache::native(&Path::new(&corpus).join(name)).1
 }
 
 fn spec(value: Value) -> Spec {
@@ -239,7 +237,7 @@ fn ap242(stem: &str) -> Analysis {
             .trim_end_matches(".gz"),
     );
     std::fs::write(&path, bytes).unwrap();
-    model::analyse_native(&path).unwrap().1
+    cache::native(&path).1
 }
 
 #[test]
@@ -767,8 +765,7 @@ fn r5_allowing_extra_sheets_preserves_the_finished_sheet() {
 #[test]
 fn r5_remote_section_retains_parent_cutting_plane_ink() {
     let root = std::env::var("DRAFTWRIGHT_CORPUS").unwrap();
-    let (part, a) =
-        model::analyse_native(&Path::new(&root).join("gramel/string_post.step")).unwrap();
+    let (part, a) = cache::native(&Path::new(&root).join("gramel/string_post.step"));
     let p = model::plan_recovered(
         &a,
         &spec(json!({"sheet":{"size":"A4","scale":"5:1"},"sheets":{"max":2},"views":{"section_aa":{"sheet":2}}})),

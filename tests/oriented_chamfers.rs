@@ -24,7 +24,7 @@ fn parse(v: serde_json::Value) -> Spec {
     serde_json::from_value(v).unwrap()
 }
 fn plan(s: &Spec) -> Plan {
-    if serde_json::to_value(s).unwrap() == serde_json::to_value(Spec::default()).unwrap() {
+    if *s == Spec::default() {
         cache::default_plan(&ctc().1, true)
     } else {
         model::plan_recovered(&ctc().1, s).unwrap()
@@ -459,7 +459,7 @@ fn bevel_run_midpoints_do_not_invent_locations_or_force_sheet_enlargement() {
         ("mfcadpp/1007.step", 1, "C0.1"),
         ("nist/nist_ctc_04_asme1_rd.stp", 4, "12× C5"),
     ] {
-        let (_, a) = model::analyse_native(&corpus::dir().unwrap().join(file)).unwrap();
+        let (_, a) = cache::native(&corpus::dir().unwrap().join(file));
         assert_eq!(
             a.features
                 .iter()
@@ -492,7 +492,7 @@ fn bounded_notches_reserve_acute_arcs_and_leave_dense_general_profiles_alone() {
         "mfcadpp/10046.step",
         "nist/nist_ftc_08_asme1_rc.stp",
     ] {
-        let (_, a) = model::analyse_native(&corpus::dir().unwrap().join(file)).unwrap();
+        let (_, a) = cache::native(&corpus::dir().unwrap().join(file));
         let p = cache::default_plan(&a, true);
         if file.contains("10020") {
             assert_eq!(
@@ -686,8 +686,7 @@ fn source_pmi_owns_a_notch_angle_at_another_normal_section_without_duplicate_ink
 
 #[test]
 fn an_unproved_bevel_corner_cannot_replace_the_proven_notch_depth() {
-    let (part, a) =
-        model::analyse_native(&corpus::dir().unwrap().join("mfcadpp/10020.step")).unwrap();
+    let (part, a) = cache::native(&corpus::dir().unwrap().join("mfcadpp/10020.step"));
     let p = cache::default_plan(&a, true);
     let depth = p
         .dimensions
@@ -785,8 +784,7 @@ fn notch_dimensions_leave_the_boss_leader_clear_of_hidden_ink_and_witnesses() {
         }
         lo <= hi
     }
-    let (part, a) =
-        model::analyse_native(&corpus::dir().unwrap().join("mfcadpp/10020.step")).unwrap();
+    let (part, a) = cache::native(&corpus::dir().unwrap().join("mfcadpp/10020.step"));
     let p = cache::default_plan(&a, true);
     let boss = p
         .dimensions
