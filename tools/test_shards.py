@@ -16,11 +16,17 @@ starts the shard's tests longest first, and unrecorded tests before them: a 270 
 starts 460 s into its shard sets the shard's wall time. The repository's own `ci` overrides (the exclusive latency gates)
 take precedence over it; it takes precedence over the `default` profile's hand-kept order.
 
+--max-seconds 10 selects recorded tests of at most 10 seconds AND all unrecorded tests,
+then balances that tier as usual. Harness binaries remain in CI's separate whole-binary job.
+--check-tiers checks that the two PR shards plus the slow set cover all ten main shards,
+without duplicates or omissions; it runs against the built inventory on every CI build.
+
 Refresh the record from the JUnit reports of a CI run's test shards (artifacts test-junit-*):
   python3 tools/test_shards.py --record junit-dir
 """
 import argparse
 import json
+import math
 from pathlib import Path
 import statistics
 import sys
@@ -43,6 +49,37 @@ def listed(listing):
                   for suite in listing['rust-suites'].values()
                   for name, case in suite['testcases'].items()
                   if case['filter-match']['status'] == 'matches')
+
+
+def seconds_arg(text):
+    value = float(text)
+    if not math.isfinite(value) or value < 0:
+        raise argparse.ArgumentTypeError('seconds must be finite and nonnegative')
+    return value
+
+
+def select(tests, durations, max_seconds=None):
+    """New/unrecorded tests always run, even when the fast tier is requested."""
+    return [test for test in tests if max_seconds is None
+            or durations.get(f'{test[0]} {test[1]}', 0) <= max_seconds]
+
+
+def check_tiers(tests, durations, max_seconds):
+    fast = select(tests, durations, max_seconds)
+    slow = [t for t in tests if durations.get(f'{t[0]} {t[1]}', 0) > max_seconds]
+    pr, _ = assign(fast, durations, 2)
+    main, _ = assign(select(tests, durations), durations, 10)
+    pr_tests = [t for shard in pr for t in shard]
+    main_tests = [t for shard in main for t in shard]
+    if (len(set(tests)) != len(tests) or sorted(main_tests) != sorted(tests)
+            or sorted(pr_tests + slow) != sorted(main_tests)
+            or set(pr_tests) & set(slow)):
+        raise ValueError('PR shards plus slow tests must partition every main test exactly once')
+    for label, tier in [('PR', fast), ('slow', slow), ('main', tests)]:
+        minutes = sum(durations.get(f'{b} {t}', 0) for b, t in tier) / 60
+        unknown = sum(f'{b} {t}' not in durations for b, t in tier)
+        print(f'{label}: {len(tier)} tests, {minutes:.2f} recorded test-minutes, '
+              f'{unknown} unrecorded', file=sys.stderr)
 
 
 def assign(tests, durations, n):
@@ -95,15 +132,25 @@ def main():
     parser.add_argument('--shard', type=shard_arg, metavar='K/N')
     parser.add_argument('--priorities', type=Path, metavar='TOML',
                         help='Also write the shard\'s longest-first nextest tool config here')
+    parser.add_argument('--max-seconds', type=seconds_arg, metavar='SECONDS',
+                        help='Keep tests at or below this duration, plus every unrecorded test')
+    parser.add_argument('--check-tiers', action='store_true',
+                        help='Assert PR + slow = full main inventory (requires --max-seconds)')
     parser.add_argument('--record', type=Path, metavar='JUNIT_DIR')
     args = parser.parse_args()
     if args.record:
         return record(args.record)
+    if args.check_tiers:
+        if not args.list or args.max_seconds is None or args.shard:
+            parser.error('--check-tiers requires --list and --max-seconds, without --shard')
+        return check_tiers(listed(json.loads(args.list.read_text())),
+                           json.loads(DURATIONS.read_text()), args.max_seconds)
     if not (args.list and args.shard):
         parser.error('give --list and --shard, or --record')
     tests = listed(json.loads(args.list.read_text()))
     k, n = args.shard
     durations = json.loads(DURATIONS.read_text())
+    tests = select(tests, durations, args.max_seconds)
     shards, load = assign(tests, durations, n)
     if not shards[k - 1]:
         raise SystemExit(f'shard {k}/{n} has no tests')

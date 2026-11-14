@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
 
 permissions:
@@ -29,36 +30,23 @@ env:
 # The acceptance jobs need only the release executable, which the `binary` job builds in
 # about half the build's time, so they start before the test binaries are linked.
 jobs:
-  # A pull request that changes only release metadata (versions, notes) runs lint alone;
-  # tools/release_only.py says what counts. A push to main that changes only release metadata
-  # runs lint alone too, but only when CI already passed on the commit it was pushed onto, so
-  # the code it carries is code a full run has passed. Every other push runs every job.
+  # Keep tier selection in the existing setup job. Label events rerun this selection;
+  # synchronize also sees a full-ci label already present on a PR.
   changes:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
     outputs:
-      release_only: ${{ steps.check.outputs.release_only || steps.push.outputs.release_only }}
+      full: ${{ steps.tier.outputs.full }}
+      shards: ${{ steps.tier.outputs.shards }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 0
-      - id: check
-        if: github.event_name == 'pull_request'
-        run: python3 -I tools/release_only.py ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
-      - id: push
-        if: github.event_name == 'push'
+      - id: tier
         env:
-          GH_TOKEN: ${{ github.token }}
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.sha }}
+          FULL: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
         run: |
-          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$BEFORE&event=push&status=success" --jq '.total_count' || echo 0)
-          if [ "$passed" -gt 0 ]; then
-            python3 -I tools/release_only.py "$BEFORE" "$AFTER"
+          echo "full=$FULL" >> "$GITHUB_OUTPUT"
+          if [ "$FULL" = true ]; then
+            echo 'shards=["1/10","2/10","3/10","4/10","5/10","6/10","7/10","8/10","9/10","10/10","harness"]' >> "$GITHUB_OUTPUT"
           else
-            echo "CI has not passed on $BEFORE; running every job"
+            echo 'shards=["1/2","2/2","harness"]' >> "$GITHUB_OUTPUT"
           fi
 
   lint:
@@ -83,16 +71,16 @@ jobs:
           key: warm
       - run: python3 tools/check_test_binaries.py
       - run: python3 -m unittest discover -s tools -p 'test_check_test_binaries.py'
+      - run: python3 -m unittest discover -s tools -p 'test_ci_tiers.py'
+      - run: python3 -m unittest discover -s tools -p 'test_release_ci.py'
       - run: cargo fmt --all --check
       # The native analysis and default plan of each of the 66 survey parts, made once by this
       # commit's executable, for the test shards to read instead of making them again
       # (src/plan_cache.rs). Here rather than in `binary`, so the acceptance jobs do not wait.
-      - if: needs.changes.outputs.release_only != 'true'
-        run: |
+      - run: |
           cargo build --release --locked --bin draftwright
           python3 -I tools/warm_plan_cache.py --binary target/release/draftwright --corpus "$DRAFTWRIGHT_CORPUS" --cache plan-cache --inputs target/warm-inputs
-      - if: needs.changes.outputs.release_only != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: plan-cache
           path: plan-cache/*.json
@@ -102,7 +90,6 @@ jobs:
 
   build:
     needs: changes
-    if: needs.changes.outputs.release_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -120,6 +107,11 @@ jobs:
       # Test targets only: `cargo test`'s default would also link every example, which no test
       # runs (lint's clippy --all-targets still compiles them).
       - run: cargo nextest archive --release --lib --bins --tests --archive-file nextest-archive.tar.zst
+      - name: Assert PR and slow tiers cover the full main inventory
+        run: |
+          cargo nextest list --archive-file nextest-archive.tar.zst \
+            --workspace-remap . --profile ci --message-format json > nextest-list.json
+          python3 -I tools/test_shards.py --list nextest-list.json --max-seconds 10 --check-tiers
       - run: cargo test --doc --release
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -132,7 +124,6 @@ jobs:
   # for every acceptance job.
   binary:
     needs: changes
-    if: needs.changes.outputs.release_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -155,7 +146,7 @@ jobs:
           retention-days: 1
 
   test:
-    needs: [build, lint]
+    needs: [changes, build, lint]
     # The plan cache only saves work: a lint failure leaves it out, never the tests.
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
@@ -171,10 +162,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Ten duration-balanced shards of the `ci` profile's tests (tools/test_shards.py),
-        # and the binaries it leaves out run whole under their own harness
-        # (.config/nextest.toml says why).
-        shard: [1/10, 2/10, 3/10, 4/10, 5/10, 6/10, 7/10, 8/10, 9/10, 10/10, harness]
+        # Two fast shards on PRs; all ten on main/full-ci/dispatch. Harness is always whole.
+        shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -202,11 +191,15 @@ jobs:
           path: ${{ env.DRAFTWRIGHT_TEST_PLAN_CACHE }}
       - if: matrix.shard != 'harness'
         shell: bash
+        env:
+          FULL: ${{ needs.changes.outputs.full }}
         run: |
           cargo nextest list --archive-file nextest-archive.tar.zst \
             --workspace-remap . --profile ci --message-format json > nextest-list.json
+          tier_args=()
+          if [ "$FULL" != true ]; then tier_args=(--max-seconds 10); fi
           filter=$(python3 -I tools/test_shards.py --list nextest-list.json --shard ${{ matrix.shard }} \
-            --priorities "$PWD/shard-priorities.toml")
+            --priorities "$PWD/shard-priorities.toml" "${tier_args[@]}")
           cargo nextest run --archive-file nextest-archive.tar.zst \
             --tool-config-file "test-shards:$PWD/shard-priorities.toml" \
             --workspace-remap . --extract-to . --extract-overwrite --profile ci -E "$filter"
@@ -338,7 +331,8 @@ jobs:
 
   acceptance:
     name: acceptance (${{ matrix.label }})
-    needs: binary
+    needs: [changes, binary]
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
@@ -370,7 +364,7 @@ jobs:
   wasm:
     name: Browser WASM and native parity
     needs: changes
-    if: needs.changes.outputs.release_only != 'true'
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
