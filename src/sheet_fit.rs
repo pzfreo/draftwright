@@ -1779,6 +1779,41 @@ pub(crate) fn reserve_linear_corridors(
         .zip(&old)
         .all(|(v, (_, a, _))| v.area == *a)
     {
+        // A lane-pitch replay can leave an old, much taller isometric reservation
+        // after its orientation view has been fitted above the section. Preserve
+        // its exact ink and caption rather than rejecting the single-sheet trial
+        // for empty paper overlapping that section (FTC-06).
+        if plan.spec.sheet.keep_layout != Some(true)
+            && !crate::placement_intent::has_pins(&plan.spec)
+            && !plan.spec.views.contains_key("iso")
+            && !plan.dimensions.iter().any(|d| d.view == "v:iso")
+            && !plan.gdt.iter().any(|g| g.view == "v:iso")
+            && let Some(i) = plan.views.iter().position(|v| v.id == "v:iso")
+        {
+            let mut ink = footprints(analysis, plan)[i];
+            for c in plan.captions.iter().filter(|c| c.view == "v:iso") {
+                include(&mut ink, [c.ink[0], c.ink[1]]);
+                include(&mut ink, [c.ink[2], c.ink[3]]);
+            }
+            let overlap =
+                |a: Rect, b: Rect| a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+            let same_sheet =
+                |j: usize, v: &crate::model::PlannedView| j != i && v.sheet == plan.views[i].sheet;
+            if plan
+                .views
+                .iter()
+                .enumerate()
+                .any(|(j, v)| same_sheet(j, v) && overlap(plan.views[i].area, v.area))
+                && !plan
+                    .views
+                    .iter()
+                    .enumerate()
+                    .any(|(j, v)| same_sheet(j, v) && overlap(ink, v.area))
+                && !overlap(ink, plan.sheet.title_block)
+            {
+                plan.views[i].area = ink;
+            }
+        }
         return;
     }
     // Placement has already checked this settled ink. Keep its collision

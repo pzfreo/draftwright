@@ -5003,6 +5003,10 @@ mod compact_sheet_regressions {
             (p.sheet.size.as_str(), p.sheet.scale.as_str()),
             ("A2", "1:2")
         );
+        assert!(
+            p.sheets.is_empty(),
+            "compact FTC-06 must remain on one sheet"
+        );
         assert!(model::findings(&p).clean());
         assert!(model::finished_sheets_fit(&a, &p));
     }

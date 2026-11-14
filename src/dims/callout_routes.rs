@@ -691,11 +691,20 @@ fn finish_with(
                         | "leader_centerline_overlap"
                 ))
     };
-    // Added lanes must not leave an otherwise unreported leader alongside
-    // an extension. Use the placer's existing one-mm contact predicate.
+    // Detect bore leaders crossing their view before the final contact report.
+    // They use the existing bounded sweep; other feature families retain their
+    // established routing policy. Added lanes use its one-mm extension budget.
     let across_view = super::contacts::leader_ends(analysis, plan)
         .into_iter()
-        .filter(|p| p.code == "leader_across_view")
+        .filter(|p| {
+            p.code == "leader_across_view"
+                && plan.dimensions.iter().any(|d| {
+                    p.subjects.contains(&d.id)
+                        && d.measurements
+                            .iter()
+                            .any(|m| m.parameter == "bore.diameter")
+                })
+        })
         .collect::<Vec<_>>();
     let across_ids: BTreeSet<_> = across_view
         .iter()

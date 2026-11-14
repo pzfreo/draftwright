@@ -491,6 +491,7 @@ fn dot(a: P2, b: P2) -> f64 {
 /// An item as placed at strip coordinate *pos* (along its strip's outward axis): its leader,
 /// frame box and the laid glyph's offset.
 struct Candidate {
+    frame_rule: bool,
     lines: Vec<[P2; 2]>,
     arrows: Vec<[P2; 2]>,
     fills: Vec<Vec<P2>>,
@@ -539,6 +540,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
             [label_box[2], elbow[1]]
         };
         return Candidate {
+            frame_rule: shape == Shape::Frame,
             lines: vec![[tip, elbow], [elbow, shelf]],
             arrows: vec![placement::arrow(tip, elbow)],
             fills: Vec::new(),
@@ -564,6 +566,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
             centre[1] - d[1] * 0.5 * size[1],
         ];
         return Candidate {
+            frame_rule: shape == Shape::Frame,
             lines: vec![[apex, near]],
             arrows: Vec::new(),
             fills: vec![vec![
@@ -592,6 +595,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
     let x0 = if dir > 0.0 { end[0] } else { end[0] - size[0] };
     let y0 = elbow[1] - size[1] / 2.0;
     Candidate {
+        frame_rule: shape == Shape::Frame,
         lines: vec![[tip, elbow], [elbow, end]],
         arrows: vec![placement::arrow(tip, elbow)],
         fills: Vec::new(),
@@ -1019,9 +1023,10 @@ impl Obstacles<'_> {
     /// 1 clear of everything, past the area; 2 on the sheet and off every label and frame, a line
     /// of it through a label or another view; 3 off every label and frame only; 4 neither;
     /// 5 a filled datum triangle overlaps or touches an earlier triangle.
-    /// Within a clearance class, avoid text contacts before counting line crossings.
-    /// An unavoidable shaft through one label must not hide an avoidable frame
-    /// through another leader (CTC-03 with the narrower CAD-sized frames).
+    /// Within a clearance class, keep frames off existing leaders before counting
+    /// line crossings. An unavoidable shaft through one label must not hide an
+    /// avoidable frame over another leader (CTC-03's narrower CAD-sized frames).
+    /// Datum attachment and common-label placement retain their existing ordering.
     fn grade(&self, c: &Candidate, best: Option<Grade>) -> Grade {
         let (clearance, text, _) = self.text_grade(c);
         // Clearance precedes crossings. A worse clearance, or a crossing count that
@@ -1060,16 +1065,11 @@ impl Obstacles<'_> {
 
     fn text_grade(&self, c: &Candidate) -> Grade {
         let clearance = self.clearance_grade(c);
-        let contacts = if clearance == 2 {
-            self.labels
+        let contacts = if clearance == 2 && c.frame_rule {
+            self.lines
                 .iter()
-                .filter(|b| c.lines.iter().any(|l| crosses(*l, **b)))
+                .filter(|l| crosses(**l, c.label_box))
                 .count()
-                + self
-                    .lines
-                    .iter()
-                    .filter(|l| crosses(**l, c.label_box))
-                    .count()
         } else {
             0
         };
@@ -1990,6 +1990,7 @@ fn plan_search(
                             anchor[k] = o[k] + along.fraction() * (o[k + 2] - o[k]);
                         }
                         let mut c = candidate(shape, anchor, side, pos, laid.size);
+                        c.frame_rule = matches!(item.glyph, Glyph::ControlFrame { .. });
                         if datum && intent.and_then(|p| p.along).is_some() {
                             for fill in &mut c.fills {
                                 for q in fill {
@@ -2100,6 +2101,7 @@ fn plan_search(
         {
             let p = translated(p, delta);
             let candidate = Candidate {
+                frame_rule: matches!(item.glyph, Glyph::ControlFrame { .. }),
                 lines: p.lines.clone(),
                 arrows: p.arrows.clone(),
                 fills: p.fills.clone(),
