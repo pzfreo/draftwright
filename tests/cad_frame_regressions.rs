@@ -20,7 +20,7 @@ fn accepted_cad_frame_layout(file: &str) {
         // 2026-11-14: exhausted recovery keeps the original geometry and budgets (#469).
         "nist_stc_09_asme1_ap242-e4.stp" => ("A1", "1:2", [212, 66, 0, 0, 8, 0], [15, 67, 115]),
         // 2026-11-14: below-band preference restores the approved A2 1:2.
-        // 2026-11-14: frame repair clears 3 crossings and 4 feature contacts; across-view stays zero.
+        // 2026-11-14: repair clears 3 crossings and 4 feature contacts; the across-view allowance stays zero.
         "nist_ftc_07_asme1_ap242-e2.stp" => ("A2", "1:2", [10, 2, 3, 0, 8, 0], [0, 4, 2]),
         // 2026-11-14: repair preserving shared rows clears 11 crossings and 13 feature contacts.
         "nist_ftc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [55, 12, 7, 0, 3, 0], [15, 16, 31]),
