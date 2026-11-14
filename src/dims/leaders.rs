@@ -687,6 +687,10 @@ struct Job<'a> {
     short_profile: bool,
     inward: bool,
     edge_attachment: bool,
+    /// Source GD&T may lead from within its own face, as its placer does.
+    source_frame: bool,
+    /// Printed all-around/all-over mark, including its existing text clearance.
+    bend_radius: f64,
     interior_proof: Option<(&'a crate::model::PlannedView, &'a super::interior::Proof)>,
     profile_proof: Option<(&'a crate::model::PlannedView, &'a super::interior::Proof)>,
     /// Once [`inventory`] steers the callout off its silhouette: the most model lines and
@@ -1265,6 +1269,8 @@ fn place_with_obstacles_uncached(
                 short_profile: boss_profile(w),
                 inward: false,
                 edge_attachment: true,
+                source_frame: false,
+                bend_radius: 0.0,
                 interior_proof: None,
                 profile_proof: boss_profile(w)
                     .then(|| {
@@ -1822,6 +1828,8 @@ pub(crate) fn settle_after_furniture(
             short_profile: boss_profile(w),
             inward: false,
             edge_attachment: true,
+            source_frame: false,
+            bend_radius: 0.0,
             interior_proof: None,
             profile_proof,
             silhouette: grazing(&frame, w),
@@ -2502,6 +2510,7 @@ pub(crate) fn settle_after_furniture(
 fn radius_contacts<'a>(
     p: &Placed,
     others: impl IntoIterator<Item = &'a PlannedDimension>,
+    clearance: bool,
 ) -> std::collections::BTreeSet<(&'a str, u8)> {
     let mut pairs = std::collections::BTreeSet::new();
     for q in others {
@@ -2514,6 +2523,17 @@ fn radius_contacts<'a>(
         }
         if boxes_overlap(p.label_box, qp.label_box) {
             pairs.insert((q.id.as_str(), 3u8));
+        }
+        // The finished contact audit also reads near ink as touching text.
+        // Retain that same clearance when choosing a radial replacement.
+        if clearance && super::placement::ink_through(p, super::contacts::clear_box(qp.label_box)) {
+            pairs.insert((q.id.as_str(), 7u8));
+        }
+        if clearance
+            && (super::placement::ink_through(qp, super::contacts::clear_box(p.label_box))
+                || boxes_overlap(super::contacts::clear_box(p.label_box), qp.label_box))
+        {
+            pairs.insert((q.id.as_str(), 8u8));
         }
         if q.kind == "linear" {
             for witness in qp.lines.iter().take(2) {
@@ -2564,6 +2584,39 @@ pub(crate) fn settle_radius_leaders(
     obstacles: &[PlannedDimension],
     cache: &super::footprints::Cache,
     reference: Option<&crate::model::Plan>,
+) -> BTreeMap<String, Vec<Problem>> {
+    settle_radius_leaders_with(
+        analysis, spec, sheet, views, items, obstacles, cache, reference, false,
+    )
+}
+
+/// Reserve only missing radial corridors before dependent GD&T is placed.
+/// Already compliant dimensions keep their existing stations and shelves.
+pub(crate) fn reserve_radius_leaders(
+    analysis: &crate::model::Analysis,
+    spec: &crate::model::Spec,
+    sheet: &crate::model::PlannedSheet,
+    views: &[crate::model::PlannedView],
+    items: &mut [PlannedDimension],
+    obstacles: &[PlannedDimension],
+    cache: &super::footprints::Cache,
+) -> BTreeMap<String, Vec<Problem>> {
+    settle_radius_leaders_with(
+        analysis, spec, sheet, views, items, obstacles, cache, None, true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn settle_radius_leaders_with(
+    analysis: &crate::model::Analysis,
+    spec: &crate::model::Spec,
+    sheet: &crate::model::PlannedSheet,
+    views: &[crate::model::PlannedView],
+    items: &mut [PlannedDimension],
+    obstacles: &[PlannedDimension],
+    cache: &super::footprints::Cache,
+    reference: Option<&crate::model::Plan>,
+    only_nonradial: bool,
 ) -> BTreeMap<String, Vec<Problem>> {
     let page = Page::new(analysis, sheet, views);
     let mut reports = BTreeMap::new();
@@ -2635,6 +2688,9 @@ pub(crate) fn settle_radius_leaders(
                         && u[0] * v[0] + u[1] * v[1] > 0.0))
         };
         let compliant = arcs.iter().any(|a| accepts(a, shaft));
+        if compliant && only_nonradial {
+            continue;
+        }
         let centred = compliant && arcs.iter().any(|a| a.centred(shaft));
         if arcs.is_empty()
             || (reference.is_none()
@@ -2666,6 +2722,8 @@ pub(crate) fn settle_radius_leaders(
             short_profile: false,
             inward: false,
             edge_attachment: true,
+            source_frame: false,
+            bend_radius: 0.0,
             interior_proof: proofs
                 .get_or_init(|| super::interior::callout_proofs(analysis, views))
                 .get(&v.id)
@@ -2716,7 +2774,7 @@ pub(crate) fn settle_radius_leaders(
             &fixed,
             &page,
         );
-        let prior_contacts = radius_contacts(old, others.iter().copied());
+        let prior_contacts = radius_contacts(old, others.iter().copied(), only_nonradial);
         // A different edit must not select another equally valid arc/corner.
         // Replay only unchanged claims/text in the same projection, and reject
         // the incumbent if the edit has put new ink in its corridor.
@@ -2738,14 +2796,18 @@ pub(crate) fn settle_radius_leaders(
                 // intermediate route that an unrelated edit happened to choose.
                 // A retained noncompliant fallback keeps the same single lint
                 // finding until its own intent or corridor changes.
-                let mut allowed = radius_contacts(p, incumbents.iter().filter(|q| q.id != d.id));
+                let mut allowed = radius_contacts(
+                    p,
+                    incumbents.iter().filter(|q| q.id != d.id),
+                    only_nonradial,
+                );
                 allowed.extend(
                     prior_contacts
                         .iter()
                         .copied()
                         .filter(|(id, _)| obstacles.iter().any(|q| q.id == *id)),
                 );
-                radius_contacts(p, others.iter().copied()).is_subset(&allowed)
+                radius_contacts(p, others.iter().copied(), only_nonradial).is_subset(&allowed)
             }
         {
             let route = route_reports_named(&d.id, &d.label, view, footprint.solids(), p.lines[0]);
@@ -2808,65 +2870,89 @@ pub(crate) fn settle_radius_leaders(
                                 continue;
                             }
                             let centred_c = arc.centred([tip, elbow]);
-                            let right = elbow[0] >= tip[0];
-                            // Every other score term is nonnegative. A ray
-                            // whose ink length alone cannot beat the incumbent
-                            // need not repeat its physical/peer proofs.
-                            let end = elbow[0] + if right { SHOULDER } else { -SHOULDER };
-                            let lower = (((elbow[0] - tip[0]).hypot(elbow[1] - tip[1])
-                                + (end - elbow[0]).abs())
-                                * 1000.)
-                                .floor() as i64;
-                            if (centred && lower >= before.score())
-                                || best
-                                    .as_ref()
-                                    .is_some_and(|(k, _)| (!centred_c, lower) >= *k)
-                            {
-                                continue;
-                            }
-                            let Some(mut c) = measure_bounds(&job, tip, elbow, right, &page) else {
-                                continue;
-                            };
-                            // Unmeasured contact costs are nonnegative, so this lower bound
-                            // cannot discard a candidate that would beat the current best.
-                            if c.hard > before.hard
-                                || (centred && c.score() >= before.score())
-                                || best
-                                    .as_ref()
-                                    .is_some_and(|(k, _)| (!centred_c, c.score()) >= *k)
-                            {
-                                continue;
-                            }
-                            measure_fixed(&mut c, &job, &fixed);
-                            c.measure_features(&job);
-                            if c.hard > before.hard
-                                || crate::material::reentry(footprint.solids(), [tip, elbow]) > 0.0
-                                || c.crossings > before.crossings
-                                || c.text > before.text
-                                || c.clearance > before.clearance
-                                || c.feature_crossings > before.feature_crossings
-                                || c.beside > before.beside
-                                || (centred && c.score() >= before.score())
-                                || best
-                                    .as_ref()
-                                    .is_some_and(|(k, _)| (!centred_c, c.score()) >= *k)
-                                || model_crossings(&job, &c) > model_budget
-                                || {
-                                    let e =
-                                        fixed.extension_index.contacts(&c.segments(), c.label_box);
-                                    e.0 > old_extensions.0 || e.1 > old_extensions.1
+                            let outward = elbow[0] >= tip[0];
+                            // A nonradial PMI fallback earns the same two shelves as
+                            // settled_routes; the shaft still obeys the arc proof and
+                            // every existing ink, witness and model-contact budget.
+                            for right in std::iter::once(outward).chain(
+                                (only_nonradial
+                                    && !compliant
+                                    && crate::nominal::authored_pmi(analysis))
+                                .then_some(!outward),
+                            ) {
+                                // Every other score term is nonnegative. A ray
+                                // whose ink length alone cannot beat the incumbent
+                                // need not repeat its physical/peer proofs.
+                                let end = elbow[0] + if right { SHOULDER } else { -SHOULDER };
+                                let lower = (((elbow[0] - tip[0]).hypot(elbow[1] - tip[1])
+                                    + (end - elbow[0]).abs())
+                                    * 1000.)
+                                    .floor() as i64;
+                                if (centred && lower >= before.score())
+                                    || best
+                                        .as_ref()
+                                        .is_some_and(|(k, _)| (!centred_c, lower) >= *k)
+                                {
+                                    continue;
                                 }
-                                || !page.fits(&c.placed(), view)
-                                || !radius_contacts(&c.placed(), others.iter().copied())
+                                let Some(mut c) = measure_bounds(&job, tip, elbow, right, &page)
+                                else {
+                                    continue;
+                                };
+                                // Unmeasured contact costs are nonnegative, so this lower bound
+                                // cannot discard a candidate that would beat the current best.
+                                if c.hard > before.hard
+                                    || (centred && c.score() >= before.score())
+                                    || best
+                                        .as_ref()
+                                        .is_some_and(|(k, _)| (!centred_c, c.score()) >= *k)
+                                {
+                                    continue;
+                                }
+                                measure_fixed(&mut c, &job, &fixed);
+                                c.measure_features(&job);
+                                if c.hard > before.hard
+                                    || crate::material::reentry(footprint.solids(), [tip, elbow])
+                                        > 0.0
+                                    || c.crossings > before.crossings
+                                    || c.text > before.text
+                                    || c.clearance > before.clearance
+                                    || c.feature_crossings > before.feature_crossings
+                                    || c.beside > before.beside
+                                    || (centred && c.score() >= before.score())
+                                    || best
+                                        .as_ref()
+                                        .is_some_and(|(k, _)| (!centred_c, c.score()) >= *k)
+                                    || model_crossings(&job, &c) > model_budget
+                                    || {
+                                        let e = fixed
+                                            .extension_index
+                                            .contacts(&c.segments(), c.label_box);
+                                        e.0 > old_extensions.0 || e.1 > old_extensions.1
+                                    }
+                                    || !(page.fits(&c.placed(), view)
+                                        || (only_nonradial
+                                            && !compliant
+                                            && crate::nominal::authored_pmi(analysis)
+                                            && page.fits_interior(&c.placed(), view)
+                                            && job.interior_proof.is_some_and(|(v, proof)| {
+                                                proof.annotation_clear(v, &c.placed(), true)
+                                            })))
+                                    || !radius_contacts(
+                                        &c.placed(),
+                                        others.iter().copied(),
+                                        only_nonradial,
+                                    )
                                     .is_subset(&prior_contacts)
-                            {
-                                continue;
-                            }
-                            if best
-                                .as_ref()
-                                .is_none_or(|(k, _)| (!centred_c, c.score()) < *k)
-                            {
-                                best = Some(((!centred_c, c.score()), c));
+                                {
+                                    continue;
+                                }
+                                if best
+                                    .as_ref()
+                                    .is_none_or(|(k, _)| (!centred_c, c.score()) < *k)
+                                {
+                                    best = Some(((!centred_c, c.score()), c));
+                                }
                             }
                         }
                     }
@@ -3621,6 +3707,8 @@ fn refine_uncached(
             short_profile: boss_profile(w),
             inward: false,
             edge_attachment: true,
+            source_frame: false,
+            bend_radius: 0.0,
             interior_proof: None,
             profile_proof: boss_profile(w)
                 .then(|| {
@@ -6188,7 +6276,15 @@ fn measure_at_bounds(
     if shaft < MIN_LEADER {
         return None;
     }
-    let (label_at, lb) = label_geometry(elbow, end, right, job.ink_min, job.ink_max);
+    let (mut label_at, mut lb) = label_geometry(elbow, end, right, job.ink_min, job.ink_max);
+    if job.source_frame {
+        // A rigid source label's stored box is already centred on its shelf;
+        // it has no native dimension font's baseline offset.
+        let dy = end[1] - 0.5 * (lb[1] + lb[3]);
+        label_at[1] += dy;
+        lb[1] += dy;
+        lb[3] += dy;
+    }
     let segs = [[tip, elbow], [elbow, end]];
     let mut hard = 0u32;
     // On the drawing area.
@@ -6231,14 +6327,29 @@ fn measure_at_bounds(
             hard += 1;
         }
     }
+    if job.bend_radius > 0.0 {
+        let b = grow([elbow[0], elbow[1], elbow[0], elbow[1]], job.bend_radius);
+        let clear = job.interior_proof.map_or_else(
+            || !boxes_overlap(b, job.outline),
+            |(v, p)| p.blank(v, b) || p.exterior_clear(v, b, &[], &[]),
+        );
+        hard += u32::from(!clear);
+    }
     // Material re-entry (ADR2-8): measured by the predicate lint's `leader_crosses_silhouette`
     // shares, it is a hard blocker, and its depth (in micrometres) is added to the length so a
     // shallower cut is preferred when every candidate re-enters.
-    let cut = crate::material::reentry(job.footprints.solids(), segs[0]);
+    // GD&T's own placer admits face-interior starts. Keep that eligibility
+    // when the source frame uses this sweep; native dimensions still obey
+    // the material re-entry veto unchanged.
+    let cut = if job.source_frame {
+        0.0
+    } else {
+        crate::material::reentry(job.footprints.solids(), segs[0])
+    };
     if cut > 0.0 {
         hard += 1;
     }
-    if too_long(shaft) {
+    if !job.source_frame && too_long(shaft) {
         hard += 1;
     }
     // A leader along the silhouette it points at lies on the part's edge: ISO 128-22's leader
@@ -6312,6 +6423,13 @@ fn measure_fixed(c: &mut Candidate, job: &Job, fixed: &Fixed) {
     let (tip, elbow, end, lb, bounds) = (c.tip, c.elbow, c.end, c.label_box, c.bounds);
     let segs = [[tip, elbow], [elbow, end]];
     let mut hard = 0;
+    if job.bend_radius > 0.0 {
+        let b = grow([elbow[0], elbow[1], elbow[0], elbow[1]], job.bend_radius);
+        hard += u32::from(
+            fixed.labels.iter().any(|(_, lb)| boxes_overlap(b, *lb))
+                || fixed.segments.iter().any(|(_, line)| touches_box(*line, b)),
+        );
+    }
     let padded = [
         lb[0] - LABEL_PAD,
         lb[1] - LABEL_PAD,
@@ -6621,6 +6739,8 @@ pub fn clear_routes(
         short_profile: false,
         inward: inward_callout(w),
         edge_attachment: true,
+        source_frame: false,
+        bend_radius: 0.0,
         interior_proof: views
             .iter()
             .find(|v| v.id == d.view)
@@ -7449,6 +7569,8 @@ pub(super) fn settled_routes(
     want: Option<&Want>,
     peers: &[PlannedDimension],
     proof: Option<&super::interior::Proof>,
+    contact_repair: bool,
+    bend_radius: f64,
 ) -> Vec<Placed> {
     let Some(v) = views.iter().find(|v| v.id == d.view) else {
         return Vec::new();
@@ -7459,6 +7581,7 @@ pub(super) fn settled_routes(
     let Some(shaft) = old.lines.first() else {
         return Vec::new();
     };
+    let source_frame = contact_repair && want.is_none() && crate::nominal::authored_pmi(analysis);
     let frame = Frame::new(analysis, v);
     let radius = radius_route_evidence(analysis, d, v);
     let page = Page::new(analysis, sheet, views);
@@ -7517,7 +7640,14 @@ pub(super) fn settled_routes(
         view: d.view.trim_start_matches("v:"),
         footprints: &footprints,
         outline: frame.outline(),
-        area: page.area(d.view.trim_start_matches("v:")),
+        // Finished contact repair can reclaim a vacant annotation band. Rank
+        // its routes by ink rather than that provisional reservation; the
+        // caller still proves the complete candidate's final reservation.
+        area: if contact_repair {
+            None
+        } else {
+            page.area(d.view.trim_start_matches("v:"))
+        },
         sites,
         radial: want.is_some_and(|w| {
             w.measurements.iter().any(|m| {
@@ -7537,6 +7667,8 @@ pub(super) fn settled_routes(
         profile_proof: None,
         inward: want.is_some_and(inward_callout),
         edge_attachment: want.is_some(),
+        source_frame,
+        bend_radius: if source_frame { bend_radius } else { 0.0 },
         interior_proof: proof.map(|p| (v, p)),
         steer: std::cell::Cell::new(None),
         ink_min,
@@ -7580,6 +7712,8 @@ pub(super) fn settled_routes(
             proof.map(super::interior::Proof::geometry_key),
             crate::layout::gutter().to_bits(),
             crate::planning::policy_key(analysis),
+            contact_repair,
+            bend_radius,
         ))
         .expect("route preparation inputs serialize"),
     )
@@ -7592,14 +7726,34 @@ pub(super) fn settled_routes(
         let mut exterior = job.clone();
         exterior.interior_proof = None;
         // Retain the proven shaft beside the margin while trying either shelf.
-        let other_shelf = super::placement::pmi_witness_retry(analysis) && radius.is_some();
+        let other_shelf =
+            source_frame || (super::placement::pmi_witness_retry(analysis) && radius.is_some());
+        // A finished blocked label can fit on the short shelf even when the
+        // standard shoulder cannot. Include the existing two shorter shelves
+        // before pruning rays, rather than losing that corridor.
+        let shoulders: &[f64] = if contact_repair {
+            &[SHOULDER, 2.0, 0.75]
+        } else {
+            &[SHOULDER]
+        };
         let mut candidates: Vec<_> = sweep(&exterior, shaft[0])
             .into_iter()
             .flat_map(|(tip, elbow, right)| {
                 std::iter::once((tip, elbow, right))
                     .chain(other_shelf.then_some((tip, elbow, !right)))
             })
-            .filter_map(|(tip, elbow, right)| measure_bounds(&exterior, tip, elbow, right, &page))
+            .flat_map(|(tip, elbow, right)| {
+                shoulders
+                    .iter()
+                    .filter_map(|shoulder| {
+                        let end = [
+                            elbow[0] + if right { *shoulder } else { -*shoulder },
+                            elbow[1],
+                        ];
+                        measure_at_bounds(&exterior, tip, elbow, end, right, &page)
+                    })
+                    .collect::<Vec<_>>()
+            })
             .filter(|c| !boxes_overlap(c.label_box, job.outline) && c.hard == 0)
             .collect();
         candidates.extend(interior_routes(&job, shaft[0], &page));
@@ -7648,6 +7802,13 @@ pub(super) fn settled_routes(
         }
         candidates
     };
+    if source_frame {
+        // Reuse the initial router's bounded edge columns and one-millimetre
+        // stations. A face-centred source leader may need to leave a wide
+        // view beyond the native dimension router's 75 mm reach grid.
+        let (clean, crossing, obstructed) = inventory(&job, &fixed, &page, true, true);
+        candidates.extend(clean.into_iter().chain(crossing).chain(obstructed));
+    }
     let old_extensions = fixed.extension_index.contacts(&old.lines, old.label_box);
     let resolved = analysis.edge_ink.as_ref().and_then(|ink| {
         let key = serde_json::to_vec(v).expect("view serializes");
@@ -7662,7 +7823,10 @@ pub(super) fn settled_routes(
     let hidden = resolved
         .as_ref()
         .map_or(0, |r| r.hidden.route_crossings(old_lines));
-    let compact_shoulders = super::placement::pmi_witness_retry(analysis)
+    // Finished contact repair needs the same bounded narrow-corridor
+    // refinements even outside the slot-only witness retry families.
+    let compact_shoulders = contact_repair
+        || super::placement::pmi_witness_retry(analysis)
         || peers.iter().any(|q| {
             (q.view == d.view
                 || want
@@ -7774,7 +7938,7 @@ pub(super) fn settled_routes(
     }
     // Newly reserved opening lanes may leave a clear shaft whose standard
     // shoulder puts its label through a witness. Refine at most 64 such rays
-    // with two shorter shoulders and four local reaches on the first 16,
+    // with two shorter shoulders and local reaches on the first 16,
     // retaining every original physical budget.
     if compact_shoulders {
         near.sort_by_key(|c| c.0);
@@ -7784,7 +7948,7 @@ pub(super) fn settled_routes(
             // The coarse reach grid jumps from 15 to 20 mm. A nearby
             // obstruction may need only one more millimetre of the same ray.
             let reaches: &[f64] = if rank < 16 && length > 1e-9 {
-                &[0., 1., 2., 3., 4.]
+                &[0., 0.5, 1., 2., 3., 4.]
             } else {
                 &[0.]
             };
@@ -8161,6 +8325,8 @@ mod tests {
             Some(want),
             &[],
             proof.get(&view.id).map(|p| p.as_ref()),
+            false,
+            0.0,
         );
         assert!(
             !alternatives.is_empty(),

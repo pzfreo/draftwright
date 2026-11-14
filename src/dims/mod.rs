@@ -112,7 +112,9 @@ pub(crate) mod contacts;
 mod leaders;
 pub(crate) use label_lanes::{compact_inventory, follow_lanes, in_lane, settle_inventory};
 pub(crate) use leaders::{default_nominal_intent, sheet_route_limits};
-pub(crate) use leaders::{restore_proven_arc_tips, settle_after_furniture, settle_radius_leaders};
+pub(crate) use leaders::{
+    reserve_radius_leaders, restore_proven_arc_tips, settle_after_furniture, settle_radius_leaders,
+};
 pub(crate) use placement::collisions_cached as label_collisions;
 pub(crate) use placement::nearest_shared_witnesses;
 mod gussets;

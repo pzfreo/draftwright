@@ -1501,7 +1501,7 @@ pub(crate) fn reserve_nominal_bounds(
     }
 }
 
-fn reserve_bounds(
+pub(crate) fn reserve_bounds(
     analysis: &Analysis,
     sheet: &crate::model::PlannedSheet,
     views: &mut [crate::model::PlannedView],

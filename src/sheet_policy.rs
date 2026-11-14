@@ -555,6 +555,8 @@ fn finished_preview(
         if let Some(reference) = reference {
             let fixed_contacts = crate::dims::contacts::fixed_stroke_contacts(&preview);
             let reference_fixed = crate::dims::contacts::fixed_stroke_contacts(reference);
+            let note_contacts = crate::dims::contacts::note_line_contacts(&preview);
+            let reference_notes = crate::dims::contacts::note_line_contacts(reference);
             let ids = preview
                 .problems
                 .iter()
@@ -565,6 +567,9 @@ fn finished_preview(
                         "leader_along_centreline"
                             | "leader_through_feature"
                             | "leader_centerline_overlap"
+                            | "annotation_leader_crossing"
+                            | "leader_across_view"
+                            | "label_crowded"
                     ) && !reference
                         .problems
                         .iter()
@@ -574,9 +579,18 @@ fn finished_preview(
                 .flat_map(|p| {
                     p.subjects
                         .iter()
-                        .filter(|s| preview.dimensions.iter().any(|d| &d.id == *s))
+                        .filter(|s| {
+                            preview.dimensions.iter().any(|d| &d.id == *s)
+                                || preview.gdt.iter().any(|g| &g.id == *s)
+                        })
                         .cloned()
                 })
+                .chain(
+                    note_contacts
+                        .iter()
+                        .filter(|p| !reference_notes.contains(p))
+                        .flat_map(|(_, ids)| ids.iter().cloned()),
+                )
                 .collect::<BTreeSet<_>>();
             if !ids.is_empty() {
                 crate::dims::callout_routes::finish_new_contacts(
@@ -1451,6 +1465,10 @@ fn select_scales_full(
                                         | "views_overlap"
                                         | "view_on_title_block"
                                         | "page_fit_uncertain"
+                                        | "dimension_line_at_note"
+                                        | "annotation_leader_crossing"
+                                        | "leader_across_view"
+                                        | "label_crowded"
                                 )
                             })
                         });

@@ -4950,7 +4950,10 @@ pub(crate) fn finish_presentation(
             crate::dims::size_datums::attach(effective.as_ref(), spec, &mut plan);
             crate::dims::finish_attached_openings(effective.as_ref(), spec, &mut plan);
             crate::dims::callout_routes::finish_frames(effective.as_ref(), spec, &mut plan);
+        } else if !plan.gdt.is_empty() && crate::nominal::authored_pmi(effective.as_ref()) {
+            crate::dims::callout_routes::finish_frames(effective.as_ref(), spec, &mut plan);
         }
+        retry_radial_corridor(effective.as_ref(), spec, &mut plan);
         crate::dims::gdt::cited_undrawn(&mut plan);
         crate::dims::pmi_policy::audit(effective.as_ref(), &plan.spec.clone(), &mut plan);
         if !crate::decision_overrides::reference_only()
@@ -5905,7 +5908,10 @@ fn plan_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
                 crate::dims::size_datums::attach(analysis, spec, &mut plan);
                 crate::dims::finish_attached_openings(analysis, spec, &mut plan);
                 crate::dims::callout_routes::finish_frames(analysis, spec, &mut plan);
+            } else if !plan.gdt.is_empty() && crate::nominal::authored_pmi(analysis) {
+                crate::dims::callout_routes::finish_frames(analysis, spec, &mut plan);
             }
+            retry_radial_corridor(analysis, spec, &mut plan);
             crate::dims::gdt::cited_undrawn(&mut plan);
             if !crate::placement_intent::has_pins(spec) {
                 plan.record_dimension_labels();
@@ -9015,6 +9021,119 @@ fn plan_with_presentation(
         crate::planning::store(analysis, "resolved_candidate", key, plan.clone());
     }
     Ok(plan)
+}
+
+/// A persistent source-radius fallback may have lost its only compliant corridor
+/// to dependent GD&T. Offer one drawing using the existing radius and frame placers,
+/// retaining it only under the complete per-code/per-crossing-kind route ratchet.
+fn retry_radial_corridor(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
+    if plan.gdt.is_empty()
+        || !crate::nominal::authored_pmi(analysis)
+        || crate::nominal::comparison()
+        || crate::planning::lookup::<bool>(analysis, "canonical-circular-recipes", &[])
+            .unwrap_or(false)
+        || annotation_text_edited(spec)
+        || crate::placement_intent::has_pins(spec)
+        || !findings(plan).clean()
+    {
+        return;
+    }
+    let mut trial = plan.clone();
+    trial.gdt.clear();
+    let mut fixed = crate::dims::callout_routes::furniture(&trial);
+    fixed.extend(radius_furniture(&trial));
+    let cache = crate::dims::footprints::Cache::default();
+    let reports = crate::dims::reserve_radius_leaders(
+        analysis,
+        spec,
+        &trial.sheet,
+        &trial.views,
+        &mut trial.dimensions,
+        &fixed,
+        &cache,
+    );
+    let changed: BTreeSet<_> = trial
+        .dimensions
+        .iter()
+        .zip(&plan.dimensions)
+        .filter(|(a, b)| a.placed != b.placed)
+        .map(|(d, _)| d.id.clone())
+        .collect();
+    if changed.is_empty() {
+        return;
+    }
+    let mut obstacles = trial.dimensions.clone();
+    obstacles.extend(fixed);
+    let (gdt, found) = crate::dims::gdt::plan_anchored(
+        analysis,
+        spec,
+        &trial.sheet,
+        &trial.views,
+        &obstacles,
+        Some(plan),
+        &cache,
+    );
+    trial.gdt = gdt;
+    crate::sheet_fit::reserve_bounds(
+        analysis,
+        &trial.sheet,
+        &mut trial.views,
+        &trial.dimensions,
+        &trial.gdt,
+        None,
+    );
+    let checked = crate::dims::recheck_cached(analysis, &trial, &cache);
+    let mut codes: BTreeSet<_> = checked
+        .iter()
+        .chain(crate::dims::recheck_cached(analysis, plan, &cache).iter())
+        .map(|p| p.code.clone())
+        .collect();
+    codes.insert("datum_symbol_overlap".into());
+    trial.problems.retain(|p| {
+        !codes.contains(&p.code)
+            && !(matches!(
+                p.code.as_str(),
+                "annotation_line_over_view" | "annotation_leader_long"
+            ) && p
+                .subjects
+                .first()
+                .is_some_and(|id| reports.contains_key(id)))
+    });
+    let retained: BTreeSet<_> = trial.problems.iter().map(|p| p.id.clone()).collect();
+    trial.problems.extend(checked);
+    trial.problems.extend(found.into_iter().filter(|p| {
+        p.code == "datum_symbol_overlap" || (!codes.contains(&p.code) && !retained.contains(&p.id))
+    }));
+    trial.problems.extend(reports.into_values().flatten());
+    crate::dims::callout_routes::finish_frames(analysis, spec, &mut trial);
+    crate::dims::contacts::report(analysis, &mut trial);
+    crate::dims::callout_routes::finish_new_contacts(analysis, spec, &mut trial, &changed, plan);
+    crate::dims::contacts::report(analysis, &mut trial);
+    if !crate::dims::callout_routes::no_regression(&plan.problems, &trial.problems)
+        || !carries_required(plan, &trial)
+        || undrawn_gdt(&trial) > undrawn_gdt(plan)
+        || !finished_sheets_fit(analysis, &trial)
+    {
+        return;
+    }
+    for d in trial.dimensions.iter().filter(|d| changed.contains(&d.id)) {
+        if let (Some(p), Some(v)) = (
+            d.placed.as_ref(),
+            trial.views.iter().find(|v| v.id == d.view),
+        ) && let Some(shaft) = p.lines.first()
+        {
+            trial.callout_tips.insert(
+                d.id.clone(),
+                (
+                    d.view.clone(),
+                    [shaft[0][0] - v.at[0], shaft[0][1] - v.at[1]],
+                ),
+            );
+        }
+    }
+    trial.sheet.fill = crate::sheet_fit::fill(analysis, &trial);
+    trial.status = crate::completeness::status(&trial.problems);
+    *plan = trial;
 }
 
 /// Precision repairs belong to the selected drawing, after sheet candidates have

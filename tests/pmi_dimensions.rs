@@ -2674,9 +2674,10 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
     // Measured A3 lanes also remove the previously accepted notch crowding.
     // Require complete clearance rather than retain that allowance.
     assert!(notch_contacts.is_empty(), "{notch_contacts:?}");
+    // 2026-11-14: the approved A3 lanes clear one extension and the remaining crowded label.
     for (code, count) in [
-        ("extension_through_feature", 8),
-        ("label_crowded", 1),
+        ("extension_through_feature", 7),
+        ("label_crowded", 0),
         ("annotation_leader_crossing", 1),
         ("leader_across_view", 0),
     ] {

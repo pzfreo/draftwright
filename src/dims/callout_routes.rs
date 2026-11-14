@@ -51,6 +51,7 @@ fn improves_with_contacts(before: &[Problem], after: &[Problem], contacts: bool)
                                 | "annotation_outside_area"
                                 | "leader_through_feature"
                                 | "leader_centerline_overlap"
+                                | "dimension_line_at_note"
                         ))
             })
             .map(|(_, n)| n)
@@ -59,7 +60,7 @@ fn improves_with_contacts(before: &[Problem], after: &[Problem], contacts: bool)
     b.iter().all(|(k, n)| *n <= a.get(k).copied().unwrap_or(0)) && defects(&b) < defects(&a)
 }
 
-fn no_regression(before: &[Problem], after: &[Problem]) -> bool {
+pub(crate) fn no_regression(before: &[Problem], after: &[Problem]) -> bool {
     let (a, b) = (counts(before), counts(after));
     b.iter().all(|(k, n)| *n <= a.get(k).copied().unwrap_or(0))
 }
@@ -143,7 +144,7 @@ pub(super) fn balloon_obstacle(b: &crate::hole_table::Balloon) -> PlannedDimensi
     }
 }
 
-pub(super) fn furniture(plan: &Plan) -> Vec<PlannedDimension> {
+pub(crate) fn furniture(plan: &Plan) -> Vec<PlannedDimension> {
     let mut fixed = crate::centrelines::obstacles(&plan.views);
     fixed.extend(plan.tables.iter().filter_map(crate::tables::proxy));
     fixed.extend(
@@ -319,7 +320,9 @@ fn rehang(g: &mut gdt::PlannedGdt, next: &Placed) {
                 arc[1] += b[1] - a[1] - delta[1];
             }
         }
-        p.tip = next.lines[0][0];
+        if let Some(shaft) = next.lines.first() {
+            p.tip = shaft[0];
+        }
     }
     p.lines.clone_from(&next.lines);
     p.arrows.clone_from(&next.arrows);
@@ -488,6 +491,8 @@ pub(crate) fn prefer_interior(
                 Some(want),
                 &peers,
                 Some(proof.as_ref()),
+                false,
+                0.0,
             );
             let id = d.id.clone();
             let found = placement::collisions_for(analysis, &all, sheet, &plan.views, &cache, &id);
@@ -581,11 +586,21 @@ fn crowding(
 ) -> Vec<Problem> {
     let mut candidate = plan.clone();
     candidate.dimensions = all[..dimension_count].to_vec();
+    for g in &mut candidate.gdt {
+        if let Some(p) = all[dimension_count..]
+            .iter()
+            .find(|d| d.id == g.id)
+            .and_then(|d| d.placed.as_ref())
+        {
+            rehang(g, p);
+        }
+    }
     super::contacts::report(analysis, &mut candidate);
     if fixed_strokes {
         candidate
             .problems
             .extend(super::contacts::fixed_stroke_contacts(&candidate));
+        candidate.problems.extend(note_contacts(&candidate));
     }
     candidate
         .problems
@@ -598,7 +613,21 @@ fn crowding(
                     | "leader_to_hidden_edge"
                     | "leader_along_centreline"
                     | "leader_centerline_overlap"
+                    | "dimension_line_at_note"
             ) && p.subjects.iter().any(|s| s == id)
+        })
+        .collect()
+}
+
+// The preferred-scale gate measures this one-mm text corridor without publishing
+// a Problem. Give its bounded repair the same before/after evidence as the gate.
+fn note_contacts(plan: &Plan) -> Vec<Problem> {
+    super::contacts::note_line_contacts(plan)
+        .into_iter()
+        .map(|(code, subjects)| Problem {
+            code,
+            subjects,
+            ..Default::default()
         })
         .collect()
 }
@@ -610,7 +639,41 @@ pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
 /// Repair independent frames after their neighbours have attached as units.
 /// Size labels and attached hole frames remain fixed together.
 pub(crate) fn finish_frames(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
-    finish_with(analysis, spec, plan, true, None);
+    if !plan.gdt.is_empty()
+        && crate::nominal::authored_pmi(analysis)
+        && !crate::nominal::comparison()
+        && !crate::planning::lookup::<bool>(analysis, "canonical-circular-recipes", &[])
+            .unwrap_or(false)
+    {
+        // Both sides of the full-drawing ratchet must include the same
+        // finished-ink diagnostics, including pre-existing contact notices.
+        super::contacts::report(analysis, plan);
+        let reference = plan.clone();
+        let ids = plan.gdt.iter().map(|g| g.id.clone()).collect();
+        finish_with(analysis, spec, plan, true, Some((&ids, &reference)));
+        // The frame repairs can free an escape for an independent bore.
+        // Retry that existing bounded route against the finished attached ink.
+        let ids = plan
+            .problems
+            .iter()
+            .filter(|p| p.code == "leader_across_view")
+            .flat_map(|p| p.subjects.iter())
+            .filter(|id| plan.dimensions.iter().any(|d| &d.id == *id))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if !ids.is_empty() {
+            let reference = plan.clone();
+            finish_with(analysis, spec, plan, false, Some((&ids, &reference)));
+        }
+        super::contacts::report(analysis, plan);
+        // Attachment-dependent diagnostics must also respect the complete
+        // published drawing's budgets, not just one moved proxy's contacts.
+        if !no_regression(&reference.problems, &plan.problems) {
+            *plan = reference;
+        }
+    } else {
+        finish_with(analysis, spec, plan, true, None);
+    }
 }
 
 // Transport a proven native callout corridor between identical projection owners.
@@ -681,7 +744,7 @@ fn finish_with(
     });
     let repair_issue = |code: &str| {
         route_issue(code)
-            || (openings && code == "label_crowded")
+            || ((openings || new_contacts.is_some()) && code == "label_crowded")
             || (new_contacts.is_some()
                 && matches!(
                     code,
@@ -689,6 +752,7 @@ fn finish_with(
                         | "annotation_outside_area"
                         | "leader_through_feature"
                         | "leader_centerline_overlap"
+                        | "dimension_line_at_note"
                 ))
     };
     // Detect bore leaders against settled nominal ink, before the final contact
@@ -723,14 +787,14 @@ fn finish_with(
     // Attached marks move with their authored unit. Before attachment, PMI
     // callouts may retry their changed witness corridors; the ordinary hole
     // attachment pass then proves a place for each frame beside the new label.
-    let coupled: BTreeSet<_> = if (openings || pmi_retry)
+    let coupled: BTreeSet<_> = if (openings || pmi_retry || new_contacts.is_some())
         && !plan.gdt.is_empty()
         && (!pmi_retry || plan.gdt.iter().any(super::hole_marks::attached))
     {
         super::hole_marks::attachments(analysis, plan)
             .into_iter()
             .filter(|(id, _)| {
-                !pmi_retry
+                (!pmi_retry && new_contacts.is_none())
                     || plan
                         .gdt
                         .iter()
@@ -761,6 +825,7 @@ fn finish_with(
         let mut found = super::contacts::contacts(plan);
         if new_contacts.is_some() {
             found.extend(super::contacts::fixed_stroke_contacts(plan));
+            found.extend(note_contacts(plan));
         }
         found
     } else {
@@ -860,6 +925,7 @@ fn finish_with(
                                 super::hole_marks::attached(g) && g.side != "leader"
                             })))
                     || !affected_ids.contains(&d.id)
+                    || (new_contacts.is_some() && i < dimension_count && coupled.contains(&d.id))
                     || d.kind != "callout"
                     || d.placed.is_none()
                     || spec
@@ -885,7 +951,7 @@ fn finish_with(
                 let mut before =
                     placement::collisions_for(analysis, &all, sheet, &plan.views, &cache, &d.id);
                 if (openings || new_contacts.is_some() || across_ids.contains(&d.id))
-                    && i < dimension_count
+                    && (i < dimension_count || new_contacts.is_some())
                 {
                     before.extend(crowding(
                         analysis,
@@ -973,6 +1039,19 @@ fn finish_with(
                         want,
                         &peers,
                         proofs.get(&view.id).map(|p| p.as_ref()),
+                        new_contacts.is_some(),
+                        glyph
+                            .as_ref()
+                            .filter(|g| !g.modifiers.is_empty())
+                            .map_or(0.0, |g| {
+                                0.7 * super::ARROW
+                                    * if g.modifiers.iter().any(|m| m == "all_over") {
+                                        1.7
+                                    } else {
+                                        1.0
+                                    }
+                                    + super::contacts::TEXT_CLEAR
+                            }),
                     )
                 };
                 if before_extension.0 > 0 {
@@ -990,30 +1069,24 @@ fn finish_with(
                         .sum::<f64>()
                 };
                 let longest = route_length(old.as_ref().expect("placed callout")) + 2.0;
-                let mut grown_area = None;
-                let limit = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
-                    candidates.len()
-                } else {
-                    40
-                };
-                for mut next in candidates.into_iter().take(limit) {
+                let eligible = |next: &mut Placed| {
                     if let Some(g) = &glyph
-                        && !meet_frame(g, &mut next)
+                        && !meet_frame(g, next)
                     {
-                        continue;
+                        return false;
                     }
                     // Repairing an across-view detour must not create a longer
                     // one. Retain the existing two-paper-mm route budget.
-                    if across_ids.contains(&id) && route_length(&next) > longest + 1e-9 {
-                        continue;
+                    if across_ids.contains(&id) && route_length(next) > longest + 1e-9 {
+                        return false;
                     }
                     // The all-around/all-over marks travel with the bend. Reserve
                     // their actual extent as well as the proxy's shaft and frame.
                     if let Some(g) = glyph.as_ref().filter(|g| !g.modifiers.is_empty()) {
                         let ring = if g.modifiers.iter().any(|m| m == "all_over") {
-                            1.7 * 0.42 * super::TEXT
+                            1.7 * 0.7 * super::ARROW
                         } else {
-                            0.42 * super::TEXT
+                            0.7 * super::ARROW
                         } + 0.5;
                         let bend = next.lines[0][1];
                         let b = [
@@ -1043,7 +1116,7 @@ fn finish_with(
                                 .is_some_and(|p| p.blank(view, next.label_box))
                                 && !proofs[&view.id].blank(view, b))
                         {
-                            continue;
+                            return false;
                         }
                     }
                     // Full sheet furniture is fixed even when collision reporting only
@@ -1075,6 +1148,36 @@ fn finish_with(
                                 .any(|s| placement::crosses(*s, pad))
                             || next.lines.iter().any(|s| placement::crosses(*s, text))
                     }) {
+                        return false;
+                    }
+                    true
+                };
+                // Apply the existing rigid-mark and furniture proofs before the
+                // bounded prefix; obstructed modifier bends must not consume it.
+                let contact_repair = new_contacts.is_some();
+                if contact_repair {
+                    candidates.retain_mut(&eligible);
+                }
+                if new_contacts.is_some() && across_ids.contains(&id) {
+                    // A route still taking the long way across the view cannot
+                    // repair this finding. Prove that existing contact before
+                    // spending the bounded final prefix on neighbouring bends.
+                    candidates.retain(|next| {
+                        let mut trial = all.clone();
+                        trial[i].placed = Some(next.clone());
+                        !crowding(analysis, plan, &trial, dimension_count, &id, true)
+                            .iter()
+                            .any(|p| p.code == "leader_across_view")
+                    });
+                }
+                let mut grown_views = None;
+                let limit = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
+                    candidates.len()
+                } else {
+                    40
+                };
+                for mut next in candidates.into_iter().take(limit) {
+                    if !contact_repair && !eligible(&mut next) {
                         continue;
                     }
 
@@ -1082,10 +1185,11 @@ fn finish_with(
                     // A free source callout can need a little more of its view's
                     // annotation band after witness lanes move. Reuse the hole
                     // attachment proof: grow only into vacant drawable paper.
-                    let area = if ((pmi_retry && extension_retry)
+                    let area = if (((pmi_retry && extension_retry)
                         || new_contacts.is_some()
                         || across_ids.contains(&id))
-                        && i < dimension_count
+                        && i < dimension_count)
+                        || (glyph.is_some() && new_contacts.is_some())
                     {
                         super::ink_box(&all[i]).and_then(|ink| {
                             super::hole_marks::grown(view, ink, sheet, &plan.views, &peers)
@@ -1093,11 +1197,29 @@ fn finish_with(
                     } else {
                         None
                     };
-                    let trial_views = area.map(|area| {
+                    let mut trial_views = area.map(|area| {
                         let mut views = plan.views.clone();
                         views.iter_mut().find(|v| v.id == view.id).unwrap().area = area;
                         views
                     });
+                    if trial_views.is_none() && glyph.is_some() && new_contacts.is_some() {
+                        // A frame may reclaim an empty neighbouring reservation,
+                        // just as nominal callouts do. Use the existing full-ink
+                        // proof, including furniture; move no ink or view.
+                        let mut views = plan.views.clone();
+                        let inventory: Vec<_> = all.iter().chain(&fixed).cloned().collect();
+                        crate::sheet_fit::reserve_bounds(
+                            analysis,
+                            sheet,
+                            &mut views,
+                            &inventory,
+                            &[],
+                            Some(&BTreeSet::from([id.clone()])),
+                        );
+                        if views.iter().zip(&plan.views).any(|(a, b)| a.area != b.area) {
+                            trial_views = Some(views);
+                        }
+                    }
                     let mut after = placement::collisions_for(
                         analysis,
                         &all,
@@ -1107,7 +1229,7 @@ fn finish_with(
                         &id,
                     );
                     if (openings || new_contacts.is_some() || across_ids.contains(&id))
-                        && i < dimension_count
+                        && (i < dimension_count || new_contacts.is_some())
                     {
                         after.extend(crowding(
                             analysis,
@@ -1196,14 +1318,14 @@ fn finish_with(
                             fixed = furniture(plan);
                         }
                         changed.insert(id.clone());
-                        grown_area = area.map(|area| (view.id.clone(), area));
+                        grown_views = trial_views;
                         moved = true;
                         break;
                     }
                     all[i].placed.clone_from(&old);
                 }
-                if let Some((id, area)) = grown_area {
-                    plan.views.iter_mut().find(|v| v.id == id).unwrap().area = area;
+                if let Some(views) = grown_views {
+                    plan.views = views;
                 }
             }
             if !moved {
