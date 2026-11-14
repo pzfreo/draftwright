@@ -9,7 +9,9 @@
 //!   dimension, so the quantity is stated once): a bore diameter whose cylinders are the holes a
 //!   callout calls out (their axis lines, their axis and their diameter) gives the callout its
 //!   tolerance (`6× ⌀10 +0.09 -0.0 THRU`; a limit pair as its deviations, `⌀35 ±0.2`), or, with
-//!   no tolerance, is stated by it; a plain length between a turned step's two shoulders is
+//!   no tolerance, is stated by it; a linear location proving every hole's entry and floor
+//!   (or drill-point shoulder) gives the callout its authored depth, identity and tolerance,
+//!   reporting any disagreement with the recognised depth; a plain length between a turned step's two shoulders is
 //!   stated by the step's length;
 //! - **stands beside them**, drawn as its own dimension (draftwright's standalone fallback): a
 //!   length between its two proven stations (aligned for an oblique span in a principal plane),
@@ -464,6 +466,89 @@ fn inclined_hole_callout(
     (found.len() == 1).then(|| found.remove(0))
 }
 
+/// A depth belongs to one complete callout only when its authored endpoint topology
+/// proves every blind bore, including the circular shoulder of a drill point.
+fn hole_depth_callout(a: &Analysis, wants: &[Want], r: &Record) -> Option<usize> {
+    let spans = &r.geometry.as_ref()?.hole_depths;
+    if spans.is_empty() {
+        return None;
+    }
+    let frame = crate::bridge::holes::frame(a);
+    let close = |p: P3, q: P3| (0..3).all(|k| (p[k] - q[k]).abs() <= 0.01);
+    let mut found = Vec::new();
+    for (i, w) in wants.iter().enumerate() {
+        let holes = holes_of(w);
+        if holes.is_empty() || !w.terms.iter().any(|t| t == "↧") {
+            continue;
+        }
+        let mut covered = BTreeSet::new();
+        let all = holes.iter().all(|(id, _, _)| {
+            let Some(f) = a.features.iter().find(|f| f.id == *id) else {
+                return false;
+            };
+            let Ok(h) = crate::bridge::holes::Hole::read(f, &frame) else {
+                return false;
+            };
+            let Some(depth) = h.depth_from_mouth() else {
+                return false;
+            };
+            // A counterbore's drilling starts on its innermost floor. Recognition's
+            // location remains at the outer opening, but its bore depth is the drill's
+            // own length, as printed by the native callout.
+            let (entry, floor) = if let Some(recess) = h.counterbore.or(h.spotface) {
+                let Some(offsets) = std::iter::once(recess)
+                    .chain(h.outer_steps.iter().copied())
+                    .map(|r| r.depth)
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return false;
+                };
+                let offset: f64 = offsets.iter().sum();
+                let entry = [0, 1, 2].map(|k| h.at[k] + offset * h.direction[k]);
+                let Some(drill) = h.depth else { return false };
+                (entry, [0, 1, 2].map(|k| entry[k] + drill * h.direction[k]))
+            } else {
+                let entry = [0, 1, 2].map(|k| h.at[k] - h.entry * h.direction[k]);
+                (entry, [0, 1, 2].map(|k| entry[k] + depth * h.direction[k]))
+            };
+            let mut matched = false;
+            for (j, span) in spans.iter().enumerate() {
+                if (2. * span.cylinder.radius - h.diameter).abs() <= 1e-4
+                    && ((close(span.ends[0], entry) && close(span.ends[1], floor))
+                        || (close(span.ends[1], entry) && close(span.ends[0], floor)))
+                {
+                    covered.insert(j);
+                    matched = true;
+                }
+            }
+            matched
+        });
+        if all && covered.len() == spans.len() {
+            found.push(i);
+        }
+    }
+    (found.len() == 1).then(|| found[0])
+}
+
+/// Replace just the bore's first depth clause with its authored text, so diameter fits
+/// and recess depths retain their own quantities.
+fn print_depth(w: &mut Want, r: &Record, value: f64) {
+    let at = w
+        .terms
+        .iter()
+        .position(|t| t == "↧")
+        .expect("matched bore depth")
+        + 1;
+    // The label has already crossed the drawing-unit boundary, just as for standalone
+    // dimensions. Keep its authored zeroes, tolerance spelling and qualifier intact.
+    w.terms.splice(at..=at, terms(&r.label));
+    for m in &mut w.measurements {
+        if m.parameter == "bore.depth" {
+            m.value = value;
+        }
+    }
+}
+
 /// The turned step length (by index into *wants*) a plain length states: one whose two ends lie
 /// at the record's stations along its axis (to 0.01 mm) and whose value is its nominal
 /// (draftwright's `lower_ap242_nominal_step_lengths`, which needs exactly one such step).
@@ -705,6 +790,8 @@ enum Outcome {
     Standalone(Want),
     /// Stated by a callout: its holes, and the band it puts on it.
     Hole(usize, BTreeSet<usize>, Option<Req>),
+    /// Authored blind depth on an existing hole callout.
+    Depth(usize),
     /// Stated by another item as it is.
     Stated(usize, &'static str),
     /// Stated by a turned step's or boss's diameter, which takes its band.
@@ -858,6 +945,9 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
                     let mut r = r.clone();
                     if r.kind != "angular" {
                         r.label = cx.spec.units.length_text(&r.label);
+                        if let Some(label) = &mut r.authored_depth_label {
+                            *label = cx.spec.units.length_text(label);
+                        }
                     }
                     r
                 })
@@ -909,6 +999,57 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
                 };
             }
         }
+    }
+
+    // Depth is another quantity of the same hole callout. Apply it before diameter bands,
+    // whose undo notes must retain this independent authored depth and its tolerance.
+    let mut depths: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (j, o) in outcomes.iter().enumerate() {
+        if let Outcome::Depth(i) = o {
+            depths.entry(*i).or_default().push(j);
+        }
+    }
+    let mut depth_sources = BTreeSet::new();
+    let mut depth_mismatches = Vec::new();
+    for (i, js) in depths {
+        let first = records[js[0]];
+        let value = first.value.expect("depth has a nominal");
+        let band = requirement(first, value);
+        if js.iter().any(|&j| {
+            records[j].value != Some(value)
+                || requirement(records[j], value) != band
+                || qualifier(records[j]) != qualifier(first)
+        }) {
+            for j in js {
+                outcomes[j] = Outcome::Refused(not_lowered(
+                    "conflicting AP242 hole depth requirements on the same callout",
+                ));
+            }
+            continue;
+        }
+        let w = &mut wants[i];
+        for &j in &js {
+            let r = records[j];
+            let measured: Vec<_> = w
+                .measurements
+                .iter()
+                .filter(|m| m.parameter == "bore.depth")
+                .collect();
+            if measured.iter().any(|m| (m.value - value).abs() > 1e-6) {
+                depth_mismatches.push((r, measured.into_iter().cloned().collect::<Vec<_>>()));
+            }
+            w.measurements.push(claim(&ids, r, value));
+            w.basis += &format!(
+                "; it states the part's AP242 hole depth ({}) from the entry to the floor or drill-point shoulder",
+                r.source_id
+            );
+            depth_sources.insert(r.source_id.clone());
+        }
+        let mut authored = first.clone();
+        if let Some(label) = &first.authored_depth_label {
+            authored.label.clone_from(label);
+        }
+        print_depth(w, &authored, value);
     }
 
     // A callout states a band only when every hole it calls out has the same one: one with
@@ -986,7 +1127,8 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
                 }
             }
         }
-        let parts = split(&wants[i], &groups);
+        let depth_claims = depth_sources.iter().map(|s| feature(&ids, s)).collect();
+        let parts = split(&wants[i], &groups, &depth_claims);
         for (g, (mut w, members)) in parts.into_iter().enumerate() {
             let stating: Vec<usize> = js
                 .iter()
@@ -1050,6 +1192,50 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
         }
     }
     standalone.extend(split_off);
+
+    // Diameter requirements can split a callout after its common depth is applied.
+    // Keep the recognised measurements until that split has settled, then attach one
+    // finding to each actual carrier, with precisely that carrier's physical members.
+    for (r, before) in depth_mismatches {
+        let value = r.value.expect("depth has a nominal");
+        let claim = feature(&ids, &r.source_id);
+        for w in wants
+            .iter()
+            .chain(&standalone)
+            .filter(|w| w.measurements.iter().any(|m| m.feature == claim))
+        {
+            let measured: Vec<_> = before
+                .iter()
+                .filter(|m| {
+                    w.measurements
+                        .iter()
+                        .any(|own| own.parameter == "bore.depth" && own.feature == m.feature)
+                })
+                .collect();
+            if measured.iter().any(|m| (m.value - value).abs() > 1e-6) {
+                let places = measured.iter().find_map(|m| {
+                    cx.spec
+                        .precision
+                        .get(&want_id(&m.feature, &m.parameter))
+                        .copied()
+                });
+                let printed = |v| cx.spec.units.format_places(v, places);
+                let recognised: BTreeSet<_> = measured.iter().map(|m| printed(m.value)).collect();
+                let recognised = recognised.into_iter().collect::<Vec<_>>().join(", ");
+                let authored = printed(value);
+                let unit = cx.spec.units.symbol();
+                problems.push(Problem {
+                    id: format!("p:pmi_hole_depth_mismatch:{}:{}", r.source_id, w.id),
+                    code: "pmi_hole_depth_mismatch".into(),
+                    severity: "warning".into(),
+                    message: format!("The authored PMI hole depth {authored} {unit} differs from the recognised depth {recognised} {unit}; the hole callout uses the authored depth."),
+                    subjects: vec![w.id.as_str().into()],
+                    refs: std::iter::once(r.source_id.clone()).chain(measured.iter().map(|m| m.feature.clone())).collect(),
+                    ..Default::default()
+                });
+            }
+        }
+    }
 
     // A turned step's or boss's diameter states a band only when every record on it agrees.
     let mut by_item: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
@@ -1136,7 +1322,7 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
         match o {
             Outcome::Refused(Refusal(code, why)) => problems.push(refusal(r, code, &why)),
             Outcome::Standalone(w) | Outcome::General(w) => standalone.push(w),
-            Outcome::Hole(..) | Outcome::Band(..) => {}
+            Outcome::Hole(..) | Outcome::Band(..) | Outcome::Depth(..) => {}
             Outcome::Stated(i, how) => {
                 let w = &mut wants[i];
                 w.basis += &format!("; it states the part's AP242 {how} ({})", r.source_id);
@@ -1149,7 +1335,9 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
     }
     // Qualifiers belong to the requirement even when a recognised size owns its ink.
     for r in &records {
-        if let Some(q) = qualifier(r) {
+        if !depth_sources.contains(&r.source_id)
+            && let Some(q) = qualifier(r)
+        {
             let manufacturing = crate::pmi_lowering::manufacturing(cx.analysis);
             let id = feature(&ids, &r.source_id);
             for w in wants
@@ -1249,6 +1437,19 @@ fn outcome(
             "its attachment was not derived (the Analysis predates PMI dimensions; analyse the part again)",
         ));
     };
+    // A geometric nominal mismatch does not invalidate proven hole endpoint topology.
+    // Other attachment refusals still fail closed before the standalone fallback.
+    if !r.basic
+        && r.kind == "linear"
+        && r.type_code == Some(2)
+        && r.value.is_some_and(|v| v.is_finite() && v > 0.)
+        && let Some(i) = hole_depth_callout(a, wants, r)
+    {
+        if !g.axis_point_reasons.is_empty() {
+            return Outcome::Refused(not_lowered(g.axis_point_reasons.join("; ")));
+        }
+        return Outcome::Depth(i);
+    }
     if !g.reasons.is_empty() {
         return Outcome::Refused(not_lowered(g.reasons.join("; ")));
     }
@@ -1757,7 +1958,7 @@ pub(super) fn finish(out: &mut [super::PlannedDimension]) {
 /// A callout cut into *groups* of its holes (by index), each its own callout of those holes: its
 /// count, measurements and sites theirs, its ID its first hole's. One group is the callout as it
 /// is.
-fn split(w: &Want, groups: &[Group]) -> Vec<(Want, Vec<usize>)> {
+fn split(w: &Want, groups: &[Group], depth_claims: &BTreeSet<String>) -> Vec<(Want, Vec<usize>)> {
     if groups.len() == 1 {
         return vec![(w.clone(), groups[0].1.clone())];
     }
@@ -1777,7 +1978,7 @@ fn split(w: &Want, groups: &[Group]) -> Vec<(Want, Vec<usize>)> {
                 part.terms.remove(0);
             }
             part.measurements
-                .retain(|m| features.contains(m.feature.as_str()));
+                .retain(|m| features.contains(m.feature.as_str()) || depth_claims.contains(&m.feature));
             part.shape = Shape::Callout { arcs: Vec::new(),
                 sites: members.iter().map(|&m| sites[m]).collect(),
             };
@@ -1799,6 +2000,52 @@ fn split(w: &Want, groups: &[Group]) -> Vec<(Want, Vec<usize>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn splitting_hole_callouts_copies_only_the_shared_depth_claim() {
+        let m = |feature: &str, parameter: &str, value| Measurement {
+            feature: feature.into(),
+            parameter: parameter.into(),
+            value,
+        };
+        let w = Want {
+            units: crate::units::Units::Mm,
+            id: "d:f:hole:a/bore.diameter".into(),
+            views: vec!["plan"],
+            value: 4.,
+            terms: vec!["2×".into(), "⌀4".into(), "↧".into(), "8".into()],
+            measurements: vec![
+                m("f:hole:a", "bore.diameter", 4.),
+                m("f:hole:a", "bore.depth", 8.),
+                m("f:hole:b", "bore.diameter", 4.),
+                m("f:hole:b", "bore.depth", 8.),
+                m("pmi:depth", "linear", 8.),
+                m("pmi:unrelated-size", "diameter", 4.),
+            ],
+            basis: String::new(),
+            turning: None,
+            shape: Shape::Callout {
+                sites: vec![([0., 0., 0.], 2.), ([10., 0., 0.], 2.)],
+                arcs: vec![],
+            },
+        };
+        let split = split(
+            &w,
+            &[(None, vec![0]), (None, vec![1])],
+            &BTreeSet::from(["pmi:depth".into()]),
+        );
+        assert_eq!(split.len(), 2);
+        for (i, (part, _)) in split.iter().enumerate() {
+            let own = if i == 0 { "f:hole:a" } else { "f:hole:b" };
+            assert!(part.measurements.iter().any(|m| m.feature == "pmi:depth"));
+            assert_eq!(part.measurements.len(), 3);
+            assert!(
+                part.measurements
+                    .iter()
+                    .all(|m| m.feature == own || m.feature == "pmi:depth")
+            );
+        }
+    }
 
     #[test]
     fn inch_limits_and_tolerance_magnitudes_keep_their_units() {
@@ -1917,6 +2164,7 @@ mod tests {
             upper_bound: None,
             fit: Some(code.into()),
             label: format!("⌀{value} {code}"),
+            authored_depth_label: None,
             datum_refs: Vec::new(),
             gtol_modifiers: Vec::new(),
             basic: false,

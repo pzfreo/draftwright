@@ -978,14 +978,7 @@ pub(crate) fn planning<'a>(a: &'a Analysis, s: &Spec) -> std::borrow::Cow<'a, An
 
 pub(crate) fn source_hash(original: &Analysis, prepared: bool, plan: &mut crate::model::Plan) {
     if prepared {
-        use sha2::{Digest, Sha256};
-        plan.analysis_sha256 = Some(
-            // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
-            Sha256::digest(serde_json::to_vec(original).expect("analysis serializes"))
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect(),
-        );
+        plan.analysis_sha256 = Some(crate::model::analysis_sha256(original));
     }
 }
 

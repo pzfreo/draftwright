@@ -197,6 +197,7 @@ impl Serialize for LintIssue {
         field!(code);
         field!(severity);
         let labels = self.labels();
+        map.serialize_entry("tier", &labels.tier)?;
         map.serialize_entry("impact", &labels.impact)?;
         map.serialize_entry("group", &labels.group)?;
         field!(message);

@@ -147,10 +147,20 @@
                   },
                   "detail_ref": {
                     "$ref": "#/C"
+                  },
+                  "tier": {
+                    "enum": [
+                      "fix_before_printing",
+                      "tidy",
+                      "information"
+                    ]
                   }
                 },
-                "additionalProperties": false,
-                "minProperties": 2
+                "required": [
+                  "id",
+                  "detail_ref"
+                ],
+                "additionalProperties": false
               }
             ],
             "type": "object"

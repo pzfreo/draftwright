@@ -1170,7 +1170,7 @@
   status: ported
   rust_test: "audits::trust_rules::plan_provenance_binds_the_complete_recognition_input"
   port_note: "triage 2026-10-16: PORT, value low, size S, stream lint-and-reporting"
-  rust_note: "Plan.analysis_sha256 binds the full deterministic effective Analysis JSON, including its recogniser, frame, features, evidence and PMI, beside the STEP binding and embedded Spec. Same STEP and Spec with different supplied recognition now have different provenance. The optional field preserves reading of legacy plans; no digest is invented for those."
+  rust_note: "Plan.analysis_sha256 binds the deterministic effective Analysis JSON (excluding derived tier labels), including its recogniser, frame, features, evidence and PMI, beside the STEP binding and embedded Spec. Same STEP and Spec with different supplied recognition now have different provenance. The optional field preserves reading of legacy plans; no digest is invented for those."
 
 - id: ADR5-17
   statement: "An evidence document states what it cannot say: unclaimed geometry is not a missed feature, and what recognition rejected is reported as unavailable rather than as nothing."

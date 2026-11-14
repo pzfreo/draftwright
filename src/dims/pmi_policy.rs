@@ -865,14 +865,7 @@ pub(crate) fn ignore(
     intent.pmi = PmiMode::First;
     let mut p = planner(&plain, &intent)?;
     p.spec.pmi = PmiMode::Ignore;
-    p.analysis_sha256 = Some({
-        use sha2::{Digest, Sha256};
-        // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
-        Sha256::digest(serde_json::to_vec(a).unwrap())
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect()
-    });
+    p.analysis_sha256 = Some(crate::model::analysis_sha256(a));
     p.problems.push(Problem {
         id: "p:pmi_ignored:part".into(),
         code: "pmi_ignored".into(),

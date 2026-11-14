@@ -123,10 +123,12 @@ macro_rules! quality_files {
     def test_ci_runs_every_duration_shard(self):
         workflow = (guard.ROOT / '.github/workflows/ci.yml').read_text()
         job = workflow.split('  test:', 1)[1].split('\n  # ', 1)[0].split('\n  quality-pins:', 1)[0]
-        shards = re.search(r'shard: \[([^\]]*)\]', job).group(1).split(', ')
-        self.assertEqual(shards[-1], 'harness')
-        n = len(shards) - 1
-        self.assertEqual(shards[:-1], [f'{k}/{n}' for k in range(1, n + 1)])
+        self.assertIn('shard: ${{ fromJSON(needs.changes.outputs.shards) }}', job)
+        setup = workflow.split('  changes:', 1)[1].split('  lint:', 1)[0]
+        matrices = re.findall(r"echo 'shards=(\[[^\]]*\])'", setup)
+        import json
+        self.assertEqual(json.loads(matrices[0]), [f'{k}/10' for k in range(1, 11)] + ['harness'])
+        self.assertEqual(json.loads(matrices[1]), ['1/2', '2/2', 'harness'])
         self.assertIn('tools/test_shards.py --list nextest-list.json --shard ${{ matrix.shard }}', job)
         self.assertIn('--profile ci -E "$filter"', job)
         self.assertIn('--tool-config-file "test-shards:$PWD/shard-priorities.toml"', job)
