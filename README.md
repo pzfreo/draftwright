@@ -61,6 +61,20 @@ These commands select the pre-release; unqualified installs can select older rel
 
 0.6 replaces the old Python package of the same name; pin `draftwright<0.6` to keep it.
 
+**Upgrading from the old Python package.** If you installed 0.4 or 0.5 as a tool with uv or pipx,
+its `draftwright` command stays on your PATH and the new install won't replace it. Remove the old
+one first, then install the pre-release:
+
+```sh
+uv tool uninstall draftwright        # if you used uv
+pipx uninstall draftwright           # if you used pipx
+pipx install --pip-args=--pre draftwright   # or: uv tool install --prerelease allow draftwright
+draftwright --version                # should print 0.6.0-alpha.2 or later
+```
+
+If pipx says the command "is not on your PATH" or points elsewhere, `pipx install --force` takes
+the link over. An older Rust build in `~/.cargo/bin` can also shadow it: `cargo uninstall draftwright`.
+
 ## Command line
 
 ```sh
