@@ -1,3 +1,6 @@
+mod layout;
+mod part;
+
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
@@ -26,6 +29,27 @@ fn render(
         .map_err(|e| DraftwrightError::new_err(e.message))
 }
 
+fn raised(error: impl std::fmt::Display) -> PyErr {
+    DraftwrightError::new_err(error.to_string())
+}
+
+#[pyfunction]
+fn layout_spec(base: &str, patch: &str) -> PyResult<String> {
+    layout::update(base, patch).map_err(raised)
+}
+
+#[pyfunction]
+fn inspect_step(py: Python<'_>, step: String) -> PyResult<String> {
+    py.detach(|| {
+        draftwright::api::analyse_from(
+            std::path::Path::new(&step),
+            draftwright::api::Features::Native,
+        )
+    })
+    .map(|v| serde_json::to_string(&v).expect("analysis serialises"))
+    .map_err(raised)
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
@@ -33,5 +57,9 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cli, m)?)?;
     m.add_function(wrap_pyfunction!(mcp, m)?)?;
     m.add_function(wrap_pyfunction!(render, m)?)?;
+    m.add_function(wrap_pyfunction!(layout_spec, m)?)?;
+    m.add_function(wrap_pyfunction!(inspect_step, m)?)?;
+    m.add_class::<part::Pmi>()?;
+    m.add_class::<part::Geometry>()?;
     Ok(())
 }

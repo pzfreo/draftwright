@@ -70,10 +70,16 @@ Rust. Unknown keywords raise Python's normal `TypeError`.
 
 ## Requirements and drawings from build123d (`Part`, 0.6.0-alpha.2)
 
-State design intent where you build the faces. `Part` records each call as a
-[Specify](https://github.com/pzfreo/specify-core) answer (`datum.*`, `part.*`, `extra.*`),
-names the faces you pointed at in the exported STEP and writes the answers beside it.
-`import draftwright` still never imports build123d; only `Part` needs it.
+State requirements where you build the faces. `Part` owns an in-memory
+`haecceity::pmi::PartPmi`, the same semantic model the engine reads from AP242.
+Drawing lowers that model directly; requirements never go into the drawing Spec.
+No questionnaire, answer files or separate package is needed.
+
+build123d is optional. Install it alongside Draftwright, for example
+`pip install --pre draftwright build123d`, or use
+`uv run --with draftwright --with build123d script.py`. A pipx/uv-tool environment
+needs build123d in the same environment to use `Part`. Importing Draftwright does
+not import build123d or OCP.
 
 ```python
 from build123d import *
@@ -87,52 +93,107 @@ with BuildPart() as plate:
 
 p = Part(plate.part, "plate", number="DWG-002", title="Mounting plate")
 p.process("machined").material("6082-T6").general_tolerance("ISO 2768-mK")
-
 A = p.datum("A", plate.faces().sort_by(Axis.Z)[0])
 B = p.datum("B", plate.faces().sort_by(Axis.X)[0])
 C = p.datum("C", plate.faces().sort_by(Axis.Y)[0])
-
-p.hole(bore).fit("H7").finish(1.6)           # on the bore, not the counterbore
+bearing = p.hole(bore).fit("H7").finish(1.6)
 p.holes(mount).position(0.1, A, B, C)
 p.face(plate.faces().sort_by(Axis.Z)[-1]).flatness(0.05)
 
-p.export_step("plate.step")   # plate.step, plate.answers.json, plate.pending.json
 dwg = p.drawing(sheet="A3").views(shaded=True)
-svg, dxf = dwg.render("plate")   # layout only; same (svg, dxf) as make_drawing
+dwg.title(drawn_by="PA", date="2026-11-14", revision="B")
+svg, pdf = dwg.render("plate", formats=("svg", "pdf"))
+print(dwg.problems)  # the engine's findings as dictionaries
 ```
 
-- **Objects expand to faces.** A face, a list of faces, or any shape (a hole's cutter, as
-  above) is matched to the part's own faces: faces of the part are taken as given; a
-  cutter or solid matches the part faces it coincides with (same surface, inside its
-  bounding box). Nothing matching raises `ValueError`, as does `hole()` on several holes
-  (use `holes()`), a fit on a shape with no hole (a boss or shaft), an unknown or shaft fit class,
-  a list holding faces that are not the part's, a fit and a
-  thread on one hole, a repeated datum, and a face name that would land on two faces.
-- **Face names** are `f:<part>.<label>.<n>`: `label` is `label=` if given, else
-  `datum_A`, `hole1`, `face1`... by a counter, and `n` follows the part's face order, so
-  they repeat across runs. build123d's `export_step`
-  names assemblies and nodes but not sub-shapes (a test pins this), so `Part` writes the
-  STEP with OCCT's writer and sets the name of each referenced face's `ADVANCED_FACE`.
-  (OCCT's XCAF sub-shape route, `write.stepcaf.subshapes.name`, loses the names of faces
-  that carry a location, such as a filleted box's planes.)
-- **`<stem>.answers.json`** is a plain Specify answer map; today's `specify-core
-  questions/write` and the editor read it. Face numbers are the faces' order in the
-  written STEP, so it belongs to that file. It carries no `_specify` evidence (that needs
-  Specify's analysis). Hole finish, and flatness and finish on a face, are written as
-  `extra.*` requirements (on a hole, its bore cylinder, not the counterbore).
-- **`<stem>.pending.json`** (`"schema": "draftwright.pending/1"`) holds what Specify keys to
-  *recognised features*: a fit (`hole.function: fit:H7`), a thread (`hole.function:
-  tapped:M6`) and `hole.position`/`hole.frame`. A fit is not written as an `extra.*`,
-  because Specify asks `hole.function` itself and the two would contradict. They are
-  listed by face name and applied by the Rust half. Nothing is dropped silently.
-- **`drawing()`** edits layout only: `sheet=`, `scale=`, `views(shaded=, omit=)`,
-  `section(id, through=<feature id string>)`. `spec()` returns the Spec. Title and number
-  come from `Part`; requirements are never written to the Spec.
-- **`check()` and `answer()`** raise `NotImplementedError`: they need Specify's question
-  queue and feature recognition, which remain work for the Rust half of the API.
-  The same half will accept `section(through=<object>)` and turn `hole`/`holes` into
-  `hole.*` answers keyed to the recognised feature, with the "one recognised feature"
-  check.
+The mapping uses haecceity's native types:
+
+| Part call | In-memory semantic PMI |
+| --- | --- |
+| `datum(letter, face)` | `Datum` on a face-anchored `Feature` |
+| `hole(...).fit("H7")` | Diameter `Dimension` with ISO 286 `DimTolerance::Fit` |
+| `hole(...).thread("M3x0.5-6H")` | Internal `Thread` plus its `thread manufacturing` pitch attribute |
+| `holes(...).position(0.1, A, B, C)` | `GeometricTolerance::Position`, cylindrical zone and ordered `DatumSystem` |
+| `face(...).flatness(0.05)` | `GeometricTolerance::Flatness` |
+| `face(...).finish(1.6)` / `hole(...).finish(1.6)` | `SurfaceTexture` with Ra in micrometres |
+| `material(text)` | `Material` |
+| `general_tolerance(text)` | `GeneralTolerance::Class` with the stated text |
+| `process(text)` | Part-owned `AttributeSet` named `manufacturing process`; shown in notes and used for process policies |
+
+`process()` accepts `machined`, `3D printed: FDM`, `3D printed: resin`,
+`3D printed: powder`, `3D printed: metal`, `sheet metal`, `moulded`, and `cast`.
+The aliases `cnc-milled` and `cnc-turned` map to `machined` in both PMI and policy.
+Other values raise `ValueError` listing the accepted values.
+Repeated fit, thread, finish, flatness or position calls on the same faces replace
+that declaration; different control kinds remain independent.
+
+Metric thread notation uses the engine's existing ISO 261 coarse pitch when none
+is stated and internal class `6H` when omitted. The stated size, pitch, fit class and hand are kept.
+The renderer matches the stated faces to canonical holes and measures their drill
+geometry; it does not add a full-thread-depth requirement. The kernel requires a thread count; this API uses its existing single-thread
+convention (`number_of_threads = 1`), keeping pitch separately in the manufacturing
+attribute rather than deriving it from that ambiguous field. LH/RH is preserved.
+
+Objects expand to faces. A face, face list or cutter shape matches the part's own
+faces. A counterbore's fit and finish apply to its smallest bore. `hole()` refuses
+several holes; `holes()` accepts a group. A fit on a boss/shaft, an unknown fit class,
+a fit and thread on one hole, an undeclared datum, or a duplicate face name raises
+an error. Native PMI validates references before rendering. Shaft fits, external
+threads, new requirement kinds and Pack remain a later stream.
+
+`export_step(path)` writes **plain geometry**, product metadata and referenced face
+names. It does not write PMI or sidecars. Its return value is `{"step": Path,
+"faces": {name: zero_based_face_number}}`. Face names are `f:<part>.<label>.<n>`;
+`label=` supplies the label, otherwise one is generated deterministically. The
+STEP product ID/name use the Part's number/title when supplied, otherwise its name.
+AP242 PMI export is deferred.
+
+Rendering does not call `export_step()` or create a STEP file. OCCT geometry is
+transferred to the Rust kernel once as in-memory STEP geometry bytes, with an
+exact face-name/index map. The native shape is cached, and requirement edits
+change its separate native PMI model without re-exporting geometry. No PMI is
+serialized to STEP or read back to draw it. A direct OCCT-handle import is not
+available in the pure Rust kernel.
+
+`drawing()` edits layout: `sheet=`, `scale=`, `units=`, `views(shaded=, omit=)` and
+`section(id, through=...)`. Sections accept a fluent reference, build123d object,
+or drawing feature ID. The bridge to stable drawing keys is:
+
+```python
+feature = p.feature_id(bearing)  # f:hole:... from the drawing's Analysis
+bottom_key = p.reference_key(plate.faces().sort_by(Axis.Z)[0])  # face:v1:...
+dwg.section("A-A", through=bearing)
+```
+
+`feature_id()` requires one unambiguous recognised feature; `reference_key()`
+requires one geometry face. Unresolved/ambiguous references raise an error with
+what was found. These lookups do not name raw objects, change face names, or
+invalidate cached geometry.
+
+`Drawing.update(spec_dict)` deep-merges dictionaries; scalars and lists replace whole.
+It validates the merged result against the published [Spec schema](../schemas/spec.json)
+and typed Rust Spec before changing the builder. `spec()` returns an independent copy.
+`render(spec=...)` applies the same merge for that render only:
+
+```python
+dwg.update({"sheet": {"zones": False}, "views": {"iso": {"sheet": 2}},
+            "sheets": {"max": 2}})
+dwg.render("review", formats=("pdf",),
+           spec={"sheet": {"title": {"revision": "C"}}})
+```
+
+Use `title(**fields)` or `update({"sheet": {"title": {...}}})` for `title`, `number`,
+`drawn_by`, `date`, `revision`, `company`, `approved_by`, `document_type` and other
+schema title fields. Requirement keys such as material, tolerance, process,
+fit/thread/finish, GD&T and requirement notes are refused with guidance to the Part
+calls. Placement, omission, dimension presentation and recognition corrections are
+layout edits.
+
+`render()` defaults to `(svg_path, dxf_path)`. `formats=("svg", "pdf", "png", "dxf")`
+selects any distinct subset and returns a tuple of **all** written paths, in format
+order. SVG, PNG and DXF have one file per sheet (`name.sheet2.svg`, etc.); PDF is
+one document containing every sheet. PNG uses the engine's default resolution.
+`drawing.problems` contains the most recent successful render's findings.
 
 ## Commands and interrupts
 
