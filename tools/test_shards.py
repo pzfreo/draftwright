@@ -155,7 +155,8 @@ def main():
     if not shards[k - 1]:
         raise SystemExit(f'shard {k}/{n} has no tests')
     print(f'shard {k}/{n}: {len(shards[k - 1])} of {len(tests)} tests, '
-          f'{load[k - 1] / 60:.1f} of {sum(load) / 60:.1f} recorded test-minutes', file=sys.stderr)
+          f'{load[k - 1] / 60:.1f} of {sum(load) / 60:.1f} estimated test-minutes '
+          '(unrecorded tests weigh the median)', file=sys.stderr)
     if args.priorities:
         args.priorities.write_text(priorities(shards[k - 1], durations))
     print(filterset(shards[k - 1]))
