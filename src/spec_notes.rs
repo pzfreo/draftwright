@@ -146,6 +146,8 @@ fn invalid(message: String, choices: Vec<String>) -> Invalid {
 /// A metric designation's nominal size and pitch (the coarse pitch when it states none), or why
 /// it is not one: `M<size>`, then optionally `x<pitch>` (spaces allowed around the `x`), `-<class>`
 /// and ` LH` or ` RH`.
+/// Also serves the Python binding; not a supported public API.
+#[doc(hidden)]
 pub fn metric(designation: &str) -> Result<(f64, f64), String> {
     let bad = || {
         format!(

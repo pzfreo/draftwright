@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+from unittest.mock import patch
 from pathlib import Path
 
 try:
@@ -206,8 +207,13 @@ class PartAPI(unittest.TestCase):
         feature = p.feature_id(ref)
         self.assertTrue(feature.startswith("f:hole:"), feature)
         bottom = plate.faces().sort_by(bd.Axis.Z)[0]
+        geometry, names, groups = p._geometry(), dict(p._names), dict(p._groups)
+        self.assertEqual(p.feature_id(p._faces[ref.bores[0]]), feature)
         self.assertTrue(p.reference_key(bottom).startswith("face:v1:"))
         self.assertEqual(p.reference_key(bottom), p.reference_key(bottom))
+        self.assertIs(p._geometry(), geometry)
+        self.assertEqual(p._names, names)
+        self.assertEqual(p._groups, groups)
         spec = p.drawing().section("A-A", through=ref).spec()
         self.assertEqual(spec["views"]["sections"][0]["through"], feature)
         with self.assertRaisesRegex(ValueError, "one feature"):
@@ -225,8 +231,9 @@ class PartAPI(unittest.TestCase):
             "views": {"iso": {"style": "shaded"}, "side": {"omit": True},
                       "sections": [{"id": "A", "through": "f:section_recess:f133"}]},
         })
-        with self.assertRaises((ValueError, AttributeError)):
+        with self.assertRaises(TypeError) as error:
             p.drawing().section("B", through=object())
+        self.assertIs(type(error.exception), TypeError)
 
     def test_render(self):
         _, p = build_plate()
@@ -298,8 +305,9 @@ class PartAPI(unittest.TestCase):
         outputs = drawing.render(self.directory / "GRM-01", formats=("svg", "pdf"),
                                  spec={"sheet": {"zones": False, "title": {"date": "2026-11-14"}}})
         svg = Path(outputs[0]).read_text()
-        for text in ("H7", "M3", "Ra 1.6", "BRASS H62", "±0.05", "PA", "2026-11-14"):
+        for text in ("H7", "M3", "6H", "Ra 1.6", "BRASS H62", "±0.05", "PA", "2026-11-14"):
             self.assertIn(text, svg)
+        self.assertNotIn("5H", svg)
         text_nodes = list(ET.fromstring(svg).iter("{http://www.w3.org/2000/svg}text"))
         self.assertIn("A", [node.text for node in text_nodes])
         title_text = " ".join(node.text or "" for node in text_nodes if node.attrib.get("font-family") == "sans-serif")
@@ -313,14 +321,125 @@ class PartAPI(unittest.TestCase):
         self.assertTrue(Path(outputs[1]).read_bytes().startswith(b"%PDF-"))
         # Verify the deliverable through an independent PDF text reader.
         delivered = pdf_text(outputs[1])
-        for text in ("H7", "M3", "Ra", "1.6", "BRASS", "±0.05"):
+        for text in ("H7", "M3", "6H", "Ra", "1.6", "BRASS", "±0.05"):
             self.assertIn(text, delivered)
+        self.assertNotIn("5H", delivered)
         self.assertIn("A", [line.strip() for line in delivered.splitlines()])
         self.assertFalse([problem for problem in drawing.problems if problem["code"] == "pmi_not_lowered"], drawing.problems)
         # The one-render patch does not mutate the builder.
         self.assertNotIn("date", drawing.spec()["sheet"]["title"])
         self.assertNotIn("material", drawing.spec()["sheet"]["title"])
         self.assertNotIn("process", drawing.spec())
+
+    def test_process_validation_and_policy(self):
+        p = draftwright.Part(bd.Box(20, 30, 10), "process")
+        accepted = ("machined", "3D printed: FDM", "3D printed: resin",
+                    "3D printed: powder", "3D printed: metal", "sheet metal", "moulded", "cast")
+        for text in accepted:
+            with self.subTest(process=text):
+                p.process(text)
+                labels = [r["label"] for r in json.loads(p._geometry().inspect(p._pmi))["records"]]
+                self.assertEqual([label for label in labels if label.startswith("PROCESS:")], [f"PROCESS: {text}"])
+        for alias in ("cnc-milled", "cnc-turned"):
+            p.process(alias)
+            self.assertIn("PROCESS: machined", [r["label"] for r in json.loads(p._geometry().inspect(p._pmi))["records"]])
+        p.process("3D printed: FDM")
+        before = p._geometry().inspect(p._pmi)
+        for invalid in ("turned", "unknown", ""):
+            with self.assertRaises(ValueError) as error:
+                p.process(invalid)
+            for text in accepted:
+                self.assertIn(text, str(error.exception))
+            self.assertEqual(p._geometry().inspect(p._pmi), before)
+        # The policy must follow the stated process, not silently default to machined.
+        svg, = p.drawing(sheet="A3").render(self.directory / "process", formats=("svg",))
+        self.assertIn("±0.3 mm or ±0.3 %", Path(svg).read_text())
+
+    def test_face_binding_uses_names_independent_of_step_text_order(self):
+        from draftwright import _part, _native
+        _, p = build_plate()
+        baseline = json.loads(p._geometry().inspect(p._pmi))
+        write_step = _part.write_step
+
+        def reordered(shape, stream, names, *args, **kwargs):
+            written = write_step(shape, stream, names, *args, **kwargs)
+            text = stream.getvalue().decode()
+            pattern = r"^#\d+ = ADVANCED_FACE\([\s\S]*?\);"
+            records = re.findall(pattern, text, re.M)
+            self.assertEqual(len(records), len(p._faces))
+            reverse = iter(reversed(records))
+            text = re.sub(pattern, lambda _: next(reverse), text, flags=re.M)
+            stream.seek(0)
+            stream.truncate()
+            stream.write(text.encode())
+            order = FACE.findall(text)
+            changed = {name: order.index(name) for name in written}
+            self.assertNotEqual(changed, written)
+            return changed
+
+        p._geometry_cache = None
+        with patch.object(_part, "write_step", side_effect=reordered):
+            shuffled = json.loads(p._geometry().inspect(p._pmi))
+        self.assertEqual(shuffled, baseline)
+        # Missing/duplicate names cannot fall back to a positional match.
+        import io
+        stream = io.BytesIO()
+        names = {i: f"face-{i}" for i in range(len(p._faces))}
+        write_step(p.shape, stream, names, p._faces, p.name)
+        with self.assertRaisesRegex(draftwright.DraftwrightError, "maps to 0 native faces"):
+            _native.Geometry(stream.getvalue(), p.name, ["missing", *list(names.values())[1:]])
+        with self.assertRaisesRegex(draftwright.DraftwrightError, "unique name"):
+            _native.Geometry(stream.getvalue(), p.name, ["face-0"] * len(names))
+
+    def test_repeated_controls_replace_and_only_new_values_are_drawn(self):
+        plate, bore, mount = plate_parts()
+        p = draftwright.Part(plate.part, "edits")
+        A = p.datum("A", plate.faces().sort_by(bd.Axis.Z)[0])
+        B = p.datum("B", plate.faces().sort_by(bd.Axis.X)[0])
+        top = plate.faces().sort_by(bd.Axis.Z)[-1]
+        p.face(top).flatness(0.087).finish(3.2)
+        p.hole(bore).finish(6.3)
+        p.holes(mount).position(0.234, A)
+        # New handles and reversed face lists resolve to the same native feature.
+        p.face(top).flatness(0.05).finish(0.8)
+        p.hole(bore).finish(1.6)
+        p.holes(list(reversed([p._faces[i] for i in p.holes(mount).bores]))).position(0.1, A, B)
+        records = json.loads(p._geometry().inspect(p._pmi))["records"]
+        self.assertEqual([r["value"] for r in records if r["kind"] == "flatness"], [0.05])
+        position = [r for r in records if r["kind"] == "position"]
+        self.assertEqual(len(position), 1)
+        self.assertEqual(position[0]["value"], 0.1)
+        self.assertEqual(position[0]["datum_refs"], ["A", "B"])
+        finishes = [r["label"] for r in records if r["kind"] == "surface_finish"]
+        self.assertEqual(len(finishes), 2)
+        self.assertEqual(set(finishes), {"Ra 0.8 µm", "Ra 1.6 µm"})
+        drawing = p.drawing(sheet="A3")
+        svg, pdf = drawing.render(self.directory / "edited", formats=("svg", "pdf"))
+        visible_svg = " ".join("".join(node.itertext()) for node in
+                               ET.parse(svg).iter("{http://www.w3.org/2000/svg}text"))
+        for text in (visible_svg, pdf_text(pdf)):
+            for new in ("0.05", "0.1", "Ra 0.8", "Ra 1.6"):
+                self.assertIn(new, text)
+            for old in ("0.087", "0.234", "Ra 3.2", "Ra 6.3"):
+                self.assertNotIn(old, text)
+        self.assertFalse([problem for problem in drawing.problems if problem["code"] == "pmi_not_lowered"], drawing.problems)
+
+    def test_left_hand_thread_reaches_svg_and_pdf(self):
+        with bd.BuildPart() as body:
+            bd.Box(20, 30, 10)
+            cutter = bd.Hole(radius=1.25)
+        p = draftwright.Part(body.part, "left_thread")
+        p.hole(cutter).thread("M3x0.5-6H LH")
+        threads = [r for r in json.loads(p._geometry().inspect(p._pmi))["records"] if r["kind"] == "internal_thread"]
+        self.assertEqual(len(threads), 1)
+        self.assertIn(["hand", "left"], threads[0]["fields"])
+        drawing = p.drawing(sheet="A3")
+        svg, pdf = drawing.render(self.directory / "left", formats=("svg", "pdf"))
+        for text in (Path(svg).read_text(), pdf_text(pdf)):
+            for expected in ("M3", "6H", "LH"):
+                self.assertIn(expected, text)
+            self.assertNotIn("RH", text)
+        self.assertFalse([problem for problem in drawing.problems if problem["code"] == "pmi_not_lowered"], drawing.problems)
 
     def test_formats_and_multiple_sheets_one_pdf(self):
         _, p = build_plate()

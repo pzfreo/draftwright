@@ -1105,9 +1105,12 @@ fn attach_record_geometry(part: &Part, records: &mut [Record]) {
     }
 }
 
-/// Lower a caller-owned semantic model bound to this native part's face/edge indices.
+/// Internal entry point serving the Python binding: lower a caller-owned semantic
+/// model bound to this native part's face/edge indices.
 /// No AP242 write/read is involved; this uses the file reader's typed-item conversions
 /// and the same geometry attachment and downstream planning/lowering as imported PMI.
+/// General tolerance tables fail; model notes and knurls are not read.
+#[doc(hidden)]
 pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
     model.validate().map_err(|errors| {
         errors

@@ -118,7 +118,14 @@ The mapping uses haecceity's native types:
 | `face(...).finish(1.6)` / `hole(...).finish(1.6)` | `SurfaceTexture` with Ra in micrometres |
 | `material(text)` | `Material` |
 | `general_tolerance(text)` | `GeneralTolerance::Class` with the stated text |
-| `process(text)` | Part-owned `AttributeSet` named `manufacturing process`; shown in notes and used for recognised process policies |
+| `process(text)` | Part-owned `AttributeSet` named `manufacturing process`; shown in notes and used for process policies |
+
+`process()` accepts `machined`, `3D printed: FDM`, `3D printed: resin`,
+`3D printed: powder`, `3D printed: metal`, `sheet metal`, `moulded`, and `cast`.
+The aliases `cnc-milled` and `cnc-turned` map to `machined` in both PMI and policy.
+Other values raise `ValueError` listing the accepted values.
+Repeated fit, thread, finish, flatness or position calls on the same faces replace
+that declaration; different control kinds remain independent.
 
 Metric thread notation uses the engine's existing ISO 261 coarse pitch when none
 is stated and internal class `6H` when omitted. The stated size, pitch, fit class and hand are kept.
@@ -160,7 +167,8 @@ dwg.section("A-A", through=bearing)
 
 `feature_id()` requires one unambiguous recognised feature; `reference_key()`
 requires one geometry face. Unresolved/ambiguous references raise an error with
-what was found.
+what was found. These lookups do not name raw objects, change face names, or
+invalidate cached geometry.
 
 `Drawing.update(spec_dict)` deep-merges dictionaries; scalars and lists replace whole.
 It validates the merged result against the published [Spec schema](../schemas/spec.json)

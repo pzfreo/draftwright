@@ -293,9 +293,12 @@ fn rendered(
     Ok((plan, files))
 }
 
-/// Render a caller's native shape and semantic PMI, using an Analysis of that shape.
+/// Internal entry point serving the Python binding: render a caller's native shape
+/// and semantic PMI, using an Analysis of that shape.
 /// PMI anchors are native face/edge indices. No PMI file or AP242 write/read is needed.
 /// The caller owns the shape/analysis relationship, as with `model::render_sheets`.
+/// General tolerance tables fail; model notes and knurls are not read.
+#[doc(hidden)]
 pub fn render_model(
     part: &Part,
     analysis: &Analysis,
@@ -328,9 +331,10 @@ pub fn render_model(
                         "cnc-milled" | "cnc-turned" => "machined",
                         other => other,
                     };
-                    if let Ok(process) = serde_json::from_value(serde_json::json!(text)) {
-                        analysis.bom.get_or_insert_with(Default::default).process = Some(process);
-                    }
+                    let process = serde_json::from_value(serde_json::json!(text)).map_err(|e| {
+                        Error::invalid(format!("invalid manufacturing process: {e}"))
+                    })?;
+                    analysis.bom.get_or_insert_with(Default::default).process = Some(process);
                 }
             }
         }

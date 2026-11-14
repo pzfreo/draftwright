@@ -1,9 +1,10 @@
 //! Python owns an actual haecceity PartPmi, never a second requirement model.
 use super::raised;
 use draftwright::haecceity::{self, pmi::*};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde_json::json;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn length(value: &str) -> PyResult<Length> {
     let value = Decimal::parse(value).map_err(raised)?;
@@ -74,7 +75,14 @@ impl Pmi {
             standard: None,
         }];
     }
-    fn process(&mut self, text: String) {
+    fn process(&mut self, text: String) -> PyResult<()> {
+        let canonical = match text.as_str() {
+            "cnc-milled" | "cnc-turned" => "machined",
+            other => other,
+        };
+        let process: draftwright::process::Process = serde_json::from_value(json!(canonical))
+            .map_err(|e| PyValueError::new_err(format!("invalid process: {e}")))?;
+        let text = process.label();
         self.model
             .attributes
             .retain(|a| a.name != "manufacturing process");
@@ -85,6 +93,7 @@ impl Pmi {
             description: None,
             general_property: None,
         });
+        Ok(())
     }
     fn datum(&mut self, letter: &str, faces: Vec<usize>) -> PyResult<()> {
         let label = DatumLabel::new(letter).map_err(raised)?;
@@ -145,6 +154,9 @@ impl Pmi {
         let mut v = length(raw)?;
         v.unit = LengthUnit::Micrometre;
         let f = self.feature(faces)?;
+        self.model
+            .surface_textures
+            .retain(|texture| texture.on != Some(f));
         self.model.surface_textures.push(SurfaceTexture {
             on: Some(f),
             material_removal: MaterialRemoval::AnyProcessAllowed,
@@ -158,6 +170,9 @@ impl Pmi {
     fn flatness(&mut self, faces: Vec<usize>, tolerance: &str) -> PyResult<()> {
         let magnitude = value(tolerance)?;
         let target = ToleranceTarget::Feature(self.feature(faces)?);
+        self.model.tolerances.retain(|tolerance| {
+            tolerance.kind != ToleranceKind::Flatness || tolerance.target != target
+        });
         self.model.tolerances.push(GeometricTolerance {
             kind: ToleranceKind::Flatness,
             target,
@@ -200,6 +215,9 @@ impl Pmi {
             .collect::<PyResult<Vec<_>>>()?;
         let datums = DatumSystem::new(compartments).map_err(raised)?;
         let target = ToleranceTarget::Feature(self.feature(faces)?);
+        self.model.tolerances.retain(|tolerance| {
+            tolerance.kind != ToleranceKind::Position || tolerance.target != target
+        });
         self.model.tolerances.push(GeometricTolerance {
             kind: ToleranceKind::Position,
             target,
@@ -282,31 +300,45 @@ pub struct Geometry {
 #[pymethods]
 impl Geometry {
     #[new]
-    fn new(py: Python<'_>, bytes: Vec<u8>, name: String, order: Vec<usize>) -> PyResult<Self> {
+    fn new(py: Python<'_>, bytes: Vec<u8>, name: String, names: Vec<String>) -> PyResult<Self> {
         py.detach(|| {
+            use haecceity::p21::{self, Attribute, Document, RawEntity};
             let file = haecceity::step::StepFile::read(&bytes).map_err(raised)?;
             if file.parts.len() != 1 {
                 return Err(raised("Part requires one product"));
             }
             let (part, analysis) =
                 draftwright::model::analyse_native_bytes(&name, &bytes).map_err(raised)?;
-            let mapping = order
+            if names.len() != part.faces.len()
+                || names.iter().collect::<BTreeSet<_>>().len() != names.len()
+            {
+                return Err(raised("face mapping needs one unique name per native face"));
+            }
+            // STEP text order and shell traversal order need not agree. Resolve each
+            // native face's source name, then bind the caller's faces by those names.
+            let doc = Document::parse(bytes).map_err(raised)?;
+            let mut by_name: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+            for f in 0..part.faces.len() {
+                let source = part
+                    .face_source(f)
+                    .ok_or_else(|| raised("native face has no source"))?;
+                let Some(RawEntity::Simple { attributes, .. }) = doc.get(source.entity) else {
+                    return Err(raised("native face source is not a named STEP face"));
+                };
+                let Some(Attribute::String(raw)) = attributes.first() else {
+                    return Err(raised("native face source has no name"));
+                };
+                let name = p21::decode(raw).map_err(raised)?;
+                by_name.entry(name).or_default().push(f);
+            }
+            let mapping = names
                 .iter()
-                .map(|&i| {
-                    let entity = file.parts[0]
-                        .faces
-                        .get(i)
-                        .ok_or_else(|| raised("face mapping exceeds geometry"))?;
-                    let found: Vec<_> = (0..part.faces.len())
-                        .filter(|&f| part.face_source(f).is_some_and(|s| s.entity == *entity))
-                        .collect();
-                    match found.as_slice() {
-                        [f] => Ok(*f),
-                        _ => Err(raised(format!(
-                            "face {i} maps to {} native faces",
-                            found.len()
-                        ))),
-                    }
+                .map(|name| match by_name.get(name).map(Vec::as_slice) {
+                    Some([f]) => Ok(*f),
+                    found => Err(raised(format!(
+                        "face name {name:?} maps to {} native faces, expected one",
+                        found.map_or(0, <[usize]>::len)
+                    ))),
                 })
                 .collect::<PyResult<Vec<_>>>()?;
             Ok(Self {

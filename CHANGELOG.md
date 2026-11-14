@@ -6,6 +6,11 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Python Part process values now validate before changing PMI, face bindings resolve by
+  unique names, and repeated finish/flatness/position declarations replace prior values.
+  Reference-key lookups preserve names and cached geometry; non-shape section inputs
+  raise `TypeError`. Native PMI binding entry points are hidden implementation APIs.
+
 - Python `Part` now builds haecceity's semantic PMI model in memory: datums,
   hole fits/internal threads/positions, face flatness/finish and part material,
   general tolerance and process reach drawings through the same lowering as AP242.

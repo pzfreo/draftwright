@@ -208,7 +208,13 @@ class Part:
         faces by geometry.
         """
         is_list = isinstance(obj, (list, tuple))
+        from build123d import Shape
+
+        if not is_list and not isinstance(obj, Shape):
+            raise TypeError(f"{what}: expected a build123d shape or face list, got {type(obj).__name__}")
         given = list(obj) if is_list else list(obj.faces())
+        if any(not isinstance(face, Shape) for face in given):
+            raise TypeError(f"{what}: expected build123d faces in the face list")
         found = [self._index(f) for f in given]
         if is_list and None in found:
             missing = [type(f).__name__ + f" #{k}" for k, (f, i) in enumerate(zip(given, found)) if i is None]
@@ -306,10 +312,10 @@ class Part:
         signature = tuple(sorted(names.items()))
         if self._geometry_cache is None or self._geometry_cache[0] != signature:
             stream = io.BytesIO()
-            written = write_step(self.shape, stream, names, self._faces, self.name,
-                                 number=self.number, title=self.title)
-            order = [written[names[i]] for i in range(len(self._faces))]
-            geometry = _native.Geometry(stream.getvalue(), self.name, order)
+            write_step(self.shape, stream, names, self._faces, self.name,
+                       number=self.number, title=self.title)
+            geometry = _native.Geometry(stream.getvalue(), self.name,
+                                        [names[i] for i in range(len(self._faces))])
             self._geometry_cache = signature, geometry
         return self._geometry_cache[1]
 
@@ -319,7 +325,7 @@ class Part:
                 raise ValueError("reference belongs to another Part")
             faces = obj.bores if isinstance(obj, HoleRef) else obj.faces
         else:
-            faces = self._resolve(obj, self._auto("ref"), "reference")
+            faces = sorted({i for group in self._find(obj, "reference") for i in group})
         return json.loads(self._geometry().keys(faces))
 
     def feature_id(self, face):
