@@ -596,6 +596,9 @@ pub struct Geometry {
     /// evidence is independent of the nominal; the feature merge still proves a blind owner.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hole_depths: Vec<crate::pmi_lowering::HoleDepth>,
+    /// Explicit finite axis points, by authored reference group (CAx-IF RP §5.1.4).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub axis_points: Vec<Vec<AxisPoint>>,
     /// A linear dimension's explicitly proven witness view (`front`, `plan` or `side`),
     /// selected from its trimmed reference faces (draftwright's `support_view`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -613,6 +616,14 @@ pub struct Geometry {
     /// in a dot there (ISO 128-22), not an arrowhead.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub face_on: bool,
+}
+
+/// A finite point on a kernel-proven deriving axis. Its supplemental point and support
+/// faces stay together; an infinite axis's arbitrary origin is never an endpoint.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AxisPoint {
+    pub point: [f64; 3],
+    pub faces: Vec<usize>,
 }
 
 /// A part's PMI as the Analysis carries it: the report, or why the file's PMI could not be
@@ -2288,20 +2299,156 @@ impl PartReader<'_> {
         result
     }
 
+    /// The pinned kernel validates a derived point against its analytic deriving axis.
+    /// Preserve the explicit point, rather than interpreting that descriptor as an infinite
+    /// axis. A group may mix these points with direct planes or circular rims.
+    fn axis_points(
+        &self,
+        feature: FeatureId,
+        seen: &mut BTreeSet<FeatureId>,
+    ) -> Result<Option<Vec<AxisPoint>>, String> {
+        if !seen.insert(feature) {
+            return Err("derived point group contains a cycle".into());
+        }
+        let result = (|| {
+            let geometry = match self.pmi.features.get(feature.0) {
+                Some(Feature::Group { members, .. }) => {
+                    let mut points = Vec::new();
+                    for &member in members {
+                        let Some(found) = self.axis_points(member, seen)? else {
+                            return Ok(None);
+                        };
+                        points.extend(found);
+                    }
+                    return Ok(Some(points));
+                }
+                Some(Feature::Items(_)) => return Ok(Some(Vec::new())),
+                Some(Feature::Derived { geometry, .. }) => {
+                    let named = self.prov.features.get(feature.0).into_iter().flatten().any(|&id| {
+                        matches!(self.doc.get(id), Some(RawEntity::Simple { name, attributes, .. })
+                            if name == "DERIVED_SHAPE_ASPECT" && matches!(attributes.first(), Some(Attribute::String(n)) if n.trim().eq_ignore_ascii_case("axis point")))
+                    });
+                    if !named {
+                        return Ok(None);
+                    }
+                    &self.pmi.derived_geometry[geometry
+                        .ok_or("axis point has no resolved deriving axis")?
+                        .0]
+                }
+                None => return Err("axis point is not the part's feature".into()),
+            };
+            let axis = self
+                .target(feature)?
+                .ok_or("axis point has no proven deriving axis")?;
+            if axis.kind != DerivedKind::Axis {
+                return Err("axis point is not derived from an axis".into());
+            }
+            let mut points = Vec::new();
+            for id in &geometry.supplemental {
+                let item = &self.pmi.geometry[id.0];
+                let [(name, attrs)] = item.item.leaves.as_slice() else {
+                    continue;
+                };
+                if name != "CARTESIAN_POINT" {
+                    continue;
+                }
+                let [
+                    pmi::GeometryValue::Text(_),
+                    pmi::GeometryValue::List(coords),
+                ] = attrs.as_slice()
+                else {
+                    continue;
+                };
+                let factor = item
+                    .length_unit
+                    .as_ref()
+                    .ok_or("axis point has no supplemental length unit")?
+                    .millimetres();
+                let values: Option<Vec<f64>> = coords
+                    .iter()
+                    .map(|v| match v {
+                        pmi::GeometryValue::Real(v) => Some(v.to_f64() * factor),
+                        pmi::GeometryValue::Integer(v) => Some(*v as f64 * factor),
+                        _ => None,
+                    })
+                    .collect();
+                let point: [f64; 3] = values
+                    .ok_or("axis point coordinates are not numeric")?
+                    .try_into()
+                    .map_err(|_| "axis point needs three coordinates")?;
+                if point.iter().any(|v| !v.is_finite()) {
+                    return Err("axis point is not finite".into());
+                }
+                let point = if self.drawing.chosen.is_some() {
+                    point
+                } else {
+                    let [placement] = self
+                        .def
+                        .ok_or("axis point has no source placement")?
+                        .placements
+                        .as_slice()
+                    else {
+                        return Err("axis point has more than one occurrence placement".into());
+                    };
+                    let m = &placement.placement;
+                    [0, 1, 2].map(|i| (0..3).map(|j| m[i][j] * point[j]).sum::<f64>() + m[i][3])
+                };
+                let delta = [0, 1, 2].map(|k| point[k] - axis.point[k]);
+                let t: f64 = (0..3).map(|k| delta[k] * axis.direction[k]).sum();
+                if (0..3).any(|k| (delta[k] - t * axis.direction[k]).abs() > 1e-6) {
+                    return Err("supplemental axis point is off its deriving axis".into());
+                }
+                points.push(AxisPoint {
+                    point,
+                    faces: axis.faces.clone(),
+                });
+            }
+            if points.len() != 1 {
+                return Err("axis point needs one explicit supplemental point".into());
+            }
+            Ok(Some(points))
+        })();
+        seen.remove(&feature);
+        result
+    }
+
     fn targets(&self, features: &[FeatureId], r: &mut Record) {
+        let mut axis_points: Vec<Vec<AxisPoint>> = features
+            .iter()
+            .map(|&f| {
+                if r.kind != "linear" || r.type_code != Some(2) {
+                    return Vec::new();
+                }
+                match self.axis_points(f, &mut BTreeSet::new()) {
+                    Ok(points) => points.unwrap_or_default(),
+                    Err(why) => {
+                        r.blockers.push(why);
+                        Vec::new()
+                    }
+                }
+            })
+            .collect();
         let targets: Vec<_> = features
             .iter()
-            .map(|&f| match self.target(f) {
+            .enumerate()
+            .map(|(i, &f)| match self.target(f) {
                 Ok(t) => t,
+                // Several finite points do not define one infinite axis. The hole-depth
+                // endpoint proof resolves their complete group; other ownership stays refused.
+                Err(_) if !axis_points[i].is_empty() => None,
                 Err(why) => {
                     r.blockers.push(why);
                     None
                 }
             })
             .collect();
-        if targets.iter().any(Option::is_some) {
+        if axis_points.iter().all(Vec::is_empty) {
+            axis_points.clear();
+        }
+        if targets.iter().any(Option::is_some) || !axis_points.is_empty() {
             r.geometry = Some(Geometry {
                 targets,
+                axis_points,
                 ..Geometry::default()
             });
         }

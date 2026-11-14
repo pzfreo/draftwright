@@ -3202,3 +3202,206 @@ fn enclosure_authored_depth_keeps_precision_beyond_engine_nominal_places() {
             .any(|d| d.label == "4× ⌀3 H11 ↧ 7.9375")
     );
 }
+
+/// The RP derived-point representation used for sloping entries by Specify: the
+/// supplemental point is emitted alone, with a validated deriving-axis descriptor.
+fn enclosure_axis_point_step(shift: f64) -> Vec<u8> {
+    use draftwright::haecceity::{
+        geom::Surface,
+        p21::{Attribute, Document, RawEntity},
+        pmi as hp,
+        step::read_part_definitions,
+    };
+    let raw = enclosure_depth_bytes();
+    let (part, a) = analysed("enclosure-depth.step", &raw);
+    let mut p = hp::PartPmi::default();
+    let decimal = |v: f64| hp::Decimal::parse(&format!("{v:.9}")).unwrap();
+    let length = |v: f64| hp::Length {
+        value: decimal(v),
+        unit: hp::LengthUnit::Millimetre,
+    };
+    let value = |v: f64| hp::Value::length(decimal(v), hp::LengthUnit::Millimetre);
+    let mut points = Vec::new();
+    for h in draftwright::bridge::holes::read(&a)
+        .into_iter()
+        .filter_map(|(_, hole)| hole.ok())
+        .filter(|h| h.diameter == 3.)
+    {
+        let faces: Vec<_> = h
+            .feature
+            .faces
+            .iter()
+            .copied()
+            .filter(|&f| matches!(part.faces[f].surface, Surface::Cylinder { .. }))
+            .collect();
+        let Surface::Cylinder { frame, radius } = &part.faces[faces[0]].surface else {
+            unreachable!()
+        };
+        let at = [0, 1, 2].map(|k| h.at[k] + shift * h.direction[k]);
+        let geometry = hp::GeometryId(p.geometry.len());
+        p.geometry.push(hp::Geometry {
+            item: hp::GeometryItem {
+                leaves: vec![(
+                    "CARTESIAN_POINT".into(),
+                    vec![
+                        hp::GeometryValue::Text("specify-core:depth axis point".into()),
+                        hp::GeometryValue::List(
+                            at.into_iter()
+                                .map(|v| hp::GeometryValue::Real(decimal(v)))
+                                .collect(),
+                        ),
+                    ],
+                )],
+            },
+            length_unit: Some(hp::LengthUnit::Millimetre),
+        });
+        let base = hp::FeatureId(p.features.len());
+        p.features.push(hp::Feature::Items(
+            faces
+                .iter()
+                .map(|&f| hp::Anchor::Face(hp::FaceIndex(f)))
+                .collect(),
+        ));
+        let derived = hp::DerivedGeometryId(p.derived_geometry.len());
+        p.derived_geometry.push(hp::DerivedGeometry {
+            kind: hp::DerivedGeometryKind::Axis,
+            deriving_faces: faces.into_iter().map(hp::FaceIndex).collect(),
+            point: frame.origin.map(length),
+            direction: hp::Direction(frame.z.map(decimal)),
+            radius: Some(length(*radius)),
+            supplemental: vec![geometry],
+        });
+        points.push(hp::FeatureId(p.features.len()));
+        p.features.push(hp::Feature::Derived {
+            kind: hp::DerivedKind::Derived,
+            from: vec![base],
+            geometry: Some(derived),
+        });
+    }
+    assert_eq!(points.len(), 4);
+    let from = hp::FeatureId(p.features.len());
+    p.features.push(hp::Feature::Group {
+        members: points,
+        kind: hp::GroupKind::MultipleElements,
+    });
+    let to = hp::FeatureId(p.features.len());
+    p.features.push(hp::Feature::Items(
+        enclosure_depth_record(&a).face_groups[1]
+            .iter()
+            .map(|&f| hp::Anchor::Face(hp::FaceIndex(f)))
+            .collect(),
+    ));
+    p.dimensions.push(hp::Dimension {
+        kind: hp::DimensionKind::Location {
+            from,
+            to,
+            kind: hp::LocationKind::LinearDistance,
+            path: None,
+            directed: false,
+            angle: None,
+        },
+        nominal: Some(value(8. - shift)),
+        tolerance: hp::DimTolerance::Deviations(hp::Bounds::new(value(0.1), value(-0.1)).unwrap()),
+        qualifier: None,
+        modifiers: vec![],
+        principle: None,
+    });
+    let doc = Document::parse(raw.clone()).unwrap();
+    let parts = read_part_definitions(&raw).unwrap();
+    let (edit, _) = hp::write(
+        &doc,
+        &parts,
+        &[(hp::PartId(0), p)],
+        hp::write::Mode::Replace,
+        hp::write::PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    let written = Document::parse(doc.apply(&edit).unwrap().bytes).unwrap();
+    let mut edit = draftwright::haecceity::p21::Edit::default();
+    let mut count = 0;
+    for (&id, entity) in &written.graph().entities {
+        if let RawEntity::Simple {
+            name, attributes, ..
+        } = entity
+            && name == "DERIVED_SHAPE_ASPECT"
+        {
+            assert_eq!(attributes[0], Attribute::String(String::new()));
+            let mut named = entity.clone();
+            let RawEntity::Simple { attributes, .. } = &mut named else {
+                unreachable!()
+            };
+            attributes[0] = Attribute::String("axis point".into());
+            edit.replace(id, named);
+            count += 1;
+        }
+    }
+    assert_eq!(count, 4);
+    written.apply(&edit).unwrap().bytes
+}
+
+#[test]
+fn enclosure_grouped_axis_points_give_the_callout_its_authored_depth() {
+    let (_, a) = analysed("enclosure-axis-points.step", &enclosure_axis_point_step(0.));
+    let r = records(&a)
+        .iter()
+        .find(|r| r.category == Category::Dimension)
+        .unwrap();
+    assert!(r.blockers.is_empty(), "{:?}", r.blockers);
+    assert_eq!(r.geometry.as_ref().unwrap().axis_points[0].len(), 4);
+    let Some(Reading::Read(report)) = &a.pmi else {
+        unreachable!()
+    };
+    let ids = report.identities();
+    let id = ids.id(&r.source_id).unwrap();
+    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let owners: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.measurements.iter().any(|m| m.feature == id))
+        .collect();
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].kind, "callout");
+    assert!(owners[0].placed.is_some());
+    assert_eq!(owners[0].label, "4× ⌀3 ↧ 8 ±0.1");
+    assert!(
+        !plan
+            .dimensions
+            .iter()
+            .any(|d| d.kind == "linear" && d.value == 8.)
+    );
+    let back: Analysis = serde_json::from_value(serde_json::to_value(&a).unwrap()).unwrap();
+    assert_eq!(
+        serde_json::to_value(plan).unwrap(),
+        serde_json::to_value(model::plan(&back, &Spec::default()).unwrap()).unwrap()
+    );
+}
+
+#[test]
+fn enclosure_axis_points_inside_the_bore_do_not_invent_an_entry() {
+    let (_, a) = analysed(
+        "enclosure-interior-axis-points.step",
+        &enclosure_axis_point_step(1.),
+    );
+    let r = records(&a)
+        .iter()
+        .find(|r| r.category == Category::Dimension)
+        .unwrap();
+    assert!(r.geometry.as_ref().unwrap().hole_depths.is_empty());
+    let Some(Reading::Read(report)) = &a.pmi else {
+        unreachable!()
+    };
+    let ids = report.identities();
+    let id = ids.id(&r.source_id).unwrap();
+    let plan = model::plan(&a, &Spec::default()).unwrap();
+    assert!(
+        !plan
+            .dimensions
+            .iter()
+            .any(|d| d.kind == "callout" && d.measurements.iter().any(|m| m.feature == id))
+    );
+    assert!(
+        plan.problems
+            .iter()
+            .any(|p| p.code == "pmi_not_lowered" && p.refs.contains(&r.source_id))
+    );
+}

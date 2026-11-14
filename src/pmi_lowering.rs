@@ -1596,7 +1596,8 @@ fn cylinder(part: &Part, f: usize) -> Result<Cylinder, &'static str> {
 }
 
 /// A linear location's two endpoints on a bore axis, proven from adjacent entry/floor
-/// faces or circular rim edges. Kept even when its nominal disagrees with the geometry.
+/// faces, circular rim edges or finite axis points on trimmed cylinder ends. Kept even
+/// when its nominal disagrees with the geometry.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HoleDepth {
     pub cylinder: Cylinder,
@@ -1627,6 +1628,7 @@ fn hole_depth_geometry(part: &Part, r: &Record) -> Vec<HoleDepth> {
             .flat_map(|l| l.edges.iter().map(|e| e.0))
             .collect();
         let mut ends = [Vec::new(), Vec::new()];
+        let mut point_faces = [BTreeSet::new(), BTreeSet::new()];
         for (side, endpoints) in ends.iter_mut().enumerate() {
             for &f in &r.face_groups[side] {
                 let face = &part.faces[f];
@@ -1652,6 +1654,47 @@ fn hole_depth_geometry(part: &Part, r: &Record) -> Vec<HoleDepth> {
                     Some(f),
                     None,
                 ));
+            }
+            for point in r
+                .geometry
+                .iter()
+                .flat_map(|g| g.axis_points.get(side))
+                .flatten()
+            {
+                if !point.faces.contains(&f) {
+                    continue;
+                }
+                let delta = [0, 1, 2].map(|k| point.point[k] - c.origin[k]);
+                let t = dot(delta, c.direction);
+                if (0..3).any(|k| (delta[k] - t * c.direction[k]).abs() > 1e-6) {
+                    continue;
+                }
+                // Its station must be a real end of the deriving cylinder's trimmed extent,
+                // as a sloping mouth's finite point is defined. An arbitrary point on an
+                // infinite axis must never supply a hole entry or floor.
+                let bounds: Option<Vec<_>> = point
+                    .faces
+                    .iter()
+                    .map(|&g| {
+                        let cy = cylinder(part, g).ok()?;
+                        let delta = [0, 1, 2].map(|k| cy.origin[k] - c.origin[k]);
+                        let t = dot(delta, c.direction);
+                        ((dot(cy.direction, c.direction).abs() - 1.).abs() < 1e-9
+                            && (cy.radius - c.radius).abs() < 1e-6
+                            && (0..3).all(|k| (delta[k] - t * c.direction[k]).abs() <= 1e-6))
+                        .then(|| part.face_projection_bounds(g, c.direction))
+                        .flatten()
+                    })
+                    .collect();
+                let Some(bounds) = bounds else { continue };
+                let lo = bounds.iter().map(|b| b.0).fold(f64::INFINITY, f64::min);
+                let hi = bounds.iter().map(|b| b.1).fold(f64::NEG_INFINITY, f64::max);
+                let station = dot(point.point, c.direction);
+                if (station - lo).abs().min((station - hi).abs()) > 1e-6 {
+                    continue;
+                }
+                point_faces[side].extend(&point.faces);
+                endpoints.push((point.point, None, None));
             }
             for &e in r.edge_groups.get(side).into_iter().flatten() {
                 if !rim.contains(&e) {
@@ -1684,6 +1727,7 @@ fn hole_depth_geometry(part: &Part, r: &Record) -> Vec<HoleDepth> {
             continue;
         }
         for side in 0..2 {
+            covered_faces[side].extend(&point_faces[side]);
             for &(_, face, edge) in &ends[side] {
                 covered_faces[side].extend(face);
                 covered_edges[side].extend(edge);
@@ -1722,6 +1766,10 @@ pub fn dimension_geometry(part: &Part, r: &Record) -> Geometry {
             .geometry
             .as_ref()
             .map_or_else(Vec::new, |g| g.targets.clone()),
+        axis_points: r
+            .geometry
+            .as_ref()
+            .map_or_else(Vec::new, |g| g.axis_points.clone()),
         ..Geometry::default()
     };
     g.reasons.extend(crate::pmi::placements_reason(r));
