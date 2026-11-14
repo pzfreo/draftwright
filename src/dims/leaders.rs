@@ -7640,14 +7640,7 @@ pub(super) fn settled_routes(
         view: d.view.trim_start_matches("v:"),
         footprints: &footprints,
         outline: frame.outline(),
-        // Finished contact repair can reclaim a vacant annotation band. Rank
-        // its routes by ink rather than that provisional reservation; the
-        // caller still proves the complete candidate's final reservation.
-        area: if contact_repair {
-            None
-        } else {
-            page.area(d.view.trim_start_matches("v:"))
-        },
+        area: page.area(d.view.trim_start_matches("v:")),
         sites,
         radial: want.is_some_and(|w| {
             w.measurements.iter().any(|m| {
@@ -7728,10 +7721,10 @@ pub(super) fn settled_routes(
         // Retain the proven shaft beside the margin while trying either shelf.
         let other_shelf =
             source_frame || (super::placement::pmi_witness_retry(analysis) && radius.is_some());
-        // A finished blocked label can fit on the short shelf even when the
+        // A rigid source frame can fit on the short shelf even when the
         // standard shoulder cannot. Include the existing two shorter shelves
         // before pruning rays, rather than losing that corridor.
-        let shoulders: &[f64] = if contact_repair {
+        let shoulders: &[f64] = if source_frame {
             &[SHOULDER, 2.0, 0.75]
         } else {
             &[SHOULDER]
@@ -7823,9 +7816,9 @@ pub(super) fn settled_routes(
     let hidden = resolved
         .as_ref()
         .map_or(0, |r| r.hidden.route_crossings(old_lines));
-    // Finished contact repair needs the same bounded narrow-corridor
+    // Rigid source frames need the same bounded narrow-corridor
     // refinements even outside the slot-only witness retry families.
-    let compact_shoulders = contact_repair
+    let compact_shoulders = source_frame
         || super::placement::pmi_witness_retry(analysis)
         || peers.iter().any(|q| {
             (q.view == d.view
@@ -7948,7 +7941,7 @@ pub(super) fn settled_routes(
             // The coarse reach grid jumps from 15 to 20 mm. A nearby
             // obstruction may need only one more millimetre of the same ray.
             let reaches: &[f64] = if rank < 16 && length > 1e-9 {
-                &[0., 0.5, 1., 2., 3., 4.]
+                &[0., 1., 2., 3., 4.]
             } else {
                 &[0.]
             };
