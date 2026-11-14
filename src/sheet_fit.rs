@@ -2394,14 +2394,16 @@ mod tests {
         ];
         assert_eq!(choose(&set, false, true), Some((Some(1), (1, 0.5))));
         // An invalid first estimate's crossing count vetoes nothing.
-        assert_eq!(choose(&set, false, false), Some((Some(1), (1, 0.5))));
+        // 2026-11-14: without a material veto, smaller below-band paper wins.
+        assert_eq!(choose(&set, false, false), Some((Some(0), (1, 0.5))));
         let spool = [
             x(0, 0.2, 0.226, 4),
             x(1, 0.5, 0.311, 2),
             x(2, 1.0, 0.475, 0),
         ];
         assert_eq!(choose(&spool, false, true), Some((None, (0, 0.2))));
-        assert_eq!(choose(&spool, false, false), Some((Some(1), (0, 0.2))));
+        // 2026-11-14: an invalid seed permits the smallest fit, not the fuller enlargement.
+        assert_eq!(choose(&spool, false, false), Some((Some(0), (0, 0.2))));
     }
     #[test]
     fn a_named_sheet_chooses_its_scale_by_fill() {
