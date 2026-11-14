@@ -110,6 +110,7 @@ class CITiers(unittest.TestCase):
         self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')", setup)
         self.assertIn('types: [opened, synchronize, reopened, labeled, unlabeled]', workflow)
         self.assertNotIn('release_only', workflow)
+        self.assertIn("python3 -m unittest discover -s tools -p 'test_ci_acceptance.py'", workflow)
         job = workflow.split('  test:', 1)[1].split('  quality-pins:', 1)[0]
         self.assertIn('FULL: ${{ needs.changes.outputs.full }}', job)
         self.assertIn('tier_args=()\n          if [ "$FULL" != true ]; then tier_args=(--max-seconds 10); fi', job)

@@ -84,6 +84,7 @@ jobs:
       - run: python3 -m unittest discover -s tools -p 'test_check_test_binaries.py'
       - run: python3 -m unittest discover -s tools -p 'test_ci_tiers.py'
       - run: python3 -m unittest discover -s tools -p 'test_release_ci.py'
+      - run: python3 -m unittest discover -s tools -p 'test_ci_acceptance.py'
       - run: cargo fmt --all --check
       # The native analysis and default plan of each of the 68 survey parts, made once by this
       # commit's executable, for the test shards to read instead of making them again
