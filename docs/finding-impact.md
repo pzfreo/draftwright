@@ -10,6 +10,7 @@ and `group` fields. `tier` is owned by the engine in the same exhaustive code re
 Tier is independent of severity and impact. The table explicitly marks the context-dependent
 coverage/PMI codes: an `info` instance is `information` (general-arrangement coverage or a source
 attribute that states no requirement); warning/error instances are `fix_before_printing`.
+Unapplied annotation edits need review because they can include authored requirement text.
 Other codes retain their listed tier even at info severity: crowding is still `tidy` and text
 obscured by ink still needs fixing. `pmi_note_unattached` needs fixing because the note loses
 its feature association even though its text survives. Target mismatch/unverifiable warnings
@@ -63,7 +64,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `angular_requirement_missing` | incomplete | fix_before_printing (information when severity=info) | The drawing does not state this required feature parameter. |
 | `angular_requirement_unverifiable` | incomplete | fix_before_printing (information when severity=info) | The drawing does not prove this required feature parameter. |
 | `angular_support_mismatch` | incomplete | fix_before_printing (information when severity=info) | The drawn evidence does not correctly state the required source information. |
-| `annotation_edit_unapplied` | decision | tidy | A saved annotation edit has no current item; its intent is retained. |
+| `annotation_edit_unapplied` | decision | fix_before_printing | A saved annotation edit has no current item; its intent is retained. |
 | `annotation_ink_overlap` | readability | fix_before_printing | Annotation ink impairs the legibility of another annotation; leader-through-text is included. |
 | `annotation_leader_crossing` | readability | tidy | Leader, dimension-line or arrow crossings impair reading; extension-only crossings are advisory. |
 | `annotation_leader_long` | readability | tidy | The leader is longer than the preferred reading distance. |

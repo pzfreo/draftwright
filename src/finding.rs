@@ -120,7 +120,7 @@ catalogue! {
     angular_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
     angular_requirement_unverifiable => Incomplete, Requirement, Requirement, "The drawing does not prove this required feature parameter.";
     angular_support_mismatch => Incomplete, Requirement, Code, "The drawn evidence does not correctly state the required source information.";
-    annotation_edit_unapplied => Decision, Tidy, Code, "A saved annotation edit has no current item; its intent is retained.";
+    annotation_edit_unapplied => Decision, FixBeforePrinting, Code, "A saved annotation edit has no current item; its intent is retained.";
     annotation_ink_overlap => Readability, FixBeforePrinting, Code, "Annotation ink impairs the legibility of another annotation; leader-through-text is included.";
     annotation_leader_crossing => Readability, Tidy, Crossing, "Leader, dimension-line or arrow crossings impair reading; extension-only crossings are advisory.";
     annotation_leader_long => Readability, Tidy, Code, "The leader is longer than the preferred reading distance.";
