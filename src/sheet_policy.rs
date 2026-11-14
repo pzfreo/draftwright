@@ -607,6 +607,21 @@ fn finished_preview(
             crate::dims::contacts::clear_new_section_contacts(&mut preview, reference);
             crate::dims::contacts::report(analysis, &mut preview);
         }
+        // A settled callout can leave the estimate's band even though its ink
+        // fits the paper (GRM-04's archived recognition). Reuse whole-block
+        // packing after routing, keeping every witness and leader unchanged.
+        if model::findings(&preview).clean()
+            && preview
+                .problems
+                .iter()
+                .any(|p| p.code == "annotation_outside_area")
+            && let Some(mut packed) = sheet_fit::pack_gdt(analysis, &preview, &preview)
+        {
+            model::finish_selected(analysis, &mut packed);
+            if crate::dims::callout_routes::no_regression(&preview.problems, &packed.problems) {
+                preview = packed;
+            }
+        }
         Ok(preview)
     })
 }
