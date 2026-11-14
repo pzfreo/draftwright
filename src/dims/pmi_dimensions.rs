@@ -945,6 +945,9 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
                     let mut r = r.clone();
                     if r.kind != "angular" {
                         r.label = cx.spec.units.length_text(&r.label);
+                        if let Some(label) = &mut r.authored_depth_label {
+                            *label = cx.spec.units.length_text(label);
+                        }
                     }
                     r
                 })
@@ -1007,6 +1010,7 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
         }
     }
     let mut depth_sources = BTreeSet::new();
+    let mut depth_mismatches = Vec::new();
     for (i, js) in depths {
         let first = records[js[0]];
         let value = first.value.expect("depth has a nominal");
@@ -1032,26 +1036,7 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
                 .filter(|m| m.parameter == "bore.depth")
                 .collect();
             if measured.iter().any(|m| (m.value - value).abs() > 1e-6) {
-                let places = measured.iter().find_map(|m| {
-                    cx.spec
-                        .precision
-                        .get(&want_id(&m.feature, &m.parameter))
-                        .copied()
-                });
-                let printed = |v| cx.spec.units.format_places(v, places);
-                let recognised: BTreeSet<_> = measured.iter().map(|m| printed(m.value)).collect();
-                let recognised = recognised.into_iter().collect::<Vec<_>>().join(", ");
-                let authored = printed(value);
-                let unit = cx.spec.units.symbol();
-                problems.push(Problem {
-                    id: format!("p:pmi_hole_depth_mismatch:{}:{}", r.source_id, w.id),
-                    code: "pmi_hole_depth_mismatch".into(),
-                    severity: "warning".into(),
-                    message: format!("The authored PMI hole depth {authored} {unit} differs from the recognised depth {recognised} {unit}; the hole callout uses the authored depth."),
-                    subjects: vec![w.id.as_str().into()],
-                    refs: std::iter::once(r.source_id.clone()).chain(measured.iter().map(|m| m.feature.clone())).collect(),
-                    ..Default::default()
-                });
+                depth_mismatches.push((r, measured.into_iter().cloned().collect::<Vec<_>>()));
             }
             w.measurements.push(claim(&ids, r, value));
             w.basis += &format!(
@@ -1060,7 +1045,11 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
             );
             depth_sources.insert(r.source_id.clone());
         }
-        print_depth(w, first, value);
+        let mut authored = first.clone();
+        if let Some(label) = &first.authored_depth_label {
+            authored.label.clone_from(label);
+        }
+        print_depth(w, &authored, value);
     }
 
     // A callout states a band only when every hole it calls out has the same one: one with
@@ -1203,6 +1192,50 @@ pub(super) fn lower(cx: &Context, wants: &mut [Want]) -> Lowered {
         }
     }
     standalone.extend(split_off);
+
+    // Diameter requirements can split a callout after its common depth is applied.
+    // Keep the recognised measurements until that split has settled, then attach one
+    // finding to each actual carrier, with precisely that carrier's physical members.
+    for (r, before) in depth_mismatches {
+        let value = r.value.expect("depth has a nominal");
+        let claim = feature(&ids, &r.source_id);
+        for w in wants
+            .iter()
+            .chain(&standalone)
+            .filter(|w| w.measurements.iter().any(|m| m.feature == claim))
+        {
+            let measured: Vec<_> = before
+                .iter()
+                .filter(|m| {
+                    w.measurements
+                        .iter()
+                        .any(|own| own.parameter == "bore.depth" && own.feature == m.feature)
+                })
+                .collect();
+            if measured.iter().any(|m| (m.value - value).abs() > 1e-6) {
+                let places = measured.iter().find_map(|m| {
+                    cx.spec
+                        .precision
+                        .get(&want_id(&m.feature, &m.parameter))
+                        .copied()
+                });
+                let printed = |v| cx.spec.units.format_places(v, places);
+                let recognised: BTreeSet<_> = measured.iter().map(|m| printed(m.value)).collect();
+                let recognised = recognised.into_iter().collect::<Vec<_>>().join(", ");
+                let authored = printed(value);
+                let unit = cx.spec.units.symbol();
+                problems.push(Problem {
+                    id: format!("p:pmi_hole_depth_mismatch:{}:{}", r.source_id, w.id),
+                    code: "pmi_hole_depth_mismatch".into(),
+                    severity: "warning".into(),
+                    message: format!("The authored PMI hole depth {authored} {unit} differs from the recognised depth {recognised} {unit}; the hole callout uses the authored depth."),
+                    subjects: vec![w.id.as_str().into()],
+                    refs: std::iter::once(r.source_id.clone()).chain(measured.iter().map(|m| m.feature.clone())).collect(),
+                    ..Default::default()
+                });
+            }
+        }
+    }
 
     // A turned step's or boss's diameter states a band only when every record on it agrees.
     let mut by_item: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
@@ -2131,6 +2164,7 @@ mod tests {
             upper_bound: None,
             fit: Some(code.into()),
             label: format!("⌀{value} {code}"),
+            authored_depth_label: None,
             datum_refs: Vec::new(),
             gtol_modifiers: Vec::new(),
             basic: false,

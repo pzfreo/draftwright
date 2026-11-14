@@ -3496,6 +3496,11 @@ fn review_malformed_axis_point_keeps_an_ordinary_locations_main_ink() {
     });
     pmi.dimensions
         .push(review_location(hp::FeatureId(2), hp::FeatureId(1), 3.));
+    pmi.dimensions[0].nominal = Some(hp::Value::length(
+        hp::Decimal::parse("3.0000").unwrap(),
+        hp::LengthUnit::Millimetre,
+    ));
+    pmi.dimensions[0].nominal.as_mut().unwrap().decimal_places = Some(4);
     let control = review_write_pmi(&raw, pmi);
     let doc = Document::parse(control.clone()).unwrap();
     let mut edit = Edit::default();
@@ -3521,6 +3526,7 @@ fn review_malformed_axis_point_keeps_an_ordinary_locations_main_ink() {
         .unwrap();
     assert!(r.blockers.is_empty(), "{:?}", r.blockers);
     assert!(!r.geometry.as_ref().unwrap().axis_point_reasons.is_empty());
+    assert_eq!(r.authored_depth_label.as_deref(), Some("3.0000"));
     assert!(r.geometry.as_ref().unwrap().hole_depths.is_empty());
     let base = model::plan(&ordinary, &Spec::default()).unwrap();
     let actual = model::plan(&malformed, &Spec::default()).unwrap();
@@ -3536,6 +3542,48 @@ fn review_malformed_axis_point_keeps_an_ordinary_locations_main_ink() {
 
 #[test]
 fn review_depth_keeps_authored_zeroes_and_tolerance_text() {
+    use draftwright::haecceity::pmi as hp;
+    let raw = enclosure_depth_bytes();
+    let (_, original) = analysed("enclosure-depth.step", &raw);
+    let mut pmi = hp::PartPmi::default();
+    for faces in &enclosure_depth_record(&original).face_groups {
+        pmi.features.push(hp::Feature::Items(
+            faces
+                .iter()
+                .map(|&f| hp::Anchor::Face(hp::FaceIndex(f)))
+                .collect(),
+        ));
+    }
+    let mut dimension = review_location(hp::FeatureId(0), hp::FeatureId(1), 8.);
+    // CAx-IF's NR2 qualifier explicitly authors two display places, independently
+    // of incidental zero padding in the numeric STEP literal.
+    dimension.nominal.as_mut().unwrap().decimal_places = Some(2);
+    let precise = |v: &str| {
+        let mut value =
+            hp::Value::length(hp::Decimal::parse(v).unwrap(), hp::LengthUnit::Millimetre);
+        value.decimal_places = Some(2);
+        value
+    };
+    dimension.tolerance =
+        hp::DimTolerance::Deviations(hp::Bounds::new(precise("0.20"), precise("-0.20")).unwrap());
+    pmi.dimensions.push(dimension);
+    let (_, source) = analysed("enclosure-depth-zeroes.step", &review_write_pmi(&raw, pmi));
+    let r = records(&source)
+        .iter()
+        .find(|r| r.category == Category::Dimension)
+        .unwrap();
+    assert_eq!(r.authored_depth_label.as_deref(), Some("8.00 ±0.20"));
+    let plan = model::plan(&source, &Spec::default()).unwrap();
+    let d = stating(&plan, &source, r).unwrap();
+    assert_eq!(d.kind, "callout");
+    assert!(d.placed.is_some());
+    assert_eq!(d.label, "4× ⌀3 ↧ 8.00 ±0.20");
+    assert!(
+        !plan
+            .dimensions
+            .iter()
+            .any(|d| d.kind == "linear" && d.value == 8.)
+    );
     let (_, mut a) = analysed("enclosure-depth.step", &enclosure_depth_bytes());
     for label in ["8.00", "8.00 ±0.20", "8.00 +0.20/-0.10"] {
         let Some(Reading::Read(report)) = &mut a.pmi else {
@@ -3663,6 +3711,93 @@ fn review_conflicting_depth_qualifiers_do_not_merge() {
             && p.refs.iter().any(|r| r == source)
             && p.message.contains("conflicting AP242 hole depth")));
     }
+}
+
+#[test]
+fn review_split_depth_mismatches_name_each_final_callout_and_its_members() {
+    let (part, mut a) = analysed("enclosure-depth.step", &enclosure_depth_bytes());
+    let Some(Reading::Read(report)) = &mut a.pmi else {
+        unreachable!()
+    };
+    let depth = report
+        .records
+        .iter_mut()
+        .find(|r| r.part21_id == 2620)
+        .unwrap();
+    depth.value = Some(9.);
+    depth.label = "9".into();
+    let source = depth.source_id.clone();
+    let size = report
+        .records
+        .iter_mut()
+        .find(|r| r.kind == "diameter" && r.value == Some(3.))
+        .unwrap();
+    assert_eq!(size.faces.len(), 4);
+    let face = size.faces.remove(0);
+    let mut one = size.clone();
+    size.face_groups = vec![size.faces.clone()];
+    size.face_ids = size
+        .faces
+        .iter()
+        .map(|&f| part.face_source(f).unwrap().entity)
+        .collect();
+    size.geometry = Some(draftwright::pmi_lowering::dimension_geometry(&part, size));
+    one.source_id = "dimension:#90001".into();
+    one.part21_id = 90001;
+    one.instances = vec![90001];
+    one.faces = vec![face];
+    one.face_ids = vec![part.face_source(face).unwrap().entity];
+    one.face_groups = vec![vec![face]];
+    one.fit = None;
+    one.upper_tol = Some(0.1);
+    one.lower_tol = Some(-0.1);
+    one.lower_bound = None;
+    one.upper_bound = None;
+    one.label = "⌀3 ±0.1".into();
+    one.geometry = Some(draftwright::pmi_lowering::dimension_geometry(&part, &one));
+    report.records.push(one);
+    let ids = report.identities();
+    let claim = ids.id(&source).unwrap();
+    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let carriers: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.measurements.iter().any(|m| m.feature == claim))
+        .collect();
+    assert_eq!(
+        carriers.len(),
+        2,
+        "different diameter requirements split this hole group"
+    );
+    let problems: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "pmi_hole_depth_mismatch")
+        .collect();
+    assert_eq!(problems.len(), 2);
+    let mut all_members = BTreeSet::new();
+    for d in carriers {
+        assert_eq!(d.kind, "callout");
+        assert!(d.placed.is_some());
+        let members: BTreeSet<_> = d
+            .measurements
+            .iter()
+            .filter(|m| m.parameter == "bore.depth")
+            .map(|m| m.feature.clone())
+            .collect();
+        all_members.extend(members.iter().cloned());
+        let p: Vec<_> = problems
+            .iter()
+            .filter(|p| p.subjects == [d.id.clone()])
+            .collect();
+        assert_eq!(p.len(), 1);
+        assert_eq!(
+            p[0].refs.iter().cloned().collect::<BTreeSet<_>>(),
+            members.into_iter().chain([source.clone()]).collect()
+        );
+        assert!(p[0].message.contains("9 mm") && p[0].message.contains("8 mm"));
+    }
+    assert_eq!(all_members.len(), 4);
 }
 
 #[test]

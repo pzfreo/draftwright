@@ -152,6 +152,10 @@ pub struct Record {
     /// An ISO 286 tolerance class (`H7`, `g6`).
     pub fit: Option<String>,
     pub label: String,
+    /// Full source text retained for a possible hole-depth merge. The ordinary
+    /// location label keeps its established display policy until a blind owner is proven.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authored_depth_label: Option<String>,
     /// The datum letters of a tolerance's datum system, compartment by compartment.
     pub datum_refs: Vec<String>,
     pub gtol_modifiers: Vec<String>,
@@ -2581,6 +2585,7 @@ impl PartReader<'_> {
             upper_bound: None,
             fit: None,
             label: String::new(),
+            authored_depth_label: None,
             datum_refs: Vec::new(),
             gtol_modifiers: Vec::new(),
             basic: false,
@@ -2807,6 +2812,18 @@ impl PartReader<'_> {
             }
         }
         self.targets(&groups, &mut r);
+        // Keep the source digits until the feature merge proves a blind hole owner.
+        // Ordinary locations (including through-hole thicknesses) retain main's label.
+        if !r.basic
+            && r.kind == "linear"
+            && r.type_code == Some(2)
+            && r.blockers.is_empty()
+            && r.value.is_some_and(|v| v.is_finite() && v > 0.)
+            && let Some(label) = hole_depth_label(d)
+            && label != r.label
+        {
+            r.authored_depth_label = Some(label);
+        }
         if r.value.is_none() && r.blockers == [MISSING_NOMINAL] {
             let geometry = crate::pmi_lowering::dimension_geometry(self.drawing.part, &r);
             if let Some(value) = crate::pmi_lowering::measured_value(&r.kind, &geometry) {
@@ -4701,6 +4718,63 @@ fn dimension_label(r: &Record, d: &Dimension) -> String {
         }
         _ => format!("{prefix}{}", fmt(value, None)),
     }
+}
+
+/// Full source precision, kept separately until the shared feature merge proves a
+/// blind depth owner. Non-depth locations retain their existing display policy.
+fn hole_depth_label(d: &Dimension) -> Option<String> {
+    let nominal = d.nominal.as_ref()?;
+    if !matches!(nominal.quantity, Quantity::Length(_)) {
+        return None;
+    }
+    let text = |v: &Value| {
+        let places = match &v.quantity {
+            // Only an NR2 display qualifier mandates trailing zeroes. Unqualified
+            // padding is a writer's numeric spelling, as in the existing axis-point
+            // fixtures; keep all meaningful nominal digits without inventing precision.
+            Quantity::Length(l) if l.unit == LengthUnit::Millimetre => {
+                v.decimal_places.map(usize::from)
+            }
+            _ => None,
+        };
+        fmt_magnitude(qualified(v), places)
+    };
+    let mut label = match &d.tolerance {
+        DimTolerance::Limits(b) => format!("{} - {}", text(b.lower()), text(b.upper())),
+        DimTolerance::Deviations(b) => {
+            let upper = qualified(b.upper());
+            let lower = qualified(b.lower());
+            let signed = |v: &Value| {
+                let n = qualified(v);
+                if n == 0. && v.decimal_places.is_none() {
+                    return "0".into();
+                }
+                let sign = if n > 0. { "+" } else { "" };
+                format!("{sign}{}", text(v))
+            };
+            if upper > 1e-9 && upper == -lower {
+                format!("{} ±{}", text(nominal), text(b.upper()))
+            } else {
+                format!(
+                    "{} {}/{}",
+                    text(nominal),
+                    signed(b.upper()),
+                    signed(b.lower())
+                )
+            }
+        }
+        DimTolerance::Fit { .. } => return None,
+        _ => text(nominal),
+    };
+    if let Some(suffix) = d.qualifier.as_ref().and_then(|q| match q {
+        pmi::Qualifier::Maximum => Some("MAX"),
+        pmi::Qualifier::Minimum => Some("MIN"),
+        pmi::Qualifier::Average => Some("AVG"),
+        _ => None,
+    }) {
+        label += &format!(" {suffix}");
+    }
+    Some(label)
 }
 
 /// The deviation suffix (`_make_label`): ` ±t`, ` +u/0`, ` 0/-l`, ` +u/-l`, each sign as stated.
