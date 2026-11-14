@@ -152,6 +152,10 @@ pub struct Record {
     /// An ISO 286 tolerance class (`H7`, `g6`).
     pub fit: Option<String>,
     pub label: String,
+    /// Full source text retained for a possible hole-depth merge. The ordinary
+    /// location label keeps its established display policy until a blind owner is proven.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authored_depth_label: Option<String>,
     /// The datum letters of a tolerance's datum system, compartment by compartment.
     pub datum_refs: Vec<String>,
     pub gtol_modifiers: Vec<String>,
@@ -592,6 +596,17 @@ pub struct Geometry {
     /// knurl's too ([`crate::pmi_lowering::requirement_geometry`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cylinders: Vec<crate::pmi_lowering::Cylinder>,
+    /// Bores whose two rims are covered by the authored location endpoints. This geometric
+    /// evidence is independent of the nominal; the feature merge still proves a blind owner.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hole_depths: Vec<crate::pmi_lowering::HoleDepth>,
+    /// Explicit finite axis points, by authored reference group (CAx-IF RP §5.1.4).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub axis_points: Vec<Vec<AxisPoint>>,
+    /// Finite-point diagnostics belong only to a hole-depth merge. Ordinary locations
+    /// keep using their kernel-proven infinite axes, as before finite depth points.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub axis_point_reasons: Vec<String>,
     /// A linear dimension's explicitly proven witness view (`front`, `plan` or `side`),
     /// selected from its trimmed reference faces (draftwright's `support_view`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -609,6 +624,14 @@ pub struct Geometry {
     /// in a dot there (ISO 128-22), not an arrowhead.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub face_on: bool,
+}
+
+/// A finite point on a kernel-proven deriving axis. Its supplemental point and support
+/// faces stay together; an infinite axis's arbitrary origin is never an endpoint.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AxisPoint {
+    pub point: [f64; 3],
+    pub faces: Vec<usize>,
 }
 
 /// A part's PMI as the Analysis carries it: the report, or why the file's PMI could not be
@@ -2284,20 +2307,161 @@ impl PartReader<'_> {
         result
     }
 
+    /// The pinned kernel validates a derived point against its analytic deriving axis.
+    /// Preserve the explicit point, rather than interpreting that descriptor as an infinite
+    /// axis. A group may mix these points with direct planes or circular rims.
+    fn axis_points(
+        &self,
+        feature: FeatureId,
+        seen: &mut BTreeSet<FeatureId>,
+    ) -> Result<Option<Vec<AxisPoint>>, String> {
+        if !seen.insert(feature) {
+            return Err("derived point group contains a cycle".into());
+        }
+        let result = (|| {
+            let geometry = match self.pmi.features.get(feature.0) {
+                Some(Feature::Group { members, .. }) => {
+                    let mut points = Vec::new();
+                    for &member in members {
+                        let Some(found) = self.axis_points(member, seen)? else {
+                            return Ok(None);
+                        };
+                        points.extend(found);
+                    }
+                    return Ok(Some(points));
+                }
+                Some(Feature::Items(_)) => return Ok(Some(Vec::new())),
+                Some(Feature::Derived { geometry, .. }) => {
+                    let named = self.prov.features.get(feature.0).into_iter().flatten().any(|&id| {
+                        matches!(self.doc.get(id), Some(RawEntity::Simple { name, attributes, .. })
+                            if name == "DERIVED_SHAPE_ASPECT" && matches!(attributes.first(), Some(Attribute::String(n)) if n.trim().eq_ignore_ascii_case("axis point")))
+                    });
+                    if !named {
+                        return Ok(None);
+                    }
+                    &self.pmi.derived_geometry[geometry
+                        .ok_or("axis point has no resolved deriving axis")?
+                        .0]
+                }
+                None => return Err("axis point is not the part's feature".into()),
+            };
+            let axis = self
+                .target(feature)?
+                .ok_or("axis point has no proven deriving axis")?;
+            if axis.kind != DerivedKind::Axis {
+                return Err("axis point is not derived from an axis".into());
+            }
+            let mut points = Vec::new();
+            for id in &geometry.supplemental {
+                let item = &self.pmi.geometry[id.0];
+                let [(name, attrs)] = item.item.leaves.as_slice() else {
+                    continue;
+                };
+                if name != "CARTESIAN_POINT" {
+                    continue;
+                }
+                let [
+                    pmi::GeometryValue::Text(_),
+                    pmi::GeometryValue::List(coords),
+                ] = attrs.as_slice()
+                else {
+                    continue;
+                };
+                let factor = item
+                    .length_unit
+                    .as_ref()
+                    .ok_or("axis point has no supplemental length unit")?
+                    .millimetres();
+                let values: Option<Vec<f64>> = coords
+                    .iter()
+                    .map(|v| match v {
+                        pmi::GeometryValue::Real(v) => Some(v.to_f64() * factor),
+                        pmi::GeometryValue::Integer(v) => Some(*v as f64 * factor),
+                        _ => None,
+                    })
+                    .collect();
+                let point: [f64; 3] = values
+                    .ok_or("axis point coordinates are not numeric")?
+                    .try_into()
+                    .map_err(|_| "axis point needs three coordinates")?;
+                if point.iter().any(|v| !v.is_finite()) {
+                    return Err("axis point is not finite".into());
+                }
+                let point = if self.drawing.chosen.is_some() {
+                    point
+                } else {
+                    let [placement] = self
+                        .def
+                        .ok_or("axis point has no source placement")?
+                        .placements
+                        .as_slice()
+                    else {
+                        return Err("axis point has more than one occurrence placement".into());
+                    };
+                    let m = &placement.placement;
+                    [0, 1, 2].map(|i| (0..3).map(|j| m[i][j] * point[j]).sum::<f64>() + m[i][3])
+                };
+                let delta = [0, 1, 2].map(|k| point[k] - axis.point[k]);
+                let t: f64 = (0..3).map(|k| delta[k] * axis.direction[k]).sum();
+                if (0..3).any(|k| (delta[k] - t * axis.direction[k]).abs() > 1e-6) {
+                    return Err("supplemental axis point is off its deriving axis".into());
+                }
+                points.push(AxisPoint {
+                    point,
+                    faces: axis.faces.clone(),
+                });
+            }
+            if points.len() != 1 {
+                return Err("axis point needs one explicit supplemental point".into());
+            }
+            Ok(Some(points))
+        })();
+        seen.remove(&feature);
+        result
+    }
+
     fn targets(&self, features: &[FeatureId], r: &mut Record) {
+        let mut axis_point_reasons = Vec::new();
+        let mut axis_points: Vec<Vec<AxisPoint>> = features
+            .iter()
+            .map(|&f| {
+                if r.kind != "linear" || r.type_code != Some(2) {
+                    return Vec::new();
+                }
+                match self.axis_points(f, &mut BTreeSet::new()) {
+                    Ok(points) => points.unwrap_or_default(),
+                    Err(why) => {
+                        axis_point_reasons.push(why);
+                        Vec::new()
+                    }
+                }
+            })
+            .collect();
         let targets: Vec<_> = features
             .iter()
-            .map(|&f| match self.target(f) {
+            .enumerate()
+            .map(|(i, &f)| match self.target(f) {
                 Ok(t) => t,
+                // Several finite points do not define one infinite axis. The hole-depth
+                // endpoint proof resolves their complete group; other ownership stays refused.
+                Err(_) if !axis_points[i].is_empty() => None,
                 Err(why) => {
                     r.blockers.push(why);
                     None
                 }
             })
             .collect();
-        if targets.iter().any(Option::is_some) {
+        if axis_points.iter().all(Vec::is_empty) {
+            axis_points.clear();
+        }
+        if targets.iter().any(Option::is_some)
+            || !axis_points.is_empty()
+            || !axis_point_reasons.is_empty()
+        {
             r.geometry = Some(Geometry {
                 targets,
+                axis_points,
+                axis_point_reasons,
                 ..Geometry::default()
             });
         }
@@ -2421,6 +2585,7 @@ impl PartReader<'_> {
             upper_bound: None,
             fit: None,
             label: String::new(),
+            authored_depth_label: None,
             datum_refs: Vec::new(),
             gtol_modifiers: Vec::new(),
             basic: false,
@@ -2647,6 +2812,18 @@ impl PartReader<'_> {
             }
         }
         self.targets(&groups, &mut r);
+        // Keep the source digits until the feature merge proves a blind hole owner.
+        // Ordinary locations (including through-hole thicknesses) retain main's label.
+        if !r.basic
+            && r.kind == "linear"
+            && r.type_code == Some(2)
+            && r.blockers.is_empty()
+            && r.value.is_some_and(|v| v.is_finite() && v > 0.)
+            && let Some(label) = hole_depth_label(d)
+            && label != r.label
+        {
+            r.authored_depth_label = Some(label);
+        }
         if r.value.is_none() && r.blockers == [MISSING_NOMINAL] {
             let geometry = crate::pmi_lowering::dimension_geometry(self.drawing.part, &r);
             if let Some(value) = crate::pmi_lowering::measured_value(&r.kind, &geometry) {
@@ -4541,6 +4718,63 @@ fn dimension_label(r: &Record, d: &Dimension) -> String {
         }
         _ => format!("{prefix}{}", fmt(value, None)),
     }
+}
+
+/// Full source precision, kept separately until the shared feature merge proves a
+/// blind depth owner. Non-depth locations retain their existing display policy.
+fn hole_depth_label(d: &Dimension) -> Option<String> {
+    let nominal = d.nominal.as_ref()?;
+    if !matches!(nominal.quantity, Quantity::Length(_)) {
+        return None;
+    }
+    let text = |v: &Value| {
+        let places = match &v.quantity {
+            // Only an NR2 display qualifier mandates trailing zeroes. Unqualified
+            // padding is a writer's numeric spelling, as in the existing axis-point
+            // fixtures; keep all meaningful nominal digits without inventing precision.
+            Quantity::Length(l) if l.unit == LengthUnit::Millimetre => {
+                v.decimal_places.map(usize::from)
+            }
+            _ => None,
+        };
+        fmt_magnitude(qualified(v), places)
+    };
+    let mut label = match &d.tolerance {
+        DimTolerance::Limits(b) => format!("{} - {}", text(b.lower()), text(b.upper())),
+        DimTolerance::Deviations(b) => {
+            let upper = qualified(b.upper());
+            let lower = qualified(b.lower());
+            let signed = |v: &Value| {
+                let n = qualified(v);
+                if n == 0. && v.decimal_places.is_none() {
+                    return "0".into();
+                }
+                let sign = if n > 0. { "+" } else { "" };
+                format!("{sign}{}", text(v))
+            };
+            if upper > 1e-9 && upper == -lower {
+                format!("{} ±{}", text(nominal), text(b.upper()))
+            } else {
+                format!(
+                    "{} {}/{}",
+                    text(nominal),
+                    signed(b.upper()),
+                    signed(b.lower())
+                )
+            }
+        }
+        DimTolerance::Fit { .. } => return None,
+        _ => text(nominal),
+    };
+    if let Some(suffix) = d.qualifier.as_ref().and_then(|q| match q {
+        pmi::Qualifier::Maximum => Some("MAX"),
+        pmi::Qualifier::Minimum => Some("MIN"),
+        pmi::Qualifier::Average => Some("AVG"),
+        _ => None,
+    }) {
+        label += &format!(" {suffix}");
+    }
+    Some(label)
 }
 
 /// The deviation suffix (`_make_label`): ` ±t`, ` +u/0`, ` 0/-l`, ` +u/-l`, each sign as stated.
