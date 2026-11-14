@@ -8,7 +8,7 @@ does not do, known limitations, and how to check a change. For an overview, see 
 alpha (pre-release). The Rust half of the build123d API remains to be completed;
 layout regressions are tracked in [#452](https://github.com/pzfreo/draftwright/issues/452).
 Every drawing reports what it could not state; the output still needs review.
-See [the measured public examples](results.md), [known limitations](#known-limitations)
+See [the public examples](https://github.com/pzfreo/dw-examples), [known limitations](#known-limitations)
 and [CHANGELOG.md](../CHANGELOG.md). The original alpha 1 gates are retained in
 [alpha1.md](alpha1.md) as historical context.
 
@@ -260,7 +260,7 @@ includes the summary. See [finding impact](finding-impact.md) for all codes and 
 ## Known limitations
 
 Current layout regressions are tracked in [#452](https://github.com/pzfreo/draftwright/issues/452).
-The [public-example results](results.md) report the current findings without claiming visual approval.
+The [public examples](https://github.com/pzfreo/dw-examples) show current output, unreviewed, with each drawing's findings beside it.
 
 Automatic layout tries `sheet/preferred_max_size` (default A3) and
 `sheet/preferred_max_sheets` (default 2) before larger paper, and tries compact

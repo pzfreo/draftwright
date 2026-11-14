@@ -1,4 +1,12 @@
-# draftwright
+<p align="center">
+  <img src="docs/images/draftwright-logo.png" alt="draftwright: technical drawings, generated" width="460">
+</p>
+
+<p align="center">
+  <a href="https://crates.io/crates/draftwright"><img src="https://img.shields.io/crates/v/draftwright.svg" alt="crates.io"></a>
+  <a href="https://github.com/pzfreo/draftwright/actions/workflows/ci.yml"><img src="https://github.com/pzfreo/draftwright/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-AGPL--3.0-blue.svg" alt="Licence: AGPL-3.0"></a>
+</p>
 
 Draftwright turns a STEP model into a dimensioned engineering drawing: SVG, PDF or editable
 DXF. It recognises manufacturing features, reads requirements from the STEP file, chooses
@@ -11,19 +19,33 @@ views and dimensions, and lays them out on standard sheets. It reports what it c
   file with only the title set. Every view, dimension and callout is placed automatically.</sub>
 </p>
 
-**Contents:** [Results](#results) · [Install](#install) · [Command line](#command-line) · [Output and the Spec](#output-and-the-spec) · [Python](#python) · [What it does](#what-it-does) · [Assemblies and revisions](#assemblies-and-revisions) · [With agents](#with-agents) · [Examples](#examples) · [Documentation](#documentation) · [How it's built](#how-its-built) · [Related projects](#related-projects) · [Licence and contributing](#licence-and-contributing)
+**Contents:** [Examples](#examples) · [Install](#install) · [Command line](#command-line) · [Output and the Spec](#output-and-the-spec) · [Python](#python) · [What it does](#what-it-does) · [Assemblies and revisions](#assemblies-and-revisions) · [With agents](#with-agents) · [Documentation](#documentation) · [How it's built](#how-its-built) · [Related projects](#related-projects) · [Licence and contributing](#licence-and-contributing)
 
 0.6.0 is in alpha (pre-release); the current version is **0.6.0-alpha.2**. The Rust half of
 the build123d API remains to be completed; layout regressions are tracked in
 [#452](https://github.com/pzfreo/draftwright/issues/452).
 
-## Results
+## Examples
 
-Built **54 drawings and 3 assembly packs** from six public sources with 0.6.0-alpha.2.
-**40/54 drawings have zero reported errors**; drawing reviews total **1,094 errors, 1,830 warnings and 2,382 info findings**.
-These are unreviewed output. Draftwright reports what it could not state.
-See [full results and commands](docs/results.md), [layout regressions (#452)](https://github.com/pzfreo/draftwright/issues/452)
-and [known limitations](docs/engine.md#known-limitations).
+To see what draftwright does with real parts, browse
+**[pzfreo/dw-examples](https://github.com/pzfreo/dw-examples)**: NIST test parts, FreeCAD
+library parts, text-to-CAD and build123d parts, and assemblies, each drawn by the stock CLI with
+only a title block set. They are unreviewed output, mistakes included, and each drawing's
+`.review.json` lists what draftwright found it could not state. Its CI rebuilds them whenever the
+pinned draftwright release is bumped.
+
+<table>
+  <tr>
+    <td><a href="https://github.com/pzfreo/dw-examples/blob/main/drawings/t2c-circular-flange/t2c-circular-flange.pdf"><img src="docs/images/example-t2c-circular-flange.png" alt="Circular flange drawing"></a></td>
+    <td><a href="https://github.com/pzfreo/dw-examples/blob/main/drawings/nema17-mount-bracket/nema17-mount-bracket.pdf"><img src="docs/images/example-nema17-mount-bracket.png" alt="NEMA 17 mount bracket drawing"></a></td>
+    <td><a href="https://github.com/pzfreo/dw-examples/blob/main/drawings/nist-ftc-06/nist-ftc-06.pdf"><img src="docs/images/example-nist-ftc-06.png" alt="NIST FTC-06 drawing with hole tables and a section"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Flange: bolt circle callout</sub></td>
+    <td align="center"><sub>Bracket: slots, chamfers, fillets</sub></td>
+    <td align="center"><sub>NIST FTC-06: hole tables, GD&amp;T, section</sub></td>
+  </tr>
+</table>
 
 ## Install
 
@@ -123,25 +145,6 @@ The Spec is the steering surface: an agent inspects the drawing and findings, ch
 or edits by item ID, then renders and reviews again. Requirements belong in STEP; the Spec
 controls the drawing.
 
-## Examples
-
-NIST test parts, FreeCAD and build123d parts, and assemblies are in
-**[pzfreo/dw-examples](https://github.com/pzfreo/dw-examples)**. Its CI rebuilds the examples
-when the pinned draftwright tag in `drawings.toml` is bumped.
-
-<table>
-  <tr>
-    <td><a href="https://github.com/pzfreo/dw-examples/tree/main/drawings/t2c-circular-flange"><img src="docs/images/example-t2c-circular-flange.png" alt="Circular flange drawing"></a></td>
-    <td><a href="https://github.com/pzfreo/dw-examples/tree/main/drawings/nema17-mount-bracket"><img src="docs/images/example-nema17-mount-bracket.png" alt="NEMA 17 mount bracket drawing"></a></td>
-    <td><a href="https://github.com/pzfreo/dw-examples/tree/main/drawings/nist-ftc-06"><img src="docs/images/example-nist-ftc-06.png" alt="NIST FTC-06 drawing with hole tables and a section"></a></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Flange: bolt circle callout</sub></td>
-    <td align="center"><sub>Bracket: slots, chamfers, fillets</sub></td>
-    <td align="center"><sub>NIST FTC-06: hole tables, GD&amp;T, section</sub></td>
-  </tr>
-</table>
-
 ## Documentation
 
 - [Engine guide](docs/engine.md): building, the full command line, what is and isn't supported,
@@ -158,7 +161,7 @@ when the pinned draftwright tag in `drawings.toml` is bumped.
 
 Draftwright is AI-coded with Claude and Codex, directed by its maintainer. Large changes get
 independent review. The output is deterministic, and the public examples are built by the
-stock CLI; their reported findings are measured in [Results](docs/results.md).
+stock CLI with no hand edits.
 
 ## Related projects
 
