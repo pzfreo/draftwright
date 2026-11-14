@@ -360,10 +360,8 @@ impl Geometry {
     }
     fn inspect(&self, pmi: &Pmi) -> PyResult<String> {
         let model = self.bound(pmi)?;
-        serde_json::to_string(
-            &draftwright::pmi::from_model(&self.part, &model).map_err(raised)?,
-        )
-        .map_err(raised)
+        serde_json::to_string(&draftwright::pmi::from_model(&self.part, &model).map_err(raised)?)
+            .map_err(raised)
     }
     fn render(
         &self,

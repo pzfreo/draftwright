@@ -3920,6 +3920,11 @@ fn tolerance_kind(k: ToleranceKind) -> (&'static str, u32) {
 /// Why a record's faces give no single attachment: they lie in several placements of their
 /// part (an assembly placing it more than once), so which one to annotate is not known.
 pub(crate) fn placements_reason(r: &Record) -> Option<String> {
+    // Caller PMI is bound directly to this one native shape. It has no Part 21
+    // face identities or assembly occurrences to disambiguate.
+    if r.source_id.starts_with("caller:") {
+        return None;
+    }
     (r.faces.len() > r.face_ids.len()).then(|| {
         format!(
             "its {} faces are drawn in {} placements of the part; which placement to annotate is \

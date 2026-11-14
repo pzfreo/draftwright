@@ -1,9 +1,9 @@
-//! Layout-only Spec patches for Part drawings. Engineering intent belongs in STEP PMI.
+//! Layout-only Spec patches for Part drawings. Engineering intent belongs in the Part PMI model.
 use serde_json::Value;
 
 fn refuse(path: &str) -> String {
     format!(
-        "{path} is a requirement: use Part.material(), general_tolerance(), process(), datum(), hole()/holes(), face(), ; Drawing.update/spec only sets layout"
+        "{path} is a requirement: use Part.material(), general_tolerance(), process(), datum(), hole()/holes(), or face(); Drawing.update/spec only sets layout"
     )
 }
 
@@ -47,6 +47,13 @@ fn requirements(v: &Value) -> Result<(), String> {
                     return Err(refuse(&format!("{collection}/{id}/{key}")));
                 }
             }
+        }
+    }
+    for (id, settings) in v["features"].as_object().into_iter().flatten() {
+        if settings["modelled_thread"].get("designation").is_some() {
+            return Err(refuse(&format!(
+                "features/{id}/modelled_thread/designation"
+            )));
         }
     }
     Ok(())

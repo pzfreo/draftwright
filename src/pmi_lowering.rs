@@ -4081,6 +4081,86 @@ fn authored(
     ))
 }
 
+/// Caller threads state a designation on native faces. Use those exact faces to
+/// select owners, then the existing measured-hole path supplies drill geometry.
+/// No drill depth, thread depth or process recommendation is authored by this step.
+fn caller_threads(
+    r: &Record,
+    candidates: &[Owner],
+    analysis: &Analysis,
+) -> Result<Vec<Proposal>, String> {
+    let fields = Fields(&r.fields);
+    let designation = fields.text("designation")?;
+    let (nominal, pitch) = crate::spec_notes::metric(&designation)?;
+    let class = fields.text("fit class")?;
+    let hand = if fields.text("hand")? == "left" {
+        "LH"
+    } else {
+        "RH"
+    };
+    let designation = format!("M{} x {}-{class} {hand}", g6(nominal), g6(pitch));
+    let faces_of = |o: &Owner| -> Vec<usize> {
+        analysis
+            .features
+            .iter()
+            .find(|f| f.id == o.id)
+            .map(|f| f.faces.clone())
+            .or_else(|| {
+                analysis
+                    .recognition
+                    .as_ref()?
+                    .patterns
+                    .iter()
+                    .find(|p| p.id == o.id)
+                    .map(|p| p.faces.clone())
+            })
+            .unwrap_or_default()
+    };
+    let mut selected = BTreeSet::new();
+    for face in &r.faces {
+        let matches: Vec<_> = candidates
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| matches!(o.kind, "hole" | "pattern") && faces_of(o).contains(face))
+            .map(|(i, _)| i)
+            .collect();
+        match matches.as_slice() {
+            [owner] => {
+                selected.insert(*owner);
+            }
+            _ => {
+                return Err(format!(
+                    "caller thread face {face} has {} canonical hole owners",
+                    matches.len()
+                ));
+            }
+        }
+    }
+    if selected.is_empty() {
+        return Err("caller thread has no native faces".into());
+    }
+    selected
+        .into_iter()
+        .map(|owner| {
+            let mut requirement = r.clone();
+            requirement.fields.retain(|(name, _)| name != "designation");
+            requirement.fields.extend([
+                (
+                    "designation".into(),
+                    crate::pmi::Field::Text(designation.clone()),
+                ),
+                (
+                    "feature".into(),
+                    crate::pmi::Field::Text(candidates[owner].id.clone()),
+                ),
+                ("nominal".into(), crate::pmi::Field::Length(nominal)),
+            ]);
+            authored(&requirement, candidates, analysis)
+                .map(|(owner, aspect)| (owner, aspect, None))
+        })
+        .collect()
+}
+
 /// `_manufacturing_owner_matches`: whether *o* owns requirement *a* on cylinder *c*.
 fn owns(a: &Aspect, c: &Cylinder, o: &Owner, envelope: [[f64; 3]; 2]) -> bool {
     match a {
@@ -4207,6 +4287,9 @@ pub fn manufacturing(analysis: &Analysis) -> Manufacturing {
     let mut proposals: Vec<Result<Vec<Proposal>, String>> = Vec::new();
     for r in &records {
         let proposal = (|| {
+            if r.source_id.starts_with("caller:") && r.kind == "internal_thread" {
+                return caller_threads(r, &candidates, analysis);
+            }
             // A thread or knurl the Spec authors names its feature ([`crate::spec_notes`]).
             if r.source_id.starts_with(crate::spec_gdt::SOURCE_PREFIX) {
                 return authored(r, &candidates, analysis).map(|(owner, aspect)| {

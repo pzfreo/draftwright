@@ -315,7 +315,7 @@ class Part:
         if isinstance(obj, _Ref):
             if obj._part is not self:
                 raise ValueError("reference belongs to another Part")
-            faces = obj.faces
+            faces = obj.bores if isinstance(obj, HoleRef) else obj.faces
         else:
             faces = self._resolve(obj, self._auto("ref"), "reference")
         return json.loads(self._geometry().keys(faces))
@@ -478,7 +478,7 @@ class Drawing:
         formats = tuple(formats)
         if not formats or len(set(formats)) != len(formats) or any(f not in ("svg", "pdf", "png", "dxf") for f in formats):
             raise ValueError("formats must be distinct members of svg, pdf, png, dxf")
-        layout = _native.layout_spec(json.dumps(self._spec), json.dumps(spec or {}))
+        layout = _native.layout_spec(json.dumps(self._spec), json.dumps({} if spec is None else spec))
         part = self._part
         out = Path(os.fsdecode(os.fspath(out))) if out is not None else Path(part.name)
         if self._scale is not None:
