@@ -47,7 +47,7 @@ entries. Local latency assertions stay enabled.
   all 68 unpinned quality/AP242/survey parts, and quality-gate enforces the drawing baseline, crossings,
   routes, label lanes and repeated spans. This is **10 jobs**, down from 22; the target is
   roughly **10–12 minutes** with warm build caches, subject to runner queues and new tests' durations. Two shards
-  leave headroom for process startup and unrecorded tests; one would carry about 32
+  leave headroom for process startup and unrecorded tests; one would carry about 34
   estimated test-minutes before that overhead.
 - **Main:** every push runs the full ten balanced shards, harnesses, all acceptance jobs
   (including budgets) and browser WASM parity: **22 jobs**, roughly **25 minutes**.
