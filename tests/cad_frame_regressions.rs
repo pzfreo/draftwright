@@ -17,14 +17,19 @@ part_cases!(accepted_cad_frame_layout;
 );
 fn accepted_cad_frame_layout(file: &str) {
     let (size, scale, counts, crossings) = match file {
-        "nist_stc_09_asme1_ap242-e4.stp" => ("A1", "1:2", [212, 66, 0, 0, 8, 0], [15, 67, 115]),
+        // 2026-11-14: bounded frame repair clears 19 crossings and 32 feature contacts.
+        "nist_stc_09_asme1_ap242-e4.stp" => ("A1", "1:2", [193, 34, 0, 0, 8, 0], [11, 62, 107]),
         // 2026-11-14: below-band preference restores the approved A2 1:2.
-        "nist_ftc_07_asme1_ap242-e2.stp" => ("A2", "1:2", [13, 6, 3, 0, 8, 0], [4, 4, 5]),
-        "nist_ftc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [66, 25, 7, 0, 7, 0], [15, 17, 33]),
-        "nist_stc_06_asme1_ap242-e3.stp" => ("A0", "1:1", [24, 0, 0, 0, 4, 1], [0, 8, 10]),
+        // 2026-11-14: frame repair clears 3 crossings and 4 feature contacts; across-view stays zero.
+        "nist_ftc_07_asme1_ap242-e2.stp" => ("A2", "1:2", [10, 2, 3, 0, 8, 0], [0, 4, 2]),
+        // 2026-11-14: bounded frame repair clears 17 crossings and 13 feature contacts.
+        "nist_ftc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [49, 12, 7, 0, 3, 0], [15, 15, 26]),
+        // 2026-11-14: bounded frame repair clears 7 crossings at the unchanged A0 1:1.
+        "nist_stc_06_asme1_ap242-e3.stp" => ("A0", "1:1", [17, 0, 0, 0, 4, 1], [0, 6, 9]),
         // The attached cylindricity/position rows intentionally share an edge;
         // that pair no longer contributes a false label_crowded notice.
-        "nist_stc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [54, 19, 6, 1, 1, 0], [6, 14, 33]),
+        // 2026-11-14: bounded frame repair clears 28 crossings and 19 feature contacts.
+        "nist_stc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [26, 0, 6, 1, 1, 0], [2, 7, 18]),
         "assembly_plate_pin.step" => ("A3", "1:1", [2, 2, 0, 1, 2, 0], [0, 0, 2]),
         "hw_assembly_plate_pin_intent.step" => ("A4", "1:2", [4, 1, 0, 0, 3, 0], [2, 0, 2]),
         "specify-main-angle-bracket.step" => ("A4", "1:1", [2, 0, 0, 0, 1, 0], [0, 2, 0]),
