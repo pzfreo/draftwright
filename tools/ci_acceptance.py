@@ -82,8 +82,8 @@ def ap242_fixtures():
 
 
 def quality_tasks(tier="full"):
-    """Every measurement of the quality-pins job (PR omits only the random-pin cells): each quality part unpinned, each part in
-    each of the nine random-pin cells, each AP242 CTC/FTC source, and the rest of the
+    """Every quality-pins measurement: each quality part unpinned, each part in the nine
+    random-pin cells (full tier only), each AP242 CTC/FTC source, and the rest of the
     repeated-span survey (its verdict reads the plan, so the unpinned quality and AP242
     measurements serve the survey for their parts)."""
     parts = sorted(names(manifest('quality_parts.txt')))

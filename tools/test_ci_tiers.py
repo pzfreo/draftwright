@@ -96,6 +96,14 @@ class CITiers(unittest.TestCase):
             self.assertEqual(json.loads(values['quality_shards']), list(range(1, q + 1)))
             self.assertEqual(values['quality_count'], str(q))
 
+    def test_unrelated_labels_do_not_start_or_cancel_an_active_pr_run(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        condition = "github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.event.label.name == 'full-ci'"
+        setup = workflow.split('  changes:', 1)[1].split('  lint:', 1)[0]
+        self.assertIn('if: ' + condition, setup)
+        concurrency = workflow.split('concurrency:', 1)[1].split('env:', 1)[0]
+        self.assertIn('(' + condition + ') && github.event.pull_request.number || github.run_id', concurrency)
+
     def test_workflow_keeps_full_main_and_all_drawing_acceptance_on_prs(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         setup = workflow.split('  changes:', 1)[1].split('  lint:', 1)[0]

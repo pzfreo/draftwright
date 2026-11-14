@@ -11,10 +11,10 @@ permissions:
   contents: read
 
 # A newer push to the same pull request cancels its superseded run. Every other run (each push
-# to main, each dispatch) has a group of its own: GitHub cancels a group's *pending* run when a
+# to main, each dispatch, unrelated label event) has a group of its own: GitHub cancels a group's *pending* run when a
 # newer one queues even without cancel-in-progress, so a shared main group could skip a commit.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  group: ci-${{ github.event_name == 'pull_request' && (github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.event.label.name == 'full-ci') && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -33,6 +33,8 @@ jobs:
   # Keep tier selection in the existing setup job. Label events rerun this selection;
   # synchronize also sees a full-ci label already present on a PR.
   changes:
+    # Other labels do not consume runners or cancel the active PR run.
+    if: github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.event.label.name == 'full-ci'
     runs-on: ubuntu-latest
     outputs:
       full: ${{ steps.tier.outputs.full }}
@@ -83,7 +85,7 @@ jobs:
       - run: python3 -m unittest discover -s tools -p 'test_ci_tiers.py'
       - run: python3 -m unittest discover -s tools -p 'test_release_ci.py'
       - run: cargo fmt --all --check
-      # The native analysis and default plan of each of the 66 survey parts, made once by this
+      # The native analysis and default plan of each of the 68 survey parts, made once by this
       # commit's executable, for the test shards to read instead of making them again
       # (src/plan_cache.rs). Here rather than in `binary`, so the acceptance jobs do not wait.
       - run: |
@@ -261,7 +263,7 @@ jobs:
           done
 
   # The quality-pins measurements (30 parts unpinned, the 270 runs of the nine random-pin
-  # cells, the AP242 CTC/FTC sources, and the rest of the 66-part repeated-span survey) run
+  # cells, the AP242 CTC/FTC sources, and the rest of the 68-part repeated-span survey) run
   # once each, balanced across these shards (tools/ci_acceptance.py shard_tasks).
   # PRs measure only the unpinned/AP242/survey tasks in two shards. Full runs keep all four
   # shards and the nine random-pin cells. quality-gate compares one same-binary baseline and

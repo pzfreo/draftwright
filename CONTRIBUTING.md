@@ -43,10 +43,10 @@ entries. Local latency assertions stay enabled.
 
 - **PR:** lint, build and doc-tests, two duration-balanced shards containing every test
   recorded at **at most 10 seconds** plus every unrecorded test, and the whole
-  `issue_drafting`, `issue_trust` and `steerability` harnesses. Two acceptance shards measure all 68 unpinned
-  quality/AP242/survey parts, and quality-gate enforces the drawing baseline, crossings,
-  routes, label lanes and repeated spans. This is **10 jobs**, down from 22; the target is roughly **10–12 minutes**
-  with warm build caches, subject to runner queues and new tests' durations. Two shards
+  `issue_drafting`, `issue_trust` and `steerability` harnesses. Two acceptance shards measure
+  all 68 unpinned quality/AP242/survey parts, and quality-gate enforces the drawing baseline, crossings,
+  routes, label lanes and repeated spans. This is **10 jobs**, down from 22; the target is
+  roughly **10–12 minutes** with warm build caches, subject to runner queues and new tests' durations. Two shards
   leave headroom for process startup and unrecorded tests; one would carry about 32
   estimated test-minutes before that overhead.
 - **Main:** every push runs the full ten balanced shards, harnesses, all acceptance jobs
@@ -63,8 +63,8 @@ entries. Local latency assertions stay enabled.
   lint-only run does not qualify. Publishing itself uses the existing workflows.
 
 See [validation and cache measurements](docs/ci-tier-validation.md) for inventory and
-measurement details. Counts above cover `ci.yml`; the existing path-filtered wheel, crate-package and CLI
-workflows retain their own PR checks. Hosted wall times are estimates, not measured here.
+measurement details. Counts above cover `ci.yml`; the existing path-filtered wheel,
+crate-package and CLI workflows retain their own PR checks. Hosted wall times are estimates, not measured here.
 
 ## Releasing
 
