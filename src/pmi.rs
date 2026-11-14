@@ -800,7 +800,7 @@ pub fn report_part(
             pmi,
             prov,
             identifiers: &read.identifiers.parts[p],
-            def: &defs[p],
+            def: Some(&defs[p]),
             drawing: &drawing,
             numbers: characteristic_numbers(doc, pmi, prov),
         };
@@ -933,34 +933,7 @@ pub fn report_part(
             },
         });
     }
-    for r in &mut records {
-        r.geometry = match r.category {
-            Category::GeometricTolerance => Some(tolerance_geometry(part, r)),
-            Category::Datum => Some(datum_geometry(part, r)),
-            Category::Dimension => Some(crate::pmi_lowering::dimension_geometry(part, r)),
-            Category::SurfaceLabel => Some(crate::pmi_lowering::label_geometry(part, r)),
-            Category::ManufacturingRequirement if crate::pmi_lowering::owned_kind(&r.kind) => {
-                Some(crate::pmi_lowering::requirement_geometry(part, r))
-            }
-            Category::ManufacturingRequirement if r.kind == "surface_finish" => {
-                Some(finish_geometry(part, r))
-            }
-            _ => None,
-        };
-    }
-    for r in &mut records {
-        if crate::dims::symbolic_bore(r)
-            && r.blockers
-                == [format!(
-                    "the ISO 286 class {} is stated without limits; they are not computed",
-                    // Invariant: symbolic_bore requires a parsed ISO fit class.
-                    r.fit.as_deref().expect("symbolic class")
-                )]
-        {
-            // The literal class is understood. Other reading/geometry blockers remain fatal.
-            r.blockers.clear();
-        }
-    }
+    attach_record_geometry(part, &mut records);
     records.sort_by_key(|r| (r.category, r.part));
     let mut record_sources: Vec<Source> = records
         .iter()
@@ -1020,7 +993,7 @@ pub fn report_part(
             pmi,
             prov,
             identifiers: &read.identifiers.parts[p],
-            def: &defs[p],
+            def: Some(&defs[p]),
             drawing: &drawing,
             numbers: characteristic_numbers(doc, pmi, prov),
         })
@@ -1098,6 +1071,176 @@ pub fn report_part(
             callouts,
         }),
         spec_problems: Vec::new(),
+    })
+}
+
+fn attach_record_geometry(part: &Part, records: &mut [Record]) {
+    for r in records.iter_mut() {
+        r.geometry = match r.category {
+            Category::GeometricTolerance => Some(tolerance_geometry(part, r)),
+            Category::Datum => Some(datum_geometry(part, r)),
+            Category::Dimension => Some(crate::pmi_lowering::dimension_geometry(part, r)),
+            Category::SurfaceLabel => Some(crate::pmi_lowering::label_geometry(part, r)),
+            Category::ManufacturingRequirement if crate::pmi_lowering::owned_kind(&r.kind) => {
+                Some(crate::pmi_lowering::requirement_geometry(part, r))
+            }
+            Category::ManufacturingRequirement if r.kind == "surface_finish" => {
+                Some(finish_geometry(part, r))
+            }
+            _ => None,
+        };
+    }
+    for r in records.iter_mut() {
+        if crate::dims::symbolic_bore(r)
+            && r.blockers
+                == [format!(
+                    "the ISO 286 class {} is stated without limits; they are not computed",
+                    // Invariant: symbolic_bore requires a parsed ISO fit class.
+                    r.fit.as_deref().expect("symbolic class")
+                )]
+        {
+            // The literal class is understood. Other reading/geometry blockers remain fatal.
+            r.blockers.clear();
+        }
+    }
+}
+
+/// Lower a caller-owned semantic model bound to this native part's face/edge indices.
+/// No AP242 write/read is involved; this uses the file reader's typed-item conversions
+/// and the same geometry attachment and downstream planning/lowering as imported PMI.
+pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
+    model.validate().map_err(|errors| {
+        errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ")
+    })?;
+    // The typed conversions consult this only for optional file provenance. Caller models
+    // have no Part 21 instances; no requirements or geometry are serialized into it.
+    let doc = Document::parse(b"ISO-10303-21;HEADER;FILE_DESCRIPTION((''),'2;1');FILE_NAME('','','',(''),(''),'','');FILE_SCHEMA(('AP242'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;".to_vec()).map_err(|e| e.to_string())?;
+    let drawing = Drawing {
+        part,
+        chosen: Some(0),
+        faces: BTreeMap::new(),
+        edges: BTreeMap::new(),
+    };
+    let prov = PartProvenance::default();
+    let identifiers = PartIdentifiers::default();
+    let r = PartReader {
+        doc: &doc,
+        p: 0,
+        pmi: model,
+        prov: &prov,
+        identifiers: &identifiers,
+        def: None,
+        drawing: &drawing,
+        numbers: BTreeMap::new(),
+    };
+    let mut records = Vec::new();
+    records.extend((0..model.dimensions.len()).map(|i| r.dimension(DimensionId(i))));
+    records.extend((0..model.tolerances.len()).map(|i| r.tolerance(i)));
+    records.extend((0..model.datums.len()).map(|i| r.datum(DatumId(i))));
+    let mut used = Used {
+        notes: vec![false; model.notes.len()],
+        general: vec![false; model.general.len()],
+        attributes: vec![false; model.attributes.len()],
+        threads: vec![false; model.threads.len()],
+        knurls: vec![false; model.knurls.len()],
+        textures: vec![false; model.surface_textures.len()],
+    };
+    records.extend(r.semantic_threads(&mut used));
+    records.extend(r.semantic_textures(&mut used));
+    for general in &model.general {
+        let GeneralTolerance::Class { text, .. } = general else {
+            return Err("caller general tolerance tables are not yet lowered".into());
+        };
+        let mut item = r.record(
+            Category::ManufacturingRequirement,
+            0,
+            &[],
+            Support::default(),
+            vec![],
+        );
+        item.kind = "general_tolerances".into();
+        item.label = text.clone();
+        item.fields = vec![("tolerance class".into(), Field::Text(text.clone()))];
+        records.push(item);
+    }
+    for attribute in &model.attributes {
+        if attribute.name == "manufacturing process" && attribute.on.is_none() {
+            let mut item = r.record(
+                Category::ManufacturingRequirement,
+                0,
+                &[],
+                Support::default(),
+                vec![],
+            );
+            item.kind = "general_note".into();
+            item.label = attribute
+                .items
+                .iter()
+                .filter_map(|(_, v)| match v {
+                    AttributeValue::Text(text) => Some(format!("PROCESS: {text}")),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            records.push(item);
+        }
+    }
+    for (index, record) in records.iter_mut().enumerate() {
+        record.source_id = format!("caller:{}:{index}", category_name(record.category));
+    }
+    attach_record_geometry(part, &mut records);
+    if let Some(why) = records
+        .iter()
+        .flat_map(|r| &r.blockers)
+        .find(|b| b.starts_with(UNRESOLVED))
+    {
+        return Err(why.clone());
+    }
+    let sources = records
+        .iter()
+        .map(|r| Source {
+            id: r.source_id.clone(),
+            category: r.category,
+            entity: "caller PMI".into(),
+            instances: vec![],
+            outcome: if r.blockers.is_empty() {
+                Outcome::Extracted
+            } else {
+                Outcome::PartiallyExtracted
+            },
+            reason: r.blockers.join("; "),
+        })
+        .collect();
+    let materials = model
+        .material
+        .iter()
+        .map(|m| Material {
+            source_id: "material:0:0".into(),
+            part: 0,
+            designation: m.id.clone(),
+            name: m.name.clone(),
+        })
+        .collect();
+    Ok(Report {
+        schema: PMI_SCHEMA.into(),
+        parts: vec!["part".into()],
+        drawn: None,
+        accounting: Accounting {
+            semantic: records.len(),
+            consumed: records.len(),
+            reported: 0,
+            presentation: 0,
+            validation: 0,
+        },
+        records,
+        sources,
+        materials,
+        reader: Box::default(),
+        spec_problems: vec![],
     })
 }
 
@@ -1356,7 +1499,7 @@ struct PartReader<'a> {
     pmi: &'a PartPmi,
     prov: &'a PartProvenance,
     identifiers: &'a PartIdentifiers,
-    def: &'a PartDefinition,
+    def: Option<&'a PartDefinition>,
     drawing: &'a Drawing<'a>,
     numbers: BTreeMap<(Category, u64), BTreeSet<String>>,
 }
@@ -1965,7 +2108,11 @@ impl PartReader<'_> {
                 let bookkeeping = item == "attribute_set"
                     && (is_draftwright_record(&pmi.attributes[i])
                         || instances.iter().any(|&id| {
-                            crate::bom::accounts_for(self.doc, id, std::slice::from_ref(self.def))
+                            crate::bom::accounts_for(
+                                self.doc,
+                                id,
+                                std::slice::from_ref(self.def.expect("file PMI context")),
+                            )
                         })
                         || (pmi.attributes[i].name == "specify pmi origin"
                             && matches!(pmi.attributes[i].on, Some(NoteOwner::Dimension(_))))
@@ -2110,7 +2257,7 @@ impl PartReader<'_> {
             let (point, direction) = if self.drawing.chosen.is_some() {
                 (point, direction)
             } else {
-                let [placement] = self.def.placements.as_slice() else {
+                let [placement] = self.def.expect("file PMI context").placements.as_slice() else {
                     return Err("derived target has more than one occurrence placement".into());
                 };
                 let m = &placement.placement;
@@ -2154,11 +2301,29 @@ impl PartReader<'_> {
     }
 
     fn anchor(&self, a: Anchor, s: &mut Support) {
+        if self.def.is_none() {
+            match a {
+                Anchor::Face(i) if i.0 < self.drawing.part.faces.len() => {
+                    s.faces.insert(i.0);
+                }
+                Anchor::Edge(i) if i.0 < self.drawing.part.edges.len() => {
+                    s.edges.insert(i.0);
+                }
+                _ => s.unresolved.push(format!(
+                    "{UNRESOLVED}: caller anchor {a:?} is not on this part"
+                )),
+            }
+            return;
+        }
         let p = self.p;
         match a {
-            Anchor::Face(i) => match self.def.faces.get(i.0) {
+            Anchor::Face(i) => match self.def.expect("file PMI context").faces.get(i.0) {
                 Some(&entity) => {
-                    let found = Drawing::resolve(&self.drawing.faces, self.def, entity);
+                    let found = Drawing::resolve(
+                        &self.drawing.faces,
+                        self.def.expect("file PMI context"),
+                        entity,
+                    );
                     if found.is_empty() {
                         s.unresolved.push(format!(
                             "{UNRESOLVED}: face {} of part {p} (#{entity}) is none of the \
@@ -2172,12 +2337,16 @@ impl PartReader<'_> {
                 None => s.unresolved.push(format!(
                     "{UNRESOLVED}: part {p} has no face {} ({} faces)",
                     i.0,
-                    self.def.faces.len()
+                    self.def.expect("file PMI context").faces.len()
                 )),
             },
-            Anchor::Edge(i) => match self.def.edges.get(i.0) {
+            Anchor::Edge(i) => match self.def.expect("file PMI context").edges.get(i.0) {
                 Some(&entity) => {
-                    let found = Drawing::resolve(&self.drawing.edges, self.def, entity);
+                    let found = Drawing::resolve(
+                        &self.drawing.edges,
+                        self.def.expect("file PMI context"),
+                        entity,
+                    );
                     if found.is_empty() {
                         s.unresolved.push(format!(
                             "{UNRESOLVED}: edge {} of part {p} (#{entity}) is none of the \
@@ -2190,7 +2359,7 @@ impl PartReader<'_> {
                 None => s.unresolved.push(format!(
                     "{UNRESOLVED}: part {p} has no edge {} ({} edges)",
                     i.0,
-                    self.def.edges.len()
+                    self.def.expect("file PMI context").edges.len()
                 )),
             },
             Anchor::Geometry(g) => {
@@ -2847,7 +3016,8 @@ impl PartReader<'_> {
             }
             for a in of {
                 // Another part's aspect is that part's presentation.
-                if ref_of(doc, a, "SHAPE_ASPECT", 2) == Some(self.def.shape)
+                if ref_of(doc, a, "SHAPE_ASPECT", 2)
+                    == Some(self.def.expect("file PMI context").shape)
                     && !aspects.contains(&a)
                 {
                     aspects.push(a);
@@ -2895,7 +3065,7 @@ impl PartReader<'_> {
                 ["CLOSED_SHELL", "OPEN_SHELL"].iter().any(|s| {
                     refs_of(self.doc, shell, s, 1)
                         .iter()
-                        .any(|&f| self.def.face_index(f).is_some())
+                        .any(|&f| self.def.expect("file PMI context").face_index(f).is_some())
                 })
             })
         })
@@ -2906,9 +3076,9 @@ impl PartReader<'_> {
     fn item_support(&self, items: &BTreeSet<u64>) -> Support {
         let mut s = Support::default();
         for &i in items {
-            if let Some(f) = self.def.face_index(i) {
+            if let Some(f) = self.def.expect("file PMI context").face_index(i) {
                 self.anchor(Anchor::Face(FaceIndex(f)), &mut s);
-            } else if let Some(e) = self.def.edge_index(i) {
+            } else if let Some(e) = self.def.expect("file PMI context").edge_index(i) {
                 self.anchor(Anchor::Edge(EdgeIndex(e)), &mut s);
             } else if !self.own_solid(i) {
                 s.unresolved.push(format!(
@@ -4568,6 +4738,52 @@ fn round_decimal(text: &str, d: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn caller_surface_texture_uses_the_ap242_lowering_and_rejects_foreign_faces() {
+        let bytes = crate::model::read_step_file(std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/surface_texture/plate_face_ra0_8.step.gz"
+        )))
+        .unwrap();
+        let part = haecceity::read_step(&bytes).unwrap();
+        let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
+        let doc = Document::parse(bytes).unwrap();
+        let read = pmi::read(&doc, &defs).unwrap();
+        let mut model = read.parts[0].clone();
+        let imported = report(&doc, &defs, &part, &read).unwrap();
+        let caller = from_model(&part, &model).unwrap();
+        let signature = |report: &Report| {
+            report
+                .records
+                .iter()
+                .filter(|r| r.kind == "surface_finish")
+                .map(|r| {
+                    (
+                        r.kind.clone(),
+                        r.label.clone(),
+                        r.faces.clone(),
+                        r.fields.clone(),
+                        r.geometry.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(!signature(&imported).is_empty());
+        assert_eq!(signature(&caller), signature(&imported));
+        let feature = pmi::FeatureId(model.features.len());
+        model
+            .features
+            .push(pmi::Feature::Items(vec![pmi::Anchor::Face(
+                pmi::FaceIndex(part.faces.len()),
+            )]));
+        model.surface_textures[0].on = Some(feature);
+        assert!(
+            from_model(&part, &model)
+                .unwrap_err()
+                .contains("caller anchor")
+        );
+    }
 
     #[test]
     fn numbers_format_as_draftwright_formats_them() {

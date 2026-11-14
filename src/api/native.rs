@@ -289,12 +289,70 @@ fn rendered(
         )));
     }
     let (_, plan, drawings) = drawn(step, given, spec)?;
+    let files = encode_drawings(&drawings, formats, dpi)?;
+    Ok((plan, files))
+}
+
+/// Render a caller's native shape and semantic PMI, using an Analysis of that shape.
+/// PMI anchors are native face/edge indices. No PMI file or AP242 write/read is needed.
+/// The caller owns the shape/analysis relationship, as with `model::render_sheets`.
+pub fn render_model(
+    part: &Part,
+    analysis: &Analysis,
+    pmi: &haecceity::pmi::PartPmi,
+    spec: &Spec,
+    formats: &[&str],
+    dpi: f64,
+) -> Result<(Plan, Files), Error> {
+    if formats.is_empty() || formats.iter().any(|f| !FORMATS.contains(f)) {
+        return Err(Error::invalid("choose formats from svg, pdf, png, dxf"));
+    }
+    if formats.contains(&"png") && !(dpi > 0. && dpi.is_finite()) {
+        return Err(Error::invalid("PNG dpi must be positive and finite"));
+    }
+    if part.faces.len() != analysis.binding.face_count {
+        return Err(Error::invalid(
+            "caller shape and analysis have different face counts",
+        ));
+    }
+    let mut analysis = analysis.clone();
+    analysis.pmi = Some(crate::pmi::Reading::Read(
+        crate::pmi::from_model(part, pmi).map_err(Error::invalid)?,
+    ));
+    // Manufacturing process is a caller-stated PMI attribute, never a Spec edit.
+    for attribute in &pmi.attributes {
+        if attribute.name == "manufacturing process" && attribute.on.is_none() {
+            for (_, value) in &attribute.items {
+                if let haecceity::pmi::AttributeValue::Text(text) = value {
+                    let text = match text.as_str() {
+                        "cnc-milled" | "cnc-turned" => "machined",
+                        other => other,
+                    };
+                    if let Ok(process) = serde_json::from_value(serde_json::json!(text)) {
+                        analysis.bom.get_or_insert_with(Default::default).process = Some(process);
+                    }
+                }
+            }
+        }
+    }
+    let mut plan = planned(&analysis, spec)?;
+    let font = Font::new(MONO.to_vec()).expect("bundled font");
+    let drawings = model::render_sheets(part, &analysis, &plan, &font)
+        .map_err(|e| Error::failed(e.to_string()))?;
+    plan.problems
+        .extend(drawings.iter().flat_map(|d| d.problems.iter().cloned()));
+    plan.status = crate::completeness::status(&plan.problems);
+    let files = encode_drawings(&drawings, formats, dpi)?;
+    Ok((plan, files))
+}
+
+fn encode_drawings(drawings: &[Drawing], formats: &[&str], dpi: f64) -> Result<Files, Error> {
     let mut files = Vec::new();
     for &format in formats {
         if format == "pdf" {
             files.push((
                 format.into(),
-                Drawing::pdf_pages(&drawings, &|name| match name {
+                Drawing::pdf_pages(drawings, &|name| match name {
                     "IBMPlexMono-Regular.ttf" => Some(MONO.to_vec()),
                     crate::title_block::FONT => Some(crate::title_block::FONT_DATA.to_vec()),
                     _ => None,
@@ -318,7 +376,7 @@ fn rendered(
             }
         }
     }
-    Ok((plan, files))
+    Ok(files)
 }
 
 /// Writes each rendered file at *out* with its format's extension appended (`part.rev2` →

@@ -1,29 +1,13 @@
-"""Requirements and drawings stated in build123d code (0.6.0-alpha.2, Python half).
-
-``Part`` records what the author says about their own faces as Specify answers
-(``datum.*``, ``part.*``, ``extra.*``), names those faces in the exported STEP
-(``f:`` namespace, specify-core ``docs/face-names.md``) and writes the answers
-beside it in Specify's answer-file format. build123d and OCP are imported only
-when a method needs them; ``import draftwright`` never imports either.
-
-Waits for the Rust half (Specify bindings): ``check()``, ``answer()``, hole
-answers keyed to recognised features (``hole.function:*``, ``hole.position:*``,
-``hole.frame:*``) and the "is this one recognised feature" reference check.
-"""
+"""build123d shapes with caller-owned haecceity PMI, lowered directly by Rust."""
 import json
 import os
 import re
-import tempfile
+import io
 from pathlib import Path
 
 from . import _native
 
-_RUST_HALF = (
-    "needs Specify's questions and recognition, which arrive with the Rust half "
-    "of the build123d API in 0.6.0-alpha.2 (pyo3 bindings after the next quiddity/"
-    "Specify release); the Python half only records answers and exports them"
-)
-_FIT = re.compile(r"^(JS|js|H|[fghkmnp])(\d{1,2})$")  # specify-core src/extras.rs
+_FIT = re.compile(r"^(JS|js|H|[fghkmnp])(\d{1,2})$")
 _TOL = 1e-4
 
 
@@ -53,11 +37,11 @@ class Datum(_Ref):
 
 class FaceRef(_Ref):
     def flatness(self, tolerance):
-        self._part._extra(self, "flatness", _number(tolerance))
+        self._part._pmi.flatness(self.faces, _number(tolerance))
         return self
 
     def finish(self, ra):
-        self._part._extra(self, "finish", _finish(ra))
+        self._part._pmi.finish(self.faces, _finish(ra))
         return self
 
 
@@ -78,33 +62,27 @@ class HoleRef(_Ref):
         if not str(fit)[0].isupper():
             raise ValueError(f"{self.label}: {fit!r} is a shaft fit; a hole takes a capital class such as H7")
         self._set_function("fit", fit)
-        # Specify asks hole.function:<feature> itself; an extra fit would contradict its answer.
-        self._part._pending.append(
-            {"hole": self.label, "faces": self._part._names_of(self.faces),
-             "answer": "hole.function", "value": f"fit:{fit}"})
+        diameter = 2 * _radius(self._part._faces[self.bores[0]])
+        self._part._pmi.fit(self.bores, _number(diameter), str(fit))
         return self
 
     def finish(self, ra):
-        self._part._extra(self, "finish", _finish(ra), self.bores)
+        self._part._pmi.finish(self.bores, _finish(ra))
         return self
 
     def thread(self, size):
-        """A tapped hole (``hole.function: tapped:M6``). Written to ``.pending.json`` for now."""
+        """State an internal ISO metric thread (e.g. M3x0.5-6H)."""
         self._set_function("thread", size)
-        self._part._pending.append(
-            {"hole": self.label, "faces": self._part._names_of(self.faces),
-             "answer": "hole.function", "value": f"tapped:{size}"})
+        self._part._pmi.thread(self.bores, str(size))
         return self
 
     def position(self, tolerance, *datums):
-        """Position tolerance relative to datums (``hole.position`` / ``hole.frame``). Pending."""
+        """A diametral position tolerance relative to the named datums."""
         letters = [d.letter if isinstance(d, Datum) else str(d) for d in datums]
         for letter in letters:
             if letter not in self._part._datums:
                 raise ValueError(f"{self.label}: datum {letter} has not been declared")
-        self._part._pending.append(
-            {"hole": self.label, "faces": self._part._names_of(self.faces),
-             "answer": "hole.position", "value": _number(tolerance), "datums": letters})
+        self._part._pmi.position(self.bores, _number(tolerance), letters)
         return self
 
 
@@ -115,6 +93,12 @@ def _axis(face):
     ax = BRepAdaptor_Surface(face.wrapped).Cylinder().Axis()
     p, d = ax.Location(), ax.Direction()
     return (p.X(), p.Y(), p.Z()), (d.X(), d.Y(), d.Z())
+
+
+def _radius(face):
+    # build123d may return None on a rectangular-trimmed cylindrical surface.
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    return BRepAdaptor_Surface(face.wrapped).Cylinder().Radius()
 
 
 def _finish(ra):
@@ -137,22 +121,21 @@ class Part:
             raise ValueError("Part needs a shape with faces")
         self._names = {}        # face index -> STEP name
         self._groups = {}      # role -> how many auto-labelled so far
-        self._part = {}         # part.* answers
-        self._datums = {}       # letter -> face indices
-        self._extras = []       # extra.* answers (face indices)
-        self._pending = []      # intent that waits for the Rust half
+        self._datums = {}
+        self._pmi = _native.Pmi(len(self._faces))
+        self._geometry_cache = None
 
     # ---- part data -------------------------------------------------------
     def material(self, value):
-        self._part["part.material"] = str(value)
+        self._pmi.material(str(value))
         return self
 
     def process(self, value):
-        self._part["part.process"] = str(value)
+        self._pmi.process(str(value))
         return self
 
     def general_tolerance(self, value):
-        self._part["part.general_tolerance"] = str(value)
+        self._pmi.general_tolerance(str(value))
         return self
 
     # ---- faces -----------------------------------------------------------
@@ -162,6 +145,7 @@ class Part:
         if letter in self._datums:
             raise ValueError(f"datum {letter} is already declared")
         faces = self._resolve(obj, label or f"datum_{letter}", f"datum {letter}")
+        self._pmi.datum(letter, faces)
         self._datums[letter] = faces
         return Datum(self, faces, self._last_label, letter)
 
@@ -192,8 +176,8 @@ class Part:
             if not walls:
                 raise ValueError(
                     "hole(): the cylindrical faces found are bosses or shafts (material inside), not holes")
-            smallest = min(self._faces[i].radius for i in walls)
-            bores += [i for i in walls if abs(self._faces[i].radius - smallest) < _TOL]
+            smallest = min(_radius(self._faces[i]) for i in walls)
+            bores += [i for i in walls if abs(_radius(self._faces[i]) - smallest) < _TOL]
         flat = self._assign(groups, label or self._auto("hole"), "hole")
         return HoleRef(self, flat, self._last_label, bores)
 
@@ -212,11 +196,6 @@ class Part:
     def _auto(self, role):
         self._groups[role] = self._groups.get(role, 0) + 1
         return f"{role}{self._groups[role]}"
-
-    def _extra(self, ref, kind, value, faces=None):
-        if kind in ("flatness", "finish") and faces is None:
-            faces = ref.faces
-        self._extras.append({"label": ref.label, "kind": kind, "value": value, "faces": list(faces)})
 
     # ---- resolving build123d objects to faces of this part ---------------
     def _find(self, obj, what):
@@ -299,7 +278,7 @@ class Part:
         if own.distance_to(tool) > _TOL:
             return False
         if kind == "CYLINDER":
-            if abs(own.radius - tool.radius) > _TOL:
+            if abs(_radius(own) - _radius(tool)) > _TOL:
                 return False
             (po, pd), (to, td) = _axis(own), _axis(tool)
             cross = [pd[1] * td[2] - pd[2] * td[1], pd[2] * td[0] - pd[0] * td[2], pd[0] * td[1] - pd[1] * td[0]]
@@ -316,53 +295,57 @@ class Part:
     def _names_of(self, indices):
         return [self._names[i] for i in sorted(indices)]
 
-    # ---- answers ---------------------------------------------------------
-    def _answers(self, number):
-        out = dict(self._part)
-        for letter, faces in sorted(self._datums.items()):
-            out[f"datum.{letter}"] = sorted(number[i] for i in faces)
-        for e in self._extras:
-            key = f"extra.{e['label']}.{e['kind']}"
-            n = 1
-            while key in out:
-                n += 1
-                key = f"extra.{e['label']}.{e['kind']}{n}"
-            out[key] = {"faces": sorted(number[i] for i in e["faces"]), "kind": e["kind"], "value": e["value"]}
-        return out
+    def _geometry(self):
+        # Transfer geometry once; the PMI remains the native object above and can change
+        # without serializing or re-importing the geometry.
+        names = dict(self._names)
+        for i in range(len(self._faces)):
+            names.setdefault(i, f"f:{self.name}.__geometry.{i + 1}")
+        signature = tuple(sorted(names.items()))
+        if self._geometry_cache is None or self._geometry_cache[0] != signature:
+            stream = io.BytesIO()
+            written = write_step(self.shape, stream, names, self._faces, self.name,
+                                 number=self.number, title=self.title)
+            order = [written[names[i]] for i in range(len(self._faces))]
+            geometry = _native.Geometry(stream.getvalue(), self.name, order)
+            self._geometry_cache = signature, geometry
+        return self._geometry_cache[1]
 
-    def check(self, *args, **kwargs):
-        raise NotImplementedError(f"Part.check() {_RUST_HALF}")
+    def _keys(self, obj):
+        if isinstance(obj, _Ref):
+            if obj._part is not self:
+                raise ValueError("reference belongs to another Part")
+            faces = obj.faces
+        else:
+            faces = self._resolve(obj, self._auto("ref"), "reference")
+        return json.loads(self._geometry().keys(faces))
 
-    def answer(self, *args, **kwargs):
-        raise NotImplementedError(f"Part.answer() {_RUST_HALF}")
+    def feature_id(self, face):
+        """Drawing Spec feature ID for the named face or fluent reference; ambiguity is an error."""
+        result = self._keys(face)
+        if result["feature_id"] is None:
+            raise ValueError(f"faces {result['faces']} do not identify one feature; found {result['features_found']}")
+        return result["feature_id"]
+
+    def reference_key(self, face):
+        """Stable ``face:v1:...`` drawing geometry key for exactly one face."""
+        result = self._keys(face)
+        keys = result["reference_keys"]
+        if len(keys) != 1:
+            raise ValueError(f"faces {result['faces']} identify {len(keys)} geometry references, expected one")
+        return keys[0]
 
     # ---- STEP ------------------------------------------------------------
     def export_step(self, path):
-        """Write the STEP with the referenced faces named, and the answers beside it.
+        """Export plain geometry with face names and product metadata.
 
-        Returns ``{"step": ..., "answers": ..., "pending": ... or None}``. The answers
-        file is ``<stem>.answers.json``, a plain Specify answer map (no ``_specify``
-        evidence: that needs Specify's analysis). Fit, thread and position intent, which
-        Specify keys to recognised features (``hole.function``, ``hole.position``), goes to ``<stem>.pending.json``.
+        PMI stays in memory; AP242 PMI export is a later stream. No sidecars are written.
+        Returns ``{step: Path, faces: {name: zero_based_face_number}}``.
         """
         path = Path(os.fspath(path))
-        names = write_step(self.shape, path, self._names, self._faces, self.name)
-        number = {i: names[self._names[i]] for i in self._names}
-        answers = self._answers(number)
-        side = path.with_suffix("")
-        answers_path = side.with_name(side.name + ".answers.json")
-        answers_path.write_text(json.dumps(answers, indent=2, sort_keys=True) + "\n")
-        pending_path = None
-        pending_file = side.with_name(side.name + ".pending.json")
-        if self._pending:
-            pending_path = pending_file
-            pending_path.write_text(json.dumps(
-                {"schema": "draftwright.pending/1",
-                 "note": "intent that Specify keys to recognised features; applied by the Rust half",
-                 "requirements": self._pending}, indent=2) + "\n")
-        elif pending_file.exists():
-            pending_file.unlink()
-        return {"step": path, "answers": answers_path, "pending": pending_path}
+        names = write_step(self.shape, path, self._names, self._faces, self.name,
+                           number=self.number, title=self.title)
+        return {"step": path, "faces": names}
 
     # ---- drawing ---------------------------------------------------------
     def drawing(self, sheet=None, scale=None, units="mm"):
@@ -374,7 +357,7 @@ def _step_names(path):
     return re.findall(r"ADVANCED_FACE\('([^']*)'", text)
 
 
-def write_step(shape, path, names, faces, product):
+def write_step(shape, path, names, faces, product, *, number=None, title=None):
     """Write ``shape`` as STEP with ``names`` (face index -> name) on its faces.
 
     build123d's ``export_step`` names assemblies and nodes but not sub-shapes, so
@@ -387,6 +370,7 @@ def write_step(shape, path, names, faces, product):
     """
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.Message import Message, Message_Gravity
+    from OCP.StepBasic import StepBasic_Product
     from OCP.STEPConstruct import STEPConstruct
     from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
     from OCP.TCollection import TCollection_HAsciiString
@@ -396,15 +380,23 @@ def write_step(shape, path, names, faces, product):
         printer.SetTraceLevel(Message_Gravity.Message_Fail)
     writer = STEPControl_Writer()
     writer.Transfer(shape.wrapped, STEPControl_AsIs)
+    model = writer.Model()
+    for i in range(1, model.NbEntities() + 1):
+        item = model.Value(i)
+        if isinstance(item, StepBasic_Product):
+            item.SetId(TCollection_HAsciiString(number or product))
+            item.SetName(TCollection_HAsciiString(title or product))
     finder = writer.WS().TransferWriter().FinderProcess()
     for index, name in sorted(names.items()):
         item = STEPConstruct.FindEntity_s(finder, faces[index].wrapped, TopLoc_Location())
         if item is None:
             raise RuntimeError(f"OCCT wrote no STEP face for the face named {name}")
         item.SetName(TCollection_HAsciiString(name))
-    if writer.Write(os.fspath(path)) != IFSelect_RetDone:
+    memory = hasattr(path, "write")
+    status = writer.WriteStream(path) if memory else writer.Write(os.fspath(path))
+    if status != IFSelect_RetDone:
         raise RuntimeError("OCCT failed to write the STEP file")
-    written = _step_names(path)
+    written = re.findall(r"ADVANCED_FACE\('([^']*)'", path.getvalue().decode()) if memory else _step_names(path)
     numbers = {}
     for name in names.values():
         where = [i for i, n in enumerate(written) if n == name]
@@ -427,6 +419,7 @@ class Drawing:
             title["number"] = part.number
         if sheet is not None:
             self._spec["sheet"]["size"] = sheet
+        self.problems = []
         self._scale = None
         if scale is not None:
             if isinstance(scale, str):
@@ -446,8 +439,8 @@ class Drawing:
     def section(self, id="A", through=None):
         """A section ``A``..``H`` through a feature id (a string such as
         ``"f:section_recess:f133"``). ``through=None`` on ``"A"`` asks for the plain
-        z-axis section through holes. A build123d object is not accepted yet: naming
-        its recognised feature needs the Rust half."""
+        z-axis section through holes. A fluent reference or build123d object is
+        resolved to the drawing's recognised feature."""
         letter = str(id).split("-")[0].upper()
         if len(letter) != 1 or letter not in "ABCDEFGH":
             raise ValueError(f"section ids are A to H, not {id!r}")
@@ -459,18 +452,41 @@ class Drawing:
         elif isinstance(through, str):
             views.setdefault("sections", []).append({"id": letter, "through": through})
         else:
-            raise NotImplementedError(f"Drawing.section(through=<object>) {_RUST_HALF}; pass a feature id string")
+            views.setdefault("sections", []).append({"id": letter, "through": self._part.feature_id(through)})
         return self
 
     def spec(self):
         return json.loads(json.dumps(self._spec))
 
-    def render(self, out=None):
-        """Render with the Rust engine; returns ``(svg_path, dxf_path)`` like ``make_drawing``."""
-        with tempfile.TemporaryDirectory(prefix="draftwright-") as temporary:
-            step = Path(temporary) / "part.step"
-            part = self._part
-            write_step(part.shape, step, dict(part._names), part._faces, part.name)
-            return _native.render(
-                str(step), os.fsdecode(os.fspath(out)) if out is not None else part.name,
-                json.dumps(self._spec), self._scale, None)
+    def update(self, spec_dict):
+        """Deep merge a layout patch, validating the Spec schema. Lists replace whole."""
+        self._spec = json.loads(_native.layout_spec(json.dumps(self._spec), json.dumps(spec_dict)))
+        return self
+
+    def title(self, **fields):
+        """Set title-block fields, e.g. drawn_by, date, revision, company, approved_by."""
+        return self.update({"sheet": {"title": fields}})
+
+    def render(self, out=None, *, formats=("svg", "dxf"), spec=None):
+        """Return every requested output path; a PDF contains all sheets.
+
+        ``spec`` is a one-render layout patch. Findings are in ``drawing.problems``.
+        PMI stays in memory and is never written to the drawing Spec.
+        """
+        if isinstance(formats, str):
+            raise TypeError("formats must be a sequence such as ('svg', 'pdf')")
+        formats = tuple(formats)
+        if not formats or len(set(formats)) != len(formats) or any(f not in ("svg", "pdf", "png", "dxf") for f in formats):
+            raise ValueError("formats must be distinct members of svg, pdf, png, dxf")
+        layout = _native.layout_spec(json.dumps(self._spec), json.dumps(spec or {}))
+        part = self._part
+        out = Path(os.fsdecode(os.fspath(out))) if out is not None else Path(part.name)
+        if self._scale is not None:
+            if not self._scale > 0:
+                raise ValueError("scale must be positive")
+            layout = json.loads(layout)
+            layout.setdefault("sheet", {})["scale"] = f"{self._scale:g}:1" if self._scale >= 1 else f"1:{1 / self._scale:g}"
+            layout = json.dumps(layout)
+        result = json.loads(part._geometry().render(part._pmi, layout, str(out), list(formats)))
+        self.problems = result["problems"]
+        return tuple(result["written"])

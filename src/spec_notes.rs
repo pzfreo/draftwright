@@ -146,7 +146,7 @@ fn invalid(message: String, choices: Vec<String>) -> Invalid {
 /// A metric designation's nominal size and pitch (the coarse pitch when it states none), or why
 /// it is not one: `M<size>`, then optionally `x<pitch>` (spaces allowed around the `x`), `-<class>`
 /// and ` LH` or ` RH`.
-pub(crate) fn metric(designation: &str) -> Result<(f64, f64), String> {
+pub fn metric(designation: &str) -> Result<(f64, f64), String> {
     let bad = || {
         format!(
             "{designation:?} is not an ISO metric thread designation: M<size>[x<pitch>][-<class>][ LH] (M6, M10x1.25-6g)"
