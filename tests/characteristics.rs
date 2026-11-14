@@ -201,7 +201,8 @@ fn numbered_pmi_round_trips_to_items_and_clear_rings() {
         // Main's #254 fixtures, with the same UDA edits and balloons enabled.
         let (paper, scale, crossings, extensions) = match name {
             // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
-            "tests/fixtures/parts/editor_pmi.step" => ("A4", "1:2", 1, 0),
+            // 2026-11-14: the smaller-paper reference keeps full scale on A4.
+            "tests/fixtures/parts/editor_pmi.step" => ("A4", "1:1", 0, 0),
             "tests/fixtures/pmi/step/GRM-03_thumbwheel_drive_screw_AP242_PMI.step.gz" => {
                 ("A4", "2:1", 0, 0)
             }

@@ -18,7 +18,8 @@ part_cases!(accepted_cad_frame_layout;
 fn accepted_cad_frame_layout(file: &str) {
     let (size, scale, counts, crossings) = match file {
         "nist_stc_09_asme1_ap242-e4.stp" => ("A1", "1:2", [212, 66, 0, 0, 8, 0], [15, 67, 115]),
-        "nist_ftc_07_asme1_ap242-e2.stp" => ("A1", "1:1", [13, 6, 3, 0, 8, 0], [4, 4, 5]),
+        // 2026-11-14: below-band preference restores the approved A2 1:2.
+        "nist_ftc_07_asme1_ap242-e2.stp" => ("A2", "1:2", [13, 6, 3, 0, 8, 0], [4, 4, 5]),
         "nist_ftc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [66, 25, 7, 0, 7, 0], [15, 17, 33]),
         "nist_stc_06_asme1_ap242-e3.stp" => ("A0", "1:1", [24, 0, 0, 0, 4, 1], [0, 8, 10]),
         // The attached cylindricity/position rows intentionally share an edge;

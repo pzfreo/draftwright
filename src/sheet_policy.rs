@@ -4014,9 +4014,9 @@ mod tests {
         for (file, size, scale) in [
             // #222: its plan view, which no dimension needs, is left out, and 2:1 fits.
             ("mfcadpp/10020.step", "A4", "2:1"),
-            // Its paired-ramp step's angle, recognised since quiddity main after 0.2.0-alpha.2,
-            // conflicts with an annotation on A4 at 1:1; A3 at 2:1 is clean.
-            ("mfcadpp/10033.step", "A3", "2:1"),
+            // 2026-11-14: below-band paper preference and measured packing
+            // keep this paired-ramp step clean on A4 at 1:1.
+            ("mfcadpp/10033.step", "A4", "1:1"),
             ("mfcadpp/10163.step", "A4", "1:1"),
             // Usable on preferred A3, as on main: nothing clipped and nothing lost.
             ("cadgenbench_inputs/cgb245.step", "A3", "1:5"),

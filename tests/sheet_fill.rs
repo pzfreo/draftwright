@@ -127,7 +127,8 @@ fn grm04_uses_the_largest_clean_scale_on_a4_before_spending_more_paper() {
     let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
     assert_eq!(
         (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
-        ("A4", "5:1")
+        // 2026-11-14: retain sparse A4 at 2:1 with the new paper reference.
+        ("A4", "2:1")
     );
     assert!(plan.sheets.is_empty());
     assert_eq!(
@@ -174,7 +175,7 @@ fn grm04_uses_the_largest_clean_scale_on_a4_before_spending_more_paper() {
         plan.views
             .iter()
             .filter(|v| v.id != "v:iso")
-            .all(|v| v.scale == 5.0)
+            .all(|v| v.scale == 2.0)
     );
 }
 

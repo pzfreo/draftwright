@@ -2616,8 +2616,9 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
             .all(|n| !n.id.contains("rectangular_through_notch"))
     );
     // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
-    assert_eq!(plan.sheet.size, "A1");
-    assert_eq!(plan.sheet.scale, "1:2");
+    // 2026-11-14: measured lanes restore CTC-01's approved A3 1:5.
+    assert_eq!(plan.sheet.size, "A3");
+    assert_eq!(plan.sheet.scale, "1:5");
     let locators: Vec<_> = plan
         .dimensions
         .iter()
@@ -2670,16 +2671,9 @@ fn valueless_ctc01_dimensions_use_proven_geometry_and_keep_their_carriers() {
             )
         })
         .collect();
-    assert_eq!(
-        notch_contacts,
-        vec![(
-            "label_crowded",
-            vec![
-                "d:f:rectangular_through_notch:f37/location.length.x",
-                "d:f:hole_pattern:f0/grid_pitch.length.row"
-            ]
-        )]
-    );
+    // Measured A3 lanes also remove the previously accepted notch crowding.
+    // Require complete clearance rather than retain that allowance.
+    assert!(notch_contacts.is_empty(), "{notch_contacts:?}");
     for (code, count) in [
         ("extension_through_feature", 8),
         ("label_crowded", 1),

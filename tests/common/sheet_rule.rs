@@ -1,6 +1,6 @@
 //! An independent oracle for the maintainer's sheet rule, read from the recorded candidates.
 //! Live automatic choices exhaust descending preferred scales on each paper before growing it.
-//! The legacy recovery trace below retains its historical fill rule (2026-10-12).
+//! The bounded recovery trace follows the 2026-11-14 smaller-paper decision.
 //! This oracle does not call the planner's selection code.
 //!
 //! 1. The smallest fit is the smallest sheet with a valid complete candidate (no hard finding or
@@ -8,7 +8,7 @@
 //!    scale. 2. Only that pair and the next larger sheet at a larger scale are allowed. 3. Against
 //!    a valid first estimate, an allowed pair adding material crossings is set aside; if every one
 //!    does, the first estimate is kept. 4. In the fill band the larger scale wins, then the
-//!    smaller sheet; otherwise the fullest valid pair wins.
+//!    smaller sheet; otherwise the smaller valid sheet wins.
 
 #![allow(dead_code)]
 
@@ -237,15 +237,9 @@ pub fn assert_follows(name: &str, plan: &Plan, seed: (&str, &str)) -> (String, S
     // Fill is recorded to 0.1%: compare with that resolution.
     let band: Vec<&&Tried> = pool.iter().filter(|t| in_band(t.fill)).collect();
     if band.is_empty() {
-        let fullest = pool.iter().map(|t| t.fill).fold(0.0, f64::max);
-        assert!(
-            chosen.fill >= fullest - 1e-9,
-            "{name}: below the band {} {} ({:.1}%) is not the fullest ({:.1}%): {basis}",
-            chosen.size,
-            chosen.scale,
-            chosen.fill * 100.0,
-            fullest * 100.0
-        );
+        // 2026-11-14: sparse drawings retain the smaller allowed sheet.
+        let smallest = pool.iter().map(|t| sheet_index(&t.size)).min().unwrap();
+        assert_eq!(sheet_index(&chosen.size), smallest, "{name}: {basis}");
     } else {
         assert!(in_band(chosen.fill), "{name}: a band pair exists: {basis}");
         let best = band
