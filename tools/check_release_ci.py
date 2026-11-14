@@ -23,7 +23,7 @@ REQUIRED_JOBS = {
 
 def api(endpoint):
     return json.loads(subprocess.check_output(
-        ['gh', 'api', '--paginate', '--slurp', endpoint], text=True))
+        ['gh', 'api', '--paginate', '--slurp', endpoint], text=True, timeout=60))
 
 
 def check(repo, tag, fetch=api, *, wait_seconds=45 * 60, poll_seconds=30,
@@ -74,7 +74,7 @@ def main():
         parser.error('give --repo or set GITHUB_REPOSITORY')
     try:
         check(args.repo, args.tag)
-    except (ValueError, KeyError, subprocess.CalledProcessError) as error:
+    except (ValueError, KeyError, subprocess.SubprocessError) as error:
         raise SystemExit(f'::error::{error}') from error
 
 

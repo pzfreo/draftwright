@@ -2,6 +2,7 @@
 import copy
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 import check_release_ci as guard
 
@@ -22,6 +23,11 @@ class ReleaseCI(unittest.TestCase):
             # Paginated results, including jobs beyond the first page.
             return [{'jobs': self.jobs[:5]}, {'jobs': self.jobs[5:]}]
         return [{'workflow_runs': []}, {'workflow_runs': [self.run]}]
+
+    def test_api_calls_have_a_timeout_so_network_stalls_cannot_wait_forever(self):
+        with patch.object(guard.subprocess, 'check_output', return_value='[]') as request:
+            self.assertEqual(guard.api('repos/owner/repo/actions/runs'), [])
+        self.assertEqual(request.call_args.kwargs['timeout'], 60)
 
     def test_exact_commit_all_latest_jobs_and_pagination(self):
         guard.check('owner/repo', 'v1.0', self.fetch)
