@@ -3,6 +3,7 @@
 #[path = "common/overflow.rs"]
 mod overflow;
 
+use crate::cache;
 use draftwright::model::{Analysis, Spec};
 use draftwright::{api, model};
 use serde_json::{Value, json};
@@ -92,7 +93,7 @@ fn r5_relative_to_rejects_different_sheets() {
 #[test]
 fn r5_gaps_close_and_moved_views_keep_ids() {
     let a = analysed("plate");
-    let original = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let original = cache::default_plan(&a, true);
     let p = value(
         &a,
         &spec(json!({"sheets":{"max":3},"views":{"iso":{"sheet":3}}})),
@@ -283,7 +284,7 @@ fn r5_gdt_and_dimension_carriers_are_on_sheet_one() {
 #[test]
 fn r5_datum_rule_uses_sheets_instead_of_view_names() {
     let a = ap242("assembly_plate_pin");
-    let mut p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let mut p = cache::default_plan(&a, true);
     let mut frame = p
         .gdt
         .iter()
@@ -748,10 +749,7 @@ fn r5_allowing_extra_sheets_preserves_the_finished_sheet() {
         let a = analysed(name);
         // Hold paper fixed while varying only R5's overflow permission. A free-paper
         // Spec now applies the A4 preference, while an explicit max retains old policy.
-        let paper = model::plan_recovered(&a, &Spec::default())
-            .unwrap()
-            .sheet
-            .size;
+        let paper = cache::default_plan(&a, true).sheet.size;
         let mut ordinary = value(&a, &spec(json!({"sheet":{"size":paper}})));
         let mut allowed = value(
             &a,

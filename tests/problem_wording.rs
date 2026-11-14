@@ -12,8 +12,7 @@
 #[path = "common/support.rs"]
 mod support;
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 
 use std::io::Read as _;
 use std::path::{Path, PathBuf};

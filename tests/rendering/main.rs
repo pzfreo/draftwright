@@ -1,5 +1,8 @@
-// Each original module keeps its helper instances, including private cache statics.
+// Pure analyses and default plans are shared across modules in this binary.
 #![allow(clippy::duplicate_mod)]
+
+#[path = "../common/cache.rs"]
+mod cache;
 
 #[path = "../bands.rs"]
 mod bands;

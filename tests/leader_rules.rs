@@ -19,8 +19,7 @@
 //! hole and blend callout the planner places passes, so ISSUE-1378-a and ISSUE-1479-a are met
 //! by the planner, not only checked.
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 #[path = "common/local_fix.rs"]
 mod local_fix;
 

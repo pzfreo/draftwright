@@ -6,8 +6,7 @@ mod corpus;
 #[macro_use]
 mod support;
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 
 use draftwright::{
     api,
@@ -26,7 +25,12 @@ fn drawing_with(
     spec: &Spec,
 ) -> (model::Analysis, model::Plan, draftwright::output::Drawing) {
     let (part, a) = cache::native(file);
-    let p = model::plan_recovered(&a, spec).unwrap();
+    let p = if serde_json::to_value(spec).unwrap() == serde_json::to_value(Spec::default()).unwrap()
+    {
+        cache::default_plan(&a, true)
+    } else {
+        model::plan_recovered(&a, spec).unwrap()
+    };
     let d = model::render(&part, &a, &p, &Font::new(api::MONO.to_vec()).unwrap()).unwrap();
     (a, p, d)
 }

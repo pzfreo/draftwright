@@ -2,6 +2,7 @@
 #[path = "common/corpus.rs"]
 mod corpus;
 
+use crate::cache;
 use draftwright::haecceity::{
     classify::{Classifier, State},
     hlr::View,
@@ -27,8 +28,8 @@ fn distance(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
 #[test]
 fn m10020_hidden_ink_does_not_cover_visible_edges_and_warm_geometry_is_reused() {
     let Some(dir) = corpus::dir() else { return };
-    let (part, a) = model::analyse_native(&dir.join("mfcadpp/10020.step")).unwrap();
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let (part, a) = cache::native(&dir.join("mfcadpp/10020.step"));
+    let plan = cache::default_plan(&a, true);
     let mut cache = model::Projections::default();
     let geometry = model::render_geometry(&part, &a, &plan, &mut cache).unwrap();
     for (id, g) in &geometry.views {
@@ -84,8 +85,8 @@ fn m10020_hidden_ink_does_not_cover_visible_edges_and_warm_geometry_is_reused() 
 
 fn section(file: &str, check_hidden: bool) {
     let Some(dir) = corpus::dir() else { return };
-    let (part, a) = model::analyse_native(&dir.join(file)).unwrap();
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let (part, a) = cache::native(&dir.join(file));
+    let plan = cache::default_plan(&a, true);
     let v = plan.views.iter().find(|v| v.cut.is_some()).unwrap();
     let cut = v.cut.as_ref().unwrap();
     let mut cache = model::Projections::default();
@@ -201,8 +202,8 @@ fn ftc06_section_bores_are_unhatched() {
 #[test]
 fn m10063_side_hidden_verticals_are_continuous_dash_runs() {
     let Some(dir) = corpus::dir() else { return };
-    let (part, a) = model::analyse_native(&dir.join("mfcadpp/10063.step")).unwrap();
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let (part, a) = cache::native(&dir.join("mfcadpp/10063.step"));
+    let plan = cache::default_plan(&a, true);
     let geometry =
         model::render_geometry(&part, &a, &plan, &mut model::Projections::default()).unwrap();
     let side = &geometry

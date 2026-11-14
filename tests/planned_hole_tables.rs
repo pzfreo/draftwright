@@ -3,8 +3,7 @@
 #[macro_use]
 mod support;
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 
 use draftwright::{
     model::{self, Analysis, Plan, Spec},

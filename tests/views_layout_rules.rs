@@ -1,6 +1,7 @@
 //! Views-and-layout catalogue ports; fixtures and thresholds follow the Python rule tests.
 #[path = "common/corpus.rs"]
 mod corpus;
+use crate::cache;
 use draftwright::model::{self, Analysis, Plan, Spec};
 use serde_json::json;
 use std::io::Read as _;
@@ -604,7 +605,7 @@ fn isometric_hidden_ink_obeys_visible_line_precedence() {
             .join("cadgenbench_inputs/cgb207.step"),
     )
     .unwrap();
-    let default = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let default = cache::default_plan(&a, true);
     let g =
         model::render_geometry(&part, &a, &default, &mut model::Projections::default()).unwrap();
     let iso = &g.views.iter().find(|(id, _)| id == "v:iso").unwrap().1;

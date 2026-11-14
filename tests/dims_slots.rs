@@ -11,6 +11,7 @@ mod corpus;
 #[path = "common/facts.rs"]
 mod facts;
 
+use crate::cache;
 use std::io::Read as _;
 use std::path::Path;
 
@@ -1118,7 +1119,7 @@ fn a_slot_split_by_the_spec_is_dimensioned_by_its_end_centres() {
             .count()
     };
 
-    let unsplit = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let unsplit = cache::default_plan(&a, true);
     assert_eq!(claims(&unsplit, "slot_width.length"), ["3× SLOT 6 × 20"]);
     assert!(claims(&unsplit, "slot_centres.length").is_empty());
     assert_eq!(end_marks(&unsplit), 0);
@@ -1195,7 +1196,7 @@ fn keyhole_slots_are_not_called_out_together() {
             assert!(!draftwright::lint::slots::grouped(analysis, f), "{id}");
         }
     }
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let plan = cache::default_plan(&a, true);
     assert!(plan.dimensions.iter().all(|d| !d.label.contains("SLOT")));
     for id in keyholes {
         for parameter in ["slot_length.length", "slot_end_radius.radius"] {
@@ -1220,7 +1221,7 @@ fn ftc09_slot_callout_leader_crosses_no_other_feature() {
         return;
     };
     let (part, a) = model::analyse_native(&corpus.join("nist/nist_ftc_09_asme1_rd.stp")).unwrap();
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let plan = cache::default_plan(&a, true);
     let callout = plan
         .dimensions
         .iter()
@@ -1261,7 +1262,7 @@ fn a_pocket_with_floor_rounds_is_dimensioned_as_the_slot_it_was() {
         .find(|f| f.id == "f:slot:f213")
         .expect("the slot");
     assert_eq!(slot.faces, [213, 214, 215, 216]);
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let plan = cache::default_plan(&a, true);
     for (id, label) in [
         ("d:f:slot:f213/slot_width.length", "12.7"),
         ("d:f:slot:f213/slot_length.length", "158.75"),
