@@ -479,7 +479,7 @@ fn touching_frame_rows(plan: &Plan, a: &str, b: &str) -> bool {
     };
     let (u, v) = (a.label_box, b.label_box);
     (a.lines.is_empty() || b.lines.is_empty())
-        && (u[0] - v[0]).abs() < 1e-9
+        && u[0].max(v[0]) < u[2].min(v[2])
         && ((u[1] - v[3]).abs() < 1e-9 || (v[1] - u[3]).abs() < 1e-9)
 }
 
@@ -865,6 +865,9 @@ mod tests {
         };
         p.gdt = vec![frame("pmi:upper", 50.), frame("pmi:lower", 45.)];
         assert!(found(&p).is_empty(), "an intentional shared box edge");
+        // Rows may be offset to fit their corridor while still sharing an edge.
+        p.gdt[0].placed.as_mut().unwrap().label_box[0] += 1.;
+        assert!(found(&p).is_empty());
         // The same geometry on another feature must still be reported.
         p.gdt[1].faces = vec![3];
         assert_eq!(found(&p)[0].0, "label_crowded");

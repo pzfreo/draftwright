@@ -208,6 +208,7 @@ pub(crate) fn attach(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                 marks.append(&mut on_frames);
             }
             let mut settled = None;
+            let mut moved_frame = None;
             // Where its leader to its faces ends on another hole's centre, so that it reads as
             // that hole's frame, or on its own cylinder's axis, which says nothing of which of
             // the circles there it controls, a leader to its own rim may cross as many leaders
@@ -322,26 +323,59 @@ pub(crate) fn attach(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                             .map(|q| q.id.clone()),
                     );
                 }
-                if let Some(found) = settle(
-                    analysis,
-                    plan,
-                    gi,
-                    view,
-                    candidates,
-                    &attached,
-                    (&exterior, &interior),
-                    &cache,
-                    relaxed,
-                )
-                // An explicit zero-gutter request retains its selected reservations for
-                // new rim repairs. Automatic layouts keep #251's vacant-paper allowance;
-                // size carriers and foreign-feature repairs retain their existing policy.
-                .filter(|(_, _, area, _)| {
-                    spec.sheet.view_gutter != Some(0.0)
-                        || mark.is_some()
-                        || foreign
-                        || area.is_none()
-                }) {
+                // A count belongs above the whole stack. When adding a top row,
+                // grade its actual counted ink against the carrier's uncounted box;
+                // otherwise the old count falsely prevents a touching stack.
+                let counted_carrier = mark.and_then(|m| {
+                    plan.gdt.iter().position(|q| {
+                        q.id == m.id
+                            && q.kind == "control_frame"
+                            && q.placed
+                                .as_ref()
+                                .is_some_and(|p| p.runs.len() > q.cells.len())
+                    })
+                });
+                let found = if frame && let Some(carrier) = counted_carrier {
+                    settle_counted_stack(
+                        analysis,
+                        plan,
+                        gi,
+                        carrier,
+                        view,
+                        candidates,
+                        &attached,
+                        (&exterior, &interior),
+                        &cache,
+                        relaxed,
+                    )
+                    .map(|(found, ink)| {
+                        moved_frame = ink.map(|ink| (carrier, ink));
+                        found
+                    })
+                } else {
+                    settle(
+                        analysis,
+                        plan,
+                        gi,
+                        view,
+                        candidates,
+                        &attached,
+                        (&exterior, &interior),
+                        &cache,
+                        relaxed,
+                    )
+                };
+                if let Some(found) = found
+                    // An explicit zero-gutter request retains its selected reservations for
+                    // new rim repairs. Automatic layouts keep #251's vacant-paper allowance;
+                    // size carriers and foreign-feature repairs retain their existing policy.
+                    .filter(|(_, _, area, _)| {
+                        spec.sheet.view_gutter != Some(0.0)
+                            || mark.is_some()
+                            || foreign
+                            || area.is_none()
+                    })
+                {
                     settled = Some((mark, hidden, own_arm, view, found));
                     break;
                 }
@@ -405,6 +439,10 @@ pub(crate) fn attach(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
                         [next.lines[0][0][0] - v.at[0], next.lines[0][0][1] - v.at[1]],
                     ),
                 );
+            }
+            if let Some((carrier, ink)) = moved_frame {
+                plan.gdt[carrier].placed = Some(ink);
+                changed.insert(plan.gdt[carrier].id.clone());
             }
             let g = &mut plan.gdt[gi];
             g.view.clone_from(&view);
@@ -705,6 +743,141 @@ fn frame_candidates(
         (false, false) => vec![under],
         (false, true) => vec![atop],
     }
+}
+
+type Settled = (
+    &'static str,
+    gdt::GdtPlaced,
+    Option<(usize, [f64; 4])>,
+    Vec<crate::model::Problem>,
+);
+
+/// Try a counted stack as a unit. If the wider top row cannot occupy the old
+/// count's corridor, also try lifting the carrier into that corridor. Its rim
+/// tip stays fixed and both the changed leader and the new row must pass settle.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn settle_counted_stack(
+    analysis: &Analysis,
+    plan: &Plan,
+    gi: usize,
+    carrier: usize,
+    view: &crate::model::PlannedView,
+    candidates: impl IntoIterator<Item = (&'static str, gdt::GdtPlaced)>,
+    attached: &BTreeSet<String>,
+    proofs: (
+        &BTreeMap<String, std::rc::Rc<super::interior::Proof>>,
+        &BTreeMap<String, std::rc::Rc<super::interior::Proof>>,
+    ),
+    cache: &super::footprints::Cache,
+    relaxed: bool,
+) -> Option<(Settled, Option<gdt::GdtPlaced>)> {
+    let mut all = plan.dimensions.clone();
+    all.extend(plan.gdt.iter().filter_map(gdt::proxy));
+    let sheet = std::iter::once(&plan.sheet)
+        .chain(&plan.sheets)
+        .find(|s| s.number == view.sheet)?;
+    let geometry = placement::CollisionGeometry::new(analysis, &all, sheet, &plan.views, cache);
+    let before: Vec<_> = [gi, carrier]
+        .into_iter()
+        .flat_map(|i| geometry.for_item(analysis, &all, sheet, &plan.views, &plan.gdt[i].id))
+        .collect();
+    for (side, next) in candidates {
+        if side != "above" {
+            if let Some(found) = settle(
+                analysis,
+                plan,
+                gi,
+                view,
+                [(side, next)],
+                attached,
+                proofs,
+                cache,
+                relaxed,
+            ) {
+                return Some((found, None));
+            }
+            continue;
+        }
+        // A placed carrier keeps its authored ink, including its count and leader.
+        if plan
+            .spec
+            .annotations
+            .get(&plan.gdt[carrier].id)
+            .is_some_and(|a| a.place.is_some())
+        {
+            continue;
+        }
+        let mut base = plan.clone();
+        let n = gdt::take_count(&mut base.gdt[carrier])?;
+        let bare = base.gdt[carrier].placed.as_ref()?;
+        let lift = plan.gdt[carrier].placed.as_ref()?.label_box[3] - bare.label_box[3] + GAP;
+        for dy in [0.0, lift] {
+            let mut trial = base.clone();
+            let mut next = gdt::translated(next.clone(), [0., dy]);
+            gdt::with_count(&mut next, n);
+            let mut area = None;
+            if dy > 0.0 {
+                let old = trial.gdt[carrier].placed.as_ref()?;
+                let mut lifted = gdt::translated(old.clone(), [0., dy]);
+                lifted.tip = old.tip;
+                if let Some(first) = old.lines.first() {
+                    let raised = lifted.lines[0][1];
+                    let rest = lifted.lines.clone();
+                    lifted.lines = vec![*first, [first[1], raised]];
+                    lifted.lines.extend(rest.into_iter().skip(1));
+                    lifted.arrows.clone_from(&old.arrows);
+                    // The all-around/all-over rings stay at the original first bend.
+                    let rings: usize = trial.gdt[carrier]
+                        .modifiers
+                        .iter()
+                        .map(|m| if m == "all_over" { 2 } else { 1 })
+                        .sum();
+                    let end = old.arcs.len();
+                    lifted.arcs[end - rings..].copy_from_slice(&old.arcs[end - rings..]);
+                }
+                trial.gdt[gi].placed = Some(next.clone());
+                let mut own = attached.clone();
+                own.insert(plan.gdt[gi].id.clone());
+                let Some((_, ink, grown, _)) = settle(
+                    analysis,
+                    &trial,
+                    carrier,
+                    view,
+                    [(LEADER, lifted)],
+                    &own,
+                    proofs,
+                    cache,
+                    true,
+                ) else {
+                    continue;
+                };
+                trial.gdt[carrier].placed = Some(ink);
+                if let Some((vi, bounds)) = grown {
+                    trial.views[vi].area = bounds;
+                }
+                area = grown;
+                trial.gdt[gi].placed.clone_from(&plan.gdt[gi].placed);
+            }
+            let view = trial.views.iter().find(|v| v.id == view.id)?;
+            if let Some(mut found) = settle(
+                analysis,
+                &trial,
+                gi,
+                view,
+                [(side, next)],
+                attached,
+                proofs,
+                cache,
+                relaxed,
+            ) {
+                found.2 = found.2.or(area);
+                // Refresh the original row's findings as well as the carrier's.
+                found.3.extend(before.iter().cloned());
+                return Some((found, trial.gdt[carrier].placed.clone()));
+            }
+        }
+    }
+    None
 }
 
 /// Where datum symbol *g* may stand on *mark*: the nearest tier first, wherever along the text.

@@ -471,6 +471,57 @@ fn stacked_independent_position_frames_share_their_cad_box_edge() {
 }
 
 #[test]
+fn a_count_stays_above_the_whole_stack_when_a_row_is_added_on_top() {
+    for (name, faces) in [
+        (
+            "nist_ftc_10_asme1_ap242-e2.stp.gz",
+            vec![77, 78, 79, 80, 81, 82],
+        ),
+        ("nist_stc_10_asme1_ap242-e2.stp.gz", vec![61, 62, 63]),
+    ] {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pmi/step")
+            .join(name);
+        let (_, a) = cache::native(&file);
+        let plan = cache::default_plan(&a, true);
+        let rows: Vec<_> = plan
+            .gdt
+            .iter()
+            .filter(|g| g.kind == "control_frame" && g.faces == faces)
+            .collect();
+        assert_eq!(rows.len(), 2, "{name}: the two independent controls");
+        let top = rows.iter().find(|g| g.cells[0] == "⌖").unwrap();
+        let bottom = rows.iter().find(|g| g.cells[0] == "⌭").unwrap();
+        let (t, b) = (
+            top.placed.as_ref().unwrap(),
+            bottom.placed.as_ref().unwrap(),
+        );
+        let limits = |p: &draftwright::dims::gdt::GdtPlaced| {
+            p.strokes[..p.frame_strokes]
+                .iter()
+                .flatten()
+                .fold([f64::INFINITY, f64::NEG_INFINITY], |r, q| {
+                    [r[0].min(q[1]), r[1].max(q[1])]
+                })
+        };
+        assert!(
+            (limits(t)[0] - limits(b)[1]).abs() < 1e-9,
+            "{name}: boxes must touch"
+        );
+        assert!(t.lines.is_empty(), "{name}: the stack keeps its one leader");
+        assert_eq!(t.runs.len(), top.cells.len() + 1, "{name}: count on top");
+        assert_eq!(t.runs[0].text, "3×");
+        assert!(t.runs[0].at[1] > limits(t)[1]);
+        assert_eq!(
+            b.runs.len(),
+            bottom.cells.len(),
+            "{name}: count written once"
+        );
+        assert!((b.label_box[3] - limits(b)[1]).abs() < 1e-9);
+    }
+}
+
+#[test]
 fn quality_parts_write_no_text_as_geometry_and_only_ascii() {
     let Some(dir) = corpus::dir() else {
         eprintln!("SKIPPED: the corpus is not found");
