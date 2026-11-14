@@ -422,15 +422,47 @@ fn rust_projection(
                 let g = plan.gdt.iter().find(|g| g.id == a.name).unwrap();
                 let shown: Vec<&str> = g.cells.iter().map(String::as_str).collect();
                 let mut runs: Vec<&str> = text.iter().copied().filter(|t| !t.is_empty()).collect();
-                // A frame on a leader to one of several holes first states their count (`4×`).
+                // Multiplicity (`4×`) stands above the frame or the top row of its
+                // shared-leader stack; it is not a tolerance compartment.
                 if g.kind == "control_frame"
                     && runs
                         .first()
                         .and_then(|t| t.strip_suffix('×'))
-                        .is_some_and(|n| {
-                            n.parse::<usize>().is_ok_and(|n| n > 1) && g.side == "leader"
-                        })
+                        .is_some_and(|n| n.parse::<usize>().is_ok_and(|n| n > 1))
                 {
+                    let p = g.placed.as_ref().unwrap();
+                    let top = p.strokes[..p.frame_strokes]
+                        .iter()
+                        .flatten()
+                        .map(|q| q[1])
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    assert_eq!(p.runs.len(), g.cells.len() + 1, "{}: one count", g.id);
+                    assert!(p.runs[0].at[1] > top, "{}: count above its box", g.id);
+                    if g.side != "leader" || p.lines.is_empty() {
+                        let carrier = plan
+                            .gdt
+                            .iter()
+                            .find(|other| {
+                                other.id != g.id
+                                    && other.kind == "control_frame"
+                                    && other.view == g.view
+                                    && !g.faces.is_empty()
+                                    && other.faces == g.faces
+                                    && other.placed.as_ref().is_some_and(|q| {
+                                        !q.lines.is_empty()
+                                            && (p.label_box[1] - q.label_box[3]).abs() < 1e-9
+                                            && p.label_box[0].max(q.label_box[0])
+                                                < p.label_box[2].min(q.label_box[2])
+                                    })
+                            })
+                            .expect("a counted top row must touch its shared-leader frame");
+                        assert_eq!(
+                            carrier.placed.as_ref().unwrap().runs.len(),
+                            carrier.cells.len(),
+                            "{}: shared count must not be repeated below",
+                            g.id
+                        );
+                    }
                     runs.remove(0);
                 }
                 assert!(

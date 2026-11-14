@@ -264,6 +264,28 @@ pub(super) fn with_count(p: &mut GdtPlaced, n: usize) {
     p.label_box[3] = base + TEXT_HEIGHT + pad;
 }
 
+/// Remove the count added by `with_count`, so a new top row can carry it above
+/// the entire stack. The count's strokes are appended and its arcs prepended.
+pub(super) fn take_count(g: &mut PlannedGdt) -> Option<usize> {
+    let p = g.placed.as_mut()?;
+    if p.runs.len() != g.cells.len() + 1 {
+        return None;
+    }
+    let count = &p.runs.first()?.text;
+    let n = count.strip_suffix('×')?.parse().ok()?;
+    let laid = haecceity::presentation::gdt::cad_datum_frame(count);
+    p.strokes
+        .truncate(p.strokes.len() - (laid.strokes.len() - laid.frame_strokes));
+    p.arcs.drain(..laid.arcs.len());
+    p.runs.remove(0);
+    p.label_box[3] = p.strokes[..p.frame_strokes]
+        .iter()
+        .flatten()
+        .map(|q| q[1])
+        .fold(f64::NEG_INFINITY, f64::max);
+    Some(n)
+}
+
 /// A feature control frame laid out from its lower left corner (`FeatureControlFrame`):
 /// haecceity's CAD-font ISO 1101 frame, sized as a CAD system sizes a native TOLERANCE (text
 /// 2.5 mm, box 5 mm), its text strokes and arcs.
@@ -1421,7 +1443,7 @@ pub(crate) fn plan_anchored(
     best
 }
 
-fn translated(mut p: GdtPlaced, delta: P2) -> GdtPlaced {
+pub(super) fn translated(mut p: GdtPlaced, delta: P2) -> GdtPlaced {
     use crate::placement_intent::{move_box, move_point};
     move_point(&mut p.tip, delta);
     move_box(&mut p.label_box, delta);
