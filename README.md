@@ -36,9 +36,9 @@ pinned draftwright release is bumped.
 
 <table>
   <tr>
-    <td><a href="https://github.com/pzfreo/dw-examples/tree/main/drawings/t2c-circular-flange"><img src="docs/images/example-t2c-circular-flange.png" alt="Circular flange drawing"></a></td>
-    <td><a href="https://github.com/pzfreo/dw-examples/tree/main/drawings/nema17-mount-bracket"><img src="docs/images/example-nema17-mount-bracket.png" alt="NEMA 17 mount bracket drawing"></a></td>
-    <td><a href="https://github.com/pzfreo/dw-examples/tree/main/drawings/nist-ftc-06"><img src="docs/images/example-nist-ftc-06.png" alt="NIST FTC-06 drawing with hole tables and a section"></a></td>
+    <td><a href="https://github.com/pzfreo/dw-examples/blob/main/drawings/t2c-circular-flange/t2c-circular-flange.pdf"><img src="docs/images/example-t2c-circular-flange.png" alt="Circular flange drawing"></a></td>
+    <td><a href="https://github.com/pzfreo/dw-examples/blob/main/drawings/nema17-mount-bracket/nema17-mount-bracket.pdf"><img src="docs/images/example-nema17-mount-bracket.png" alt="NEMA 17 mount bracket drawing"></a></td>
+    <td><a href="https://github.com/pzfreo/dw-examples/blob/main/drawings/nist-ftc-06/nist-ftc-06.pdf"><img src="docs/images/example-nist-ftc-06.png" alt="NIST FTC-06 drawing with hole tables and a section"></a></td>
   </tr>
   <tr>
     <td align="center"><sub>Flange: bolt circle callout</sub></td>
