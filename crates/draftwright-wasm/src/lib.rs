@@ -575,6 +575,10 @@ mod tests {
                     .contains(&problem["impact"].as_str().unwrap())
             );
             assert!(!problem["group"].as_str().unwrap().is_empty());
+            assert!(
+                ["fix_before_printing", "tidy", "information"]
+                    .contains(&problem["tier"].as_str().unwrap())
+            );
             if problem["fix"].is_array() {
                 assert_eq!(problem["fix"], problem["fixes"][0]["ops"]);
                 assert!(

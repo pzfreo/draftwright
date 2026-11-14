@@ -12,7 +12,7 @@
         "completeness": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/D"
+            "$ref": "#/E"
           },
           "required": [
             "claimed_faces",
@@ -42,7 +42,7 @@
             }
           },
           "additionalProperties": {
-            "$ref": "#/C"
+            "$ref": "#/D"
           },
           "required": [
             "size",
@@ -83,10 +83,10 @@
                 ]
               },
               "size": {
-                "$ref": "#/C"
+                "$ref": "#/D"
               },
               "scale": {
-                "$ref": "#/C"
+                "$ref": "#/D"
               },
               "page": {
                 "$ref": "#/B"
@@ -105,7 +105,7 @@
             "type": "object",
             "properties": {
               "id": {
-                "$ref": "#/C"
+                "$ref": "#/D"
               },
               "label": {
                 "type": [
@@ -127,6 +127,9 @@
                 "anyOf": [
                   {
                     "properties": {
+                      "tier": {
+                        "$ref": "#/C"
+                      },
                       "impact": {
                         "enum": [
                           "incomplete",
@@ -139,7 +142,7 @@
                         "$ref": "#/A"
                       },
                       "fix": {
-                        "$ref": "#/E"
+                        "$ref": "#/F"
                       },
                       "fixes": {
                         "type": "array",
@@ -154,10 +157,10 @@
                               ]
                             },
                             "description": {
-                              "$ref": "#/C"
+                              "$ref": "#/D"
                             },
                             "ops": {
-                              "$ref": "#/E"
+                              "$ref": "#/F"
                             }
                           },
                           "additionalProperties": false,
@@ -181,7 +184,7 @@
                     "additionalProperties": false,
                     "patternProperties": {
                       "^(group|id|code|severity|detail_ref|description)$(?!\n)": {
-                        "$ref": "#/C"
+                        "$ref": "#/D"
                       }
                     }
                   },
@@ -194,18 +197,24 @@
                         ]
                       },
                       "detail_ref": {
+                        "$ref": "#/D"
+                      },
+                      "tier": {
                         "$ref": "#/C"
                       }
                     },
-                    "additionalProperties": false,
-                    "minProperties": 2
+                    "required": [
+                      "id",
+                      "detail_ref"
+                    ],
+                    "additionalProperties": false
                   }
                 ],
                 "type": "object"
               }
             },
             "total": {
-              "$ref": "#/D"
+              "$ref": "#/E"
             },
             "next_cursor": {
               "type": [
@@ -235,10 +244,10 @@
       "additionalProperties": false,
       "patternProperties": {
         "^(part|spec_version|(part|plan)_ref)$(?!\n)": {
-          "$ref": "#/C"
+          "$ref": "#/D"
         },
         "^(face_count|items|problems)$(?!\n)": {
-          "$ref": "#/D"
+          "$ref": "#/E"
         }
       }
     },
@@ -256,10 +265,10 @@
             ]
           },
           "message": {
-            "$ref": "#/C"
+            "$ref": "#/D"
           },
           "path": {
-            "$ref": "#/C"
+            "$ref": "#/D"
           }
         },
         "required": [
@@ -276,7 +285,7 @@
   ],
   "A": {
     "items": {
-      "$ref": "#/C"
+      "$ref": "#/D"
     },
     "type": "array"
   },
@@ -289,13 +298,20 @@
     "type": "array"
   },
   "C": {
-    "type": "string"
+    "enum": [
+      "fix_before_printing",
+      "tidy",
+      "information"
+    ]
   },
   "D": {
+    "type": "string"
+  },
+  "E": {
     "minimum": 0,
     "type": "integer"
   },
-  "E": {
+  "F": {
     "items": {
       "anyOf": [
         {
@@ -307,7 +323,7 @@
               ]
             },
             "path": {
-              "$ref": "#/C"
+              "$ref": "#/D"
             },
             "value": {}
           },
@@ -320,7 +336,7 @@
               "const": "remove"
             },
             "path": {
-              "$ref": "#/C"
+              "$ref": "#/D"
             }
           },
           "additionalProperties": false,
