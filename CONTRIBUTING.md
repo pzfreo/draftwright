@@ -43,15 +43,16 @@ entries. Local latency assertions stay enabled.
 
 - **PR:** lint, build and doc-tests, two duration-balanced shards containing every test
   recorded at **at most 10 seconds** plus every unrecorded test, and the whole
-  `issue_drafting`, `issue_trust` and `steerability` harnesses. Keep all four quality-pins
-  acceptance shards and quality-gate: the gate needs their complete evidence to guard
-  drawings. This is **12 jobs**, down from 22; the target is roughly **10–12 minutes**
+  `issue_drafting`, `issue_trust` and `steerability` harnesses. Two acceptance shards measure all 68 unpinned
+  quality/AP242/survey parts, and quality-gate enforces the drawing baseline, crossings,
+  routes, label lanes and repeated spans. This is **10 jobs**, down from 22; the target is roughly **10–12 minutes**
   with warm build caches, subject to runner queues and new tests' durations. Two shards
   leave headroom for process startup and unrecorded tests; one would carry about 32
   estimated test-minutes before that overhead.
 - **Main:** every push runs the full ten balanced shards, harnesses, all acceptance jobs
   (including budgets) and browser WASM parity: **22 jobs**, roughly **25 minutes**.
-  Budgets and WASM are deferred on ordinary PRs to save runners. CI asserts that the PR
+  The full nine-cell random-pin sweep (270 additional drawings), budgets and WASM are
+  deferred on ordinary PRs to save runners. CI asserts that the PR
   tier plus recorded slow tests partitions the full built inventory without omissions.
 - **Full on demand:** add the **`full-ci`** label to a PR (also applies to subsequent
   pushes), or run the **CI** workflow with **Run workflow** on the desired ref. Both run
@@ -61,7 +62,8 @@ entries. Local latency assertions stay enabled.
   checks every full-tier job in a successful run attempt; PR/dispatch success or a historic
   lint-only run does not qualify. Publishing itself uses the existing workflows.
 
-Counts above cover `ci.yml`; the existing path-filtered wheel, crate-package and CLI
+See [validation and cache measurements](docs/ci-tier-validation.md) for inventory and
+measurement details. Counts above cover `ci.yml`; the existing path-filtered wheel, crate-package and CLI
 workflows retain their own PR checks. Hosted wall times are estimates, not measured here.
 
 ## Releasing

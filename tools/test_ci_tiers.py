@@ -2,10 +2,12 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -75,6 +77,24 @@ class CITiers(unittest.TestCase):
             result = subprocess.run([sys.executable, str(ROOT / 'tools/test_shards.py'),
                                      '--max-seconds', value], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
+
+    def test_setup_shell_emits_full_and_pr_matrices_and_quality_tiers(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        setup = workflow.split('  changes:', 1)[1].split('  lint:', 1)[0]
+        script = textwrap.dedent(setup.split('        run: |\n', 1)[1])
+        for full in (True, False):
+            with tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / 'outputs'
+                subprocess.run(['bash', '-eu', '-c', script], check=True,
+                               env={**os.environ, 'FULL': str(full).lower(), 'GITHUB_OUTPUT': str(output)})
+                values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+            self.assertEqual(values['full'], str(full).lower())
+            self.assertEqual(values['tier'], 'full' if full else 'pr')
+            n = 10 if full else 2
+            self.assertEqual(json.loads(values['shards']), [f'{k}/{n}' for k in range(1, n + 1)] + ['harness'])
+            q = 4 if full else 2
+            self.assertEqual(json.loads(values['quality_shards']), list(range(1, q + 1)))
+            self.assertEqual(values['quality_count'], str(q))
 
     def test_workflow_keeps_full_main_and_all_drawing_acceptance_on_prs(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
