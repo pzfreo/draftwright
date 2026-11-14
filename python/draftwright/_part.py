@@ -478,7 +478,8 @@ class Drawing:
     def render(self, out=None, *, formats=("svg", "dxf"), spec=None):
         """Return every requested output path; a PDF contains all sheets.
 
-        ``spec`` is a one-render layout patch. Findings are in ``drawing.problems``.
+        ``spec`` is a one-render layout patch. Findings are in ``drawing.problems``, each with the engine
+        ``tier`` (``fix_before_printing``, ``tidy``, or ``information``).
         PMI stays in memory and is never written to the drawing Spec.
         """
         if isinstance(formats, str):

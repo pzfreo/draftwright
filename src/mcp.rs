@@ -330,7 +330,7 @@ fn small(cache: &Cache, row: Value) -> Result<Value, Error> {
         .or_else(|| row.pointer("/item/id"))
         .filter(|id| id.as_str().is_some_and(|s| s.len() <= 256));
     let mut stub = json!({"id":id,"detail_ref":detail});
-    if let Some(tier) = row.get("tier") {
+    if let Some(tier) = row.get("tier").or_else(|| row.pointer("/problem/tier")) {
         stub["tier"] = tier.clone();
     }
     Ok(stub)
@@ -1220,6 +1220,9 @@ mod batch_tests {
         )
         .unwrap();
         assert_eq!(full, wire);
+        let delta_stub = small(&cache, json!({"change":"problem_added", "problem":wire})).unwrap();
+        assert_eq!(delta_stub["tier"], "fix_before_printing");
+        assert!(delta_stub["detail_ref"].is_string());
         std::fs::remove_dir_all(root).unwrap();
     }
 
