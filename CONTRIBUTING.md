@@ -59,13 +59,15 @@ entries. Local latency assertions stay enabled.
   the same full tier as main. Removing the label restores the fast tier.
 - **Release:** the exact tagged commit must have successful **full push-to-main CI**
   before any CLI/WASM assets or crates.io/PyPI packages are published. The release guard
-  checks every full-tier job in a successful run attempt; PR/dispatch success or a historic
+  checks the latest result of every full-tier job, including carried-over rerun successes; PR/dispatch success or a historic
   lint-only run does not qualify. Publishing itself uses the existing workflows.
 
 Counts above cover `ci.yml`; the existing path-filtered wheel,
 crate-package and CLI workflows retain their own PR checks. Hosted wall times are estimates, not measured here.
 
 ## Releasing
+
+Publish a release only after main CI is green; the guard waits up to 45 minutes for a run in progress.
 
 The repository is `pzfreo/draftwright`; `pzfreo/draftwright-python` is the earlier
 Python implementation, being retired.
