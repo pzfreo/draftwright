@@ -3924,8 +3924,8 @@ mod tests {
 
     #[test]
     fn all_preferred_scales_are_considered_before_spending_more_paper_for_route_quality() {
-        // GRM-02 has route defects beyond an isolated extension contact. The new
-        // scale policy tries every readable A4 scale before retaining clean A3.
+        // 2026-11-14: the smaller below-band reference makes GRM-02's first
+        // clean A4 2:1 trial usable; no larger paper or smaller scale is needed.
         let a = model::analyse_native(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/grm02.step"),
         )
@@ -3934,21 +3934,43 @@ mod tests {
         let p = model::plan_recovered(&a, &Spec::default()).unwrap();
         let a4 = &p.sheet_candidates[0];
         assert_eq!((a4.size.as_str(), a4.max), ("A4", 1));
-        // The banded pre-filter now proves 5:1 wider than A4 before lowering
-        // its ink. Retain explicit coverage of that refused preferred scale.
-        assert_eq!(a4.scales, ["2:1", "1:1"], "{}", p.sheet.basis);
-        assert!(p.sheet.basis.contains("A4 at 5:1: not planned: aligned front and side views need at least 282 mm across at 5:1; A4 drawable area is 271 × 184 mm"),"{}",p.sheet.basis);
-        assert_eq!(
-            a4.outcome,
-            "refused at 1:1: a callout grows more than 2 paper mm beyond the displaced drawing (0 hard, 0 drops; annotation_leader_crossing, extension_through_feature, leader_ink_run, leader_on_extension, leader_through_feature); cosmetic exception refused: at least two annotations terminate within 1 mm of a feature smaller than 8 paper mm"
-        );
-        for scale in &a4.scales {
-            assert!(p.sheet.basis.contains(&format!("A4 at {scale}")));
-        }
+        assert_eq!(a4.scales, ["2:1"], "{}", p.sheet.basis);
+        // The changed reference's measured bands still rule out 5:1 before planning.
+        assert!(p.sheet.basis.contains("A4 at 5:1: not planned: aligned front and side views need at least 286 mm across at 5:1; A4 drawable area is 271 × 184 mm"),"{}",p.sheet.basis);
+        assert!(a4.outcome.contains("usable at 2:1"), "{}", a4.outcome);
+        assert_eq!(p.sheet_candidates.len(), 1);
+        assert!(model::findings(&p).clean());
         assert_eq!(
             (p.sheet.size.as_str(), p.sheet.scale.as_str()),
-            ("A3", "5:1")
+            ("A4", "2:1")
         );
+        // Keep a refused-small-paper case: both feasible preferred A4 scales
+        // must actually be tried, in order, before clean A3 is allowed.
+        let a = model::analyse_native(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/pmi/step/assembly_plate_pin.step.gz"),
+        )
+        .unwrap()
+        .1;
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert_eq!(p.sheet_candidates[0].size, "A4");
+        assert_eq!(
+            p.sheet_candidates[0].scales,
+            ["1:1", "1:2"],
+            "{}",
+            p.sheet.basis
+        );
+        assert!(!p.sheet_candidates[0].outcome.contains("usable"));
+        assert_eq!(p.sheet_candidates[1].size, "A3");
+        for scale in ["1:1", "1:2"] {
+            let trial = p
+                .sheet
+                .basis
+                .rfind(&format!("A4 at {scale} (Normal)"))
+                .unwrap();
+            let larger = p.sheet.basis.rfind("A3 at 1:1 (Normal)").unwrap();
+            assert!(trial < larger, "{}", p.sheet.basis);
+        }
         // The gear blank's A4 trial is usable at its first scale (#163).
         let a = model::analyse_native(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/gear_blank.step"),
