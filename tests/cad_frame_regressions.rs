@@ -21,7 +21,9 @@ fn accepted_cad_frame_layout(file: &str) {
         "nist_ftc_07_asme1_ap242-e2.stp" => ("A1", "1:1", [13, 6, 3, 0, 8, 0], [4, 4, 5]),
         "nist_ftc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [66, 25, 7, 0, 7, 0], [15, 17, 33]),
         "nist_stc_06_asme1_ap242-e3.stp" => ("A0", "1:1", [24, 0, 0, 0, 4, 1], [0, 8, 10]),
-        "nist_stc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [54, 19, 6, 1, 2, 0], [6, 14, 33]),
+        // The attached cylindricity/position rows intentionally share an edge;
+        // that pair no longer contributes a false label_crowded notice.
+        "nist_stc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [54, 19, 6, 1, 1, 0], [6, 14, 33]),
         "assembly_plate_pin.step" => ("A3", "1:1", [2, 2, 0, 1, 2, 0], [0, 0, 2]),
         "hw_assembly_plate_pin_intent.step" => ("A4", "1:2", [4, 1, 0, 0, 3, 0], [2, 0, 2]),
         "specify-main-angle-bracket.step" => ("A4", "1:1", [2, 0, 0, 0, 1, 0], [0, 2, 0]),
