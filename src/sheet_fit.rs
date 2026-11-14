@@ -1351,9 +1351,11 @@ pub(crate) fn rank(a: (f64, f64, f64), b: (f64, f64, f64)) -> std::cmp::Ordering
         if band(a) && band(b) {
             b.0.total_cmp(&a.0).then_with(|| a.1.total_cmp(&b.1))
         } else {
-            b.2.total_cmp(&a.2)
+            // Maintainer decision, 2026-11-14: below the target band, keep the
+            // smaller sheet. Enlargement earns more paper only by reaching the band.
+            a.1.total_cmp(&b.1)
+                .then_with(|| b.2.total_cmp(&a.2))
                 .then_with(|| b.0.total_cmp(&a.0))
-                .then_with(|| a.1.total_cmp(&b.1))
         }
     })
 }
@@ -2335,7 +2337,9 @@ mod tests {
             c(1, 2.0, 0.40),
             c(2, 5.0, 0.75),
         ];
-        assert_eq!(choose(&set, false, true), Some((Some(3), (0, 1.0))));
+        // 2026-11-14: the maintainer reversed the fullest-below-band rule;
+        // A4 at 30% stays ahead of A3 at 40% until the enlargement reaches 60%.
+        assert_eq!(choose(&set, false, true), Some((Some(0), (0, 1.0))));
         // In the band, the larger scale wins, then the smaller sheet.
         let set = [c(0, 1.0, 0.65), c(1, 2.0, 0.62)];
         assert_eq!(choose(&set, false, true).unwrap().0, Some(1));
