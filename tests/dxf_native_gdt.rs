@@ -390,6 +390,87 @@ fn nist_and_pmi_fixtures_write_each_frame_as_one_positional_tolerance() {
 }
 
 #[test]
+fn stacked_independent_position_frames_share_their_cad_box_edge() {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/pmi/step/nist_ftc_07_asme1_ap242-e2.stp.gz");
+    let (part, a) = cache::native(&file);
+    let plan = cache::default_plan(&a, true);
+    // The two controls on the same holes are independent requirements: retain a
+    // position symbol in each row, rather than silently making a composite symbol cell.
+    let upper = plan
+        .gdt
+        .iter()
+        .find(|g| {
+            g.cells == ["⌖", "⌀1.143", "A", "B", "C"]
+                && plan.gdt.iter().any(|other| {
+                    other.faces == g.faces
+                        && other.cells == ["⌖", "⌀1.016Ⓜ", "A", "B", "C"]
+                        && other.placed.as_ref().is_some_and(|p| p.lines.is_empty())
+                })
+        })
+        .expect("FTC-07's stacked position controls");
+    let lower = plan
+        .gdt
+        .iter()
+        .find(|g| g.faces == upper.faces && g.cells == ["⌖", "⌀1.016Ⓜ", "A", "B", "C"])
+        .unwrap();
+    let bounds = |g: &draftwright::dims::gdt::PlannedGdt| {
+        let p = g.placed.as_ref().unwrap();
+        p.strokes[..p.frame_strokes].iter().flatten().fold(
+            [
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+            ],
+            |b, q| {
+                [
+                    b[0].min(q[0]),
+                    b[1].min(q[1]),
+                    b[2].max(q[0]),
+                    b[3].max(q[1]),
+                ]
+            },
+        )
+    };
+    let (u, l) = (bounds(upper), bounds(lower));
+    assert!((u[0] - l[0]).abs() < 1e-9, "rows must be left aligned");
+    assert!(
+        (u[1] - l[3]).abs() < 1e-9,
+        "SVG/PDF rows must touch: {u:?}, {l:?}"
+    );
+    assert!((u[3] - u[1] - 5.0).abs() < 1e-9);
+    assert!((l[3] - l[1] - 5.0).abs() < 1e-9);
+    // Each row keeps its own width, including the lower row's material modifier.
+    assert!(l[2] > u[2]);
+    let drawing = drawings(&a, &part)
+        .into_iter()
+        .find(|d| {
+            d.sheet.dxf.frames.contains_key(&upper.id) && d.sheet.dxf.frames.contains_key(&lower.id)
+        })
+        .unwrap();
+    let all = entities(&drawing.dxf());
+    let row = |g: &draftwright::dims::gdt::PlannedGdt, b: [f64; 4]| {
+        let found: Vec<_> = all
+            .iter()
+            .filter(|e| {
+                e.kind == "TOLERANCE"
+                    && (tag(e, 10).unwrap().parse::<f64>().unwrap() - b[0]).abs() < 1e-6
+                    && (tag(e, 20).unwrap().parse::<f64>().unwrap() - (b[1] + b[3]) / 2.0).abs()
+                        < 1e-6
+            })
+            .collect();
+        assert_eq!(found.len(), 1, "one native entity for {}", g.id);
+        assert_eq!(decode(&text_of(found[0])), g.cells);
+        tag(found[0], 20).unwrap().parse::<f64>().unwrap()
+    };
+    assert!(
+        (row(upper, u) - row(lower, l) - 5.0).abs() < 1e-6,
+        "DXF insertion points must be one CAD box height apart"
+    );
+}
+
+#[test]
 fn quality_parts_write_no_text_as_geometry_and_only_ascii() {
     let Some(dir) = corpus::dir() else {
         eprintln!("SKIPPED: the corpus is not found");

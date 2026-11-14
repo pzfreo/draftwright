@@ -662,9 +662,23 @@ fn frame_candidates(
         .filter_map(|id| plan.gdt.iter().find(|q| &q.id == id)?.placed.as_ref())
         .map(|p| p.label_box)
         .collect();
-    let b = mark.label_box;
-    let below = stacked.iter().map(|q| q[1]).fold(b[1] - GAP, f64::min);
-    let above = stacked.iter().map(|q| q[3]).fold(b[3] + GAP, f64::max);
+    // A size callout needs clearance from the first frame. A frame on another frame
+    // shares its edge instead: CAD draws each native TOLERANCE two DIMTXT tall (5 mm).
+    // In particular, keeping GAP here separated FTC-07's independent position rows.
+    // Do not turn matching symbols into a composite: AutoCAD and QCAD's ^J layout
+    // joins their symbol compartments, changing the meaning of independent controls.
+    let frame = plan
+        .gdt
+        .iter()
+        .find(|q| q.id == mark.id)
+        .and_then(gdt::frame);
+    let b = frame.as_ref().map_or(mark.label_box, |f| {
+        let half = haecceity::presentation::gdt::TEXT_HEIGHT;
+        [f.at[0], f.at[1] - half, mark.label_box[2], f.at[1] + half]
+    });
+    let gap = if frame.is_some() { 0.0 } else { GAP };
+    let below = stacked.iter().map(|q| q[1]).fold(b[1] - gap, f64::min);
+    let above = stacked.iter().map(|q| q[3]).fold(b[3] + gap, f64::max);
     let over = stacked.iter().any(|q| q[1] > b[1]);
     // Invariant: only placed glyphs attach.
     let old = g.placed.as_ref().expect("placed");
