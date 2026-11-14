@@ -5,10 +5,10 @@ DXF. It recognises manufacturing features, reads requirements from the STEP file
 views and dimensions, and lays them out on standard sheets. It reports what it could not state.
 
 <p align="center">
-  <img src="docs/images/hero-nist-ctc-02.png" alt="An A2 drawing of NIST test part CTC-02 with plan and elevation views, a section, an isometric view, hole tables, datums and GD&T frames" width="100%">
+  <img src="docs/images/hero-t2c-enclosure-base.png" alt="An A4 drawing of an electronics enclosure base: plan, front and side views, section A–A, an isometric view, the pocket and mounting-hole callouts and a title block" width="100%">
   <br>
-  <sub>NIST CTC-02, drawn by 0.6.0-alpha.2 from its AP242 STEP file with only the title set. Every view, dimension,
-  hole-table entry, datum and GD&amp;T frame is placed automatically.</sub>
+  <sub>An electronics enclosure base made by a text-to-CAD tool, drawn by 0.6.0-alpha.2 from its STEP
+  file with only the title set. Every view, dimension and callout is placed automatically.</sub>
 </p>
 
 **Contents:** [Results](#results) · [Install](#install) · [Command line](#command-line) · [Output and the Spec](#output-and-the-spec) · [Python](#python) · [What it does](#what-it-does) · [Assemblies and revisions](#assemblies-and-revisions) · [With agents](#with-agents) · [Examples](#examples) · [Documentation](#documentation) · [How it's built](#how-its-built) · [Related projects](#related-projects) · [Licence and contributing](#licence-and-contributing)
