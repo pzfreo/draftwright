@@ -2264,7 +2264,7 @@ fn compound_bore_basics_keep_their_physical_axis_datums_and_boxes() {
 }
 
 #[test]
-fn compound_bore_locations_still_require_a_supported_centre_and_matching_nominal() {
+fn compound_bore_locations_still_require_symmetry_and_matching_nominal() {
     let bytes =
         gunzip(&std::fs::read(fixtures().join("specify-017-mounting-plate.step.gz")).unwrap());
     let (part, a) = analysed("specify-017-mounting-plate.step", &bytes);
@@ -2275,24 +2275,34 @@ fn compound_bore_locations_still_require_a_supported_centre_and_matching_nominal
             .find(|r| r.kind == "diameter" && r.value == Some(28.))
             .unwrap()
             .faces[0];
-        for removed in [
-            centre,
-            r.face_groups[1]
+        // Reflection proves only the measured coordinate. An empty centre is
+        // acceptable along that axis; it does not assert a physical central bore.
+        let mut symmetric = r.clone();
+        symmetric.face_groups[1].retain(|f| *f != centre);
+        let g = draftwright::pmi_lowering::dimension_geometry(&part, &symmetric);
+        let k = if id == 2830 { 0 } else { 1 };
+        assert!(g.reasons.is_empty(), "{g:?}");
+        assert_eq!(g.axis.as_deref(), Some(if k == 0 { "X" } else { "Y" }));
+        assert_eq!(g.stations[1][k], 0.);
+        assert_eq!(
+            (g.stations[1][k] - g.stations[0][k]).abs(),
+            r.value.unwrap()
+        );
+
+        let removed = r.face_groups[1]
+            .iter()
+            .copied()
+            .find(|f| *f != centre)
+            .unwrap();
+        let mut unproven = r.clone();
+        unproven.face_groups[1].retain(|f| *f != removed);
+        let g = draftwright::pmi_lowering::dimension_geometry(&part, &unproven);
+        assert!(
+            g.reasons
                 .iter()
-                .copied()
-                .find(|f| *f != centre)
-                .unwrap(),
-        ] {
-            let mut unproven = r.clone();
-            unproven.face_groups[1].retain(|f| *f != removed);
-            let g = draftwright::pmi_lowering::dimension_geometry(&part, &unproven);
-            assert!(
-                g.reasons
-                    .iter()
-                    .any(|s| s.contains("no proven face-supported axis witness")),
-                "neither an empty centre nor an asymmetric group is proven: {g:?}"
-            );
-        }
+                .any(|s| s.contains("no proven face-supported axis witness")),
+            "an asymmetric group is still unproven: {g:?}"
+        );
         let mut inconsistent = a.clone();
         if let Some(Reading::Read(report)) = &mut inconsistent.pmi {
             let wrong = report
@@ -2318,6 +2328,127 @@ fn compound_bore_locations_still_require_a_supported_centre_and_matching_nominal
                 .problems
                 .iter()
                 .any(|p| p.code == "pmi_not_lowered" && p.refs.contains(&r.source_id))
+        );
+    }
+}
+
+#[test]
+fn symmetric_empty_centre_enclosure_locations_lower_once_along_the_datum_normal() {
+    let bytes =
+        gunzip(&std::fs::read(fixtures().join("electronics-enclosure-base-pmi.step.gz")).unwrap());
+    let (part, a) = analysed("electronics-enclosure-base-pmi.step", &bytes);
+    let plan = cache::default_plan(&a, true);
+    for (id, k, axis, value) in [(1830, 0, "X", 50.), (1835, 1, "Y", 35.)] {
+        let r = records(&a).iter().find(|r| r.part21_id == id).unwrap();
+        assert_eq!(
+            r.face_groups.iter().map(Vec::len).collect::<Vec<_>>(),
+            [1, 4]
+        );
+        let g = r.geometry.as_ref().unwrap();
+        assert!(g.reasons.is_empty(), "{g:?}");
+        assert_eq!(g.axis.as_deref(), Some(axis));
+        assert_eq!(g.stations.len(), 2);
+        assert_eq!(g.stations[0][k], -value);
+        assert_eq!(g.stations[1][k], 0.);
+        let axes: Vec<_> = r.face_groups[1]
+            .iter()
+            .map(|&f| {
+                let draftwright::haecceity::geom::Surface::Cylinder { frame, .. } =
+                    &part.faces[f].surface
+                else {
+                    panic!("the pattern member must be cylindrical");
+                };
+                [frame.origin[0], frame.origin[1]]
+            })
+            .collect();
+        for expected in [[-35., -25.], [-35., 25.], [35., -25.], [35., 25.]] {
+            assert!(axes.contains(&expected), "{axes:?}");
+        }
+        let d = stating(&plan, &a, r).expect("the pattern centre location lowers");
+        assert!(d.placed.is_some(), "{d:?}");
+        assert_eq!(d.value, value);
+        let pattern = a
+            .recognition
+            .as_ref()
+            .unwrap()
+            .patterns
+            .iter()
+            .find(|p| {
+                let bores: Vec<_> = p
+                    .faces
+                    .iter()
+                    .filter(|&&f| {
+                        matches!(
+                            part.faces[f].surface,
+                            draftwright::haecceity::geom::Surface::Cylinder { .. }
+                        )
+                    })
+                    .collect();
+                bores.len() == r.face_groups[1].len()
+                    && bores.iter().all(|f| r.face_groups[1].contains(f))
+            })
+            .expect("the four bores form the planner's pattern");
+        assert!(
+            !plan.problems.iter().any(|p| p.code == "feature_not_located"
+                && p.subjects.iter().any(|s| pattern.members.contains(s))),
+            "the authored centre locations and native pitches must locate every pattern member"
+        );
+        let parameter = format!("location.length.{}", axis.to_lowercase());
+        let pmi = item_id(&a, r).unwrap();
+        assert_eq!(
+            plan.dimensions
+                .iter()
+                .filter(|d| d.placed.is_some()
+                    && d.measurements.iter().any(|m| m.feature == pmi
+                        || (m.feature == pattern.id && m.parameter == parameter)))
+                .count(),
+            1,
+            "the authored centre location must merge with or replace the planner's location"
+        );
+        assert!(
+            !plan
+                .problems
+                .iter()
+                .any(|p| p.code == "pmi_not_lowered" && p.refs.contains(&r.source_id))
+        );
+
+        let mut wrong_nominal = r.clone();
+        wrong_nominal.value = Some(value + 1.);
+        let wrong = draftwright::pmi_lowering::dimension_geometry(&part, &wrong_nominal);
+        assert_eq!(
+            wrong.refusal,
+            Some(draftwright::pmi::GeometryRefusal::NominalMismatch {
+                measured: value,
+                nominal: value + 1.,
+            })
+        );
+        assert!(
+            wrong
+                .reasons
+                .iter()
+                .any(|s| s.contains("differs from nominal")),
+            "{wrong:?}"
+        );
+
+        // Removing a corner must still refuse the location. Its diagnostic
+        // measures along the datum normal, even though the boxes differ in Z.
+        let mut asymmetric = r.clone();
+        asymmetric.face_groups[1].pop();
+        asymmetric.value = Some(value + 1.);
+        let refused = draftwright::pmi_lowering::dimension_geometry(&part, &asymmetric);
+        assert!(
+            refused
+                .reasons
+                .iter()
+                .any(|s| s.contains("no proven face-supported axis witness")),
+            "{refused:?}"
+        );
+        assert_eq!(
+            refused.refusal,
+            Some(draftwright::pmi::GeometryRefusal::NominalMismatch {
+                measured: value,
+                nominal: value + 1.,
+            })
         );
     }
 }

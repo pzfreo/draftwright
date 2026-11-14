@@ -532,6 +532,16 @@ fn compound_bore_location(a: &Analysis, wants: &[Want], r: &Record, k: usize) ->
                             .map(|p| &p.faces)
                     });
                 faces.is_some_and(|fs| !fs.is_empty() && fs.iter().all(|f| group.contains(f)))
+                    || a.recognition.iter().flat_map(|r| &r.patterns).any(|p| {
+                        p.id == id
+                            && crate::pmi_lowering::empty_centre_pattern_support(
+                                a,
+                                group,
+                                &p.faces,
+                                k,
+                                g.stations[side][k],
+                            )
+                    })
             };
             *axis == k
                 && !w.measurements.is_empty()
