@@ -247,7 +247,7 @@
     issues: [368]
     tests: ["test_layout_cleanliness.py"]
   status: retired
-  rust_test: "rendering::leaders::callout_leaders_cross_nothing_unlisted"
+  rust_test: "rendering::leaders::callout_leaders_cross_nothing_unlisted_and_have_outward_horizontal_shoulders"
   why: "Rules assessment 2026-10-11: the relocation bound is Python tuning; the port's bounded search and logged crossings already hold the policy."
   rust_note: "Partial: a callout is never dropped and its search is bounded (src/dims/leaders.rs); a crossing it keeps is logged (annotation_leader_crossing for a line, annotation_ink_overlap and annotation_overlap for a label) and listed with a verdict in tests/fixtures/known_leaders.json. A linear dimension's label slides a bounded distance and otherwise stays and is reported (dims::placement::settle). On ctc04 no kept crossing has a clear route of the clear-route sweep (ISSUE-1187-a, tests/issue_regressions.rs::issue_1187_a_retained_leader_crossings_have_no_clear_route). Between as many crossings the leader takes a line crossed by its shaft over its text on a line, as draftwright protects text both ways (annotation_text_ink_clear). Not ported: draftwright's relocation bound (one min_gap from the natural row); the port takes any clear candidate, shortest first. The problems are warnings, not info."
   port_note: "Keep: placement rule; a retained crossing is a Plan problem (info) attached to the annotation id."
@@ -375,7 +375,7 @@
     issues: []
     tests: ["test_issue_1166_cross_pass_feature_leaders.py (test_immediate_producer_floor_records_a_retained_fixed_crossing_issue_2112, test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption)", "test_layout_cleanliness.py (test_finished_sheet_has_no_layout_collisions)"]
   status: ported
-  rust_test: "rendering::leaders::callout_leaders_cross_nothing_unlisted"
+  rust_test: "rendering::leaders::callout_leaders_cross_nothing_unlisted_and_have_outward_horizontal_shoulders"
   rust_note: "A callout leader kept across another annotation's line is the plan problem annotation_leader_crossing with the callout's and the obstruction's IDs (src/dims/placement.rs::collisions); one through a label is annotation_ink_overlap. There is no fixed-ink probe budget to exhaust (the fixed ink is the plan's own lines, measured exactly), so feature_leader_fixed_ink_unverified has no counterpart. Linear dimension strokes crossing now produce dimension_line_crossing (warning); extension/extension crossings remain allowed. annotation_leader_crossing retains its code, ID, subjects and message and adds crossing_kinds (leader, dimension_line, extension_line, arrow; several kinds per pair). annotation_ink_overlap adds ink_is_leader, true only for a callout line through the label, not a flare-only arrowhead contact. The quality-pins acceptance job ratchets all six categories per part from the recorded origin/main baseline."
   port_note: "Keep: retained crossings and unverified ink become Plan problems referencing the annotation id and the obstruction id."
 
@@ -1443,7 +1443,7 @@
     issues: [366, 367, 368]
     tests: []
   status: retired
-  rust_test: "rendering::leaders::callout_leaders_cross_nothing_unlisted"
+  rust_test: "rendering::leaders::callout_leaders_cross_nothing_unlisted_and_have_outward_horizontal_shoulders"
   why: "Rules assessment 2026-10-11: the exact shaft is tested; stroke width and arrowhead flare are sub-millimetre tuning with no defect behind them."
   rust_note: "Partial: a callout's leader is tested by its exact shaft segment (src/dims/leaders.rs, and the acceptance test), never its box. Not ported: stroke width and arrowhead flare (ISSUE-367-a)."
   port_note: "Keep: exact segment-vs-box clearance in the planner and lint."
@@ -1542,7 +1542,7 @@
     issues: [733]
     tests: []
   status: ported
-  rust_test: "rendering::leaders::callout_leaders_cross_nothing_unlisted"
+  rust_test: "rendering::leaders::callout_leaders_cross_nothing_unlisted_and_have_outward_horizontal_shoulders"
   rust_note: "src/dims/mod.rs::plan places and settles the linear dimensions first; src/dims/leaders.rs then places the callouts around them, the dimensions fixed: a callout yields where a dimension sits. Callouts no longer take lanes (dims::placement::fall_through ignores them); the layout's band estimate still counts a lane for them (dims::lanes), unchanged."
   port_note: "Keep: placement priority order in the planner."
 

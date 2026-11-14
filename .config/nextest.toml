@@ -20,8 +20,7 @@ threads-required = "num-cpus"
 filter = '''
     (binary(=audits) & test(/^items::/)) & not test(=items::a_problems_fix_resolves_it)
         & not test(/^items::on_the_quality_part::/)
-    | test(=problem_wording::only_sheet_problems_have_the_sheet_as_subject)
-    | test(=problem_wording::no_problem_message_carries_an_internal_id)
+    | test(=problem_wording::problem_messages_are_public_and_only_sheet_problems_name_the_sheet)
     | test(=interior_placement::all_quality_parts_interior_lines_arrows_and_tips_clear_rendered_ink)
     | test(pinning_every_callout_at_its_reported_offset_moves_nothing::)
 '''
@@ -30,7 +29,7 @@ threads-required = 2
 # Whole-corpus wording audits are still long even with bounded workers. Start them before
 # individual NIST cases so their final part does not become the shard's last task.
 [[profile.default.overrides]]
-filter = 'test(=problem_wording::only_sheet_problems_have_the_sheet_as_subject) | test(=problem_wording::no_problem_message_carries_an_internal_id)'
+filter = 'test(=problem_wording::problem_messages_are_public_and_only_sheet_problems_name_the_sheet)'
 priority = 100
 
 [profile.ci]
@@ -49,12 +48,11 @@ path = "junit.xml"
 filter = '''
     test(/^items::on_the_quality_part::/)
     | test(=items::every_plan_item_has_a_state_and_every_problem_subject_is_a_live_item)
-    | test(=problem_wording::only_sheet_problems_have_the_sheet_as_subject)
-    | test(=problem_wording::no_problem_message_carries_an_internal_id)
+    | test(=problem_wording::problem_messages_are_public_and_only_sheet_problems_name_the_sheet)
     | test(=interior_placement::all_quality_parts_interior_lines_arrows_and_tips_clear_rendered_ink)
     | test(=pmi_labels::common_labels_are_drawn_with_leaders_and_searchable)
     | test(=label_text::pmi_callout_wording_is_reserved_drawn_searchable_and_structured_symbols_refuse_it)
-    | test(=gdt_band::ctc_02_frames_and_datum_symbols_are_inside_their_bands_and_on_the_sheet)
+    | test(=gdt_band::ctc02_gdt_stays_in_bands_on_sheet_and_clear_of_other_views)
     | test(nist_ctc_02_asme1_ap242_e2)
     | test(nist_ftc_10_asme1_ap242_e2)
     | test(nist_stc_09_asme1_ap242_e4)
@@ -82,13 +80,12 @@ filter = '''
     | test(=fit_label_layout::crowded_h7_hole_label_clears_the_dimension_stack)
     | test(=repeated_labels::every_repeated_label_on_the_quality_parts_has_a_verdict)
     | test(=table_symbols::quality_parts_have_no_unsupported_table_or_note_glyphs)
-    | test(=stateless::s0_edits_through_http_serve_and_session_have_identical_specs_plans_and_deltas)
+    | test(=stateless::s0_http_serve_and_session_agree_with_bounded_lossless_default_payloads)
     | test(=stateless::warm_cache_and_fresh_process_are_byte_identical_to_session)
-    | test(=stateless::four_slice_parts_default_payloads_are_bounded_and_paging_is_lossless)
     | test(=authored_dimensions::cylinders_spheres_and_axis_offsets_are_measured_and_linted)
     | test(=sheet_policy::tests::automatic_pins_keep_canonical_paper_scale_and_sheet_count)
     | test(=problem_wording::fix_descriptions_use_drawing_language_across_fixtures_and_corpus)
-    | test(=problem_wording::problems_keep_tool_diagnostics_out_of_drawing_messages)
+    | test(=problem_wording::problem_messages_are_public_and_only_sheet_problems_name_the_sheet)
     | test(=planned_hole_tables::non_hole_pins_keep_the_settled_schedule_and_isometric_frame)
     | test(=sheets::r5_narrow_section_blocks_reserve_caption_and_reference_width)
     | test(=modelled_thread_layout::modelled_thread_callouts_clear_labels_and_dimension_ink)
@@ -97,7 +94,7 @@ filter = '''
     | test(=repeated_dimensions::an_authored_location_and_rung_with_equal_bands_share_the_authored_survivor)
     | test(=oriented_chamfers::bounded_notches_reserve_acute_arcs_and_leave_dense_general_profiles_alone)
     | test(=oriented_chamfers::notch_dimensions_accept_omit_tolerance_place_and_label_text)
-    | test(=gdt_band::stc09_without_a_complete_fit_keeps_its_first_drawing_and_reports_the_floor)
+    | test(=gdt_band::stc09_keeps_its_first_drawing_reports_the_floor_and_respects_datum_bands)
 '''
 priority = 60
 
