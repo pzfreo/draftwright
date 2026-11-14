@@ -512,10 +512,40 @@ fn human_findings(out: &Value) -> String {
             writeln!(text, "Written: {path}").unwrap();
         }
     }
-    let findings: Vec<_> = ["problems", "lint", "structural"]
-        .into_iter()
-        .flat_map(|key| out[key].as_array().into_iter().flatten())
-        .collect();
+    fn collect<'a>(value: &'a Value, findings: &mut Vec<&'a Value>) {
+        match value {
+            Value::Object(object) => {
+                if object.contains_key("tier")
+                    && object.contains_key("code")
+                    && object.contains_key("severity")
+                {
+                    findings.push(value);
+                } else {
+                    // Keep the established plan → lint → structural order, including in
+                    // nested pack reports and revision added/resolved summaries.
+                    const LISTS: [&str; 3] = ["problems", "lint", "structural"];
+                    for key in LISTS {
+                        if let Some(value) = object.get(key) {
+                            collect(value, findings);
+                        }
+                    }
+                    for (key, value) in object {
+                        if !LISTS.contains(&key.as_str()) {
+                            collect(value, findings);
+                        }
+                    }
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    collect(value, findings);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut findings = Vec::new();
+    collect(out, &mut findings);
     for tier in crate::finding::Tier::ALL {
         let rows: Vec<_> = findings
             .iter()
@@ -885,6 +915,11 @@ mod tier_tests {
         assert_eq!(
             human_findings(&out),
             "fix before printing (2)\n  [warning] first: first\n  [warning] second: second\ntidy (1)\n  [warning] crossing: Crossing\ninformation (1)\n  [info] source: Source\n"
+        );
+        assert_eq!(human_findings(&json!({"report":out})), human_findings(&out));
+        assert_eq!(
+            human_findings(&json!({"problems":{"added":[urgent("revision")],"resolved":[]}})),
+            "fix before printing (1)\n  [warning] revision: revision\ntidy (0)\ninformation (0)\n"
         );
         assert_eq!(
             human_findings(&json!({})),
