@@ -1320,7 +1320,14 @@ fn identify_impl(a: &Analysis, mark: &Mark, spans: Vec<Edge>, authored: bool) ->
                         }
                         for p in a.recognition.iter().flat_map(|r| &r.patterns) {
                             if p.faces.is_empty()
-                                || !p.faces.iter().all(|f| group.contains(f))
+                                || !(p.faces.iter().all(|f| group.contains(f))
+                                    || crate::pmi_lowering::empty_centre_pattern_support(
+                                        a,
+                                        group,
+                                        &p.faces,
+                                        e.axis,
+                                        g.stations[side][e.axis],
+                                    ))
                                 || node_feature(a, &p.id, e.axis).is_none()
                                 || e.axis == axis
                                 || station(a, &p.id, e.axis)
