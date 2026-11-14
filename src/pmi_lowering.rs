@@ -1595,6 +1595,120 @@ fn cylinder(part: &Part, f: usize) -> Result<Cylinder, &'static str> {
     })
 }
 
+/// A linear location's two endpoints on a bore axis, proven from adjacent entry/floor
+/// faces or circular rim edges. Kept even when its nominal disagrees with the geometry.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HoleDepth {
+    pub cylinder: Cylinder,
+    pub ends: [[f64; 3]; 2],
+}
+
+/// Correlate endpoint topology before consulting any recognised feature or authored value.
+/// Every reference must participate: coincident support planes alone are insufficient.
+fn hole_depth_geometry(part: &Part, r: &Record) -> Vec<HoleDepth> {
+    use haecceity::geom::{Curve, dot};
+    if r.type_code != Some(2)
+        || r.face_groups.len() != 2
+        || crate::pmi::placements_reason(r).is_some()
+    {
+        return Vec::new();
+    }
+    let mut covered_faces = [BTreeSet::new(), BTreeSet::new()];
+    let mut covered_edges = [BTreeSet::new(), BTreeSet::new()];
+    let mut out = Vec::new();
+    for (f, face) in part.faces.iter().enumerate() {
+        let Ok(c) = cylinder(part, f) else { continue };
+        if !c.internal {
+            continue;
+        }
+        let rim: BTreeSet<usize> = face
+            .loops
+            .iter()
+            .flat_map(|l| l.edges.iter().map(|e| e.0))
+            .collect();
+        let mut ends = [Vec::new(), Vec::new()];
+        for (side, endpoints) in ends.iter_mut().enumerate() {
+            for &f in &r.face_groups[side] {
+                let face = &part.faces[f];
+                let Surface::Plane { frame } = &face.surface else {
+                    continue;
+                };
+                if !face
+                    .loops
+                    .iter()
+                    .flat_map(|l| &l.edges)
+                    .any(|e| rim.contains(&e.0))
+                {
+                    continue;
+                }
+                let denom = dot(c.direction, frame.z);
+                if denom.abs() < 1e-9 {
+                    continue;
+                }
+                let delta = [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]);
+                let t = dot(delta, frame.z) / denom;
+                endpoints.push((
+                    [0, 1, 2].map(|k| c.origin[k] + t * c.direction[k]),
+                    Some(f),
+                    None,
+                ));
+            }
+            for &e in r.edge_groups.get(side).into_iter().flatten() {
+                if !rim.contains(&e) {
+                    continue;
+                }
+                let Curve::Circle { frame, radius } = &part.edges[e].curve else {
+                    continue;
+                };
+                if (radius - c.radius).abs() > 1e-6
+                    || (dot(frame.z, c.direction).abs() - 1.).abs() > 1e-6
+                {
+                    continue;
+                }
+                let delta = [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]);
+                let t = dot(delta, c.direction);
+                if (0..3).any(|k| (delta[k] - t * c.direction[k]).abs() > 1e-6) {
+                    continue;
+                }
+                endpoints.push((frame.origin, None, Some(e)));
+            }
+        }
+        if ends.iter().any(Vec::is_empty) {
+            continue;
+        }
+        // Several references on one side must resolve to the same axial point.
+        if ends.iter().any(|es| {
+            es.iter()
+                .any(|e| (0..3).any(|k| (e.0[k] - es[0].0[k]).abs() > 1e-6))
+        }) {
+            continue;
+        }
+        for side in 0..2 {
+            for &(_, face, edge) in &ends[side] {
+                covered_faces[side].extend(face);
+                covered_edges[side].extend(edge);
+            }
+        }
+        out.push(HoleDepth {
+            cylinder: c,
+            ends: [ends[0][0].0, ends[1][0].0],
+        });
+    }
+    if (0..2).any(|i| {
+        r.face_groups[i]
+            .iter()
+            .any(|f| !covered_faces[i].contains(f))
+            || r.edge_groups
+                .get(i)
+                .into_iter()
+                .flatten()
+                .any(|e| !covered_edges[i].contains(e))
+    }) {
+        return Vec::new();
+    }
+    out
+}
+
 /// Where a dimension attaches, from its faces (draftwright's `_proved_planar_linear` with
 /// `_linear_reference_stations` for a linear or thickness dimension, `_cylindrical_references`
 /// with `_diameter_reference_blockers` for a diameter): what [`crate::dims`] draws it from, and
@@ -1613,7 +1727,10 @@ pub fn dimension_geometry(part: &Part, r: &Record) -> Geometry {
     g.reasons.extend(crate::pmi::placements_reason(r));
     let value = r.value;
     match r.kind.as_str() {
-        "linear" | "thickness" => linear_geometry(part, r, value, &mut g),
+        "linear" | "thickness" => {
+            linear_geometry(part, r, value, &mut g);
+            g.hole_depths = hole_depth_geometry(part, r);
+        }
         "diameter" | "radius" => cylinder_geometry(part, r, value, &mut g),
         "angular" => crate::dims::angular::geometry(part, r, &mut g),
         "common_label" => return label_geometry(part, r),

@@ -2949,3 +2949,241 @@ fn missing_nominals_require_unique_geometry_and_do_not_relax_stated_values() {
         "different cylinder radii cannot supply one measured diameter"
     );
 }
+
+// Specify's CAx-IF straight-depth location: four boss entries at z=15 and
+// four flat floors at z=7. Keep the original authored STEP, including presentation.
+fn enclosure_depth_bytes() -> Vec<u8> {
+    gunzip(include_bytes!(
+        "fixtures/pmi/electronics-enclosure-base-depth-v2.step.gz"
+    ))
+}
+
+fn enclosure_depth_record(a: &Analysis) -> &Record {
+    records(a).iter().find(|r| r.part21_id == 2620).unwrap()
+}
+
+fn assert_enclosure_depth(a: &Analysis, spec: &Spec, expected: f64) -> Plan {
+    let r = enclosure_depth_record(a);
+    let id = match &a.pmi {
+        Some(Reading::Read(report)) => report.identities().id(&r.source_id).unwrap().to_string(),
+        other => panic!("not read: {other:?}"),
+    };
+    let plan = model::plan(a, spec).unwrap();
+    let owners: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.measurements.iter().any(|m| m.feature == id))
+        .collect();
+    assert_eq!(
+        owners.len(),
+        1,
+        "authored depth must be stated exactly once"
+    );
+    let callout = owners[0];
+    assert_eq!(callout.kind, "callout");
+    assert!(callout.placed.is_some(), "depth must have ink");
+    assert_eq!(callout.terms.iter().filter(|t| *t == "↧").count(), 1);
+    assert!(
+        callout
+            .measurements
+            .iter()
+            .any(|m| m.feature == id && m.value == expected)
+    );
+    let depths: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| {
+            d.measurements.iter().any(|m| {
+                m.parameter == "bore.depth"
+                    && a.features.iter().any(|f| {
+                        f.id == m.feature
+                            && f.kind == "hole"
+                            && f.parameters.get("diameter").and_then(Value::as_f64) == Some(3.)
+                    })
+            })
+        })
+        .collect();
+    assert_eq!(depths.len(), 1, "one depth statement for the four holes");
+    assert_eq!(depths[0].id, callout.id);
+    assert_eq!(
+        callout
+            .measurements
+            .iter()
+            .filter(|m| m.parameter == "bore.depth")
+            .count(),
+        4
+    );
+    assert!(
+        callout
+            .measurements
+            .iter()
+            .filter(|m| m.parameter == "bore.depth")
+            .all(|m| m.value == expected)
+    );
+    assert!(
+        !plan
+            .dimensions
+            .iter()
+            .any(|d| d.kind == "linear" && d.label == expected.to_string())
+    );
+    plan
+}
+
+#[test]
+fn enclosure_straight_depth_is_one_authored_hole_callout_statement() {
+    let (_, a) = analysed("enclosure-depth.step", &enclosure_depth_bytes());
+    let plan = assert_enclosure_depth(&a, &Spec::default(), 8.);
+    assert!(plan.dimensions.iter().any(|d| d.label == "4× ⌀3 H11 ↧ 8"));
+    assert!(
+        !plan
+            .problems
+            .iter()
+            .any(|p| p.code == "pmi_hole_depth_mismatch")
+    );
+    // The attachment evidence and identity also survive a serialized Analysis.
+    let back = serde_json::from_value(serde_json::to_value(&a).unwrap()).unwrap();
+    assert_enclosure_depth(&back, &Spec::default(), 8.);
+}
+
+#[test]
+fn enclosure_authored_depth_wins_a_geometric_mismatch_and_reports_both_values() {
+    let text = String::from_utf8(enclosure_depth_bytes()).unwrap();
+    let original = "#2621=(LENGTH_MEASURE_WITH_UNIT()MEASURE_REPRESENTATION_ITEM()MEASURE_WITH_UNIT(LENGTH_MEASURE(8.),";
+    assert_eq!(text.matches(original).count(), 1);
+    let edited = text.replace(original, &original.replace("(8.)", "(9.)"));
+    let (_, a) = analysed("enclosure-depth-mismatch.step", edited.as_bytes());
+    assert_eq!(enclosure_depth_record(&a).value, Some(9.));
+    let plan = assert_enclosure_depth(&a, &Spec::default(), 9.);
+    assert!(plan.dimensions.iter().any(|d| d.label == "4× ⌀3 H11 ↧ 9"));
+    let problems: Vec<_> = plan
+        .problems
+        .iter()
+        .filter(|p| p.code == "pmi_hole_depth_mismatch")
+        .collect();
+    assert_eq!(
+        problems.len(),
+        4,
+        "each member retains its measured discrepancy"
+    );
+    assert!(
+        problems
+            .iter()
+            .all(|p| p.message.contains("9 mm") && p.message.contains("8 mm"))
+    );
+}
+
+#[test]
+fn enclosure_non_depth_linear_distance_keeps_its_linear_ink() {
+    let (_, a) = analysed("enclosure-depth.step", &enclosure_depth_bytes());
+    let report = match &a.pmi {
+        Some(Reading::Read(report)) => report,
+        _ => unreachable!(),
+    };
+    let r = records(&a).iter().find(|r| r.part21_id == 2604).unwrap();
+    assert_eq!(r.type_code, Some(2));
+    assert_eq!(r.value, Some(3.));
+    let ids = report.identities();
+    let id = ids.id(&r.source_id).unwrap();
+    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let owners: Vec<_> = plan
+        .dimensions
+        .iter()
+        .filter(|d| d.measurements.iter().any(|m| m.feature == id))
+        .collect();
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].kind, "linear");
+    assert_eq!(owners[0].label, "3");
+    assert!(owners[0].placed.is_some());
+}
+
+#[test]
+fn enclosure_depth_tolerance_stays_with_depth_and_survives_diameter_override() {
+    let (_, mut a) = analysed("enclosure-depth.step", &enclosure_depth_bytes());
+    let Some(Reading::Read(report)) = &mut a.pmi else {
+        unreachable!()
+    };
+    let r = report
+        .records
+        .iter_mut()
+        .find(|r| r.part21_id == 2620)
+        .unwrap();
+    r.lower_tol = Some(-0.2);
+    r.upper_tol = Some(0.2);
+    r.label = "8 ±0.2".into();
+    let plan = assert_enclosure_depth(&a, &Spec::default(), 8.);
+    let d = plan
+        .dimensions
+        .iter()
+        .find(|d| d.label == "4× ⌀3 H11 ↧ 8 ±0.2")
+        .unwrap();
+    let mut spec = Spec::default();
+    spec.dimensions.insert(
+        d.id.clone(),
+        serde_json::from_value(serde_json::json!({"tolerance":"±0.1"})).unwrap(),
+    );
+    let plan = assert_enclosure_depth(&a, &spec, 8.);
+    assert!(plan.dimensions.iter().any(|d| d.label.contains("↧ 8 ±0.2")));
+}
+
+#[test]
+fn enclosure_circular_floor_rims_merge_like_drill_point_shoulders() {
+    let (part, mut a) = analysed("enclosure-depth.step", &enclosure_depth_bytes());
+    let Some(Reading::Read(report)) = &mut a.pmi else {
+        unreachable!()
+    };
+    let r = report
+        .records
+        .iter_mut()
+        .find(|r| r.part21_id == 2620)
+        .unwrap();
+    let rims: Vec<_> = r.face_groups[1]
+        .iter()
+        .flat_map(|&f| {
+            part.faces[f]
+                .loops
+                .iter()
+                .flat_map(|l| l.edges.iter().map(|e| e.0))
+        })
+        .collect();
+    assert_eq!(rims.len(), 4);
+    assert!(rims.iter().all(|&e| matches!(
+        part.edges[e].curve,
+        draftwright::haecceity::geom::Curve::Circle { .. }
+    )));
+    r.face_groups[1].clear();
+    r.edge_groups = vec![vec![], rims.clone()];
+    r.edges = rims;
+    r.faces = r.face_groups[0].clone();
+    r.geometry = Some(draftwright::pmi_lowering::dimension_geometry(&part, r));
+    assert_enclosure_depth(&a, &Spec::default(), 8.);
+}
+
+#[test]
+fn enclosure_partial_pattern_depth_does_not_claim_the_whole_callout() {
+    let (part, mut a) = analysed("enclosure-depth.step", &enclosure_depth_bytes());
+    let Some(Reading::Read(report)) = &mut a.pmi else {
+        unreachable!()
+    };
+    let r = report
+        .records
+        .iter_mut()
+        .find(|r| r.part21_id == 2620)
+        .unwrap();
+    r.face_groups[1].pop().unwrap();
+    r.faces = r.face_groups.iter().flatten().copied().collect();
+    r.geometry = Some(draftwright::pmi_lowering::dimension_geometry(&part, r));
+    // The unmatched entry is explicit authored evidence; its 8 must not be applied to all four.
+    assert!(r.geometry.as_ref().unwrap().hole_depths.is_empty());
+    let source = r.source_id.clone();
+    let id = report.identities().id(&source).unwrap().to_string();
+    let plan = model::plan(&a, &Spec::default()).unwrap();
+    assert!(
+        !plan
+            .dimensions
+            .iter()
+            .any(|d| d.kind == "callout" && d.measurements.iter().any(|m| m.feature == id))
+    );
+    assert!(plan.dimensions.iter().any(|d| d.kind == "linear"
+        && d.label == "8"
+        && d.measurements.iter().any(|m| m.feature == id)));
+}

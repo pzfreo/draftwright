@@ -592,6 +592,10 @@ pub struct Geometry {
     /// knurl's too ([`crate::pmi_lowering::requirement_geometry`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cylinders: Vec<crate::pmi_lowering::Cylinder>,
+    /// Bores whose two rims are covered by the authored location endpoints. This geometric
+    /// evidence is independent of the nominal; the feature merge still proves a blind owner.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hole_depths: Vec<crate::pmi_lowering::HoleDepth>,
     /// A linear dimension's explicitly proven witness view (`front`, `plan` or `side`),
     /// selected from its trimmed reference faces (draftwright's `support_view`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
