@@ -284,7 +284,9 @@ class PartAPI(unittest.TestCase):
         bores = [f for f in shank.faces().filter_by(bd.GeomType.CYLINDER)
                  if p._is_hole_wall(f)]
         p.hole([f for f in bores if abs(f.radius - 4) < 1e-4]).fit("H7").finish(1.6)
-        p.holes([f for f in bores if abs(f.radius - 1.25) < 1e-4]).thread("M3x0.5-6H")
+        tapped = p.holes([f for f in bores if abs(f.radius - 1.25) < 1e-4])
+        tapped.thread("M3x0.5-5H").thread("M3x0.5-6H")  # editing a declaration replaces it
+
         exported = p.export_step(self.directory / "GRM-01.step")
         original = exported["step"].read_bytes()
         pmi = json.loads(p._geometry().inspect(p._pmi))

@@ -236,6 +236,10 @@ impl Pmi {
             ));
         }
         let f = self.feature(faces)?;
+        self.model.threads.retain(|thread| thread.feature != f);
+        self.model.attributes.retain(|attribute| {
+            attribute.name != "thread manufacturing" || attribute.on != Some(NoteOwner::Feature(f))
+        });
         self.model.threads.push(Thread {
             feature: f,
             partial_area: None,
