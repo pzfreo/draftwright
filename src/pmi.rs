@@ -599,6 +599,10 @@ pub struct Geometry {
     /// Explicit finite axis points, by authored reference group (CAx-IF RP §5.1.4).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub axis_points: Vec<Vec<AxisPoint>>,
+    /// Finite-point diagnostics belong only to a hole-depth merge. Ordinary locations
+    /// keep using their kernel-proven infinite axes, as before finite depth points.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub axis_point_reasons: Vec<String>,
     /// A linear dimension's explicitly proven witness view (`front`, `plan` or `side`),
     /// selected from its trimmed reference faces (draftwright's `support_view`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2413,6 +2417,7 @@ impl PartReader<'_> {
     }
 
     fn targets(&self, features: &[FeatureId], r: &mut Record) {
+        let mut axis_point_reasons = Vec::new();
         let mut axis_points: Vec<Vec<AxisPoint>> = features
             .iter()
             .map(|&f| {
@@ -2422,7 +2427,7 @@ impl PartReader<'_> {
                 match self.axis_points(f, &mut BTreeSet::new()) {
                     Ok(points) => points.unwrap_or_default(),
                     Err(why) => {
-                        r.blockers.push(why);
+                        axis_point_reasons.push(why);
                         Vec::new()
                     }
                 }
@@ -2445,10 +2450,14 @@ impl PartReader<'_> {
         if axis_points.iter().all(Vec::is_empty) {
             axis_points.clear();
         }
-        if targets.iter().any(Option::is_some) || !axis_points.is_empty() {
+        if targets.iter().any(Option::is_some)
+            || !axis_points.is_empty()
+            || !axis_point_reasons.is_empty()
+        {
             r.geometry = Some(Geometry {
                 targets,
                 axis_points,
+                axis_point_reasons,
                 ..Geometry::default()
             });
         }

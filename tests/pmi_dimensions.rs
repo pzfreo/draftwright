@@ -3062,14 +3062,19 @@ fn enclosure_authored_depth_wins_a_geometric_mismatch_and_reports_both_values() 
         .collect();
     assert_eq!(
         problems.len(),
-        4,
-        "each member retains its measured discrepancy"
+        1,
+        "one record/callout discrepancy names all four members without repeating the warning"
     );
-    assert!(
-        problems
-            .iter()
-            .all(|p| p.message.contains("9 mm") && p.message.contains("8 mm"))
-    );
+    assert!(problems[0].message.contains("9 mm") && problems[0].message.contains("8 mm"));
+    let members: BTreeSet<_> = plan
+        .dimensions
+        .iter()
+        .flat_map(|d| &d.measurements)
+        .filter(|m| m.parameter == "bore.depth")
+        .map(|m| m.feature.clone())
+        .collect();
+    assert_eq!(members.len(), 4);
+    assert!(members.iter().all(|m| problems[0].refs.contains(m)));
 }
 
 #[test]
@@ -3330,6 +3335,8 @@ fn enclosure_axis_point_step(shift: f64) -> Vec<u8> {
             let RawEntity::Simple { attributes, .. } = &mut named else {
                 unreachable!()
             };
+            // Mirror current specify-core writer.rs::name_depth_points, which names
+            // these newly written derived aspects "axis point".
             attributes[0] = Attribute::String("axis point".into());
             edit.replace(id, named);
             count += 1;
@@ -3403,5 +3410,420 @@ fn enclosure_axis_points_inside_the_bore_do_not_invent_an_entry() {
         plan.problems
             .iter()
             .any(|p| p.code == "pmi_not_lowered" && p.refs.contains(&r.source_id))
+    );
+}
+
+fn review_write_pmi(raw: &[u8], pmi: draftwright::haecceity::pmi::PartPmi) -> Vec<u8> {
+    use draftwright::haecceity::{p21::Document, pmi as hp, step::read_part_definitions};
+    let doc = Document::parse(raw.to_vec()).unwrap();
+    let parts = read_part_definitions(raw).unwrap();
+    let (edit, _) = hp::write(
+        &doc,
+        &parts,
+        &[(hp::PartId(0), pmi)],
+        hp::write::Mode::Replace,
+        hp::write::PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    doc.apply(&edit).unwrap().bytes
+}
+
+fn review_location(
+    from: draftwright::haecceity::pmi::FeatureId,
+    to: draftwright::haecceity::pmi::FeatureId,
+    nominal: f64,
+) -> draftwright::haecceity::pmi::Dimension {
+    use draftwright::haecceity::pmi as hp;
+    hp::Dimension {
+        kind: hp::DimensionKind::Location {
+            from,
+            to,
+            kind: hp::LocationKind::LinearDistance,
+            path: None,
+            directed: false,
+            angle: None,
+        },
+        nominal: Some(hp::Value::length(
+            hp::Decimal::parse(&nominal.to_string()).unwrap(),
+            hp::LengthUnit::Millimetre,
+        )),
+        tolerance: hp::DimTolerance::None,
+        qualifier: None,
+        modifiers: vec![],
+        principle: None,
+    }
+}
+
+#[test]
+fn review_malformed_axis_point_keeps_an_ordinary_locations_main_ink() {
+    use draftwright::haecceity::{
+        geom::Surface,
+        p21::{Attribute, Document, Edit, RawEntity},
+        pmi as hp,
+    };
+    let raw = enclosure_depth_bytes();
+    let (part, a) = analysed("enclosure-depth.step", &raw);
+    let r = records(&a).iter().find(|r| r.part21_id == 2604).unwrap();
+    let f = r.face_groups[0][0];
+    let Surface::Plane { frame } = &part.faces[f].surface else {
+        panic!("plane")
+    };
+    let length = |v: f64| hp::Length {
+        value: hp::Decimal::parse(&v.to_string()).unwrap(),
+        unit: hp::LengthUnit::Millimetre,
+    };
+    let mut pmi = hp::PartPmi::default();
+    pmi.features
+        .push(hp::Feature::Items(vec![hp::Anchor::Face(hp::FaceIndex(f))]));
+    pmi.features.push(hp::Feature::Items(
+        r.face_groups[1]
+            .iter()
+            .map(|&f| hp::Anchor::Face(hp::FaceIndex(f)))
+            .collect(),
+    ));
+    pmi.derived_geometry.push(hp::DerivedGeometry {
+        kind: hp::DerivedGeometryKind::MedianPlane,
+        deriving_faces: vec![hp::FaceIndex(f)],
+        point: frame.origin.map(length),
+        direction: hp::Direction(frame.z.map(|v| hp::Decimal::parse(&v.to_string()).unwrap())),
+        radius: None,
+        supplemental: vec![],
+    });
+    pmi.features.push(hp::Feature::Derived {
+        kind: hp::DerivedKind::Derived,
+        from: vec![hp::FeatureId(0)],
+        geometry: Some(hp::DerivedGeometryId(0)),
+    });
+    pmi.dimensions
+        .push(review_location(hp::FeatureId(2), hp::FeatureId(1), 3.));
+    let control = review_write_pmi(&raw, pmi);
+    let doc = Document::parse(control.clone()).unwrap();
+    let mut edit = Edit::default();
+    for (&id, entity) in &doc.graph().entities {
+        if let RawEntity::Simple { name, .. } = entity
+            && name == "DERIVED_SHAPE_ASPECT"
+        {
+            let mut named = entity.clone();
+            let RawEntity::Simple { attributes, .. } = &mut named else {
+                unreachable!()
+            };
+            // This purported finite axis point is a plane and has no supplemental point.
+            attributes[0] = Attribute::String("axis point".into());
+            edit.replace(id, named);
+        }
+    }
+    let malformed = doc.apply(&edit).unwrap().bytes;
+    let (_, ordinary) = analysed("ordinary-location.step", &control);
+    let (_, malformed) = analysed("ordinary-location.step", &malformed);
+    let r = records(&malformed)
+        .iter()
+        .find(|r| r.category == Category::Dimension)
+        .unwrap();
+    assert!(r.blockers.is_empty(), "{:?}", r.blockers);
+    assert!(!r.geometry.as_ref().unwrap().axis_point_reasons.is_empty());
+    assert!(r.geometry.as_ref().unwrap().hole_depths.is_empty());
+    let base = model::plan(&ordinary, &Spec::default()).unwrap();
+    let actual = model::plan(&malformed, &Spec::default()).unwrap();
+    let d = stating(&actual, &malformed, r).expect("main's ordinary linear dimension still draws");
+    assert_eq!((d.kind.as_str(), d.label.as_str()), ("linear", "3"));
+    assert!(d.placed.is_some());
+    assert_eq!(
+        serde_json::to_value(&actual.dimensions).unwrap(),
+        serde_json::to_value(&base.dimensions).unwrap()
+    );
+    assert_eq!(actual.problems, base.problems);
+}
+
+#[test]
+fn review_depth_keeps_authored_zeroes_and_tolerance_text() {
+    let (_, mut a) = analysed("enclosure-depth.step", &enclosure_depth_bytes());
+    for label in ["8.00", "8.00 ±0.20", "8.00 +0.20/-0.10"] {
+        let Some(Reading::Read(report)) = &mut a.pmi else {
+            unreachable!()
+        };
+        let r = report
+            .records
+            .iter_mut()
+            .find(|r| r.part21_id == 2620)
+            .unwrap();
+        r.label = label.into();
+        if label.contains('±') {
+            r.upper_tol = Some(0.2);
+            r.lower_tol = Some(-0.2);
+        }
+        if label.contains('+') {
+            r.upper_tol = Some(0.2);
+            r.lower_tol = Some(-0.1);
+        }
+        let plan = assert_enclosure_depth(&a, &Spec::default(), 8.);
+        assert!(
+            plan.dimensions
+                .iter()
+                // Wrapping is independent of authored numeric text: compare the
+                // complete clause, retaining every digit and tolerance character.
+                .any(|d| d.label.split_whitespace().collect::<Vec<_>>().join(" ")
+                    == format!("4× ⌀3 H11 ↧ {label}")),
+            "authored {label}: {:?}",
+            plan.dimensions
+                .iter()
+                .filter(|d| d.kind == "callout")
+                .map(|d| (&d.label, &d.terms))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn review_enclosure_depth_and_mismatch_use_inch_drawing_units() {
+    let (_, mut a) = analysed("enclosure-depth.step", &enclosure_depth_bytes());
+    let spec: Spec = serde_json::from_value(json!({"units":"in"})).unwrap();
+    let plan = assert_enclosure_depth(&a, &spec, 8.);
+    assert!(
+        plan.dimensions
+            .iter()
+            .any(|d| d.label == "4× ⌀.118 H11 ↧ .315")
+    );
+    let Some(Reading::Read(report)) = &mut a.pmi else {
+        unreachable!()
+    };
+    let r = report
+        .records
+        .iter_mut()
+        .find(|r| r.part21_id == 2620)
+        .unwrap();
+    r.value = Some(9.12345);
+    r.label = "9.12345".into();
+    let plan = assert_enclosure_depth(&a, &spec, 9.12345);
+    let p = plan
+        .problems
+        .iter()
+        .find(|p| p.code == "pmi_hole_depth_mismatch")
+        .unwrap();
+    assert!(
+        p.message.contains(".359 in") && p.message.contains(".315 in"),
+        "{}",
+        p.message
+    );
+    assert!(!p.message.contains("mm"));
+    let mut precise = spec.clone();
+    for m in plan
+        .dimensions
+        .iter()
+        .flat_map(|d| &d.measurements)
+        .filter(|m| m.parameter == "bore.depth")
+    {
+        precise
+            .precision
+            .insert(format!("d:{}/bore.depth", m.feature), 2);
+    }
+    let rounded = assert_enclosure_depth(&a, &precise, 9.12345);
+    let p = rounded
+        .problems
+        .iter()
+        .find(|p| p.code == "pmi_hole_depth_mismatch")
+        .unwrap();
+    assert!(
+        p.message.contains(".36 in") && p.message.contains(".31 in"),
+        "{}",
+        p.message
+    );
+}
+
+#[test]
+fn review_conflicting_depth_qualifiers_do_not_merge() {
+    let (_, mut a) = analysed("enclosure-depth.step", &enclosure_depth_bytes());
+    let Some(Reading::Read(report)) = &mut a.pmi else {
+        unreachable!()
+    };
+    let r = report
+        .records
+        .iter_mut()
+        .find(|r| r.part21_id == 2620)
+        .unwrap();
+    r.label = "8 MAX".into();
+    let mut other = r.clone();
+    other.source_id = "dimension:#90000".into();
+    other.part21_id = 90000;
+    other.label = "8 MIN".into();
+    report.records.push(other);
+    let sources = ["dimension:#2620", "dimension:#90000"];
+    let ids = report.identities();
+    let claims: Vec<_> = sources
+        .iter()
+        .map(|s| ids.id(s).unwrap().to_string())
+        .collect();
+    let plan = model::plan(&a, &Spec::default()).unwrap();
+    assert!(
+        plan.dimensions
+            .iter()
+            .all(|d| d.measurements.iter().all(|m| !claims.contains(&m.feature)))
+    );
+    for source in sources {
+        assert!(plan.problems.iter().any(|p| p.code == "pmi_not_lowered"
+            && p.refs.iter().any(|r| r == source)
+            && p.message.contains("conflicting AP242 hole depth")));
+    }
+}
+
+#[test]
+fn review_chamfered_blind_depth_uses_the_outer_entry_plane() {
+    use draftwright::haecceity::{geom::Surface, pmi as hp};
+    let raw = std::fs::read(root().join("tests/fixtures/parts/mouth_blind.step")).unwrap();
+    let (part, _) = analysed("mouth_blind.step", &raw);
+    let mut pmi = hp::PartPmi::default();
+    for z in [0., -3.] {
+        let faces: Vec<_> = part
+            .faces
+            .iter()
+            .enumerate()
+            .filter_map(|(f, face)| match &face.surface {
+                Surface::Plane { frame }
+                    if (frame.origin[2] - z).abs() < 1e-6 && frame.z[2].abs() > 0.999 =>
+                {
+                    Some(hp::Anchor::Face(hp::FaceIndex(f)))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(faces.len(), 1);
+        pmi.features.push(hp::Feature::Items(faces));
+    }
+    pmi.dimensions
+        .push(review_location(hp::FeatureId(0), hp::FeatureId(1), 3.));
+    let (_, a) = analysed("mouth_blind_depth.step", &review_write_pmi(&raw, pmi));
+    let r = records(&a)
+        .iter()
+        .find(|r| r.category == Category::Dimension)
+        .unwrap();
+    assert!(
+        !r.geometry.as_ref().unwrap().hole_depths.is_empty(),
+        "{r:#?}"
+    );
+    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let d = stating(&plan, &a, r).unwrap();
+    assert_eq!(d.kind, "callout");
+    assert!(d.placed.is_some());
+    assert_eq!(d.label, "⌀4 ↧ 3 C0.5");
+    assert!(
+        !plan
+            .dimensions
+            .iter()
+            .any(|d| d.kind == "linear" && d.value == 3.)
+    );
+}
+
+#[test]
+fn review_counterbored_blind_drill_depth_starts_at_the_counterbore_floor() {
+    use draftwright::haecceity::{
+        geom::{Curve, dot},
+        pmi as hp,
+    };
+    let corpus = std::env::var_os("DRAFTWRIGHT_CORPUS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/Users/paul/repos/quiddity/tests/corpus"));
+    let raw = std::fs::read(corpus.join("nist/nist_ctc_04_asme1_rd.stp")).unwrap();
+    let (part, a) = analysed("ctc04-depth.step", &raw);
+    let baseline = model::plan(&a, &Spec::default()).unwrap();
+    let definitions = draftwright::haecceity::step::read_part_definitions(&raw).unwrap();
+    let definition = &definitions[0];
+    let mut ends = [BTreeSet::new(), BTreeSet::new()];
+    let holes: Vec<_> = draftwright::bridge::holes::read(&a)
+        .into_iter()
+        .filter_map(|(_, h)| h.ok())
+        .filter(|h| !h.through && h.counterbore.is_some())
+        .collect();
+    assert_eq!(holes.len(), 4);
+    for h in &holes {
+        let entry =
+            [0, 1, 2].map(|k| h.at[k] + h.counterbore.unwrap().depth.unwrap() * h.direction[k]);
+        for (side, edges) in ends.iter_mut().enumerate() {
+            let expected =
+                [0, 1, 2].map(|k| entry[k] + side as f64 * h.depth.unwrap() * h.direction[k]);
+            for &f in &h.feature.faces {
+                for edge in part.faces[f].loops.iter().flat_map(|l| &l.edges) {
+                    if let Curve::Circle { frame, radius } = &part.edges[edge.0].curve
+                        && (2. * radius - h.diameter).abs() < 1e-6
+                        && (dot(frame.z, h.direction).abs() - 1.).abs() < 1e-6
+                        && (0..3).all(|k| (frame.origin[k] - expected[k]).abs() < 1e-5)
+                    {
+                        // Authoring uses definition edge order, not the placed Part's
+                        // traversal order. Match the actual EDGE_CURVE source identity.
+                        let source = part.edge_source(edge.0).unwrap().entity;
+                        let index = definition
+                            .edges
+                            .iter()
+                            .position(|&id| id == source)
+                            .unwrap();
+                        edges.insert(index);
+                    }
+                }
+            }
+        }
+    }
+    assert!(ends.iter().all(|es| es.len() >= 4));
+    let mut pmi = hp::PartPmi::default();
+    for edges in ends {
+        pmi.features.push(hp::Feature::Items(
+            edges
+                .into_iter()
+                .map(|e| hp::Anchor::Edge(hp::EdgeIndex(e)))
+                .collect(),
+        ));
+    }
+    pmi.dimensions
+        .push(review_location(hp::FeatureId(0), hp::FeatureId(1), 20.));
+    let (written_part, a) = analysed("ctc04-depth.step", &review_write_pmi(&raw, pmi));
+    let r = records(&a)
+        .iter()
+        .find(|r| r.category == Category::Dimension)
+        .unwrap();
+    assert!(
+        r.edge_groups
+            .iter()
+            .flatten()
+            .all(|&e| matches!(written_part.edges[e].curve, Curve::Circle { .. }))
+    );
+    assert!(
+        !r.geometry.as_ref().unwrap().hole_depths.is_empty(),
+        "{r:#?}"
+    );
+    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let d = stating(&plan, &a, r).unwrap();
+    assert_eq!(d.kind, "callout");
+    assert!(d.placed.is_some());
+    assert!(
+        d.label.contains("↧ 20") && d.label.contains("⌴"),
+        "{}",
+        d.label
+    );
+    assert_eq!(
+        d.measurements
+            .iter()
+            .filter(|m| m.parameter == "bore.depth")
+            .count(),
+        4
+    );
+    // CTC04 also has unrelated native 20 mm dimensions. Preserve every one and
+    // prohibit any additional linear 20, instead of deleting legitimate quantities.
+    let linear_twenty = |plan: &Plan| -> BTreeMap<String, Value> {
+        plan.dimensions
+            .iter()
+            .filter(|d| d.kind == "linear" && d.value == 20.)
+            .map(|d| (d.id.clone(), serde_json::to_value(&d.measurements).unwrap()))
+            .collect()
+    };
+    assert!(!linear_twenty(&baseline).is_empty());
+    assert_eq!(linear_twenty(&plan), linear_twenty(&baseline));
+    let Some(Reading::Read(report)) = &a.pmi else {
+        unreachable!()
+    };
+    let ids = report.identities();
+    let id = ids.id(&r.source_id).unwrap();
+    assert_eq!(
+        plan.dimensions
+            .iter()
+            .filter(|d| d.measurements.iter().any(|m| m.feature == id))
+            .count(),
+        1
     );
 }

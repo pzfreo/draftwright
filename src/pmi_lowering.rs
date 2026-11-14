@@ -1622,11 +1622,47 @@ fn hole_depth_geometry(part: &Part, r: &Record) -> Vec<HoleDepth> {
         if !c.internal {
             continue;
         }
-        let rim: BTreeSet<usize> = face
+        let mut rim: BTreeSet<usize> = face
             .loops
             .iter()
             .flat_map(|l| l.edges.iter().map(|e| e.0))
             .collect();
+        // A mouth chamfer separates the entry plane from the bore rim. Cross exactly
+        // one coaxial cone to its larger circular rim; never bridge arbitrary adjacent
+        // faces, counterbore walls, or the smaller rim of a drill-point cone.
+        let bore_rim = rim.clone();
+        let neighbours: BTreeSet<_> = bore_rim
+            .iter()
+            .flat_map(|&e| part.edge_faces()[e].iter().copied())
+            .collect();
+        for neighbour in neighbours {
+            let cone = &part.faces[neighbour];
+            let Surface::Cone { frame, .. } = &cone.surface else {
+                continue;
+            };
+            let delta = [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]);
+            let t = dot(delta, c.direction);
+            if (dot(frame.z, c.direction).abs() - 1.).abs() > 1e-6
+                || (0..3).any(|k| (delta[k] - t * c.direction[k]).abs() > 1e-6)
+            {
+                continue;
+            }
+            for edge in cone.loops.iter().flat_map(|l| &l.edges) {
+                let Curve::Circle { frame, radius } = &part.edges[edge.0].curve else {
+                    continue;
+                };
+                let station = dot(
+                    [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]),
+                    c.direction,
+                );
+                if *radius > c.radius + 1e-6
+                    && (dot(frame.z, c.direction).abs() - 1.).abs() < 1e-6
+                    && (station < c.interval[0] - 1e-6 || station > c.interval[1] + 1e-6)
+                {
+                    rim.insert(edge.0);
+                }
+            }
+        }
         let mut ends = [Vec::new(), Vec::new()];
         let mut point_faces = [BTreeSet::new(), BTreeSet::new()];
         for (side, endpoints) in ends.iter_mut().enumerate() {
@@ -1770,6 +1806,10 @@ pub fn dimension_geometry(part: &Part, r: &Record) -> Geometry {
             .geometry
             .as_ref()
             .map_or_else(Vec::new, |g| g.axis_points.clone()),
+        axis_point_reasons: r
+            .geometry
+            .as_ref()
+            .map_or_else(Vec::new, |g| g.axis_point_reasons.clone()),
         ..Geometry::default()
     };
     g.reasons.extend(crate::pmi::placements_reason(r));
