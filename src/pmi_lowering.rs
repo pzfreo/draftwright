@@ -1756,7 +1756,28 @@ fn linear_geometry(part: &Part, r: &Record, value: Option<f64>, g: &mut Geometry
                 g.view = Some(witness.view.into());
                 g.sites = stations.to_vec();
             } else if r.kind == "linear" && faces_only && mixed(part, groups) {
-                let (_, _, reasons, refusal) = stations_proof(stations, value, None);
+                // A refused attachment still measures along the datum normal.
+                // Box centres can differ in depth without changing this location.
+                let plane = groups
+                    .iter()
+                    .flatten()
+                    .find_map(|&f| {
+                        if let Surface::Plane { frame } = &part.faces[f].surface {
+                            Some(frame)
+                        } else {
+                            None
+                        }
+                    })
+                    .expect("mixed groups contain a plane");
+                let span: f64 = (0..3)
+                    .map(|i| (stations[1][i] - stations[0][i]) * plane.z[i])
+                    .sum();
+                let projected = [
+                    stations[0],
+                    [0, 1, 2].map(|i| stations[0][i] + span * plane.z[i]),
+                ];
+                let (_, _, reasons, refusal) =
+                    stations_proof(projected, value, exact_axis(plane.z));
                 g.refusal = refusal;
                 g.reasons.extend(reasons.into_iter().map(|s| word(&s)));
                 g.reasons.push(
@@ -2299,54 +2320,58 @@ fn projected_plane_to_bore(
         .map(|&f| cylinder(part, f))
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
-    let witnesses = central_bore_witnesses(&cylinders).or_else(|| {
-        // A datum location measures only its normal coordinate. A compound group
-        // can be centred along that coordinate without being symmetric across the
-        // plane (a hole pattern and a separate bore on its centre row, for example).
-        // Prove reflection of the finite supports along that coordinate and keep
-        // an actual member axis there; neither the nominal nor a box diagonal is
-        // used to select a witness.
-        let k = exact_axis(n)?;
-        let first = cylinders.first()?;
-        if cylinders.iter().any(|c| {
-            !c.internal
-                || c.direction
-                    .iter()
-                    .zip(first.direction)
-                    .any(|(a, b)| (a - b).abs() > 1e-9)
-        }) {
-            return None;
-        }
-        let lo = cylinders
-            .iter()
-            .map(|c| c.origin[k])
-            .fold(f64::INFINITY, f64::min);
-        let hi = cylinders
-            .iter()
-            .map(|c| c.origin[k])
-            .fold(f64::NEG_INFINITY, f64::max);
-        let middle = 0.5 * (lo + hi);
-        let central: Vec<_> = cylinders
-            .iter()
-            .filter(|c| (c.origin[k] - middle).abs() < 1e-6)
-            .collect();
-        if central.is_empty() {
-            return None;
-        }
-        // Reflection preserves multiplicity, not just the set of stations. A
-        // missing corner must not borrow another bore's reflected partner.
-        let mut matched = vec![false; cylinders.len()];
-        for c in &cylinders {
-            let (i, _) = cylinders.iter().enumerate().find(|(i, other)| {
-                !matched[*i]
-                    && (other.origin[k] - (2. * middle - c.origin[k])).abs() < 1e-6
-                    && (other.radius - c.radius).abs() < 1e-6
-                    && (0..2).all(|i| (other.interval[i] - c.interval[i]).abs() < 1e-6)
-            })?;
-            matched[i] = true;
-        }
-        Some(central)
-    })?;
+    let (witnesses, centre_station) = central_bore_witnesses(&cylinders)
+        .map(|witnesses| (witnesses, None))
+        .or_else(|| {
+            // A datum location measures only its normal coordinate. A compound group
+            // can be centred along that coordinate without being symmetric across the
+            // plane (a hole pattern and a separate bore on its centre row, for example).
+            // Prove reflection of the finite supports along that coordinate. When
+            // no member lies at the midpoint, measure only that proven coordinate;
+            // no bore axis is asserted in the other directions. Neither the nominal
+            // nor a box diagonal is used to select a witness.
+            let k = exact_axis(n)?;
+            let first = cylinders.first()?;
+            if cylinders.iter().any(|c| {
+                !c.internal
+                    || c.direction
+                        .iter()
+                        .zip(first.direction)
+                        .any(|(a, b)| (a - b).abs() > 1e-9)
+            }) {
+                return None;
+            }
+            let lo = cylinders
+                .iter()
+                .map(|c| c.origin[k])
+                .fold(f64::INFINITY, f64::min);
+            let hi = cylinders
+                .iter()
+                .map(|c| c.origin[k])
+                .fold(f64::NEG_INFINITY, f64::max);
+            let middle = 0.5 * (lo + hi);
+            let central: Vec<_> = cylinders
+                .iter()
+                .filter(|c| (c.origin[k] - middle).abs() < 1e-6)
+                .collect();
+            // Reflection preserves multiplicity, not just the set of stations. A
+            // missing corner must not borrow another bore's reflected partner.
+            let mut matched = vec![false; cylinders.len()];
+            for c in &cylinders {
+                let (i, _) = cylinders.iter().enumerate().find(|(i, other)| {
+                    !matched[*i]
+                        && (other.origin[k] - (2. * middle - c.origin[k])).abs() < 1e-6
+                        && (other.radius - c.radius).abs() < 1e-6
+                        && (0..2).all(|i| (other.interval[i] - c.interval[i]).abs() < 1e-6)
+                })?;
+                matched[i] = true;
+            }
+            if central.is_empty() {
+                Some((cylinders.iter().collect(), Some((k, middle))))
+            } else {
+                Some((central, None))
+            }
+        })?;
     let first = witnesses.first()?;
     if (0..3).map(|i| n[i] * first.direction[i]).sum::<f64>().abs() > 1e-9 {
         return None;
@@ -2364,7 +2389,21 @@ fn projected_plane_to_bore(
     for c in witnesses {
         for t in [0.5, 0.1, 0.3, 0.7, 0.9] {
             let along = c.interval[0] + t * (c.interval[1] - c.interval[0]);
-            let q = [0, 1, 2].map(|i| c.origin[i] + along * c.direction[i]);
+            let mut q = [0, 1, 2].map(|i| c.origin[i] + along * c.direction[i]);
+            if let Some((k, middle)) = centre_station {
+                // Transverse coordinates only place the witness on the drawing.
+                // Use the group's support midpoint, as the pattern planner does;
+                // only k is proven by reflection and measured by plane_axis.
+                q = [0, 1, 2].map(|i| {
+                    let lo = boxes[bi].iter().map(|b| b[i]).fold(f64::INFINITY, f64::min);
+                    let hi = boxes[bi]
+                        .iter()
+                        .map(|b| b[i + 3])
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    0.5 * (lo + hi)
+                });
+                q[k] = middle;
+            }
             let offset = level - (0..3).map(|i| q[i] * n[i]).sum::<f64>();
             let p = [0, 1, 2].map(|i| q[i] + offset * n[i]);
             if groups[pi].iter().any(|&f| on_face(part, f, p)) {
