@@ -47,9 +47,11 @@ fn fixture(name: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
+type Analysed = (std::sync::Arc<Part>, Analysis);
+
 /// Part *name* read with the port's own recognition, once per test binary.
-fn part(name: &str) -> Option<&'static (Part, Analysis)> {
-    static PARTS_READ: OnceLock<std::sync::Mutex<BTreeMap<String, &'static (Part, Analysis)>>> =
+fn part(name: &str) -> Option<&'static Analysed> {
+    static PARTS_READ: OnceLock<std::sync::Mutex<BTreeMap<String, &'static Analysed>>> =
         OnceLock::new();
     let dir = corpus::dir()?;
     let file = PARTS.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -57,8 +59,7 @@ fn part(name: &str) -> Option<&'static (Part, Analysis)> {
     if let Some(p) = cache.lock().unwrap().get(name) {
         return Some(*p);
     }
-    let read: &'static (Part, Analysis) =
-        Box::leak(Box::new(model::analyse_native(&dir.join(file)).unwrap()));
+    let read: &'static Analysed = Box::leak(Box::new(cache::native(&dir.join(file))));
     cache.lock().unwrap().insert(name.into(), read);
     Some(read)
 }
