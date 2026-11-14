@@ -454,6 +454,35 @@ fn may_reach(a: [f64; 4], b: [f64; 4]) -> bool {
         || (0..2).all(|k| a[k] <= b[k + 2] + 1e-6 && a[k + 2] >= b[k] - 1e-6)
 }
 
+/// Intentionally stacked control frames share a box edge, not crowded text. Require
+/// the attachment and feature identity as well as the touching geometry: two unrelated
+/// labels, or two separately led frames, still need the ordinary clearance.
+fn touching_frame_rows(plan: &Plan, a: &str, b: &str) -> bool {
+    let Some(a) = plan.gdt.iter().find(|g| g.id == a) else {
+        return false;
+    };
+    let Some(b) = plan.gdt.iter().find(|g| g.id == b) else {
+        return false;
+    };
+    if a.kind != "control_frame"
+        || b.kind != "control_frame"
+        || a.view != b.view
+        || a.faces.is_empty()
+        || a.faces != b.faces
+        || !super::hole_marks::attached(a)
+        || !super::hole_marks::attached(b)
+    {
+        return false;
+    }
+    let (Some(a), Some(b)) = (&a.placed, &b.placed) else {
+        return false;
+    };
+    let (u, v) = (a.label_box, b.label_box);
+    (a.lines.is_empty() || b.lines.is_empty())
+        && (u[0] - v[0]).abs() < 1e-9
+        && ((u[1] - v[3]).abs() < 1e-9 || (v[1] - u[3]).abs() < 1e-9)
+}
+
 pub(super) fn contacts(plan: &Plan) -> Vec<Problem> {
     let mut all = plan.dimensions.clone();
     all.extend(plan.gdt.iter().filter_map(super::gdt::proxy));
@@ -476,6 +505,7 @@ pub(super) fn contacts(plan: &Plan) -> Vec<Problem> {
             for (b, pb) in &placed[i + 1..] {
                 if !boxes_overlap(pa.label_box, pb.label_box)
                     && boxes_overlap(clear_box(pa.label_box), pb.label_box)
+                    && !touching_frame_rows(plan, &a.id, &b.id)
                 {
                     out.push(problem(
                         "label_crowded",
@@ -813,6 +843,43 @@ mod tests {
         let clear = item(&base, "d:b", "linear", vec![], [54.6, 50., 58., 52.]);
         p.dimensions = vec![a, clear];
         assert!(found(&p).is_empty());
+    }
+
+    #[test]
+    fn only_attached_rows_on_the_same_feature_may_share_a_frame_edge() {
+        let mut p = plan();
+        p.dimensions.clear();
+        let frame = |id: &str, bottom: f64| {
+            serde_json::from_value::<super::super::gdt::PlannedGdt>(serde_json::json!({
+                "id": id, "kind": "control_frame", "view": "v:front", "side": "below",
+                "source": id, "faces": [1,2], "cells": ["⌖", "0.1"], "modifiers": [],
+                "label": "⌖ 0.1", "default": true, "state": {"kind": "shown"},
+                "basis": "beneath the control frame of its hole, which sees the holes end-on",
+                "placed": {
+                    "tip": [50, bottom + 5.], "lines": [], "arrows": [],
+                    "label_box": [50, bottom, 65, bottom + 5.],
+                    "strokes": [], "arcs": [], "fills": [], "letters": [], "runs": []
+                }
+            }))
+            .unwrap()
+        };
+        p.gdt = vec![frame("pmi:upper", 50.), frame("pmi:lower", 45.)];
+        assert!(found(&p).is_empty(), "an intentional shared box edge");
+        // The same geometry on another feature must still be reported.
+        p.gdt[1].faces = vec![3];
+        assert_eq!(found(&p)[0].0, "label_crowded");
+        p.gdt[1].faces = vec![1, 2];
+        p.gdt[1].basis.clear();
+        assert_eq!(found(&p)[0].0, "label_crowded");
+        // Merely being nearby, rather than sharing the edge, is still crowded.
+        p.gdt[1] = frame("pmi:lower", 44.7);
+        assert_eq!(found(&p)[0].0, "label_crowded");
+        // Independently led frames are not a stack, even on the same feature.
+        p.gdt[1] = frame("pmi:lower", 45.);
+        for g in &mut p.gdt {
+            g.placed.as_mut().unwrap().lines = vec![[[45., 45.], [50., 45.]]];
+        }
+        assert_eq!(found(&p)[0].0, "label_crowded");
     }
 
     #[test]
