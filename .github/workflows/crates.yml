@@ -56,6 +56,7 @@ jobs:
     # environment, and the job mints a short-lived token; no token is stored.
     environment: crates-io
     permissions:
+      actions: read
       contents: read
       id-token: write
     env:
@@ -106,6 +107,19 @@ jobs:
             echo "::error::crates.io answered $status for draftwright $VERSION"
             exit 1
           fi
+      # Use the workflow's guard even when backfilling an older release tag.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-ci-guard
+          sparse-checkout: tools/check_release_ci.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Require full main CI on the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: python3 .release-ci-guard/tools/check_release_ci.py --tag "$TAG"
       - name: Mint a crates.io token
         if: steps.missing.outputs.publish == 'yes'
         id: auth
