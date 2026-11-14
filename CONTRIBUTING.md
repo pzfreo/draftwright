@@ -62,8 +62,7 @@ entries. Local latency assertions stay enabled.
   checks every full-tier job in a successful run attempt; PR/dispatch success or a historic
   lint-only run does not qualify. Publishing itself uses the existing workflows.
 
-See [validation and cache measurements](docs/ci-tier-validation.md) for inventory and
-measurement details. Counts above cover `ci.yml`; the existing path-filtered wheel,
+Counts above cover `ci.yml`; the existing path-filtered wheel,
 crate-package and CLI workflows retain their own PR checks. Hosted wall times are estimates, not measured here.
 
 ## Releasing
