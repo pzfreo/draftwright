@@ -2237,6 +2237,47 @@ struct LinearWitness {
     view: &'static str,
 }
 
+/// A newly proven empty-centre pattern owns its complete cylindrical support.
+/// Native recognition may include blind-hole caps that the PMI does not name.
+/// Call only after the compound endpoint is proven; this does not prove symmetry.
+/// Requiring an empty measured station keeps existing physical-axis ownership strict.
+pub(crate) fn empty_centre_pattern_support(
+    a: &Analysis,
+    group: &[usize],
+    faces: &[usize],
+    k: usize,
+    at: f64,
+) -> bool {
+    let Some(axis) = group
+        .first()
+        .and_then(|&f| a.face_attachments.get(f)?.exact_axis)
+    else {
+        return false;
+    };
+    if axis == k
+        || !group.iter().all(|&f| {
+            a.face_attachments.get(f).is_some_and(|f| {
+                f.surface.as_deref() == Some("cylinder")
+                    && f.exact_axis == Some(axis)
+                    && f.support
+                        .get(k - usize::from(k > axis))
+                        .is_some_and(|v| (v - at).abs() > 1e-6)
+            })
+        })
+    {
+        return false;
+    }
+    let bores: Vec<_> = faces
+        .iter()
+        .filter(|&&f| {
+            a.face_attachments
+                .get(f)
+                .is_some_and(|f| f.surface.as_deref() == Some("cylinder"))
+        })
+        .collect();
+    bores.len() == group.len() && bores.iter().all(|f| group.contains(f))
+}
+
 /// A compound hole group can carry its central bore as well as surrounding bores.
 /// Prove that centre by half-turn symmetry of the finite cylindrical supports,
 /// and require an actual member axis there. Never choose an axis by the nominal,

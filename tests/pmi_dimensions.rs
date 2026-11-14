@@ -2388,6 +2388,11 @@ fn symmetric_empty_centre_enclosure_locations_lower_once_along_the_datum_normal(
                     && bores.iter().all(|f| r.face_groups[1].contains(f))
             })
             .expect("the four bores form the planner's pattern");
+        assert!(
+            !plan.problems.iter().any(|p| p.code == "feature_not_located"
+                && p.subjects.iter().any(|s| pattern.members.contains(s))),
+            "the authored centre locations and native pitches must locate every pattern member"
+        );
         let parameter = format!("location.length.{}", axis.to_lowercase());
         let pmi = item_id(&a, r).unwrap();
         assert_eq!(

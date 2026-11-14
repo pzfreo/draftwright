@@ -507,13 +507,6 @@ fn compound_bore_location(a: &Analysis, wants: &[Want], r: &Record, k: usize) ->
     })?;
     let group = &r.face_groups[side];
     let bore_axis = a.face_attachments[*group.first()?].exact_axis?;
-    let empty_centre = k != bore_axis
-        && group.iter().all(|&f| {
-            a.face_attachments[f]
-                .support
-                .get(k - usize::from(k > bore_axis))
-                .is_some_and(|at| (at - g.stations[side][k]).abs() > 1e-6)
-        });
     let found: Vec<_> = wants
         .iter()
         .enumerate()
@@ -539,19 +532,16 @@ fn compound_bore_location(a: &Analysis, wants: &[Want], r: &Record, k: usize) ->
                             .map(|p| &p.faces)
                     });
                 faces.is_some_and(|fs| !fs.is_empty() && fs.iter().all(|f| group.contains(f)))
-                    // A proven empty-centre pattern has no physical central axis.
-                    // Recognition also includes blind-hole caps: require exactly
-                    // the pattern's entire cylindrical support, not those caps.
-                    || (empty_centre && a.recognition.iter().flat_map(|r| &r.patterns).any(|p| {
-                        if p.id != id {
-                            return false;
-                        }
-                        let bores: Vec<_> = p.faces.iter().filter(|&&f| {
-                            a.face_attachments.get(f).is_some_and(|f|
-                                f.surface.as_deref() == Some("cylinder"))
-                        }).collect();
-                        bores.len() == group.len() && bores.iter().all(|f| group.contains(f))
-                    }))
+                    || a.recognition.iter().flat_map(|r| &r.patterns).any(|p| {
+                        p.id == id
+                            && crate::pmi_lowering::empty_centre_pattern_support(
+                                a,
+                                group,
+                                &p.faces,
+                                k,
+                                g.stations[side][k],
+                            )
+                    })
             };
             *axis == k
                 && !w.measurements.is_empty()
