@@ -412,6 +412,7 @@ pub(crate) fn record(
         upper_bound: None,
         fit: None,
         label: String::new(),
+        authored_depth_label: None,
         datum_refs: Vec::new(),
         gtol_modifiers: Vec::new(),
         basic: false,

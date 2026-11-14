@@ -1595,6 +1595,200 @@ fn cylinder(part: &Part, f: usize) -> Result<Cylinder, &'static str> {
     })
 }
 
+/// A linear location's two endpoints on a bore axis, proven from adjacent entry/floor
+/// faces, circular rim edges or finite axis points on trimmed cylinder ends. Kept even
+/// when its nominal disagrees with the geometry.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HoleDepth {
+    pub cylinder: Cylinder,
+    pub ends: [[f64; 3]; 2],
+}
+
+/// Correlate endpoint topology before consulting any recognised feature or authored value.
+/// Every reference must participate: coincident support planes alone are insufficient.
+fn hole_depth_geometry(part: &Part, r: &Record) -> Vec<HoleDepth> {
+    use haecceity::geom::{Curve, dot};
+    if r.type_code != Some(2)
+        || r.face_groups.len() != 2
+        || crate::pmi::placements_reason(r).is_some()
+    {
+        return Vec::new();
+    }
+    let mut covered_faces = [BTreeSet::new(), BTreeSet::new()];
+    let mut covered_edges = [BTreeSet::new(), BTreeSet::new()];
+    let mut out = Vec::new();
+    for (f, face) in part.faces.iter().enumerate() {
+        let Ok(c) = cylinder(part, f) else { continue };
+        if !c.internal {
+            continue;
+        }
+        let mut rim: BTreeSet<usize> = face
+            .loops
+            .iter()
+            .flat_map(|l| l.edges.iter().map(|e| e.0))
+            .collect();
+        // A mouth chamfer separates the entry plane from the bore rim. Cross exactly
+        // one coaxial cone to its larger circular rim; never bridge arbitrary adjacent
+        // faces, counterbore walls, or the smaller rim of a drill-point cone.
+        let bore_rim = rim.clone();
+        let neighbours: BTreeSet<_> = bore_rim
+            .iter()
+            .flat_map(|&e| part.edge_faces()[e].iter().copied())
+            .collect();
+        for neighbour in neighbours {
+            let cone = &part.faces[neighbour];
+            let Surface::Cone { frame, .. } = &cone.surface else {
+                continue;
+            };
+            let delta = [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]);
+            let t = dot(delta, c.direction);
+            if (dot(frame.z, c.direction).abs() - 1.).abs() > 1e-6
+                || (0..3).any(|k| (delta[k] - t * c.direction[k]).abs() > 1e-6)
+            {
+                continue;
+            }
+            for edge in cone.loops.iter().flat_map(|l| &l.edges) {
+                let Curve::Circle { frame, radius } = &part.edges[edge.0].curve else {
+                    continue;
+                };
+                let station = dot(
+                    [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]),
+                    c.direction,
+                );
+                if *radius > c.radius + 1e-6
+                    && (dot(frame.z, c.direction).abs() - 1.).abs() < 1e-6
+                    && (station < c.interval[0] - 1e-6 || station > c.interval[1] + 1e-6)
+                {
+                    rim.insert(edge.0);
+                }
+            }
+        }
+        let mut ends = [Vec::new(), Vec::new()];
+        let mut point_faces = [BTreeSet::new(), BTreeSet::new()];
+        for (side, endpoints) in ends.iter_mut().enumerate() {
+            for &f in &r.face_groups[side] {
+                let face = &part.faces[f];
+                let Surface::Plane { frame } = &face.surface else {
+                    continue;
+                };
+                if !face
+                    .loops
+                    .iter()
+                    .flat_map(|l| &l.edges)
+                    .any(|e| rim.contains(&e.0))
+                {
+                    continue;
+                }
+                let denom = dot(c.direction, frame.z);
+                if denom.abs() < 1e-9 {
+                    continue;
+                }
+                let delta = [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]);
+                let t = dot(delta, frame.z) / denom;
+                endpoints.push((
+                    [0, 1, 2].map(|k| c.origin[k] + t * c.direction[k]),
+                    Some(f),
+                    None,
+                ));
+            }
+            for point in r
+                .geometry
+                .iter()
+                .flat_map(|g| g.axis_points.get(side))
+                .flatten()
+            {
+                if !point.faces.contains(&f) {
+                    continue;
+                }
+                let delta = [0, 1, 2].map(|k| point.point[k] - c.origin[k]);
+                let t = dot(delta, c.direction);
+                if (0..3).any(|k| (delta[k] - t * c.direction[k]).abs() > 1e-6) {
+                    continue;
+                }
+                // Its station must be a real end of the deriving cylinder's trimmed extent,
+                // as a sloping mouth's finite point is defined. An arbitrary point on an
+                // infinite axis must never supply a hole entry or floor.
+                let bounds: Option<Vec<_>> = point
+                    .faces
+                    .iter()
+                    .map(|&g| {
+                        let cy = cylinder(part, g).ok()?;
+                        let delta = [0, 1, 2].map(|k| cy.origin[k] - c.origin[k]);
+                        let t = dot(delta, c.direction);
+                        ((dot(cy.direction, c.direction).abs() - 1.).abs() < 1e-9
+                            && (cy.radius - c.radius).abs() < 1e-6
+                            && (0..3).all(|k| (delta[k] - t * c.direction[k]).abs() <= 1e-6))
+                        .then(|| part.face_projection_bounds(g, c.direction))
+                        .flatten()
+                    })
+                    .collect();
+                let Some(bounds) = bounds else { continue };
+                let lo = bounds.iter().map(|b| b.0).fold(f64::INFINITY, f64::min);
+                let hi = bounds.iter().map(|b| b.1).fold(f64::NEG_INFINITY, f64::max);
+                let station = dot(point.point, c.direction);
+                if (station - lo).abs().min((station - hi).abs()) > 1e-6 {
+                    continue;
+                }
+                point_faces[side].extend(&point.faces);
+                endpoints.push((point.point, None, None));
+            }
+            for &e in r.edge_groups.get(side).into_iter().flatten() {
+                if !rim.contains(&e) {
+                    continue;
+                }
+                let Curve::Circle { frame, radius } = &part.edges[e].curve else {
+                    continue;
+                };
+                if (radius - c.radius).abs() > 1e-6
+                    || (dot(frame.z, c.direction).abs() - 1.).abs() > 1e-6
+                {
+                    continue;
+                }
+                let delta = [0, 1, 2].map(|k| frame.origin[k] - c.origin[k]);
+                let t = dot(delta, c.direction);
+                if (0..3).any(|k| (delta[k] - t * c.direction[k]).abs() > 1e-6) {
+                    continue;
+                }
+                endpoints.push((frame.origin, None, Some(e)));
+            }
+        }
+        if ends.iter().any(Vec::is_empty) {
+            continue;
+        }
+        // Several references on one side must resolve to the same axial point.
+        if ends.iter().any(|es| {
+            es.iter()
+                .any(|e| (0..3).any(|k| (e.0[k] - es[0].0[k]).abs() > 1e-6))
+        }) {
+            continue;
+        }
+        for side in 0..2 {
+            covered_faces[side].extend(&point_faces[side]);
+            for &(_, face, edge) in &ends[side] {
+                covered_faces[side].extend(face);
+                covered_edges[side].extend(edge);
+            }
+        }
+        out.push(HoleDepth {
+            cylinder: c,
+            ends: [ends[0][0].0, ends[1][0].0],
+        });
+    }
+    if (0..2).any(|i| {
+        r.face_groups[i]
+            .iter()
+            .any(|f| !covered_faces[i].contains(f))
+            || r.edge_groups
+                .get(i)
+                .into_iter()
+                .flatten()
+                .any(|e| !covered_edges[i].contains(e))
+    }) {
+        return Vec::new();
+    }
+    out
+}
+
 /// Where a dimension attaches, from its faces (draftwright's `_proved_planar_linear` with
 /// `_linear_reference_stations` for a linear or thickness dimension, `_cylindrical_references`
 /// with `_diameter_reference_blockers` for a diameter): what [`crate::dims`] draws it from, and
@@ -1608,12 +1802,23 @@ pub fn dimension_geometry(part: &Part, r: &Record) -> Geometry {
             .geometry
             .as_ref()
             .map_or_else(Vec::new, |g| g.targets.clone()),
+        axis_points: r
+            .geometry
+            .as_ref()
+            .map_or_else(Vec::new, |g| g.axis_points.clone()),
+        axis_point_reasons: r
+            .geometry
+            .as_ref()
+            .map_or_else(Vec::new, |g| g.axis_point_reasons.clone()),
         ..Geometry::default()
     };
     g.reasons.extend(crate::pmi::placements_reason(r));
     let value = r.value;
     match r.kind.as_str() {
-        "linear" | "thickness" => linear_geometry(part, r, value, &mut g),
+        "linear" | "thickness" => {
+            linear_geometry(part, r, value, &mut g);
+            g.hole_depths = hole_depth_geometry(part, r);
+        }
         "diameter" | "radius" => cylinder_geometry(part, r, value, &mut g),
         "angular" => crate::dims::angular::geometry(part, r, &mut g),
         "common_label" => return label_geometry(part, r),
@@ -1756,7 +1961,28 @@ fn linear_geometry(part: &Part, r: &Record, value: Option<f64>, g: &mut Geometry
                 g.view = Some(witness.view.into());
                 g.sites = stations.to_vec();
             } else if r.kind == "linear" && faces_only && mixed(part, groups) {
-                let (_, _, reasons, refusal) = stations_proof(stations, value, None);
+                // A refused attachment still measures along the datum normal.
+                // Box centres can differ in depth without changing this location.
+                let plane = groups
+                    .iter()
+                    .flatten()
+                    .find_map(|&f| {
+                        if let Surface::Plane { frame } = &part.faces[f].surface {
+                            Some(frame)
+                        } else {
+                            None
+                        }
+                    })
+                    .expect("mixed groups contain a plane");
+                let span: f64 = (0..3)
+                    .map(|i| (stations[1][i] - stations[0][i]) * plane.z[i])
+                    .sum();
+                let projected = [
+                    stations[0],
+                    [0, 1, 2].map(|i| stations[0][i] + span * plane.z[i]),
+                ];
+                let (_, _, reasons, refusal) =
+                    stations_proof(projected, value, exact_axis(plane.z));
                 g.refusal = refusal;
                 g.reasons.extend(reasons.into_iter().map(|s| word(&s)));
                 g.reasons.push(
@@ -2216,6 +2442,47 @@ struct LinearWitness {
     view: &'static str,
 }
 
+/// A newly proven empty-centre pattern owns its complete cylindrical support.
+/// Native recognition may include blind-hole caps that the PMI does not name.
+/// Call only after the compound endpoint is proven; this does not prove symmetry.
+/// Requiring an empty measured station keeps existing physical-axis ownership strict.
+pub(crate) fn empty_centre_pattern_support(
+    a: &Analysis,
+    group: &[usize],
+    faces: &[usize],
+    k: usize,
+    at: f64,
+) -> bool {
+    let Some(axis) = group
+        .first()
+        .and_then(|&f| a.face_attachments.get(f)?.exact_axis)
+    else {
+        return false;
+    };
+    if axis == k
+        || !group.iter().all(|&f| {
+            a.face_attachments.get(f).is_some_and(|f| {
+                f.surface.as_deref() == Some("cylinder")
+                    && f.exact_axis == Some(axis)
+                    && f.support
+                        .get(k - usize::from(k > axis))
+                        .is_some_and(|v| (v - at).abs() > 1e-6)
+            })
+        })
+    {
+        return false;
+    }
+    let bores: Vec<_> = faces
+        .iter()
+        .filter(|&&f| {
+            a.face_attachments
+                .get(f)
+                .is_some_and(|f| f.surface.as_deref() == Some("cylinder"))
+        })
+        .collect();
+    bores.len() == group.len() && bores.iter().all(|f| group.contains(f))
+}
+
 /// A compound hole group can carry its central bore as well as surrounding bores.
 /// Prove that centre by half-turn symmetry of the finite cylindrical supports,
 /// and require an actual member axis there. Never choose an axis by the nominal,
@@ -2299,54 +2566,58 @@ fn projected_plane_to_bore(
         .map(|&f| cylinder(part, f))
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
-    let witnesses = central_bore_witnesses(&cylinders).or_else(|| {
-        // A datum location measures only its normal coordinate. A compound group
-        // can be centred along that coordinate without being symmetric across the
-        // plane (a hole pattern and a separate bore on its centre row, for example).
-        // Prove reflection of the finite supports along that coordinate and keep
-        // an actual member axis there; neither the nominal nor a box diagonal is
-        // used to select a witness.
-        let k = exact_axis(n)?;
-        let first = cylinders.first()?;
-        if cylinders.iter().any(|c| {
-            !c.internal
-                || c.direction
-                    .iter()
-                    .zip(first.direction)
-                    .any(|(a, b)| (a - b).abs() > 1e-9)
-        }) {
-            return None;
-        }
-        let lo = cylinders
-            .iter()
-            .map(|c| c.origin[k])
-            .fold(f64::INFINITY, f64::min);
-        let hi = cylinders
-            .iter()
-            .map(|c| c.origin[k])
-            .fold(f64::NEG_INFINITY, f64::max);
-        let middle = 0.5 * (lo + hi);
-        let central: Vec<_> = cylinders
-            .iter()
-            .filter(|c| (c.origin[k] - middle).abs() < 1e-6)
-            .collect();
-        if central.is_empty() {
-            return None;
-        }
-        // Reflection preserves multiplicity, not just the set of stations. A
-        // missing corner must not borrow another bore's reflected partner.
-        let mut matched = vec![false; cylinders.len()];
-        for c in &cylinders {
-            let (i, _) = cylinders.iter().enumerate().find(|(i, other)| {
-                !matched[*i]
-                    && (other.origin[k] - (2. * middle - c.origin[k])).abs() < 1e-6
-                    && (other.radius - c.radius).abs() < 1e-6
-                    && (0..2).all(|i| (other.interval[i] - c.interval[i]).abs() < 1e-6)
-            })?;
-            matched[i] = true;
-        }
-        Some(central)
-    })?;
+    let (witnesses, centre_station) = central_bore_witnesses(&cylinders)
+        .map(|witnesses| (witnesses, None))
+        .or_else(|| {
+            // A datum location measures only its normal coordinate. A compound group
+            // can be centred along that coordinate without being symmetric across the
+            // plane (a hole pattern and a separate bore on its centre row, for example).
+            // Prove reflection of the finite supports along that coordinate. When
+            // no member lies at the midpoint, measure only that proven coordinate;
+            // no bore axis is asserted in the other directions. Neither the nominal
+            // nor a box diagonal is used to select a witness.
+            let k = exact_axis(n)?;
+            let first = cylinders.first()?;
+            if cylinders.iter().any(|c| {
+                !c.internal
+                    || c.direction
+                        .iter()
+                        .zip(first.direction)
+                        .any(|(a, b)| (a - b).abs() > 1e-9)
+            }) {
+                return None;
+            }
+            let lo = cylinders
+                .iter()
+                .map(|c| c.origin[k])
+                .fold(f64::INFINITY, f64::min);
+            let hi = cylinders
+                .iter()
+                .map(|c| c.origin[k])
+                .fold(f64::NEG_INFINITY, f64::max);
+            let middle = 0.5 * (lo + hi);
+            let central: Vec<_> = cylinders
+                .iter()
+                .filter(|c| (c.origin[k] - middle).abs() < 1e-6)
+                .collect();
+            // Reflection preserves multiplicity, not just the set of stations. A
+            // missing corner must not borrow another bore's reflected partner.
+            let mut matched = vec![false; cylinders.len()];
+            for c in &cylinders {
+                let (i, _) = cylinders.iter().enumerate().find(|(i, other)| {
+                    !matched[*i]
+                        && (other.origin[k] - (2. * middle - c.origin[k])).abs() < 1e-6
+                        && (other.radius - c.radius).abs() < 1e-6
+                        && (0..2).all(|i| (other.interval[i] - c.interval[i]).abs() < 1e-6)
+                })?;
+                matched[i] = true;
+            }
+            if central.is_empty() {
+                Some((cylinders.iter().collect(), Some((k, middle))))
+            } else {
+                Some((central, None))
+            }
+        })?;
     let first = witnesses.first()?;
     if (0..3).map(|i| n[i] * first.direction[i]).sum::<f64>().abs() > 1e-9 {
         return None;
@@ -2364,7 +2635,21 @@ fn projected_plane_to_bore(
     for c in witnesses {
         for t in [0.5, 0.1, 0.3, 0.7, 0.9] {
             let along = c.interval[0] + t * (c.interval[1] - c.interval[0]);
-            let q = [0, 1, 2].map(|i| c.origin[i] + along * c.direction[i]);
+            let mut q = [0, 1, 2].map(|i| c.origin[i] + along * c.direction[i]);
+            if let Some((k, middle)) = centre_station {
+                // Transverse coordinates only place the witness on the drawing.
+                // Use the group's support midpoint, as the pattern planner does;
+                // only k is proven by reflection and measured by plane_axis.
+                q = [0, 1, 2].map(|i| {
+                    let lo = boxes[bi].iter().map(|b| b[i]).fold(f64::INFINITY, f64::min);
+                    let hi = boxes[bi]
+                        .iter()
+                        .map(|b| b[i + 3])
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    0.5 * (lo + hi)
+                });
+                q[k] = middle;
+            }
             let offset = level - (0..3).map(|i| q[i] * n[i]).sum::<f64>();
             let p = [0, 1, 2].map(|i| q[i] + offset * n[i]);
             if groups[pi].iter().any(|&f| on_face(part, f, p)) {
@@ -4081,6 +4366,86 @@ fn authored(
     ))
 }
 
+/// Caller threads state a designation on native faces. Use those exact faces to
+/// select owners, then the existing measured-hole path supplies drill geometry.
+/// No drill depth, thread depth or process recommendation is authored by this step.
+fn caller_threads(
+    r: &Record,
+    candidates: &[Owner],
+    analysis: &Analysis,
+) -> Result<Vec<Proposal>, String> {
+    let fields = Fields(&r.fields);
+    let designation = fields.text("designation")?;
+    let (nominal, pitch) = crate::spec_notes::metric(&designation)?;
+    let class = fields.text("fit class")?;
+    let hand = if fields.text("hand")? == "left" {
+        "LH"
+    } else {
+        "RH"
+    };
+    let designation = format!("M{} x {}-{class} {hand}", g6(nominal), g6(pitch));
+    let faces_of = |o: &Owner| -> Vec<usize> {
+        analysis
+            .features
+            .iter()
+            .find(|f| f.id == o.id)
+            .map(|f| f.faces.clone())
+            .or_else(|| {
+                analysis
+                    .recognition
+                    .as_ref()?
+                    .patterns
+                    .iter()
+                    .find(|p| p.id == o.id)
+                    .map(|p| p.faces.clone())
+            })
+            .unwrap_or_default()
+    };
+    let mut selected = BTreeSet::new();
+    for face in &r.faces {
+        let matches: Vec<_> = candidates
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| matches!(o.kind, "hole" | "pattern") && faces_of(o).contains(face))
+            .map(|(i, _)| i)
+            .collect();
+        match matches.as_slice() {
+            [owner] => {
+                selected.insert(*owner);
+            }
+            _ => {
+                return Err(format!(
+                    "caller thread face {face} has {} canonical hole owners",
+                    matches.len()
+                ));
+            }
+        }
+    }
+    if selected.is_empty() {
+        return Err("caller thread has no native faces".into());
+    }
+    selected
+        .into_iter()
+        .map(|owner| {
+            let mut requirement = r.clone();
+            requirement.fields.retain(|(name, _)| name != "designation");
+            requirement.fields.extend([
+                (
+                    "designation".into(),
+                    crate::pmi::Field::Text(designation.clone()),
+                ),
+                (
+                    "feature".into(),
+                    crate::pmi::Field::Text(candidates[owner].id.clone()),
+                ),
+                ("nominal".into(), crate::pmi::Field::Length(nominal)),
+            ]);
+            authored(&requirement, candidates, analysis)
+                .map(|(owner, aspect)| (owner, aspect, None))
+        })
+        .collect()
+}
+
 /// `_manufacturing_owner_matches`: whether *o* owns requirement *a* on cylinder *c*.
 fn owns(a: &Aspect, c: &Cylinder, o: &Owner, envelope: [[f64; 3]; 2]) -> bool {
     match a {
@@ -4207,6 +4572,9 @@ pub fn manufacturing(analysis: &Analysis) -> Manufacturing {
     let mut proposals: Vec<Result<Vec<Proposal>, String>> = Vec::new();
     for r in &records {
         let proposal = (|| {
+            if r.source_id.starts_with("caller:") && r.kind == "internal_thread" {
+                return caller_threads(r, &candidates, analysis);
+            }
             // A thread or knurl the Spec authors names its feature ([`crate::spec_notes`]).
             if r.source_id.starts_with(crate::spec_gdt::SOURCE_PREFIX) {
                 return authored(r, &candidates, analysis).map(|(owner, aspect)| {

@@ -207,7 +207,7 @@ yet been tried in a real client.
 
 Problems are reported, not hidden: anything the plan could not place, state or draw is a
 Problem with a code on the item's ID, in `plan`, `render` and `review`. Every problem and lint
-finding also has an `impact` (`incomplete`, `decision`, `readability`, or `advisory`) and a stable
+finding also has a `tier` (`fix_before_printing`, `tidy`, or `information`), an `impact` (`incomplete`, `decision`, `readability`, or `advisory`) and a stable
 `group` key for repeated causes. `severity` keeps its existing meaning. `review.summary` counts
 findings and distinct groups per impact, plus findings per group, across problems, lint and
 structural findings. These labels also appear on serve, WASM and MCP findings; MCP review

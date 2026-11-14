@@ -38,3 +38,6 @@ mod trust_rules;
 
 #[path = "../finding_impact.rs"]
 mod finding_impact;
+
+#[path = "../issue_tiers.rs"]
+mod issue_tiers;

@@ -327,6 +327,7 @@ version = "0.6.0-alpha.2"
 dependencies = [
  "draftwright",
  "pyo3",
+ "serde_json",
 ]
 
 [[package]]
