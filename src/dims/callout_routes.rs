@@ -965,6 +965,13 @@ fn finish_with(
                 }
                 let id = d.id.clone();
                 let old = d.placed.clone();
+                let route_length = |p: &Placed| {
+                    p.lines
+                        .iter()
+                        .map(|[a, b]| (b[0] - a[0]).hypot(b[1] - a[1]))
+                        .sum::<f64>()
+                };
+                let longest = route_length(old.as_ref().expect("placed callout")) + 2.0;
                 let mut grown_area = None;
                 let limit = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
                     candidates.len()
@@ -975,6 +982,11 @@ fn finish_with(
                     if let Some(g) = &glyph
                         && !meet_frame(g, &mut next)
                     {
+                        continue;
+                    }
+                    // Repairing an across-view detour must not create a longer
+                    // one. Retain the existing two-paper-mm route budget.
+                    if across_ids.contains(&id) && route_length(&next) > longest + 1e-9 {
                         continue;
                     }
                     // The all-around/all-over marks travel with the bend. Reserve

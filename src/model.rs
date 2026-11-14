@@ -4099,8 +4099,11 @@ fn recover_candidates(
                 }
                 // A new recess witness can strand an existing datum ladder even
                 // without GD&T. Compare complete movable annotation blocks
-                // before rejecting otherwise usable paper.
+                // before rejecting otherwise usable paper. A4 also earns this
+                // measured-gap layout when an estimated band leaves its leaders
+                // across dimensions: sparse parts should not need larger paper.
                 if !p.gdt.is_empty()
+                    || (i == 0 && ink_findings(&p) > 0)
                     || (findings(&p).hard > 0
                         && crate::dims::has_new_native_recess_dimensions(analysis)
                         && p.problems.iter().any(|q| q.code == "dimension_line_shared")
