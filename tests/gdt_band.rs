@@ -179,6 +179,37 @@ fn check_frames_on_sheet(stem: &str, plan: &Plan) {
     }
 }
 
+#[test]
+fn stc_09_datum_symbols_are_inside_their_bands_and_frames_past_them_had_no_clear_strip() {
+    let a = analysed("nist_stc_09_asme1_ap242-e4");
+    let plan = cache::default_plan(&a, true);
+    // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
+    assert_eq!(
+        (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
+        ("A1", "1:2")
+    );
+    let outside = reported(&plan, "annotation_outside_area");
+    for g in &outside {
+        assert_eq!(g.kind, "control_frame", "{} past its area", g.id);
+        assert!(
+            g.basis.contains("strip has no clear place, so it stands"),
+            "{} is past its area in its own strip: {}",
+            g.id,
+            g.basis
+        );
+    }
+    // 12 frames and 4 datum symbols stood past their areas before the reservation; 1 frame,
+    // moved to a strip across or beside its view, remained (2 while the value-less `2X R` and
+    // `4X R` labels were drawn, #214), until it stood beneath its holes' `4× ⌀6.35` callout
+    // (#224).
+    assert_eq!(
+        outside.len(),
+        0,
+        "{:?}",
+        outside.iter().map(|g| &g.id).collect::<Vec<_>>()
+    );
+}
+
 /// The reservation is the strip's dimensions' room and its items' tiers packed first fit: two
 /// frames side by side share a tier, two over one another take two; the dimensions' room is the
 /// lesser of the band before GD&T and the strip's lanes, or the lanes beyond that; an item past
@@ -234,7 +265,7 @@ fn the_reservation_stacks_overlapping_items_in_tiers_beyond_the_dimensions() {
 /// STC-09 keeps its first CAD-frame drawing at its legibility floor and reports
 /// the remaining layout findings; the complete frame/datum inventory survives.
 #[test]
-fn stc09_keeps_its_first_drawing_reports_the_floor_and_respects_datum_bands() {
+fn stc09_without_a_complete_fit_keeps_its_first_drawing_and_reports_the_floor() {
     let a = analysed("nist_stc_09_asme1_ap242-e4");
     let first = model::plan_escalated(&a, &Spec::default()).unwrap();
     assert_eq!(
@@ -309,33 +340,4 @@ fn stc09_keeps_its_first_drawing_reports_the_floor_and_respects_datum_bands() {
         "{}",
         p.sheet.basis
     );
-    {
-        let plan = &p;
-
-        // accepted regression, pzfreo/draftwright#452 (Paul 2026-11-13); restore when fixed
-        assert_eq!(
-            (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
-            ("A1", "1:2")
-        );
-        let outside = reported(plan, "annotation_outside_area");
-        for g in &outside {
-            assert_eq!(g.kind, "control_frame", "{} past its area", g.id);
-            assert!(
-                g.basis.contains("strip has no clear place, so it stands"),
-                "{} is past its area in its own strip: {}",
-                g.id,
-                g.basis
-            );
-        }
-        // 12 frames and 4 datum symbols stood past their areas before the reservation; 1 frame,
-        // moved to a strip across or beside its view, remained (2 while the value-less `2X R` and
-        // `4X R` labels were drawn, #214), until it stood beneath its holes' `4× ⌀6.35` callout
-        // (#224).
-        assert_eq!(
-            outside.len(),
-            0,
-            "{:?}",
-            outside.iter().map(|g| &g.id).collect::<Vec<_>>()
-        );
-    }
 }

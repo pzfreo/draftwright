@@ -94,7 +94,7 @@ filter = '''
     | test(=repeated_dimensions::an_authored_location_and_rung_with_equal_bands_share_the_authored_survivor)
     | test(=oriented_chamfers::bounded_notches_reserve_acute_arcs_and_leave_dense_general_profiles_alone)
     | test(=oriented_chamfers::notch_dimensions_accept_omit_tolerance_place_and_label_text)
-    | test(=gdt_band::stc09_keeps_its_first_drawing_reports_the_floor_and_respects_datum_bands)
+    | test(=gdt_band::stc09_without_a_complete_fit_keeps_its_first_drawing_and_reports_the_floor)
 '''
 priority = 60
 

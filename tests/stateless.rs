@@ -524,6 +524,7 @@ fn warm_cache_and_fresh_process_are_byte_identical_to_session() {
 #[test]
 fn s0_http_serve_and_session_agree_with_bounded_lossless_default_payloads() {
     let cache = scratch("parity");
+    let budget_cache = scratch("budgets");
     let http = Http::new(&cache);
     for step in parts() {
         http.max_default_wire.set(0);
@@ -533,90 +534,94 @@ fn s0_http_serve_and_session_agree_with_bounded_lossless_default_payloads() {
         http.tool("list_items", json!({"part_ref":key,"limit":100}));
         http.tool("list_problems", json!({"part_ref":key,"limit":100}));
         let mut s = Session::open(&step, Features::Native, Spec::default()).unwrap();
-        let summary = checked(&cache, "inspect_part", json!({"step":step}));
-        assert!(bytes(&summary).len() < 4096);
-        let session = cache.session(key, &Spec::default()).unwrap();
-        let mut cursor = 0;
-        let mut all = Vec::new();
-        let mut max_page = 0;
-        loop {
-            let page = checked(
-                &cache,
-                "list_items",
-                json!({"part_ref":key,"cursor":cursor,"limit":100}),
-            );
-            max_page = max_page.max(bytes(&page).len());
-            assert!(bytes(&page).len() < 4096);
-            all.extend(
-                page["items"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|i| i["id"].as_str().unwrap().to_string()),
-            );
-            if let Some(next) = page["next_cursor"].as_u64() {
-                assert!(next > cursor);
-                cursor = next;
-            } else {
-                break;
+        {
+            let cache = &budget_cache;
+            let summary = checked(cache, "inspect_part", json!({"step":step}));
+            assert!(bytes(&summary).len() < 4096);
+            let key = summary["part_ref"].as_str().unwrap();
+            let session = cache.session(key, &Spec::default()).unwrap();
+            let mut cursor = 0;
+            let mut all = Vec::new();
+            let mut max_page = 0;
+            loop {
+                let page = checked(
+                    cache,
+                    "list_items",
+                    json!({"part_ref":key,"cursor":cursor,"limit":100}),
+                );
+                max_page = max_page.max(bytes(&page).len());
+                assert!(bytes(&page).len() < 4096);
+                all.extend(
+                    page["items"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|i| i["id"].as_str().unwrap().to_string()),
+                );
+                if let Some(next) = page["next_cursor"].as_u64() {
+                    assert!(next > cursor);
+                    cursor = next;
+                } else {
+                    break;
+                }
             }
-        }
-        assert_eq!(
-            all,
-            session
-                .items(&Default::default())
-                .iter()
-                .map(|i| i.item.id.clone())
-                .collect::<Vec<_>>()
-        );
-        let problems = checked(&cache, "list_problems", json!({"part_ref":key}));
-        assert!(bytes(&problems).len() < 4096);
-        let mut problem_page = problems.clone();
-        let mut problem_ids = Vec::new();
-        loop {
-            assert!(bytes(&problem_page).len() < 4096);
-            problem_ids.extend(
-                problem_page["items"]
-                    .as_array()
-                    .unwrap()
+            assert_eq!(
+                all,
+                session
+                    .items(&Default::default())
                     .iter()
-                    .map(|p| p["id"].as_str().unwrap().to_string()),
+                    .map(|i| i.item.id.clone())
+                    .collect::<Vec<_>>()
             );
-            let Some(cursor) = problem_page["next_cursor"].as_u64() else {
-                break;
-            };
-            problem_page = checked(
-                &cache,
-                "list_problems",
-                json!({"part_ref":key,"cursor":cursor}),
+            let problems = checked(cache, "list_problems", json!({"part_ref":key}));
+            assert!(bytes(&problems).len() < 4096);
+            let mut problem_page = problems.clone();
+            let mut problem_ids = Vec::new();
+            loop {
+                assert!(bytes(&problem_page).len() < 4096);
+                problem_ids.extend(
+                    problem_page["items"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|p| p["id"].as_str().unwrap().to_string()),
+                );
+                let Some(cursor) = problem_page["next_cursor"].as_u64() else {
+                    break;
+                };
+                problem_page = checked(
+                    cache,
+                    "list_problems",
+                    json!({"part_ref":key,"cursor":cursor}),
+                );
+            }
+            assert_eq!(
+                problem_ids,
+                session
+                    .problems(&Default::default())
+                    .iter()
+                    .map(|p| p.id.clone())
+                    .collect::<Vec<_>>()
+            );
+            let mut max_delta = 0;
+            for ops in session_edits::edits(&session) {
+                let d = checked(
+                    cache,
+                    "preview_ops",
+                    json!({"part_ref":key,"spec":session.spec(),"ops":ops}),
+                );
+                max_delta = max_delta.max(bytes(&d).len());
+                assert!(bytes(&d).len() < 4096);
+            }
+            eprintln!(
+                "MCP_BUDGET {} summary={} list_max={} problems={} delta_max={}",
+                step.display(),
+                bytes(&summary).len(),
+                max_page,
+                bytes(&problems).len(),
+                max_delta
             );
         }
-        assert_eq!(
-            problem_ids,
-            session
-                .problems(&Default::default())
-                .iter()
-                .map(|p| p.id.clone())
-                .collect::<Vec<_>>()
-        );
-        let mut max_delta = 0;
-        for ops in session_edits::edits(&session) {
-            let d = checked(
-                &cache,
-                "preview_ops",
-                json!({"part_ref":key,"spec":session.spec(),"ops":ops}),
-            );
-            max_delta = max_delta.max(bytes(&d).len());
-            assert!(bytes(&d).len() < 4096);
-        }
-        eprintln!(
-            "MCP_BUDGET {} summary={} list_max={} problems={} delta_max={}",
-            step.display(),
-            bytes(&summary).len(),
-            max_page,
-            bytes(&problems).len(),
-            max_delta
-        );
         // A real, live serve Session independently follows the complete S0 sequence.
         let mut serve = Command::new(env!("CARGO_BIN_EXE_draftwright"))
             .arg("serve")
@@ -720,7 +725,7 @@ fn s0_http_serve_and_session_agree_with_bounded_lossless_default_payloads() {
     let rows = (0..200)
         .map(|i| json!({"id":format!("i:{i}"),"label":"x".repeat(10000)}))
         .collect();
-    let p = mcp::page(&cache, rows, &json!({})).unwrap();
+    let p = mcp::page(&budget_cache, rows, &json!({})).unwrap();
     assert!(bytes(&p).len() < 4096);
     assert!(p["next_cursor"].is_number());
     assert!(p["items"][0]["detail_ref"].is_string());
