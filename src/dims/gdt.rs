@@ -690,8 +690,8 @@ fn step(shape: Shape, side: &str, size: P2) -> f64 {
 
 /// An attachment site, its outward side, and an optional planar face extension.
 type Site<'a> = (P2, &'a str, Option<[P2; 2]>);
-/// Clearance class, followed by line crossings; winning candidates have exact counts.
-type Grade = (u8, usize);
+/// Clearance class, text contacts, then line crossings; winning counts are exact.
+type Grade = (u8, usize, usize);
 type Choice<'a> = (Grade, &'a str, Candidate, P2, usize);
 
 /// Compact datum tiers, starting with the normal triangle, shaft and frame clearances.
@@ -1019,19 +1019,22 @@ impl Obstacles<'_> {
     /// 1 clear of everything, past the area; 2 on the sheet and off every label and frame, a line
     /// of it through a label or another view; 3 off every label and frame only; 4 neither;
     /// 5 a filled datum triangle overlaps or touches an earlier triangle.
-    /// Add the crossing count as the second component: (0, 0) alone is clear, and fewer
-    /// crossings win among candidates with otherwise equal clearances.
+    /// Within a clearance class, avoid text contacts before counting line crossings.
+    /// An unavoidable shaft through one label must not hide an avoidable frame
+    /// through another leader (CTC-03 with the narrower CAD-sized frames).
     fn grade(&self, c: &Candidate, best: Option<Grade>) -> Grade {
-        let clearance = self.clearance_grade(c);
+        let (clearance, text, _) = self.text_grade(c);
         // Clearance precedes crossings. A worse clearance, or a crossing count that
         // already ties the best at the same clearance, cannot replace that candidate.
         // Only losing candidates stop early; every saved best has its exact count.
-        if best.is_some_and(|b| clearance > b.0) {
-            return (clearance, 0);
+        if best.is_some_and(|b| (clearance, text) > (b.0, b.1)) {
+            return (clearance, text, 0);
         }
-        let limit = best.filter(|b| b.0 == clearance).map(|b| b.1);
+        let limit = best
+            .filter(|b| (b.0, b.1) == (clearance, text))
+            .map(|b| b.2);
         if limit == Some(0) {
-            return (clearance, 0);
+            return (clearance, text, 0);
         }
         let triangle: Vec<_> = c
             .fills
@@ -1047,12 +1050,30 @@ impl Obstacles<'_> {
                 if line.meets(*t) {
                     crossings += 1;
                     if limit.is_some_and(|n| crossings >= n) {
-                        return (clearance, crossings);
+                        return (clearance, text, crossings);
                     }
                 }
             }
         }
-        (clearance, crossings)
+        (clearance, text, crossings)
+    }
+
+    fn text_grade(&self, c: &Candidate) -> Grade {
+        let clearance = self.clearance_grade(c);
+        let contacts = if clearance == 2 {
+            self.labels
+                .iter()
+                .filter(|b| c.lines.iter().any(|l| crosses(*l, **b)))
+                .count()
+                + self
+                    .lines
+                    .iter()
+                    .filter(|l| crosses(**l, c.label_box))
+                    .count()
+        } else {
+            0
+        };
+        (clearance, contacts, 0)
     }
 
     fn clearance_grade(&self, c: &Candidate) -> u8 {
@@ -2019,7 +2040,7 @@ fn plan_search(
                                 .as_ref()
                                 .is_some_and(|b| c.leader_length() < b.2.leader_length() - 1e-6);
                         let g = if intent.is_some_and(|p| p.pinned) {
-                            (0, 0)
+                            (0, 0, 0)
                         } else if matches!(search, Search::All | Search::Baseline)
                             || (compact && datum)
                         {
@@ -2034,7 +2055,7 @@ fn plan_search(
                                 },
                             )
                         } else {
-                            (obstacles.clearance_grade(&c), 0)
+                            obstacles.text_grade(&c)
                         };
                         if best
                             .as_ref()
@@ -2045,7 +2066,7 @@ fn plan_search(
                             // proven face sites before it can win on site order alone.
                             let shortest = c.leader_length() <= 0.8 * TEXT + 1e-6;
                             best = Some((g, side, c, *tip, n));
-                            if g == (0, 0) && (!compact_datum || shortest) {
+                            if g == (0, 0, 0) && (!compact_datum || shortest) {
                                 break 'search;
                             }
                         }
@@ -2089,6 +2110,7 @@ fn plan_search(
             let grade = obstacles.grade(&candidate, None);
             if grade.0 <= 1
                 && grade.1 == 0
+                && grade.2 == 0
                 && best
                     .as_ref()
                     .is_none_or(|b| grade <= obstacles.grade(&b.2, None))
@@ -3214,6 +3236,38 @@ mod tests {
         obstacles.labels.clear();
         obstacles.lines = vec![[[48.0, 182.75], [52.0, 182.75]]];
         assert_eq!(obstacles.clearance_grade(&c), 2);
+    }
+
+    #[test]
+    fn an_unavoidable_text_contact_does_not_hide_another_frames_leader() {
+        let analysis: Analysis = serde_json::from_value(serde_json::json!({
+            "schema": crate::model::ANALYSIS_SCHEMA,
+            "binding":{"source_sha256":"", "part":"plate", "face_count":0, "loader":"test"},
+            "envelope":[[0,0,0],[100,60,10]], "iso_bounds":[0,0,100,60]
+        }))
+        .unwrap();
+        let plan = crate::model::plan(&analysis, &Spec::default()).unwrap();
+        let page = Page::new(&analysis, &plan.sheet, &[]);
+        let right = candidate(Shape::Frame, [88., 100.], "below", 45., [29.5, 5.]);
+        let obstacles = Obstacles {
+            page: &page,
+            own: "v:front".into(),
+            area: None,
+            exterior: None,
+            protect_triangles: false,
+            label_gap: 0.,
+            parallel_gap: None,
+            triangles: Vec::new(),
+            // Both left-hand tiers cross this label on their way from the face.
+            labels: vec![[57., 80., 59., 85.], right.label_box],
+            lines: right.lines,
+        };
+        let beside = candidate(Shape::Frame, [58., 100.], "below", 47.5, [29.4, 5.]);
+        let below = candidate(Shape::Frame, [58., 100.], "below", 38.5, [29.4, 5.]);
+        assert_eq!(obstacles.clearance_grade(&beside), 2);
+        assert_eq!(obstacles.clearance_grade(&below), 2);
+        assert!(obstacles.text_grade(&below) < obstacles.text_grade(&beside));
+        assert!(obstacles.grade(&below, None) < obstacles.grade(&beside, None));
     }
 
     #[test]

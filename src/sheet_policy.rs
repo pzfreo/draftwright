@@ -4872,3 +4872,73 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod compact_sheet_regressions {
+    use crate::model::{self, Plan, Spec};
+    use std::path::Path;
+
+    fn selected(file: &str, size: &str, scale: &str) -> Plan {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(file);
+        let a = model::analyse_native(&path).unwrap().1;
+        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        assert_eq!(
+            (p.sheet.size.as_str(), p.sheet.scale.as_str()),
+            (size, scale),
+            "{}",
+            p.sheet.basis
+        );
+        assert!(
+            model::findings(&p).clean(),
+            "{:?}",
+            model::hard_layout_codes(&p)
+        );
+        assert!(model::finished_sheets_fit(&a, &p));
+        assert_eq!(model::undrawn_gdt(&p), 0);
+        p
+    }
+
+    #[test]
+    fn ctc01_measured_lanes_fit_a3_at_one_to_five() {
+        selected("pmi/step/nist_ctc_01_asme1_ap242-e1.stp.gz", "A3", "1:5");
+    }
+
+    #[test]
+    fn ctc03_profile_frames_clear_each_others_leaders_on_a3() {
+        let p = selected("sheet-policy/nist_ctc_03_asme1_ap242.stp.gz", "A3", "1:5");
+        assert!(
+            !p.problems
+                .iter()
+                .any(|q| q.code == "annotation_ink_overlap")
+        );
+    }
+
+    #[test]
+    fn ftc07_stays_on_a2_at_one_to_two_below_the_fill_band() {
+        selected("pmi/step/nist_ftc_07_asme1_ap242-e2.stp.gz", "A2", "1:2");
+    }
+
+    #[test]
+    fn stc07_stays_on_a2_at_one_to_two_below_the_fill_band() {
+        selected(
+            "sheet-policy/nist_stc_07_asme1_ap242-e3.stp.gz",
+            "A2",
+            "1:2",
+        );
+    }
+
+    #[test]
+    fn shf08_hole_leaves_the_near_side_on_a4_at_two_to_one() {
+        let p = selected("sheet-policy/shf08.step.gz", "A4", "2:1");
+        let id = "d:f:hole:f28/bore.diameter";
+        assert!(!p.problems.iter().any(|q| matches!(
+            q.code.as_str(),
+            "leader_across_view" | "leader_through_feature"
+        ) && q.subjects.iter().any(|s| s == id)));
+        let d = p.dimensions.iter().find(|d| d.id == id).unwrap();
+        let shaft = d.placed.as_ref().unwrap().lines[0];
+        assert!((shaft[1][0] - shaft[0][0]).hypot(shaft[1][1] - shaft[0][1]) < 20.0);
+    }
+}
