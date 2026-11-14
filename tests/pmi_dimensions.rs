@@ -3187,3 +3187,18 @@ fn enclosure_partial_pattern_depth_does_not_claim_the_whole_callout() {
         && d.label == "8"
         && d.measurements.iter().any(|m| m.feature == id)));
 }
+
+#[test]
+fn enclosure_authored_depth_keeps_precision_beyond_engine_nominal_places() {
+    let text = String::from_utf8(enclosure_depth_bytes()).unwrap();
+    let original = "#2621=(LENGTH_MEASURE_WITH_UNIT()MEASURE_REPRESENTATION_ITEM()MEASURE_WITH_UNIT(LENGTH_MEASURE(8.),";
+    assert_eq!(text.matches(original).count(), 1);
+    let edited = text.replace(original, &original.replace("(8.)", "(7.9375)"));
+    let (_, a) = analysed("enclosure-depth-precision.step", edited.as_bytes());
+    let plan = assert_enclosure_depth(&a, &Spec::default(), 7.9375);
+    assert!(
+        plan.dimensions
+            .iter()
+            .any(|d| d.label == "4× ⌀3 H11 ↧ 7.9375")
+    );
+}

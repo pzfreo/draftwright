@@ -523,7 +523,7 @@ fn print_depth(w: &mut Want, r: &Record, value: f64, band: Option<Req>) {
         .expect("matched bore depth")
         + 1;
     let mut clause = Want {
-        terms: vec![w.units.format(value)],
+        terms: vec![w.units.magnitude(value)],
         value,
         ..w.clone()
     };
