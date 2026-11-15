@@ -16,23 +16,24 @@ part_cases!(accepted_cad_frame_layout;
 );
 fn accepted_cad_frame_layout(file: &str) {
     let (size, scale, counts, crossings) = match file {
-        // 2026-11-15: the source declares inches, so omitted units now select ANSI C
-        // at 1:12. Recovery remains exhausted: these exact counts retain the newly
-        // exposed cramped-layout warnings rather than exempting them from the test.
-        // Native circular-seat sweep text remains in degrees, including these routes.
-        "nist_stc_09_asme1_ap242-e4.stp" => {
-            ("ANSI C", "1:12", [347, 76, 0, 2, 13, 0], [66, 150, 136])
-        }
+        // 2026-11-15: declared inches select ANSI. The exhausted seed at C 1:12
+        // was below the readable floor; recovery now keeps the measured fitting
+        // E 1:1 candidate, preserving every carried requirement. These exact
+        // lower counts retain its remaining source-PMI conflicts for review.
+        "nist_stc_09_asme1_ap242-e4.stp" => ("ANSI E", "1:1", [82, 30, 0, 1, 5, 1], [5, 27, 47]),
         // 2026-11-14: below-band preference restores the approved A2 1:2.
         // 2026-11-14: repair clears 3 crossings and 4 feature contacts.
         // 2026-11-15, Paul accepted: on A2 1:2 the 4x 7.137 counterbore callout's leader crosses
         // one more of its own front view's inner wall lines than the shortest route
         // (leader_across_view 0 -> 1). Three bounded attempts (placement, view re-spacing,
         // ownership) found no clean route, and the drawing reads cleanly (#478).
-        // 2026-11-15: declared inches select ANSI C at the same 1:2. Decimal-inch
-        // text changes route reservations: crowding/across-view notices clear,
-        // while four more crossings and two more material contacts remain visible.
-        "nist_ftc_07_asme1_ap242-e2.stp" => ("ANSI C", "1:2", [14, 4, 3, 0, 0, 0], [0, 2, 6]),
+        // 2026-11-15: declared inches select ANSI C at 1:2. The normal datum
+        // bend search clears the crowded witness band without tilting scoped
+        // rings; resolved-unit routing removes material contacts and halves
+        // the previous inch crossing count. The wider normal datum bend trades
+        // two extension contacts for dimension-stroke contacts, within main
+        // crossing limits; all remaining counts stay exact.
+        "nist_ftc_07_asme1_ap242-e2.stp" => ("ANSI C", "1:2", [7, 0, 3, 0, 0, 0], [0, 4, 3]),
         // 2026-11-14: repair preserving shared rows clears 11 crossings and 13 feature contacts.
         "nist_ftc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [55, 12, 7, 0, 3, 0], [15, 16, 31]),
         // 2026-11-14: bounded frame repair clears 7 crossings at the unchanged A0 1:1.
