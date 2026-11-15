@@ -114,6 +114,11 @@ class PackAPI(unittest.TestCase):
                 patch.object(bd, "export_step", side_effect=AssertionError("assembly geometry is cached")):
             pack.render(self.directory / "again", formats=("json",))
         self.assertEqual(pack.rows, report["rows"])
+        with patch.object(bd, "export_step", side_effect=AssertionError("PMI edits do not re-export geometry")):
+            base.general_tolerance("±0.07")
+            pack.render(self.directory / "live", formats=("pdf", "json"))
+        live_page = PdfReader(self.directory / "live.pdf").pages[base_row["sheets"][0] - 1]
+        self.assertIn("±0.07", live_page.extract_text())
 
     def test_list_and_step_path_use_the_same_products(self):
         ns = self.documented()
