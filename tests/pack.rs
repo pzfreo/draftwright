@@ -1984,7 +1984,7 @@ fn pack_title_defaults_follow_ap242_sources_and_own_drawing_intent() {
                 general: if tolerance {
                     vec![pmi::GeneralTolerance::Class {
                         text: "ISO 2768-fH".into(),
-                        standard: None,
+                        standard: pmi::standards::Iso2768::recognise("ISO 2768-fH"),
                     }]
                 } else {
                     vec![]
