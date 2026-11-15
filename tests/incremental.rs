@@ -1433,3 +1433,48 @@ fn removing_one_note_in_full_apply_keeps_another_notes_placement() {
         value(&cold.state().annotations)
     );
 }
+
+#[test]
+fn rebase_then_ctc_reload_share_one_process() {
+    datum_rebase_offer_previews_and_applies_only_when_chosen();
+    pmi_round_trip("ctc");
+}
+
+#[test]
+fn ctc_reload_then_rebase_share_one_process() {
+    pmi_round_trip("ctc");
+    datum_rebase_offer_previews_and_applies_only_when_chosen();
+}
+
+#[test]
+fn ordinary_plan_after_incremental_matches_fresh_process() {
+    const CHILD: &str = "DRAFTWRIGHT_FRESH_INCREMENTAL_REGRESSION";
+    if let Some(path) = std::env::var_os(CHILD) {
+        std::fs::write(path, serde_json::to_vec(open("ctc").plan()).unwrap()).unwrap();
+        return;
+    }
+    let path = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("fresh-ctc-{}.json", std::process::id()));
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "incremental::ordinary_plan_after_incremental_matches_fresh_process",
+        ])
+        .env(CHILD, &path)
+        .output()
+        .unwrap();
+    assert!(
+        child.status.success(),
+        "{}",
+        String::from_utf8_lossy(&child.stderr)
+    );
+    let fresh: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    std::fs::remove_file(path).unwrap();
+    let mut session = open("ctc");
+    let updated = datum_step(&source("ctc"), planar_face(&session));
+    session
+        .replace_step_incremental("ctc", &updated, true)
+        .unwrap();
+    datum_rebase_offer_previews_and_applies_only_when_chosen();
+    assert_eq!(value(open("ctc").plan()), fresh);
+}

@@ -449,6 +449,9 @@ type SharedValues<T> = VecDeque<([u8; 32], Arc<T>)>;
 
 /// Bounded exact results across immutable calls. Only reference/queue updates hold
 /// the lock: cloning and destroying a large Plan must not stall other planners.
+/// Retained-layout solves bypass both reads and writes: their thread-local intent,
+/// restored variants and pin references are not complete inputs to these shared keys.
+/// In particular, their results must never populate an ordinary planner's memo.
 pub(crate) struct BoundedMemo<T> {
     capacity: usize,
     values: Mutex<SharedValues<T>>,
@@ -465,6 +468,9 @@ impl<T: Clone> BoundedMemo<T> {
     }
 
     pub(crate) fn get(&self, key: &[u8; 32]) -> Option<T> {
+        if crate::incremental::active() || crate::engine_pins::loading() {
+            return None;
+        }
         let stored = self
             .values
             .lock()
@@ -477,6 +483,9 @@ impl<T: Clone> BoundedMemo<T> {
     }
 
     pub(crate) fn insert(&self, key: [u8; 32], value: T) {
+        if crate::incremental::active() || crate::engine_pins::loading() {
+            return;
+        }
         let value = Arc::new(value);
         // Invariant: The memo lock protects fixed-key deque updates; evicted values are dropped after unlocking.
         let mut values = self.values.lock().expect("planning memo lock");
