@@ -5458,6 +5458,17 @@ pub(crate) fn local_placement_fix(
     options: &BTreeMap<String, Value>,
     trials: &LocalFixTrials,
 ) -> Option<crate::fixes::Fix> {
+    local_placement_candidate(analysis, plan, problem, options, trials, false).map(|(fix, _)| fix)
+}
+
+fn local_placement_candidate(
+    analysis: &Analysis,
+    plan: &crate::model::Plan,
+    problem: &Problem,
+    options: &BTreeMap<String, Value>,
+    trials: &LocalFixTrials,
+    pattern_only: bool,
+) -> Option<(crate::fixes::Fix, PlannedDimension)> {
     use crate::placement_intent::{Along, Place, Slot};
     let spec = plan.resolved_spec();
     let mut raw = pmi_policy::wants(analysis, &spec).0;
@@ -5484,6 +5495,15 @@ pub(crate) fn local_placement_fix(
             continue;
         };
         let d = &plan.dimensions[index];
+        if pattern_only
+            && (d.kind != "linear"
+                || !d
+                    .measurements
+                    .iter()
+                    .any(|m| m.parameter.starts_with("grid_pitch.")))
+        {
+            continue;
+        }
         let repeated = plan
             .problems
             .iter()
@@ -5518,6 +5538,9 @@ pub(crate) fn local_placement_fix(
             let Some(name) = option["view"].as_str() else {
                 continue;
             };
+            if pattern_only && d.view.strip_prefix("v:") != Some(name) {
+                continue;
+            }
             let Some(view) = plan
                 .views
                 .iter()
@@ -5613,7 +5636,7 @@ pub(crate) fn local_placement_fix(
                     })
                     .collect();
                 if added.is_empty() {
-                    return Some(crate::fixes::Fix::new(description, ops));
+                    return Some((crate::fixes::Fix::new(description, ops), all[index].clone()));
                 }
                 // A trade that stays local is offered only when it leaves strictly fewer
                 // findings: the published findings on this item that the candidate clears must
@@ -5644,7 +5667,7 @@ pub(crate) fn local_placement_fix(
                             .join(" "),
                     );
                     description.push('.');
-                    fallback = Some(crate::fixes::Fix::new(description, ops));
+                    fallback = Some((crate::fixes::Fix::new(description, ops), all[index].clone()));
                 }
                 None
             };
@@ -5763,6 +5786,82 @@ pub(crate) fn local_placement_fix(
         all[index] = d.clone();
     }
     fallback
+}
+
+/// Source callouts settle after pattern pitch columns. An equivalent opposite
+/// column can clear their final witnesses without moving any measured station,
+/// callout, frame or view. Reuse the editor's proven geometry, then require every
+/// published code and crossing-kind budget to improve or stay unchanged.
+pub(crate) fn settle_source_pattern_columns(analysis: &Analysis, plan: &mut crate::model::Plan) {
+    if !crate::nominal::authored_pmi(analysis) {
+        return;
+    }
+    for _ in 0..4 {
+        let before = recheck(analysis, plan);
+        let problems: Vec<_> = before
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p.code.as_str(),
+                    "annotation_leader_crossing" | "annotation_ink_overlap"
+                ) && p.subjects.iter().any(|id| {
+                    plan.dimensions.iter().any(|d| {
+                        d.id == *id
+                            && d.kind == "linear"
+                            && d.measurements
+                                .iter()
+                                .any(|m| m.parameter.starts_with("grid_pitch."))
+                    })
+                })
+            })
+            .take(8)
+            .cloned()
+            .collect();
+        if problems.is_empty() {
+            return;
+        }
+        let options = placement_options_with_spec(analysis, &plan.views, &plan.resolved_spec());
+        let trials = LocalFixTrials::default();
+        let mut improved = None;
+        for problem in problems {
+            let Some((_, mut d)) =
+                local_placement_candidate(analysis, plan, &problem, &options, &trials, true)
+            else {
+                continue;
+            };
+            let mut trial = plan.clone();
+            d.default = true;
+            d.basis += "; automatic source-pattern column repair against the finished callouts";
+            let moved_id = d.id.clone();
+            *trial
+                .dimensions
+                .iter_mut()
+                .find(|q| q.id == moved_id)
+                .expect("the trial retains its dimension") = d;
+            let after = recheck(analysis, &trial);
+            let codes: BTreeSet<_> = before
+                .iter()
+                .chain(&after)
+                .map(|p| p.code.as_str())
+                .collect();
+            trial.problems.retain(|p| !codes.contains(p.code.as_str()));
+            trial.problems.extend(after);
+            contacts::report(analysis, &mut trial);
+            if callout_routes::no_regression(&plan.problems, &trial.problems)
+                && trial.problems.len() < plan.problems.len()
+                && crate::model::finished_sheets_fit(analysis, &trial)
+            {
+                trial.record_dimension_labels();
+                trial.record_callout_offsets();
+                improved = Some(trial);
+                break;
+            }
+        }
+        let Some(trial) = improved else {
+            return;
+        };
+        *plan = trial;
+    }
 }
 
 /// A readable symbolic class with no numeric limits stated: a hole class on proven internal

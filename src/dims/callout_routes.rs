@@ -712,6 +712,7 @@ pub(crate) fn finish_inch_contacts(analysis: &Analysis, plan: &mut Plan) {
     let reference = plan.clone();
     let ids = plan.dimensions.iter().map(|d| d.id.clone()).collect();
     finish_new_contacts(analysis, &spec, plan, &ids, &reference);
+    super::settle_source_pattern_columns(analysis, plan);
     crate::hole_table::refresh_marks(analysis, plan);
     super::contacts::report(analysis, plan);
 }

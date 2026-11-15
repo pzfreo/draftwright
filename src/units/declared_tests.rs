@@ -247,6 +247,19 @@ fn ftc07_decimal_inches_reach_native_dxf_text() {
             .any(|d| (d.value - 1.524).abs() < 1e-6 && d.label.contains(".060"))
     );
     assert!(p.dimensions.iter().any(|d| d.label.contains("⌀.875 ±.010")));
+    assert!(
+        p.spec.dimensions.is_empty(),
+        "automatic column repair must not author a pin"
+    );
+    assert!(
+        !p.problems
+            .iter()
+            .any(|p| p.code == "annotation_leader_crossing"
+                && p.subjects
+                    .iter()
+                    .any(|s| s == "d:f:hole_pattern:f112/grid_pitch.length.row")),
+        "the final pitch column must clear both source callouts"
+    );
     let font = crate::text::Font::new(api::MONO.to_vec()).unwrap();
     let drawing = model::render(&part, &a, &p, &font).unwrap();
     let dxf = String::from_utf8(drawing.dxf()).unwrap();

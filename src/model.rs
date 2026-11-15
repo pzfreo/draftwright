@@ -995,7 +995,7 @@ impl Plan {
         Some((view, [at[0] + label[0], at[1] + label[1]]))
     }
 
-    fn record_dimension_labels(&mut self) {
+    pub(crate) fn record_dimension_labels(&mut self) {
         self.dimension_labels = self
             .dimensions
             .iter()
