@@ -9,13 +9,8 @@
             "enum": [
               "draftwright.spec/1",
               "draftwright.spec/2",
-              "draftwright.spec/3"
-            ]
-          },
-          "binding": {
-            "type": [
-              "object",
-              "null"
+              "draftwright.spec/3",
+              "draftwright.spec/4"
             ]
           },
           "sheets": {
@@ -389,6 +384,12 @@
             "items": {
               "type": "object"
             }
+          },
+          "^(binding|engine_pins)$(?!\n)": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         }
       },
@@ -463,13 +464,8 @@
             "enum": [
               "draftwright.spec/1",
               "draftwright.spec/2",
-              "draftwright.spec/3"
-            ]
-          },
-          "binding": {
-            "type": [
-              "object",
-              "null"
+              "draftwright.spec/3",
+              "draftwright.spec/4"
             ]
           },
           "sheets": {
@@ -558,10 +554,7 @@
                 ]
               },
               "default_finish": {
-                "type": [
-                  "object",
-                  "null"
-                ]
+                "$ref": "#/F"
               },
               "paper": {
                 "enum": [
@@ -826,6 +819,9 @@
             "items": {
               "type": "object"
             }
+          },
+          "^(binding|engine_pins)$(?!\n)": {
+            "$ref": "#/F"
           }
         }
       },
@@ -967,6 +963,12 @@
         "$ref": "#/D"
       },
       "type": "array"
+    },
+    "F": {
+      "type": [
+        "object",
+        "null"
+      ]
     }
   },
   "get_item": {
@@ -979,13 +981,8 @@
             "enum": [
               "draftwright.spec/1",
               "draftwright.spec/2",
-              "draftwright.spec/3"
-            ]
-          },
-          "binding": {
-            "type": [
-              "object",
-              "null"
+              "draftwright.spec/3",
+              "draftwright.spec/4"
             ]
           },
           "sheets": {
@@ -1359,6 +1356,12 @@
             "items": {
               "type": "object"
             }
+          },
+          "^(binding|engine_pins)$(?!\n)": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         }
       },
@@ -1409,13 +1412,8 @@
             "enum": [
               "draftwright.spec/1",
               "draftwright.spec/2",
-              "draftwright.spec/3"
-            ]
-          },
-          "binding": {
-            "type": [
-              "object",
-              "null"
+              "draftwright.spec/3",
+              "draftwright.spec/4"
             ]
           },
           "sheets": {
@@ -1789,6 +1787,12 @@
             "items": {
               "type": "object"
             }
+          },
+          "^(binding|engine_pins)$(?!\n)": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         }
       },
@@ -1857,13 +1861,8 @@
             "enum": [
               "draftwright.spec/1",
               "draftwright.spec/2",
-              "draftwright.spec/3"
-            ]
-          },
-          "binding": {
-            "type": [
-              "object",
-              "null"
+              "draftwright.spec/3",
+              "draftwright.spec/4"
             ]
           },
           "sheets": {
@@ -2237,6 +2236,12 @@
             "items": {
               "type": "object"
             }
+          },
+          "^(binding|engine_pins)$(?!\n)": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         }
       }
@@ -2283,13 +2288,8 @@
             "enum": [
               "draftwright.spec/1",
               "draftwright.spec/2",
-              "draftwright.spec/3"
-            ]
-          },
-          "binding": {
-            "type": [
-              "object",
-              "null"
+              "draftwright.spec/3",
+              "draftwright.spec/4"
             ]
           },
           "sheets": {
@@ -2663,6 +2663,12 @@
             "items": {
               "type": "object"
             }
+          },
+          "^(binding|engine_pins)$(?!\n)": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         }
       },
@@ -2756,13 +2762,8 @@
             "enum": [
               "draftwright.spec/1",
               "draftwright.spec/2",
-              "draftwright.spec/3"
-            ]
-          },
-          "binding": {
-            "type": [
-              "object",
-              "null"
+              "draftwright.spec/3",
+              "draftwright.spec/4"
             ]
           },
           "sheets": {
@@ -3136,6 +3137,12 @@
             "items": {
               "type": "object"
             }
+          },
+          "^(binding|engine_pins)$(?!\n)": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         }
       },
@@ -3233,13 +3240,8 @@
             "enum": [
               "draftwright.spec/1",
               "draftwright.spec/2",
-              "draftwright.spec/3"
-            ]
-          },
-          "binding": {
-            "type": [
-              "object",
-              "null"
+              "draftwright.spec/3",
+              "draftwright.spec/4"
             ]
           },
           "sheets": {
@@ -3613,6 +3615,12 @@
             "items": {
               "type": "object"
             }
+          },
+          "^(binding|engine_pins)$(?!\n)": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         }
       },
@@ -3691,13 +3699,8 @@
             "enum": [
               "draftwright.spec/1",
               "draftwright.spec/2",
-              "draftwright.spec/3"
-            ]
-          },
-          "binding": {
-            "type": [
-              "object",
-              "null"
+              "draftwright.spec/3",
+              "draftwright.spec/4"
             ]
           },
           "sheets": {
@@ -4071,6 +4074,12 @@
             "items": {
               "type": "object"
             }
+          },
+          "^(binding|engine_pins)$(?!\n)": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         }
       },
@@ -4121,13 +4130,8 @@
             "enum": [
               "draftwright.spec/1",
               "draftwright.spec/2",
-              "draftwright.spec/3"
-            ]
-          },
-          "binding": {
-            "type": [
-              "object",
-              "null"
+              "draftwright.spec/3",
+              "draftwright.spec/4"
             ]
           },
           "sheets": {
@@ -4501,6 +4505,12 @@
             "items": {
               "type": "object"
             }
+          },
+          "^(binding|engine_pins)$(?!\n)": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         }
       }
@@ -4542,13 +4552,8 @@
             "enum": [
               "draftwright.spec/1",
               "draftwright.spec/2",
-              "draftwright.spec/3"
-            ]
-          },
-          "binding": {
-            "type": [
-              "object",
-              "null"
+              "draftwright.spec/3",
+              "draftwright.spec/4"
             ]
           },
           "sheets": {
@@ -4922,6 +4927,12 @@
             "items": {
               "type": "object"
             }
+          },
+          "^(binding|engine_pins)$(?!\n)": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         }
       },

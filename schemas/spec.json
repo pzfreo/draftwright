@@ -2151,12 +2151,12 @@
               ]
             }
           },
+          "additionalProperties": false,
           "required": [
             "kind",
             "lines",
             "arrows"
-          ],
-          "additionalProperties": false
+          ]
         },
         {
           "type": "object",
@@ -2241,6 +2241,7 @@
               "minimum": 0
             }
           },
+          "additionalProperties": false,
           "required": [
             "kind",
             "tip",
@@ -2248,8 +2249,7 @@
             "arrows",
             "fills",
             "bounds"
-          ],
-          "additionalProperties": false
+          ]
         },
         {
           "type": "object",
@@ -2269,11 +2269,11 @@
               }
             }
           },
+          "additionalProperties": false,
           "required": [
             "kind",
             "offsets"
-          ],
-          "additionalProperties": false
+          ]
         },
         {
           "type": "object",
@@ -2317,12 +2317,12 @@
               ]
             }
           },
+          "additionalProperties": false,
           "required": [
             "kind",
             "leader",
             "bounds"
-          ],
-          "additionalProperties": false
+          ]
         },
         {
           "type": "object",
@@ -2350,12 +2350,12 @@
               "maxItems": 4
             }
           },
+          "additionalProperties": false,
           "required": [
             "kind",
             "at",
             "bounds"
-          ],
-          "additionalProperties": false
+          ]
         },
         {
           "type": "object",
@@ -2380,12 +2380,12 @@
               "maxItems": 4
             }
           },
+          "additionalProperties": false,
           "required": [
             "kind",
             "at",
             "bounds"
-          ],
-          "additionalProperties": false
+          ]
         },
         {
           "type": "object",
@@ -2397,11 +2397,11 @@
               "$ref": "#/$defs/engine_pin_grid"
             }
           },
+          "additionalProperties": false,
           "required": [
             "kind",
             "grid"
-          ],
-          "additionalProperties": false
+          ]
         },
         {
           "type": "object",
@@ -2425,10 +2425,10 @@
               "minimum": 0
             }
           },
+          "additionalProperties": false,
           "required": [
             "kind"
-          ],
-          "additionalProperties": false
+          ]
         }
       ]
     },
@@ -2462,11 +2462,11 @@
                   "type": "number"
                 }
               },
+              "additionalProperties": false,
               "required": [
                 "axis",
                 "station"
-              ],
-              "additionalProperties": false
+              ]
             },
             {
               "type": "null"
@@ -2526,10 +2526,10 @@
           "minimum": 0
         }
       },
+      "additionalProperties": false,
       "required": [
         "place"
-      ],
-      "additionalProperties": false
+      ]
     },
     "engine_pins": {
       "type": "object",
@@ -2550,11 +2550,11 @@
               "type": "string"
             }
           },
+          "additionalProperties": false,
           "required": [
             "size",
             "scale"
-          ],
-          "additionalProperties": false
+          ]
         },
         "views": {
           "type": "object",
@@ -2630,14 +2630,14 @@
                 }
               }
             },
+            "additionalProperties": false,
             "required": [
               "at",
               "direction",
               "up",
               "scale",
               "area"
-            ],
-            "additionalProperties": false
+            ]
           }
         },
         "annotations": {
@@ -2683,14 +2683,14 @@
           "description": "Identity of authored composition intent, excluding text and requirements."
         }
       },
+      "additionalProperties": false,
       "required": [
         "written_by",
         "source_sha256",
         "sheet",
         "views",
         "annotations"
-      ],
-      "additionalProperties": false
+      ]
     },
     "engine_pin_grid": {
       "type": "object",
@@ -2725,12 +2725,12 @@
           }
         }
       },
+      "additionalProperties": false,
       "required": [
         "x",
         "y",
         "bounds"
-      ],
-      "additionalProperties": false
+      ]
     }
   }
 }

@@ -8,7 +8,8 @@
           "enum": [
             "draftwright.spec/1",
             "draftwright.spec/2",
-            "draftwright.spec/3"
+            "draftwright.spec/3",
+            "draftwright.spec/4"
           ]
         },
         "part": {
@@ -54,6 +55,12 @@
       "additionalProperties": false,
       "description": "Outline. Call spec_schema {} for the full Spec and get_spec spec_read schemas; item_options gives valid edit paths and choices.",
       "patternProperties": {
+        "^(binding|engine_pins|sheets)$(?!\n)": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "^(sheet|balloons|views|dimensions|annotations|features|faces|dimension_schemes|precision|origin)$(?!\n)": {
           "type": "object"
         },
@@ -65,12 +72,6 @@
         },
         "^(notes|tables|gears|feature_declarations)$(?!\n)": {
           "type": "array"
-        },
-        "^(binding|sheets)$(?!\n)": {
-          "type": [
-            "object",
-            "null"
-          ]
         }
       }
     },
