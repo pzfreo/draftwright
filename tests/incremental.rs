@@ -302,3 +302,37 @@ fn removing_a_datum_and_its_dependent_frame_restores_the_drawing() {
     );
     assert_eq!(value(&original.plan.gdt), value(&s.plan().gdt));
 }
+
+#[test]
+fn changing_dimension_content_releases_only_its_ink_and_reports_it() {
+    let mut s = open("bracket");
+    let original = s.state().clone();
+    let id = s
+        .plan()
+        .dimensions
+        .iter()
+        .find(|d| d.kind == "linear" && d.placed.is_some())
+        .unwrap()
+        .id
+        .clone();
+    let path = format!("dimensions/{}/tolerance", draftwright::items::key(&id));
+    let delta = s
+        .apply_incremental(&[Op::set(&path, json!("±0.001"))], true)
+        .unwrap();
+    fixed(&original.plan, s.plan());
+    assert!(
+        delta
+            .moved
+            .iter()
+            .any(|m| m.id == id && !m.reason.is_empty())
+    );
+    assert!(delta.moved.iter().all(|m| m.id == id));
+    assert_eq!(s.spec().dimensions.len(), 1);
+    assert!(
+        s.spec().dimensions[&id].place.is_none(),
+        "derived pins are not authored intent"
+    );
+    s.apply_incremental(&[Op::remove(&path)], true).unwrap();
+    fixed(&original.plan, s.plan());
+    assert_eq!(value(&original.annotations), value(&s.state().annotations));
+}
