@@ -333,15 +333,15 @@ fn rehang(g: &mut gdt::PlannedGdt, next: &Placed) {
         let old_elbow = p.lines.first().map(|s| s[1]);
         let new_elbow = next.lines.first().map(|s| s[1]);
         // All-around/all-over rings belong at the bend, rather than on the frame.
-        if let (Some(a), Some(b)) = (old_elbow, new_elbow) {
+        if let (Some(_), Some(b)) = (old_elbow, new_elbow) {
             let count = g
                 .modifiers
                 .iter()
                 .map(|m| if m == "all_over" { 2 } else { 1 })
                 .sum::<usize>();
             for arc in p.arcs.iter_mut().rev().take(count) {
-                arc[0] += b[0] - a[0] - delta[0];
-                arc[1] += b[1] - a[1] - delta[1];
+                arc[0] = b[0];
+                arc[1] = b[1];
             }
         }
         if let Some(shaft) = next.lines.first() {
