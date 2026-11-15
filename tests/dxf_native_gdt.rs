@@ -516,6 +516,7 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
                 .replace('↧', "DEEP")
                 .replace('⌴', "CBORE")
                 .replace('⌵', "CSK")
+                .replace(['ø', 'Ø'], "⌀")
                 .replace('Ⓕ', "(F)")
                 .replace('Ⓜ', "(M)")
                 .replace('Ⓛ', "(L)")

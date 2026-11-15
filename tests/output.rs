@@ -674,36 +674,52 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
     ] {
         assert!((a[0] - b[0]).hypot(a[1] - b[1]) < 1e-10);
     }
-    // A leader's sampled rim may be slightly off the analytic circle. Native
-    // dimension definitions still measure the exact bore, rather than that sample.
+    // A native leader retains the planned attachment even when a sampled rim is
+    // slightly off the analytic circle. It must not be snapped by a DIMENSION.
     let mut sampled = drawing.clone();
-    let callout = sampled
+    let id = sampled
         .sheet
         .dxf
         .dimensions
-        .values_mut()
-        .find(|d| d.label.contains("THRU"))
-        .unwrap();
-    callout.placed.as_mut().unwrap().arrows[0][0][0] += 0.0001;
-    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(sampled.dxf())).unwrap();
-    let dim = parsed
-        .entities()
-        .find_map(|e| {
-            if let E::DiameterDimension(d) = &e.specific {
-                Some(d)
-            } else {
-                None
-            }
-        })
-        .unwrap();
-    let a = &dim.dimension_base.definition_point_1;
-    let b = &dim.definition_point_2;
-    let factor = parsed
-        .dim_styles()
-        .find(|s| s.name == dim.dimension_base.dimension_style_name)
+        .iter()
+        .find(|(_, d)| d.label.contains("THRU"))
         .unwrap()
-        .dimension_linear_measurement_scale_factor;
-    assert!(((b.x - a.x).hypot(b.y - a.y) * factor - 6.).abs() < 1e-8);
+        .0
+        .clone();
+    let leader = sampled.sheet.dxf.leaders.get_mut(&id).unwrap();
+    leader.arrows[0][0][0] += 0.0001;
+    leader.lines[0][0] = leader.arrows[0][0];
+    let expected = leader.arrows[0][0];
+    let bytes = sampled.dxf();
+    let pairs = dxf_pairs(&bytes);
+    let callout = pairs
+        .split(|p| p.0 == 0)
+        .filter(|tags| tags.contains(&(100, "AcDbMLeader".into())))
+        .find(|tags| tags.iter().any(|p| p.0 == 304 && p.1.contains("THRU")))
+        .unwrap();
+    let line = callout
+        .iter()
+        .position(|p| *p == (304, "LEADER_LINE{".into()))
+        .unwrap();
+    for (code, planned) in [10, 20].into_iter().zip(expected) {
+        assert_eq!(
+            callout[line..]
+                .iter()
+                .find(|p| p.0 == code)
+                .unwrap()
+                .1
+                .parse::<f64>()
+                .unwrap(),
+            planned
+        );
+    }
+    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(bytes)).unwrap();
+    assert!(
+        !parsed
+            .entities()
+            .any(|e| matches!(e.specific, E::DiameterDimension(_))),
+        "the callout has one native leader, without a second entity measuring a snapped rim"
+    );
     // Isolated projected poles are not valid degree-zero DXF splines.
     let mut with_points = drawing.clone();
     with_points.layers[0].items.extend([
