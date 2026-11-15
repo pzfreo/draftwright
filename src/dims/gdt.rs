@@ -572,7 +572,7 @@ impl Candidate {
 /// Scope symbols can need a longer shelf to separate leaders with nearby tips.
 /// Exhaust these bounded bend positions before displacing the frame to another
 /// tier. A collinear shaft/shelf retains its partition rather than scoring it.
-fn clear_ring_bend(mut c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
+fn clear_ring_bend(c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
     if c.ring_radius == 0.0 {
         return c;
     }
@@ -593,7 +593,9 @@ fn clear_ring_bend(mut c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
         shifted.label_box[0] += dx;
         shifted.label_box[2] += dx;
         if obstacles.clearance_grade(&shifted) < obstacles.clearance_grade(&c) {
-            c = shifted;
+            // This solves the new ring contact while retaining the established
+            // shaft through the model; further bend changes are unnecessary.
+            return shifted;
         }
     }
     if (c.lines[0][0][1] - c.elbow[1]).abs() < 1e-9 {
