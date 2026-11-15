@@ -60,6 +60,36 @@ fn improves_with_contacts(before: &[Problem], after: &[Problem], contacts: bool)
     b.iter().all(|(k, n)| *n <= a.get(k).copied().unwrap_or(0)) && defects(&b) < defects(&a)
 }
 
+// Text on a witness is worse than a leader crossing one. A new crossing
+// is allowed only for that precise kind, and by no more than the strictly
+// reduced number of contacted witnesses. Every other diagnostic stays strict.
+fn clears_witness_text(
+    before: &[Problem],
+    after: &[Problem],
+    old: (usize, usize, usize),
+    new: (usize, usize, usize),
+) -> bool {
+    if new.0 >= old.0
+        || new.1 >= old.1
+        || new.2 > old.2
+        || after.iter().any(|p| {
+            p.code == "annotation_leader_crossing"
+                && !before.iter().any(|q| q.code == p.code && q.id == p.id)
+                && p.crossing_kinds != ["extension_line"]
+        })
+    {
+        return false;
+    }
+    let (a, b) = (counts(before), counts(after));
+    b.iter().all(|(code, n)| {
+        let allowance = usize::from(matches!(
+            code.as_str(),
+            "annotation_leader_crossing" | "crossing:extension_line"
+        )) * (old.0 - new.0);
+        *n <= a.get(code).copied().unwrap_or(0) + allowance
+    })
+}
+
 pub(crate) fn no_regression(before: &[Problem], after: &[Problem]) -> bool {
     let (a, b) = (counts(before), counts(after));
     b.iter().all(|(k, n)| *n <= a.get(k).copied().unwrap_or(0))
@@ -229,7 +259,7 @@ pub(crate) fn furniture(plan: &Plan) -> Vec<PlannedDimension> {
 /// Generic callout routes leave a text gap and centre on the full reservation.
 /// A frame instead meets its actual rule, below any count above the box. Do this
 /// before checking the candidate, so collisions see exactly the printed route.
-fn meet_frame(g: &gdt::PlannedGdt, next: &mut Placed) -> bool {
+fn meet_frame(g: &gdt::PlannedGdt, next: &mut Placed, preserve_normal: bool) -> bool {
     let Some(p) = g.placed.as_ref().filter(|_| g.kind == "control_frame") else {
         return true;
     };
@@ -258,7 +288,8 @@ fn meet_frame(g: &gdt::PlannedGdt, next: &mut Placed) -> bool {
     if radius > 0.0 && next.lines.len() != 2 {
         return false;
     }
-    if radius > 0.0
+    if preserve_normal
+        && radius > 0.0
         && p.lines
             .first()
             .is_some_and(|[a, b]| (a[0] - b[0]).abs() < 1e-6)
@@ -438,7 +469,7 @@ pub(crate) fn prefer_interior(
         return;
     }
     let proofs = interior::callout_proofs(analysis, &plan.views);
-    let mut wants = super::wants(analysis).0;
+    let mut wants = super::pmi_policy::wants(analysis, spec).0;
     let frames: BTreeMap<_, _> = plan
         .views
         .iter()
@@ -664,6 +695,27 @@ fn note_contacts(plan: &Plan) -> Vec<Problem> {
         .collect()
 }
 
+/// Inch labels change the settled witness corridors. Recheck the same local
+/// routes after nominal consolidation, including padded extension contacts.
+pub(crate) fn finish_inch_contacts(analysis: &Analysis, plan: &mut Plan) {
+    if plan.sheet.units != crate::units::Units::In
+        || !plan.spec.dimensions.is_empty()
+        || crate::nominal::comparison()
+        || crate::planning::nominals_deferred()
+        || crate::planning::lookup::<bool>(analysis, "canonical-circular-recipes", &[])
+            .unwrap_or(false)
+    {
+        return;
+    }
+    let spec = plan.resolved_spec().into_owned();
+    super::contacts::report(analysis, plan);
+    let reference = plan.clone();
+    let ids = plan.dimensions.iter().map(|d| d.id.clone()).collect();
+    finish_new_contacts(analysis, &spec, plan, &ids, &reference);
+    crate::hole_table::refresh_marks(analysis, plan);
+    super::contacts::report(analysis, plan);
+}
+
 pub(crate) fn finish(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
     finish_with(analysis, spec, plan, false, None);
 }
@@ -780,6 +832,9 @@ fn finish_with(
     new_contacts: Option<(&BTreeSet<String>, &Plan)>,
 ) {
     let pmi_retry = placement::pmi_witness_retry(analysis);
+    let shorten = new_contacts.is_some()
+        && spec.units == crate::units::Units::In
+        && !crate::nominal::authored_pmi(analysis);
     let openings = plan.dimensions.iter().any(|d| {
         d.measurements
             .iter()
@@ -881,11 +936,12 @@ fn finish_with(
     if crate::nominal::comparison()
         || crate::planning::lookup::<bool>(analysis, "canonical-circular-recipes", &[])
             .unwrap_or(false)
-        || (!plan
-            .problems
-            .iter()
-            .chain(&initial_contacts)
-            .any(|p| repair_issue(&p.code))
+        || (!shorten
+            && !plan
+                .problems
+                .iter()
+                .chain(&initial_contacts)
+                .any(|p| repair_issue(&p.code))
             && extension_bad.is_empty()
             && across_ids.is_empty())
     {
@@ -898,6 +954,14 @@ fn finish_with(
         .filter(|p| repair_issue(&p.code))
         .flat_map(|p| p.subjects.iter().cloned())
         .collect();
+    if shorten {
+        affected_ids.extend(
+            plan.dimensions
+                .iter()
+                .filter(|d| d.kind == "callout")
+                .map(|d| d.id.clone()),
+        );
+    }
     affected_ids.extend(extension_bad.iter().cloned());
     affected_ids.extend(across_ids.iter().cloned());
     if let Some((ids, _)) = new_contacts {
@@ -930,7 +994,7 @@ fn finish_with(
     } else {
         BTreeMap::new()
     };
-    let mut wants = super::wants(analysis).0;
+    let mut wants = super::pmi_policy::wants(analysis, spec).0;
     let frames = plan
         .views
         .iter()
@@ -1019,21 +1083,55 @@ fn finish_with(
                     || across_ids.contains(&d.id);
                 let extension_budget = |p: &Placed| {
                     if !extension_retry {
-                        return (0, 0);
+                        return (0, 0, 0);
                     }
-                    extension_sets.get(&sheet.number).map_or((0, 0), |e| {
-                        leaders::extension_contacts(e, &p.lines, p.label_box)
+                    extension_sets.get(&sheet.number).map_or((0, 0, 0), |e| {
+                        let (pairs, text) = leaders::extension_contacts(e, &p.lines, p.label_box);
+                        (
+                            pairs,
+                            text,
+                            if spec.units == crate::units::Units::In {
+                                leaders::head_extension_contacts(e, &p.arrows)
+                            } else {
+                                0
+                            },
+                        )
                     })
                 };
                 let before_extension = extension_budget(d.placed.as_ref().expect("placed callout"));
-                if !before.iter().any(|p| repair_issue(&p.code))
+                if !shorten
+                    && !before.iter().any(|p| repair_issue(&p.code))
                     && before_extension.0 == 0
                     && !across_ids.contains(&d.id)
                 {
                     continue;
                 }
                 let glyph = plan.gdt.iter().find(|g| g.id == d.id).cloned();
-                let want = wants.iter().find(|w| w.id == d.id);
+                let want = wants.iter().find(|w| w.id == d.id).cloned().map(|mut w| {
+                    if spec.units == crate::units::Units::In {
+                        w.terms.clone_from(&d.terms);
+                        w.measurements.clone_from(&d.measurements);
+                        if let super::Shape::Callout { sites, arcs } = &mut w.shape {
+                            // A counted callout may attach to any of its claimed
+                            // visible occurrences, including conveyed raw aliases.
+                            for peer in wants.iter().filter(|p| {
+                                p.id != d.id
+                                    && p.views.contains(&view.id.trim_start_matches("v:"))
+                                    && p.measurements.iter().any(|m| d.measurements.contains(m))
+                            }) {
+                                if let super::Shape::Callout {
+                                    sites: more,
+                                    arcs: span,
+                                } = &peer.shape
+                                {
+                                    sites.extend(more.iter().copied());
+                                    arcs.extend(span.iter().cloned());
+                                }
+                            }
+                        }
+                    }
+                    w
+                });
                 if glyph.is_none() && want.is_none() {
                     continue;
                 }
@@ -1080,14 +1178,18 @@ fn finish_with(
                     seeded.placed = Some(route.clone());
                 }
                 let mut candidates = if glyph.as_ref().is_some_and(|g| g.kind == "datum_feature") {
-                    gdt::normal_routes(glyph.as_ref().expect("datum"), bends)
+                    gdt::normal_routes(
+                        glyph.as_ref().expect("datum"),
+                        bends,
+                        spec.units == crate::units::Units::In,
+                    )
                 } else {
                     leaders::settled_routes(
                         analysis,
                         sheet,
                         &plan.views,
                         &seeded,
-                        want,
+                        want.as_ref(),
                         &peers,
                         proofs.get(&view.id).map(|p| p.as_ref()),
                         new_contacts.is_some(),
@@ -1114,9 +1216,26 @@ fn finish_with(
                         .sum::<f64>()
                 };
                 let longest = route_length(old.as_ref().expect("placed callout")) + 2.0;
+                if shorten {
+                    // Keep the held corridor's local refinements ahead of the
+                    // broad sweep: its shortest rays may all fail a later audit.
+                    let local = candidates.len().min(20);
+                    candidates[local..].sort_by(|a, b| route_length(a).total_cmp(&route_length(b)));
+                }
                 let eligible = |next: &mut Placed| {
                     if let Some(g) = &glyph
-                        && !meet_frame(g, next)
+                        && !meet_frame(g, next, spec.units == crate::units::Units::In)
+                    {
+                        return false;
+                    }
+                    // A pure shortening pass keeps the existing route budget.
+                    // Clearing a real witness/text or arrowhead contact uses the
+                    // normal repair sweep; the across-view veto below still applies.
+                    if shorten
+                        && before_extension.0 == 0
+                        && before_extension.2 == 0
+                        && !before.iter().any(|p| repair_issue(&p.code))
+                        && route_length(next) > longest - 2.0 + 1e-6
                     {
                         return false;
                     }
@@ -1282,14 +1401,26 @@ fn finish_with(
                         ));
                     }
                     let next_extension = extension_budget(&next);
+                    let improved = if new_contacts.is_some() || across_ids.contains(&id) {
+                        improves_with_contacts(&before, &after, true)
+                    } else {
+                        improves(&before, &after)
+                    };
+                    let fewer_contacts = next_extension.0 < before_extension.0
+                        || next_extension.2 < before_extension.2;
+                    let shorter = shorten && route_length(&next) + 1e-6 < longest - 2.0;
                     if next_extension.0 <= before_extension.0
                         && next_extension.1 <= before_extension.1
-                        && ((if new_contacts.is_some() || across_ids.contains(&id) {
-                            improves_with_contacts(&before, &after, true)
-                        } else {
-                            improves(&before, &after)
-                        }) || (next_extension.0 < before_extension.0
-                            && no_regression(&before, &after)))
+                        && next_extension.2 <= before_extension.2
+                        && (improved
+                            || ((fewer_contacts || shorter) && no_regression(&before, &after))
+                            || (shorten
+                                && clears_witness_text(
+                                    &before,
+                                    &after,
+                                    before_extension,
+                                    next_extension,
+                                )))
                     {
                         rechecked_codes.extend(before.iter().chain(&after).map(|p| p.code.clone()));
                         if i < dimension_count {
@@ -1412,6 +1543,44 @@ mod tests {
     }
 
     #[test]
+    fn witness_text_repair_requires_fewer_contacts_and_only_a_witness_crossing() {
+        let before = [Problem {
+            code: "label_crowded".into(),
+            ..Default::default()
+        }];
+        let after = [crossing(&["extension_line"])];
+        assert!(clears_witness_text(&before, &after, (2, 2, 0), (1, 0, 0)));
+        assert!(!clears_witness_text(&before, &after, (2, 2, 0), (2, 0, 0)));
+        assert!(!clears_witness_text(&before, &after, (2, 2, 0), (1, 0, 1)));
+        assert!(!clears_witness_text(
+            &before,
+            &[crossing(&[])],
+            (2, 2, 0),
+            (1, 0, 0)
+        ));
+        for kind in ["leader", "text", "arrow", "dimension_line", ""] {
+            assert!(!clears_witness_text(
+                &before,
+                &[crossing(&[kind])],
+                (2, 2, 0),
+                (1, 0, 0)
+            ));
+        }
+        for code in [
+            "annotation_off_sheet",
+            "leader_through_feature",
+            "annotation_ink_overlap",
+        ] {
+            let mut worse = after.to_vec();
+            worse.push(Problem {
+                code: code.into(),
+                ..Default::default()
+            });
+            assert!(!clears_witness_text(&before, &worse, (2, 2, 0), (1, 0, 0)));
+        }
+    }
+
+    #[test]
     fn a_route_must_improve_crossings_without_trading_kinds_or_text() {
         let before = vec![crossing(&["leader"]), crossing(&["extension_line"])];
         assert!(improves(&before, &[crossing(&["extension_line"])]));
@@ -1459,7 +1628,7 @@ mod tests {
                 label_at: [40., 50.],
                 rotation: 0.,
             };
-            assert!(meet_frame(&g, &mut next));
+            assert!(meet_frame(&g, &mut next, true));
             assert_eq!(next.lines[1][1], [edge, 52.5]);
             assert_eq!(next.lines[0][1], next.lines[1][0]);
             assert_eq!(next.lines[1][0][1], next.lines[1][1][1]);
@@ -1493,14 +1662,14 @@ mod tests {
                 }
                 let mut straight = next.clone();
                 straight.lines = vec![[tip, end]];
-                assert!(!meet_frame(&scoped, &mut straight));
+                assert!(!meet_frame(&scoped, &mut straight, true));
                 let mut vertical = scoped.clone();
                 vertical.placed.as_mut().unwrap().lines[0] = [tip, [tip[0], bend[1]]];
                 assert!(
-                    !meet_frame(&vertical, &mut next.clone()),
+                    !meet_frame(&vertical, &mut next.clone(), true),
                     "a clear ring must not buy a leaning shaft"
                 );
-                assert!(meet_frame(&scoped, &mut next));
+                assert!(meet_frame(&scoped, &mut next, true));
                 let [a, b] = next.lines[1];
                 assert_eq!(a[0], bend[0], "retain the reserved ring's x position");
                 assert!((next.label_box[0] - 40.) * direction > 0.0);
@@ -1523,7 +1692,7 @@ mod tests {
             rotation: 0.,
         };
         assert!(
-            !meet_frame(&g, &mut short),
+            !meet_frame(&g, &mut short, true),
             "the adjusted shaft must carry its whole arrow"
         );
     }

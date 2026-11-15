@@ -2661,12 +2661,15 @@ fn select_with(
                 ) && callouts.iter().any(|d| p.subjects.contains(&d.id))
             })
             .count();
+        let dense = n >= 6 && (crowded > 0 || locations.len() > 8 || conflicts > 0);
         let wanted = match &canonical {
-            Some(base) if plan.spec.hole_table == Setting::Auto => base
-                .hole_tables
-                .iter()
-                .any(|t| t.id == format!("hole_schedule_{}", view.id.trim_start_matches("v:"))),
-            _ => n >= 6 && (crowded > 0 || locations.len() > 8 || conflicts > 0),
+            Some(base) if plan.spec.hole_table == Setting::Auto => {
+                base.hole_tables
+                    .iter()
+                    .any(|t| t.id == format!("hole_schedule_{}", view.id.trim_start_matches("v:")))
+                    || (plan.sheet.units == crate::units::Units::In && dense)
+            }
+            _ => dense,
         };
         if plan.spec.hole_table != Setting::Always && !wanted {
             continue;
@@ -3474,7 +3477,44 @@ pub(crate) fn reflow_blocks(
     Some(blocks)
 }
 
+/// Re-evaluate nearby schedule tags against the final nominal callouts. Table
+/// cells, row identities, origins and all dimension ink remain fixed.
+pub(crate) fn refresh_marks(analysis: &Analysis, plan: &mut Plan) {
+    if plan.hole_tables.is_empty()
+        || !plan.balloons.iter().any(|b| {
+            b.label_box.is_some_and(|bounds| {
+                plan.dimensions
+                    .iter()
+                    .filter_map(|d| d.placed.as_ref())
+                    .any(|p| {
+                        overlap(bounds, p.label_box)
+                            || p.lines.iter().chain(&p.arrows).any(|l| crosses(*l, bounds))
+                    })
+            })
+        })
+    {
+        return;
+    }
+    let selection = Selection {
+        tables: plan.hole_tables.clone(),
+        ..Default::default()
+    };
+    let mut trial = plan.clone();
+    if install_at_mode(analysis, &mut trial, &selection, true) {
+        plan.balloons = trial.balloons;
+    }
+}
+
 fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bool {
+    install_at_mode(analysis, plan, selection, false)
+}
+
+fn install_at_mode(
+    analysis: &Analysis,
+    plan: &mut Plan,
+    selection: &Selection,
+    keep_blocks: bool,
+) -> bool {
     // Removing ladders must not withdraw the room already needed by a semantic frame or datum.
     // If this presentation cannot keep them in their bands, retain the complete original plan.
     if plan.problems.iter().any(|p| {
@@ -3505,24 +3545,26 @@ fn install_at(analysis: &Analysis, plan: &mut Plan, selection: &Selection) -> bo
             .unwrap();
         let frame = Frame::new(analysis, view);
         let mut t = wanted.clone();
-        // Install the form reserved before view layout. Alternate counts are chosen
-        // during table reflow, not after the annotation bands have been allocated.
-        let n = *counts(
-            selection.columns(&plan.spec, &t.id),
-            2,
-            t.rows.len(),
-            plan.sheet.page,
-        )
-        .start();
-        let Some(blocks) = reflow_blocks(&t, &plan.sheet, &obstacles, Some(n)) else {
-            return false;
-        };
-        obstacles.extend(
-            blocks
-                .iter()
-                .filter_map(|b| b.placed.as_ref().map(|p| p.cells)),
-        );
-        t.blocks.extend(blocks);
+        if !keep_blocks {
+            // Install the form reserved before view layout. Alternate counts are chosen
+            // during table reflow, not after the annotation bands have been allocated.
+            let n = *counts(
+                selection.columns(&plan.spec, &t.id),
+                2,
+                t.rows.len(),
+                plan.sheet.page,
+            )
+            .start();
+            let Some(blocks) = reflow_blocks(&t, &plan.sheet, &obstacles, Some(n)) else {
+                return false;
+            };
+            obstacles.extend(
+                blocks
+                    .iter()
+                    .filter_map(|b| b.placed.as_ref().map(|p| p.cells)),
+            );
+            t.blocks.extend(blocks);
+        }
         let mut labels: Vec<Rect> = plan
             .dimensions
             .iter()
