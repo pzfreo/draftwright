@@ -735,11 +735,12 @@ pub(super) fn prepare<'a>(
     step: &Path,
     document: &Document,
     file: &StepFile,
-    settings: &GaSpec,
+    pack_spec: &super::PackSpec,
     rows: impl Iterator<Item = &'a Row>,
     reused: &BTreeMap<usize, (&haecceity::Part, &Analysis)>,
     aliases: &BTreeMap<usize, super::Alias>,
 ) -> Result<Prepared, Error> {
+    let settings = &pack_spec.ga;
     let bytes = document.bytes();
     let started = crate::pack::Instant::now();
     let rows: Vec<_> = rows.collect();
@@ -832,6 +833,7 @@ pub(super) fn prepare<'a>(
     profile("read", started);
     let started = crate::pack::Instant::now();
     let mut spec = settings.drawing.clone();
+    pack_spec.inherit_title(&mut spec, &analysis, Some(&metadata));
     spec.sheet.hidden.get_or_insert(false);
     spec.sheet
         .title

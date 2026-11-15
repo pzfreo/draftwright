@@ -150,9 +150,9 @@ edited.
   optional and absent for a file of one part, whose Analysis is byte-identical). A STEP file's
   distinct parts are listed by `draftwright parts part.step` (serve/MCP `parts`):
   `{"parts": [{"part": 0, "name": "plate", "product_id": "plate", "faces": 13, "instances": 1},
-  …]}`, in haecceity's order (`read_part_definitions`). A part is chosen by its **index**
-  (`--part K`; `"part": K` in a request), with the name and product id reported beside it (the
-  maintainer's D1). Part K is read alone, in its own frame (`haecceity::StepFile::part`: its
+  …]}`, in haecceity's order (`read_part_definitions`). A CLI part is chosen by its persistent **key** or zero-based **index**
+  (`--part K`); service requests retain `"part": K` as an index. The name, product
+  ID and persistent key are reported beside it. Part K is read alone, in its own frame (`haecceity::StepFile::part`: its
   first placement's shape with no placement applied), so a part placed twice is drawn once.
   Its `binding.part` is the part's name and `binding.part_index` is K; `face_count` and
   `envelope` are the part's own. Its PMI is the part's only: other parts' records, findings and
@@ -3431,11 +3431,23 @@ items remain reported even with a position override. `general_assembly` in the
 pack report gives sheet, paper, scale, envelope, list, drawn/suppressed/unballooned
 items and problems; `ga_seconds` is outside the deterministic report.
 
+Pack-wide `title` supplies shared title-block defaults to the GA and every made-part
+sheet. `ga.drawing.sheet.title` and `parts/<key>/drawing/sheet/title` override
+individual fields, including explicit empty strings. Part PMI and file values
+also take precedence over pack defaults; a default alone never creates a source
+disagreement. Engine defaults fill the remaining gaps. Shared fields include
+`drawn_by`, `date`, `revision`, `approved_by`, `company` (LEGAL OWNER), `tolerance`,
+`material` and `document_type`. Pack-level `title.title`, `title.number` and `title.sheet` are
+errors: TITLE and DWG NO. identify individual sheets and belong in their drawing
+Specs. Global SHEET numbering is still allocated by the pack.
+
 The independent, strict pack Spec (`schemas/pack-spec.json`) contains intent:
 
 ```json
 {
   "schema": "draftwright.pack-spec/1",
+  "title": { "drawn_by": "PA", "date": "2026-11-15", "revision": "B",
+             "approved_by": "QA", "company": "Workshop", "tolerance": "ISO 2768-mK" },
   "parts": {
     "GRM-01 shank": {
       "supply": "make",
@@ -3618,6 +3630,13 @@ documented in [wasm.md](wasm.md#assembly-drawing-packs).
 
 `part` selects one part before recognition and drawing, like `--part K`. Use the
 persistent `key` printed by `draftwright parts`, or its numeric `part` index.
+Every CLI `--part` selector accepts the persistent key printed by `draftwright parts`
+or its zero-based index, for example `draftwright plan assembly.step --part "push rod"`.
+Unknown or ambiguous keys are errors; use `draftwright parts assembly.step` to list
+the distinct keys. The same resolver handles the drawing Spec’s `part` field.
+Numeric CLI text that identifies different products as a key and an index is
+ambiguous; choose a distinct key, or disambiguate with the typed Spec `part` field.
+
 A command/request selector must agree with the Spec; conflicts are refused.
 An Analysis supplied without its STEP must already describe the selected part:
 it cannot supply another part's geometry. Explicit selection of the already
@@ -3687,7 +3706,8 @@ with “as moulded” / “as cast”. `sheet/default_finish` overrides the fini
 `process: machined` restores machining policy. Printed gear semantics are capped
 at Warning; multi-solid Info findings stay Info. Other dimensioning lint is unchanged.
 GA lists append Process beside Material only when a non-bought row has a Spec,
-file or suggested value to print. Bought and guessed cells stay blank, including
+file, caller-owned PMI or suggested value to print. Python pack rows mark
+caller-owned material/process as `sources.<field>: "pmi"`. Bought and guessed cells stay blank, including
 guesses of printing. CSV `process` and `process_source` mirror JSON `process` and
 `sources.process`; absent values stay blank. Made-part guesses remain labelled
 in JSON/CSV, but bought parts get no invented process. In a pack, override a part at

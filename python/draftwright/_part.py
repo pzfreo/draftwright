@@ -230,7 +230,9 @@ class Part:
 
     def __init__(self, shape, name=None, *, number=None, title=None):
         self.shape = shape
-        self.name = _safe(name or getattr(shape, "label", "") or "part")
+        self.name = str(name if name is not None else getattr(shape, "label", "") or "part").strip()
+        if not self.name:
+            raise ValueError("Part name must not be blank")
         self.number, self.title = number, title
         self._faces = list(shape.faces())
         if not self._faces:
@@ -240,6 +242,7 @@ class Part:
         self._datums = {}
         self._pmi = _native.Pmi(len(self._faces))
         self._geometry_cache = None
+        self._pack_geometry_cache = None
 
     # ---- part data -------------------------------------------------------
     def material(self, value):
@@ -471,21 +474,24 @@ class Part:
     def _names_of(self, indices):
         return [self._names[i] for i in sorted(indices)]
 
-    def _geometry(self):
+    def _geometry(self, *, product_local=False):
         # Transfer geometry once; the PMI remains the native object above and can change
         # without serializing or re-importing the geometry.
         names = dict(self._names)
         for i in range(len(self._faces)):
             names.setdefault(i, f"f:{self.name}.__geometry.{i + 1}")
         signature = tuple(sorted(names.items()))
-        if self._geometry_cache is None or self._geometry_cache[0] != signature:
+        cache_name = "_pack_geometry_cache" if product_local else "_geometry_cache"
+        cache = getattr(self, cache_name)
+        if cache is None or cache[0] != signature:
             stream = io.BytesIO()
             write_step(self.shape, stream, names, self._faces, self.name,
-                       number=self.number, title=self.title)
+                       number=self.number, title=self.title, product_local=product_local)
             geometry = _native.Geometry(stream.getvalue(), self.name,
                                         [names[i] for i in range(len(self._faces))])
-            self._geometry_cache = signature, geometry
-        return self._geometry_cache[1]
+            cache = signature, geometry
+            setattr(self, cache_name, cache)
+        return cache[1]
 
     def _keys(self, obj):
         if isinstance(obj, _Ref):
@@ -533,7 +539,7 @@ def _step_names(path):
     return re.findall(r"ADVANCED_FACE\('([^']*)'", text)
 
 
-def write_step(shape, path, names, faces, product, *, number=None, title=None):
+def write_step(shape, path, names, faces, product, *, number=None, title=None, product_local=False):
     """Write ``shape`` as STEP with ``names`` (face index -> name) on its faces.
 
     build123d's ``export_step`` names assemblies and nodes but not sub-shapes, so
@@ -555,7 +561,11 @@ def write_step(shape, path, names, faces, product, *, number=None, title=None):
     for printer in Message.DefaultMessenger_s().Printers():  # as build123d: keep OCCT quiet
         printer.SetTraceLevel(Message_Gravity.Message_Fail)
     writer = STEPControl_Writer()
-    writer.Transfer(shape.wrapped, STEPControl_AsIs)
+    # XCAF assemblies separate a child's outer placement from its product B-rep.
+    # Export the identical local reference for packs; keep the original placement
+    # for ordinary single-Part drawings. Intrinsic sub-face locations stay intact.
+    wrapped = shape.wrapped.Located(TopLoc_Location()) if product_local else shape.wrapped
+    writer.Transfer(wrapped, STEPControl_AsIs)
     model = writer.Model()
     for i in range(1, model.NbEntities() + 1):
         item = model.Value(i)
@@ -564,7 +574,10 @@ def write_step(shape, path, names, faces, product, *, number=None, title=None):
             item.SetName(TCollection_HAsciiString(title or product))
     finder = writer.WS().TransferWriter().FinderProcess()
     for index, name in sorted(names.items()):
-        item = STEPConstruct.FindEntity_s(finder, faces[index].wrapped, TopLoc_Location())
+        face = faces[index].wrapped
+        if product_local:
+            face = face.Moved(shape.wrapped.Location().Inverted())
+        item = STEPConstruct.FindEntity_s(finder, face, TopLoc_Location())
         if item is None:
             raise RuntimeError(f"OCCT wrote no STEP face for the face named {name}")
         item.SetName(TCollection_HAsciiString(name))
@@ -589,9 +602,9 @@ class Drawing:
         self._part = part
         self._spec = {"units": units, "sheet": {"title": {}}}
         title = self._spec["sheet"]["title"]
-        if part.title is not None:
+        if part is not None and part.title is not None:
             title["title"] = part.title
-        if part.number is not None:
+        if part is not None and part.number is not None:
             title["number"] = part.number
         if sheet is not None:
             self._spec["sheet"]["size"] = sheet
@@ -657,7 +670,7 @@ class Drawing:
             raise ValueError("formats must be distinct members of svg, pdf, png, dxf")
         layout = _native.layout_spec(json.dumps(self._spec), json.dumps({} if spec is None else spec))
         part = self._part
-        out = Path(os.fsdecode(os.fspath(out))) if out is not None else Path(part.name)
+        out = Path(os.fsdecode(os.fspath(out))) if out is not None else Path(_safe(part.name))
         if self._scale is not None:
             if not self._scale > 0:
                 raise ValueError("scale must be positive")

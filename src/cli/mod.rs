@@ -113,7 +113,7 @@ struct Drawing {
     /// the Spec (without it, the defaults)
     #[arg(long, value_name = "JSON")]
     spec: Option<String>,
-    /// part K of an assembly, as `draftwright parts` lists them, drawn alone
+    /// persistent key or index K of an assembly, as `draftwright parts` lists them, drawn alone
     #[arg(long, value_name = "K", allow_negative_numbers = true)]
     part: Option<String>,
 }
@@ -215,7 +215,7 @@ enum Command {
         /// the Spec of the old revision
         #[arg(long, value_name = "JSON")]
         spec: Option<String>,
-        /// part K of an assembly, as `draftwright parts` lists them
+        /// persistent key or index K of an assembly, as `draftwright parts` lists them
         #[arg(long, value_name = "K", allow_negative_numbers = true)]
         part: Option<String>,
         /// the report's title (default: the new file's name)
@@ -571,12 +571,32 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
     let part = given
         .part
         .as_deref()
-        .map(|k| {
-            k.parse::<usize>().map_err(|_| {
-                Error::invalid(format!(
-                    "--part {k:?} is not a part's index; `draftwright parts <step>` lists them"
-                ))
-            })
+        .map(|key| {
+            if !analysis.is_null() {
+                let saved: crate::model::Analysis = serde_json::from_value(analysis.clone())
+                    .map_err(|e| Error::invalid(format!("the analysis is not valid: {e}")))?;
+                let parts = if saved.parts.is_empty() {
+                    vec![crate::model::FilePart {
+                        part: saved.binding.part_index.unwrap_or(0),
+                        name: saved.product_name.clone().unwrap_or_default(),
+                        product_id: saved
+                            .bom
+                            .as_ref()
+                            .and_then(|b| b.product_ids.first())
+                            .cloned()
+                            .unwrap_or_default(),
+                        faces: saved.binding.face_count,
+                        instances: 1,
+                    }]
+                } else {
+                    saved.parts.clone()
+                };
+                return crate::part_choice::cli(key, &parts).map_err(Error::from);
+            }
+            // All-digit text can also be a product key. Reading the definitions
+            // is necessary to distinguish a plain index from a conflicting key.
+            crate::part_choice::cli(key, &api::parts(std::path::Path::new(arg(1)?))?)
+                .map_err(Error::from)
         })
         .transpose()?;
     if no_features && (features.is_some() || !analysis.is_null()) {
@@ -670,8 +690,13 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
             new.file_name()
                 .map_or("part".into(), |n| n.to_string_lossy().into_owned())
         });
+        let new_part = given
+            .part
+            .as_deref()
+            .map(|key| crate::part_choice::cli(key, &api::parts(new)?).map_err(Error::from))
+            .transpose()?;
         return guarded(command, || {
-            let revised = crate::revision::diff(old, new, part, &spec)?;
+            let revised = crate::revision::diff_parts(old, new, part, new_part, &spec)?;
             let marked = revised.marked();
             let pretty = |v: &Value| serde_json::to_vec_pretty(v).expect("JSON serialises");
             let files: Vec<(&str, Vec<u8>)> = vec![

@@ -1,4 +1,5 @@
 mod layout;
+mod pack;
 mod part;
 
 use pyo3::exceptions::PyException;
@@ -59,6 +60,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(render, m)?)?;
     m.add_function(wrap_pyfunction!(layout_spec, m)?)?;
     m.add_function(wrap_pyfunction!(inspect_step, m)?)?;
+    m.add_function(wrap_pyfunction!(pack::render_pack, m)?)?;
+    m.add_function(wrap_pyfunction!(pack::pack_title, m)?)?;
     m.add_class::<part::Pmi>()?;
     m.add_class::<part::Geometry>()?;
     Ok(())
