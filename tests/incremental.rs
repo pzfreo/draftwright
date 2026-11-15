@@ -876,3 +876,62 @@ fn unchanged_ink_does_not_restore_findings_from_another_step_revision() {
     s.replace_step_incremental("bracket", &bytes, true).unwrap();
     assert_eq!(original.problems, s.state().problems);
 }
+
+#[test]
+fn consecutive_crowded_step_adds_retain_unique_findings() {
+    let bytes = source("scattered");
+    let mut s = open_spec(
+        "scattered",
+        serde_json::from_value(json!({
+            "sheet":{"size":"A4","scale":"1:1"},"hole_table":"never"
+        }))
+        .unwrap(),
+    );
+    let bottom = s
+        .part()
+        .faces
+        .iter()
+        .enumerate()
+        .find_map(|(i, f)| {
+            if let draftwright::haecceity::geom::Surface::Plane { frame } = &f.surface {
+                (frame.z[2].abs() > 0.99
+                    && (frame.origin[2] - s.analysis().envelope[0][2]).abs() < 1e-5)
+                    .then_some(i)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let first = pmi_edit(&bytes, |p| {
+        let target = face_target(p, planar_face(&s));
+        p.tolerances
+            .push(pmi_tolerance(target, ToleranceKind::Flatness, None));
+    });
+    let before = s.state().clone();
+    let delta = s
+        .replace_step_incremental("scattered", &first, true)
+        .unwrap();
+    assert!(delta.moved.is_empty());
+    fixed(&before.plan, s.plan());
+    let second = pmi_edit(&first, |p| {
+        let target = face_target(p, bottom);
+        p.tolerances
+            .push(pmi_tolerance(target, ToleranceKind::Flatness, None));
+    });
+    let before = s.state().clone();
+    let delta = s
+        .replace_step_incremental("scattered", &second, true)
+        .unwrap();
+    assert!(delta.moved.is_empty());
+    fixed(&before.plan, s.plan());
+    let problems = &s.state().problems;
+    assert_eq!(
+        problems
+            .iter()
+            .filter(|p| p.code == "incremental_placement_constrained")
+            .count(),
+        2
+    );
+    let ids: std::collections::BTreeSet<_> = problems.iter().map(|p| &p.id).collect();
+    assert_eq!(ids.len(), problems.len());
+}
