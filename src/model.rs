@@ -2771,7 +2771,8 @@ pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
             g.placed.is_none()
                 // An uncited datum is deliberately suppressed by the datum policy,
                 // just as the renderer records it, rather than lost for space.
-                && !(g.kind == "datum_feature"
+                && !(!historical_layout()
+                    && g.kind == "datum_feature"
                     && g.state == ItemState::not_drawable("datum_not_drawn"))
                 && !matches!(
                     g.state,
@@ -2819,6 +2820,7 @@ fn recover_inner(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, 
         spec,
         &first,
         crate::nominal::comparison(),
+        historical_layout(),
         UNCAPPED.get(),
     ))
     // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
@@ -3113,7 +3115,7 @@ pub(crate) fn established_drawing(analysis: &Analysis, spec: &Spec) -> Result<Pl
                                     plan_automatic(&reference, &base)
                                 })
                             } else {
-                                plan_automatic(&reference, &base)
+                                with_historical_layout(|| plan_automatic(&reference, &base))
                             }
                         })
                     })
@@ -5009,6 +5011,7 @@ pub(crate) fn plan_automatic(analysis: &Analysis, spec: &Spec) -> Result<Plan, I
     // Reuse that complete result when the paper policy has just requested it already.
     let key = serde_json::to_vec(&(
         spec,
+        historical_layout(),
         crate::planning::nominals_deferred(),
         crate::planning::policy_key(analysis),
         crate::planning::is_fixed_pair(),
@@ -5232,6 +5235,24 @@ fn retain_dropped_location(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
 
 thread_local! {
     static UNCAPPED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static HISTORICAL_LAYOUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Established route templates retain the completeness and packing inputs used to define
+/// their budgets. Live candidates are always judged with the current PMI policy.
+pub(crate) fn historical_layout() -> bool {
+    HISTORICAL_LAYOUT.get()
+}
+
+fn with_historical_layout<T>(run: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            HISTORICAL_LAYOUT.set(self.0);
+        }
+    }
+    let _restore = Restore(HISTORICAL_LAYOUT.replace(true));
+    run()
 }
 
 /// Run *run* with the established drawing's scale cap on candidates lifted or kept

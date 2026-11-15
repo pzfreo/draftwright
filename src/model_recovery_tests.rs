@@ -40,6 +40,8 @@ fn deliberately_uncited_datums_are_not_space_losses() {
     p.gdt[0].placed = None;
     p.gdt[0].state = ItemState::not_drawable("datum_not_drawn");
     assert_eq!(undrawn_gdt(&p), 0);
+    assert_eq!(with_historical_layout(|| undrawn_gdt(&p)), 1);
+    assert_eq!(undrawn_gdt(&p), 0, "historical route policy must not leak");
     p.gdt[0].state = ItemState::not_drawable("pmi_not_drawn");
     assert_eq!(
         undrawn_gdt(&p),
