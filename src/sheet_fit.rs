@@ -1115,7 +1115,11 @@ fn pack_reserved_at(
         // Automatic profile/radius notes belong to the established geometry recipe.
         // Moving those changes its annotation corridors; this recovery relocates
         // the authored/PMI ruled notes table that otherwise blocks scale selection.
-        || template.notes_block.as_ref().is_some_and(|b| !b.ruled)
+        || template
+            .notes_block
+            .iter()
+            .chain(&template.radius_notes_block)
+            .any(|b| !b.ruled)
         || template.notes.iter().any(|n| n.placed.is_none())
         || !template.tables.is_empty()
         || template.views.iter().any(|v| v.cut.is_some())
@@ -2344,6 +2348,42 @@ pub(crate) fn reserve_linear_corridors(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authored_notes_do_not_unlock_packing_of_automatic_radius_notes() {
+        let (_, a) = crate::model::analyse_native(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/pmi/step/nist_stc_09_asme1_ap242-e4.stp.gz"),
+        )
+        .unwrap();
+        let spec = serde_json::from_value(serde_json::json!({
+            "sheet": {"size": "A0", "scale": "1:5"},
+            "notes": [{"id": "n:1", "text": "Deburr all machined edges."}]
+        }))
+        .unwrap();
+        let p = crate::model::plan_escalated(&a, &spec).unwrap();
+        assert!(p.notes_block.as_ref().unwrap().ruled);
+        let radius = p
+            .radius_notes_block
+            .as_ref()
+            .expect("automatic radius/profile notes accompany authored notes");
+        assert!(!radius.ruled);
+        assert!(p.notes.iter().all(|n| n.placed.is_some()));
+        let mut authored_only = p.clone();
+        authored_only.radius_notes_block = None;
+        authored_only
+            .notes
+            .retain(|n| !n.id.starts_with("n:f:blend:"));
+        assert!(
+            pack_gdt(&a, &authored_only, &authored_only).is_some(),
+            "the authored table alone is packable"
+        );
+        assert!(
+            pack_gdt(&a, &p, &p).is_none(),
+            "the automatic note recipe must stay fixed"
+        );
+        assert_eq!(p.radius_notes_block.as_ref().unwrap(), radius);
+    }
 
     #[test]
     fn foreign_sheet_details_do_not_reserve_local_furniture() {
