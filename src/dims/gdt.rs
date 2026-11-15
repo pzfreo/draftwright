@@ -197,13 +197,54 @@ fn ring_box(bend: P2, radius: f64) -> [f64; 4] {
 const CLEAR: f64 = crate::layout::GDT_CLEAR;
 const TIERS: usize = 16;
 
-fn reserve_ring(rings: &mut Vec<(P2, f64)>, modifiers: &[String], p: &GdtPlaced) {
+#[derive(Clone)]
+struct ScopeRing {
+    centre: P2,
+    radius: f64,
+    leader: Vec<[P2; 2]>,
+}
+
+fn reserve_ring(rings: &mut Vec<ScopeRing>, modifiers: &[String], p: &GdtPlaced) {
     let radius = ring_radius(modifiers);
     if radius > 0.0
         && let Some(arc) = p.arcs.last()
     {
-        rings.push(([arc[0], arc[1]], radius));
+        rings.push(ScopeRing {
+            centre: [arc[0], arc[1]],
+            radius,
+            leader: p.lines.clone(),
+        });
     }
+}
+
+/// Upgrade a transported frame's short shelf without replacing its proven
+/// attachment or bend. Scope arcs stay at that bend; only rigid frame ink moves.
+fn extend_scope_shelf(p: &mut GdtPlaced, modifiers: &[String]) {
+    let radius = ring_radius(modifiers);
+    if radius == 0.0 || p.lines.len() != 2 {
+        return;
+    }
+    let [bend, end] = p.lines[1];
+    if (end[1] - bend[1]).abs() > 1e-6 {
+        return;
+    }
+    let missing = radius + super::contacts::TEXT_CLEAR - (end[0] - bend[0]).abs();
+    if missing <= 1e-9 {
+        return;
+    }
+    let dx = if end[0] >= bend[0] { missing } else { -missing };
+    let mut moved = translated(p.clone(), [dx, 0.]);
+    moved.tip = p.tip;
+    moved.lines.clone_from(&p.lines);
+    moved.lines[1][1][0] += dx;
+    moved.arrows.clone_from(&p.arrows);
+    let rings: usize = modifiers
+        .iter()
+        .map(|m| if m == "all_over" { 2 } else { 1 })
+        .sum();
+    let n = p.arcs.len();
+    moved.arcs[n - rings..].copy_from_slice(&p.arcs[n - rings..]);
+    *p = moved;
 }
 
 /// A glyph laid out at its own origin, before it is placed.
@@ -1221,7 +1262,7 @@ struct Obstacles<'a> {
     triangles: Vec<Vec<P2>>,
     labels: Vec<[f64; 4]>,
     /// Filled scope-symbol discs, independent of label packing.
-    rings: Vec<(P2, f64)>,
+    rings: Vec<ScopeRing>,
     lines: Vec<[P2; 2]>,
     /// Filled peer arrowheads; scope bends must separate the flares as well as shafts.
     heads: Vec<[P2; 3]>,
@@ -1233,7 +1274,7 @@ impl Obstacles<'_> {
     /// How well *c* fits, best first: 0 clear of everything and inside its view's reserved area;
     /// 1 clear of everything, past the area; 2 on the sheet and off every label and frame, a line
     /// of it through a label or another view; 3 off every label and frame only; 4 neither;
-    /// 5 filled datum/arrow ink overlaps or touches an earlier filled symbol.
+    /// 5 a filled datum triangle overlaps or touches an earlier triangle.
     /// Within a clearance class, keep frames off existing leaders before counting
     /// line crossings. An unavoidable shaft through one label must not hide an
     /// avoidable frame over another leader (CTC-03's narrower CAD-sized frames).
@@ -1284,7 +1325,58 @@ impl Obstacles<'_> {
         } else {
             0
         };
-        (clearance, contacts, 0)
+        (clearance, contacts + self.scope_contacts(c), 0)
+    }
+
+    // Scope symbols are real obstacles, but clearing one must not introduce a
+    // worse frame/label collision. Among equally fitting placements avoid their
+    // discs before comparing ordinary line crossings; unavoidable contacts are
+    // still reported by the independent ink audit.
+    fn scope_contacts(&self, c: &Candidate) -> usize {
+        self.rings
+            .iter()
+            .filter(|ring| {
+                let (centre, radius) = (ring.centre, ring.radius);
+                let b = super::contacts::clear_box(c.label_box);
+                let nearest = [centre[0].clamp(b[0], b[2]), centre[1].clamp(b[1], b[3])];
+                (nearest[0] - centre[0]).hypot(nearest[1] - centre[1]) <= radius
+                    || (c.ring_radius > 0.0
+                        && (c.elbow[0] - centre[0]).hypot(c.elbow[1] - centre[1])
+                            <= radius + c.ring_radius + super::contacts::TEXT_CLEAR)
+                    || c.fills
+                        .iter()
+                        .any(|f| circle_touches_polygon(centre, radius, f))
+                    || c.arrows
+                        .iter()
+                        .copied()
+                        .map(arrow_vertices)
+                        .any(|f| circle_touches_polygon(centre, radius, &f))
+                    || c.lines.iter().any(|&[a, b]| {
+                        // Ordinary route grading already counts a contact with
+                        // this ring owner's shaft or shelf. Do not count the
+                        // same owner twice; a chord meeting only the ring is
+                        // still a separate obstacle contact.
+                        if ring
+                            .leader
+                            .iter()
+                            .any(|&owner| super::leaders::lines_meet([a, b], owner))
+                        {
+                            return false;
+                        }
+                        let delta = [b[0] - a[0], b[1] - a[1]];
+                        let length2 = delta[0] * delta[0] + delta[1] * delta[1];
+                        let t = if length2 > 0.0 {
+                            ((centre[0] - a[0]) * delta[0] + (centre[1] - a[1]) * delta[1])
+                                / length2
+                        } else {
+                            0.0
+                        }
+                        .clamp(0.0, 1.0);
+                        (a[0] + t * delta[0] - centre[0]).hypot(a[1] + t * delta[1] - centre[1])
+                            <= radius
+                    })
+            })
+            .count()
     }
 
     fn clearance_grade(&self, c: &Candidate) -> u8 {
@@ -1315,29 +1407,13 @@ impl Obstacles<'_> {
         if c.fills
             .iter()
             .any(|f| self.triangles.iter().any(|t| polygons_touch(f, t)))
-            || self.rings.iter().any(|&(centre, radius)| {
-                c.fills
-                    .iter()
-                    .any(|f| circle_touches_polygon(centre, radius, f))
-                    || c.arrows
-                        .iter()
-                        .copied()
-                        .map(arrow_vertices)
-                        .any(|f| circle_touches_polygon(centre, radius, &f))
-            })
         {
             return 5;
         }
         let d = self.page.drawable();
         let on_sheet = b[0] >= d[0] && b[1] >= d[1] && b[2] <= d[2] && b[3] <= d[3];
         let grown = [b[0] - 0.5, b[1] - 0.5, b[2] + 0.5, b[3] + 0.5];
-        let off_labels = self.rings.iter().all(|&(centre, radius)| {
-            let nearest = [
-                centre[0].clamp(grown[0], grown[2]),
-                centre[1].clamp(grown[1], grown[3]),
-            ];
-            (nearest[0] - centre[0]).hypot(nearest[1] - centre[1]) > radius
-        }) && self.labels.iter().all(|l| !boxes_overlap(grown, *l))
+        let off_labels = self.labels.iter().all(|l| !boxes_overlap(grown, *l))
             && (!self.protect_triangles
                 || c.fills.iter().all(|f| {
                     let b = fill_box(f);
@@ -1382,20 +1458,7 @@ impl Obstacles<'_> {
                 .iter()
                 .any(|l| self.lines.iter().any(|t| runs_alongside(*l, *t, gap)))
         });
-        let rings_clear = self.rings.iter().all(|&(centre, radius)| {
-            c.lines.iter().chain(&c.arrows).all(|&[a, b]| {
-                let delta = [b[0] - a[0], b[1] - a[1]];
-                let length2 = delta[0] * delta[0] + delta[1] * delta[1];
-                let t = if length2 > 0.0 {
-                    ((centre[0] - a[0]) * delta[0] + (centre[1] - a[1]) * delta[1]) / length2
-                } else {
-                    0.0
-                }
-                .clamp(0.0, 1.0);
-                (a[0] + t * delta[0] - centre[0]).hypot(a[1] + t * delta[1] - centre[1]) > radius
-            })
-        });
-        if !lines_clear || alongside || !rings_clear {
+        if !lines_clear || alongside {
             return 2;
         }
         let inside = |q: &P2, a: [f64; 4]| {
@@ -2076,6 +2139,7 @@ fn plan_search(
             && let Some(mut p) = g.placed.clone()
         {
             p = translated(p, delta);
+            extend_scope_shelf(&mut p, &g.modifiers);
             labels.push(p.label_box);
             reserve_ring(&mut rings, &planned.modifiers, &p);
             if protect {
@@ -2414,7 +2478,8 @@ fn plan_search(
             && let Some(delta) = crate::placement_intent::anchor_delta(base, views, &g.view)
             && let Some(p) = g.placed.clone()
         {
-            let p = translated(p, delta);
+            let mut p = translated(p, delta);
+            extend_scope_shelf(&mut p, &g.modifiers);
             let candidate = Candidate {
                 frame_rule: matches!(item.glyph, Glyph::ControlFrame { .. }),
                 lines: p.lines.clone(),
@@ -2488,7 +2553,11 @@ fn plan_search(
         }
         labels.push(chosen.label_box);
         if chosen.ring_radius > 0.0 {
-            rings.push((chosen.elbow, chosen.ring_radius));
+            rings.push(ScopeRing {
+                centre: chosen.elbow,
+                radius: chosen.ring_radius,
+                leader: chosen.lines.clone(),
+            });
         }
         if protect {
             labels.extend(chosen.fills.iter().map(|f| fill_box(f)));
@@ -2554,7 +2623,7 @@ fn plan_search(
     // What the placed items collide with, as the dimensions' collisions are judged; the
     // dimensions' own are reported by them.
     let mut all: Vec<PlannedDimension> = dims.to_vec();
-    all.extend(out.iter().filter_map(contact_proxy));
+    all.extend(out.iter().filter_map(proxy));
     problems.extend(
         placement::collisions_cached(analysis, &all, sheet, views, cache)
             .into_iter()
@@ -3593,6 +3662,18 @@ mod tests {
                 runs: Vec::new(),
             }),
         };
+        let legacy = candidate(Shape::Frame, [80., 80.], "above", 100., [20., 5.]);
+        let mut inherited = frame("pmi:legacy", &legacy, vec!["all_over".into()]);
+        let p = inherited.placed.as_mut().unwrap();
+        let old = p.clone();
+        extend_scope_shelf(p, &inherited.modifiers);
+        assert_eq!(p.lines[0], old.lines[0]);
+        assert_eq!(p.arcs, old.arcs);
+        assert!(
+            (p.lines[1][1][0] - p.lines[1][0][0] - 1.7 * RING - super::super::contacts::TEXT_CLEAR)
+                .abs()
+                < 1e-9
+        );
         let first =
             candidate(Shape::Frame, [80., 80.], "above", 100., [20., 5.]).with_ring(1.7 * RING);
         let first = frame("pmi:first", &first, vec!["all_over".into()]);
@@ -3618,13 +3699,23 @@ mod tests {
             &first.modifiers,
             first.placed.as_ref().unwrap(),
         );
-        assert_eq!(obstacles.clearance_grade(&natural), 4);
+        assert_eq!(obstacles.text_grade(&natural), (0, 1, 0));
         let mut filled = natural.clone();
         filled.label_box = [40., 40., 42., 42.];
         filled.fills = vec![vec![[76.5, 99.5], [78., 99.5], [78., 100.5]]];
-        assert_eq!(obstacles.clearance_grade(&filled), 5);
+        assert_eq!(obstacles.text_grade(&filled), (0, 1, 0));
+        let chord = candidate(Shape::Frame, [78., 80.], "above", 107., [8., 2.]);
+        assert_eq!(obstacles.scope_contacts(&chord), 1);
+        let shared_shaft = candidate(Shape::Frame, [80., 80.], "above", 107., [8., 2.]);
+        assert_eq!(obstacles.scope_contacts(&shared_shaft), 0);
+        assert!(obstacles.grade(&shared_shaft, None).2 > 0);
+        // An unrelated line ending at the same bend is not the ring's owner.
+        obstacles.lines.push([[80., 100.], [76., 100.]]);
+        assert_eq!(obstacles.scope_contacts(&chord), 1);
+        obstacles.lines.pop();
         let clear = candidate(Shape::Frame, [68., 80.], "above", 107., [8., 2.]);
-        assert_eq!(obstacles.clearance_grade(&clear), 0);
+        assert_eq!(obstacles.grade(&clear, None), (0, 0, 0));
+        assert!(obstacles.grade(&clear, None) < obstacles.grade(&natural, None));
         // The first frame's label and leader are clear. Only its ring enters
         // the second frame; both proxy consumers must receive that printed ink.
         assert!(contact_proxy(&first).unwrap().placed.unwrap().lines.len() > 2);

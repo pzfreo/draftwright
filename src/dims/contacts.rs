@@ -498,10 +498,56 @@ fn touching_frame_rows(plan: &Plan, a: &str, b: &str) -> bool {
         && ((u[1] - v[3]).abs() < 1e-9 || (v[1] - u[3]).abs() < 1e-9)
 }
 
+/// Scope circles are symbol ink, not extra leader legs. Keep their label
+/// contacts visible without counting circular arcs as leader crossings.
+pub(super) fn scope_overlaps(plan: &Plan) -> Vec<Problem> {
+    let mut targets = plan.dimensions.clone();
+    targets.extend(plan.gdt.iter().filter_map(super::gdt::proxy));
+    let sheet = |view: &str| {
+        plan.views
+            .iter()
+            .find(|v| v.id == view)
+            .map_or(1, |v| v.sheet)
+    };
+    let mut out = Vec::new();
+    for a in plan
+        .gdt
+        .iter()
+        .filter(|g| !g.modifiers.is_empty())
+        .filter_map(super::gdt::contact_proxy)
+    {
+        let pa = a.placed.as_ref().expect("placed scope proxy");
+        for b in &targets {
+            let Some(pb) = b.placed.as_ref() else {
+                continue;
+            };
+            if a.id != b.id
+                && sheet(&a.view) == sheet(&b.view)
+                && !boxes_overlap(pa.label_box, pb.label_box)
+                && ink_through(pa, pb.label_box)
+            {
+                out.push(Problem {
+                    id: format!("p:annotation_ink_overlap:{}|{}", a.id, b.id),
+                    code: "annotation_ink_overlap".into(),
+                    severity: "warning".into(),
+                    subjects: vec![a.id.clone(), b.id.clone()],
+                    message: format!(
+                        "The line-work of {} runs through the label of {}.",
+                        named(&a),
+                        named(b)
+                    ),
+                    ..Default::default()
+                });
+            }
+        }
+    }
+    out
+}
+
 pub(super) fn contacts(plan: &Plan) -> Vec<Problem> {
     let mut all = plan.dimensions.clone();
     all.extend(plan.gdt.iter().filter_map(super::gdt::contact_proxy));
-    let mut out = Vec::new();
+    let mut out = scope_overlaps(plan);
     for sheet in std::iter::once(&plan.sheet).chain(&plan.sheets) {
         let placed: Vec<(&PlannedDimension, &Placed)> = all
             .iter()
@@ -514,35 +560,6 @@ pub(super) fn contacts(plan: &Plan) -> Vec<Problem> {
             .filter_map(|d| d.placed.as_ref().map(|p| (d, p)))
             .collect();
         let bounds: Vec<_> = placed.iter().map(|(_, p)| ink_bounds(p)).collect();
-        // Unlike ordinary proxies, scope proxies include their circles. Report
-        // their true overlaps as well as the near contacts below: later route
-        // repairs can otherwise replace placement's earlier ring findings.
-        for (a, pa) in placed.iter().filter(|(a, _)| {
-            plan.gdt
-                .iter()
-                .any(|g| g.id == a.id && !g.modifiers.is_empty())
-        }) {
-            for (b, pb) in &placed {
-                if a.id != b.id
-                    && !boxes_overlap(pa.label_box, pb.label_box)
-                    && ink_through(pa, pb.label_box)
-                {
-                    out.push(Problem {
-                        id: format!("p:annotation_ink_overlap:{}|{}", a.id, b.id),
-                        code: "annotation_ink_overlap".into(),
-                        severity: "warning".into(),
-                        subjects: vec![a.id.clone(), b.id.clone()],
-                        message: format!(
-                            "The line-work of {} runs through the label of {}.",
-                            named(a),
-                            named(b)
-                        ),
-                        ..Default::default()
-                    });
-                }
-            }
-        }
-
         // Text near text, and line-work near text. Overlaps and lines through a label are the
         // placement check's; only the contacts it passes as clear are reported here.
         for (i, (a, pa)) in placed.iter().enumerate() {

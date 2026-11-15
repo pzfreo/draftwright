@@ -6000,11 +6000,17 @@ pub(crate) fn recheck_cached(
     cache: &footprints::Cache,
 ) -> Vec<Problem> {
     let mut all = plan.dimensions.clone();
-    all.extend(plan.gdt.iter().filter_map(gdt::contact_proxy));
-    std::iter::once(&plan.sheet)
+    all.extend(plan.gdt.iter().filter_map(gdt::proxy));
+    let mut checked: Vec<_> = std::iter::once(&plan.sheet)
         .chain(&plan.sheets)
         .flat_map(|sheet| placement::collisions_cached(analysis, &all, sheet, &plan.views, cache))
-        .collect()
+        .collect();
+    for contact in contacts::scope_overlaps(plan) {
+        if !checked.iter().any(|p| p.id == contact.id) {
+            checked.push(contact);
+        }
+    }
+    checked
 }
 
 /// A matching chamfer requirement is actually retained by this Spec's dimension set.

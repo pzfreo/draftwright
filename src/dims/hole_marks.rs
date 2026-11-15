@@ -825,6 +825,12 @@ fn settle_counted_stack(
         let bare = base.gdt[carrier].placed.as_ref()?;
         let lift = plan.gdt[carrier].placed.as_ref()?.label_box[3] - bare.label_box[3] + GAP;
         for dy in [0.0, lift] {
+            // A scope carrier's ring and horizontal shelf are already reserved.
+            // The lifting dogleg has no shelf at its first bend; keep this
+            // carrier fixed and try another stack site instead.
+            if dy > 0.0 && !base.gdt[carrier].modifiers.is_empty() {
+                continue;
+            }
             let mut trial = base.clone();
             let mut next = gdt::translated(next.clone(), [0., dy]);
             gdt::with_count(&mut next, n);
@@ -837,24 +843,8 @@ fn settle_counted_stack(
                     let raised = lifted.lines[0][1];
                     let rest = lifted.lines.clone();
                     lifted.lines = vec![*first, [first[1], raised]];
-                    lifted.lines.extend(rest.iter().copied().skip(1));
+                    lifted.lines.extend(rest.into_iter().skip(1));
                     lifted.arrows.clone_from(&old.arrows);
-                    if !trial.gdt[carrier].modifiers.is_empty() {
-                        // A scope symbol belongs at the horizontal shelf bend,
-                        // not at the bottom of the carrier's lifting dogleg.
-                        lifted.lines = rest;
-                        lifted.lines[0][0] = first[0];
-                        lifted.arrows = vec![placement::arrow(first[0], raised)];
-                        let rings: usize = trial.gdt[carrier]
-                            .modifiers
-                            .iter()
-                            .map(|m| if m == "all_over" { 2 } else { 1 })
-                            .sum();
-                        for arc in lifted.arcs.iter_mut().rev().take(rings) {
-                            arc[0] = raised[0];
-                            arc[1] = raised[1];
-                        }
-                    }
                 }
                 trial.gdt[gi].placed = Some(next.clone());
                 let mut own = attached.clone();
