@@ -1,11 +1,17 @@
 //! Buffer a Spec for version preflight without discarding duplicate object members.
+//! Scalar nodes cannot contain a second map/array deserializer; this keeps each
+//! typed visitor from instantiating both replay and serde_json::Value map readers.
 //! Replaying maps lets each typed field's deserializer enforce its own conflict rules.
 use serde::de::{IntoDeserializer, MapAccess, SeqAccess, Visitor, value};
 use serde::{Deserialize, Deserializer};
-use serde_json::Value;
 
 pub(crate) enum Document {
-    Scalar(Value),
+    Null,
+    Bool(bool),
+    I64(i64),
+    U64(u64),
+    F64(f64),
+    String(String),
     Array(Vec<Self>),
     Object(Vec<(String, Self)>),
 }
@@ -19,12 +25,12 @@ impl Document {
     }
     pub(crate) fn as_str(&self) -> Option<&str> {
         match self {
-            Self::Scalar(v) => v.as_str(),
+            Self::String(v) => Some(v),
             _ => None,
         }
     }
     pub(crate) fn is_null(&self) -> bool {
-        matches!(self, Self::Scalar(Value::Null))
+        matches!(self, Self::Null)
     }
 }
 
@@ -37,25 +43,33 @@ impl<'de> Deserialize<'de> for Document {
                 f.write_str("a Spec document")
             }
             fn visit_unit<E: serde::de::Error>(self) -> Result<Document, E> {
-                Ok(Document::Scalar(Value::Null))
+                Ok(Document::Null)
             }
             fn visit_bool<E: serde::de::Error>(self, v: bool) -> Result<Document, E> {
-                Ok(Document::Scalar(v.into()))
+                Ok(Document::Bool(v))
             }
             fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Document, E> {
-                Ok(Document::Scalar(v.into()))
+                Ok(if v >= 0 {
+                    Document::U64(v as u64)
+                } else {
+                    Document::I64(v)
+                })
             }
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Document, E> {
-                Ok(Document::Scalar(v.into()))
+                Ok(Document::U64(v))
             }
             fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Document, E> {
-                Ok(Document::Scalar(v.into()))
+                Ok(if v.is_finite() {
+                    Document::F64(v)
+                } else {
+                    Document::Null
+                })
             }
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Document, E> {
                 self.visit_string(v.into())
             }
             fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Document, E> {
-                Ok(Document::Scalar(v.into()))
+                Ok(Document::String(v))
             }
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Document, A::Error> {
                 let mut entries = Vec::new();
@@ -106,9 +120,29 @@ impl<'de> Deserializer<'de> for Document {
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
         match self {
-            Self::Scalar(v) => v
-                .into_deserializer()
-                .deserialize_enum(name, variants, visitor),
+            Self::String(v) => {
+                value::StringDeserializer::new(v).deserialize_enum(name, variants, visitor)
+            }
+            Self::Null => Err(serde::de::Error::invalid_type(
+                serde::de::Unexpected::Unit,
+                &"string or map",
+            )),
+            Self::Bool(v) => Err(serde::de::Error::invalid_type(
+                serde::de::Unexpected::Bool(v),
+                &"string or map",
+            )),
+            Self::I64(v) => Err(serde::de::Error::invalid_type(
+                serde::de::Unexpected::Signed(v),
+                &"string or map",
+            )),
+            Self::U64(v) => Err(serde::de::Error::invalid_type(
+                serde::de::Unexpected::Unsigned(v),
+                &"string or map",
+            )),
+            Self::F64(v) => Err(serde::de::Error::invalid_type(
+                serde::de::Unexpected::Float(v),
+                &"string or map",
+            )),
             Self::Object(v) => {
                 value::MapDeserializer::new(v.into_iter()).deserialize_enum(name, variants, visitor)
             }
@@ -117,7 +151,12 @@ impl<'de> Deserializer<'de> for Document {
     }
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         match self {
-            Self::Scalar(v) => v.into_deserializer().deserialize_any(visitor),
+            Self::Null => visitor.visit_unit(),
+            Self::Bool(v) => visitor.visit_bool(v),
+            Self::I64(v) => visitor.visit_i64(v),
+            Self::U64(v) => visitor.visit_u64(v),
+            Self::F64(v) => visitor.visit_f64(v),
+            Self::String(v) => visitor.visit_string(v),
             Self::Array(v) => visitor.visit_seq(value::SeqDeserializer::new(v.into_iter())),
             Self::Object(v) => visitor.visit_map(value::MapDeserializer::new(v.into_iter())),
         }
