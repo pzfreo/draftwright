@@ -819,10 +819,12 @@ fn crossing_remedies_are_scoped_and_ordered_in_mcp_rows() {
             }
             assert_eq!(
                 sheet_only,
-                // Seven of the nine crossings (the five front-view hole locations and two more)
-                // had only local edits that trade as many findings as they clear, now withheld.
+                // The expanded bounded search now finds six additional strict
+                // local improvements: it inspects all strips after a withheld
+                // trade, including approaches beside each physical witness.
+                // Exactly one of the nine still needs a whole-sheet remedy.
                 if code == "extension_through_feature" {
-                    7
+                    1
                 } else {
                     0
                 }

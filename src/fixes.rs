@@ -413,40 +413,15 @@ pub(crate) fn keeps_layout(plan: &crate::model::Plan, ops: &[Op]) -> bool {
     if !retainable {
         return false;
     }
-    // An automatic radius table's centre coordinates are extra information.
-    // A settled-ink trial cannot reconstruct the withdrawn leaders and prove
-    // that moving another item on their carrier will keep that table. Widen
-    // conservatively rather than advertise an unverified local promise.
-    let table_carrier = plan.radius_table.as_ref().is_some_and(|table| {
-        ops.iter().any(|op| {
-            if op.path.starts_with("annotations/") {
-                return true;
-            }
-            let Some(rest) = op.path.strip_prefix("dimensions/") else {
-                return false;
-            };
-            let id = rest
-                .split('/')
-                .next()
-                .unwrap_or("")
-                .replace("~1", "/")
-                .replace("~0", "~");
-            let affects = |view: &str| table.rows.iter().any(|r| r.view == view);
-            let old = plan
-                .dimensions
-                .iter()
-                .find(|d| d.id == id)
-                .is_some_and(|d| affects(&d.view));
-            let new = op
-                .value
-                .as_ref()
-                .and_then(|v| v.get("view"))
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|v| affects(&format!("v:{v}")));
-            old || new
-        })
-    });
-    !table_carrier
+    // A placement intent can withdraw an automatic radius-centre table even
+    // when its item is on another view. A settled-ink trial cannot reconstruct
+    // that allocation, so it cannot promise the whole retained inventory.
+    // Keep the repair available as a sheet edit, with preview required.
+    let table_replan = plan.radius_table.is_some()
+        && ops
+            .iter()
+            .any(|op| op.path.starts_with("annotations/") || op.path.starts_with("dimensions/"));
+    !table_replan
 }
 
 /// O(operations per offer), with no recovered-plan invocation per candidate.
