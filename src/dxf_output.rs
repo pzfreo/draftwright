@@ -844,13 +844,14 @@ impl Writer {
     fn frame_leader(
         &mut self,
         leader: &Leader,
-        annotation: Option<u64>,
+        annotation: Option<(u64, P)>,
         style: &str,
         layer: &str,
     ) -> Vec<u64> {
         leader_paths(&leader.lines)
             .into_iter()
             .map(|vertices| {
+                let last = *vertices.last().unwrap();
                 let (h, mut t) = self.entity("LEADER", layer, None);
                 t.tag(100, "AcDbLeader");
                 t.tag(3, style);
@@ -863,7 +864,7 @@ impl Writer {
                 for p in vertices {
                     t.point(10, p);
                 }
-                if let Some(annotation) = annotation {
+                if let Some((annotation, _)) = annotation {
                     t.handle(340, annotation);
                 }
                 t.tag(210, 0);
@@ -871,9 +872,14 @@ impl Writer {
                 t.tag(230, 1);
                 t.point(211, [1., 0.]);
                 t.point(212, [0., 0.]);
-                t.point(213, [0., 0.]);
+                // DXF 213 is the last vertex relative to the annotation's placement,
+                // including a frame attached at its right edge rather than its insertion.
+                t.point(
+                    213,
+                    annotation.map_or([0., 0.], |(_, at)| [last[0] - at[0], last[1] - at[1]]),
+                );
                 self.put(t, None);
-                if let Some(annotation) = annotation {
+                if let Some((annotation, _)) = annotation {
                     self.annotation_reactors
                         .entry(annotation)
                         .or_default()
@@ -1627,7 +1633,12 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             let tolerance = w.tolerance(f, layer, &style.name());
             handles.push(tolerance);
             if let Some(leader) = leader {
-                handles.extend(w.frame_leader(leader, Some(tolerance), &style.name(), layer));
+                handles.extend(w.frame_leader(
+                    leader,
+                    Some((tolerance, f.at)),
+                    &style.name(),
+                    layer,
+                ));
             }
         } else if let Some(leader) = leader {
             let text: Vec<_> = a.runs.iter().filter_map(|r| drawing.text.get(*r)).collect();

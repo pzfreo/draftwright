@@ -433,6 +433,18 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
                 tag(e, 76).unwrap().parse::<usize>().unwrap(),
                 vertices.len()
             );
+            let offset = point(&e.tags, 213);
+            if let Some(handle) = tag(e, 340) {
+                let at = point(&by_handle[handle].tags, 10);
+                let last = vertices.last().unwrap();
+                assert_eq!(
+                    offset,
+                    [last[0] - at[0], last[1] - at[1]],
+                    "{name}: frame attachment offset"
+                );
+            } else {
+                assert_eq!(offset, [0., 0.]);
+            }
             written_paths.extend(vertices.windows(2).map(|p| [p[0], p[1]]));
         } else {
             let common = e.tags.iter().position(|t| t.0 == 301).unwrap() + 1;
