@@ -397,6 +397,7 @@ fn assert_review_summary(file: &str, expected: [(usize, usize); 4]) {
         wire["summary"]["groups"],
         serde_json::to_value(groups).unwrap()
     );
+    assert!(wire["summary"]["groups"]["automatic_scale_limited"].is_null());
     if file.contains("ctc_01") {
         assert_eq!(
             wire["summary"]["groups"]["dimensions_not_ported:section_recess"],

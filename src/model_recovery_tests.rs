@@ -2,6 +2,72 @@
 use super::*;
 use std::io::Read;
 
+#[test]
+fn recovery_reports_each_independent_legibility_shortfall() {
+    let both = legibility_shortfall(0.5, 1.0, true);
+    assert_eq!(
+        both,
+        "; it is below 1:1, the opening legibility floor; it has dimensioned steps shorter than the printed capital height"
+    );
+    assert_eq!(
+        legibility_shortfall(0.5, 1.0, false),
+        "; it is below 1:1, the opening legibility floor"
+    );
+    assert_eq!(
+        legibility_shortfall(2.0, 1.0, true),
+        "; it has dimensioned steps shorter than the printed capital height"
+    );
+    assert!(legibility_shortfall(2.0, 1.0, false).is_empty());
+}
+
+#[test]
+fn recovery_assessment_is_grammatical_even_when_only_legibility_fails() {
+    let assessment = retained_assessment(layout::Findings::default(), 0);
+    let message = format!(
+        "A4 at 2:1 {assessment}; it has dimensioned steps shorter than the printed capital height"
+    );
+    assert_eq!(
+        message,
+        "A4 at 2:1 has no hard layout findings or space drops; it has dimensioned steps shorter than the printed capital height"
+    );
+    assert_eq!(
+        retained_assessment(
+            layout::Findings {
+                hard: 1,
+                dropped: 0
+            },
+            0
+        ),
+        "has 1 hard layout finding"
+    );
+}
+
+#[test]
+fn deliberately_uncited_datums_are_not_space_losses() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/pmi/step/GRM-03_thumbwheel_drive_screw_AP242_PMI.step.gz");
+    let a = analyse_native(&path).unwrap().1;
+    let mut p = plan_escalated(&a, &Spec::default()).unwrap();
+    let index = p
+        .gdt
+        .iter()
+        .position(|g| g.kind == "datum_feature")
+        .unwrap();
+    let id = p.gdt[index].id.clone();
+    p.gdt.retain(|g| g.id == id);
+    p.gdt[0].placed = None;
+    p.gdt[0].state = ItemState::not_drawable("datum_not_drawn");
+    assert_eq!(undrawn_gdt(&p), 0);
+    assert_eq!(with_historical_layout(|| undrawn_gdt(&p)), 1);
+    assert_eq!(undrawn_gdt(&p), 0, "historical route policy must not leak");
+    p.gdt[0].state = ItemState::not_drawable("pmi_not_drawn");
+    assert_eq!(
+        undrawn_gdt(&p),
+        1,
+        "an actual placement loss still blocks selection"
+    );
+}
+
 fn recorded(name: &str) -> Plan {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/sheet-policy")
@@ -256,8 +322,17 @@ fn new_recess_locations_clear_established_pmi_ink() {
         ].into_iter().map(|(code, ids)| (code.to_string(), ids.iter().map(|s| s.to_string()).collect::<Vec<_>>())).collect();
         let new: BTreeSet<_> = actual.difference(&original).cloned().collect();
         assert_eq!(
-            new, accepted,
-            "new hard findings beyond the reviewed CAD frame layout"
+            new,
+            accepted,
+            "new hard findings beyond the reviewed CAD frame layout; reference {} {}, trial {} {}; absent expected pairs (in reference, in trial): {:?}",
+            before.sheet.size,
+            before.sheet.scale,
+            trial.sheet.size,
+            trial.sheet.scale,
+            accepted
+                .difference(&new)
+                .map(|key| (key, original.contains(key), actual.contains(key)))
+                .collect::<Vec<_>>()
         );
         let auto = plan_escalated_with(&a, &Spec::default(), false, None, false).unwrap();
         assert!(non_locations(&auto).is_subset(&non_locations(&trial)));

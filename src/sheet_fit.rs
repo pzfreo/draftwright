@@ -1053,9 +1053,22 @@ pub(crate) fn correct_estimate(analysis: &Analysis, plan: &mut Plan) {
 }
 
 /// Pack settled annotated view blocks without re-routing their witnesses or leaders. The template is built at the same scale on A0; only owned paper geometry moves.
-/// Page-anchored blocks and authored view relations stay with the existing planner.
+/// Re-place authored note tables around the measured blocks; sheet requirements stay beside the recipient's
+/// title block. Authored view relations stay with the existing planner.
 pub(crate) fn pack_gdt(analysis: &Analysis, template: &Plan, recipient: &Plan) -> Option<Plan> {
-    pack_reserved(analysis, template, recipient, template)
+    pack_reserved(analysis, template, recipient, template).or_else(|| {
+        // Roomy paper can lengthen automatic leaders. Keep the recipient's settled
+        // routes when they pack better, borrowing only the complete note inventory.
+        if template.notes.is_empty() || template.notes.iter().any(|n| n.placed.is_none()) {
+            return None;
+        }
+        let mut local = recipient.clone();
+        local.notes = template.notes.clone();
+        local.notes_block = template.notes_block.clone();
+        local.radius_notes_block = template.radius_notes_block.clone();
+        local.problems.retain(|p| p.code != "notes_not_placed");
+        pack_reserved(analysis, &local, recipient, &local)
+    })
 }
 
 /// Omission edits reserve the complete inventory, keeping unaffected items fixed.
@@ -1076,15 +1089,39 @@ fn pack_reserved(
     recipient: &Plan,
     reservation: &Plan,
 ) -> Option<Plan> {
+    pack_reserved_at(analysis, template, recipient, reservation, false).or_else(|| {
+        (!template.notes.is_empty())
+            .then(|| pack_reserved_at(analysis, template, recipient, reservation, true))
+            .flatten()
+    })
+}
+
+fn pack_reserved_at(
+    analysis: &Analysis,
+    template: &Plan,
+    recipient: &Plan,
+    reservation: &Plan,
+    top: bool,
+) -> Option<Plan> {
     if template.spec.sheet.keep_layout == Some(true)
         || recipient.spec.sheet.keep_layout == Some(true)
         || template.spec.iso_scale_factor.is_some()
         || template.spec.sheet.projection.as_deref() == Some("first")
         || template.hole_table.is_some()
         || !template.balloons.is_empty()
-        || !template.notes.is_empty()
+        || (crate::model::historical_layout()
+            && (!template.notes.is_empty()
+                || template.requirements.iter().any(|r| r.placed.is_some())))
+        // Automatic profile/radius notes belong to the established geometry recipe.
+        // Moving those changes its annotation corridors; this recovery relocates
+        // the authored/PMI ruled notes table that otherwise blocks scale selection.
+        || template
+            .notes_block
+            .iter()
+            .chain(&template.radius_notes_block)
+            .any(|b| !b.ruled)
+        || template.notes.iter().any(|n| n.placed.is_none())
         || !template.tables.is_empty()
-        || template.requirements.iter().any(|r| r.placed.is_some())
         || template.views.iter().any(|v| v.cut.is_some())
         || template.spec.views.values().any(|v| v.place.is_some())
         || crate::placement_intent::has_pins(&template.spec)
@@ -1095,6 +1132,14 @@ fn pack_reserved(
     }
     let mut p = template.clone();
     p.sheet = recipient.sheet.clone();
+    p.requirements = recipient.requirements.clone();
+    for requirement in &mut p.requirements {
+        if requirement.carrier == "notes"
+            && let Some(note) = p.notes.iter().find(|n| n.id == requirement.id)
+        {
+            requirement.state = note.state.clone();
+        }
+    }
     let footprints = footprints(analysis, reservation);
     let count = template.views.len();
     let mut groups = footprints[..count].to_vec();
@@ -1187,11 +1232,28 @@ fn pack_reserved(
         .map(|(i, _)| moved(groups[i], shifts[i]))
         .collect();
     let tb = p.sheet.title_block;
-    let lift = boxes
-        .iter()
-        .filter(|b| overlap(**b, tb))
-        .map(|b| tb[3] + 2.0 - b[1])
-        .fold(0.0, f64::max);
+    let mut fixed = vec![tb];
+    for r in p.requirements.iter().filter_map(|r| r.placed.as_ref()) {
+        let mut b = r.label_box;
+        include(&mut b, [r.glyph[0], r.glyph[1]]);
+        include(&mut b, [r.glyph[2], r.glyph[3]]);
+        fixed.push(b);
+    }
+    let lift = if top {
+        // A tall notes block can fit below a high projection row, beside the title
+        // block, even when neither upper corner of a low row can carry it.
+        p.sheet.page[1] - margin() - 1.0 - boxes.iter().map(|b| b[3]).fold(0.0, f64::max)
+    } else {
+        boxes
+            .iter()
+            .flat_map(|b| {
+                fixed
+                    .iter()
+                    .filter(move |f| overlap(*b, **f))
+                    .map(move |f| f[3] + 2.0 - b[1])
+            })
+            .fold(0.0, f64::max)
+    };
     for d in &mut shifts {
         d[1] += lift;
     }
@@ -1205,6 +1267,7 @@ fn pack_reserved(
             || b[1] < margin() - 1e-6
             || b[2] > w - margin() + 1e-6
             || b[3] > h - margin() + 1e-6
+            || fixed.iter().any(|f| overlap(*b, *f))
     }) {
         return None;
     }
@@ -1277,10 +1340,38 @@ fn pack_reserved(
             }
         }
     }
+    boxes.extend(fixed);
+    // Notes belong to the sheet, not to a view. Keep their text, rows and provenance,
+    // and find their place only after the projection gaps have been squeezed.
+    for block in p.notes_block.iter_mut().chain(&mut p.radius_notes_block) {
+        let old = block.cells;
+        let at = crate::tables::place(
+            [old[2] - old[0], old[3] - old[1]],
+            &p.sheet,
+            &boxes,
+            crate::layout::Corner::TopRight,
+        )?;
+        let shift = [at[0] - old[0], at[1] - old[1]];
+        move_box(&mut block.cells, shift);
+        move_point(&mut block.title_at, shift);
+        for note in &mut p.notes {
+            if let Some(q) = &mut note.placed
+                && q.cells[0] >= old[0] - 1e-9
+                && q.cells[1] >= old[1] - 1e-9
+                && q.cells[2] <= old[2] + 1e-9
+                && q.cells[3] <= old[3] + 1e-9
+            {
+                move_box(&mut q.cells, shift);
+                for at in &mut q.rows_at {
+                    move_point(at, shift);
+                }
+            }
+        }
+        boxes.push(block.cells);
+    }
     let sheet_scale = p.sheet.scale_factor;
     let has_detail = p.views.iter().any(|v| v.detail.is_some());
     if let Some(iso) = p.views.iter_mut().find(|v| v.id == "v:iso") {
-        boxes.push(tb);
         for b in &mut boxes {
             b[0] -= 2.0;
             b[1] -= 2.0;
@@ -2257,6 +2348,42 @@ pub(crate) fn reserve_linear_corridors(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authored_notes_do_not_unlock_packing_of_automatic_radius_notes() {
+        let (_, a) = crate::model::analyse_native(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/pmi/step/nist_stc_09_asme1_ap242-e4.stp.gz"),
+        )
+        .unwrap();
+        let spec = serde_json::from_value(serde_json::json!({
+            "sheet": {"size": "A0", "scale": "1:5"},
+            "notes": [{"id": "n:1", "text": "Deburr all machined edges."}]
+        }))
+        .unwrap();
+        let p = crate::model::plan_escalated(&a, &spec).unwrap();
+        assert!(p.notes_block.as_ref().unwrap().ruled);
+        let radius = p
+            .radius_notes_block
+            .as_ref()
+            .expect("automatic radius/profile notes accompany authored notes");
+        assert!(!radius.ruled);
+        assert!(p.notes.iter().all(|n| n.placed.is_some()));
+        let mut authored_only = p.clone();
+        authored_only.radius_notes_block = None;
+        authored_only
+            .notes
+            .retain(|n| !n.id.starts_with("n:f:blend:"));
+        assert!(
+            pack_gdt(&a, &authored_only, &authored_only).is_some(),
+            "the authored table alone is packable"
+        );
+        assert!(
+            pack_gdt(&a, &p, &p).is_none(),
+            "the automatic note recipe must stay fixed"
+        );
+        assert_eq!(p.radius_notes_block.as_ref().unwrap(), radius);
+    }
 
     #[test]
     fn foreign_sheet_details_do_not_reserve_local_furniture() {

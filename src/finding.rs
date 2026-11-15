@@ -137,6 +137,7 @@ catalogue! {
     assembly_drawn_whole => Advisory, Information, Code, "The complete assembly was selected for drawing.";
     assembly_principal_drawn => Advisory, Information, Code, "The assembly's largest part, holding the others, was drawn alone; the others are not drawn.";
     authored_dimension_invalid => Decision, FixBeforePrinting, Code, "The authored dimension needs a valid user definition.";
+    automatic_scale_limited => Advisory, Information, Code, "Larger automatic scales were refused for the reported fit or readability reasons.";
     axial_length_missing => Incomplete, Requirement, Code, "The drawing does not state the axial length.";
     balloon_dropped => Incomplete, Requirement, Code, "A required drawing item was dropped before it could be stated.";
     blend_requirement_missing => Incomplete, Requirement, Requirement, "The drawing does not state this required feature parameter.";
@@ -414,6 +415,11 @@ fn classification(code: &str) -> Option<&'static Classification> {
         .binary_search_by_key(&code, |entry| entry.code)
         .ok()
         .map(|i| &CODES[i])
+}
+
+/// Plain-language descriptions for explanations of candidate refusals.
+pub(crate) fn explanation(name: &str) -> Option<&'static str> {
+    classification(name).map(|entry| entry.reason)
 }
 
 #[derive(Clone, Debug, Serialize)]

@@ -2407,6 +2407,33 @@ fn said(f: layout::Findings, dropped: usize, codes: BTreeMap<&str, usize>) -> St
     }
 }
 
+/// Recovery states layout defects separately from the legibility shortfall that follows.
+fn retained_assessment(f: layout::Findings, dropped: usize) -> String {
+    if f.clean() {
+        "has no hard layout findings or space drops".into()
+    } else {
+        format!("has {}", said(f, dropped, BTreeMap::new()))
+    }
+}
+
+fn legibility_shortfall(scale: f64, floor: f64, short_steps: bool) -> String {
+    let mut reasons = Vec::new();
+    if scale < floor {
+        reasons.push(format!(
+            "it is below {}, the opening legibility floor",
+            scale_name(floor)
+        ));
+    }
+    if short_steps {
+        reasons.push("it has dimensioned steps shorter than the printed capital height".into());
+    }
+    if reasons.is_empty() {
+        String::new()
+    } else {
+        format!("; {}", reasons.join("; "))
+    }
+}
+
 /// Material crossings are counted by leader/feature pair and by witness line, as quality.py.
 fn feature_crossings(plan: &Plan) -> usize {
     feature_crossings_where(plan, |_| true)
@@ -2760,6 +2787,11 @@ pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
         .iter()
         .filter(|g| {
             g.placed.is_none()
+                // An uncited datum is deliberately suppressed by the datum policy,
+                // just as the renderer records it, rather than lost for space.
+                && !(!historical_layout()
+                    && g.kind == "datum_feature"
+                    && g.state == ItemState::not_drawable("datum_not_drawn"))
                 && !matches!(
                     g.state,
                     ItemState::OmittedByUser | ItemState::NotAuthored | ItemState::Covered { .. }
@@ -2806,6 +2838,7 @@ fn recover_inner(analysis: &Analysis, spec: &Spec, first: Plan) -> Result<Plan, 
         spec,
         &first,
         crate::nominal::comparison(),
+        historical_layout(),
         UNCAPPED.get(),
     ))
     // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
@@ -3100,7 +3133,7 @@ pub(crate) fn established_drawing(analysis: &Analysis, spec: &Spec) -> Result<Pl
                                     plan_automatic(&reference, &base)
                                 })
                             } else {
-                                plan_automatic(&reference, &base)
+                                with_historical_layout(|| plan_automatic(&reference, &base))
                             }
                         })
                     })
@@ -4481,28 +4514,17 @@ fn recover_candidates(
                 .unwrap_or_default()
                 .as_str();
         }
-        let illegible = first.sheet.scale_factor < min_legible_scale
-            || crate::sheet_fit::illegible_steps(analysis, &first) > 0;
+        let short_steps = crate::sheet_fit::illegible_steps(analysis, &first) > 0;
+        let illegible = first.sheet.scale_factor < min_legible_scale || short_steps;
         first.sheet.basis += &format!(
             "; no valid complete smallest fit at or above {}; candidates: {}",
             scale_name(min_legible_scale),
             tried.join("; ")
         );
-        let below = if illegible {
-            format!(
-                "; it is below {}, the opening legibility floor, or has dimensioned steps shorter than the printed capital height",
-                scale_name(min_legible_scale)
-            )
-        } else {
-            String::new()
-        };
+        let below = legibility_shortfall(first.sheet.scale_factor, min_legible_scale, short_steps);
         let f = findings(&first);
         let clean_retained = f.clean() && !illegible;
-        let assessment = if clean_retained {
-            "has no hard layout findings or space drops".into()
-        } else {
-            format!("has {}", said(f, drops(&first), BTreeMap::new()))
-        };
+        let assessment = retained_assessment(f, drops(&first));
         let diagnostic_trials = if clean_retained {
             tried.join("; ")
         } else {
@@ -4998,6 +5020,7 @@ pub(crate) fn plan_automatic(analysis: &Analysis, spec: &Spec) -> Result<Plan, I
     // Reuse that complete result when the paper policy has just requested it already.
     let key = serde_json::to_vec(&(
         spec,
+        historical_layout(),
         crate::planning::nominals_deferred(),
         crate::planning::policy_key(analysis),
         crate::planning::is_fixed_pair(),
@@ -5221,6 +5244,24 @@ fn retain_dropped_location(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
 
 thread_local! {
     static UNCAPPED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static HISTORICAL_LAYOUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Established route templates retain the completeness and packing inputs used to define
+/// their budgets. Live candidates are always judged with the current PMI policy.
+pub(crate) fn historical_layout() -> bool {
+    HISTORICAL_LAYOUT.get()
+}
+
+fn with_historical_layout<T>(run: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            HISTORICAL_LAYOUT.set(self.0);
+        }
+    }
+    let _restore = Restore(HISTORICAL_LAYOUT.replace(true));
+    run()
 }
 
 /// Run *run* with the established drawing's scale cap on candidates lifted or kept
