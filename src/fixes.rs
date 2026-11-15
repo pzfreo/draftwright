@@ -545,10 +545,11 @@ fn attach_inner(analysis: &crate::model::Analysis, plan: &mut crate::model::Plan
     if !plan.problems.iter().any(relevant) {
         return;
     }
-    let options = crate::dims::placement_options_with_spec(analysis, &plan.views, &plan.spec);
+    let resolved = plan.resolved_spec().into_owned();
+    let options = crate::dims::placement_options_with_spec(analysis, &plan.views, &resolved);
     // Reuse schedule eligibility only, without installing or laying out a table.
     // Always + no pins avoids select's canonical-plan branches.
-    let sheet_remedy = if !crate::placement_intent::has_pins(&plan.spec)
+    let sheet_remedy = if !crate::placement_intent::has_pins(&resolved)
         && plan.spec.hole_table == crate::hole_table::Setting::Auto
         && plan.hole_tables.is_empty()
         && plan.hole_table.is_none()
@@ -557,14 +558,14 @@ fn attach_inner(analysis: &crate::model::Analysis, plan: &mut crate::model::Plan
         let mut table = plan.clone();
         table.spec.hole_table = crate::hole_table::Setting::Always;
         let selection = crate::hole_table::select(analysis, &table);
-        plan.spec
+        resolved
             .scales()
             .iter()
             .copied()
             .find(|scale| {
                 *scale < plan.sheet.scale_factor
                     && *scale >= crate::sheet_fit::min_legible_scale_in(analysis, plan.sheet.units)
-                    && *scale >= crate::sheets::floor(&plan.spec).unwrap_or(0.0)
+                    && *scale >= crate::sheets::floor(&resolved).unwrap_or(0.0)
             })
             .filter(|_| !selection.tables.is_empty())
             .map(|scale| {

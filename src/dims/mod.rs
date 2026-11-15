@@ -93,7 +93,7 @@ pub(crate) use interior::{finish_attached_openings, finish_openings, openings_ne
 /// drawing is. Paper acceptance still checks every contact and carried item.
 pub(crate) fn finish_pmi_witness_routes(analysis: &Analysis, plan: &mut crate::model::Plan) {
     if placement::pmi_witness_retry(analysis) {
-        let spec = plan.spec.clone();
+        let spec = plan.resolved_spec().into_owned();
         let compact = plan.sheet.dimension_spacing == crate::model::DimensionSpacing::Compact;
         with_compact(compact, || {
             callout_routes::finish(analysis, &spec, plan);
@@ -5367,6 +5367,8 @@ pub(crate) fn placement_options_with_spec(
     views: &[PlannedView],
     spec: &Spec,
 ) -> BTreeMap<String, Value> {
+    let resolved = crate::units::effective(analysis, spec);
+    let spec = resolved.as_ref();
     let (mut wants, ..) = pmi_policy::wants(analysis, spec);
     callouts::apply(analysis, spec, &mut wants);
     if schemes::apply(analysis, spec, &mut wants).is_err()
@@ -5457,11 +5459,12 @@ pub(crate) fn local_placement_fix(
     trials: &LocalFixTrials,
 ) -> Option<crate::fixes::Fix> {
     use crate::placement_intent::{Along, Place, Slot};
-    let mut raw = wants(analysis).0;
-    callouts::apply(analysis, &plan.spec, &mut raw);
-    schemes::apply(analysis, &plan.spec, &mut raw).ok()?;
-    authored::append(analysis, &plan.spec, &mut raw).ok()?;
-    profile_angles::apply(analysis, &plan.spec, &mut raw).ok()?;
+    let spec = plan.resolved_spec();
+    let mut raw = pmi_policy::wants(analysis, &spec).0;
+    callouts::apply(analysis, &spec, &mut raw);
+    schemes::apply(analysis, &spec, &mut raw).ok()?;
+    authored::append(analysis, &spec, &mut raw).ok()?;
+    profile_angles::apply(analysis, &spec, &mut raw).ok()?;
     detail_routes(analysis, &mut raw, &plan.views);
     let mut all = plan.dimensions.clone();
     all.extend(plan.gdt.iter().filter_map(gdt::proxy));
@@ -5473,13 +5476,9 @@ pub(crate) fn local_placement_fix(
     if !before.iter().any(|p| same(p, problem)) {
         return None;
     }
-    // Once a trade is found, inspect at most three further candidates for a clean
-    // alternative. This uses the existing settled-ink trial, never another plan.
+    // Inspect the bounded placement grid against the existing settled ink. A
+    // withheld trade must not hide a clean repair later in the same strip.
     let mut fallback = None;
-    // Set by the first candidate that adds findings, offered or not, so a withheld trade
-    // bounds the search just as an offered one does.
-    let mut traded = false;
-    let mut remaining = 3usize;
     for id in &problem.subjects {
         let Some(index) = plan.dimensions.iter().position(|d| &d.id == id) else {
             continue;
@@ -5541,12 +5540,6 @@ pub(crate) fn local_placement_fix(
                 .chain(&plan.sheets)
                 .find(|s| s.number == view.sheet)?;
             let mut offer = |placed: Placed, place: &Place| {
-                if traded {
-                    if remaining == 0 {
-                        return fallback.take();
-                    }
-                    remaining -= 1;
-                }
                 all[index] = d.clone();
                 all[index].placed = Some(placed);
                 all[index].view = view.id.clone();
@@ -5622,7 +5615,6 @@ pub(crate) fn local_placement_fix(
                 if added.is_empty() {
                     return Some(crate::fixes::Fix::new(description, ops));
                 }
-                traded = true;
                 // A trade that stays local is offered only when it leaves strictly fewer
                 // findings: the published findings on this item that the candidate clears must
                 // outnumber those it adds. Equal or worse is withheld, and nothing replaces it.
@@ -5709,43 +5701,61 @@ pub(crate) fn local_placement_fix(
                 } else {
                     [0.0, 0.0]
                 };
-                for distance in [
-                    lane_pitch(),
-                    2.0 * lane_pitch(),
-                    3.0 * lane_pitch(),
-                    4.0 * lane_pitch(),
-                ] {
-                    for [dx, dy] in [
-                        [0., 1.],
-                        [0., -1.],
-                        [1., 0.],
-                        [-1., 0.],
-                        [1., 1.],
-                        [-1., 1.],
-                        [1., -1.],
-                        [-1., -1.],
-                    ] {
-                        let offset = [base[0] + distance * dx, base[1] + distance * dy];
-                        let held = Some((held, d.terms.as_slice()));
-                        let placed = if d.kind == "callout" {
-                            leaders::offset_intent(frame, &want, offset, held)
-                        } else {
-                            placement::offset_intent(frame, &want, offset, held)
-                        };
-                        let Some(placed) = placed else {
-                            continue;
-                        };
-                        let place = Place {
-                            view: Some(name.into()),
-                            side: None,
-                            lane: None,
-                            along: None,
-                            offset: Some(offset),
-                            pinned: true,
-                        };
-                        if let Some(fix) = offer(placed, &place) {
-                            return Some(fix);
+                let mut offsets: Vec<_> = [1., 2., 3., 4.]
+                    .into_iter()
+                    .flat_map(|step| {
+                        [
+                            [0., 1.],
+                            [0., -1.],
+                            [1., 0.],
+                            [-1., 0.],
+                            [1., 1.],
+                            [-1., 1.],
+                            [1., -1.],
+                            [-1., -1.],
+                        ]
+                        .map(|[dx, dy]| {
+                            [
+                                base[0] + step * lane_pitch() * dx,
+                                base[1] + step * lane_pitch() * dy,
+                            ]
+                        })
+                    })
+                    .collect();
+                if d.kind == "linear" && held.lines.len() >= 3 {
+                    // An outside ladder can be hundreds of paper mm from its
+                    // own witnesses. Also inspect short approaches beside those
+                    // stations, rather than only nudging the distant ladder.
+                    let normal = usize::from(held.rotation == 0.0);
+                    for station in &held.lines[..2] {
+                        for step in [-4., -3., -2., -1., 1., 2., 3., 4.] {
+                            let mut offset = [0., 0.];
+                            offset[normal] =
+                                station[0][normal] + step * lane_pitch() - held.lines[2][0][normal];
+                            offsets.push(offset);
                         }
+                    }
+                }
+                for offset in offsets {
+                    let held = Some((held, d.terms.as_slice()));
+                    let placed = if d.kind == "callout" {
+                        leaders::offset_intent(frame, &want, offset, held)
+                    } else {
+                        placement::offset_intent(frame, &want, offset, held)
+                    };
+                    let Some(placed) = placed else {
+                        continue;
+                    };
+                    let place = Place {
+                        view: Some(name.into()),
+                        side: None,
+                        lane: None,
+                        along: None,
+                        offset: Some(offset),
+                        pinned: true,
+                    };
+                    if let Some(fix) = offer(placed, &place) {
+                        return Some(fix);
                     }
                 }
             }
