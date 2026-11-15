@@ -186,8 +186,8 @@ and parallelism accept planes or cylinders; cylindricity and concentricity requi
 cylinders; runout accepts planes or cylinders. These controls are also available
 on hole/cylinder handles. Perpendicularity, parallelism, runout and concentricity
 require at least one declared datum; surface profile takes optional datums;
-cylindricity takes none. Datum order is preserved. Any datum whose face set equals
-the controlled feature's face set is refused at the call; use a separate datum
+cylindricity takes none. Datum order is preserved. Any datum sharing any face with
+the controlled feature is refused at the call; use a separate datum
 surface or cylinder. Perpendicularity and parallelism on a cylinder control its
 axis in a cylindrical `⌀` zone; on a plane they use a two-planes zone.
 

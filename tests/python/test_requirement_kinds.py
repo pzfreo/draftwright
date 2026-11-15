@@ -182,28 +182,42 @@ class RequirementKinds(unittest.TestCase):
                     B = p.datum("B", wall)
                     ref = p.shaft(wall)
                     before = p._geometry().inspect(p._pmi)
-                    with self.assertRaisesRegex(ValueError, "datum B uses the same faces"):
+                    with self.assertRaisesRegex(ValueError, "datum B shares faces"):
                         getattr(ref, kind)(0.1, "A", B if datum_object else "B")
                     self.assertEqual(p._geometry().inspect(p._pmi), before)
         p, _, ends = self.rod()
         A = p.datum("A", [ends[0], ends[-1]])
-        with self.assertRaisesRegex(ValueError, "same faces"):
+        with self.assertRaisesRegex(ValueError, "shares faces"):
             p.face([ends[-1], ends[0]]).profile_surface(0.1, A)
         p, wall, _ = self.rod()
-        with self.assertRaisesRegex(ValueError, "same faces"):
+        with self.assertRaisesRegex(ValueError, "shares faces"):
             p.cylinder(wall).parallelism(0.1, p.datum("A", wall))
 
         shape = bd.Cylinder(8, 30) - bd.Cylinder(5, 30)
         p = draftwright.Part(shape, "self_datum_bore")
         bore = [f for f in shape.faces().filter_by(bd.GeomType.CYLINDER) if p._is_hole_wall(f)][0]
         A = p.datum("A", bore)
-        with self.assertRaisesRegex(ValueError, "same faces"):
+        with self.assertRaisesRegex(ValueError, "shares faces"):
             p.hole(bore).position(0.1, A)
         p, wall, _, ends = self.stepped_rod()
         A = p.datum("A", ends[0])
         for kind in ("perpendicularity", "parallelism"):
             with self.assertRaisesRegex(ValueError, "only planes or only cylinders"):
                 getattr(p.face([wall, ends[-1]]), kind)(0.1, A)
+
+    def test_controls_refuse_partial_datum_overlap_without_changing_pmi(self):
+        for datum_has_extra_face in (True, False):
+            with self.subTest(datum_has_extra_face=datum_has_extra_face):
+                p, _, ends = self.rod()
+                both = [ends[0], ends[-1]]
+                datum_faces = both if datum_has_extra_face else ends[0]
+                target_faces = ends[-1] if datum_has_extra_face else both
+                A = p.datum("A", datum_faces)
+                ref = p.face(target_faces)
+                before = p._geometry().inspect(p._pmi)
+                with self.assertRaisesRegex(ValueError, "datum A shares faces"):
+                    ref.profile_surface(0.1, A)
+                self.assertEqual(p._geometry().inspect(p._pmi), before)
 
     def test_threads_validate_every_measured_diameter_at_the_call(self):
         p, wall, _ = self.rod()

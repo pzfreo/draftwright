@@ -245,11 +245,12 @@ impl Pmi {
                         .iter()
                         .position(|d| d.label().as_str() == letter)
                         .ok_or_else(|| raised(format!("datum {letter} has not been declared")))?;
-                    if this.model.datums[i].feature().is_some_and(|datum| {
-                        this.model.features[datum.0] == this.model.features[f.0]
-                    }) {
+                    if this.model.datums[i]
+                        .feature()
+                        .is_some_and(|datum| this.shares_faces(datum, f))
+                    {
                         return Err(PyValueError::new_err(format!(
-                            "datum {letter} uses the same faces as the controlled feature"
+                            "datum {letter} shares faces with the controlled feature"
                         )));
                     }
                     Ok(Compartment {
@@ -451,7 +452,7 @@ impl Pmi {
         diameters: Vec<String>,
     ) -> PyResult<()> {
         self.edit(|this| {
-            let (major, pitch_mm) = draftwright::spec_notes::metric(&designation).map_err(raised)?;
+            let (major, pitch_mm) = draftwright::thread_designation::metric(&designation).map_err(raised)?;
             let major_diameter = length(&major.to_string())?;
             let pitch = value(&pitch_mm.to_string())?;
             let number_of_threads = Ratio(Decimal::parse("1").map_err(raised)?);
@@ -751,6 +752,7 @@ mod tests {
 
     #[test]
     fn rejected_declarations_do_not_leave_orphan_features() {
+        Python::initialize();
         let mut p = Pmi::new(8);
         p.datum("A", vec![0]).unwrap();
         p.datum("B", vec![1, 2]).unwrap();
@@ -766,6 +768,17 @@ mod tests {
                 false,
             )
         });
+        // A partly overlapping datum is invalid in either direction. The new
+        // target group must also be rolled back when rejection follows allocation.
+        for faces in [vec![2, 3], vec![1], vec![1, 2, 3]] {
+            rejected_without_edits(&mut p, |p| {
+                let error = p
+                    .control(faces, "profile_surface", "0.1", vec!["B".into()], false)
+                    .unwrap_err();
+                assert!(error.to_string().contains("datum B shares faces"));
+                Err(error)
+            });
+        }
         rejected_without_edits(&mut p, |p| {
             p.control(vec![3], "parallelism", "0.1", vec!["C".into()], true)
         });

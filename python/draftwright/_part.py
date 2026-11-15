@@ -54,8 +54,8 @@ class FaceRef(_Ref):
         for letter in letters:
             if letter not in self._part._datums:
                 raise ValueError(f"{self.label}: datum {letter} has not been declared")
-            if set(self._part._datums[letter]) == set(self._targets):
-                raise ValueError(f"datum {letter} uses the same faces as the controlled feature")
+            if set(self._part._datums[letter]) & set(self._targets):
+                raise ValueError(f"datum {letter} shares faces with the controlled feature")
         kinds = {self._part._faces[i].geom_type.name for i in self._targets}
         if kind in ("perpendicularity", "parallelism") and len(kinds) != 1:
             raise ValueError(f"{kind} requires only planes or only cylinders")
