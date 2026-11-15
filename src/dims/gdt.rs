@@ -523,22 +523,24 @@ struct Candidate {
 }
 
 impl Candidate {
-    /// Grow the shelf before grading: the printed frame and ring reservations
-    /// must use the same geometry as the eventual leader.
+    /// Keep the frame fixed and move the bend out before grading. Both the
+    /// leader and its ring reservation use this elbow; the frame's text keeps
+    /// the paper already claimed by its original placement.
     fn with_ring(mut self, radius: f64) -> Self {
         self.ring_radius = radius;
         if radius > 0.0 {
-            let shelf = &mut self.lines[1];
+            let shelf = self.lines[1];
             let dir = if shelf[1][0] >= shelf[0][0] {
                 1.0
             } else {
                 -1.0
             };
-            let dx = dir * (radius + super::contacts::TEXT_CLEAR - SHELF).max(0.0);
-            shelf[1][0] += dx;
-            self.origin[0] += dx;
-            self.label_box[0] += dx;
-            self.label_box[2] += dx;
+            self.elbow[0] -= dir * (radius + super::contacts::TEXT_CLEAR - SHELF).max(0.0);
+            self.lines[0][1] = self.elbow;
+            self.lines[1][0] = self.elbow;
+            for arrow in &mut self.arrows {
+                *arrow = placement::arrow(self.lines[0][0], self.elbow);
+            }
         }
         self
     }
@@ -3168,6 +3170,23 @@ mod tests {
                     [20., 5.],
                 )
                 .with_ring(radius);
+                assert_eq!(
+                    c.label_box,
+                    candidate(
+                        Shape::Frame,
+                        [80., 80.],
+                        side,
+                        if matches!(side, "below" | "left") {
+                            60.
+                        } else {
+                            100.
+                        },
+                        [20., 5.]
+                    )
+                    .label_box
+                );
+                assert_eq!(c.lines[0][1], c.elbow);
+                assert_eq!(c.arrows, [placement::arrow(c.lines[0][0], c.elbow)]);
                 let [a, b] = c.lines[1];
                 assert!((b[0] - a[0]).abs() >= radius + super::super::contacts::TEXT_CLEAR - 1e-9);
                 assert!(!boxes_overlap(c.label_box, ring_box(c.elbow, radius)));
