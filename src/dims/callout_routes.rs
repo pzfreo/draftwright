@@ -255,7 +255,7 @@ fn meet_frame(g: &gdt::PlannedGdt, next: &mut Placed) -> bool {
     let radius = gdt::ring_radius(&g.modifiers);
     // Scope rings require a shaft followed by a horizontal shelf. A straight
     // route has no bend; a multi-bend route would reserve a different elbow.
-    if radius > 0.0 && next.lines.len() != 2 {
+    if radius > 0.0 && !crate::model::historical_layout() && next.lines.len() != 2 {
         return false;
     }
     let dx = next.label_box[0] - p.label_box[0];
@@ -269,7 +269,7 @@ fn meet_frame(g: &gdt::PlannedGdt, next: &mut Placed) -> bool {
         bounds[2]
     } + dx;
     shelf[1] = [x, y];
-    if radius > 0.0 {
+    if radius > 0.0 && !crate::model::historical_layout() {
         let dir = if shelf[1][0] >= shelf[0][0] {
             1.0
         } else {
