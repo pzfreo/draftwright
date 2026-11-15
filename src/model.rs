@@ -12795,7 +12795,7 @@ fn render_annotations_with_cuts(
                     arrows: p.arrows.clone(),
                     ink: vec![0..p.lines.len(), arrows..arrows + p.arrows.len()],
                     dot: false,
-                    text_at: None,
+                    text_at: Some([p.label_box[0], p.label_box[1]]),
                 },
             );
         }

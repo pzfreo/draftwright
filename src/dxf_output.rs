@@ -874,8 +874,13 @@ impl Writer {
         // MTEXT has a top attachment; TEXT's baseline is one cap height below it.
         if r.v_align == VAlign::Baseline {
             at = [at[0] - sin * height, at[1] + cos * height];
+        } else if wrapped {
+            at = [at[0] - sin * height / 2., at[1] + cos * height / 2.];
         }
-        let alignment = match (r.h_align, r.v_align) {
+        let alignment = match (
+            r.h_align,
+            if wrapped { VAlign::Baseline } else { r.v_align },
+        ) {
             (HAlign::Left, VAlign::Baseline) => 1,
             (HAlign::Center, VAlign::Baseline) => 2,
             (HAlign::Right, VAlign::Baseline) => 3,
@@ -2933,58 +2938,65 @@ mod native_annotation_tests {
     }
 
     #[test]
-    fn wrapped_leader_keeps_baseline_spacing_when_row_widths_differ() {
+    fn wrapped_leader_keeps_run_centres_and_baseline_spacing() {
         for rotation in [0_f64, 30., 90.] {
-            let (sin, cos) = rotation.to_radians().sin_cos();
-            let origin = [20., 40.];
-            let run = |x, y, text: &str| TextRun {
-                text: text.into(),
-                at: [origin[0] + x * cos - y * sin, origin[1] + x * sin + y * cos],
-                size: 3.,
-                rotation,
-                font: crate::dims::FONT.into(),
-                h_align: HAlign::Center,
-                v_align: VAlign::Baseline,
-            };
-            let first = run(18., 0., "⌀10 THRU CBORE");
-            let second = run(3., -4.2, "↧ 5");
-            let leader = Leader {
-                lines: vec![[[1., 2.], [3., 4.]], [[3., 4.], [5., 4.]]],
-                arrows: vec![[[1., 2.], [2., 3.]]],
-                text_at: Some(origin),
-                ..Default::default()
-            };
-            let mut w = Writer::new();
-            w.multileader(&leader, &[&first, &second], DIMS);
-            let tags = pairs(&w.entities);
-            let number = |code| {
-                tags.iter()
-                    .find(|t| t.0 == code)
-                    .unwrap()
-                    .1
-                    .parse::<f64>()
-                    .unwrap()
-            };
-            let height = text_height(&first);
-            assert!((number(45) * height * 5. / 3. - 4.2).abs() < 1e-12);
-            assert!((number(12) - (first.at[0] - sin * height)).abs() < 1e-12);
-            assert!((number(22) - (first.at[1] + cos * height)).abs() < 1e-12);
-            assert_eq!(number(171), 2.); // retain the original run's centre attachment
-            assert!((number(140) - 2_f64.sqrt()).abs() < 1e-12);
-            let content = &tags.iter().find(|t| t.0 == 304).unwrap().1;
-            assert!(content.contains("%%c10 THRU CBORE"));
-            assert!(content.contains("\\P"));
-            assert!(content.contains("DEEP 5"));
-            let paragraph = content.split("\\P").nth(1).unwrap();
-            let props = paragraph[..paragraph.find(';').unwrap()]
-                .split(',')
-                .collect::<Vec<_>>();
-            let left: f64 = props[1][1..].parse().unwrap();
-            let right: f64 = props[2][1..].parse().unwrap();
-            assert!(
-                ((left - right) * height / 2. + 15.).abs() < 1e-8,
-                "the second row must keep its planned centre, 15 mm before the first"
-            );
+            for v_align in [VAlign::Baseline, VAlign::Middle] {
+                let (sin, cos) = rotation.to_radians().sin_cos();
+                let origin = [20., 40.];
+                let run = |x, y, text: &str| TextRun {
+                    text: text.into(),
+                    at: [origin[0] + x * cos - y * sin, origin[1] + x * sin + y * cos],
+                    size: 3.,
+                    rotation,
+                    font: crate::dims::FONT.into(),
+                    h_align: HAlign::Center,
+                    v_align,
+                };
+                let first = run(18., 0., "⌀10 THRU CBORE");
+                let second = run(3., -4.2, "↧ 5");
+                let leader = Leader {
+                    lines: vec![[[1., 2.], [3., 4.]], [[3., 4.], [5., 4.]]],
+                    arrows: vec![[[1., 2.], [2., 3.]]],
+                    text_at: Some(origin),
+                    ..Default::default()
+                };
+                let mut w = Writer::new();
+                w.multileader(&leader, &[&first, &second], DIMS);
+                let tags = pairs(&w.entities);
+                let number = |code| {
+                    tags.iter()
+                        .find(|t| t.0 == code)
+                        .unwrap()
+                        .1
+                        .parse::<f64>()
+                        .unwrap()
+                };
+                let height = text_height(&first);
+                assert!((number(45) * height * 5. / 3. - 4.2).abs() < 1e-12);
+                let top = if v_align == VAlign::Baseline {
+                    height
+                } else {
+                    height / 2.
+                };
+                assert!((number(12) - (first.at[0] - sin * top)).abs() < 1e-12);
+                assert!((number(22) - (first.at[1] + cos * top)).abs() < 1e-12);
+                assert_eq!(number(171), 2.); // retain the original run's centre attachment
+                assert!((number(140) - 2_f64.sqrt()).abs() < 1e-12);
+                let content = &tags.iter().find(|t| t.0 == 304).unwrap().1;
+                assert!(content.contains("%%c10 THRU CBORE"));
+                assert!(content.contains("\\P"));
+                assert!(content.contains("DEEP 5"));
+                let paragraph = content.split("\\P").nth(1).unwrap();
+                let props = paragraph[..paragraph.find(';').unwrap()]
+                    .split(',')
+                    .collect::<Vec<_>>();
+                let left: f64 = props[1][1..].parse().unwrap();
+                let right: f64 = props[2][1..].parse().unwrap();
+                assert!(
+                    ((left - right) * height / 2. + 15.).abs() < 1e-8,
+                    "the second row must keep its planned centre, 15 mm before the first"
+                );
+            }
         }
     }
 
