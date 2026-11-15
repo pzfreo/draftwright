@@ -510,6 +510,7 @@ fn dot(a: P2, b: P2) -> f64 {
 
 /// An item as placed at strip coordinate *pos* (along its strip's outward axis): its leader,
 /// frame box and the laid glyph's offset.
+#[derive(Clone)]
 struct Candidate {
     frame_rule: bool,
     lines: Vec<[P2; 2]>,
@@ -535,14 +536,18 @@ impl Candidate {
             } else {
                 -1.0
             };
-            self.elbow[0] -= dir * (radius + super::contacts::TEXT_CLEAR - SHELF).max(0.0);
-            self.lines[0][1] = self.elbow;
-            self.lines[1][0] = self.elbow;
-            for arrow in &mut self.arrows {
-                *arrow = placement::arrow(self.lines[0][0], self.elbow);
-            }
+            self.move_bend(-dir * (radius + super::contacts::TEXT_CLEAR - SHELF).max(0.0));
         }
         self
+    }
+
+    fn move_bend(&mut self, dx: f64) {
+        self.elbow[0] += dx;
+        self.lines[0][1] = self.elbow;
+        self.lines[1][0] = self.elbow;
+        for arrow in &mut self.arrows {
+            *arrow = placement::arrow(self.lines[0][0], self.elbow);
+        }
     }
 
     fn leader_length(&self) -> f64 {
@@ -551,6 +556,35 @@ impl Candidate {
             .map(|[a, b]| (b[0] - a[0]).hypot(b[1] - a[1]))
             .sum()
     }
+}
+
+/// Scope symbols can need a longer shelf to separate leaders with nearby tips.
+/// Exhaust these bounded bend positions before displacing the frame to another
+/// tier. A collinear shaft/shelf retains its partition rather than scoring it.
+fn clear_ring_bend(c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
+    if c.ring_radius == 0.0 || (c.lines[0][0][1] - c.elbow[1]).abs() < 1e-9 {
+        return c;
+    }
+    let dir = if c.lines[1][1][0] >= c.elbow[0] {
+        1.0
+    } else {
+        -1.0
+    };
+    let mut best = c.clone();
+    let mut grade = obstacles.grade(&best, None);
+    for step in 1..=3 {
+        if grade == (0, 0, 0) {
+            break;
+        }
+        let mut next = c.clone();
+        next.move_bend(-dir * step as f64 * SHELF);
+        let next_grade = obstacles.grade(&next, Some(grade));
+        if next_grade < grade {
+            best = next;
+            grade = next_grade;
+        }
+    }
+    best
 }
 
 fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate {
@@ -2119,6 +2153,9 @@ fn plan_search(
                             c.arrows.clear();
                             c.fills = vec![dot_at(c.lines[0][0])];
                         }
+                        if !intent.is_some_and(|p| p.pinned) {
+                            c = clear_ring_bend(c, &obstacles);
+                        }
                         let compact_datum = protect && datum && !authored;
                         let shorter = compact_datum
                             && best
@@ -3215,6 +3252,27 @@ mod tests {
                 assert_eq!(obstacles.clearance_grade(&c), 2);
             }
         }
+        let c = candidate(Shape::Frame, [80., 80.], "above", 100., [20., 5.]).with_ring(RING);
+        let obstacles = Obstacles {
+            page: &page,
+            own: "v:front".into(),
+            area: None,
+            exterior: None,
+            protect_triangles: false,
+            label_gap: 0.,
+            parallel_gap: None,
+            triangles: Vec::new(),
+            labels: Vec::new(),
+            lines: vec![[[80., 80.75], [80., 87.25]]],
+            frame_leaders: Vec::new(),
+        };
+        assert!(obstacles.grade(&c, None).2 > 0);
+        let next = clear_ring_bend(c.clone(), &obstacles);
+        assert_eq!(next.label_box, c.label_box);
+        assert_eq!(next.origin, c.origin);
+        assert_eq!(next.lines[0][0], c.lines[0][0]);
+        assert_eq!(obstacles.grade(&next, None), (0, 0, 0));
+        assert!(next.lines[1][1][0] - next.elbow[0] > c.lines[1][1][0] - c.elbow[0]);
     }
 
     #[test]
