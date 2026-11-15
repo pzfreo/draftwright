@@ -583,6 +583,27 @@ fn clear_ring_bend(c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
     };
     let score = |candidate: &Candidate, best| {
         let mut grade = obstacles.grade(candidate, best);
+        let meets =
+            |a, b| super::leaders::Line::new(a).meets(b) || super::leaders::Line::new(b).meets(a);
+        grade.2 += candidate
+            .arrows
+            .iter()
+            .filter(|arrow| obstacles.lines.iter().any(|line| meets(**arrow, *line)))
+            .count();
+        grade.2 += obstacles
+            .heads
+            .iter()
+            .map(|head| {
+                [
+                    head[0],
+                    [
+                        0.5 * (head[1][0] + head[2][0]),
+                        0.5 * (head[1][1] + head[2][1]),
+                    ],
+                ]
+            })
+            .filter(|arrow| candidate.lines.iter().any(|line| meets(*arrow, *line)))
+            .count();
         grade.2 += candidate
             .arrows
             .iter()
@@ -599,7 +620,7 @@ fn clear_ring_bend(c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
     };
     let mut best = c.clone();
     let mut grade = score(&best, None);
-    for step in 1..=3 {
+    for step in 1..=5 {
         if grade == (0, 0, 0) {
             break;
         }
@@ -3313,6 +3334,12 @@ mod tests {
             &arrow_vertices(next.arrows[0]),
             &obstacles.heads[0]
         ));
+        let shaft = obstacles.lines[0];
+        assert!(!super::super::leaders::Line::new(shaft).meets(next.arrows[0]));
+        assert!(!super::super::leaders::Line::new(next.arrows[0]).meets(shaft));
+        let peer_arrow = placement::arrow([80., 80.75], [80., 87.25]);
+        assert!(!super::super::leaders::Line::new(peer_arrow).meets(next.lines[0]));
+        assert!(!super::super::leaders::Line::new(next.lines[0]).meets(peer_arrow));
         assert!(next.lines[1][1][0] - next.elbow[0] > c.lines[1][1][0] - c.elbow[0]);
     }
 
