@@ -398,6 +398,14 @@ fn finite_optional_numbers(spec: &Spec) -> Result<(), Invalid> {
 }
 
 pub(crate) fn migrate(spec: &Spec, a: &Analysis) -> Result<Migration, Invalid> {
+    let mut normal;
+    let spec = if spec.schema == crate::engine_pins::SCHEMA && spec.engine_pins.is_none() {
+        normal = spec.clone();
+        normal.schema = SPEC_SCHEMA.into();
+        &normal
+    } else {
+        spec
+    };
     crate::geometry_ids::with(a, || migrate_indexed(spec, a))
 }
 

@@ -1478,3 +1478,42 @@ fn ordinary_plan_after_incremental_matches_fresh_process() {
     datum_rebase_offer_previews_and_applies_only_when_chosen();
     assert_eq!(value(open("ctc").plan()), fresh);
 }
+
+#[test]
+fn ordinary_spec_only_history_is_not_capped() {
+    let mut s = open("bracket");
+    let original = value(s.state());
+    for i in 0..100 {
+        s.apply(
+            &[Op::set("sheet/title/drawn_by", json!(format!("USER {i}")))],
+            true,
+        )
+        .unwrap();
+    }
+    for _ in 0..100 {
+        s.undo().unwrap();
+    }
+    assert_eq!(value(s.state()), original);
+    assert!(s.undo().is_err());
+    for _ in 0..100 {
+        s.redo().unwrap();
+    }
+    assert!(s.redo().is_err());
+}
+
+#[test]
+fn unpinned_spec_four_has_current_spec_three_semantics() {
+    let s = open("bracket");
+    let mut three = Spec::default();
+    three
+        .dimensions
+        .insert("d:envelope/width.length@front".into(), Default::default());
+    let mut four = three.clone();
+    four.schema = "draftwright.spec/4".into();
+    let decoded: Spec = serde_json::from_value(value(&four)).unwrap();
+    assert_eq!(decoded, three);
+    assert_eq!(model::migrate(&four, s.analysis()).unwrap(), three);
+    assert_eq!(model::migrate(&three, s.analysis()).unwrap(), three);
+    let four: Spec = serde_json::from_value(json!({"schema":"draftwright.spec/4"})).unwrap();
+    assert_eq!(value(&four), value(Spec::default()));
+}

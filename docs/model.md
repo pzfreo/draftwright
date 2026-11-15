@@ -2781,11 +2781,13 @@ result through the recovered planner. `commit: false` returns the same delta as 
 from that state, while changing neither state, history nor cache counters. Refused edits also
 leave the last good state intact. A batch is one undo step; `undo()` and `redo()` return deltas.
 A successful new commit discards the redo branch; a preview or refusal preserves it.
-History holds at most 32 edits (undo plus redo). Ordinary full edits retain Specs;
+History caps only entries carrying a Plan or source at 32 across undo and redo.
+Ordinary Spec-only full edits retain their unlimited history, as before;
 incremental edits also retain their Plan in session memory for exact undo, including dormant
 variants and prior findings. These snapshots are never written to the Spec.
 Source edits additionally retain their Analysis and an `Arc` to the immutable imported part.
-Eviction drops the oldest undo entry; a new Session starts with empty undo history.
+Eviction drops the oldest heavy undo entry, or the furthest heavy redo entry when
+only future states remain; Spec-only entries are preserved. A new Session starts with empty undo history.
 
 `apply_incremental(&[items::Op], commit)` accepts annotation/layout-Spec operations. The
 library entry is `model::plan_incremental(analysis, before_plan, edited_spec)`. It derives bare
@@ -2836,7 +2838,11 @@ it clears only engine-written pins and runs the full planner with user pins inta
 Dormant variants and prior findings needed for exact undo/remove live only in bounded
 Session history. A newly opened Session has no transaction history.
 
+A `/4` Spec without `engine_pins` (including null) normalizes to `/3` before migration;
+it has current `/3` semantics and never enters legacy migration because of its version.
+
 Full `apply` honours engine pins for title, notes, materials and other content edits.
+`sheet/zones` changes frame furniture without affecting the retained layout.
 Deliberate sheet, scale, view, origin, unit or table-policy edits release the affected layout
 and run the full planner; movement is audited for this incremental lineage. The ordinary
 full path without engine pins retains its existing wire format and omits empty `moved`.

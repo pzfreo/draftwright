@@ -884,10 +884,12 @@ impl Session {
                 model::plan_incremental(&self.analysis, self.plan(), &spec)
             })
         })?;
-        let evaluated = self.evaluate_plan(plan, planner, true)?;
+        let evaluated = self.evaluate_plan(plan, planner, None)?;
         let delta = difference(&self.state, &evaluated.state, &self.analysis, 1);
         if commit {
-            self.push_undo(self.snapshot(false));
+            let mut previous = self.snapshot(false);
+            previous.plan = Some(Box::new(self.plan().clone()));
+            self.push_undo(previous);
             self.redo.clear();
             self.install(evaluated);
         }
@@ -925,7 +927,7 @@ impl Session {
         let old_analysis = std::mem::replace(&mut self.analysis, analysis);
         let mut planner = self.planner.clone();
         planner.calls += 1;
-        let evaluated = self.evaluate_plan(plan, planner, true);
+        let evaluated = self.evaluate_plan(plan, planner, None);
         let new_part = std::mem::replace(&mut self.part, old_part);
         let new_analysis = std::mem::replace(&mut self.analysis, old_analysis);
         let evaluated = evaluated?;
@@ -946,11 +948,27 @@ impl Session {
         self.apply(&[Op::remove("engine_pins")], commit)
     }
     fn push_undo(&mut self, entry: History) {
-        const LIMIT: usize = 32;
-        if self.undo.len() == LIMIT {
-            self.undo.remove(0);
-        }
         self.undo.push(entry);
+        self.trim_plan_history();
+    }
+    fn trim_plan_history(&mut self) {
+        const LIMIT: usize = 32;
+        let carries_plan = |h: &History| h.plan.is_some() || h.source.is_some();
+        while self
+            .undo
+            .iter()
+            .chain(&self.redo)
+            .filter(|h| carries_plan(h))
+            .count()
+            > LIMIT
+        {
+            if let Some(at) = self.undo.iter().position(carries_plan) {
+                self.undo.remove(at);
+            } else if let Some(at) = self.redo.iter().position(carries_plan) {
+                // Preserve the nearest redo states when only future snapshots remain.
+                self.redo.remove(at);
+            }
+        }
     }
     fn snapshot(&self, source: bool) -> History {
         History {
@@ -1437,7 +1455,7 @@ impl Session {
             )
         });
         let evaluated = match if let Some(plan) = entry.plan {
-            self.evaluate_plan(*plan, self.planner.clone(), true)
+            self.evaluate_plan(*plan, self.planner.clone(), None)
         } else {
             self.evaluate(&entry.spec)
         } {
@@ -1462,6 +1480,7 @@ impl Session {
         } else {
             self.undo.pop();
             self.redo.push(current);
+            self.trim_plan_history();
         }
         self.install(evaluated);
         Ok(delta)
@@ -1469,13 +1488,13 @@ impl Session {
     fn evaluate(&self, spec: &Spec) -> Result<Evaluation, Error> {
         let mut planner = self.planner.clone();
         let plan = planner.plan(&self.analysis, spec)?;
-        self.evaluate_plan(plan, planner, false)
+        self.evaluate_plan(plan, planner, Some(spec))
     }
     fn evaluate_plan(
         &self,
         plan: Plan,
         planner: Planner,
-        incremental: bool,
+        input_spec: Option<&Spec>,
     ) -> Result<Evaluation, Error> {
         let mut cache = self.projections.clone();
         let geometry = model::render_geometry(&self.part, &self.analysis, &plan, &mut cache)
@@ -1496,10 +1515,11 @@ impl Session {
         // drawing, still planning, placing geometry and computing ink/deltas each time.
         let key: [u8; 32] = Sha256::digest(
             // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
-            if incremental {
-                serde_json::to_vec(&(&state.plan, &self.analysis.pmi))
+            if let Some(spec) = input_spec {
+                // Preserve the ordinary render memo's original input-Spec key.
+                serde_json::to_vec(&(spec, &self.analysis.pmi))
             } else {
-                serde_json::to_vec(&(&state.plan.spec, &self.analysis.pmi))
+                serde_json::to_vec(&(&state.plan, &self.analysis.pmi))
             }
             .expect("render inputs serialize"),
         )
@@ -1518,7 +1538,7 @@ impl Session {
             projections: cache,
             planner,
             rendered,
-            incremental,
+            incremental: input_spec.is_none(),
         })
     }
     fn install(&mut self, evaluated: Evaluation) {

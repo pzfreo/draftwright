@@ -608,7 +608,11 @@ impl<'de> Deserialize<'de> for Spec {
         Ok(Self {
             units: s.units,
             process: s.process,
-            schema: s.schema,
+            schema: if s.schema == crate::engine_pins::SCHEMA && s.engine_pins.is_none() {
+                SPEC_SCHEMA.into()
+            } else {
+                s.schema
+            },
             part: s.part,
             binding: s.binding,
             engine_pins: s.engine_pins,
@@ -10084,6 +10088,11 @@ fn retain_short_leaders(analysis: &Analysis, plan: &mut Plan, bare: &Plan) {
 /// Two keys that come to one are ambiguous, and refused with both as the candidates. Anything
 /// but a known schema is refused; old schemas expire at the named legacy-reader cutoff.
 pub fn migrate(spec: &Spec, analysis: &Analysis) -> Result<Spec, Invalid> {
+    if spec.schema == crate::engine_pins::SCHEMA && spec.engine_pins.is_none() {
+        let mut normal = spec.clone();
+        normal.schema = SPEC_SCHEMA.into();
+        return Ok(normal);
+    }
     if spec.schema == SPEC_SCHEMA {
         return Ok(spec.clone());
     }
