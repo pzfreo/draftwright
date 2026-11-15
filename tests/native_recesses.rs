@@ -894,6 +894,10 @@ fn quiddity_recess_families_are_read_and_stated() {
 #[test]
 fn ctc05_cylindrical_profiles_are_counted_radii_with_spec_overrides() {
     let (_, a) = read("rule_pins/nist_ctc_05_asme1_ap242.stp.gz");
+    assert_eq!(
+        a.declared_length_unit,
+        Some(draftwright::haecceity::pmi::LengthUnit::Inch)
+    );
     let profiles: Vec<_> = a
         .features
         .iter()
@@ -923,7 +927,8 @@ fn ctc05_cylindrical_profiles_are_counted_radii_with_spec_overrides() {
     let outer = p
         .dimensions
         .iter()
-        .find(|d| d.label == "4× R203.2")
+        // The declared-inch default prints the same 203.2 mm radius as 8.000 in.
+        .find(|d| d.label == "4× R8.000")
         .unwrap();
     assert_eq!(
         outer
