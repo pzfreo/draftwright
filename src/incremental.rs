@@ -2,6 +2,9 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
 use crate::model::{self, Analysis, Invalid, Plan, Problem, Spec};
 use crate::placement_intent::Place;
 
@@ -16,7 +19,7 @@ pub(crate) fn active() -> bool {
 
 /// A prior content variant, including its shared statement's contributing edits.
 /// These are bounded by distinct authored variants, never nested plans.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct RetiredDimension {
     dimension: crate::dims::PlannedDimension,
     edits: Vec<(String, model::DimensionSpec)>,
@@ -87,6 +90,7 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
     let mut layout_before = before.spec.clone();
     let mut layout_after = spec.clone();
     for layout in [&mut layout_before, &mut layout_after] {
+        layout.engine_pins = None;
         layout.dimensions.clear();
         layout.annotations.clear();
         for f in layout.faces.values_mut() {
@@ -106,6 +110,7 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
         ));
     }
     let mut pinned = spec.clone();
+    pinned.engine_pins = None;
     pinned.sheet.size = Some(before.sheet.size.clone());
     pinned.sheet.scale = Some(before.sheet.scale.clone());
     pinned.sheet.keep_layout = None;
@@ -116,7 +121,13 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
     let mut restored = BTreeSet::new();
     for retired in before.incremental_dimensions.iter().rev() {
         let id = &retired.dimension.id;
-        if retired.matches(spec) && restored.insert(id.clone()) {
+        if retired.matches(spec)
+            && !spec
+                .engine_pins
+                .as_ref()
+                .is_some_and(|p| p.rebase.contains(id))
+            && restored.insert(id.clone())
+        {
             for omitted in &retired.covered {
                 restored.insert(omitted.id.clone());
                 reference.dimensions.retain(|d| d.id != omitted.id);
@@ -199,19 +210,8 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
     let mut after = crate::planning::with_pin_reference(reference.clone(), || {
         crate::dims::with_compact(compact, || model::plan(analysis, &pinned))
     })?;
-    if after.views.len() != before.views.len()
-        || after.views.iter().any(|v| {
-            before.views.iter().find(|b| b.id == v.id).is_none_or(|b| {
-                b.at != v.at
-                    || b.scale != v.scale
-                    || b.direction != v.direction
-                    || b.up != v.up
-                    || b.sheet != v.sheet
-            })
-        })
-    {
-        return Err(refuse("cannot preserve the published view composition"));
-    }
+    // placement_intent::views substitutes the published frames before placement;
+    // view_gutters is disabled in this scope. No sheet recovery is invoked.
     retain_from(&mut after, &reference, spec);
     crate::dims::contacts::report(&effective, &mut after);
     // Remove only transaction-generated pin provenance. Authored content/state changes
@@ -255,6 +255,9 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
     for old in &before.dimensions {
         if !same_dimension(before, spec, &old.id) {
             let retired = RetiredDimension::new(before, old);
+            if retired.matches(spec) {
+                continue;
+            }
             after
                 .incremental_dimensions
                 .retain(|r| r.dimension.id != old.id || r.edits != retired.edits);
@@ -269,7 +272,9 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
                     && d.terms == r.dimension.terms
             }))
     });
-    // Pins are transaction-local constraints, never authored Spec edits.
+    cap_variants(&mut after.incremental_gdt, |g| &g.id);
+    cap_variants(&mut after.incremental_dimensions, |r| &r.dimension.id);
+    // The published pin record is installed after the solve; authored pins stay intact.
     after.spec = spec.clone();
     after.sheet.size.clone_from(&before.sheet.size);
     after.sheet.scale.clone_from(&before.sheet.scale);
@@ -280,7 +285,7 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
         .gdt
         .iter()
         .filter(|g| {
-            !before
+            !reference
                 .gdt
                 .iter()
                 .any(|b| b.id == g.id && b.cells == g.cells && b.faces == g.faces)
@@ -291,7 +296,7 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
                 .dimensions
                 .iter()
                 .filter(|d| {
-                    !before
+                    !reference
                         .dimensions
                         .iter()
                         .any(|b| b.id == d.id && b.terms == d.terms)
@@ -318,14 +323,65 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
         .collect();
     if !affected.is_empty() {
         after.problems.push(Problem {
-            id: "p:incremental_placement_constrained".into(),
+            id: format!("p:incremental_placement_constrained:{}", affected.join("|")),
             code: "incremental_placement_constrained".into(), severity: "warning".into(),
             message: "New annotation ink could not be placed cleanly in the retained layout. Existing placements were kept; inspect the placement findings or preview an explicit full apply.".into(),
             subjects: affected, ..Default::default()
         });
     }
+    let signature = layout_signature(&after);
+    after
+        .incremental_findings
+        .clone_from(&before.incremental_findings);
+    if let Some(retired) = before
+        .incremental_findings
+        .iter()
+        .find(|r| r.layout == signature)
+    {
+        after.problems.clone_from(&retired.problems);
+    }
+    let previous = layout_signature(before);
+    if previous != signature
+        && !after
+            .incremental_findings
+            .iter()
+            .any(|r| r.layout == previous)
+    {
+        after.incremental_findings.push(RetiredFindings {
+            layout: previous,
+            problems: before.problems.clone(),
+        });
+    }
+    if after.incremental_findings.len() > 32 {
+        after.incremental_findings.remove(1);
+    }
+    let mut ids = BTreeSet::new();
+    after.problems.retain(|p| ids.insert(p.id.clone()));
     after.status = crate::completeness::status(&after.problems);
+    persist(&mut after);
     Ok(after)
+}
+
+// Keep the original variant and the 31 most recent alternatives per item.
+fn cap_variants<T>(variants: &mut Vec<T>, id: impl Fn(&T) -> &str) {
+    let mut counts = BTreeMap::<String, usize>::new();
+    for v in variants.iter() {
+        *counts.entry(id(v).into()).or_default() += 1;
+    }
+    let mut first = BTreeSet::new();
+    variants.retain(|v| {
+        let key = id(v);
+        if first.insert(key.to_string()) {
+            return true;
+        }
+        let count = counts.get_mut(key).expect("variant was counted");
+        if *count > 32 {
+            *count -= 1;
+            false
+        } else {
+            true
+        }
+    });
 }
 
 fn same_dimension(before: &Plan, spec: &Spec, id: &str) -> bool {
@@ -333,7 +389,11 @@ fn same_dimension(before: &Plan, spec: &Spec, id: &str) -> bool {
         before.spec.dimensions.get(id).cloned().unwrap_or_default()
             == spec.dimensions.get(id).cloned().unwrap_or_default()
     };
-    same(id)
+    !spec
+        .engine_pins
+        .as_ref()
+        .is_some_and(|p| p.rebase.iter().any(|d| d == id))
+        && same(id)
         && before
             .omitted
             .iter()
@@ -354,7 +414,7 @@ pub(crate) fn dimensions() -> Option<Dimensions> {
     if !active() {
         return None;
     }
-    let before = crate::planning::pin_reference()?;
+    let before = crate::planning::pin_reference_shared()?;
     let spec = intent()?;
     let restored = RESTORED.with(|s| s.borrow().clone());
     Some(Dimensions {
@@ -383,7 +443,7 @@ pub(crate) fn excluded(spec: &Spec) -> std::collections::BTreeSet<String> {
     if !active() {
         return Default::default();
     }
-    let Some(before) = crate::planning::pin_reference() else {
+    let Some(before) = crate::planning::pin_reference_shared() else {
         return Default::default();
     };
     let intended = intent().unwrap_or_else(|| spec.clone());
@@ -410,7 +470,7 @@ pub(crate) fn obstacles() -> Vec<crate::dims::PlannedDimension> {
     if !active() {
         return Vec::new();
     }
-    let Some(before) = crate::planning::pin_reference() else {
+    let Some(before) = crate::planning::pin_reference_shared() else {
         return Vec::new();
     };
     let mut out: Vec<_> = before
@@ -473,7 +533,7 @@ pub(crate) fn retain(plan: &mut Plan) {
     if !active() {
         return;
     }
-    let Some(before) = crate::planning::pin_reference() else {
+    let Some(before) = crate::planning::pin_reference_shared() else {
         return;
     };
     let Some(spec) = intent() else {
@@ -507,6 +567,26 @@ fn retain_from(plan: &mut Plan, before: &Plan, spec: &Spec) {
             .position(|b| b.id == d.id)
             .unwrap_or(usize::MAX)
     });
+    for g in &mut plan.gdt {
+        if let Some(old) = before.gdt.iter().find(|old| {
+            old.id == g.id
+                && old.placed.is_some()
+                && old.cells == g.cells
+                && old.faces == g.faces
+                && old.modifiers == g.modifiers
+                && spec.annotations.get(&g.id).cloned().unwrap_or_default()
+                    == before
+                        .spec
+                        .annotations
+                        .get(&g.id)
+                        .cloned()
+                        .unwrap_or_default()
+        }) {
+            g.view.clone_from(&old.view);
+            g.side.clone_from(&old.side);
+            g.placed.clone_from(&old.placed);
+        }
+    }
     plan.views.clone_from(&before.views);
     plan.captions.clone_from(&before.captions);
     plan.notes.clone_from(&before.notes);
@@ -629,4 +709,200 @@ fn retain_findings(before: &Plan, after: &mut Plan) {
             after.problems.push(p.clone());
         }
     }
+}
+
+/// Engine-owned exact pin reference. Authored `place` pins remain in their usual
+/// fields; removing this single field is the editor's Re-layout operation.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnginePins {
+    pub written_by: EngineWriter,
+    pub source_sha256: String,
+    /// The drawing intent at the time these pins were written, without engine pins.
+    pub intent: Box<serde_json::value::RawValue>,
+    /// Published sheet, view frames, retained recipes and ink. No B-rep or nested Plan.
+    pub layout: Box<serde_json::value::RawValue>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rebase: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    retired_gdt: Vec<Box<serde_json::value::RawValue>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    retired_dimensions: Vec<Box<serde_json::value::RawValue>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    retired_findings: Vec<Box<serde_json::value::RawValue>>,
+}
+impl PartialEq for EnginePins {
+    fn eq(&self, other: &Self) -> bool {
+        serde_json::to_value(self).expect("pins serialize")
+            == serde_json::to_value(other).expect("pins serialize")
+    }
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EngineWriter {
+    Engine,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct RetiredFindings {
+    layout: String,
+    problems: Vec<Problem>,
+}
+
+const LAYOUT_FIELDS: &[&str] = &[
+    "sheet",
+    "views",
+    "dimensions",
+    "omitted",
+    "gdt",
+    "captions",
+    "notes",
+    "notes_block",
+    "radius_notes_block",
+    "radius_table",
+    "tables",
+    "hole_table",
+    "hole_tables",
+    "balloons",
+    "requirements",
+    "characteristics",
+    "inspection_balloons",
+    "problems",
+];
+fn layout_signature(plan: &Plan) -> String {
+    let dimensions: BTreeMap<_, _> = plan
+        .dimensions
+        .iter()
+        .map(|d| (&d.id, (&d.view, &d.placed, &d.terms, &d.measurements)))
+        .collect();
+    let annotations: BTreeMap<_, _> = plan
+        .gdt
+        .iter()
+        .map(|g| (&g.id, (&g.view, &g.placed, &g.cells, &g.faces)))
+        .collect();
+    let omitted: BTreeMap<_, _> = plan.omitted.iter().map(|o| (&o.id, &o.state)).collect();
+    Sha256::digest(
+        serde_json::to_vec(&(dimensions, annotations, omitted)).expect("layout serializes"),
+    )
+    .iter()
+    .map(|b| format!("{b:02x}"))
+    .collect()
+}
+fn persist(plan: &mut Plan) {
+    let mut intent = plan.spec.clone();
+    intent.engine_pins = None;
+    let value = serde_json::to_value(&*plan).expect("plan serializes");
+    plan.spec.engine_pins = Some(Box::new(EnginePins {
+        written_by: EngineWriter::Engine,
+        source_sha256: plan.binding.source_sha256.clone(),
+        intent: serde_json::value::to_raw_value(&intent).expect("Spec serializes"),
+        layout: serde_json::value::to_raw_value(
+            &LAYOUT_FIELDS
+                .iter()
+                .filter_map(|k| value.get(*k).map(|v| ((*k).to_string(), v.clone())))
+                .collect::<BTreeMap<_, _>>(),
+        )
+        .expect("pins serialize"),
+        rebase: Vec::new(),
+        retired_gdt: plan
+            .incremental_gdt
+            .iter()
+            .map(|v| serde_json::value::to_raw_value(v).expect("ink serializes"))
+            .collect(),
+        retired_dimensions: plan
+            .incremental_dimensions
+            .iter()
+            .map(|v| serde_json::value::to_raw_value(v).expect("recipe serializes"))
+            .collect(),
+        retired_findings: plan
+            .incremental_findings
+            .iter()
+            .map(|v| serde_json::value::to_raw_value(v).expect("findings serialize"))
+            .collect(),
+    }));
+}
+
+pub(crate) fn replay(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    let pins = spec
+        .engine_pins
+        .as_ref()
+        .expect("replay requires engine pins");
+    let invalid = |message: String| Invalid {
+        message,
+        path: Some("engine_pins".into()),
+        choices: Vec::new(),
+        also: Vec::new(),
+    };
+    if pins.source_sha256 != analysis.binding.source_sha256 {
+        return Err(invalid("Engine pins belong to another STEP revision; update the source incrementally in its Session, or remove engine_pins for a full re-layout.".into()));
+    }
+    let layout: BTreeMap<String, serde_json::Value> = serde_json::from_str(pins.layout.get())
+        .map_err(|e| invalid(format!("Invalid engine layout: {e}")))?;
+    if layout.keys().any(|k| !LAYOUT_FIELDS.contains(&k.as_str())) {
+        return Err(invalid("Unknown engine pin collection.".into()));
+    }
+    let mut reference = serde_json::json!({"schema": model::PLAN_SCHEMA, "binding":analysis.binding,
+        "spec": serde_json::from_str::<serde_json::Value>(pins.intent.get()).map_err(|e| invalid(e.to_string()))?, "dimensions":[], "problems":[]});
+    for (key, value) in &layout {
+        reference[key] = value.clone();
+    }
+    let mut reference: Plan = serde_json::from_value(reference)
+        .map_err(|e| invalid(format!("Invalid engine pins: {e}")))?;
+    reference.incremental_gdt = pins
+        .retired_gdt
+        .iter()
+        .map(|v| serde_json::from_str(v.get()))
+        .collect::<Result<_, _>>()
+        .map_err(|e| invalid(e.to_string()))?;
+    reference.incremental_dimensions = pins
+        .retired_dimensions
+        .iter()
+        .map(|v| serde_json::from_str(v.get()))
+        .collect::<Result<_, _>>()
+        .map_err(|e| invalid(e.to_string()))?;
+    reference.incremental_findings = pins
+        .retired_findings
+        .iter()
+        .map(|v| serde_json::from_str(v.get()))
+        .collect::<Result<_, _>>()
+        .map_err(|e| invalid(e.to_string()))?;
+    let unchanged = serde_json::to_value({
+        let mut s = spec.clone();
+        s.engine_pins = None;
+        s
+    })
+    .expect("Spec serializes")
+        == serde_json::from_str::<serde_json::Value>(pins.intent.get())
+            .map_err(|e| invalid(e.to_string()))?
+        && pins.rebase.is_empty();
+    let mut result = plan(analysis, &reference, spec)?;
+    if unchanged {
+        result.problems = reference.problems;
+        result.status = crate::completeness::status(&result.problems);
+        persist(&mut result);
+    }
+    Ok(result)
+}
+
+pub(crate) fn basis_offers(
+    analysis: &Analysis,
+    id: &str,
+    measurements: &[crate::dims::Measurement],
+) -> Vec<Problem> {
+    let Some(crate::pmi::Reading::Read(reading)) = &analysis.pmi else {
+        return Vec::new();
+    };
+    reading.records.iter().filter(|r| r.category == crate::pmi::Category::Datum).filter_map(|datum| {
+        let axis = datum.geometry.as_ref().filter(|g| g.surface.as_deref() == Some("plane")).and_then(|g| g.axis.as_deref())?;
+        let suffix = format!(".{}", axis.to_ascii_lowercase());
+        if !measurements.iter().any(|m| m.parameter.contains("location.") && m.parameter.ends_with(&suffix)) { return None; }
+        Some(Problem {
+            id: format!("p:incremental_basis_kept:{id}:{}",datum.label),
+            code:"incremental_basis_kept".into(), severity:"info".into(),
+            message:format!("The existing dimension basis was kept. Dimension from datum {} is available for preview.",datum.label),
+            subjects:vec![id.into()],
+            fixes:vec![crate::fixes::Fix::new(format!("Dimension from datum {}",datum.label),vec![
+                crate::items::Op::set("engine_pins/rebase",serde_json::json!([id]))
+            ])], ..Default::default()
+        })
+    }).collect()
 }

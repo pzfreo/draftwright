@@ -3404,6 +3404,13 @@ fn plan_inventory_ordered(
     if let Some(policy) = &incremental {
         for (w, ..) in &mut kept {
             if let Some(old) = policy.held.get(&w.id) {
+                if w.measurements != old.measurements {
+                    problems.extend(crate::incremental::basis_offers(
+                        analysis,
+                        &w.id,
+                        &w.measurements,
+                    ));
+                }
                 w.value = old.value;
                 w.terms.clone_from(&old.terms);
                 w.measurements.clone_from(&old.measurements);

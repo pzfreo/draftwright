@@ -54,10 +54,13 @@ impl Session {
     pub fn apply_fragments_json(&mut self, json: &str) -> Result<String, Error> {
         let ops: Vec<Op> = serde_json::from_str(json).map_err(|e| Error::invalid(e.to_string()))?;
         let delta = self.apply(&ops, true)?;
+        self.fragments_packet(delta, &ops)
+    }
+    fn fragments_packet(&self, delta: session::Delta, ops: &[Op]) -> Result<String, Error> {
         let annotations: std::collections::BTreeMap<_, _> =
             delta.annotations.keys().map(|id| (id, true)).collect();
         let changed: Vec<_> = delta.changed.iter().map(|i| serde_json::json!({"item":{"id":i.item.id},"placement":i.placement.as_ref().map(|_|true)})).collect();
-        let mut packet = serde_json::json!({"delta":{"plans":delta.plans,"plan":delta.plan,"removed":delta.removed,"changed":changed,"annotations":annotations,"problems_added":delta.problems_added,"problems_resolved":delta.problems_resolved,"notices":delta.notices,"problem_order":delta.problem_order},"fragments":self.0.svg_fragments(Some(&delta)),"pmi":self.0.pmi_report()});
+        let mut packet = serde_json::json!({"delta":{"moved":delta.moved,"plans":delta.plans,"plan":delta.plan,"removed":delta.removed,"changed":changed,"annotations":annotations,"problems_added":delta.problems_added,"problems_resolved":delta.problems_resolved,"notices":delta.notices,"problem_order":delta.problem_order},"fragments":self.0.svg_fragments(Some(&delta)),"pmi":self.0.pmi_report()});
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         let plan = serde_json::to_value(self.0.plan()).unwrap();
         for (name, patch) in packet["delta"]["plan"]["collections"]
@@ -76,6 +79,43 @@ impl Session {
                 serde_json::from_str(&self.placement_options_json()?).unwrap();
         }
         Ok(packet.to_string())
+    }
+    pub fn apply_incremental_fragments_json(&mut self, json: &str) -> Result<String, Error> {
+        let ops: Vec<Op> =
+            serde_json::from_str(json).map_err(|e| Error::invalid(format!("invalid ops: {e}")))?;
+        let delta = self.0.apply_incremental(&ops, true)?;
+        self.fragments_packet(delta, &ops)
+    }
+    pub fn replace_step_incremental_json(
+        &mut self,
+        name: &str,
+        bytes: &[u8],
+        commit: bool,
+    ) -> Result<String, Error> {
+        Ok(
+            serde_json::to_string(&self.0.replace_step_incremental(name, bytes, commit)?)
+                .expect("delta serializes"),
+        )
+    }
+    pub fn replace_step_incremental_fragments_json(
+        &mut self,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<String, Error> {
+        let delta = self.0.replace_step_incremental(name, bytes, true)?;
+        self.fragments_packet(delta, &[])
+    }
+    pub fn preview_incremental(&mut self, json: &str) -> Result<String, Error> {
+        let ops: Vec<Op> =
+            serde_json::from_str(json).map_err(|e| Error::invalid(format!("invalid ops: {e}")))?;
+        let delta = self.0.apply_incremental(&ops, false)?;
+        self.preview_delta(delta, None)
+    }
+    pub fn preview_step_incremental(&mut self, name: &str, bytes: &[u8]) -> Result<String, Error> {
+        let delta = self.0.replace_step_incremental(name, bytes, false)?;
+        let source =
+            model::analyse_native_bytes_part(name, bytes, self.0.analysis().binding.part_index)?;
+        self.preview_delta(delta, Some(source))
     }
     pub fn plans(&self) -> usize {
         self.0.stats().plans
@@ -210,11 +250,21 @@ impl Session {
         let ops: Vec<Op> =
             serde_json::from_str(json).map_err(|e| Error::invalid(format!("invalid ops: {e}")))?;
         let delta = self.apply(&ops, false)?;
+        self.preview_delta(delta, None)
+    }
+    fn preview_delta(
+        &self,
+        delta: session::Delta,
+        source: Option<(draftwright::haecceity::Part, model::Analysis)>,
+    ) -> Result<String, Error> {
         let mut state = self.0.state().clone();
         delta.apply_to(&mut state)?;
+        let (part, analysis) = source
+            .as_ref()
+            .map_or((self.0.part(), self.0.analysis()), |(p, a)| (p, a));
         let drawing = state.render(
-            self.0.part(),
-            self.0.analysis(),
+            part,
+            analysis,
             // Invariant: Font bytes are bundled at build time and parsed unchanged, independently of user input.
             &draftwright::text::Font::new(api::MONO.to_vec()).unwrap(),
             &mut model::Projections::default(),
@@ -227,6 +277,10 @@ impl Session {
         snapshot["plan"] = serde_json::to_value(&state.plan).unwrap();
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         snapshot["spec"] = serde_json::to_value(&state.plan.spec).unwrap();
+        snapshot["pmi"] = CoreSession::pmi_report_for(analysis, &state);
+        snapshot["provenance"] = serde_json::json!({"source_sha256":analysis.binding.source_sha256,"face_entities":(0..part.faces.len()).map(|i|part.face_source(i).map(|s|s.entity)).collect::<Vec<_>>()});
+        snapshot["analysis"] = serde_json::to_value(analysis).unwrap();
+        snapshot["moved"] = serde_json::to_value(&delta.moved).unwrap();
         snapshot["notices"] = serde_json::to_value(&delta.notices).unwrap();
         snapshot["svg"] = serde_json::Value::String(drawing.svg());
         Ok(snapshot.to_string())
@@ -397,6 +451,43 @@ export interface CalloutOffset {
         pub fn apply_incremental(&mut self, ops: &str, commit: bool) -> Result<String, JsValue> {
             self.0.apply_incremental_json(ops, commit).map_err(js)
         }
+        #[wasm_bindgen(js_name = applyIncrementalFragments)]
+        pub fn apply_incremental_fragments(&mut self, ops: &str) -> Result<String, JsValue> {
+            self.0.apply_incremental_fragments_json(ops).map_err(js)
+        }
+        #[wasm_bindgen(js_name = previewIncremental)]
+        pub fn preview_incremental(&mut self, ops: &str) -> Result<String, JsValue> {
+            self.0.preview_incremental(ops).map_err(js)
+        }
+        #[wasm_bindgen(js_name = replaceStepIncremental)]
+        pub fn replace_step_incremental(
+            &mut self,
+            name: &str,
+            bytes: &[u8],
+            commit: bool,
+        ) -> Result<String, JsValue> {
+            self.0
+                .replace_step_incremental_json(name, bytes, commit)
+                .map_err(js)
+        }
+        #[wasm_bindgen(js_name = replaceStepIncrementalFragments)]
+        pub fn replace_step_incremental_fragments(
+            &mut self,
+            name: &str,
+            bytes: &[u8],
+        ) -> Result<String, JsValue> {
+            self.0
+                .replace_step_incremental_fragments_json(name, bytes)
+                .map_err(js)
+        }
+        #[wasm_bindgen(js_name = previewStepIncremental)]
+        pub fn preview_step_incremental(
+            &mut self,
+            name: &str,
+            bytes: &[u8],
+        ) -> Result<String, JsValue> {
+            self.0.preview_step_incremental(name, bytes).map_err(js)
+        }
         pub fn apply(&mut self, ops: &str, commit: bool) -> Result<String, JsValue> {
             self.0.apply_json(ops, commit).map_err(js)
         }
@@ -533,9 +624,70 @@ mod tests {
         let committed = s.apply_incremental_json(ops, true).unwrap();
         assert_eq!(preview, committed);
         let delta: Value = serde_json::from_str(&committed).unwrap();
-        assert_eq!(delta["moved"], json!([]));
+        assert!(delta.get("moved").is_none());
         s.0.undo().unwrap();
         assert_eq!(serde_json::to_value(s.0.state()).unwrap(), before);
+    }
+
+    #[test]
+    fn incremental_editor_preview_and_fragments_match() {
+        let bytes = include_bytes!("../../../tests/fixtures/parts/plate.step");
+        let mut s = Session::open("plate.step", bytes).unwrap();
+        let before = serde_json::to_value(s.0.state()).unwrap();
+        let ops = r#"[{"op":"set","path":"faces/bottom/datum","value":"A"}]"#;
+        let preview: Value = serde_json::from_str(&s.preview_incremental(ops).unwrap()).unwrap();
+        assert_eq!(serde_json::to_value(s.0.state()).unwrap(), before);
+        let packet: Value =
+            serde_json::from_str(&s.apply_incremental_fragments_json(ops).unwrap()).unwrap();
+        assert_eq!(preview["plan"], serde_json::to_value(s.0.plan()).unwrap());
+        assert_eq!(packet["delta"]["moved"], json!([]));
+        assert!(!packet["fragments"].as_object().unwrap().is_empty());
+    }
+    #[test]
+    fn step_incremental_editor_preview_and_fragments_match() {
+        use draftwright::haecceity::{
+            p21::Document,
+            pmi::{self as hp, *},
+            step::read_part_definitions,
+        };
+        let bytes = include_bytes!("../../../tests/fixtures/parts/plate.step");
+        let doc = Document::parse(bytes.to_vec()).unwrap();
+        let parts = read_part_definitions(bytes).unwrap();
+        let mut p = PartPmi::default();
+        p.features
+            .push(Feature::Items(vec![Anchor::Face(FaceIndex(0))]));
+        p.datums
+            .push(Datum::new(DatumLabel::new("A").unwrap(), Some(FeatureId(0)), vec![]).unwrap());
+        let (edit, _) = hp::write(
+            &doc,
+            &parts,
+            &[(PartId(0), p)],
+            hp::write::Mode::Replace,
+            hp::write::PresentationPolicy::RemovePresentation,
+        )
+        .unwrap();
+        let updated = doc.apply(&edit).unwrap().bytes;
+        let mut s = Session::open("plate.step", bytes).unwrap();
+        let before = s.snapshot().unwrap();
+        let preview: serde_json::Value =
+            serde_json::from_str(&s.preview_step_incremental("plate.step", &updated).unwrap())
+                .unwrap();
+        assert_eq!(before, s.snapshot().unwrap());
+        let packet: serde_json::Value = serde_json::from_str(
+            &s.replace_step_incremental_fragments_json("plate.step", &updated)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(preview["plan"], serde_json::to_value(s.0.plan()).unwrap());
+        assert_eq!(packet["delta"]["moved"], json!([]));
+        assert_eq!(
+            preview["analysis"]["binding"]["source_sha256"],
+            s.source_sha256()
+        );
+        assert_ne!(
+            s.source_sha256(),
+            serde_json::from_str::<serde_json::Value>(&before).unwrap()["analysis"]["binding"]["source_sha256"]
+        );
     }
 
     #[test]

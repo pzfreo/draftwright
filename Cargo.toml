@@ -40,7 +40,7 @@ pdf-writer = "0.15"
 png = "0.18.1"
 quiddity = { version = "=0.5.1", default-features = false, features = ["presentation"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+serde_json = { version = "1.0.151", features = ["float_roundtrip", "raw_value"] }
 sha2 = "0.11.0"
 subsetter = { version = "0.2.6", default-features = false }
 tiny-skia = { version = "0.12.0", default-features = false, features = ["std"] }
@@ -55,7 +55,7 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 [dev-dependencies]
 syn = { version = "2", features = ["full", "visit"] }
 flate2 = "1.1.10"
-serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+serde_json = { version = "1.0.151", features = ["float_roundtrip", "raw_value"] }
 
 [build-dependencies]
 sha2 = "0.11.0"

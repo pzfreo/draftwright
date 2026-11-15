@@ -11,6 +11,11 @@ fn open(name: &str) -> Session {
     open_spec(name, Spec::default())
 }
 fn open_spec(name: &str, spec: Spec) -> Session {
+    let bytes = source(name);
+    let (part, analysis) = model::analyse_native_bytes(name, &bytes).unwrap();
+    Session::new(part, analysis, spec).unwrap()
+}
+fn source(name: &str) -> Vec<u8> {
     let file = match name {
         "bracket" => "tests/fixtures/samples/draftwright-demo-bracket.step.gz",
         "scattered" => "tests/fixtures/parts/scattered_holes.step",
@@ -25,8 +30,7 @@ fn open_spec(name: &str, spec: Spec) -> Session {
             .unwrap();
         bytes = decoded;
     }
-    let (part, analysis) = model::analyse_native_bytes(name, &bytes).unwrap();
-    Session::new(part, analysis, spec).unwrap()
+    bytes
 }
 fn value(v: impl serde::Serialize) -> Value {
     serde_json::to_value(v).unwrap()
@@ -127,6 +131,7 @@ fn exercise(name: &str) {
     fixed(&original.plan, s.plan());
     assert!(delta.moved.is_empty());
     assert_eq!(value(&s.state().annotations), value(&original.annotations));
+    assert_eq!(s.state().problems, original.problems);
     let before = s.state().clone();
     save(name, "b-before", &s);
     let delta = s
@@ -313,6 +318,7 @@ fn removing_a_datum_and_its_dependent_frame_restores_the_drawing() {
         value(&s.plan().dimensions)
     );
     assert_eq!(value(&original.plan.gdt), value(&s.plan().gdt));
+    assert_eq!(s.state().problems, original.problems);
 }
 
 #[test]
@@ -422,4 +428,413 @@ fn removing_an_override_restores_an_imported_frames_content_and_exact_ink() {
     for old in &original.plan.gdt {
         assert_eq!(old, s.plan().gdt.iter().find(|g| g.id == old.id).unwrap());
     }
+}
+
+use draftwright::haecceity::{
+    p21::Document,
+    pmi::{self as hp, *},
+    step::read_part_definitions,
+};
+fn pmi_edit(bytes: &[u8], edit: impl FnOnce(&mut PartPmi)) -> Vec<u8> {
+    let doc = Document::parse(bytes.to_vec()).unwrap();
+    let parts = read_part_definitions(bytes).unwrap();
+    let mut pmi = hp::read(&doc, &parts).unwrap().parts.remove(0);
+    edit(&mut pmi);
+    let (edits, _) = hp::write(
+        &doc,
+        &parts,
+        &[(PartId(0), pmi)],
+        hp::write::Mode::Replace,
+        hp::write::PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    doc.apply(&edits).unwrap().bytes
+}
+fn face_target(pmi: &mut PartPmi, face: usize) -> FeatureId {
+    pmi.features
+        .push(Feature::Items(vec![Anchor::Face(FaceIndex(face))]));
+    FeatureId(pmi.features.len() - 1)
+}
+fn datum_step(bytes: &[u8], face: usize) -> Vec<u8> {
+    pmi_edit(bytes, |p| {
+        let feature = face_target(p, face);
+        if let Some(d) = p.datums.iter_mut().find(|d| d.label().as_str() == "A") {
+            *d = Datum::new(DatumLabel::new("A").unwrap(), Some(feature), vec![]).unwrap();
+        } else {
+            p.datums
+                .push(Datum::new(DatumLabel::new("A").unwrap(), Some(feature), vec![]).unwrap());
+        }
+    })
+}
+fn planar_face(s: &Session) -> usize {
+    // Pick a principal plane at the maximum station, so a re-base changes a real value.
+    s.part()
+        .faces
+        .iter()
+        .enumerate()
+        .find_map(|(i, f)| {
+            if let draftwright::haecceity::geom::Surface::Plane { frame } = &f.surface {
+                let z = s.analysis().envelope[1][2];
+                (frame.z[2].abs() > 0.99 && (frame.origin[2] - z).abs() < 1e-5).then_some(i)
+            } else {
+                None
+            }
+        })
+        .unwrap()
+}
+fn reopened(name: &str, bytes: &[u8], s: &Session) -> Session {
+    let spec: Spec = serde_json::from_slice(&serde_json::to_vec(s.spec()).unwrap()).unwrap();
+    let (part, a) = model::analyse_native_bytes(name, bytes).unwrap();
+    Session::new(part, a, spec).unwrap()
+}
+fn pmi_round_trip(name: &str) {
+    let bytes = source(name);
+    let mut s = open(name);
+    let original = s.state().clone();
+    let updated = datum_step(&bytes, planar_face(&s));
+    save(name, "pmi-a-before", &s);
+    let preview = s.replace_step_incremental(name, &updated, false).unwrap();
+    assert_eq!(value(s.state()), value(&original));
+    assert_eq!(
+        s.analysis().binding.source_sha256,
+        original.plan.binding.source_sha256
+    );
+    let committed = s.replace_step_incremental(name, &updated, true).unwrap();
+    assert_eq!(value(&preview), value(&committed));
+    fixed(&original.plan, s.plan());
+    assert!(committed.moved.is_empty(), "{}", value(&committed.moved));
+    assert!(
+        s.plan()
+            .gdt
+            .iter()
+            .any(|g| g.cells == ["A"] && g.placed.is_some())
+    );
+    assert_eq!(value(&s.spec().engine_pins)["written_by"], "engine");
+    save(name, "pmi-a-after", &s);
+    let restored = reopened(name, &updated, &s);
+    fixed(s.plan(), restored.plan());
+    assert_eq!(
+        value(&s.state().annotations),
+        value(&restored.state().annotations)
+    );
+    assert_eq!(s.state().problems, restored.state().problems);
+    save(name, "pmi-a-reloaded", &restored);
+    let after = s.state().clone();
+    s.undo().unwrap();
+    assert_eq!(value(s.state()), value(&original));
+    s.redo().unwrap();
+    assert_eq!(value(s.state()), value(&after));
+    let removed = s.replace_step_incremental(name, &bytes, true).unwrap();
+    assert!(removed.moved.is_empty(), "{}", value(&removed.moved));
+    fixed(&original.plan, s.plan());
+    assert_eq!(value(&original.annotations), value(&s.state().annotations));
+    assert_eq!(original.problems, s.state().problems);
+}
+#[test]
+fn step_pmi_bracket_reload_and_remove() {
+    pmi_round_trip("bracket");
+}
+#[test]
+fn step_pmi_scattered_reload_and_remove() {
+    pmi_round_trip("scattered");
+}
+#[test]
+fn step_pmi_ctc_reload_and_remove() {
+    pmi_round_trip("ctc");
+}
+#[test]
+fn changed_brep_is_refused_without_mutating_source_or_history() {
+    let mut s = open("bracket");
+    let original = value(s.state());
+    let error = s
+        .replace_step_incremental("scattered", &source("scattered"), true)
+        .unwrap_err();
+    assert!(error.message.contains("geometry differs") && error.message.contains("full plan"));
+    assert_eq!(value(s.state()), original);
+    assert!(s.undo().is_err());
+}
+#[test]
+fn relayout_clears_only_engine_pins() {
+    let mut s = open("bracket");
+    let id = s
+        .plan()
+        .dimensions
+        .iter()
+        .find(|d| d.placed.is_some())
+        .unwrap()
+        .id
+        .clone();
+    s.apply(
+        &[Op::set(
+            format!("dimensions/{}/place", draftwright::items::key(&id)),
+            json!({"pinned":true}),
+        )],
+        true,
+    )
+    .unwrap();
+    let authored = s.spec().clone();
+    let updated = datum_step(&source("bracket"), planar_face(&s));
+    s.replace_step_incremental("bracket", &updated, true)
+        .unwrap();
+    assert!(s.spec().engine_pins.is_some());
+    s.relayout(true).unwrap();
+    assert_eq!(s.spec(), &authored);
+    let full = model::plan_recovered(s.analysis(), &authored).unwrap();
+    assert_eq!(value(s.plan()), value(full));
+}
+#[test]
+fn datum_rebase_offer_previews_and_applies_only_when_chosen() {
+    let mut s = open("ctc");
+    let updated = datum_step(&source("ctc"), planar_face(&s));
+    s.replace_step_incremental("ctc", &updated, true).unwrap();
+    let held = s.state().clone();
+    let problem = s
+        .state()
+        .problems
+        .iter()
+        .find(|p| p.code == "incremental_basis_kept")
+        .expect("kept basis must be explained");
+    assert_eq!(
+        problem.labels().tier,
+        draftwright::finding::Tier::Information
+    );
+    let fix = problem
+        .offered_fixes()
+        .into_iter()
+        .find(|f| f.description.contains("Dimension from datum A"))
+        .unwrap();
+    let id = problem.subjects[0].clone();
+    let preview = s.apply(&fix.ops, false).unwrap();
+    assert_eq!(value(s.state()), value(&held));
+    let applied = s.apply(&fix.ops, true).unwrap();
+    assert_eq!(value(&preview), value(&applied));
+    let old = held.plan.dimensions.iter().find(|d| d.id == id).unwrap();
+    let new = s.plan().dimensions.iter().find(|d| d.id == id).unwrap();
+    assert_ne!(
+        old.measurements, new.measurements,
+        "re-base changes measured content"
+    );
+    assert_ne!(old.terms, new.terms);
+    assert!(applied.moved.iter().any(|m| m.id == id));
+    assert!(new.basis.contains("datum A"));
+    let rebased = new.measurements.clone();
+    s.apply_incremental(&[], true).unwrap();
+    assert_eq!(
+        s.plan()
+            .dimensions
+            .iter()
+            .find(|d| d.id == id)
+            .unwrap()
+            .measurements,
+        rebased
+    );
+}
+#[test]
+fn consecutive_crowded_adds_have_unique_findings() {
+    let mut s = open_spec(
+        "scattered",
+        serde_json::from_value(json!({"sheet":{"size":"A4","scale":"1:1"},"hole_table":"never"}))
+            .unwrap(),
+    );
+    for side in ["top", "bottom"] {
+        s.apply_incremental(
+            &[Op::set(
+                format!("faces/{side}/controls"),
+                json!([{"characteristic":"flatness","tolerance":0.05}]),
+            )],
+            true,
+        )
+        .unwrap();
+    }
+    let p = &s.state().problems;
+    assert!(
+        p.iter()
+            .filter(|p| p.code == "incremental_placement_constrained")
+            .count()
+            >= 2
+    );
+    let ids: std::collections::BTreeSet<_> = p.iter().map(|p| &p.id).collect();
+    assert_eq!(p.len(), ids.len());
+}
+#[test]
+fn history_retains_at_most_thirty_two_edits() {
+    let mut s = open("bracket");
+    for _ in 0..100 {
+        s.apply_incremental(&[], true).unwrap();
+    }
+    let mut n = 0;
+    while s.undo().is_ok() {
+        n += 1;
+    }
+    assert_eq!(n, 32);
+}
+
+fn pmi_tolerance(
+    target: FeatureId,
+    kind: ToleranceKind,
+    datums: Option<DatumSystem>,
+) -> GeometricTolerance {
+    GeometricTolerance {
+        kind,
+        target: ToleranceTarget::Feature(target),
+        magnitude: Some(hp::Value::length(
+            Decimal::parse("0.05").unwrap(),
+            LengthUnit::Millimetre,
+        )),
+        zone: None,
+        modifiers: vec![],
+        unit_basis: None,
+        maximum: None,
+        unequal: None,
+        datums,
+        auxiliary: vec![],
+        description: None,
+    }
+}
+#[test]
+fn step_pmi_flatness_and_position_preserve_existing_ink() {
+    for name in ["bracket", "scattered", "ctc"] {
+        let mut s = open(name);
+        let before = s.state().clone();
+        let flat = pmi_edit(&source(name), |p| {
+            let target = face_target(p, planar_face(&s));
+            p.tolerances
+                .push(pmi_tolerance(target, ToleranceKind::Flatness, None));
+        });
+        let delta = s.replace_step_incremental(name, &flat, true).unwrap();
+        fixed(&before.plan, s.plan());
+        assert!(delta.moved.is_empty());
+        assert!(
+            s.plan()
+                .gdt
+                .iter()
+                .any(|g| g.cells.iter().any(|c| c == "⏥") && g.placed.is_some())
+        );
+        let positioned = pmi_edit(&flat, |p| {
+            let mut ids = Vec::new();
+            for (letter, axis) in [("A", 2), ("B", 0), ("C", 1)] {
+                let face = s
+                    .part()
+                    .faces
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, f)| {
+                        if let draftwright::haecceity::geom::Surface::Plane { frame } = &f.surface {
+                            (frame.z[axis].abs() > 0.99
+                                && (frame.origin[axis] - s.analysis().envelope[0][axis]).abs()
+                                    < 1e-5)
+                                .then_some(i)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap();
+                let feature = face_target(p, face);
+                let d =
+                    Datum::new(DatumLabel::new(letter).unwrap(), Some(feature), vec![]).unwrap();
+                if let Some(index) = p.datums.iter().position(|d| d.label().as_str() == letter) {
+                    p.datums[index] = d;
+                    ids.push(index);
+                } else {
+                    ids.push(p.datums.len());
+                    p.datums.push(d);
+                }
+            }
+            let faces = s
+                .analysis()
+                .features
+                .iter()
+                .filter(|f| f.kind == "hole")
+                .flat_map(|f| f.faces.clone())
+                .collect::<Vec<_>>();
+            assert!(!faces.is_empty());
+            p.features.push(Feature::Items(
+                faces
+                    .into_iter()
+                    .map(|f| Anchor::Face(FaceIndex(f)))
+                    .collect(),
+            ));
+            let target = FeatureId(p.features.len() - 1);
+            let datums = DatumSystem::new(
+                ids.into_iter()
+                    .map(|id| Compartment {
+                        references: vec![DatumReference {
+                            datum: DatumId(id),
+                            modifiers: vec![],
+                        }],
+                        modifiers: vec![],
+                    })
+                    .collect(),
+            )
+            .unwrap();
+            p.tolerances
+                .push(pmi_tolerance(target, ToleranceKind::Position, Some(datums)));
+        });
+        let before = s.state().clone();
+        let delta = s.replace_step_incremental(name, &positioned, true).unwrap();
+        fixed(&before.plan, s.plan());
+        assert!(delta.moved.is_empty(), "{name}: {}", value(&delta.moved));
+        assert!(s.plan().gdt.iter().any(|g| g.cells.iter().any(|c| c == "⌖")
+            && g.cells.iter().any(|c| c == "A")
+            && g.placed.is_some()));
+        let reload = reopened(name, &positioned, &s);
+        assert_eq!(
+            value(&reload.state().annotations),
+            value(&s.state().annotations)
+        );
+    }
+}
+
+fn without_a(bytes: &[u8]) -> Vec<u8> {
+    pmi_edit(bytes, |p| {
+        let Some(a) = p.datums.iter().position(|d| d.label().as_str() == "A") else {
+            return;
+        };
+        p.datums.remove(a);
+        p.tolerances.retain(|t| {
+            !t.datums.as_ref().is_some_and(|s| {
+                s.compartments()
+                    .iter()
+                    .flat_map(|c| &c.references)
+                    .any(|r| r.datum == DatumId(a))
+            })
+        });
+        for t in &mut p.tolerances {
+            if let Some(system) = &t.datums {
+                let mut compartments = system.compartments().to_vec();
+                for r in compartments.iter_mut().flat_map(|c| &mut c.references) {
+                    if r.datum.0 > a {
+                        r.datum.0 -= 1;
+                    }
+                }
+                t.datums = Some(DatumSystem::new(compartments).unwrap());
+            }
+        }
+    })
+}
+#[test]
+fn ctc_step_adds_a_to_the_without_a_pmi_variant() {
+    let bytes = without_a(&source("ctc"));
+    let (part, a) = model::analyse_native_bytes("ctc", &bytes).unwrap();
+    let mut s = Session::new(part, a, Spec::default()).unwrap();
+    let before = s.state().clone();
+    assert!(!s.plan().gdt.iter().any(|g| g.cells == ["A"]));
+    let updated = datum_step(&bytes, planar_face(&s));
+    let added = s.replace_step_incremental("ctc", &updated, true).unwrap();
+    assert!(added.moved.is_empty());
+    fixed(&before.plan, s.plan());
+    assert!(
+        s.plan()
+            .gdt
+            .iter()
+            .any(|g| g.cells == ["A"] && g.placed.is_some())
+    );
+    let reloaded = reopened("ctc", &updated, &s);
+    assert_eq!(
+        value(&s.state().annotations),
+        value(&reloaded.state().annotations)
+    );
+    s.replace_step_incremental("ctc", &bytes, true).unwrap();
+    assert_eq!(value(&before.annotations), value(&s.state().annotations));
+    assert_eq!(before.problems, s.state().problems);
 }

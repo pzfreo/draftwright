@@ -240,6 +240,7 @@ requirement-family codes and refuses an unclassified or undocumented emitted cod
 | `part_squared_to_axes` | advisory | information | The part lay a fraction of a degree off the file's axes and is drawn square, in its own frame. |
 | `passage_requirement_unsupported` | incomplete | fix_before_printing (information when severity=info) | No supported drawing grammar states this feature requirement. |
 | `pictorial_placement_unresolved` | decision | tidy | The authored pictorial placement or scale cannot fit; its intent is retained for a user choice. |
+| `incremental_basis_kept` | advisory | information | Existing dimension basis retained; explicit datum re-base available. |
 | `incremental_placement_constrained` | readability | tidy | New annotation ink does not fit cleanly in the retained layout. |
 | `pinned_item_not_drawn` | decision | tidy | The requested pin targets an item that is not drawn. |
 | `pinned_reference_chain_changed` | decision | tidy | The authored pin conflicts with the recovered reference chain. |

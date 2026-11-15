@@ -395,6 +395,9 @@ pub struct Spec {
     pub part: Option<PartChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binding: Option<Binding>,
+    /// Exact retained placements written by incremental planning. Remove to re-layout.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_pins: Option<Box<crate::incremental::EnginePins>>,
     #[serde(deserialize_with = "sheet_document")]
     pub sheet: SheetSpec,
     #[serde(skip_serializing_if = "crate::characteristics::Settings::is_default")]
@@ -609,6 +612,7 @@ impl Default for Spec {
             schema: SPEC_SCHEMA.into(),
             part: None,
             binding: None,
+            engine_pins: None,
             sheet: SheetSpec::default(),
             balloons: Default::default(),
             iso_scale_factor: None,
@@ -913,11 +917,13 @@ pub struct Plan {
     #[serde(skip)]
     pub(crate) placement_anchor: Option<std::sync::Arc<Plan>>,
     /// In-session dormant GD&T ink, so removing an override revives the prior symbol
-    /// where it was. No nested plans or authored pins enter the document.
+    /// where it was. Saved engine pins carry this provenance without nested plans.
     #[serde(skip)]
     pub(crate) incremental_gdt: Vec<crate::dims::gdt::PlannedGdt>,
     #[serde(skip)]
     pub(crate) incremental_dimensions: Vec<crate::incremental::RetiredDimension>,
+    #[serde(skip)]
+    pub(crate) incremental_findings: Vec<crate::incremental::RetiredFindings>,
     /// Canonical linear label positions relative to their carrier origins; editor metadata.
     #[serde(skip)]
     pub(crate) dimension_labels: BTreeMap<String, (String, [f64; 2])>,
@@ -4693,10 +4699,52 @@ pub fn plan_incremental(analysis: &Analysis, before: &Plan, spec: &Spec) -> Resu
     crate::incremental::plan(analysis, before, spec)
 }
 
+/// Incremental planning across a STEP PMI revision. Compare canonical exact B-reps,
+/// including topology, trims and units, rather than sampled envelopes or STEP byte hashes.
+/// Source face traversal must remain identical; a changed B-rep requires the full path.
+pub fn plan_incremental_source(
+    before_part: &Part,
+    before: &Plan,
+    part: &Part,
+    analysis: &Analysis,
+    spec: &Spec,
+) -> Result<Plan, Invalid> {
+    let refuse = |message: String| Invalid {
+        message,
+        path: None,
+        choices: Vec::new(),
+        also: Vec::new(),
+    };
+    let geometry = |part: &Part| {
+        haecceity::brep_write::write_step(
+            part,
+            &haecceity::brep_write::WriteOptions::new("incremental"),
+        )
+        .map(|w| w.0)
+        .map_err(|e| {
+            refuse(format!(
+                "Cannot verify identical B-rep: {e}; open the updated STEP for a full plan."
+            ))
+        })
+    };
+    if geometry(before_part)? != geometry(part)? {
+        return Err(refuse("Updated STEP geometry differs; open the updated STEP for a full plan instead of incremental apply.".into()));
+    }
+    let mut reference = before.clone();
+    reference.binding.clone_from(&analysis.binding);
+    let result = crate::planning::with_retained(analysis, || {
+        crate::incremental::plan(analysis, &reference, spec)
+    })?;
+    Ok(result)
+}
+
 /// [`plan`] with draftwright's bounded layout recovery applied ([`recover`]): the plan every
 /// caller (the library's [`crate::api`], so the command line, the JSON-lines service and MCP)
 /// is given. A plan that cannot be made is refused as [`plan`] refuses it.
 pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    if !crate::incremental::active() && spec.engine_pins.is_some() {
+        return crate::incremental::replay(analysis, spec);
+    }
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
     let result = crate::decision_overrides::boundary(analysis, spec, || {
@@ -5895,6 +5943,9 @@ fn gdt_misplaced(plan: &Plan) -> (usize, usize) {
 /// drawing's findings. That recovery is [`recover`], applied by [`plan_recovered`], never here:
 /// its tries are plans made by this function (ISSUE-1299-a).
 pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    if !crate::incremental::active() && spec.engine_pins.is_some() {
+        return crate::incremental::replay(analysis, spec);
+    }
     let migration = crate::stable_ids::migrate(spec, analysis)?;
     let spec = &migration.spec;
     let result = crate::decision_overrides::boundary(analysis, spec, || {
@@ -6241,7 +6292,7 @@ fn plan_with_presentation(
             base.sheet.references = Some(true);
             canonical = replay(&base)?;
         }
-        Some(canonical)
+        Some(std::sync::Arc::new(canonical))
     } else if spec.sheet.scale.is_none() && annotation_text_edited(spec) {
         // Tolerance, fit and wording edits change annotation ink, not the part projections.
         // Keep authored geometry in the complete unedited frame too.
@@ -6264,11 +6315,11 @@ fn plan_with_presentation(
         base.dimensions
             .retain(|_, d| *d != DimensionSpec::default());
         base.features.retain(|_, f| *f != FeatureSpec::default());
-        Some(if complete_views {
+        Some(std::sync::Arc::new(if complete_views {
             plan_automatic(analysis, &base)?
         } else {
             plan(analysis, &base)?
-        })
+        }))
     } else {
         None
     };
@@ -7678,7 +7729,7 @@ fn plan_with_presentation(
         crate::placement_intent::views(
             spec,
             &mut views,
-            canonical.as_ref(),
+            canonical.as_deref(),
             &sheet,
             &[],
             &mut problems,
@@ -7782,7 +7833,7 @@ fn plan_with_presentation(
         })
     });
     let held_for = |views: &[PlannedView]| {
-        let mut held = crate::placement_intent::held_dimensions(canonical.as_ref(), views);
+        let mut held = crate::placement_intent::held_dimensions(canonical.as_deref(), views);
         for d in crate::placement_intent::held_dimensions(radius_reference.as_ref(), views) {
             if radius_inventory
                 && d.kind == "callout"
@@ -7818,7 +7869,7 @@ fn plan_with_presentation(
             &sheet,
             &views,
             &[],
-            canonical.as_ref(),
+            canonical.as_deref(),
             &footprint_cache,
         )
         .0
@@ -7859,7 +7910,7 @@ fn plan_with_presentation(
                     .get(&d.id)
                     .and_then(|e| e.place.as_ref())
                     .is_some_and(crate::placement_intent::automatic_pin)
-                && canonical.as_ref().is_some_and(|base| {
+                && canonical.as_deref().is_some_and(|base| {
                     base.dimensions
                         .iter()
                         .any(|before| before.id == d.id && before.placed == d.placed)
@@ -7890,7 +7941,11 @@ fn plan_with_presentation(
             {
                 for v in views
                     .iter_mut()
-                    .chain(reserved.iter_mut().flat_map(|p| &mut p.views))
+                    .chain(
+                        reserved
+                            .iter_mut()
+                            .flat_map(|p| &mut std::sync::Arc::make_mut(p).views),
+                    )
                     .filter(|v| v.id == d.view)
                 {
                     v.area = [
@@ -7905,7 +7960,7 @@ fn plan_with_presentation(
         crate::placement_intent::views(
             spec,
             &mut views,
-            reserved.as_ref(),
+            reserved.as_deref(),
             &sheet,
             &obstacles,
             &mut problems,
@@ -8010,7 +8065,7 @@ fn plan_with_presentation(
         &sheet,
         &views,
         &annotation_obstacles,
-        canonical.as_ref(),
+        canonical.as_deref(),
         &footprint_cache,
     );
     problems.extend(more);
@@ -8717,7 +8772,7 @@ fn plan_with_presentation(
         captions,
         callout_widths: {
             let mut widths: BTreeMap<String, f64> = BTreeMap::new();
-            for d in canonical.as_ref().map_or(&inventory, |p| &p.dimensions) {
+            for d in canonical.as_deref().map_or(&inventory, |p| &p.dimensions) {
                 if d.kind == "callout"
                     && let Some(p) = &d.placed
                 {
@@ -8740,9 +8795,10 @@ fn plan_with_presentation(
                 && crate::placement_intent::has_pins(&spec)
                 && crate::decision_overrides::has_placement_change(&spec)
                 && matches!(&analysis.pmi, Some(crate::pmi::Reading::Read(r)) if r.records.iter().any(|r| matches!(r.category, crate::pmi::Category::Datum | crate::pmi::Category::GeometricTolerance)))
-        }).map(|p| std::sync::Arc::new(p.clone())),
+        }).cloned(),
         incremental_gdt: Vec::new(),
         incremental_dimensions: Vec::new(),
+        incremental_findings: Vec::new(),
         dimension_labels: canonical
             .as_ref()
             .map(|p| p.dimension_labels.clone())

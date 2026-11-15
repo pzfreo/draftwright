@@ -2779,49 +2779,75 @@ above retain their existing behaviour.
 result through the recovered planner. `commit: false` returns the same delta as committing
 from that state, while changing neither state, history nor cache counters. Refused edits also
 leave the last good state intact. A batch is one undo step; `undo()` and `redo()` return deltas.
-A successful new commit discards the redo branch; a preview or refusal preserves it. History
-retains Specs for full applies; incremental history also retains the exact Plan so undo/redo
-restores published placements. Projections are shared.
+A successful new commit discards the redo branch; a preview or refusal preserves it.
+History stores Specs, not whole Plans, and holds at most 32 edits (undo plus redo).
+Source edits additionally retain their Analysis and an `Arc` to the immutable imported part.
+Eviction drops the oldest undo entry; a new Session starts with empty undo history.
 
-`apply_incremental(&[items::Op], commit)` is the annotation-only alternative. The library
-entry point is `model::plan_incremental(analysis, before_plan, edited_spec)`. It derives
-transaction-local bare pins for unchanged dimensions and GD&T, uses the committed Plan as
-the planner's pin reference, and runs the normal placement/finishing/checking machinery
-without sheet recovery. Paper, scale, view origins, directions and scales remain fixed;
-new ink competes with the retained ink for space. Retained dimension recipes and coverage
-also stay fixed: adding a datum does not rebase existing measurements or split shared
-`2×` labels. Existing furniture (including hole tables and tags) supplies fixed obstacle
-proxies to the same solver. Removing annotations releases their space
-without packing the survivors again. The in-memory Plan retains dormant GD&T placements
-and prior dimension-content variants, so removing an imported-PMI override or a dimension
-tolerance revives the original ink in its original place, without rounding drift. This ephemeral placement history is not a saved-Spec undo log. Derived pins
-never enter the returned Spec. Changed
-annotation content may need a new placement; every pre-existing item whose placement or ink
-changes appears in `Delta.moved`, with a reason (also reported by full apply).
+`apply_incremental(&[items::Op], commit)` accepts annotation/layout-Spec operations. The
+library entry is `model::plan_incremental(analysis, before_plan, edited_spec)`. It derives bare
+pins for unchanged dimensions and GD&T and runs the ordinary planner against the committed
+pin reference, without sheet recovery. `placement_intent::views` substitutes the published
+view frames before placement; the view-gutter solve is disabled. Paper, scale, view origins,
+directions and scales therefore remain fixed. New ink uses the remaining space and normal
+placement checks; removing ink does not repack survivors. Changed content can need more
+space; `Delta.moved` names every pre-existing item whose placement or ink changed, with its
+reason. Empty `moved` is omitted from the ordinary delta JSON.
 
-Preview (`commit: false`) returns the same incremental delta as committing from that state
-without changing state, history or counters. Undo/redo of incremental edits restores exact
-plans. No automatic full-plan fallback exists. Unsupported geometry/furniture/layout edits,
-or multi-sheet drawings, are refused with an explicit full-apply choice. Supported edits are
-dimension and annotation entries and face/feature GD&T; the existing Spec dependency rules
-still apply when removing a datum (remove the referencing controls in the same batch).
-Existing annotation conflicts keep their normal finding tiers. Findings on unchanged ink,
-including dropped locations, remain until the referenced defect actually changes. New ink that cannot fit
-cleanly also receives `incremental_placement_constrained` (tidy); it is placed as well as the
-normal rules allow, and an undrawable item keeps the normal not-drawn finding.
+Requirements that affect inspection arrive in STEP PMI, written by Specify. Use
+`Session::replace_step_incremental(name, step_bytes, commit)` for an updated source. It
+compares haecceity's deterministic exact B-rep exports (topology, analytic/freeform geometry,
+trims, pcurves and units), not envelopes or tessellations. Different or unverifiable geometry
+is refused with the full-plan path suggested; face traversal must remain identical. The
+library equivalent is `model::plan_incremental_source(before_part, before_plan, updated_part,
+updated_analysis, spec)`. Preview leaves source identity, state and history unchanged. A
+commit adopts the new source identity and PMI; undo/redo includes that source revision.
+Removing PMI takes off its ink and revives dormant variants at their previous placements.
+The older Spec face/feature requirement path remains supported.
 
-The WASM Rust adapter exposes `Session::apply_incremental` and `apply_incremental_json`;
-the editor's `Engine.applyIncremental(opsJson, commit)` returns the same serialised delta.
-`Engine.apply` / `Session::apply` remain the explicit full re-plan. A future agent can call
-the Rust or WASM incremental entry point with the existing Spec edit operations; an MCP
-adapter could select that entry point internally later. No MCP tool is added here.
+Every incremental result saves `engine_pins` in the Spec, with `written_by: "engine"`.
+It groups exact sheet and view pins, annotation ink, retained dimension recipes/coverage,
+furniture and finding provenance. Its `intent` contains the author Spec without engine pins;
+no B-rep or nested Plan is stored. User `place` pins stay in their usual fields. Saving this
+Spec and reopening with the same STEP, including CLI rendering, uses the same pin replay and
+reproduces the drawing. A source mismatch is refused. The single operation
+`{"op":"remove","path":"engine_pins"}` is **Re-layout** (`Session::relayout(commit)`):
+it clears only engine-written pins and runs the full planner with all user intent intact.
+A saved pin record includes dormant variants for remove/restore (the original and 31 most
+recent alternatives per item); finding snapshots keep the initial layout and the 31 most
+recent distinct layouts. Pin records use compact JSON internally, avoiding a heap object
+per coordinate in undo history. These are placement provenance,
+not an undo log.
+
+Existing dimensions keep their measurement basis when PMI datums change. Affected dimensions
+receive `incremental_basis_kept` (information) with a **Dimension from datum A** fix offer.
+Preview that offer through ordinary `apply(ops, false)` or WASM `preview`, then apply only
+when selected. Its `engine_pins/rebase` operation releases the selected recipe to the normal
+PMI origin and placement rules while retaining the other pins. No automatic re-base occurs.
+
+`commit: false` returns the same result as committing from that state. No automatic full-plan
+fallback exists. Unsupported furniture/view intent and multi-sheet edits require the explicit
+full path. Existing conflicts retain their normal tiers; unchanged defects remain findings.
+New ink that cannot fit cleanly gets a uniquely identified, deduplicated
+`incremental_placement_constrained` (tidy), alongside any stricter ordinary findings.
+A restored prior layout restores its prior problems too.
+
+WASM `Engine.applyIncremental(opsJson, commit)` returns a delta;
+`applyIncrementalFragments(opsJson)` returns the editor's delta/fragments/PMI packet,
+including `moved`; `previewIncremental(opsJson)` returns the usual plan/Spec/SVG snapshot.
+For PMI STEP updates use `replaceStepIncremental(name, bytes, commit)`,
+`replaceStepIncrementalFragments(name, bytes)` and `previewStepIncremental(name, bytes)`.
+The native WASM adapter has corresponding snake_case methods. Existing `applyFragments` and
+`preview` keep the ordinary path. A future agent can reach these library/Session/WASM entries
+with STEP PMI or Spec operations; a future MCP adapter can select them internally. No MCP
+tools are added.
 
 Each full apply makes one complete `plan_recovered` invocation. The existing planner is global, so
 this is the conservative full-plan fallback: its internal layout candidate/recovery attempts
 and canonical pin plan remain part of that invocation. `Session::stats().plans` counts those
 full and incremental invocations at the planning entry point, including full-plan undo/redo,
-and excludes discarded previews. Restoring an exact incremental history Plan needs no planner;
-it does not claim to count individual internal layout candidates. `Delta.plans` reports the
+and excludes discarded previews. Replaying a saved Spec for undo/redo counts as one planner invocation;
+this does not claim to count individual internal layout candidates. `Delta.plans` reports the
 measured invocations for a transaction, including a discarded preview. Queries never invoke it.
 Projection and bounds counters count actual expensive passes as in S4 part A; the annotation
 counter counts actual independent item renders. Unchanged label/geometry/provenance keeps its

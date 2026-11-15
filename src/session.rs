@@ -172,7 +172,7 @@ pub struct Movement {
 pub struct Delta {
     /// Planner entry-point invocations used for this edit, including a preview.
     pub plans: usize,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub moved: Vec<Movement>,
     pub changed: Vec<ItemAnswer>,
     pub added: Vec<ItemAnswer>,
@@ -616,7 +616,7 @@ impl Planner {
 #[derive(Clone)]
 struct History {
     spec: Spec,
-    plan: Option<Box<Plan>>,
+    source: Option<(std::sync::Arc<Part>, Box<Analysis>)>,
 }
 
 struct Evaluation {
@@ -629,7 +629,7 @@ struct Evaluation {
 }
 
 pub struct Session {
-    part: Part,
+    part: std::sync::Arc<Part>,
     analysis: Analysis,
     state: State,
     drawing: Drawing,
@@ -690,7 +690,7 @@ impl Session {
             ..Default::default()
         };
         Ok(Self {
-            part,
+            part: std::sync::Arc::new(part),
             analysis,
             state,
             drawing,
@@ -862,14 +862,14 @@ impl Session {
             evaluated.planner.calls - self.planner.calls,
         );
         if commit {
-            self.undo.push(self.snapshot(false));
+            self.push_undo(self.snapshot(false));
             self.redo.clear();
             self.install(evaluated);
         }
         Ok(delta)
     }
     /// Place new/changed annotations around the committed layout. Never re-picks paper,
-    /// scale or view frames; derived pins do not enter the authored Spec.
+    /// scale or view frames; the Spec receives marked engine-written pins.
     pub fn apply_incremental(&mut self, ops: &[Op], commit: bool) -> Result<Delta, Error> {
         let spec = model::edit(
             self.spec(),
@@ -885,16 +885,57 @@ impl Session {
         let evaluated = self.evaluate_plan(plan, planner, true)?;
         let delta = difference(&self.state, &evaluated.state, &self.analysis, 1);
         if commit {
-            self.undo.push(self.snapshot(true));
+            self.push_undo(self.snapshot(false));
             self.redo.clear();
             self.install(evaluated);
         }
         Ok(delta)
     }
-    fn snapshot(&self, exact: bool) -> History {
+    /// Replace STEP PMI while retaining the identical imported B-rep and layout.
+    /// Preview is transactional, including source identity and undo history.
+    pub fn replace_step_incremental(
+        &mut self,
+        name: &str,
+        bytes: &[u8],
+        commit: bool,
+    ) -> Result<Delta, Error> {
+        let (part, analysis) =
+            model::analyse_native_bytes_part(name, bytes, self.analysis.binding.part_index)?;
+        let plan =
+            model::plan_incremental_source(&self.part, self.plan(), &part, &analysis, self.spec())?;
+        let old_part = std::mem::replace(&mut self.part, std::sync::Arc::new(part));
+        let old_analysis = std::mem::replace(&mut self.analysis, analysis);
+        let mut planner = self.planner.clone();
+        planner.calls += 1;
+        let evaluated = self.evaluate_plan(plan, planner, true);
+        let new_part = std::mem::replace(&mut self.part, old_part);
+        let new_analysis = std::mem::replace(&mut self.analysis, old_analysis);
+        let evaluated = evaluated?;
+        let delta = difference(&self.state, &evaluated.state, &new_analysis, 1);
+        if commit {
+            self.push_undo(self.snapshot(true));
+            self.redo.clear();
+            self.part = new_part;
+            self.analysis = new_analysis;
+            self.install(evaluated);
+        }
+        Ok(delta)
+    }
+    /// One operation removes only engine-written layout pins, preserving user intent.
+    pub fn relayout(&mut self, commit: bool) -> Result<Delta, Error> {
+        self.apply(&[Op::remove("engine_pins")], commit)
+    }
+    fn push_undo(&mut self, entry: History) {
+        const LIMIT: usize = 32;
+        if self.undo.len() == LIMIT {
+            self.undo.remove(0);
+        }
+        self.undo.push(entry);
+    }
+    fn snapshot(&self, source: bool) -> History {
         History {
             spec: self.spec().clone(),
-            plan: (exact || self.incremental).then(|| Box::new(self.plan().clone())),
+            source: source.then(|| (self.part.clone(), Box::new(self.analysis.clone()))),
         }
     }
     /// Replace the Spec with *spec* (read in its current form, [`model::migrate`]), as one
@@ -1182,11 +1223,15 @@ impl Session {
         Ok(out)
     }
     pub fn pmi_report(&self) -> Value {
+        Self::pmi_report_for(&self.analysis, &self.state)
+    }
+    /// PMI packet for a preview State and its source revision.
+    pub fn pmi_report_for(analysis: &Analysis, state: &State) -> Value {
         let mut lowered = Vec::new();
         let mut unresolved = Vec::new();
         // Include Spec-authored datums and controls, exactly as the planner reads them.
         // A session already validated this Spec against its Analysis.
-        let effective = crate::spec_gdt::effective(self.analysis(), self.spec())
+        let effective = crate::spec_gdt::effective(analysis, &state.plan.spec)
             .expect("the session has a validated Spec");
         if let Some(crate::pmi::Reading::Read(report)) = &effective.pmi {
             let identities = report.identities();
@@ -1199,8 +1244,8 @@ impl Session {
                 // the planned item made for it or one that conveys it, neither of which claims it
                 // (#265). One that is drawn lowers it; one not drawn because another item states
                 // what it would (a hole callout the hole table replaces) lowers it to that item.
-                let ids: Vec<_> = self
-                    .plan()
+                let ids: Vec<_> = state
+                    .plan
                     .dimensions
                     .iter()
                     .filter(|d| {
@@ -1232,7 +1277,8 @@ impl Session {
                     // A planners' item that conveys it but is itself left out because other
                     // stated dimensions determine it still states that size on the sheet.
                     .chain(
-                        self.plan()
+                        state
+                            .plan
                             .omitted
                             .iter()
                             .filter(|o| {
@@ -1246,14 +1292,16 @@ impl Session {
                             .map(|o| (o.id.clone(), o.label.clone(), "covered".to_string())),
                     )
                     .chain(
-                        self.plan()
+                        state
+                            .plan
                             .gdt
                             .iter()
                             .filter(|g| g.source == record.source_id && g.placed.is_some())
                             .map(|g| (g.id.clone(), g.label.clone(), g.kind.clone())),
                     )
                     .chain(
-                        self.plan()
+                        state
+                            .plan
                             .requirements
                             .iter()
                             .filter(|r| {
@@ -1265,8 +1313,7 @@ impl Session {
                     .collect();
                 if ids.is_empty() {
                     let related = identities.id(&record.source_id).ok();
-                    let reasons: Vec<_> = self
-                        .state
+                    let reasons: Vec<_> = state
                         .problems
                         .iter()
                         .filter(|p| {
@@ -1278,10 +1325,10 @@ impl Session {
                         .map(|p| p.message.as_str())
                         .collect();
                     let reason = if let Some(reason) = crate::spec_gdt::datum_omission(
-                        &self.plan().spec,
+                        &state.plan.spec,
                         report,
                         record,
-                        &crate::dims::pmi_policy::origin_datums(&self.analysis, &self.plan().spec),
+                        &crate::dims::pmi_policy::origin_datums(analysis, &state.plan.spec),
                     ) {
                         reason.into()
                     } else if !reasons.is_empty() {
@@ -1292,11 +1339,8 @@ impl Session {
                         && !g.reasons.is_empty()
                     {
                         g.reasons.join("; ")
-                    } else if let Some(item) = self
-                        .plan()
-                        .gdt
-                        .iter()
-                        .find(|g| g.source == record.source_id)
+                    } else if let Some(item) =
+                        state.plan.gdt.iter().find(|g| g.source == record.source_id)
                     {
                         format!("Annotation is not drawn ({:?}): {}", item.state, item.basis)
                     } else if crate::pmi_lowering::no_part_requirement(record) {
@@ -1322,8 +1366,8 @@ impl Session {
                 }
             }
             if let Some(material) = report.title_material()
-                && self
-                    .plan()
+                && state
+                    .plan
                     .sheet
                     .title
                     .get("material")
@@ -1363,10 +1407,22 @@ impl Session {
             })
         })?
         .clone();
-        let evaluated = if let Some(plan) = &entry.plan {
-            self.evaluate_plan((**plan).clone(), self.planner.clone(), true)?
-        } else {
-            self.evaluate(&entry.spec)?
+        let current = self.snapshot(entry.source.is_some());
+        let old_source = entry.source.as_ref().map(|(part, analysis)| {
+            (
+                std::mem::replace(&mut self.part, part.clone()),
+                std::mem::replace(&mut self.analysis, (**analysis).clone()),
+            )
+        });
+        let evaluated = match self.evaluate(&entry.spec) {
+            Ok(value) => value,
+            Err(error) => {
+                if let Some((part, analysis)) = old_source {
+                    self.part = part;
+                    self.analysis = analysis;
+                }
+                return Err(error);
+            }
         };
         let delta = difference(
             &self.state,
@@ -1374,10 +1430,9 @@ impl Session {
             &self.analysis,
             evaluated.planner.calls - self.planner.calls,
         );
-        let current = self.snapshot(entry.plan.is_some());
         if redo {
             self.redo.pop();
-            self.undo.push(current);
+            self.push_undo(current);
         } else {
             self.undo.pop();
             self.redo.push(current);

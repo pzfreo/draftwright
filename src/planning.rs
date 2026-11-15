@@ -26,7 +26,7 @@ thread_local! {
     static EXPLICIT_TRIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LANE_LADDER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static TRIAL_RADIUS_REFERENCE: RefCell<Option<(crate::model::Plan, [u8; 32])>> = const { RefCell::new(None) };
-    static PIN_REFERENCE: RefCell<Option<(crate::model::Plan, [u8; 32])>> = const { RefCell::new(None) };
+    static PIN_REFERENCE: RefCell<Option<(Arc<crate::model::Plan>, [u8; 32])>> = const { RefCell::new(None) };
     static DEFER_NOMINALS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LANE_TRIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -154,7 +154,7 @@ pub(crate) fn trial_radius_reference() -> Option<crate::model::Plan> {
 /// A pin replay keeps the published schedule while its forced paper trials
 /// replan the remaining annotations. Restore the reference on every exit.
 pub(crate) fn with_pin_reference<T>(reference: crate::model::Plan, run: impl FnOnce() -> T) -> T {
-    struct Restore(Option<(crate::model::Plan, [u8; 32])>);
+    struct Restore(Option<(Arc<crate::model::Plan>, [u8; 32])>);
     impl Drop for Restore {
         fn drop(&mut self) {
             PIN_REFERENCE.with(|r| *r.borrow_mut() = self.0.take());
@@ -162,12 +162,16 @@ pub(crate) fn with_pin_reference<T>(reference: crate::model::Plan, run: impl FnO
     }
     let key =
         Sha256::digest(serde_json::to_vec(&reference).expect("pin reference serializes")).into();
-    let _restore = Restore(PIN_REFERENCE.with(|r| r.replace(Some((reference, key)))));
+    let _restore = Restore(PIN_REFERENCE.with(|r| r.replace(Some((Arc::new(reference), key)))));
     run()
 }
 
-pub(crate) fn pin_reference() -> Option<crate::model::Plan> {
+pub(crate) fn pin_reference_shared() -> Option<Arc<crate::model::Plan>> {
     PIN_REFERENCE.with(|r| r.borrow().as_ref().map(|r| r.0.clone()))
+}
+
+pub(crate) fn pin_reference() -> Option<Arc<crate::model::Plan>> {
+    pin_reference_shared()
 }
 
 pub(crate) fn is_fixed_pair() -> bool {

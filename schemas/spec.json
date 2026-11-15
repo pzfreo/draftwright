@@ -225,6 +225,16 @@
         "in"
       ],
       "description": "Printed lengths: mm (default) or decimal inches; model and paper geometry remain millimetres."
+    },
+    "engine_pins": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/engine_pins"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "additionalProperties": false,
@@ -413,7 +423,7 @@
         },
         "gap": {
           "type": "number",
-          "description": "Clear paper distance in mm between the views\u2019 annotation bands, not their part outlines (default 10 mm)."
+          "description": "Clear paper distance in mm between the views’ annotation bands, not their part outlines (default 10 mm)."
         },
         "align": {
           "enum": [
@@ -1082,7 +1092,7 @@
                 "angle",
                 "linear"
               ],
-              "description": "How the corners of this face\u2019s outer profile are defined: auto (default) calls out a 45\u00b0 corner chamfer by its size (C<leg>, counted when equal), locates any other cut corner\u2019s missing stations with linear dimensions, gives any other non-right corner its angle and a regular polygon one counted angle; angle states every corner\u2019s angle (a reference where linear dimensions already fix it) instead of stations; linear locates the stations of every corner, a regular polygon\u2019s too. Per corner, dimensions/<id> {} shows and omit hides an angle."
+              "description": "How the corners of this face’s outer profile are defined: auto (default) calls out a 45° corner chamfer by its size (C<leg>, counted when equal), locates any other cut corner’s missing stations with linear dimensions, gives any other non-right corner its angle and a regular polygon one counted angle; angle states every corner’s angle (a reference where linear dimensions already fix it) instead of stations; linear locates the stations of every corner, a regular polygon’s too. Per corner, dimensions/<id> {} shows and omit hides an angle."
             },
             {
               "type": "null"
@@ -1376,7 +1386,7 @@
             "arch",
             null
           ],
-          "description": "Paper family; absent follows explicit named size, else mm \u2192 iso and in \u2192 ansi."
+          "description": "Paper family; absent follows explicit named size, else mm → iso and in → ansi."
         }
       },
       "additionalProperties": false
@@ -2067,8 +2077,131 @@
             "in"
           ],
           "description": "Printed lengths: mm (default) or decimal inches; model and paper geometry remain millimetres."
+        },
+        "engine_pins": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/engine_pins"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
+      "additionalProperties": false
+    },
+    "engine_pins": {
+      "description": "Engine-written retained layout. Remove this field with one remove operation to Re-layout; user place pins remain. No B-rep or recursive Plan.",
+      "type": "object",
+      "properties": {
+        "written_by": {
+          "const": "engine"
+        },
+        "source_sha256": {
+          "type": "string"
+        },
+        "intent": {
+          "$ref": "#/$defs/spec_read"
+        },
+        "layout": {
+          "type": "object",
+          "properties": {
+            "sheet": {
+              "description": "Exact sheet pin records in draftwright.plan/1 form."
+            },
+            "views": {
+              "description": "Exact views pin records in draftwright.plan/1 form."
+            },
+            "dimensions": {
+              "description": "Exact dimensions pin records in draftwright.plan/1 form."
+            },
+            "omitted": {
+              "description": "Exact omitted pin records in draftwright.plan/1 form."
+            },
+            "gdt": {
+              "description": "Exact gdt pin records in draftwright.plan/1 form."
+            },
+            "captions": {
+              "description": "Exact captions pin records in draftwright.plan/1 form."
+            },
+            "notes": {
+              "description": "Exact notes pin records in draftwright.plan/1 form."
+            },
+            "notes_block": {
+              "description": "Exact notes_block pin records in draftwright.plan/1 form."
+            },
+            "radius_notes_block": {
+              "description": "Exact radius_notes_block pin records in draftwright.plan/1 form."
+            },
+            "radius_table": {
+              "description": "Exact radius_table pin records in draftwright.plan/1 form."
+            },
+            "tables": {
+              "description": "Exact tables pin records in draftwright.plan/1 form."
+            },
+            "hole_table": {
+              "description": "Exact hole_table pin records in draftwright.plan/1 form."
+            },
+            "hole_tables": {
+              "description": "Exact hole_tables pin records in draftwright.plan/1 form."
+            },
+            "balloons": {
+              "description": "Exact balloons pin records in draftwright.plan/1 form."
+            },
+            "requirements": {
+              "description": "Exact requirements pin records in draftwright.plan/1 form."
+            },
+            "characteristics": {
+              "description": "Exact characteristics pin records in draftwright.plan/1 form."
+            },
+            "inspection_balloons": {
+              "description": "Exact inspection_balloons pin records in draftwright.plan/1 form."
+            },
+            "problems": {
+              "description": "Exact problems pin records in draftwright.plan/1 form."
+            }
+          },
+          "required": [
+            "sheet",
+            "views",
+            "dimensions",
+            "problems"
+          ],
+          "additionalProperties": false
+        },
+        "rebase": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "retired_gdt": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "retired_dimensions": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "retired_findings": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "written_by",
+        "source_sha256",
+        "intent",
+        "layout"
+      ],
       "additionalProperties": false
     }
   }

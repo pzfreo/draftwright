@@ -2146,7 +2146,9 @@ fn plan_search(
             && let Some(base) = canonical
             && let Some(g) = base.gdt.iter().find(|g| {
                 g.id == item.id
-                    && (g.view == planned.view || super::hole_marks::attached(g))
+                    && (crate::incremental::active()
+                        || g.view == planned.view
+                        || super::hole_marks::attached(g))
                     && (!crate::incremental::active()
                         || (g.cells == planned.cells
                             && g.modifiers == planned.modifiers
