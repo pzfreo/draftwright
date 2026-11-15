@@ -309,6 +309,49 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
         }
         for a in &p.arcs[n - rings..] {
             assert!(has(a), "{name}: {} lost a bend ring", g.id);
+            let bounds = p.strokes[..p.frame_strokes].iter().flatten().fold(
+                [
+                    f64::INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::NEG_INFINITY,
+                ],
+                |b, q| {
+                    [
+                        b[0].min(q[0]),
+                        b[1].min(q[1]),
+                        b[2].max(q[0]),
+                        b[3].max(q[1]),
+                    ]
+                },
+            );
+            let nearest = [
+                a[0].clamp(bounds[0], bounds[2]),
+                a[1].clamp(bounds[1], bounds[3]),
+            ];
+            assert!(
+                (nearest[0] - a[0]).hypot(nearest[1] - a[1]) > a[2],
+                "{name}: {} ring {a:?} intersects frame {bounds:?}",
+                g.id
+            );
+            let bend = p.lines[0][1];
+            assert!(
+                (bend[0] - a[0]).hypot(bend[1] - a[1]) < 1e-9,
+                "{name}: {} ring left its bend",
+                g.id
+            );
+            let stub = p
+                .lines
+                .iter()
+                .find(|l| l[0] == bend && (l[1][1] - bend[1]).abs() < 1e-9)
+                .unwrap_or_else(|| panic!("{name}: {} has no horizontal bend stub", g.id));
+            // The visible segment past the outer ring retains the contact audit's
+            // half-millimetre text clearance. Check every ring, on every part.
+            assert!(
+                (stub[1][0] - bend[0]).abs() >= a[2] + 0.5 - 1e-9,
+                "{name}: {} ring hides its stub {stub:?}",
+                g.id
+            );
         }
         found.counted += usize::from(p.runs.len() > g.cells.len());
         found.filled += usize::from(!p.fills.is_empty());

@@ -263,6 +263,18 @@ fn meet_frame(g: &gdt::PlannedGdt, next: &mut Placed) -> bool {
         bounds[2]
     } + dx;
     shelf[1] = [x, y];
+    let radius = gdt::ring_radius(&g.modifiers);
+    if radius > 0.0 {
+        let dir = if shelf[1][0] >= shelf[0][0] {
+            1.0
+        } else {
+            -1.0
+        };
+        let reach = radius + super::contacts::TEXT_CLEAR;
+        if dir * (shelf[1][0] - shelf[0][0]) < reach {
+            shelf[0][0] = x - dir * reach;
+        }
+    }
     if last > 0 {
         shelf[0][1] = y;
         let bend = shelf[0];
@@ -1063,13 +1075,7 @@ fn finish_with(
                             .as_ref()
                             .filter(|g| !g.modifiers.is_empty())
                             .map_or(0.0, |g| {
-                                0.7 * super::ARROW
-                                    * if g.modifiers.iter().any(|m| m == "all_over") {
-                                        1.7
-                                    } else {
-                                        1.0
-                                    }
-                                    + super::contacts::TEXT_CLEAR
+                                gdt::ring_radius(&g.modifiers) + super::contacts::TEXT_CLEAR
                             }),
                     )
                 };
@@ -1102,11 +1108,7 @@ fn finish_with(
                     // The all-around/all-over marks travel with the bend. Reserve
                     // their actual extent as well as the proxy's shaft and frame.
                     if let Some(g) = glyph.as_ref().filter(|g| !g.modifiers.is_empty()) {
-                        let ring = if g.modifiers.iter().any(|m| m == "all_over") {
-                            1.7 * 0.7 * super::ARROW
-                        } else {
-                            0.7 * super::ARROW
-                        } + 0.5;
+                        let ring = gdt::ring_radius(&g.modifiers) + super::contacts::TEXT_CLEAR;
                         let bend = next.lines[0][1];
                         let b = [
                             bend[0] - ring,
@@ -1443,6 +1445,44 @@ mod tests {
             assert_eq!(next.lines[1][0][1], next.lines[1][1][1]);
             assert_eq!(next.arrows, [placement::arrow(tip, next.lines[0][1])]);
             assert_eq!(next.label_box, [40., 50., 60., 60.5]);
+        }
+        // A short generic shelf must grow before reservation/collision checks,
+        // on either frame edge. Rehanging must transport the circles to that bend.
+        for modifier in ["all_around", "all_over"] {
+            for (bend, end, direction) in [
+                ([39.5, 55.25], [39.75, 55.25], 1.0),
+                ([60.5, 55.25], [60.25, 55.25], -1.0),
+            ] {
+                let mut scoped = g.clone();
+                scoped.modifiers = vec![modifier.into()];
+                let radius = gdt::ring_radius(&scoped.modifiers);
+                let tip = [50., 40.];
+                let mut next = Placed {
+                    lines: vec![[tip, bend], [bend, end]],
+                    arrows: vec![placement::arrow(tip, bend)],
+                    label_box: [40., 50., 60., 60.5],
+                    label_at: [40., 50.],
+                    rotation: 0.,
+                };
+                let p = scoped.placed.as_mut().unwrap();
+                p.lines.clone_from(&next.lines);
+                p.arcs = vec![[bend[0], bend[1], radius, 0., std::f64::consts::TAU]];
+                if modifier == "all_over" {
+                    p.arcs
+                        .push([bend[0], bend[1], radius / 1.7, 0., std::f64::consts::TAU]);
+                }
+                assert!(meet_frame(&scoped, &mut next));
+                let [a, b] = next.lines[1];
+                assert!(
+                    (direction * (b[0] - a[0]) - radius - super::super::contacts::TEXT_CLEAR).abs()
+                        < 1e-9
+                );
+                assert_eq!(a[1], b[1]);
+                rehang(&mut scoped, &next);
+                for arc in &scoped.placed.unwrap().arcs {
+                    assert_eq!([arc[0], arc[1]], next.lines[0][1]);
+                }
+            }
         }
         let mut short = Placed {
             lines: vec![[[35., 52.], [35., 55.25]], [[35., 55.25], [39., 55.25]]],

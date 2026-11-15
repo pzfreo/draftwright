@@ -173,6 +173,26 @@ const H: f64 = 2.0 * haecceity::presentation::gdt::TEXT_HEIGHT;
 pub(super) const SHELF: f64 = 2.0;
 pub(super) const TRIANGLE: f64 = 1.4 * TEXT;
 const RING: f64 = 0.7 * ARROW;
+
+/// The outer scope ring at the leader bend, shared with the route search.
+pub(super) fn ring_radius(modifiers: &[String]) -> f64 {
+    if modifiers.iter().any(|m| m == "all_over") {
+        1.7 * RING
+    } else if modifiers.iter().any(|m| m == "all_around") {
+        RING
+    } else {
+        0.0
+    }
+}
+
+fn ring_box(bend: P2, radius: f64) -> [f64; 4] {
+    [
+        bend[0] - radius,
+        bend[1] - radius,
+        bend[0] + radius,
+        bend[1] + radius,
+    ]
+}
 /// The clearance beyond the dimensions, and between tiers.
 const CLEAR: f64 = crate::layout::GDT_CLEAR;
 const TIERS: usize = 16;
@@ -499,9 +519,30 @@ struct Candidate {
     /// Where the glyph's origin lands.
     origin: P2,
     elbow: P2,
+    ring_radius: f64,
 }
 
 impl Candidate {
+    /// Grow the shelf before grading: the printed frame and ring reservations
+    /// must use the same geometry as the eventual leader.
+    fn with_ring(mut self, radius: f64) -> Self {
+        self.ring_radius = radius;
+        if radius > 0.0 {
+            let shelf = &mut self.lines[1];
+            let dir = if shelf[1][0] >= shelf[0][0] {
+                1.0
+            } else {
+                -1.0
+            };
+            let dx = dir * (radius + super::contacts::TEXT_CLEAR - SHELF).max(0.0);
+            shelf[1][0] += dx;
+            self.origin[0] += dx;
+            self.label_box[0] += dx;
+            self.label_box[2] += dx;
+        }
+        self
+    }
+
     fn leader_length(&self) -> f64 {
         self.lines
             .iter()
@@ -547,6 +588,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
             label_box,
             origin: [x0, elbow[1]],
             elbow,
+            ring_radius: 0.0,
         };
     }
     if shape == Shape::Datum {
@@ -582,6 +624,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
             ],
             origin: centre,
             elbow: near,
+            ring_radius: 0.0,
         };
     }
     let elbow = if horizontal {
@@ -602,6 +645,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
         label_box: [x0, y0, x0 + size[0], y0 + size[1]],
         origin: [x0, y0],
         elbow,
+        ring_radius: 0.0,
     }
 }
 
@@ -1079,6 +1123,15 @@ impl Obstacles<'_> {
     }
 
     fn clearance_grade(&self, c: &Candidate) -> u8 {
+        let frame = self.bounds_grade(c, c.label_box);
+        if c.ring_radius > 0.0 {
+            frame.max(self.bounds_grade(c, ring_box(c.elbow, c.ring_radius)))
+        } else {
+            frame
+        }
+    }
+
+    fn bounds_grade(&self, c: &Candidate, b: [f64; 4]) -> u8 {
         // Filled symbols take precedence over soft label/leader contacts. In a
         // dense view every label tier may be obstructed, but another proven site
         // can still separate the triangles rather than keeping coincident ink.
@@ -1088,7 +1141,6 @@ impl Obstacles<'_> {
         {
             return 5;
         }
-        let b = c.label_box;
         let d = self.page.drawable();
         let on_sheet = b[0] >= d[0] && b[1] >= d[1] && b[2] <= d[2] && b[3] <= d[3];
         let grown = [b[0] - 0.5, b[1] - 0.5, b[2] + 0.5, b[3] + 0.5];
@@ -1813,6 +1865,12 @@ fn plan_search(
         {
             p = translated(p, delta);
             labels.push(p.label_box);
+            let radius = ring_radius(&g.modifiers);
+            if radius > 0.0
+                && let Some(line) = p.lines.first()
+            {
+                labels.push(ring_box(line[1], radius));
+            }
             if protect {
                 labels.extend(p.fills.iter().map(|f| fill_box(f)));
                 triangles.extend(p.fills.iter().cloned());
@@ -2006,7 +2064,8 @@ fn plan_search(
                             let k = usize::from(outward(side)[0] != 0.0);
                             anchor[k] = o[k] + along.fraction() * (o[k + 2] - o[k]);
                         }
-                        let mut c = candidate(shape, anchor, side, pos, laid.size);
+                        let mut c = candidate(shape, anchor, side, pos, laid.size)
+                            .with_ring(ring_radius(&planned.modifiers));
                         c.frame_rule = matches!(item.glyph, Glyph::ControlFrame { .. });
                         if datum && intent.and_then(|p| p.along).is_some() {
                             for fill in &mut c.fills {
@@ -2124,7 +2183,8 @@ fn plan_search(
                 fills: p.fills.clone(),
                 label_box: p.label_box,
                 origin: [0.; 2],
-                elbow: [0.; 2],
+                elbow: p.lines.first().map_or([0.; 2], |l| l[1]),
+                ring_radius: ring_radius(&g.modifiers),
             };
             let grade = obstacles.grade(&candidate, None);
             if grade.0 <= 1
@@ -2135,6 +2195,12 @@ fn plan_search(
                     .is_none_or(|b| grade <= obstacles.grade(&b.2, None))
             {
                 labels.push(p.label_box);
+                let radius = ring_radius(&g.modifiers);
+                if radius > 0.0
+                    && let Some(line) = p.lines.first()
+                {
+                    labels.push(ring_box(line[1], radius));
+                }
                 if protect {
                     labels.extend(p.fills.iter().map(|f| fill_box(f)));
                     triangles.extend(p.fills.iter().cloned());
@@ -2186,6 +2252,9 @@ fn plan_search(
             }
         }
         labels.push(chosen.label_box);
+        if chosen.ring_radius > 0.0 {
+            labels.push(ring_box(chosen.elbow, chosen.ring_radius));
+        }
         if protect {
             labels.extend(chosen.fills.iter().map(|f| fill_box(f)));
             triangles.extend(chosen.fills.iter().cloned());
@@ -3061,6 +3130,63 @@ fn datum_omission(analysis: &Analysis, spec: &Spec, item: &Lowered) -> Option<&'
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scope_rings_have_a_clear_shelf_on_every_strip_and_reserve_their_ink() {
+        let analysis: Analysis = serde_json::from_value(serde_json::json!({
+            "schema": crate::model::ANALYSIS_SCHEMA,
+            "binding":{"source_sha256":"", "part":"plate", "face_count":0, "loader":"test"},
+            "envelope":[[0,0,0],[100,60,10]], "iso_bounds":[0,0,100,60]
+        }))
+        .unwrap();
+        let plan = crate::model::plan(&analysis, &Spec::default()).unwrap();
+        let page = Page::new(&analysis, &plan.sheet, &[]);
+        for modifier in ["all_around", "all_over"] {
+            let radius = ring_radius(&[modifier.into()]);
+            for side in ["above", "below", "left", "right"] {
+                let c = candidate(
+                    Shape::Frame,
+                    [80., 80.],
+                    side,
+                    if matches!(side, "below" | "left") {
+                        60.
+                    } else {
+                        100.
+                    },
+                    [20., 5.],
+                )
+                .with_ring(radius);
+                let [a, b] = c.lines[1];
+                assert!((b[0] - a[0]).abs() >= radius + super::super::contacts::TEXT_CLEAR - 1e-9);
+                assert!(!boxes_overlap(c.label_box, ring_box(c.elbow, radius)));
+                let mut obstacles = Obstacles {
+                    page: &page,
+                    own: "v:front".into(),
+                    area: None,
+                    exterior: None,
+                    protect_triangles: false,
+                    label_gap: 0.,
+                    parallel_gap: None,
+                    triangles: Vec::new(),
+                    labels: Vec::new(),
+                    lines: Vec::new(),
+                    frame_leaders: Vec::new(),
+                };
+                assert_eq!(obstacles.clearance_grade(&c), 0);
+                // This label touches only the ring, away from the frame and shaft.
+                let ring = ring_box(c.elbow, radius);
+                obstacles
+                    .labels
+                    .push([ring[0], ring[3] - 0.25, ring[0] + 0.25, ring[3]]);
+                assert_eq!(obstacles.clearance_grade(&c), 4);
+                obstacles.labels.clear();
+                obstacles
+                    .lines
+                    .push([[ring[0], ring[3] - 0.25], [ring[2], ring[3] - 0.25]]);
+                assert_eq!(obstacles.clearance_grade(&c), 2);
+            }
+        }
+    }
 
     #[test]
     fn datum_route_inventory_tries_straight_before_square_stub_bends() {
