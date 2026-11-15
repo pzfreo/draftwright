@@ -838,3 +838,41 @@ fn ctc_step_adds_a_to_the_without_a_pmi_variant() {
     assert_eq!(value(&before.annotations), value(&s.state().annotations));
     assert_eq!(before.problems, s.state().problems);
 }
+
+#[test]
+fn unchanged_ink_does_not_restore_findings_from_another_step_revision() {
+    let bytes = source("bracket");
+    let mut s = open("bracket");
+    let original = s.state().clone();
+    let added = datum_step(&bytes, planar_face(&s));
+    s.replace_step_incremental("bracket", &added, true).unwrap();
+    s.replace_step_incremental("bracket", &bytes, true).unwrap();
+    let unsupported = pmi_edit(&bytes, |p| {
+        p.attributes.push(AttributeSet {
+            name: "foreign inspection requirement".into(),
+            on: None,
+            description: None,
+            general_property: None,
+            items: vec![(
+                "inspection".into(),
+                AttributeValue::Text("inspect independently".into()),
+            )],
+        })
+    });
+    let delta = s
+        .replace_step_incremental("bracket", &unsupported, true)
+        .unwrap();
+    assert!(delta.moved.is_empty());
+    assert_eq!(value(&original.annotations), value(&s.state().annotations));
+    assert!(
+        s.state()
+            .problems
+            .iter()
+            .any(|p| p.code == "pmi_not_extracted")
+    );
+    assert_ne!(original.problems, s.state().problems);
+    let reload = reopened("bracket", &unsupported, &s);
+    assert_eq!(reload.state().problems, s.state().problems);
+    s.replace_step_incremental("bracket", &bytes, true).unwrap();
+    assert_eq!(original.problems, s.state().problems);
+}
