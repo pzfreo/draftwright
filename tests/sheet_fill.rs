@@ -285,17 +285,14 @@ fn pmi_grm03_keeps_five_to_one_with_all_sheet_information_placed() {
             | "notes_not_placed"
             | "table_not_placed"
     )));
-    let refusal = p
-        .problems
-        .iter()
-        .find(|q| q.code == "automatic_scale_limited")
-        .expect("larger-scale refusals must be visible findings");
-    assert!(refusal.message.contains("10:1"));
     assert!(
-        refusal.message.contains("drawable area"),
-        "{}",
-        refusal.message
+        !p.problems
+            .iter()
+            .any(|q| q.code == "automatic_scale_limited"),
+        "the remaining 10:1 refusal is geometric, not an annotation-scale loss"
     );
+    assert!(p.sheet.basis.contains("A4 at 10:1: not planned:"));
+    assert!(p.sheet.basis.contains("drawable area"));
     assert!(
         !p.problems
             .iter()

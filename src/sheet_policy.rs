@@ -940,6 +940,30 @@ fn frame_conflicts(plan: &Plan) -> Vec<(String, Vec<String>)> {
     out
 }
 
+/// Distinguish clipped annotation ink from a view outline that already leaves
+/// the frame. Only the former warrants an annotation-scale advisory.
+fn frame_refusal(analysis: &Analysis, plan: &Plan) -> &'static str {
+    let gutter = layout::margin() + crate::output::layer_styles()[0].1.width;
+    let geometry_fits = sheet_fit::footprints(analysis, plan)
+        .into_iter()
+        .take(plan.views.len())
+        .zip(&plan.views)
+        .all(|(b, view)| {
+            let page = plan
+                .sheets
+                .iter()
+                .find(|s| s.number == view.sheet)
+                .unwrap_or(&plan.sheet)
+                .page;
+            b[0] >= gutter && b[1] >= gutter && b[2] <= page[0] - gutter && b[3] <= page[1] - gutter
+        });
+    if geometry_fits {
+        "annotation ink leaves the drawable frame"
+    } else {
+        "view geometry leaves the drawable frame"
+    }
+}
+
 // A sheet that carries only the freely fitted isometric is not a meaningful split: the
 // orientation view belongs beside the views it explains, shrunk if need be, or beside a
 // table that went to another sheet. An author's own sheet assignment for the isometric
@@ -1417,7 +1441,8 @@ fn select_scales_full(
                 }
                 if !sheet_fit::inside_frames(fit, &plan) {
                     *outcome = format!(
-                        "hard rejected: view geometry or annotation ink leaves the drawable frame at {}",
+                        "hard rejected: {} at {}",
+                        frame_refusal(fit, &plan),
                         plan.sheet.scale
                     );
                     return None;
@@ -2107,16 +2132,43 @@ fn refused_annotation(name: &str, count: usize) -> String {
     }
 }
 
+fn annotation_scale_limit(name: &str) -> bool {
+    matches!(
+        name,
+        "annotation_overlap"
+            | "annotation_ink_overlap"
+            | "datum_symbol_overlap"
+            | "annotation_leader_crossing"
+            | "annotation_off_sheet"
+            | "annotation_outside_area"
+            | "annotation_over_title_block"
+            | "annotation_over_view"
+            | "annotation_line_over_view"
+            | "title_field_overflow"
+            | "view_on_title_block"
+            | "notes_not_placed"
+            | "table_not_placed"
+            | "table_dropped"
+            | "balloon_dropped"
+            | "callout_dropped"
+            | "location_ref_dropped"
+            | "off_axis_location_dropped"
+            | "pmi_not_drawn"
+            | "datum_not_identified"
+            | "dimension_line_at_note"
+    )
+}
+
 /// Summarise the diagnostics for the reader; the complete trace stays in the basis.
 fn scale_refusal_reason(raw: &str) -> Option<String> {
     // A later paper-count retry can repeat the same refusal with this trace-only
     // suffix. It is not a second reason for refusing the scale.
     let raw = raw.split(" [sheet limit ").next().unwrap_or(raw);
-    if raw.starts_with("valid and complete")
+    if raw.starts_with("not planned:")
+        || raw.starts_with("banded pre-filter:")
+        || raw.starts_with("valid and complete")
         || raw.starts_with("base retained")
         || raw == "automatic baseline reused"
-        || raw == "not planned: the normal-spacing refusal is not a shortage of lane space"
-        || raw == "not planned: compact lanes cannot cure the frame shortfall"
     {
         return None;
     }
@@ -2144,7 +2196,7 @@ fn scale_refusal_reason(raw: &str) -> Option<String> {
         reasons.extend(
             codes
                 .into_iter()
-                .filter(|(_, n)| *n > 0)
+                .filter(|(name, n)| *n > 0 && annotation_scale_limit(name))
                 .map(|(name, n)| refused_annotation(&name, n)),
         );
         for (suffix, label) in [
@@ -2175,41 +2227,26 @@ fn scale_refusal_reason(raw: &str) -> Option<String> {
         if let Some(codes) =
             reason.strip_prefix("unreadable ink, required losses or unreadable scale: new ")
         {
-            reasons.extend(codes.split(", ").map(|name| refused_annotation(name, 1)));
-        } else if reason.starts_with("hard rejected:")
-            || reason.contains("finished footprints fit false")
-        {
-            reasons.push("a view or annotation would leave the drawable area".into());
-        } else if reason.starts_with("rejected")
-            || reason.starts_with("cannot plan:")
-            || reason.starts_with("final presentation refused:")
-        {
-            reasons.push("the drawing could not be completed clearly at this scale".into());
+            reasons.extend(
+                codes
+                    .split(", ")
+                    .filter(|name| annotation_scale_limit(name))
+                    .map(|name| refused_annotation(name, 1)),
+            );
+        } else if reason.starts_with("hard rejected: annotation ink leaves the drawable frame") {
+            reasons.push("annotations would leave the drawable area".into());
         } else if reason == "required items not carried" || reason == "new dropped items" {
             reasons.push("required annotations would be left undrawn".into());
         } else if reason == "more undrawn GD&T" {
             reasons.push("required GD&T annotations would be left undrawn".into());
-        } else if reason == "a callout's leader doubles beyond the displaced drawing" {
-            reasons.push("an existing leader would more than double in length".into());
-        } else if reason == "a callout grows more than 2 paper mm beyond the displaced drawing" {
-            reasons.push("an existing leader would grow more than 2 mm".into());
-        } else {
-            let plain = reason
-                .strip_prefix("not planned: ")
-                .or_else(|| reason.strip_prefix("banded pre-filter: "))
-                .unwrap_or(reason);
-            reasons.push(if crate::wording::carries_id(plain).is_some() {
-                "the required geometry would not remain readable".into()
-            } else {
-                plain.trim_end_matches('.').to_string()
-            });
         }
     }
     reasons.dedup();
-    Some(reasons.join("; "))
+    (!reasons.is_empty()).then(|| reasons.join("; "))
 }
 
-/// Publish one explanation per refused larger scale, regardless of the PMI source.
+/// Explain larger same-paper scales refused for annotations, regardless of PMI source.
+/// Geometric bounds, conservative lane estimates and leader-growth refusals stay in the basis.
 fn note_scale_limits(plan: &mut Plan, trace: &[String]) {
     let mut refusals = Vec::new();
     for scale in plan
@@ -2996,12 +3033,92 @@ mod tests {
 
     #[test]
     fn scale_refusal_ignores_sheet_limit_retry_metadata() {
-        let reason = "not planned: aligned front and side views need at least 374 mm across at 10:1; A4 drawable area is 271 × 184 mm";
-        let expected = Some(reason.strip_prefix("not planned: ").unwrap().to_string());
+        let reason =
+            "refused at 2:1: required items not carried (0 hard, 2 drops; location_ref_dropped)";
+        let expected = Some("required annotations would be left undrawn".to_string());
         assert_eq!(scale_refusal_reason(reason), expected);
         assert_eq!(
             scale_refusal_reason(&format!("{reason} [sheet limit 2]")),
             expected
+        );
+    }
+
+    #[test]
+    fn scale_refusals_require_annotation_evidence() {
+        for raw in [
+            "not planned: the front view with its annotation bands needs at least 533 × 299 mm at 10:1; A4 drawable area is 271 × 184 mm",
+            "banded pre-filter: aligned front and plan views need at least 191 mm high at 2:1; A4 drawable area is 271 × 184 mm",
+            "hard rejected: view geometry leaves the drawable frame at 2:1",
+            "hard rejected: view geometry or annotation ink leaves the drawable frame at 2:1",
+            "rejected: 1 hard findings {\"views_do_not_fit\": 1}, 0 space drops, 0 undrawn GD&T; finished footprints fit false",
+            "refused at 2:1: a callout's leader doubles beyond the displaced drawing (0 hard, 0 drops; annotation_leader_crossing)",
+            "refused at 2:1: unreadable ink, required losses or unreadable scale: new leader_hidden_crossing, legibility_floor_breached (0 hard, 0 drops)",
+            "final presentation refused: no candidate",
+        ] {
+            assert_eq!(scale_refusal_reason(raw), None, "{raw}");
+        }
+        for (raw, expected) in [
+            (
+                "hard rejected: annotation ink leaves the drawable frame at 2:1",
+                "annotations would leave the drawable area",
+            ),
+            (
+                "refused at 2:1: required items not carried (0 hard, 2 drops)",
+                "required annotations would be left undrawn",
+            ),
+            (
+                "rejected: 0 hard findings {}, 2 space drops, 1 undrawn GD&T; finished footprints fit true",
+                "2 required annotations could not be placed; 1 GD&T annotation could not be placed",
+            ),
+            (
+                "refused at 2:1: unreadable ink, required losses or unreadable scale: new dimension_line_at_note (0 hard, 0 drops)",
+                "a dimension line would cross the notes",
+            ),
+        ] {
+            assert_eq!(
+                scale_refusal_reason(raw).as_deref(),
+                Some(expected),
+                "{raw}"
+            );
+        }
+        for code in [
+            "notes_not_placed",
+            "pmi_not_drawn",
+            "annotation_over_title_block",
+            "title_field_overflow",
+            "view_on_title_block",
+        ] {
+            let raw = format!(
+                "rejected before final repair: hard findings {{\"{code}\": 1}}; 0 space drops; 0 undrawn GD&T"
+            );
+            assert_eq!(
+                scale_refusal_reason(&raw),
+                Some(refused_annotation(code, 1)),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn clipped_views_and_clipped_annotations_have_distinct_refusal_evidence() {
+        let a = fixture();
+        let mut p = model::plan_escalated(&a, &Spec::default()).unwrap();
+        assert!(sheet_fit::inside_frames(&a, &p));
+        let d = p
+            .dimensions
+            .iter_mut()
+            .find_map(|d| d.placed.as_mut())
+            .unwrap();
+        d.label_box[0] = -20.0;
+        assert!(!sheet_fit::inside_frames(&a, &p));
+        assert_eq!(
+            frame_refusal(&a, &p),
+            "annotation ink leaves the drawable frame"
+        );
+        p.views[0].at[0] = -1000.0;
+        assert_eq!(
+            frame_refusal(&a, &p),
+            "view geometry leaves the drawable frame"
         );
     }
 
@@ -3017,6 +3134,7 @@ mod tests {
             "A4 at 2:1 (Normal): rejected before final repair: hard findings {\"annotation_off_sheet\": 3}; 0 space drops; 0 undrawn GD&T".into(),
             "A4 at 2:1 (Compact): 3 hard layout findings [annotation_off_sheet: 3]".into(),
             "A4 at 1:10: not planned: below the readable scale".into(),
+            "A3 at 5:1 (Normal): 1 hard layout finding [notes_not_placed: 1]".into(),
         ];
         p.sheet.basis = traces.join("; ");
         let basis = p.sheet.basis.clone();

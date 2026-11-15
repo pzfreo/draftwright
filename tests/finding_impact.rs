@@ -397,9 +397,7 @@ fn assert_review_summary(file: &str, expected: [(usize, usize); 4]) {
         wire["summary"]["groups"],
         serde_json::to_value(groups).unwrap()
     );
-    // One independent advisory now explains the actual larger-scale refusals,
-    // including on these parts without PMI. All existing findings stay counted.
-    assert_eq!(wire["summary"]["groups"]["automatic_scale_limited"], 1);
+    assert!(wire["summary"]["groups"]["automatic_scale_limited"].is_null());
     if file.contains("ctc_01") {
         assert_eq!(
             wire["summary"]["groups"]["dimensions_not_ported:section_recess"],
@@ -439,7 +437,7 @@ fn ctc01_counts_gaps_and_repeated_causes_without_hiding_findings() {
         // advisory, leaving one legal blank-opening placement as evidence.
         // All nine extension findings and the unavailable detail stay counted:
         // advisory (13,4) -> (11,3), with no label_crowded group remaining.
-        [(6, 2), (1, 1), (1, 1), (12, 4)],
+        [(6, 2), (1, 1), (1, 1), (11, 3)],
     );
 }
 #[test]
@@ -463,7 +461,7 @@ fn unsupported_recesses_and_rounding_have_separate_impacts() {
     // review report the legitimate blank-face placement and existing 0.0005 mm
     // nominal rounding: advisory (12, 3) -> (14, 4). Neither notice is suppressed.
     // A dimension place override can steer the radius leader.
-    assert_review_summary("mfcadpp/1000.step", [(11, 4), (1, 1), (3, 2), (15, 5)]);
+    assert_review_summary("mfcadpp/1000.step", [(11, 4), (1, 1), (3, 2), (14, 4)]);
 }
 #[test]
 fn informational_hole_bottom_and_recovery_remain_advisory() {
@@ -474,5 +472,5 @@ fn informational_hole_bottom_and_recovery_remain_advisory() {
     // sized nor located: shape_not_recognised, incomplete (1, 1) -> (3, 2). #226: its leader
     // ends on the flat the plan sees only hidden, under the flange: leader_to_hidden_edge,
     // readability (0, 0) -> (1, 1).
-    assert_review_summary("gramel/string_post.step", [(3, 2), (1, 1), (1, 1), (4, 4)]);
+    assert_review_summary("gramel/string_post.step", [(3, 2), (1, 1), (1, 1), (3, 3)]);
 }
