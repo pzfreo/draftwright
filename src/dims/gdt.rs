@@ -2154,6 +2154,7 @@ fn plan_search(
         // The best grade, then the shortest automatic datum leader; remaining
         // ties keep the original site, strip and tier order.
         let mut best: Option<Choice<'_>> = None;
+        let mut ring_best: Option<Choice<'_>> = None;
         let tier_ink: &[[P2; 2]] = if search == Search::Uncited { &[] } else { &ink };
         // Exhaust the compact, face-to-first-lane choices before trying any outer tier.
         // A cylinder's finish exhausts its own strip (compact tiers, then outer ones) before the
@@ -2269,8 +2270,17 @@ fn plan_search(
                             c.arrows.clear();
                             c.fills = vec![dot_at(c.lines[0][0])];
                         }
-                        if !intent.is_some_and(|p| p.pinned) {
-                            c = clear_ring_bend(c, &obstacles, scope_footprints.as_deref());
+                        if c.ring_radius > 0.0 && !intent.is_some_and(|p| p.pinned) {
+                            let expanded =
+                                clear_ring_bend(c.clone(), &obstacles, scope_footprints.as_deref());
+                            let grade = if matches!(search, Search::All | Search::Baseline) {
+                                obstacles.grade(&expanded, None)
+                            } else {
+                                obstacles.text_grade(&expanded)
+                            };
+                            if ring_best.as_ref().is_none_or(|b| grade < b.0) {
+                                ring_best = Some((grade, side, expanded, *tip, n));
+                            }
                         }
                         let compact_datum = protect && datum && !authored;
                         let shorter = compact_datum
@@ -2311,6 +2321,14 @@ fn plan_search(
                     }
                 }
             }
+        }
+        // Exhaust ordinary shelves on every strip before accepting an expanded
+        // bend. An equally clear longer shelf must not preempt a proven exit on
+        // a later strip and displace its neighbouring callouts.
+        if let Some(expanded) = ring_best
+            && best.as_ref().is_none_or(|b| expanded.0 < b.0)
+        {
+            best = Some(expanded);
         }
         // A dimension placement does not evict clear, unchanged GD&T ink merely
         // because another greedy search finds a shorter leader. Compare its
