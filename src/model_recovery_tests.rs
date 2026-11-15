@@ -304,8 +304,17 @@ fn new_recess_locations_clear_established_pmi_ink() {
         ].into_iter().map(|(code, ids)| (code.to_string(), ids.iter().map(|s| s.to_string()).collect::<Vec<_>>())).collect();
         let new: BTreeSet<_> = actual.difference(&original).cloned().collect();
         assert_eq!(
-            new, accepted,
-            "new hard findings beyond the reviewed CAD frame layout"
+            new,
+            accepted,
+            "new hard findings beyond the reviewed CAD frame layout; reference {} {}, trial {} {}; absent expected pairs (in reference, in trial): {:?}",
+            before.sheet.size,
+            before.sheet.scale,
+            trial.sheet.size,
+            trial.sheet.scale,
+            accepted
+                .difference(&new)
+                .map(|key| (key, original.contains(key), actual.contains(key)))
+                .collect::<Vec<_>>()
         );
         let auto = plan_escalated_with(&a, &Spec::default(), false, None, false).unwrap();
         assert!(non_locations(&auto).is_subset(&non_locations(&trial)));

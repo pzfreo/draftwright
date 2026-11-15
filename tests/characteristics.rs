@@ -204,7 +204,8 @@ fn numbered_pmi_round_trips_to_items_and_clear_rings() {
             // 2026-11-14: the smaller-paper reference keeps full scale on A4.
             "tests/fixtures/parts/editor_pmi.step" => ("A4", "1:1", 0, 0),
             "tests/fixtures/pmi/step/GRM-03_thumbwheel_drive_screw_AP242_PMI.step.gz" => {
-                ("A4", "2:1", 0, 0)
+                // #469: an intentionally uncited datum must not halve the scale.
+                ("A4", "5:1", 0, 0)
             }
             _ => ("A2", "1:5", 11, 19),
         };

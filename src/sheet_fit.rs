@@ -1053,7 +1053,7 @@ pub(crate) fn correct_estimate(analysis: &Analysis, plan: &mut Plan) {
 }
 
 /// Pack settled annotated view blocks without re-routing their witnesses or leaders. The template is built at the same scale on A0; only owned paper geometry moves.
-/// Re-place notes around the measured blocks; sheet requirements stay beside the recipient's
+/// Re-place authored note tables around the measured blocks; sheet requirements stay beside the recipient's
 /// title block. Authored view relations stay with the existing planner.
 pub(crate) fn pack_gdt(analysis: &Analysis, template: &Plan, recipient: &Plan) -> Option<Plan> {
     pack_reserved(analysis, template, recipient, template).or_else(|| {
@@ -1112,6 +1112,10 @@ fn pack_reserved_at(
         || (crate::model::historical_layout()
             && (!template.notes.is_empty()
                 || template.requirements.iter().any(|r| r.placed.is_some())))
+        // Automatic profile/radius notes belong to the established geometry recipe.
+        // Moving those changes its annotation corridors; this recovery relocates
+        // the authored/PMI ruled notes table that otherwise blocks scale selection.
+        || template.notes_block.as_ref().is_some_and(|b| !b.ruled)
         || template.notes.iter().any(|n| n.placed.is_none())
         || !template.tables.is_empty()
         || template.views.iter().any(|v| v.cut.is_some())
