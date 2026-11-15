@@ -943,7 +943,8 @@ fn frame_conflicts(plan: &Plan) -> Vec<(String, Vec<String>)> {
 /// Distinguish clipped annotation ink from a view outline that already leaves
 /// the frame. Only the former warrants an annotation-scale advisory.
 fn frame_refusal(analysis: &Analysis, plan: &Plan) -> &'static str {
-    let gutter = layout::margin() + crate::output::layer_styles()[0].1.width;
+    // Match inside_frames' outline stroke and tolerance exactly.
+    let gutter = layout::margin() + crate::output::layer_styles()[0].1.width / 2.0 - 1e-6;
     let geometry_fits = sheet_fit::footprints(analysis, plan)
         .into_iter()
         .take(plan.views.len())
@@ -3114,6 +3115,14 @@ mod tests {
         assert_eq!(
             frame_refusal(&a, &p),
             "annotation ink leaves the drawable frame"
+        );
+        let outline = sheet_fit::footprints(&a, &p)[0];
+        let frame_edge = layout::margin() + crate::output::layer_styles()[0].1.width / 2.0;
+        p.views[0].at[0] += frame_edge - outline[0];
+        assert_eq!(
+            frame_refusal(&a, &p),
+            "annotation ink leaves the drawable frame",
+            "a view exactly at the permitted outline-stroke boundary still fits"
         );
         p.views[0].at[0] = -1000.0;
         assert_eq!(
