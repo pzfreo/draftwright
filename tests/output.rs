@@ -452,6 +452,19 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
             _ => {}
         }
     }
+    // The crate reader skips MULTILEADER. Its embedded MTEXT replaces the original
+    // callout runs, so include those contents in the same exact-text conservation check.
+    for tags in dxf_pairs(&bytes)
+        .split(|p| p.0 == 0)
+        .filter(|tags| tags.iter().any(|p| p.1 == "AcDbMLeader"))
+    {
+        let content = &tags.iter().find(|p| p.0 == 304).unwrap().1;
+        for line in content.split("\\P") {
+            let line = line.replace("{\\Fgdt;n}", "%%c");
+            let start = line.find(';').unwrap() + 1; // the inline width factor
+            strings.push(line[start..line.len() - 1].to_string());
+        }
+    }
     let escape = |s: &str| {
         s.replace('⌀', "%%c")
             .replace('°', "%%d")
@@ -1224,7 +1237,6 @@ fn dxf_tolerances_and_compound_nominals_stay_live() {
         .unwrap();
         let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
         let mut found = false;
-        let mut diametric = Vec::new();
         for e in d.entities() {
             if let E::RotatedDimension(dim) = &e.specific {
                 let st = d
@@ -1245,32 +1257,42 @@ fn dxf_tolerances_and_compound_nominals_stay_live() {
                     found = true;
                 }
             }
-            if let E::DiameterDimension(dim) = &e.specific {
-                assert_eq!(dim.dimension_base.text, "4X %%c<> THRU");
-                diametric.push(dim.dimension_base.dimension_style_name.clone());
-            }
         }
         assert!(
             found,
             "{band} must be inline in the dimension text override"
         );
-        // `%%c<>` shows the sign in QCAD; AutoCAD would add its own to `<>` too (⌀⌀6 after
-        // AUDIT) unless the style's DIMPOST prefix replaces that default with nothing.
-        assert!(!diametric.is_empty());
+        // A hole callout is now one MULTILEADER with its full manufacturing text;
+        // it is no longer a diametric DIMENSION with a regeneration-sensitive prefix.
         let pairs = dxf_pairs(&files[0].1);
-        for name in diametric {
-            let named = pairs
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| **p == (0, "DIMSTYLE".into()))
-                .map(|(i, _)| {
-                    let end = pairs[i + 1..].iter().position(|q| q.0 == 0).unwrap() + i + 1;
-                    &pairs[i..end]
-                })
-                .find(|r| r.contains(&(2, name.clone())))
-                .unwrap();
-            assert!(named.contains(&(3, "\\A1;<>".into())), "{name}: {named:?}");
-        }
+        let callout = pairs
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| **p == (0, "MULTILEADER".into()))
+            .map(|(i, _)| {
+                let end = pairs[i + 1..].iter().position(|p| p.0 == 0).unwrap() + i + 1;
+                &pairs[i..end]
+            })
+            .find(|tags| {
+                tags.iter()
+                    .any(|(c, v)| *c == 304 && v.contains("4X") && v.contains("THRU"))
+            })
+            .expect("native hole callout");
+        let content = &callout.iter().find(|p| p.0 == 304).unwrap().1;
+        assert!(content.contains("%%c6 THRU"), "{content}");
+        assert!(
+            callout.iter().any(|p| p.0 == 343),
+            "mandatory text style handle"
+        );
+        assert!(
+            callout.iter().filter(|p| p.0 == 340).count() >= 2,
+            "context text style and leader style"
+        );
+        assert!(
+            !d.entities()
+                .any(|e| matches!(e.specific, E::DiameterDimension(_))),
+            "the callout must not also be drawn by a DIMENSION"
+        );
     }
 }
 

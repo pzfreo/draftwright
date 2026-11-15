@@ -253,9 +253,9 @@ includes the summary. See [finding impact](finding-impact.md) for all codes and 
   Missing edge evidence, section views and uncertain curved regions cannot prove interior paper.
 - **The rules catalogue** (`docs/rules/`) tracks what Python draftwright learnt; most of its
   rules are still pending.
-- DXF uses owned block records, native text and dimension entities with rendered anonymous
-  blocks. Engineering symbol text uses Unicode and a symbol-font fallback; other annotations
-  remain selectable named groups.
+- DXF uses owned block records, native text, DIMENSION, MULTILEADER, TOLERANCE and ACAD_TABLE
+  entities. Dimensions and tables retain rendered anonymous blocks. Named groups preserve
+  annotation and view membership.
 
 ## Known limitations
 
@@ -413,10 +413,20 @@ to `VIEW_<view-id>_ANNOT`; for example `VIEW_v_front_ANNOT`. In CAD, select the
 view INSERT and that named group together, then MOVE them using the same base
 point. Disable group selection temporarily to edit an individual dimension.
 Shaded pictorials export their visible edges, without presentation fill polygons.
-Single-line labels are TEXT; only real multi-line labels use MTEXT. A GD&T
-characteristic symbol is drawn as its strokes (lines and arcs), the circled modifiers
-Ⓜ Ⓛ are written (M) (L), and no style names a TTF; no inline font programs are
-embedded in labels.
+Single-line labels are TEXT; multi-line labels use MTEXT. Leader callouts are one
+MULTILEADER with embedded MTEXT and a dictionary-owned MLEADERSTYLE. Their vertices,
+arrowheads and text come from the owning planned annotation. A GD&T control frame is a
+TOLERANCE; its classic LEADER references the frame through its annotation handle (340).
+Independent stacked frames remain separate TOLERANCE entities on a 5 mm pitch, preserving
+their independent symbol cells. Datum feature symbols retain their existing geometry.
+Characteristic symbols use inline gdt font switches; circled modifiers outside frames
+are written (M) (L). No text style requests a TTF.
+Hole schedules, spec tables, general notes and the pack GA parts list are ACAD_TABLE
+entities with TABLESTYLE objects and anonymous *T blocks of rendered graphics. Each placed
+block of a split table is a separate native table, with the planner's repeated header,
+cell text, column widths and row heights. Existing ruled cells remain independent cells;
+no title merge is invented. Unruled note blocks retain invisible borders. The title block
+remains an INSERT with ATTRIB fields.
 Plex-named DXF styles request romans.shx, the single-stroke drafting font every
 DWG/DXF program ships, condensed to Plex's advance so text stays in its original
 table cells and annotation frames. SHX fonts lack × and en dashes, so DXF text

@@ -99,7 +99,11 @@ fn text_of(e: &Entity) -> String {
     // A TOLERANCE's group 3 is its dimension style; an MTEXT's are its leading chunks.
     e.tags
         .iter()
-        .filter(|t| t.0 == 1 || (t.0 == 3 && e.kind != "TOLERANCE"))
+        .filter(|t| {
+            t.0 == 1
+                || (t.0 == 3 && e.kind != "TOLERANCE")
+                || (t.0 == 304 && e.kind == "MULTILEADER")
+        })
         .map(|t| t.1.as_str())
         .collect()
 }
@@ -123,6 +127,31 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
         }
     }
     let all = entities(&bytes);
+    for d in plan
+        .dimensions
+        .iter()
+        .filter(|d| d.kind == "callout" && drawing.annotations.iter().any(|a| a.name == d.id))
+    {
+        let p = d.placed.as_ref().unwrap();
+        if !p.lines.is_empty() {
+            let leader = &drawing.sheet.dxf.leaders[&d.id];
+            assert_eq!(leader.lines, p.lines, "{name}: {} leader plan", d.id);
+            assert_eq!(leader.arrows, p.arrows, "{name}: {} arrows", d.id);
+        }
+    }
+    for g in plan
+        .gdt
+        .iter()
+        .filter(|g| g.kind != "datum_feature" && drawing.annotations.iter().any(|a| a.name == g.id))
+    {
+        let p = g.placed.as_ref().unwrap();
+        if !p.lines.is_empty() {
+            let leader = &drawing.sheet.dxf.leaders[&g.id];
+            assert_eq!(leader.lines, p.lines, "{name}: {} frame leader plan", g.id);
+            assert_eq!(leader.arrows, p.arrows, "{name}: {} frame arrows", g.id);
+        }
+    }
+    check_native_annotations(name, drawing, &all);
     let geometry = |all: &[Entity]| {
         let mut n = BTreeMap::new();
         for e in all.iter().filter(|e| {
@@ -246,7 +275,12 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
     let texts = all
         .iter()
         .filter(|e| matches!(e.kind.as_str(), "TEXT" | "MTEXT" | "ATTRIB"))
-        .count();
+        .count()
+        + all
+            .iter()
+            .filter(|e| e.kind == "MULTILEADER")
+            .map(|e| tag(e, 304).unwrap().matches("\\P").count() + 1)
+            .sum::<usize>();
     let dxf = &drawing.sheet.dxf;
     let field_runs = drawing
         .text
@@ -270,7 +304,14 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
     for e in &all {
         if matches!(
             e.kind.as_str(),
-            "TEXT" | "MTEXT" | "ATTRIB" | "ATTDEF" | "TOLERANCE" | "DIMENSION"
+            "TEXT"
+                | "MTEXT"
+                | "ATTRIB"
+                | "ATTDEF"
+                | "TOLERANCE"
+                | "DIMENSION"
+                | "MULTILEADER"
+                | "ACAD_TABLE"
         ) {
             let t = text_of(e);
             assert!(t.is_ascii(), "{name}: {} has {t:?}", e.kind);
@@ -315,6 +356,181 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
     }
     found.written = raw;
     found
+}
+
+fn owner(e: &Entity) -> Option<&str> {
+    let mut reactor = false;
+    for (code, value) in &e.tags {
+        if *code == 102 {
+            reactor = value != "}";
+        }
+        if *code == 330 && !reactor {
+            return Some(value);
+        }
+    }
+    None
+}
+
+/// An independent tag-level check: the Rust DXF reader skips MULTILEADER and TABLE.
+fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
+    let by_handle: BTreeMap<_, _> = all.iter().filter_map(|e| Some((tag(e, 5)?, e))).collect();
+    let resolve = |handle: &str, kind: &str| {
+        let e = by_handle
+            .get(handle)
+            .unwrap_or_else(|| panic!("{name}: missing handle {handle}"));
+        assert_eq!(e.kind, kind, "{name}: {handle}");
+    };
+    let point = |tags: &[(i32, String)], code: i32| -> [f64; 2] {
+        [code, code + 10].map(|c| tags.iter().find(|t| t.0 == c).unwrap().1.parse().unwrap())
+    };
+    let mut written_paths = Vec::new();
+    for e in all
+        .iter()
+        .filter(|e| e.kind == "MULTILEADER" || e.kind == "LEADER")
+    {
+        resolve(owner(e).unwrap(), "BLOCK_RECORD");
+        if e.kind == "LEADER" {
+            resolve(tag(e, 340).unwrap(), "TOLERANCE");
+            assert_eq!(tag(e, 73), Some("1"));
+            let vertices: Vec<_> = e
+                .tags
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.0 == 10)
+                .map(|(i, _)| point(&e.tags[i..], 10))
+                .collect();
+            assert_eq!(
+                tag(e, 76).unwrap().parse::<usize>().unwrap(),
+                vertices.len()
+            );
+            written_paths.extend(vertices.windows(2).map(|p| [p[0], p[1]]));
+        } else {
+            let common = e.tags.iter().position(|t| t.0 == 301).unwrap() + 1;
+            let common_tag = |code| {
+                e.tags[common..]
+                    .iter()
+                    .find(|t| t.0 == code)
+                    .unwrap()
+                    .1
+                    .as_str()
+            };
+            resolve(common_tag(340), "MLEADERSTYLE");
+            resolve(common_tag(343), "STYLE");
+            resolve(common_tag(341), "LTYPE");
+            resolve(tag(e, 340).unwrap(), "STYLE");
+            assert!(!tag(e, 304).unwrap().is_empty());
+            for (i, t) in e
+                .tags
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.0 == 304 && t.1 == "LEADER_LINE{")
+            {
+                let _ = t;
+                let end = i + e.tags[i..].iter().position(|t| t.0 == 305).unwrap();
+                let vertices: Vec<_> = e.tags[i..end]
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, t)| t.0 == 10)
+                    .map(|(j, _)| point(&e.tags[i + j..], 10))
+                    .collect();
+                assert!(vertices.len() >= 2);
+                written_paths.extend(vertices.windows(2).map(|p| [p[0], p[1]]));
+            }
+        }
+    }
+    let mut planned_paths: Vec<_> = drawing
+        .sheet
+        .dxf
+        .leaders
+        .values()
+        .flat_map(|l| l.lines.clone())
+        .collect();
+    let sort = |paths: &mut Vec<[[f64; 2]; 2]>| {
+        paths.sort_by(|a, b| {
+            a.iter()
+                .flatten()
+                .zip(b.iter().flatten())
+                .find_map(|(a, b)| (a != b).then(|| a.total_cmp(b)))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    };
+    sort(&mut planned_paths);
+    sort(&mut written_paths);
+    assert_eq!(
+        written_paths, planned_paths,
+        "{name}: every planned leader endpoint exactly once"
+    );
+    let tables: Vec<_> = all.iter().filter(|e| e.kind == "ACAD_TABLE").collect();
+    assert_eq!(
+        tables.len(),
+        drawing
+            .sheet
+            .dxf
+            .tables
+            .values()
+            .map(Vec::len)
+            .sum::<usize>()
+    );
+    for (e, table) in tables
+        .into_iter()
+        .zip(drawing.sheet.dxf.tables.values().flatten())
+    {
+        resolve(owner(e).unwrap(), "BLOCK_RECORD");
+        resolve(tag(e, 342).unwrap(), "TABLESTYLE");
+        resolve(tag(e, 343).unwrap(), "BLOCK_RECORD");
+        let block = by_handle[tag(e, 343).unwrap()];
+        assert_eq!(tag(block, 2), tag(e, 2));
+        assert!(tag(e, 2).unwrap().starts_with("*T"));
+        assert_eq!(
+            tag(e, 91).unwrap().parse::<usize>().unwrap(),
+            table.rows.len()
+        );
+        assert_eq!(
+            tag(e, 92).unwrap().parse::<usize>().unwrap(),
+            table.placed.columns.len() - 1
+        );
+        assert_eq!(
+            e.tags.iter().filter(|t| t.0 == 141).count(),
+            table.rows.len()
+        );
+        let widths: Vec<f64> = e
+            .tags
+            .iter()
+            .filter(|t| t.0 == 142)
+            .map(|t| t.1.parse().unwrap())
+            .collect();
+        assert_eq!(
+            widths,
+            table
+                .placed
+                .columns
+                .windows(2)
+                .map(|p| p[1] - p[0])
+                .collect::<Vec<_>>()
+        );
+        let cells: Vec<_> = e.tags.iter().filter(|t| t.0 == 1).collect();
+        assert_eq!(cells.len(), table.rows.len() * widths.len());
+        for (cell, planned) in cells.iter().zip(table.rows.iter().flatten()) {
+            let expected = planned
+                .trim()
+                .replace('↧', "DEEP")
+                .replace('⌴', "CBORE")
+                .replace('⌵', "CSK")
+                .replace('Ⓕ', "(F)")
+                .replace('×', "X");
+            let actual = decode(&cell.1).join("").replace('×', "X");
+            assert_eq!(actual, expected, "{name}: table cell content");
+        }
+        assert_eq!(
+            point(&e.tags, 10),
+            [table.placed.cells[0], table.placed.cells[3]]
+        );
+        assert!(
+            all.iter()
+                .any(|ink| owner(ink) == tag(e, 343)
+                    && matches!(ink.kind.as_str(), "TEXT" | "MTEXT"))
+        );
+    }
 }
 
 fn drawings(a: &draftwright::model::Analysis, part: &draftwright::haecceity::Part) -> Vec<Drawing> {
