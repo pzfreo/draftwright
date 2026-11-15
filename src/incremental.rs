@@ -20,7 +20,9 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
         choices: Vec::new(),
         also: Vec::new(),
     };
-    if before.binding.source_sha256 != analysis.binding.source_sha256 {
+    if before.binding.source_sha256 != analysis.binding.source_sha256
+        || before.binding.part_index != analysis.binding.part_index
+    {
         return Err(refuse("requires the committed plan for the same part"));
     }
     if !before.sheets.is_empty() {
@@ -72,18 +74,20 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
         }
     }
     let effective = crate::spec_gdt::effective(analysis, spec)?;
-    let (lowered, _) = crate::pmi_lowering::lower_in(
+    let (mut lowered, _) = crate::pmi_lowering::lower_in(
         &effective,
         &|name| before.views.iter().any(|v| v.id == format!("v:{name}")),
         spec.units,
     );
-    let old_effective = crate::spec_gdt::effective(analysis, &before.spec)?;
-    let (old_lowered, _) = crate::pmi_lowering::lower_in(
-        &old_effective,
-        &|name| before.views.iter().any(|v| v.id == format!("v:{name}")),
-        spec.units,
-    );
-    for g in &before.gdt {
+    crate::label_text::annotations(&mut lowered, spec)?;
+    let mut reference = before.clone();
+    reference.incremental_gdt.clear();
+    for g in &before.incremental_gdt {
+        if !reference.gdt.iter().any(|b| b.id == g.id) {
+            reference.gdt.push(g.clone());
+        }
+    }
+    for g in &reference.gdt {
         if spec.annotations.get(&g.id).cloned().unwrap_or_default()
             == before
                 .spec
@@ -91,12 +95,9 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
                 .get(&g.id)
                 .cloned()
                 .unwrap_or_default()
-            && lowered.iter().any(|item| {
-                item.id == g.id
-                    && old_lowered.iter().any(|old| {
-                        old.id == item.id && old.glyph == item.glyph && old.faces == item.faces
-                    })
-            })
+            && lowered
+                .iter()
+                .any(|item| crate::dims::gdt::same_content(g, item, spec.units))
         {
             pinned.annotations.entry(g.id.clone()).or_default().place = Some(Place {
                 pinned: true,
@@ -116,7 +117,7 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
         INTENT.with(|s| s.replace(Some(spec.clone()))),
     );
     let compact = before.sheet.dimension_spacing == model::DimensionSpacing::Compact;
-    let mut after = crate::planning::with_pin_reference(before.clone(), || {
+    let mut after = crate::planning::with_pin_reference(reference.clone(), || {
         crate::dims::with_compact(compact, || model::plan(analysis, &pinned))
     })?;
     if after.views.len() != before.views.len()
@@ -147,16 +148,23 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
         }
     }
     for g in &mut after.gdt {
-        if let Some(old) = before.gdt.iter().find(|old| old.id == g.id)
+        if let Some(old) = reference.gdt.iter().find(|old| old.id == g.id)
             && old.cells == g.cells
             && old.placed == g.placed
             && old.view == g.view
             && old.state == g.state
+            && old.source == g.source
             && spec.annotations.get(&g.id) == before.spec.annotations.get(&g.id)
         {
             *g = old.clone();
         }
     }
+    after.incremental_gdt = reference
+        .gdt
+        .iter()
+        .filter(|old| !after.gdt.iter().any(|g| g.id == old.id))
+        .cloned()
+        .collect();
     // Pins are transaction-local constraints, never authored Spec edits.
     after.spec = spec.clone();
     after.sheet.size.clone_from(&before.sheet.size);
@@ -315,36 +323,32 @@ pub(crate) fn obstacles() -> Vec<crate::dims::PlannedDimension> {
     );
     out.extend(before.captions.iter().map(crate::iso_caption::proxy));
     for b in &before.balloons {
-        out.push(crate::dims::PlannedDimension {
-            callout_offset: None,
-            reference: false,
-            determined_by: Vec::new(),
-            region: None,
-            id: b.id.clone(),
-            kind: "ink".into(),
-            view: b.view.clone(),
-            value: 0.,
-            label: String::new(),
-            terms: Vec::new(),
-            measurements: Vec::new(),
-            default: true,
-            from_spec: Vec::new(),
-            basis: String::new(),
-            state: b.state.clone(),
-            placed: Some(crate::dims::Placed {
-                lines: b.leader.into_iter().collect(),
-                arrows: Vec::new(),
-                label_at: b.at,
-                rotation: 0.,
-                label_box: b.label_box.unwrap_or([
-                    b.at[0] - b.radius,
-                    b.at[1] - b.radius,
-                    b.at[0] + b.radius,
-                    b.at[1] + b.radius,
-                ]),
-            }),
-        });
+        out.push(ink_proxy(
+            &b.id,
+            &b.view,
+            b.label_box.unwrap_or([
+                b.at[0] - b.radius,
+                b.at[1] - b.radius,
+                b.at[0] + b.radius,
+                b.at[1] + b.radius,
+            ]),
+            b.leader.into_iter().collect(),
+        ));
     }
+    for b in &before.inspection_balloons {
+        out.push(ink_proxy(
+            &b.id,
+            b.view.as_deref().unwrap_or(""),
+            b.bounds(),
+            b.lines.clone(),
+        ));
+    }
+    out.extend(
+        before
+            .requirements
+            .iter()
+            .filter_map(crate::dims::gdt::finish_proxy),
+    );
     for p in &mut out {
         p.kind = "ink".into();
     }
@@ -403,4 +407,36 @@ fn retain_from(plan: &mut Plan, before: &Plan, spec: &Spec) {
     plan.inspection_balloons
         .clone_from(&before.inspection_balloons);
     plan.characteristics.clone_from(&before.characteristics);
+}
+
+fn ink_proxy(
+    id: &str,
+    view: &str,
+    label_box: [f64; 4],
+    lines: Vec<[[f64; 2]; 2]>,
+) -> crate::dims::PlannedDimension {
+    crate::dims::PlannedDimension {
+        callout_offset: None,
+        reference: false,
+        determined_by: Vec::new(),
+        region: None,
+        id: id.into(),
+        kind: "ink".into(),
+        view: view.into(),
+        value: 0.,
+        label: String::new(),
+        terms: Vec::new(),
+        measurements: Vec::new(),
+        default: true,
+        from_spec: Vec::new(),
+        basis: String::new(),
+        state: crate::items::State::Shown,
+        placed: Some(crate::dims::Placed {
+            lines,
+            arrows: Vec::new(),
+            label_at: [label_box[0], label_box[1]],
+            rotation: 0.,
+            label_box,
+        }),
+    }
 }

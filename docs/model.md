@@ -2780,7 +2780,8 @@ result through the recovered planner. `commit: false` returns the same delta as 
 from that state, while changing neither state, history nor cache counters. Refused edits also
 leave the last good state intact. A batch is one undo step; `undo()` and `redo()` return deltas.
 A successful new commit discards the redo branch; a preview or refusal preserves it. History
-retains Specs for full applies; incremental history also retains the exact Plan so undo/redo restores published placements. Projections are shared.
+retains Specs for full applies; incremental history also retains the exact Plan so undo/redo
+restores published placements. Projections are shared.
 
 `apply_incremental(&[items::Op], commit)` is the annotation-only alternative. The library
 entry point is `model::plan_incremental(analysis, before_plan, edited_spec)`. It derives
@@ -2791,7 +2792,10 @@ new ink competes with the retained ink for space. Retained dimension recipes and
 also stay fixed: adding a datum does not rebase existing measurements or split shared
 `2×` labels. Existing furniture (including hole tables and tags) supplies fixed obstacle
 proxies to the same solver. Removing annotations releases their space
-without packing the survivors again. Derived pins never enter the returned Spec. Changed
+without packing the survivors again. The in-memory Plan retains dormant GD&T placements
+when an edit replaces imported PMI, so removing that override revives the original ink in its
+original place. This ephemeral placement history is not a saved-Spec undo log. Derived pins
+never enter the returned Spec. Changed
 annotation content may need a new placement; every pre-existing item whose placement or ink
 changes appears in `Delta.moved`, with a reason (also reported by full apply).
 
@@ -2814,7 +2818,8 @@ adapter could select that entry point internally later. No MCP tool is added her
 Each full apply makes one complete `plan_recovered` invocation. The existing planner is global, so
 this is the conservative full-plan fallback: its internal layout candidate/recovery attempts
 and canonical pin plan remain part of that invocation. `Session::stats().plans` counts those
-invocations at the planning entry point, including undo/redo, and excludes discarded previews;
+full and incremental invocations at the planning entry point, including full-plan undo/redo,
+and excludes discarded previews. Restoring an exact incremental history Plan needs no planner;
 it does not claim to count individual internal layout candidates. `Delta.plans` reports the
 measured invocations for a transaction, including a discarded preview. Queries never invoke it.
 Projection and bounds counters count actual expensive passes as in S4 part A; the annotation

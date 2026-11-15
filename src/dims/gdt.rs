@@ -118,6 +118,18 @@ pub struct PlannedGdt {
     pub placed: Option<GdtPlaced>,
 }
 
+/// Compare lowered semantic content before deriving a transaction-local pin.
+pub(crate) fn same_content(g: &PlannedGdt, item: &Lowered, units: crate::units::Units) -> bool {
+    let cells = match &item.glyph {
+        Glyph::Datum { letter, .. } => vec![letter.clone()],
+        Glyph::Label { text } => vec![text.clone()],
+        Glyph::FlagNote { number, .. } => vec![number.to_string()],
+        Glyph::Finish { texture, .. } => finish_symbol(texture, units).1,
+        glyph => control_frame(glyph).1,
+    };
+    g.id == item.id && g.faces == item.faces && g.cells == cells
+}
+
 /// A frame's or symbol's ink, mm on the page.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

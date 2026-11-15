@@ -170,7 +170,7 @@ pub struct Movement {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Delta {
-    /// Complete recovered-planner invocations used for this edit, including a preview.
+    /// Planner entry-point invocations used for this edit, including a preview.
     pub plans: usize,
     #[serde(default)]
     pub moved: Vec<Movement>,
@@ -589,7 +589,7 @@ impl Delta {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Stats {
-    /// Complete recovered-planner invocations, excluding previews and queries.
+    /// Full or incremental planner invocations, excluding previews and queries.
     pub plans: usize,
     /// Actual recovered sheet-1 runs, summed across committed planner invocations.
     pub sheet_steps: usize,

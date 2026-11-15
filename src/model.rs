@@ -912,6 +912,10 @@ pub struct Plan {
     /// Keeping it with the candidate prevents reuse of a rejected trial's anchor.
     #[serde(skip)]
     pub(crate) placement_anchor: Option<std::sync::Arc<Plan>>,
+    /// In-session dormant GD&T ink, so removing an override revives the prior symbol
+    /// where it was. No nested plans or authored pins enter the document.
+    #[serde(skip)]
+    pub(crate) incremental_gdt: Vec<crate::dims::gdt::PlannedGdt>,
     /// Canonical linear label positions relative to their carrier origins; editor metadata.
     #[serde(skip)]
     pub(crate) dimension_labels: BTreeMap<String, (String, [f64; 2])>,
@@ -8735,6 +8739,7 @@ fn plan_with_presentation(
                 && crate::decision_overrides::has_placement_change(&spec)
                 && matches!(&analysis.pmi, Some(crate::pmi::Reading::Read(r)) if r.records.iter().any(|r| matches!(r.category, crate::pmi::Category::Datum | crate::pmi::Category::GeometricTolerance)))
         }).map(|p| std::sync::Arc::new(p.clone())),
+        incremental_gdt: Vec::new(),
         dimension_labels: canonical
             .as_ref()
             .map(|p| p.dimension_labels.clone())
