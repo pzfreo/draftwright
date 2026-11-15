@@ -31,8 +31,10 @@ class RequirementKinds(unittest.TestCase):
     def records(self, part):
         return json.loads(part._geometry().inspect(part._pmi))["records"]
 
-    def rendered(self, part, name):
+    def rendered(self, part, name, *, style=None):
         drawing = part.drawing(sheet="A3")
+        if style is not None:
+            drawing.update({"sheet": {"callouts": {"style": style}}})
         svg, = drawing.render(self.directory / name, formats=("svg",))
         root = ET.parse(svg).getroot()
         text = " ".join("".join(n.itertext()) for n in root.iter("{http://www.w3.org/2000/svg}text"))
@@ -59,13 +61,20 @@ class RequirementKinds(unittest.TestCase):
     def test_external_threads_default_explicit_and_left_hand(self):
         for designation, expected in (("M10", ("M10", "1.5", "6g")),
                                       ("M10x1.5-6g", ("M10", "1.5", "6g")),
-                                      ("M10x1.5-6h LH", ("M10", "6h", "LH"))):
+                                      ("M10x1.5-6h LH", ("M10", "1.5", "6h", "LH")),
+                                      ("M10x1.5-5g6g", ("M10", "1.5", "5g6g"))):
             with self.subTest(designation=designation):
                 p, wall, _ = self.rod()
                 p.shaft(wall).thread(designation)
                 threads = [r for r in self.records(p) if r["kind"] == "external_thread"]
                 self.assertEqual(len(threads), 1)
-                text = self.rendered(p, "thread")
+                compact = self.rendered(p, "thread_compact")
+                self.assertIn("M10", compact)
+                self.assertIn(expected[2], compact)
+                # The engine's ISO compact notation omits the conventional coarse pitch.
+                # Full callout presentation must still print that stated pitch, as well as
+                # the class and hand; test both presentations without relaxing any label check.
+                text = self.rendered(p, "thread", style="full")
                 for label in expected:
                     self.assertIn(label, text)
 
@@ -91,6 +100,12 @@ class RequirementKinds(unittest.TestCase):
         p = draftwright.Part(shape, "bore")
         wall = [f for f in shape.faces().filter_by(bd.GeomType.CYLINDER)
                 if p._is_hole_wall(f)][0]
+        with self.assertRaisesRegex(ValueError, "external cylinder"):
+            p.shaft(wall)
+        with self.assertRaisesRegex(ValueError, "external cylinder"):
+            p.cylinder(wall).knurl(0.8, teeth=39)
+        with self.assertRaisesRegex(ValueError, "shaft fit"):
+            p.cylinder(wall).fit("h6")
         p.hole(wall).diameter(plus_minus=0.017)
         self.assertIn("±0.017", self.rendered(p, "bore"))
         p, wall, _ = self.rod()
@@ -108,7 +123,8 @@ class RequirementKinds(unittest.TestCase):
         for kind, symbol, needs_datum, cylinder in controls:
             with self.subTest(kind=kind):
                 p, wall, ends = self.rod()
-                A = p.datum("A", ends[0])
+                datum_face = wall if kind in ("circular_runout", "total_runout", "concentricity") else ends[0]
+                A = p.datum("A", datum_face)
                 ref = p.shaft(wall) if cylinder else p.face(ends[-1])
                 args = (0.041, A) if needs_datum else (0.041,)
                 self.assertIs(getattr(ref, kind)(*args), ref)
@@ -139,6 +155,38 @@ class RequirementKinds(unittest.TestCase):
                 text = self.rendered(p, pattern)
                 self.assertIn(f"{pattern.upper()} KNURL P0.8", text)
                 self.assertIn("MAX AFTER KNURL", text)
+
+    def test_edits_replace_sizes_threads_knurls_and_reversed_distances(self):
+        for kind in ("diameter", "thread", "knurl", "distance"):
+            with self.subTest(kind=kind):
+                p, wall, ends = self.rod()
+                ref = p.shaft(wall)
+                if kind == "diameter":
+                    ref.diameter(plus_minus=0.087)
+                elif kind == "thread":
+                    ref.thread("M10x1.5-6h LH")
+                elif kind == "knurl":
+                    ref.knurl(0.8, teeth=39)
+                else:
+                    p.distance(ends[0], ends[-1]).tolerance(plus_minus=0.065)
+                geometry = p._geometry()
+                if kind == "diameter":
+                    p.cylinder(wall).diameter(limits=(9.98, 10.04))
+                    new, old, record_kind = "10.04", "0.087", "diameter"
+                elif kind == "thread":
+                    p.shaft(wall).thread("M10x1.5-6g")
+                    new, old, record_kind = "6g", "6h", "external_thread"
+                elif kind == "knurl":
+                    p.shaft(wall).knurl(1, "diamond", teeth=31, helix_angle=30)
+                    new, old, record_kind = "DIAMOND KNURL P1", "STRAIGHT KNURL", "knurl"
+                else:
+                    p.distance(ends[-1], ends[0]).tolerance(plus_minus=0.019)
+                    new, old, record_kind = "±0.019", "0.065", "linear"
+                self.assertIs(p._geometry(), geometry)
+                self.assertEqual(len([r for r in self.records(p) if r["kind"] == record_kind]), 1)
+                text = self.rendered(p, "edited_" + kind)
+                self.assertIn(new, text)
+                self.assertNotIn(old, text)
 
     def test_free_text_general_tolerance(self):
         p, _, _ = self.rod()

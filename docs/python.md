@@ -153,6 +153,10 @@ recorded in its `thread manufacturing` attribute and drawn with ISO 6410 lines.
 The kernel requires a thread count; this API uses its existing single-thread
 convention (`number_of_threads = 1`), keeping pitch separately in the manufacturing
 attribute rather than deriving it from that ambiguous field. LH/RH is preserved.
+The engine's compact callout convention omits ISO 261 coarse pitch and right hand
+(e.g. `M10-6g`); fine pitch and left hand remain explicit. For the full designation,
+use the layout setting `drawing.update({"sheet": {"callouts": {"style": "full"}}})`.
+The native PMI retains the pitch and hand with either presentation.
 
 Objects expand to faces. A face, face list or cutter shape matches the part's own
 faces. A counterbore's fit and finish apply to its smallest bore. `hole()` refuses
@@ -207,7 +211,9 @@ for kind in ("shaft_fit", "thread", "diameter_pm", "diameter_limits",
     p = Part(shape, kind).material("BRASS H62").general_tolerance("±0.05")
     wall = shape.faces().filter_by(GeomType.CYLINDER)[0]
     ends = shape.faces().filter_by(GeomType.PLANE).sort_by(Axis.Z)
-    A = p.datum("A", ends[0])
+    # Runout/concentricity use the cylinder's axis as datum A.
+    A = p.datum("A", wall if kind in ("circular_runout", "total_runout", "concentricity")
+                else ends[0])
     shaft = p.shaft(wall)
     if kind == "shaft_fit":
         shaft.fit("h6")  # p.cylinder(wall).fit("h6") also works on a boss
