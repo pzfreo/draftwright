@@ -252,6 +252,12 @@ fn meet_frame(g: &gdt::PlannedGdt, next: &mut Placed) -> bool {
             ]
         },
     );
+    let radius = gdt::ring_radius(&g.modifiers);
+    // Scope rings require a shaft followed by a horizontal shelf. A straight
+    // route has no bend; a multi-bend route would reserve a different elbow.
+    if radius > 0.0 && next.lines.len() != 2 {
+        return false;
+    }
     let dx = next.label_box[0] - p.label_box[0];
     let dy = next.label_box[1] - p.label_box[1];
     let y = 0.5 * (bounds[1] + bounds[3]) + dy;
@@ -263,7 +269,6 @@ fn meet_frame(g: &gdt::PlannedGdt, next: &mut Placed) -> bool {
         bounds[2]
     } + dx;
     shelf[1] = [x, y];
-    let radius = gdt::ring_radius(&g.modifiers);
     if radius > 0.0 {
         let dir = if shelf[1][0] >= shelf[0][0] {
             1.0
@@ -1471,6 +1476,9 @@ mod tests {
                     p.arcs
                         .push([bend[0], bend[1], radius / 1.7, 0., std::f64::consts::TAU]);
                 }
+                let mut straight = next.clone();
+                straight.lines = vec![[tip, end]];
+                assert!(!meet_frame(&scoped, &mut straight));
                 assert!(meet_frame(&scoped, &mut next));
                 let [a, b] = next.lines[1];
                 assert!(
