@@ -256,6 +256,18 @@ fn a_crowded_fixed_sheet_reports_the_new_frames_conflicts() {
             .iter()
             .any(|g| g.source == "spec:faces/top/controls/0")
     );
+    for old in before.plan.problems.iter().filter(|p| {
+        matches!(
+            p.code.as_str(),
+            "location_ref_dropped" | "extension_through_feature"
+        )
+    }) {
+        assert!(
+            s.plan().problems.iter().any(|p| p.id == old.id),
+            "unchanged defect {} was silently resolved",
+            old.id
+        );
+    }
     let finding = s
         .plan()
         .problems

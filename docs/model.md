@@ -2805,7 +2805,8 @@ plans. No automatic full-plan fallback exists. Unsupported geometry/furniture/la
 or multi-sheet drawings, are refused with an explicit full-apply choice. Supported edits are
 dimension and annotation entries and face/feature GD&T; the existing Spec dependency rules
 still apply when removing a datum (remove the referencing controls in the same batch).
-Existing annotation conflicts keep their normal finding tiers. New ink that cannot fit
+Existing annotation conflicts keep their normal finding tiers. Findings on unchanged ink,
+including dropped locations, remain until the referenced defect actually changes. New ink that cannot fit
 cleanly also receives `incremental_placement_constrained` (tidy); it is placed as well as the
 normal rules allow, and an undrawable item keeps the normal not-drawn finding.
 

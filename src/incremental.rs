@@ -258,6 +258,7 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
     after.sheet.scale.clone_from(&before.sheet.scale);
     after.sheet.default = before.sheet.default;
     after.sheet.basis.clone_from(&before.sheet.basis);
+    retain_findings(before, &mut after);
     let new: Vec<_> = after
         .gdt
         .iter()
@@ -535,5 +536,80 @@ fn ink_proxy(
             rotation: 0.,
             label_box,
         }),
+    }
+}
+
+/// Pin replay can bypass the pass that originally diagnosed retained ink (notably
+/// a dropped location). An unchanged defect is not a resolved finding. Semantic
+/// dependency findings are deliberately re-evaluated by the normal planner.
+fn retain_findings(before: &Plan, after: &mut Plan) {
+    let geometric = |p: &Problem| {
+        p.labels().impact == crate::finding::Impact::Readability
+            || p.code.starts_with("annotation_")
+            || p.code.starts_with("leader_")
+            || p.code.starts_with("extension_")
+            || p.code == "label_crowded"
+            || p.code == "location_ref_dropped"
+    };
+    if !before.problems.iter().any(geometric) {
+        return;
+    }
+    let next = crate::items::items(after);
+    let unchanged: BTreeSet<_> = crate::items::items(before)
+        .into_iter()
+        .filter(|old| {
+            if !next.iter().any(|new| new == old) {
+                return false;
+            }
+            let id = &old.id;
+            if let Some(d) = before.dimensions.iter().find(|d| &d.id == id) {
+                return after.dimensions.iter().any(|n| {
+                    n.id == d.id
+                        && n.view == d.view
+                        && n.terms == d.terms
+                        && n.measurements == d.measurements
+                        && n.state == d.state
+                        && n.placed == d.placed
+                });
+            }
+            if let Some(g) = before.gdt.iter().find(|g| &g.id == id) {
+                return after.gdt.iter().any(|n| {
+                    n.id == g.id
+                        && n.view == g.view
+                        && n.cells == g.cells
+                        && n.faces == g.faces
+                        && n.modifiers == g.modifiers
+                        && n.state == g.state
+                        && n.placed == g.placed
+                });
+            }
+            if let Some(v) = before.views.iter().find(|v| &v.id == id) {
+                return after.views.iter().any(|n| {
+                    n.id == v.id
+                        && n.at == v.at
+                        && n.area == v.area
+                        && n.scale == v.scale
+                        && n.direction == v.direction
+                        && n.up == v.up
+                        && n.sheet == v.sheet
+                });
+            }
+            // Omitted records have no ink. All remaining furniture is frozen by retain_from.
+            true
+        })
+        .map(|item| item.id)
+        .collect();
+    for p in before.problems.iter().filter(|p| geometric(p)) {
+        if p.subjects.iter().any(|id| unchanged.contains(id))
+            && p.subjects
+                .iter()
+                .all(|id| unchanged.contains(id) || id.starts_with("f:") || id.starts_with("face:"))
+            && !after
+                .problems
+                .iter()
+                .any(|n| n.id == p.id || (n.code == p.code && n.subjects == p.subjects))
+        {
+            after.problems.push(p.clone());
+        }
     }
 }
