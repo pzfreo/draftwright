@@ -517,8 +517,12 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
                 .replace('⌴', "CBORE")
                 .replace('⌵', "CSK")
                 .replace('Ⓕ', "(F)")
+                .replace('Ⓜ', "(M)")
+                .replace('Ⓛ', "(L)")
+                .replace('Ⓟ', "(P)")
                 .replace('×', "X");
-            let actual = decode(&cell.1).join("").replace('×', "X");
+            let content = &cell.1[cell.1.find(';').unwrap() + 1..cell.1.len() - 1];
+            let actual = decode(content).join("").replace('×', "X").trim().to_owned();
             assert_eq!(actual, expected, "{name}: table cell content");
         }
         assert_eq!(
@@ -753,4 +757,30 @@ fn quality_parts_write_no_text_as_geometry_and_only_ascii() {
     // The quality parts carry no PMI, so they hold no frame: what is checked here is that no
     // text ink is geometry and all text is ASCII (`check`); the frame checks run on the fixtures.
     eprintln!("frames per part: {frames:?}");
+}
+
+#[test]
+fn pack_ga_has_native_parts_list_and_source_owned_leaders() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let pack = draftwright::pack::build(
+        &root.join("tests/fixtures/assembly/pack-small.step.gz"),
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(pack.report.general_assembly.is_some());
+    let drawing = &pack.drawings[0];
+    let all = entities(&drawing.dxf());
+    check_native_annotations("pack GA", drawing, &all);
+    assert!(all.iter().any(|e| e.kind == "ACAD_TABLE"));
+    assert!(all.iter().any(|e| e.kind == "MULTILEADER"));
+    let list = &pack
+        .report
+        .general_assembly
+        .as_ref()
+        .unwrap()
+        .parts_list
+        .as_ref()
+        .unwrap()
+        .rows;
+    assert_eq!(drawing.sheet.dxf.tables["t:1"][0].rows, *list);
 }

@@ -12835,7 +12835,7 @@ fn render_annotations_with_cuts(
         }) {
             let p = n.placed.as_ref().unwrap();
             for (row, at) in n.rows.iter().zip(&p.rows_at) {
-                rows.push(vec![row.trim_start().into()]);
+                rows.push(vec![row.clone()]);
                 cells_at.push(vec![Some(*at)]);
             }
         }
@@ -12849,6 +12849,7 @@ fn render_annotations_with_cuts(
             vec![crate::dxf_output::NativeTable {
                 rows,
                 ruled: block.ruled,
+                left_aligned: true,
                 placed: crate::tables::PlacedTable {
                     cells_at,
                     blocks: Vec::new(),

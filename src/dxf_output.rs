@@ -50,6 +50,7 @@ pub struct NativeTable {
     pub rows: Vec<Vec<String>>,
     pub placed: crate::tables::PlacedTable,
     pub ruled: bool,
+    pub left_aligned: bool,
 }
 impl NativeTable {
     pub(crate) fn planned(table: &crate::tables::PlannedTable) -> Vec<Self> {
@@ -61,6 +62,7 @@ impl NativeTable {
                 rows: table.rows.clone(),
                 placed: p.clone(),
                 ruled: true,
+                left_aligned: false,
             }];
         }
         // The planner divides body rows down, then across, repeating row zero.
@@ -71,6 +73,7 @@ impl NativeTable {
                 rows,
                 placed: p.clone(),
                 ruled: true,
+                left_aligned: false,
             })
             .collect()
     }
@@ -402,6 +405,18 @@ impl Tags {
         self.tag(code + 10, p[1]);
         self.tag(code + 20, 0);
     }
+    fn long_text(&mut self, leading: i32, last: i32, value: &str) {
+        let mut tail = value;
+        while tail.len() >= 250 {
+            let mut end = 250;
+            while !tail.is_char_boundary(end) {
+                end -= 1;
+            }
+            self.tag(leading, &tail[..end]);
+            tail = &tail[end..];
+        }
+        self.tag(last, tail);
+    }
     fn handle(&mut self, code: i32, h: u64) {
         self.tag(code, format_args!("{h:X}"));
     }
@@ -425,6 +440,7 @@ struct Writer {
     continuous: bool,
     mleader_style: u64,
     table_style: u64,
+    annotation_reactors: BTreeMap<u64, Vec<u64>>,
 }
 impl Writer {
     fn new() -> Self {
@@ -439,6 +455,7 @@ impl Writer {
             continuous: false,
             mleader_style: 0x100,
             table_style: 0x101,
+            annotation_reactors: BTreeMap::new(),
         }
     }
     fn id(&mut self) -> u64 {
@@ -837,6 +854,10 @@ impl Writer {
                 t.point(212, [0., 0.]);
                 t.point(213, [0., 0.]);
                 self.put(t, None);
+                self.annotation_reactors
+                    .entry(annotation)
+                    .or_default()
+                    .push(h);
                 h
             })
             .collect()
@@ -1067,7 +1088,7 @@ impl Writer {
         t.tag(95, 0);
         t.tag(96, 0);
         for _ in &table.rows {
-            t.tag(141, crate::tables::ROW);
+            t.tag(141, (p.cells[3] - p.cells[1]) / table.rows.len() as f64);
         }
         for x in p.columns.windows(2) {
             t.tag(142, x[1] - x[0]);
@@ -1083,13 +1104,25 @@ impl Writer {
                 t.tag(91, 0);
                 t.tag(178, 0);
                 t.tag(145, 0);
-                t.tag(
-                    1,
-                    symbol_text(&asme_words(row.get(c).map_or("", |s| s.trim())), false),
-                );
+                let cell = row.get(c).map_or("", |s| {
+                    if table.left_aligned {
+                        s.trim_end()
+                    } else {
+                        s.trim()
+                    }
+                });
+                let words = asme_words(cell);
+                let width = cad_width(crate::dims::FONT)
+                    * if words.is_empty() {
+                        1.
+                    } else {
+                        cell.chars().count() as f64 / words.chars().count() as f64
+                    };
+                let content = format!("{{\\W{width:.6};{}}}", symbol_text(&words, false));
+                t.long_text(2, 1, &content);
                 t.tag(7, style(crate::dims::FONT));
                 t.tag(140, crate::tables::TEXT * 0.698);
-                t.tag(170, 5);
+                t.tag(170, if table.left_aligned { 4 } else { 5 });
                 t.tag(64, 0);
                 t.tag(63, 7);
                 t.tag(283, 0);
@@ -1384,6 +1417,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
     let mut consumed: BTreeSet<(usize, usize)> = BTreeSet::new();
     let mut runs = BTreeSet::new();
     let mut run_handles = BTreeMap::new();
+    let mut table_run_handles = BTreeMap::new();
     // View blocks use sheet coordinates about a sheet-coordinate base point. INSERT
     // translation thus moves the whole view without altering its 1:1 paper depiction.
     for view in &drawing.sheet.dxf.views {
@@ -1444,7 +1478,7 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
                     l.items.get(i)
                 {
                     runs.insert(*r);
-                    run_handles.insert(*r, handles.first().copied());
+                    table_run_handles.insert(*r, handles.clone());
                 }
             }
         }
@@ -1524,6 +1558,9 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         for (n, &r) in a.runs.iter().enumerate() {
             if runs.contains(&r) {
                 handles.extend(run_handles.get(&r).copied().flatten());
+                if let Some(table) = table_run_handles.get(&r) {
+                    handles.extend(table);
+                }
                 continue;
             }
             if frame.is_some_and(|f| n >= f.lead) {
@@ -1922,7 +1959,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     let mleader_dict = w.id();
     let table_dict = w.id();
     let group_ids: Vec<_> = (0..w.groups.len()).map(|_| w.id()).collect();
-    let mut reactors: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
+    let mut reactors = std::mem::take(&mut w.annotation_reactors);
     for ((_, handles), id) in w.groups.iter().zip(&group_ids) {
         for h in handles {
             reactors.entry(*h).or_default().push(*id);
@@ -2818,5 +2855,112 @@ mod tolerance_tests {
         };
         // Degrees are degrees on an inch sheet too.
         assert_eq!(live_label(&angle, 5, true), "<>");
+    }
+}
+
+#[cfg(test)]
+mod native_annotation_tests {
+    use super::*;
+
+    fn pairs(tags: &Tags) -> Vec<(i32, String)> {
+        tags.0
+            .lines()
+            .collect::<Vec<_>>()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| (p[0].trim().parse().unwrap(), p[1].to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn wrapped_leader_keeps_baseline_spacing_when_row_widths_differ() {
+        for rotation in [0_f64, 30., 90.] {
+            let (sin, cos) = rotation.to_radians().sin_cos();
+            let origin = [20., 40.];
+            let run = |x, y, text: &str| TextRun {
+                text: text.into(),
+                at: [origin[0] + x * cos - y * sin, origin[1] + x * sin + y * cos],
+                size: 3.,
+                rotation,
+                font: crate::dims::FONT.into(),
+                h_align: HAlign::Center,
+                v_align: VAlign::Baseline,
+            };
+            let first = run(18., 0., "⌀10 THRU CBORE");
+            let second = run(3., -4.2, "↧ 5");
+            let leader = Leader {
+                lines: vec![[[1., 2.], [3., 4.]], [[3., 4.], [5., 4.]]],
+                arrows: vec![[[1., 2.], [2., 3.]]],
+                text_at: Some(origin),
+                ..Default::default()
+            };
+            let mut w = Writer::new();
+            w.multileader(&leader, &[&first, &second], DIMS);
+            let tags = pairs(&w.entities);
+            let number = |code| {
+                tags.iter()
+                    .find(|t| t.0 == code)
+                    .unwrap()
+                    .1
+                    .parse::<f64>()
+                    .unwrap()
+            };
+            let height = text_height(&first);
+            assert!((number(45) * height * 5. / 3. - 4.2).abs() < 1e-12);
+            assert!((number(12) - (origin[0] - sin * height)).abs() < 1e-12);
+            assert!((number(22) - (origin[1] + cos * height)).abs() < 1e-12);
+            assert_eq!(number(171), 1.); // wrapped text is left aligned
+            assert!((number(140) - 2_f64.sqrt()).abs() < 1e-12);
+            let content = &tags.iter().find(|t| t.0 == 304).unwrap().1;
+            assert!(content.contains("%%c10 THRU CBORE"));
+            assert!(content.contains("\\P"));
+            assert!(content.contains("DEEP 5"));
+        }
+    }
+
+    #[test]
+    fn table_keeps_compact_rows_local_graphics_and_long_editable_cells() {
+        let content = "long editable text ".repeat(40);
+        let table = NativeTable {
+            rows: vec![vec!["HEADER".into()], vec![content]],
+            placed: crate::tables::PlacedTable {
+                cells: [20., 30., 100., 38.],
+                columns: vec![20., 100.],
+                cells_at: vec![vec![Some([60., 36.])], vec![Some([60., 32.])]],
+                blocks: Vec::new(),
+            },
+            ruled: false,
+            left_aligned: true,
+        };
+        let mut w = Writer::new();
+        w.native_table(&table, TEXT, 1);
+        let tags = pairs(&w.entities);
+        assert_eq!(
+            tags.iter()
+                .filter(|t| t.0 == 141)
+                .map(|t| t.1.as_str())
+                .collect::<Vec<_>>(),
+            ["4", "4"]
+        );
+        assert!(tags.iter().any(|t| t.0 == 2 && t.1.len() == 250));
+        let chunks: String = tags
+            .iter()
+            .skip_while(|t| t.0 != 171)
+            .filter(|t| matches!(t.0, 1 | 2))
+            .map(|t| t.1.as_str())
+            .collect();
+        assert_eq!(chunks.matches("long editable text").count(), 40);
+        assert!(tags.iter().filter(|t| t.0 == 170).all(|t| t.1 == "4"));
+        assert!(
+            tags.iter()
+                .filter(|t| [285, 286, 288, 289].contains(&t.0))
+                .all(|t| t.1 == "0")
+        );
+        let graphics = &w.blocks[0];
+        assert_eq!(graphics.at, [0., 0.]);
+        let ink = pairs(&graphics.entities);
+        assert!(!ink.iter().any(|t| t.0 == 0 && t.1 == "LINE"));
+        assert!(ink.contains(&(10, "40".into())) && ink.contains(&(20, "-2".into())));
     }
 }
