@@ -128,7 +128,7 @@ class Pack:
         # Authored Parts are made products, even if their names resemble stock.
         for key in self._parts:
             spec["parts"][key]["supply"] = "make"
-        products = [(p.name, p._pmi, p._geometry()) for p in self._parts.values()]
+        products = [(p.name, p._pmi, p._geometry(product_local=True)) for p in self._parts.values()]
         result = json.loads(_native.render_pack(data, name, json.dumps(spec), products,
                                                os.fsdecode(os.fspath(out)), list(formats)))
         self.report = result["report"]

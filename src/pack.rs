@@ -809,6 +809,11 @@ pub fn build_bytes_with_pmi(
                 row.sources.insert("material".into(), ValueSource::Pmi);
             }
             if drawing_spec.process.is_none()
+                && authored
+                    .model
+                    .attributes
+                    .iter()
+                    .any(|a| a.name == "manufacturing process" && a.on.is_none())
                 && let Some(process) = analysis.bom.as_ref().and_then(|b| b.process)
             {
                 row.bom.process = Some(process);
