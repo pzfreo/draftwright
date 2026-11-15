@@ -153,6 +153,11 @@ Specs `/1` and `/2` are read and migrated for ten releases from 0.2.15, through 
 
 ### WASM API
 
+- Add incremental Spec editing through `applyIncremental`, `applyIncrementalFragments`
+  and `previewIncremental`, and PMI-only STEP replacement through
+  `replaceStepIncremental`, `replaceStepIncrementalFragments` and `previewStepIncremental`.
+  These retain the published layout; incremental fragment packets include moved items.
+
 - `sheetDxf(sheet)` gives a sheet as editable DXF, as the native `render --formats dxf` does.
 
 ## 0.2.15 (2026-11-09)
