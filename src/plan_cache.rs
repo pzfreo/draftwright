@@ -30,7 +30,7 @@ use crate::model::{self, Analysis, Invalid, Plan, Spec, Unanalysed};
 
 /// The variable naming the command line's plan cache directory.
 pub const VARIABLE: &str = "DRAFTWRIGHT_PLAN_CACHE";
-const FORMAT: &str = "draftwright.plan-cache/1";
+const FORMAT: &str = "draftwright.plan-cache/2";
 
 /// The command line's plan cache directory: `DRAFTWRIGHT_PLAN_CACHE`, when set and not empty.
 pub fn dir() -> Option<PathBuf> {
@@ -254,6 +254,8 @@ struct Entry {
 
 #[derive(Serialize, Deserialize)]
 struct Hidden {
+    view_poses: Vec<Option<model::LinePose>>,
+    gdt_poses: Vec<Option<crate::dims::gdt::PlacementPose>>,
     table_outcome: u8,
     table_restore: Option<Box<Entry>>,
     callout_widths: BTreeMap<String, f64>,
@@ -285,6 +287,12 @@ impl Entry {
         Entry {
             plan: plan.clone(),
             hidden: Hidden {
+                view_poses: plan.views.iter().map(|v| v.line_pose.clone()).collect(),
+                gdt_poses: plan
+                    .gdt
+                    .iter()
+                    .map(|g| g.placed.as_ref().and_then(|p| p.pose.clone()))
+                    .collect(),
                 table_outcome: match plan.table_outcome {
                     TableOutcome::Kept => 0,
                     TableOutcome::NoPlace => 1,
@@ -333,6 +341,14 @@ impl Entry {
             _ => TableOutcome::None,
         };
         plan.table_restore = hidden.table_restore.map(|e| Box::new(e.into_plan()));
+        for (view, pose) in plan.views.iter_mut().zip(hidden.view_poses) {
+            view.line_pose = pose;
+        }
+        for (gdt, pose) in plan.gdt.iter_mut().zip(hidden.gdt_poses) {
+            if let Some(placed) = &mut gdt.placed {
+                placed.pose = pose;
+            }
+        }
         plan.callout_widths = hidden.callout_widths;
         plan.callout_tips = hidden.callout_tips;
         plan.dimension_labels = hidden.dimension_labels;

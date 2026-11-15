@@ -359,6 +359,15 @@ pub(super) fn origins(a: &Analysis, s: &Spec, wants: &mut [Want]) -> Vec<Problem
                     m.value = w.value;
                 }
             }
+            if w.value < 1e-9
+                && selected[*k]
+                    .as_ref()
+                    .is_some_and(|(v, _)| (*v - pin.station).abs() < 1e-9)
+            {
+                problems.push(Problem { id: format!("p:location_on_datum:{}",w.id), code:"location_on_datum".into(), severity:"info".into(),
+                    message:"A feature lies on the selected datum; its location has no nonzero distance to draw.".into(),
+                    subjects:w.measurements.iter().filter(|m| a.features.iter().any(|f| f.id == m.feature)).map(|m| m.feature.clone()).collect(), ..Default::default() });
+            }
             continue;
         }
         if let Shape::Linear {

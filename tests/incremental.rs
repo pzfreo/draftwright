@@ -712,6 +712,13 @@ fn step_pmi_flatness_and_position_preserve_existing_ink() {
                 .iter()
                 .any(|g| g.cells.iter().any(|c| c == "⏥") && g.placed.is_some())
         );
+        let flat_reload = reopened(name, &flat, &s);
+        fixed(s.plan(), flat_reload.plan());
+        assert_eq!(
+            value(&s.state().annotations),
+            value(&flat_reload.state().annotations)
+        );
+        assert_eq!(s.state().problems, flat_reload.state().problems);
         let positioned = pmi_edit(&flat, |p| {
             let mut ids = Vec::new();
             for (letter, axis) in [("A", 2), ("B", 0), ("C", 1)] {

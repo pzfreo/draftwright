@@ -1246,10 +1246,12 @@ pub struct PlannedSheet {
     pub dimension_spacing: DimensionSpacing,
 }
 
+pub type LinePose = ([f64; 2], Vec<[f64; 2]>);
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlannedView {
     #[serde(skip)]
-    pub line_pose: Option<([f64; 2], Vec<[f64; 2]>)>,
+    pub line_pose: Option<LinePose>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<crate::detail::Detail>,
     #[serde(
@@ -7907,6 +7909,13 @@ fn plan_with_presentation(
         sheet.title_cells =
             title_block::cells_in(sheet.title_block, &sheet.title, &sheet.size, spec.units);
         sheet.projection_symbol = Some(title_block::projection(sheet.title_block, first_angle));
+    }
+    if crate::engine_pins::loading() {
+        crate::engine_pins::keep_views(&mut views);
+    } else if crate::incremental::active()
+        && let Some(base) = &canonical
+    {
+        views.clone_from(&base.views);
     }
     if canonical.is_some()
         || crate::engine_pins::loading()

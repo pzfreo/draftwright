@@ -75,11 +75,19 @@ fn schema_discovery_needs_no_part_or_cache_and_refuses_arguments() {
 fn known_bad_specs_are_refused_and_existing_preflight_guidance_is_preserved() {
     let result = discovery();
     let schema = &result["spec"];
+    assert!(mcp::validate(schema, &json!({"schema":"draftwright.spec/4"})).is_ok());
+    let pins = json!({"schema":"draftwright.spec/4","engine_pins":{
+        "written_by":"engine","source_sha256":"current","sheet":{"size":"A4","scale":"1:1"},"views":{},"annotations":{}
+    }});
+    assert!(mcp::validate(schema, &pins).is_ok());
+    let mut malformed = pins;
+    malformed["engine_pins"]["views"]["v:front"] = json!({"at":"bad"});
+    assert!(mcp::validate(schema, &malformed).is_err());
     for bad in [
         json!(null),
         json!([]),
         json!({"unknown":true}),
-        json!({"schema":"draftwright.spec/4"}),
+        json!({"schema":"draftwright.spec/5"}),
         json!({"sheet":{"size":42}}),
         json!({"sheet":{"centre_marks":"false"}}),
         json!({"sheet":{"uncited_datums":"false"}}),

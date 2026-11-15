@@ -518,6 +518,9 @@ fn apply(plan: &mut Plan, pins: &EnginePins, analysis: &Analysis) -> Vec<String>
         if let Some(pin) = pins.annotations.get(&d.id) {
             remaining.remove(&d.id);
             d.region = pin.region;
+            if let Some(view) = &pin.place.view {
+                d.view.clone_from(view);
+            }
             if let (
                 Some(at),
                 Some(Route::Dimension {
@@ -893,4 +896,12 @@ pub(crate) fn introduced() -> Vec<String> {
 
 pub(crate) fn origin_frame() -> Option<[f64; 3]> {
     LOADING.with(|p| p.borrow().as_ref().map(|p| p.origins))
+}
+
+pub(crate) fn keep_views(views: &mut Vec<model::PlannedView>) {
+    LOADING.with(|p| {
+        if let Some(pins) = p.borrow().as_ref() {
+            views.retain(|v| pins.views.contains_key(&v.id));
+        }
+    });
 }

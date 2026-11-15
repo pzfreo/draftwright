@@ -54,14 +54,19 @@ impl Session {
     pub fn apply_fragments_json(&mut self, json: &str) -> Result<String, Error> {
         let ops: Vec<Op> = serde_json::from_str(json).map_err(|e| Error::invalid(e.to_string()))?;
         let delta = self.apply(&ops, true)?;
-        self.fragments_packet(delta, &ops)
+        self.fragments_packet(delta, &ops, false)
     }
-    fn fragments_packet(&self, delta: session::Delta, ops: &[Op]) -> Result<String, Error> {
+    fn fragments_packet(
+        &self,
+        delta: session::Delta,
+        ops: &[Op],
+        incremental: bool,
+    ) -> Result<String, Error> {
         let annotations: std::collections::BTreeMap<_, _> =
             delta.annotations.keys().map(|id| (id, true)).collect();
         let changed: Vec<_> = delta.changed.iter().map(|i| serde_json::json!({"item":{"id":i.item.id},"placement":i.placement.as_ref().map(|_|true)})).collect();
         let mut packet = serde_json::json!({"delta":{"moved":delta.moved,"plans":delta.plans,"plan":delta.plan,"removed":delta.removed,"changed":changed,"annotations":annotations,"problems_added":delta.problems_added,"problems_resolved":delta.problems_resolved,"notices":delta.notices,"problem_order":delta.problem_order},"fragments":self.0.svg_fragments(Some(&delta)),"pmi":self.0.pmi_report()});
-        if delta.moved.is_empty() && self.0.spec().engine_pins.is_none() {
+        if delta.moved.is_empty() && !incremental {
             packet["delta"].as_object_mut().unwrap().remove("moved");
         }
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
@@ -87,7 +92,7 @@ impl Session {
         let ops: Vec<Op> =
             serde_json::from_str(json).map_err(|e| Error::invalid(format!("invalid ops: {e}")))?;
         let delta = self.0.apply_incremental(&ops, true)?;
-        self.fragments_packet(delta, &ops)
+        self.fragments_packet(delta, &ops, true)
     }
     pub fn replace_step_incremental_json(
         &mut self,
@@ -106,7 +111,7 @@ impl Session {
         bytes: &[u8],
     ) -> Result<String, Error> {
         let delta = self.0.replace_step_incremental(name, bytes, true)?;
-        self.fragments_packet(delta, &[])
+        self.fragments_packet(delta, &[], true)
     }
     pub fn preview_incremental(&mut self, json: &str) -> Result<String, Error> {
         let ops: Vec<Op> =
@@ -617,6 +622,25 @@ mod tests {
     use serde_json::{Value, json};
 
     // Captured from origin/main for this fixture: ordinary no-pin wire bytes are public API.
+    #[test]
+    fn ordinary_empty_movement_is_omitted_even_with_engine_pins() {
+        let mut s = Session::open(
+            "plate.step",
+            include_bytes!("../../../tests/fixtures/parts/plate.step"),
+        )
+        .unwrap();
+        s.apply_incremental_json(
+            r#"[{"op":"set","path":"faces/bottom/datum","value":"A"}]"#,
+            true,
+        )
+        .unwrap();
+        let ordinary: Value = serde_json::from_str(&s.apply_fragments_json("[]").unwrap()).unwrap();
+        assert!(ordinary["delta"].get("moved").is_none());
+        let incremental: Value =
+            serde_json::from_str(&s.apply_incremental_fragments_json("[]").unwrap()).unwrap();
+        assert_eq!(incremental["delta"]["moved"], json!([]));
+    }
+
     #[test]
     fn ordinary_full_apply_wire_matches_main() {
         let bytes = include_bytes!("../../../tests/fixtures/parts/plate.step");

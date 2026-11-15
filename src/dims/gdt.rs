@@ -133,7 +133,7 @@ pub(crate) fn same_content(g: &PlannedGdt, item: &Lowered, units: crate::units::
 /// A frame's or symbol's ink, mm on the page.
 pub type PlacementPose = ([f64; 2], Vec<[f64; 2]>, Option<usize>);
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GdtPlaced {
     /// Placement operations only; preserves exact floating-point translations on pin replay.
@@ -164,6 +164,22 @@ pub struct GdtPlaced {
     pub letters: Vec<GdtText>,
     /// The text layer: each compartment's run, centred on its cell.
     pub runs: Vec<GdtText>,
+}
+
+// Placement history is provenance, not ink. Keep the pre-existing equality contract.
+impl PartialEq for GdtPlaced {
+    fn eq(&self, other: &Self) -> bool {
+        self.tip == other.tip
+            && self.lines == other.lines
+            && self.arrows == other.arrows
+            && self.label_box == other.label_box
+            && self.strokes == other.strokes
+            && self.frame_strokes == other.frame_strokes
+            && self.arcs == other.arcs
+            && self.fills == other.fills
+            && self.letters == other.letters
+            && self.runs == other.runs
+    }
 }
 
 fn all_strokes() -> usize {
@@ -375,6 +391,9 @@ pub(super) fn take_count(g: &mut PlannedGdt) -> Option<usize> {
     let count = &p.runs.first()?.text;
     let n = count.strip_suffix('×')?.parse().ok()?;
     let laid = haecceity::presentation::gdt::cad_datum_frame(count);
+    if let Some((_, _, at)) = &mut p.pose {
+        *at = None;
+    }
     p.strokes
         .truncate(p.strokes.len() - (laid.strokes.len() - laid.frame_strokes));
     p.arcs.drain(..laid.arcs.len());
