@@ -348,7 +348,7 @@ fn within(v0: f64, v1: f64, lo: f64, hi: f64) -> [f64; 2] {
 /// and a long shaft crossing [`EXTRA_LINES`] more of the view's lines than the clearest way out
 /// of the view from its tip would. A view without the router's edge proof (a section, the
 /// isometric, a view with no planar face square to it) is not judged.
-fn leader_ends(analysis: &Analysis, plan: &Plan) -> Vec<Problem> {
+pub(super) fn leader_ends(analysis: &Analysis, plan: &Plan) -> Vec<Problem> {
     let mut out = Vec::new();
     let proofs = super::interior::callout_proofs(analysis, &plan.views);
     for v in &plan.views {

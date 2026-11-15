@@ -3035,6 +3035,8 @@ mod tests {
             None,
             &[blocker],
             Some(&proofs["v:plan"]),
+            false,
+            0.0,
         );
         assert!(!routes.is_empty());
         let next = &routes[0];
@@ -3127,6 +3129,8 @@ mod tests {
             Some(&w),
             &[barrier],
             Some(&proofs["v:plan"]),
+            false,
+            0.0,
         );
         assert!(!routes.is_empty(), "the hole floor has room for the label");
         let p = &routes[0];

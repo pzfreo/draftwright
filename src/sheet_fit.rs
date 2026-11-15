@@ -965,6 +965,7 @@ pub(crate) fn correct_estimate(analysis: &Analysis, plan: &mut Plan) {
     if lift <= 0.0 {
         return;
     }
+    let title = plan.sheet.title_block;
     for (i, v) in plan
         .views
         .iter_mut()
@@ -975,6 +976,21 @@ pub(crate) fn correct_estimate(analysis: &Analysis, plan: &mut Plan) {
         crate::centrelines::shift(v, [0.0, lift]);
         let b = groups[i];
         v.area = [b[0] - 1.0, b[1] + lift - 1.0, b[2] + 1.0, b[3] + lift + 1.0];
+        // The added one-mm reservation is vacant paper. Where only that pad
+        // reaches a title cell, retain all measured ink and trim the empty pad
+        // rather than rejecting an otherwise fitting full-size A4 (10247).
+        let ink = [b[0], b[1] + lift, b[2], b[3] + lift];
+        if crate::sheets::overlap(v.area, title) && !crate::sheets::overlap(ink, title) {
+            if ink[1] >= title[3] {
+                v.area[1] = v.area[1].max(title[3]);
+            } else if ink[2] <= title[0] {
+                v.area[2] = v.area[2].min(title[0]);
+            } else if ink[0] >= title[2] {
+                v.area[0] = v.area[0].max(title[2]);
+            } else if ink[3] <= title[1] {
+                v.area[3] = v.area[3].min(title[1]);
+            }
+        }
         v.basis += "; free projection row lifted together using measured annotation bounds";
         groups[i] = v.area;
     }
@@ -1350,10 +1366,19 @@ pub(crate) fn rank(a: (f64, f64, f64), b: (f64, f64, f64)) -> std::cmp::Ordering
     band(b).cmp(&band(a)).then_with(|| {
         if band(a) && band(b) {
             b.0.total_cmp(&a.0).then_with(|| a.1.total_cmp(&b.1))
-        } else {
+        } else if crate::nominal::comparison() {
+            // This is the unrendered historical circular-route reference, not
+            // a live paper choice. Keep its 2026-10-12 recipe so a new paper
+            // preference cannot move established callouts to another view.
             b.2.total_cmp(&a.2)
                 .then_with(|| b.0.total_cmp(&a.0))
                 .then_with(|| a.1.total_cmp(&b.1))
+        } else {
+            // Maintainer decision, 2026-11-14: below the target band, keep the
+            // smaller sheet. Enlargement earns more paper only by reaching the band.
+            a.1.total_cmp(&b.1)
+                .then_with(|| b.2.total_cmp(&a.2))
+                .then_with(|| b.0.total_cmp(&a.0))
         }
     })
 }
@@ -1476,7 +1501,7 @@ pub(crate) fn reserve_nominal_bounds(
     }
 }
 
-fn reserve_bounds(
+pub(crate) fn reserve_bounds(
     analysis: &Analysis,
     sheet: &crate::model::PlannedSheet,
     views: &mut [crate::model::PlannedView],
@@ -1955,7 +1980,7 @@ pub(crate) fn reserve_linear_corridors(
         });
         let lift = [0, 1].map(|k| {
             let minimum = margin() - lower[k];
-            if settled_overflow {
+            if settled_overflow || (compact && !crate::model::annotation_text_edited(&plan.spec)) {
                 let upper = group
                     .iter()
                     .map(|&i| plan.views[i].area[k + 2] + shifts[i][k])
@@ -1964,6 +1989,9 @@ pub(crate) fn reserve_linear_corridors(
                 if minimum <= maximum {
                     // The nearest rigid translation preserves projection alignment,
                     // authored sides/lanes and every settled witness/leader route.
+                    // Measured bands may need to move down as well as up: the
+                    // estimate's centred column can leave the top lane off sheet
+                    // even though the complete annotated assembly fits (CTC-01).
                     return 0.0_f64.clamp(minimum, maximum);
                 }
             }
@@ -2326,6 +2354,27 @@ mod tests {
         assert_eq!(choose(&set, false, true), Some((Some(0), (0, 1.0))));
     }
     #[test]
+    fn historical_route_reference_keeps_its_original_paper_recipe() {
+        let small = candidate(1.0, 297.0, 0.30);
+        let large = candidate(2.0, 420.0, 0.40);
+        assert!(rank(small, large).is_lt());
+        // Changing the live paper rule must not relocate the historical
+        // reference's circular callouts (FTC-06's boss moved front -> plan).
+        assert!(crate::nominal::with_comparison(|| rank(large, small)).is_lt());
+    }
+    #[test]
+    fn historical_route_reference_breaks_equal_fill_ties_by_scale_then_paper() {
+        let small = candidate(1.0, 297.0, 0.40);
+        let enlarged = candidate(2.0, 420.0, 0.40);
+        assert!(rank(small, enlarged).is_lt());
+        crate::nominal::with_comparison(|| {
+            // The frozen recipe chooses enlargement before saving paper at equal fill.
+            assert!(rank(enlarged, small).is_lt());
+            assert!(rank(small, enlarged).is_gt());
+            assert!(rank(candidate(2.0, 297.0, 0.40), enlarged).is_lt());
+        });
+    }
+    #[test]
     fn only_the_smallest_fits_largest_scale_and_one_enlarged_step_compete() {
         // A4 1:1 fits. A4 1:2, A3 1:1 and every A2 pair are not allowed, however full.
         let set = [
@@ -2335,7 +2384,9 @@ mod tests {
             c(1, 2.0, 0.40),
             c(2, 5.0, 0.75),
         ];
-        assert_eq!(choose(&set, false, true), Some((Some(3), (0, 1.0))));
+        // 2026-11-14: the maintainer reversed the fullest-below-band rule;
+        // A4 at 30% stays ahead of A3 at 40% until the enlargement reaches 60%.
+        assert_eq!(choose(&set, false, true), Some((Some(0), (0, 1.0))));
         // In the band, the larger scale wins, then the smaller sheet.
         let set = [c(0, 1.0, 0.65), c(1, 2.0, 0.62)];
         assert_eq!(choose(&set, false, true).unwrap().0, Some(1));
@@ -2355,14 +2406,16 @@ mod tests {
         ];
         assert_eq!(choose(&set, false, true), Some((Some(1), (1, 0.5))));
         // An invalid first estimate's crossing count vetoes nothing.
-        assert_eq!(choose(&set, false, false), Some((Some(1), (1, 0.5))));
+        // 2026-11-14: without a material veto, smaller below-band paper wins.
+        assert_eq!(choose(&set, false, false), Some((Some(0), (1, 0.5))));
         let spool = [
             x(0, 0.2, 0.226, 4),
             x(1, 0.5, 0.311, 2),
             x(2, 1.0, 0.475, 0),
         ];
         assert_eq!(choose(&spool, false, true), Some((None, (0, 0.2))));
-        assert_eq!(choose(&spool, false, false), Some((Some(1), (0, 0.2))));
+        // 2026-11-14: an invalid seed permits the smallest fit, not the fuller enlargement.
+        assert_eq!(choose(&spool, false, false), Some((Some(0), (0, 0.2))));
     }
     #[test]
     fn a_named_sheet_chooses_its_scale_by_fill() {

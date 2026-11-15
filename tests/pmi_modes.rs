@@ -1308,9 +1308,9 @@ fn pmi_slot_layout_retries_physical_witnesses_without_changing_authored_intent()
         "fixtures/pmi/mounting-plate.specify018.step.gz"
     ));
     let p = plan(&a, &Spec::default());
-    // frame laid out as CAD's TOLERANCE (Paul 2026-11-12): the 1:1 drawing
-    // is larger and clears all four crossings of the former A4 1:2 drawing.
-    assert_eq!((&*p.sheet.size, &*p.sheet.scale), ("A3", "1:1"));
+    // 2026-11-14: below-band paper preference retains 1:1 on A4.
+    // CAD frame cells and the zero-crossing requirement remain unchanged.
+    assert_eq!((&*p.sheet.size, &*p.sheet.scale), ("A4", "1:1"));
     assert_eq!(
         p.problems
             .iter()

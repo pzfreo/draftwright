@@ -491,6 +491,7 @@ fn dot(a: P2, b: P2) -> f64 {
 /// An item as placed at strip coordinate *pos* (along its strip's outward axis): its leader,
 /// frame box and the laid glyph's offset.
 struct Candidate {
+    frame_rule: bool,
     lines: Vec<[P2; 2]>,
     arrows: Vec<[P2; 2]>,
     fills: Vec<Vec<P2>>,
@@ -539,6 +540,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
             [label_box[2], elbow[1]]
         };
         return Candidate {
+            frame_rule: shape == Shape::Frame,
             lines: vec![[tip, elbow], [elbow, shelf]],
             arrows: vec![placement::arrow(tip, elbow)],
             fills: Vec::new(),
@@ -564,6 +566,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
             centre[1] - d[1] * 0.5 * size[1],
         ];
         return Candidate {
+            frame_rule: shape == Shape::Frame,
             lines: vec![[apex, near]],
             arrows: Vec::new(),
             fills: vec![vec![
@@ -592,6 +595,7 @@ fn candidate(shape: Shape, tip: P2, side: &str, pos: f64, size: P2) -> Candidate
     let x0 = if dir > 0.0 { end[0] } else { end[0] - size[0] };
     let y0 = elbow[1] - size[1] / 2.0;
     Candidate {
+        frame_rule: shape == Shape::Frame,
         lines: vec![[tip, elbow], [elbow, end]],
         arrows: vec![placement::arrow(tip, elbow)],
         fills: Vec::new(),
@@ -690,8 +694,8 @@ fn step(shape: Shape, side: &str, size: P2) -> f64 {
 
 /// An attachment site, its outward side, and an optional planar face extension.
 type Site<'a> = (P2, &'a str, Option<[P2; 2]>);
-/// Clearance class, followed by line crossings; winning candidates have exact counts.
-type Grade = (u8, usize);
+/// Clearance class, text contacts, then line crossings; winning counts are exact.
+type Grade = (u8, usize, usize);
 type Choice<'a> = (Grade, &'a str, Candidate, P2, usize);
 
 /// Compact datum tiers, starting with the normal triangle, shaft and frame clearances.
@@ -1012,6 +1016,8 @@ struct Obstacles<'a> {
     triangles: Vec<Vec<P2>>,
     labels: Vec<[f64; 4]>,
     lines: Vec<[P2; 2]>,
+    /// Control-frame shafts, independently of ordinary dimension witnesses.
+    frame_leaders: Vec<[P2; 2]>,
 }
 
 impl Obstacles<'_> {
@@ -1019,19 +1025,23 @@ impl Obstacles<'_> {
     /// 1 clear of everything, past the area; 2 on the sheet and off every label and frame, a line
     /// of it through a label or another view; 3 off every label and frame only; 4 neither;
     /// 5 a filled datum triangle overlaps or touches an earlier triangle.
-    /// Add the crossing count as the second component: (0, 0) alone is clear, and fewer
-    /// crossings win among candidates with otherwise equal clearances.
+    /// Within a clearance class, keep frames off existing leaders before counting
+    /// line crossings. An unavoidable shaft through one label must not hide an
+    /// avoidable frame over another leader (CTC-03's narrower CAD-sized frames).
+    /// Datum attachment and common-label placement retain their existing ordering.
     fn grade(&self, c: &Candidate, best: Option<Grade>) -> Grade {
-        let clearance = self.clearance_grade(c);
+        let (clearance, text, _) = self.text_grade(c);
         // Clearance precedes crossings. A worse clearance, or a crossing count that
         // already ties the best at the same clearance, cannot replace that candidate.
         // Only losing candidates stop early; every saved best has its exact count.
-        if best.is_some_and(|b| clearance > b.0) {
-            return (clearance, 0);
+        if best.is_some_and(|b| (clearance, text) > (b.0, b.1)) {
+            return (clearance, text, 0);
         }
-        let limit = best.filter(|b| b.0 == clearance).map(|b| b.1);
+        let limit = best
+            .filter(|b| (b.0, b.1) == (clearance, text))
+            .map(|b| b.2);
         if limit == Some(0) {
-            return (clearance, 0);
+            return (clearance, text, 0);
         }
         let triangle: Vec<_> = c
             .fills
@@ -1047,12 +1057,25 @@ impl Obstacles<'_> {
                 if line.meets(*t) {
                     crossings += 1;
                     if limit.is_some_and(|n| crossings >= n) {
-                        return (clearance, crossings);
+                        return (clearance, text, crossings);
                     }
                 }
             }
         }
-        (clearance, crossings)
+        (clearance, text, crossings)
+    }
+
+    fn text_grade(&self, c: &Candidate) -> Grade {
+        let clearance = self.clearance_grade(c);
+        let contacts = if clearance == 2 && c.frame_rule {
+            self.frame_leaders
+                .iter()
+                .filter(|l| crosses(**l, c.label_box))
+                .count()
+        } else {
+            0
+        };
+        (clearance, contacts, 0)
     }
 
     fn clearance_grade(&self, c: &Candidate) -> u8 {
@@ -1637,6 +1660,17 @@ fn plan_search(
                 .copied()
         })
         .collect();
+    let control_ids: BTreeSet<_> = items
+        .iter()
+        .filter(|i| matches!(i.glyph, Glyph::ControlFrame { .. }))
+        .map(|i| i.id.clone())
+        .collect();
+    let mut frame_leaders: Vec<_> = dims
+        .iter()
+        .filter(|d| control_ids.contains(&d.id))
+        .filter_map(|d| d.placed.as_ref())
+        .flat_map(|p| p.lines.iter().copied())
+        .collect();
     let exterior = if protect && items.iter().any(|i| matches!(i.glyph, Glyph::Datum { .. })) {
         super::interior::exterior_proofs(analysis, views)
     } else {
@@ -1784,6 +1818,9 @@ fn plan_search(
                 triangles.extend(p.fills.iter().cloned());
             }
             lines.extend(p.lines.iter().copied());
+            if matches!(item.glyph, Glyph::ControlFrame { .. }) {
+                frame_leaders.extend(p.lines.iter().copied());
+            }
             planned.side = g.side.clone();
             planned.view.clone_from(&g.view);
             if super::hole_marks::attached(g) {
@@ -1835,6 +1872,7 @@ fn plan_search(
                 .collect(),
             labels: labels.clone(),
             lines: lines.clone(),
+            frame_leaders: frame_leaders.clone(),
         };
         let sides: Vec<&str> = if shape != Shape::Frame || intent.is_some_and(|p| p.side.is_some())
         {
@@ -1969,6 +2007,7 @@ fn plan_search(
                             anchor[k] = o[k] + along.fraction() * (o[k + 2] - o[k]);
                         }
                         let mut c = candidate(shape, anchor, side, pos, laid.size);
+                        c.frame_rule = matches!(item.glyph, Glyph::ControlFrame { .. });
                         if datum && intent.and_then(|p| p.along).is_some() {
                             for fill in &mut c.fills {
                                 for q in fill {
@@ -2019,7 +2058,7 @@ fn plan_search(
                                 .as_ref()
                                 .is_some_and(|b| c.leader_length() < b.2.leader_length() - 1e-6);
                         let g = if intent.is_some_and(|p| p.pinned) {
-                            (0, 0)
+                            (0, 0, 0)
                         } else if matches!(search, Search::All | Search::Baseline)
                             || (compact && datum)
                         {
@@ -2034,7 +2073,7 @@ fn plan_search(
                                 },
                             )
                         } else {
-                            (obstacles.clearance_grade(&c), 0)
+                            obstacles.text_grade(&c)
                         };
                         if best
                             .as_ref()
@@ -2045,7 +2084,7 @@ fn plan_search(
                             // proven face sites before it can win on site order alone.
                             let shortest = c.leader_length() <= 0.8 * TEXT + 1e-6;
                             best = Some((g, side, c, *tip, n));
-                            if g == (0, 0) && (!compact_datum || shortest) {
+                            if g == (0, 0, 0) && (!compact_datum || shortest) {
                                 break 'search;
                             }
                         }
@@ -2079,6 +2118,7 @@ fn plan_search(
         {
             let p = translated(p, delta);
             let candidate = Candidate {
+                frame_rule: matches!(item.glyph, Glyph::ControlFrame { .. }),
                 lines: p.lines.clone(),
                 arrows: p.arrows.clone(),
                 fills: p.fills.clone(),
@@ -2089,6 +2129,7 @@ fn plan_search(
             let grade = obstacles.grade(&candidate, None);
             if grade.0 <= 1
                 && grade.1 == 0
+                && grade.2 == 0
                 && best
                     .as_ref()
                     .is_none_or(|b| grade <= obstacles.grade(&b.2, None))
@@ -2099,6 +2140,9 @@ fn plan_search(
                     triangles.extend(p.fills.iter().cloned());
                 }
                 lines.extend(p.lines.iter().copied());
+                if matches!(item.glyph, Glyph::ControlFrame { .. }) {
+                    frame_leaders.extend(p.lines.iter().copied());
+                }
                 planned.side.clone_from(&g.side);
                 planned.state = State::Shown;
                 planned.placed = Some(p);
@@ -2147,6 +2191,9 @@ fn plan_search(
             triangles.extend(chosen.fills.iter().cloned());
         }
         lines.extend(chosen.lines.iter().copied());
+        if chosen.frame_rule {
+            frame_leaders.extend(chosen.lines.iter().copied());
+        }
         planned.state = State::Shown;
         planned.placed = Some(GdtPlaced {
             tip,
@@ -3165,6 +3212,7 @@ mod tests {
                 .chain(first.fills.iter().map(|f| fill_box(f)))
                 .collect(),
             lines: first.lines.clone(),
+            frame_leaders: Vec::new(),
         };
         // The letter boxes and shafts are disjoint in every case. Identical,
         // overlapping and just-touching triangles must still be rejected.
@@ -3205,6 +3253,7 @@ mod tests {
             triangles: Vec::new(),
             labels: vec![[40.0, 180.25, 45.0, 185.25]],
             lines: Vec::new(),
+            frame_leaders: Vec::new(),
         };
         // The shaft misses the box, but its 0.25 mm gap reads as touching text.
         assert_eq!(obstacles.clearance_grade(&c), 2);
@@ -3214,6 +3263,39 @@ mod tests {
         obstacles.labels.clear();
         obstacles.lines = vec![[[48.0, 182.75], [52.0, 182.75]]];
         assert_eq!(obstacles.clearance_grade(&c), 2);
+    }
+
+    #[test]
+    fn an_unavoidable_text_contact_does_not_hide_another_frames_leader() {
+        let analysis: Analysis = serde_json::from_value(serde_json::json!({
+            "schema": crate::model::ANALYSIS_SCHEMA,
+            "binding":{"source_sha256":"", "part":"plate", "face_count":0, "loader":"test"},
+            "envelope":[[0,0,0],[100,60,10]], "iso_bounds":[0,0,100,60]
+        }))
+        .unwrap();
+        let plan = crate::model::plan(&analysis, &Spec::default()).unwrap();
+        let page = Page::new(&analysis, &plan.sheet, &[]);
+        let right = candidate(Shape::Frame, [88., 100.], "below", 45., [29.5, 5.]);
+        let obstacles = Obstacles {
+            page: &page,
+            own: "v:front".into(),
+            area: None,
+            exterior: None,
+            protect_triangles: false,
+            label_gap: 0.,
+            parallel_gap: None,
+            triangles: Vec::new(),
+            // Both left-hand tiers cross this label on their way from the face.
+            labels: vec![[57., 80., 59., 85.], right.label_box],
+            frame_leaders: right.lines.clone(),
+            lines: right.lines,
+        };
+        let beside = candidate(Shape::Frame, [58., 100.], "below", 47.5, [29.4, 5.]);
+        let below = candidate(Shape::Frame, [58., 100.], "below", 38.5, [29.4, 5.]);
+        assert_eq!(obstacles.clearance_grade(&beside), 2);
+        assert_eq!(obstacles.clearance_grade(&below), 2);
+        assert!(obstacles.text_grade(&below) < obstacles.text_grade(&beside));
+        assert!(obstacles.grade(&below, None) < obstacles.grade(&beside, None));
     }
 
     #[test]

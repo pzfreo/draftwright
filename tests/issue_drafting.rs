@@ -2502,9 +2502,10 @@ fn native_recovery_judges_centre_ink_after_deferred_finishing() {
     let (part, a) = model::analyse_native(&fixture("coverage-holes/three-shafts.step")).unwrap();
     let spec = spec(json!({"sheet": {"dimension_spacing": "compact"}}));
     let p = model::plan_recovered(&a, &spec).unwrap();
-    // Its finished A3 drawing fits at full size. Judging an unfinished axis
-    // endpoint instead would select A4 at half size before the view positions settle.
-    assert_eq!(p.sheet.size, "A3");
+    // 2026-11-14: prefer smaller paper below the fill band. Measured packing
+    // now fits the three shafts on A4 at full size; the deferred centre-ink
+    // checks below must still protect the finished drawing at that scale.
+    assert_eq!(p.sheet.size, "A4");
     assert_eq!(p.sheet.scale, "1:1");
     assert!(!p.problems.iter().any(|q| q.code == "annotation_off_sheet"));
     let drawing = model::render(&part, &a, &p, &font()).unwrap();
