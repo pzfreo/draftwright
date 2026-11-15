@@ -688,8 +688,13 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
             new.file_name()
                 .map_or("part".into(), |n| n.to_string_lossy().into_owned())
         });
+        let new_part = given
+            .part
+            .as_deref()
+            .map(|key| crate::part_choice::cli(key, &api::parts(new)?).map_err(Error::from))
+            .transpose()?;
         return guarded(command, || {
-            let revised = crate::revision::diff(old, new, part, &spec)?;
+            let revised = crate::revision::diff_parts(old, new, part, new_part, &spec)?;
             let marked = revised.marked();
             let pretty = |v: &Value| serde_json::to_vec_pretty(v).expect("JSON serialises");
             let files: Vec<(&str, Vec<u8>)> = vec![

@@ -160,8 +160,19 @@ enum Bind {
 /// Revise: draw *old* with *spec*, carry *spec* to *new*, draw it, and compare. *part* chooses a
 /// part of an assembly in both files.
 pub fn diff(old: &Path, new: &Path, part: Option<usize>, spec: &Value) -> Result<Revised, Error> {
-    let (old_part, old_analysis) = api::analysed(old, part, Features::Native)?;
-    let (new_part, new_analysis) = api::analysed(new, part, Features::Native)?;
+    diff_parts(old, new, part, part, spec)
+}
+
+/// The CLI resolves a persistent product key independently in each revision.
+pub(crate) fn diff_parts(
+    old: &Path,
+    new: &Path,
+    old_choice: Option<usize>,
+    new_choice: Option<usize>,
+    spec: &Value,
+) -> Result<Revised, Error> {
+    let (old_part, old_analysis) = api::analysed(old, old_choice, Features::Native)?;
+    let (new_part, new_analysis) = api::analysed(new, new_choice, Features::Native)?;
     let old_q = qc::recognise(&old_part);
     let new_q = qc::recognise(&new_part);
     let corr = qc::correspond(&old_q.fingerprints, &new_q.fingerprints).map_err(Error::failed)?;

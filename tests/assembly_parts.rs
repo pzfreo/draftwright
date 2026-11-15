@@ -642,3 +642,27 @@ fn cli_part_keys_and_indices_use_the_same_selection_for_all_drawing_commands() {
         );
     }
 }
+
+#[test]
+fn diff_accepts_the_persistent_part_key_and_index() {
+    let step = assembly();
+    let mut reports = Vec::new();
+    for selector in ["pin", "1"] {
+        let out = scratch(&format!("diff-key-{selector}"));
+        let (code, result) = run(&[
+            "diff",
+            &step,
+            &step,
+            "--part",
+            selector,
+            "-o",
+            out.to_str().unwrap(),
+        ]);
+        assert_eq!(code, Some(0), "{result}");
+        let report: Value =
+            serde_json::from_slice(&std::fs::read(out.join("report.json")).unwrap()).unwrap();
+        assert!(out.join("drawing.svg").is_file());
+        reports.push(report);
+    }
+    assert_eq!(reports[0], reports[1]);
+}
