@@ -200,12 +200,17 @@ fn ctc01_slot_locations_are_exact() {
 
 #[test]
 fn ftc06_bosses_are_counted_called_out_and_their_heights_stated() {
+    // Preserve the exact captured metric labels and their placement recipe.
+    let metric = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
     let Some(corpus) = corpus::dir() else {
         eprintln!("SKIPPED: the corpus is not found; set DRAFTWRIGHT_CORPUS");
         return;
     };
     let a = analysed(&corpus, "ftc06");
-    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let plan = model::plan(&a, &metric).unwrap();
     assert_eq!(
         items(&plan, "boss"),
         strs(&[
@@ -458,12 +463,17 @@ fn ctc01_hex_boss_states_its_size_across_flats_and_its_height() {
 
 #[test]
 fn ftc07_square_bosses_are_counted_across_flats_with_their_heights() {
+    // Preserve the exact captured metric labels and their placement recipe.
+    let metric = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
     let Some(corpus) = corpus::dir() else {
         eprintln!("SKIPPED: the corpus is not found; set DRAFTWRIGHT_CORPUS");
         return;
     };
     let a = analysed_file(&corpus, "ftc07", "nist/nist_ftc_07_asme1_rd.stp");
-    let plan = model::plan(&a, &Spec::default()).unwrap();
+    let plan = model::plan(&a, &metric).unwrap();
     // draftwright's sheet (captured 2026-10-08 at origin/main 586628b) prints `4-SIDED 25.4 A/F`
     // four times in the front and `2.5` four times in the side, on one span; the port counts the
     // four identical bosses once, as it does cylindrical ones, and states their one height once,
@@ -1249,6 +1259,11 @@ fn ftc09_slot_callout_leader_crosses_no_other_feature() {
 /// four dimensions and the rounds their `4× R0.762` callout.
 #[test]
 fn a_pocket_with_floor_rounds_is_dimensioned_as_the_slot_it_was() {
+    // Preserve the exact captured metric labels and their placement recipe.
+    let metric = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
     let Some(corpus) = corpus::dir() else {
         eprintln!("SKIPPED: the corpus is not found; set DRAFTWRIGHT_CORPUS");
         return;
@@ -1260,7 +1275,7 @@ fn a_pocket_with_floor_rounds_is_dimensioned_as_the_slot_it_was() {
         .find(|f| f.id == "f:slot:f213")
         .expect("the slot");
     assert_eq!(slot.faces, [213, 214, 215, 216]);
-    let plan = cache::default_plan(&a, true);
+    let plan = model::plan_recovered(&a, &metric).unwrap();
     for (id, label) in [
         ("d:f:slot:f213/slot_width.length", "12.7"),
         ("d:f:slot:f213/slot_length.length", "158.75"),
