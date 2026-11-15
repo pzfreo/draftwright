@@ -8,8 +8,7 @@
 #[path = "common/pdf.rs"]
 mod pdf;
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 
 use std::io::Read as _;
 use std::path::{Path, PathBuf};

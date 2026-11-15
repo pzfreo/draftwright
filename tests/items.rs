@@ -18,8 +18,7 @@ mod corpus;
 #[path = "common/support.rs"]
 mod support;
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 #[path = "common/sheet_rule.rs"]
 mod sheet_rule;
 

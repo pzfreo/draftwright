@@ -1,4 +1,5 @@
 //! Issue 122: the editor's actual plate, with semantic PMI written as Specify writes it.
+use crate::cache;
 use draftwright::{
     Session,
     haecceity::{
@@ -69,7 +70,11 @@ fn analysed(b: &[u8]) -> Analysis {
         .1
 }
 fn plan(a: &Analysis, s: &Spec) -> model::Plan {
-    model::plan_recovered(a, s).unwrap()
+    if *s == Spec::default() {
+        cache::default_plan(a, true)
+    } else {
+        model::plan_recovered(a, s).unwrap()
+    }
 }
 #[test]
 fn specified_distance_from_either_end_owns_the_hole_location() {

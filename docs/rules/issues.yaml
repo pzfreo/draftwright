@@ -180,7 +180,7 @@
     corpus_parts: []
   status: ported
   rust_test: "src/dims/leaders.rs::tests::the_assignment_matches_an_exhaustive_oracle"
-  rust_note: "src/dims/leaders.rs::assign assigns every callout's leader jointly: fewest hard blockers, then fewest crossings (with the placed dimensions and between the chosen leaders), then least total length, checked against an exhaustive oracle and, as a scenario, on the captured parts and cgb245/ctc04 natively (tests/leaders.rs::callout_leaders_cross_nothing_unlisted). The port never drops a callout for want of a clear route (ISSUE-798-a), so 'maximise the number placed' is every callout, with crossings counted instead of conflicting leaders dropped; all callouts are required (the port has no optional leader jobs)."
+  rust_note: "src/dims/leaders.rs::assign assigns every callout's leader jointly: fewest hard blockers, then fewest crossings (with the placed dimensions and between the chosen leaders), then least total length, checked against an exhaustive oracle and, as a scenario, on the captured parts and cgb245/ctc04 natively (tests/leaders.rs::callout_leaders_cross_nothing_unlisted_and_have_outward_horizontal_shoulders). The port never drops a callout for want of a clear route (ISSUE-798-a), so 'maximise the number placed' is every callout, with crossings counted instead of conflicting leaders dropped; all callouts are required (the port has no optional leader jobs)."
   port_note: "Keep: unit test the leader assignment solver against an exhaustive oracle; scenario test for crossing-free result."
 
 - id: ISSUE-740-b
@@ -225,7 +225,7 @@
       - "tests/test_issue_798_floor_cardinality.py::test_a_job_with_no_acceptable_candidate_at_all_is_dropped"
     corpus_parts: []
   status: ported
-  rust_test: "rendering::leaders::a_leader_has_a_horizontal_shoulder_and_reads_outward"
+  rust_test: "rendering::leaders::callout_leaders_cross_nothing_unlisted_and_have_outward_horizontal_shoulders"
   rust_note: "A callout whose every candidate is blocked takes the least blocked (src/dims/leaders.rs: hard blockers, then crossings, then text touched, then ink out of its view's area, then length), and the plan reports what it still crosses (annotation_leader_crossing, annotation_ink_overlap, annotation_over_view, ...). No callout is dropped for routing; only an item no shown view can carry is unplaced (view_plan_incomplete). Material cutting is the leader re-entering the material after leaving it at its tip, measured over each solid's projected box (src/material.rs, shared with lint, ADR2-8)."
   port_note: "Keep: leader router unit test; plan records the crossing as a problem rather than dropping the callout."
 
@@ -822,7 +822,7 @@
     corpus_parts: []
   status: ported
   port_note: "Keep: plan table cells bound to measurement IDs; empty cell = no claim."
-  rust_test: dimensions::hole_tables::table_rows_match_draftwrights_attempt_on_ctc02
+  rust_test: dimensions::hole_tables::ctc02_keeps_hole_items_on_sheet_and_matches_attempted_table_rows
   rust_note: "Partly ported (src/hole_table.rs): each row prints THRU or the depth its callout states and the X and Y its plan-view location dimensions state, a blank cell when none locates the hole along that axis, and claims only what it prints (the drawing's row annotation claims bore.diameter, bore.depth when printed, and each printed location); a table not kept (no place, or a balloon short) restores every replaced item and keeps the drops. Not ported: the public hole-table verb. Closed by the rules assessment of 2026-10-11: there are no verbs in the Spec/Plan design, so the public hole-table verb does not apply."
 
 - id: ISSUE-1143-e
@@ -1033,9 +1033,9 @@
       - "tests/test_issue_1166_cross_pass_feature_leaders.py::test_cross_pass_objective_avoids_the_per_pass_greedy_trap"
     corpus_parts: []
   status: translated
-  rust_rule: "src/dims/leaders.rs places all callouts in a view from one shared inventory containing placed dimension lines and labels, arrowhead outlines including their flares, centre-mark crosses (except the hole's own transverse mark), views and title block (tests/leaders.rs::callout_leaders_cross_nothing_unlisted)."
-  rust_test: "rendering::leaders::callout_leaders_cross_nothing_unlisted"
-  rust_note: "src/dims/leaders.rs places all callouts in a view from one shared inventory containing placed dimension lines and labels, arrowhead outlines including their flares, centre-mark crosses (except the hole's own transverse mark), views and title block (tests/leaders.rs::callout_leaders_cross_nothing_unlisted). Rust has no optional leaders; filled datum-face ink remains a datum-placement concern."
+  rust_rule: "src/dims/leaders.rs places all callouts in a view from one shared inventory containing placed dimension lines and labels, arrowhead outlines including their flares, centre-mark crosses (except the hole's own transverse mark), views and title block (tests/leaders.rs::callout_leaders_cross_nothing_unlisted_and_have_outward_horizontal_shoulders)."
+  rust_test: "rendering::leaders::callout_leaders_cross_nothing_unlisted_and_have_outward_horizontal_shoulders"
+  rust_note: "src/dims/leaders.rs places all callouts in a view from one shared inventory containing placed dimension lines and labels, arrowhead outlines including their flares, centre-mark crosses (except the hole's own transverse mark), views and title block (tests/leaders.rs::callout_leaders_cross_nothing_unlisted_and_have_outward_horizontal_shoulders). Rust has no optional leaders; filled datum-face ink remains a datum-placement concern."
   port_note: "Keep: single leader solve per view over all obstacles."
 
 - id: ISSUE-1166-b

@@ -26,7 +26,7 @@
     {
       "rule": "ADR R1 migration oracle",
       "verdict": "equivalent",
-      "reason": "tests/fixtures/identity/plate.plan1.json.gz remains the literal historical geometry oracle. plate.reporting.json is a separate literal expectation for the new status/counts/unclaimed warning, added without filtering any old geometry or weakening the comparison."
+      "reason": "Both identity migration fixtures use complete current plans from independently renamed current-Spec inputs, including status/counts/unclaimed warnings. Their obsolete alpha.1 geometry and reporting captures were removed after all historical-oracle branches became unreachable."
     },
     {
       "rule": "G1 stock-face credit / H5 maintainer follow-up",

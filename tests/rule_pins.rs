@@ -1,5 +1,6 @@
 //! Regression scenarios from the Python drafting-rule catalogue. Fixture facts are hand-pinned,
 //! rather than measured from whatever the current recogniser happens to return.
+use crate::cache;
 use draftwright::model::{self, Analysis, Plan, Spec};
 use draftwright::text::Font;
 use serde_json::json;
@@ -62,7 +63,7 @@ fn tuner_five_pockets_keep_their_sizes_and_locations_through_export() {
     );
     let pockets = draftwright::lint::pockets::placed(&a);
     assert_eq!(pockets.len(), 5);
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = cache::default_plan(&a, true);
     let mut centres = Vec::new();
     for (f, pocket) in pockets {
         let pocket = pocket.unwrap();
@@ -135,7 +136,7 @@ fn tuner_five_pockets_keep_their_sizes_and_locations_through_export() {
 #[test]
 fn grm04_small_hole_retains_diameter_and_location_on_a_clean_sheet() {
     let (part, a) = source("grm04_drive_plate.step", Some("grm04.recognition.json"));
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = cache::default_plan(&a, true);
     let (f, _) = draftwright::bridge::holes::read(&a)
         .into_iter()
         .find(|(_, h)| h.as_ref().is_ok_and(|h| (h.diameter - 2.4).abs() < 1e-6))
@@ -437,7 +438,7 @@ fn the_archived_opposed_fixture_has_one_open_hole_and_one_closed_cavity() {
                 .unwrap()
                 .is_empty()
         );
-        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        let p = cache::default_plan(&a, true);
         assert!(p.dimensions.iter().all(|d| {
             !d.measurements
                 .iter()

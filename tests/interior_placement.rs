@@ -1,6 +1,5 @@
 //! Interior candidates require projection evidence and protect the complete sheet's ink.
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 
 use draftwright::model::{self, Analysis, Plan, Spec};
 use serde_json::json;

@@ -20,6 +20,7 @@
 #[path = "common/corpus.rs"]
 mod corpus;
 
+use crate::cache;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -46,9 +47,11 @@ fn fixture(name: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
+type Analysed = (std::sync::Arc<Part>, Analysis);
+
 /// Part *name* read with the port's own recognition, once per test binary.
-fn part(name: &str) -> Option<&'static (Part, Analysis)> {
-    static PARTS_READ: OnceLock<std::sync::Mutex<BTreeMap<String, &'static (Part, Analysis)>>> =
+fn part(name: &str) -> Option<&'static Analysed> {
+    static PARTS_READ: OnceLock<std::sync::Mutex<BTreeMap<String, &'static Analysed>>> =
         OnceLock::new();
     let dir = corpus::dir()?;
     let file = PARTS.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -56,8 +59,7 @@ fn part(name: &str) -> Option<&'static (Part, Analysis)> {
     if let Some(p) = cache.lock().unwrap().get(name) {
         return Some(*p);
     }
-    let read: &'static (Part, Analysis) =
-        Box::leak(Box::new(model::analyse_native(&dir.join(file)).unwrap()));
+    let read: &'static Analysed = Box::leak(Box::new(cache::native(&dir.join(file))));
     cache.lock().unwrap().insert(name.into(), read);
     Some(read)
 }
@@ -95,7 +97,10 @@ fn check_part(name: &str, drops: bool) {
         return;
     };
     let python = &fixture("hole_tables.json")[name];
-    let first = model::plan(analysis, &Spec::default()).unwrap();
+    let first = cache::default_plan(analysis, false);
+    if name == "ctc02" {
+        check_rows(name, analysis, &first);
+    }
     let mut escalated = first.clone();
     hole_table::escalate(analysis, &mut escalated, None);
     let off: Vec<&str> = first
@@ -203,7 +208,7 @@ fn ftc08_keeps_every_hole_item_with_the_reserved_recess_lanes() {
 }
 
 #[test]
-fn ctc02_has_no_hole_item_off_the_sheet_to_drop() {
+fn ctc02_keeps_hole_items_on_sheet_and_matches_attempted_table_rows() {
     check_part("ctc02", false);
 }
 
@@ -229,8 +234,12 @@ fn rows_match(name: &str) {
         eprintln!("SKIPPED: the corpus is not found");
         return;
     };
-    let plan = model::plan(analysis, &Spec::default()).unwrap();
-    let ours: Vec<HoleRow> = hole_table::table_rows(analysis, &plan);
+    let plan = cache::default_plan(analysis, false);
+    check_rows(name, analysis, &plan);
+}
+
+fn check_rows(name: &str, analysis: &Analysis, plan: &Plan) {
+    let ours: Vec<HoleRow> = hole_table::table_rows(analysis, plan);
     // All nominal cells have exact new-policy expectations. Then replay the independent
     // archived Python comparison at its historical display precision, retaining its row set,
     // mismatch ledger and minimum matched-row assertion unchanged.
@@ -310,11 +319,6 @@ fn rows_match(name: &str) {
         }
     }
     assert!(matched >= 10, "{name}: {matched} rows matched");
-}
-
-#[test]
-fn table_rows_match_draftwrights_attempt_on_ctc02() {
-    rows_match("ctc02");
 }
 
 #[test]

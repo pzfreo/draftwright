@@ -3,6 +3,7 @@
 #[path = "common/overflow.rs"]
 mod overflow;
 
+use crate::cache;
 use draftwright::model::{Analysis, Spec};
 use draftwright::{api, model};
 use serde_json::{Value, json};
@@ -16,13 +17,11 @@ fn analysed(name: &str) -> Analysis {
         return if features.is_file() {
             model::analyse_with(&fixture, Some(&features)).unwrap().1
         } else {
-            model::analyse_native(&fixture).unwrap().1
+            cache::native(&fixture).1
         };
     }
     let corpus = std::env::var("DRAFTWRIGHT_CORPUS").unwrap();
-    model::analyse_native(&Path::new(&corpus).join(name))
-        .unwrap()
-        .1
+    cache::native(&Path::new(&corpus).join(name)).1
 }
 
 fn spec(value: Value) -> Spec {
@@ -92,7 +91,7 @@ fn r5_relative_to_rejects_different_sheets() {
 #[test]
 fn r5_gaps_close_and_moved_views_keep_ids() {
     let a = analysed("plate");
-    let original = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let original = cache::default_plan(&a, true);
     let p = value(
         &a,
         &spec(json!({"sheets":{"max":3},"views":{"iso":{"sheet":3}}})),
@@ -238,7 +237,7 @@ fn ap242(stem: &str) -> Analysis {
             .trim_end_matches(".gz"),
     );
     std::fs::write(&path, bytes).unwrap();
-    model::analyse_native(&path).unwrap().1
+    cache::native(&path).1
 }
 
 #[test]
@@ -283,7 +282,7 @@ fn r5_gdt_and_dimension_carriers_are_on_sheet_one() {
 #[test]
 fn r5_datum_rule_uses_sheets_instead_of_view_names() {
     let a = ap242("assembly_plate_pin");
-    let mut p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let mut p = cache::default_plan(&a, true);
     let mut frame = p
         .gdt
         .iter()
@@ -748,10 +747,7 @@ fn r5_allowing_extra_sheets_preserves_the_finished_sheet() {
         let a = analysed(name);
         // Hold paper fixed while varying only R5's overflow permission. A free-paper
         // Spec now applies the A4 preference, while an explicit max retains old policy.
-        let paper = model::plan_recovered(&a, &Spec::default())
-            .unwrap()
-            .sheet
-            .size;
+        let paper = cache::default_plan(&a, true).sheet.size;
         let mut ordinary = value(&a, &spec(json!({"sheet":{"size":paper}})));
         let mut allowed = value(
             &a,
@@ -769,8 +765,7 @@ fn r5_allowing_extra_sheets_preserves_the_finished_sheet() {
 #[test]
 fn r5_remote_section_retains_parent_cutting_plane_ink() {
     let root = std::env::var("DRAFTWRIGHT_CORPUS").unwrap();
-    let (part, a) =
-        model::analyse_native(&Path::new(&root).join("gramel/string_post.step")).unwrap();
+    let (part, a) = cache::native(&Path::new(&root).join("gramel/string_post.step"));
     let p = model::plan_recovered(
         &a,
         &spec(json!({"sheet":{"size":"A4","scale":"5:1"},"sheets":{"max":2},"views":{"section_aa":{"sheet":2}}})),
