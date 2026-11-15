@@ -123,6 +123,7 @@ pub(crate) mod levels;
 mod notches;
 mod oriented_slots;
 mod pads;
+pub(crate) mod pin_geometry;
 mod placement;
 pub(crate) use placement::displaced_linear_fields;
 mod plates;
