@@ -2323,6 +2323,85 @@
             "bounds"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "note"
+            },
+            "at": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "bounds": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            }
+          },
+          "required": [
+            "kind",
+            "at",
+            "bounds"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "heading"
+            },
+            "at": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "bounds": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            }
+          },
+          "required": [
+            "kind",
+            "at",
+            "bounds"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "grid"
+            },
+            "grid": {
+              "$ref": "#/$defs/engine_pin_grid"
+            }
+          },
+          "required": [
+            "kind",
+            "grid"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -2387,6 +2466,22 @@
         },
         "introduced": {
           "type": "boolean"
+        },
+        "space": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Reserved text footprint; changes release this placement for fresh layout."
         }
       },
       "required": [
@@ -2533,6 +2628,17 @@
             }
           ],
           "description": "Identity of the imported B-rep for verifying a PMI-only source revision."
+        },
+        "layout_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Identity of authored composition intent, excluding text and requirements."
         }
       },
       "required": [
@@ -2541,6 +2647,46 @@
         "sheet",
         "views",
         "annotations"
+      ],
+      "additionalProperties": false
+    },
+    "engine_pin_grid": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "y": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "bounds": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/engine_pin_grid"
+          }
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "bounds"
       ],
       "additionalProperties": false
     }

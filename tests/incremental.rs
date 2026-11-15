@@ -989,6 +989,13 @@ fn full_apply_accepts_content_and_layout_edits_on_engine_pins() {
     assert!(session.spec().engine_pins.is_some());
     assert_eq!(value(&before.plan.views), value(&session.plan().views));
 
+    let cold = reopened("bracket", &bytes, &session);
+    assert_eq!(
+        value(&session.state().annotations),
+        value(&cold.state().annotations)
+    );
+    assert_eq!(value(&session.plan().views), value(&cold.plan().views));
+
     for op in [
         Op::set("sheet/scale", json!("1:1")),
         Op::set("sheet/size", json!("A3")),
@@ -1135,6 +1142,10 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
         .unwrap();
         cases.push((name, step.clone(), edited, false));
     }
+    // CLI files are edited directly, without model::edit to release engine pins.
+    let mut raw_layout = session.spec().clone();
+    raw_layout.sheet.scale = Some("1:1".into());
+    cases.push(("raw_layout", step.clone(), raw_layout, true));
     let mut missing = session.spec().clone();
     let pins = missing.engine_pins.as_mut().unwrap();
     let pin = pins.annotations.values().next().unwrap().clone();
@@ -1362,4 +1373,10 @@ fn notes_and_declared_tables_keep_their_placement_after_pmi_and_content_edits() 
             .unwrap();
         assert_eq!(dim.placed, current.placed);
     }
+    let cold = reopened("bracket", &revised, &session);
+    assert_eq!(
+        value(&session.state().annotations),
+        value(&cold.state().annotations)
+    );
+    assert_eq!(value(&session.plan().views), value(&cold.plan().views));
 }

@@ -837,12 +837,9 @@ pub(crate) fn recheck(a: &Analysis, plan: &mut Plan) {
                 .any(|g| p.subjects.contains(&g.id) && crate::dims::gdt::has_ink(g)))
     });
     crate::dims::gdt::cited_undrawn(plan);
-    let centre_ink = crate::centrelines::obstacles(&plan.views);
-    plan.problems.extend(
-        crate::dims::label_collisions(a, &centre_ink, &plan.sheet, &plan.views, &cache)
-            .into_iter()
-            .filter(|p| p.code == "annotation_off_sheet"),
-    );
+    // Centre-line obstacle proxies have an empty text box at [0, 0]. Check their
+    // actual curves through the ordinary page-bounds audit, not label bounds.
+    model::refresh_line_work_problems(plan);
     crate::dims::contacts::report(a, plan);
     let spec = plan.spec.clone();
     crate::dims::pmi_policy::audit(a, &spec, plan);

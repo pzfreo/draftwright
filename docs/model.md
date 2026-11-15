@@ -2810,15 +2810,17 @@ The older Spec face/feature requirement path remains supported.
 
 Every incremental result saves typed placement-only `engine_pins` in the Spec, with
 `written_by: "engine"` and schema `draftwright.spec/4`. The record contains the source
-revision and geometry identity, paper and scale, view frames, and annotation placements keyed by stable item id:
+revision, geometry and layout-intent identities, paper and scale, view frames, and annotation placements keyed by stable item id:
 `place` (view, side, offset, pinned), leader/witness routes, glyph translation steps, lane
 region and dimension origin choices. A pin records whether its item was introduced in the
 kept layout, so constrained-placement findings can be re-evaluated without saving problems. Coordinates are relative to the view where reversible
 without rounding. It contains no requirement text, dimension terms, measurements, face
 indices, characteristics, table records, problems, author-Spec copy or derived Plan.
 Requirements and glyphs are regenerated from the current STEP and Spec; placement checks
-run again on the final ink. Table ids, block origins and tag routes request the ordinary schedule planner; its rows
-and measurements are always regenerated.
+run again on the final ink. Notes, captions and table grids contain coordinates only; their
+text, rows and measurements are always regenerated. A changed text footprint releases
+just that annotation for normal placement. Raw saved-Spec composition edits also release
+pins, detected by a digest of layout intent without storing a copy of the author Spec.
 
 Saving the Spec and reopening with the same STEP, including CLI rendering, replays these
 pins. Unknown item ids are dropped individually with `engine_pins_replanned` (information).

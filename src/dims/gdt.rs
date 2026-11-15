@@ -3551,9 +3551,9 @@ pub(crate) fn apply_pin(
     item: &Lowered,
     units: crate::units::Units,
     controlled_count: Option<usize>,
-) {
+) -> bool {
     let Some(origin) = pin.place.offset else {
-        return;
+        return false;
     };
     let Some(crate::engine_pins::Route::Gdt {
         bounds: kept_bounds,
@@ -3565,7 +3565,7 @@ pub(crate) fn apply_pin(
         counted_after,
     }) = &pin.route
     else {
-        return;
+        return false;
     };
     let count = controlled_count.or_else(|| {
         g.placed.as_ref().and_then(|p| {
@@ -3649,11 +3649,17 @@ pub(crate) fn apply_pin(
             }
         }
     }
+    if ((p.label_box[2] - p.label_box[0]) - (kept_bounds[2] - kept_bounds[0])).abs() > 1e-7
+        || ((p.label_box[3] - p.label_box[1]) - (kept_bounds[3] - kept_bounds[1])).abs() > 1e-7
+    {
+        return false;
+    }
     p.label_box = *kept_bounds;
     if !pin.omit {
         g.state = State::Shown;
     }
     g.placed = Some(p);
+    true
 }
 
 #[cfg(test)]
