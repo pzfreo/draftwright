@@ -53,6 +53,7 @@ pub mod sections;
 pub mod session;
 pub mod sheet_fit;
 pub mod sheets;
+mod spec_document;
 pub mod spec_gdt;
 pub mod spec_notes;
 mod springs;

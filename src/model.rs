@@ -587,8 +587,10 @@ impl Default for SpecFields {
 }
 impl<'de> Deserialize<'de> for Spec {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = serde_json::Value::deserialize(deserializer)?;
-        if let Some(schema) = value.get("schema").and_then(serde_json::Value::as_str)
+        let value = crate::spec_document::Document::deserialize(deserializer)?;
+        if let Some(schema) = value
+            .get("schema")
+            .and_then(crate::spec_document::Document::as_str)
             && !SPEC_SCHEMAS.contains(&schema)
         {
             return Err(serde::de::Error::custom(format!(
@@ -597,14 +599,16 @@ impl<'de> Deserialize<'de> for Spec {
             )));
         }
         if value.get("engine_pins").is_some_and(|v| !v.is_null())
-            && value.get("schema").and_then(serde_json::Value::as_str)
+            && value
+                .get("schema")
+                .and_then(crate::spec_document::Document::as_str)
                 != Some(crate::engine_pins::SCHEMA)
         {
             return Err(serde::de::Error::custom(
                 "Engine-written placement pins require draftwright.spec/4; open this document with a spec/4 reader.",
             ));
         }
-        let s: SpecFields = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        let s: SpecFields = SpecFields::deserialize(value).map_err(serde::de::Error::custom)?;
         Ok(Self {
             units: s.units,
             process: s.process,
