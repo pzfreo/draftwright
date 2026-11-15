@@ -6648,7 +6648,11 @@ fn measure_fixed(c: &mut Candidate, job: &Job, fixed: &Fixed) {
 /// and label side, the label on the side the leader runs to (either for a vertical one). The
 /// sites are taken nearest *tip* first, so the sweep starts where the leader is.
 fn sweep(job: &Job, tip: P2) -> Vec<(P2, P2, bool)> {
-    let mut sites: Vec<Site> = job.sites.clone();
+    sweep_sites(&job.sites, tip)
+}
+
+fn sweep_sites(source: &[Site], tip: P2) -> Vec<(P2, P2, bool)> {
+    let mut sites: Vec<Site> = source.to_vec();
     let d = |s: &Site| (s.0[0] - tip[0]).hypot(s.0[1] - tip[1]);
     sites.sort_by(|a, b| d(a).total_cmp(&d(b)));
     let mut out = Vec::new();
@@ -9471,25 +9475,43 @@ pub(super) fn pin_candidates(
     let same = |p: P2| {
         (0..2).all(|k| (((p[k] - origin[k]) * 10000.).round() / 10000. - hint[k]).abs() < 1e-8)
     };
-    let raw = base_candidates(&sites, frame.outline(), drawable, [0.; 4]);
+    let mut raw = base_candidates(&sites, frame.outline(), drawable, [0.; 4]);
+    for site in &sites {
+        raw.extend(
+            sweep_sites(&sites, site.0)
+                .into_iter()
+                .map(|(tip, elbow, right)| (tip, elbow, Some(right))),
+        );
+    }
     let ink = label_ink(&w.terms, font());
     let mut result = Vec::new();
     for (tip, elbow, _) in raw.into_iter().filter(|(_, elbow, _)| same(*elbow)) {
         for right in [true, false] {
-            let end = [
-                elbow[0] + if right { SHOULDER } else { -SHOULDER },
-                elbow[1],
-            ];
-            let (label_at, label_box) = label_geometry(elbow, end, right, ink.min, ink.max);
-            let p = Placed {
-                lines: vec![[tip, elbow], [elbow, end]],
-                arrows: vec![arrow(tip, elbow)],
-                label_at,
-                rotation: 0.,
-                label_box,
-            };
-            if !result.contains(&p) {
-                result.push(p);
+            for shoulder in [
+                SHOULDER,
+                SHOULDER * 0.25,
+                SHOULDER * 0.5,
+                SHOULDER * 0.75,
+                SHOULDER + 0.5,
+                SHOULDER + 1.,
+                SHOULDER + 1.5,
+                SHOULDER + 2.,
+            ] {
+                let end = [
+                    elbow[0] + if right { shoulder } else { -shoulder },
+                    elbow[1],
+                ];
+                let (label_at, label_box) = label_geometry(elbow, end, right, ink.min, ink.max);
+                let p = Placed {
+                    lines: vec![[tip, elbow], [elbow, end]],
+                    arrows: vec![arrow(tip, elbow)],
+                    label_at,
+                    rotation: 0.,
+                    label_box,
+                };
+                if !result.contains(&p) {
+                    result.push(p);
+                }
             }
         }
     }

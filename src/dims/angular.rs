@@ -499,6 +499,52 @@ pub(super) fn intent(
     )
 }
 
+/// Rebuild angular ink at a prescribed native radius, without assigning placements.
+pub(super) fn pin_candidates(
+    frame: &Frame,
+    angle: &Angle,
+    alternates: &[Angle],
+    terms: &[String],
+    lane: usize,
+) -> Vec<Placed> {
+    let ink = label_ink(terms, font());
+    let size = [ink.max[0] - ink.min[0], ink.max[1] - ink.min[1]];
+    let mut out = Vec::new();
+    for angle in std::iter::once(angle).chain(alternates) {
+        let Some(physical) = Ink::new(frame, angle, size) else {
+            continue;
+        };
+        let Some(mut extended) = Ink::new(
+            frame,
+            &Angle {
+                vertex: angle.vertex,
+                first: [0, 1, 2].map(|k| 2. * angle.vertex[k] - angle.first[k]),
+                second: [0, 1, 2].map(|k| 2. * angle.vertex[k] - angle.second[k]),
+            },
+            size,
+        ) else {
+            continue;
+        };
+        extended.lengths = [0.; 2];
+        for g in [physical.clone(), extended.clone()] {
+            if let Some(p) = g.placed(g.minimum + lane as f64 * STEP, &ink) {
+                out.push(p);
+            }
+        }
+        for fraction in [0.5, 0.35, 0.65, 0.25, 0.75] {
+            for g in [
+                physical.clone().compact().along(fraction),
+                extended.clone().compact().along(fraction),
+            ] {
+                if let Some(p) = g.placed(g.minimum + lane as f64 * STEP, &ink) {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Reserve only the bounded notch grammar's minimum exterior arc. General profile
 /// corners remain disabled; ordinary linear lane estimates cannot size acute arcs.
 pub(crate) fn notch_reservations(

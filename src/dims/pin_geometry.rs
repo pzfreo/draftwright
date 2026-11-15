@@ -22,9 +22,14 @@ impl Recipes {
         spec: &Spec,
         view: &PlannedView,
         d: &PlannedDimension,
-    ) -> Option<(Place, bool, usize)> {
+    ) -> Option<(Place, Option<usize>, usize)> {
         let target = d.placed.as_ref()?;
-        for initial in [false, true] {
+        let frames = std::iter::once(None).chain(
+            view.line_pose
+                .iter()
+                .flat_map(|(_, shifts)| (0..=shifts.len()).map(Some)),
+        );
+        for initial in frames {
             let mut place = Place {
                 view: Some(d.view.clone()),
                 pinned: true,
@@ -33,11 +38,11 @@ impl Recipes {
             if d.kind == "linear" {
                 for side in [Side::Above, Side::Below, Side::Left, Side::Right] {
                     place.side = Some(side);
-                    for lane in 0..32 {
+                    for lane in 0..96 {
                         place.lane = Some(lane);
                         place.offset = None;
                         let first = self
-                            .candidates(a, spec, view, d, &place, initial)
+                            .construct(a, spec, view, d, &place, (initial, None))
                             .into_iter()
                             .next();
                         let Some(base) = first else {
@@ -55,8 +60,6 @@ impl Recipes {
                         {
                             continue;
                         }
-                        let delta = [0, 1].map(|k| rounded(target.label_at[k] - base.label_at[k]));
-                        place.offset = (delta != [0., 0.]).then_some(delta);
                         if let Some(variant) = self
                             .candidates(a, spec, view, d, &place, initial)
                             .iter()
@@ -64,21 +67,34 @@ impl Recipes {
                         {
                             return Some((place, initial, variant));
                         }
+                        let delta = [0, 1].map(|k| rounded(target.label_at[k] - base.label_at[k]));
+                        place.offset = (delta != [0., 0.]).then_some(delta);
+                        let candidates = self.candidates(a, spec, view, d, &place, initial);
+                        if let Some(variant) = candidates.iter().position(|p| p == target) {
+                            return Some((place, initial, variant));
+                        }
+                    }
+                }
+            } else if d.kind == "angular" {
+                for lane in 0..128 {
+                    place.lane = Some(lane);
+                    if let Some(variant) = self
+                        .candidates(a, spec, view, d, &place, initial)
+                        .iter()
+                        .position(|p| p == target)
+                    {
+                        return Some((place, initial, variant));
                     }
                 }
             } else if d.kind == "callout" {
                 let mut elbow = target.lines.first()?[1];
-                let at = if initial {
-                    let (at, shifts) = view.line_pose.as_ref()?;
-                    for delta in shifts.iter().rev() {
-                        for k in 0..2 {
-                            elbow[k] -= delta[k];
-                        }
+                let (recipe_view, shifts) = recipe_frame(view, initial)?;
+                for delta in shifts.iter().rev() {
+                    for k in 0..2 {
+                        elbow[k] -= delta[k];
                     }
-                    *at
-                } else {
-                    view.at
-                };
+                }
+                let at = recipe_view.at;
                 place.offset = Some([0, 1].map(|k| rounded(elbow[k] - at[k])));
                 if let Some(variant) = self
                     .candidates(a, spec, view, d, &place, initial)
@@ -98,8 +114,31 @@ impl Recipes {
         view: &PlannedView,
         d: &PlannedDimension,
         place: &Place,
-        initial: bool,
+        initial: Option<usize>,
     ) -> Vec<Placed> {
+        let mut out = self.construct(a, spec, view, d, place, (initial, None));
+        if d.kind == "linear" {
+            let count = recipe_frame(view, initial).map_or(0, |(_, shifts)| shifts.len());
+            for stage in 0..=count {
+                for p in self.construct(a, spec, view, d, place, (initial, Some(stage))) {
+                    if !out.contains(&p) {
+                        out.push(p);
+                    }
+                }
+            }
+        }
+        out
+    }
+    fn construct(
+        &self,
+        a: &Analysis,
+        spec: &Spec,
+        view: &PlannedView,
+        d: &PlannedDimension,
+        place: &Place,
+        selection: (Option<usize>, Option<usize>),
+    ) -> Vec<Placed> {
+        let (initial, label_stage) = selection;
         let Some(w) = self.wants.iter().find(|w| w.id == d.id) else {
             return Vec::new();
         };
@@ -108,16 +147,8 @@ impl Recipes {
         if let Some(name) = view.id.strip_prefix("v:") {
             route_sites(a, &mut w, name);
         }
-        let mut view = view.clone();
-        let shifts = if initial {
-            if let Some((at, shifts)) = &view.line_pose {
-                view.at = *at;
-                shifts.clone()
-            } else {
-                return Vec::new();
-            }
-        } else {
-            Vec::new()
+        let Some((view, shifts)) = recipe_frame(view, initial) else {
+            return Vec::new();
         };
         let f = Frame::new(a, &view);
         let mut candidates = if d.kind == "linear" {
@@ -130,7 +161,17 @@ impl Recipes {
                 Side::Left => placement::Side::Left,
                 Side::Right => placement::Side::Right,
             };
-            let Some(mut p) = placement::place(&f, &w, side, place.lane.unwrap_or(0)) else {
+            let lane = place.lane.unwrap_or(0);
+            let candidate = match lane {
+                0..32 => placement::place(&f, &w, side, lane),
+                32..64 => placement::interior_lanes(&f, &w, side)
+                    .into_iter()
+                    .nth(lane - 32),
+                _ => placement::opening_lanes(&f, &w, side)
+                    .into_iter()
+                    .nth(lane - 64),
+            };
+            let Some(mut p) = candidate else {
                 return Vec::new();
             };
             if let Some(delta) = place.offset {
@@ -152,6 +193,11 @@ impl Recipes {
                 result.push(p);
             }
             result
+        } else if d.kind == "angular" {
+            let Shape::Angular { angle, alternates } = &w.shape else {
+                return Vec::new();
+            };
+            angular::pin_candidates(&f, angle, alternates, &w.terms, place.lane.unwrap_or(0))
         } else if d.kind == "callout" {
             let Some(hint) = place.offset else {
                 return Vec::new();
@@ -167,13 +213,18 @@ impl Recipes {
         } else {
             return Vec::new();
         };
-        for p in &mut candidates {
-            for delta in &shifts {
-                for q in p.lines.iter_mut().chain(&mut p.arrows).flatten() {
-                    crate::placement_intent::move_point(q, *delta);
+        for stage in 0..=shifts.len() {
+            if label_stage == Some(stage) && d.kind == "linear" {
+                native_labels(&mut candidates);
+            }
+            if let Some(delta) = shifts.get(stage) {
+                for p in &mut candidates {
+                    for q in p.lines.iter_mut().chain(&mut p.arrows).flatten() {
+                        crate::placement_intent::move_point(q, *delta);
+                    }
+                    crate::placement_intent::move_point(&mut p.label_at, *delta);
+                    crate::placement_intent::move_box(&mut p.label_box, *delta);
                 }
-                crate::placement_intent::move_point(&mut p.label_at, *delta);
-                crate::placement_intent::move_box(&mut p.label_box, *delta);
             }
         }
         candidates
@@ -182,4 +233,38 @@ impl Recipes {
 
 fn rounded(n: f64) -> f64 {
     (n * 10000.).round() / 10000.
+}
+
+fn recipe_frame(view: &PlannedView, initial: Option<usize>) -> Option<(PlannedView, Vec<P2>)> {
+    let mut v = view.clone();
+    let Some(stage) = initial else {
+        return Some((v, Vec::new()));
+    };
+    let (at, shifts) = view.line_pose.as_ref()?;
+    if stage > shifts.len() {
+        return None;
+    }
+    v.at = *at;
+    for delta in &shifts[..stage] {
+        crate::placement_intent::move_point(&mut v.at, *delta);
+    }
+    Some((v, shifts[stage..].to_vec()))
+}
+
+fn native_labels(out: &mut Vec<Placed>) {
+    for base in out.clone() {
+        let variants = std::iter::once(label_lanes::outward_heads(&base))
+            .chain(label_lanes::centered_short(&base))
+            .chain(label_lanes::alternatives_placed(
+                &base,
+                [-100000., -100000., 100000., 100000.],
+                &[],
+            ))
+            .chain(placement::slides(&base, [-100000., -100000., 100000., 100000.]).take(128));
+        for p in variants {
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
+    }
 }
