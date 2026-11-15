@@ -88,13 +88,14 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
         }
     }
     for g in &reference.gdt {
-        if spec.annotations.get(&g.id).cloned().unwrap_or_default()
-            == before
-                .spec
-                .annotations
-                .get(&g.id)
-                .cloned()
-                .unwrap_or_default()
+        if g.placed.is_some()
+            && spec.annotations.get(&g.id).cloned().unwrap_or_default()
+                == before
+                    .spec
+                    .annotations
+                    .get(&g.id)
+                    .cloned()
+                    .unwrap_or_default()
             && lowered
                 .iter()
                 .any(|item| crate::dims::gdt::same_content(g, item, spec.units))
@@ -335,7 +336,11 @@ pub(crate) fn obstacles() -> Vec<crate::dims::PlannedDimension> {
             b.leader.into_iter().collect(),
         ));
     }
-    for b in &before.inspection_balloons {
+    for b in before
+        .inspection_balloons
+        .iter()
+        .filter(|b| b.state == crate::items::State::Shown)
+    {
         out.push(ink_proxy(
             &b.id,
             b.view.as_deref().unwrap_or(""),
