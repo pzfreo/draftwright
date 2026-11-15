@@ -440,6 +440,7 @@ struct Writer {
     continuous: bool,
     mleader_style: u64,
     table_style: u64,
+    table_styles: Vec<(u64, f64, bool, bool)>,
     annotation_reactors: BTreeMap<u64, Vec<u64>>,
 }
 impl Writer {
@@ -455,6 +456,7 @@ impl Writer {
             continuous: false,
             mleader_style: 0x100,
             table_style: 0x101,
+            table_styles: Vec::new(),
             annotation_reactors: BTreeMap::new(),
         }
     }
@@ -1063,6 +1065,19 @@ impl Writer {
 
     fn native_table(&mut self, table: &NativeTable, layer: &str, index: usize) -> u64 {
         let p = &table.placed;
+        let row_height = (p.cells[3] - p.cells[1]) / table.rows.len() as f64;
+        let margin =
+            crate::tables::PAD.min((row_height - crate::tables::TEXT * 0.698).max(0.) / 2.);
+        // A real style preserves note alignment and compact/unruled defaults without
+        // relying on reader-specific interpretation of cell override masks.
+        let table_style = if table.left_aligned || !table.ruled || margin != crate::tables::PAD {
+            let id = self.id();
+            self.table_styles
+                .push((id, margin, table.ruled, table.left_aligned));
+            id
+        } else {
+            self.table_style
+        };
         let at = [p.cells[0], p.cells[3]];
         let block = self.block(format!("*T{index}"), [0., 0.]);
         let local = |p: P| [p[0] - at[0], p[1] - at[1]];
@@ -1097,7 +1112,7 @@ impl Writer {
         t.point(10, at);
         t.tag(100, "AcDbTable");
         t.tag(280, 0);
-        t.handle(342, self.table_style);
+        t.handle(342, table_style);
         t.handle(343, self.blocks[block].record);
         t.point(11, [1., 0.]);
         t.tag(90, 0);
@@ -1108,7 +1123,7 @@ impl Writer {
         t.tag(95, 0);
         t.tag(96, 0);
         for _ in &table.rows {
-            t.tag(141, (p.cells[3] - p.cells[1]) / table.rows.len() as f64);
+            t.tag(141, row_height);
         }
         for x in p.columns.windows(2) {
             t.tag(142, x[1] - x[0]);
@@ -1153,7 +1168,7 @@ impl Writer {
         }
         t.tag(70, 0);
         t.tag(40, crate::tables::PAD);
-        t.tag(41, crate::tables::PAD);
+        t.tag(41, margin);
         t.tag(280, 1);
         t.tag(281, 0);
         self.put(t, None);
@@ -2093,7 +2108,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
             "ObjectDBX Classes",
             4095,
             0,
-            1,
+            1 + w.table_styles.len(),
         ),
     ] {
         out.tag(0, "CLASS");
@@ -2374,6 +2389,10 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     dictionary(&mut out, table_dict, root);
     out.tag(3, "Draftwright");
     out.handle(350, w.table_style);
+    for (id, ..) in &w.table_styles {
+        out.tag(3, format!("Draftwright_{id:X}"));
+        out.handle(350, *id);
+    }
     out.tag(0, "MLEADERSTYLE");
     out.handle(5, w.mleader_style);
     out.tag(102, "{ACAD_REACTORS");
@@ -2432,38 +2451,43 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     ] {
         out.tag(c, v);
     }
-    out.tag(0, "TABLESTYLE");
-    out.handle(5, w.table_style);
-    out.tag(102, "{ACAD_REACTORS");
-    out.handle(330, table_dict);
-    out.tag(102, "}");
-    out.handle(330, table_dict);
-    out.tag(100, "AcDbTableStyle");
-    out.tag(280, 0);
-    out.tag(3, "Draftwright");
-    out.tag(70, 0);
-    out.tag(71, 0);
-    out.tag(40, crate::tables::PAD);
-    out.tag(41, crate::tables::PAD);
-    out.tag(280, 1);
-    out.tag(281, 0);
-    for _ in 0..3 {
-        out.tag(7, style(crate::dims::FONT));
-        out.tag(140, crate::tables::TEXT * 0.698);
-        out.tag(170, 5);
-        out.tag(62, 0);
-        out.tag(63, 7);
-        out.tag(283, 0);
-        out.tag(90, 1);
-        out.tag(91, 0);
-        for code in 274..=279 {
-            out.tag(code, -2);
-        }
-        for code in 284..=289 {
-            out.tag(code, 1);
-        }
-        for code in 64..=69 {
-            out.tag(code, 0);
+    for (id, margin, ruled, left) in
+        std::iter::once((w.table_style, crate::tables::PAD, true, false))
+            .chain(w.table_styles.iter().copied())
+    {
+        out.tag(0, "TABLESTYLE");
+        out.handle(5, id);
+        out.tag(102, "{ACAD_REACTORS");
+        out.handle(330, table_dict);
+        out.tag(102, "}");
+        out.handle(330, table_dict);
+        out.tag(100, "AcDbTableStyle");
+        out.tag(280, 0);
+        out.tag(3, "Draftwright");
+        out.tag(70, 0);
+        out.tag(71, 0);
+        out.tag(40, crate::tables::PAD);
+        out.tag(41, margin);
+        out.tag(280, 1);
+        out.tag(281, 0);
+        for _ in 0..3 {
+            out.tag(7, style(crate::dims::FONT));
+            out.tag(140, crate::tables::TEXT * 0.698);
+            out.tag(170, if left { 4 } else { 5 });
+            out.tag(62, 0);
+            out.tag(63, 7);
+            out.tag(283, 0);
+            out.tag(90, 1);
+            out.tag(91, 0);
+            for code in 274..=279 {
+                out.tag(code, -2);
+            }
+            for code in 284..=289 {
+                out.tag(code, usize::from(ruled));
+            }
+            for code in 64..=69 {
+                out.tag(code, 0);
+            }
         }
     }
     out.tag(0, "ACDBDICTIONARYWDFLT");
@@ -2955,6 +2979,12 @@ mod native_annotation_tests {
         };
         let mut w = Writer::new();
         w.native_table(&table, TEXT, 1);
+        let (_, margin, ruled, left) = w.table_styles[0];
+        assert!(!ruled && left);
+        assert!(
+            (2. * margin + crate::tables::TEXT * 0.698 - 4.).abs() < 1e-12,
+            "the native style must allow the planned compact row height"
+        );
         let tags = pairs(&w.entities);
         assert_eq!(
             tags.iter()
