@@ -260,8 +260,10 @@ fn compare_sheet(
 ) -> (usize, BTreeMap<Diff, usize>, usize) {
     assert_eq!(a.binding.source_sha256, f.binding.sha256, "{name}");
     // Keep the captured dimension ledger on its original full ISO paper resources.
-    let spec =
-        serde_json::from_value(serde_json::json!({"sheet":{"preferred_max_size":"A0"}})).unwrap();
+    let spec = serde_json::from_value(
+        serde_json::json!({"units":"mm","sheet":{"preferred_max_size":"A0"}}),
+    )
+    .unwrap();
     let plan = model::plan(a, &spec).unwrap();
 
     let mut python: Vec<Item> = Vec::new();
