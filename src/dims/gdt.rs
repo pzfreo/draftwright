@@ -572,8 +572,31 @@ impl Candidate {
 /// Scope symbols can need a longer shelf to separate leaders with nearby tips.
 /// Exhaust these bounded bend positions before displacing the frame to another
 /// tier. A collinear shaft/shelf retains its partition rather than scoring it.
-fn clear_ring_bend(c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
-    if c.ring_radius == 0.0 || (c.lines[0][0][1] - c.elbow[1]).abs() < 1e-9 {
+fn clear_ring_bend(mut c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
+    if c.ring_radius == 0.0 {
+        return c;
+    }
+    // Moving the bend can put its ring on a witness that the old bend cleared.
+    // When the frame itself fits, also try extending the frame end of the shelf
+    // by the minimum amount, before sending its leader through the model.
+    if obstacles.bounds_grade(&c, c.label_box) <= 1 && obstacles.clearance_grade(&c) == 2 {
+        let dir = if c.lines[1][1][0] >= c.elbow[0] {
+            1.0
+        } else {
+            -1.0
+        };
+        let dx = dir * (c.ring_radius + super::contacts::TEXT_CLEAR - SHELF).max(0.0);
+        let mut shifted = c.clone();
+        shifted.move_bend(dx);
+        shifted.lines[1][1][0] += dx;
+        shifted.origin[0] += dx;
+        shifted.label_box[0] += dx;
+        shifted.label_box[2] += dx;
+        if obstacles.clearance_grade(&shifted) < obstacles.clearance_grade(&c) {
+            c = shifted;
+        }
+    }
+    if (c.lines[0][0][1] - c.elbow[1]).abs() < 1e-9 {
         return c;
     }
     let dir = if c.lines[1][1][0] >= c.elbow[0] {
@@ -3341,6 +3364,26 @@ mod tests {
         assert!(!super::super::leaders::Line::new(peer_arrow).meets(next.lines[0]));
         assert!(!super::super::leaders::Line::new(next.lines[0]).meets(peer_arrow));
         assert!(next.lines[1][1][0] - next.elbow[0] > c.lines[1][1][0] - c.elbow[0]);
+        let c = candidate(Shape::Frame, [80., 80.], "above", 100., [20., 5.]).with_ring(RING);
+        let mut witness = obstacles;
+        witness.heads.clear();
+        witness.lines = vec![[[77.9, 98.2], [77.9, 101.8]]];
+        assert_eq!(witness.bounds_grade(&c, c.label_box), 0);
+        assert_eq!(witness.clearance_grade(&c), 2);
+        let next = clear_ring_bend(c.clone(), &witness);
+        assert_eq!(witness.grade(&next, None), (0, 0, 0));
+        assert!((next.elbow[0] - 80.).abs() < 1e-9);
+        assert!(
+            (next.label_box[0]
+                - c.label_box[0]
+                - (RING + super::super::contacts::TEXT_CLEAR - SHELF))
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (next.lines[1][1][0] - next.elbow[0] - RING - super::super::contacts::TEXT_CLEAR).abs()
+                < 1e-9
+        );
     }
 
     #[test]
