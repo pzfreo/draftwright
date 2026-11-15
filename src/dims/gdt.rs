@@ -1133,6 +1133,18 @@ impl Obstacles<'_> {
     }
 
     fn clearance_grade(&self, c: &Candidate) -> u8 {
+        // An incumbent from the historical template may still have the old
+        // short shelf. It cannot override a live candidate with a clear ring.
+        if c.ring_radius > 0.0
+            && !c.lines.get(1).is_some_and(|[bend, end]| {
+                *bend == c.elbow
+                    && (end[1] - bend[1]).abs() < 1e-9
+                    && (end[0] - bend[0]).abs()
+                        >= c.ring_radius + super::contacts::TEXT_CLEAR - 1e-9
+            })
+        {
+            return 4;
+        }
         let frame = self.bounds_grade(c, c.label_box);
         if c.ring_radius > 0.0 {
             frame.max(self.bounds_grade(c, ring_box(c.elbow, c.ring_radius)))
@@ -3183,6 +3195,19 @@ mod tests {
                     frame_leaders: Vec::new(),
                 };
                 assert_eq!(obstacles.clearance_grade(&c), 0);
+                let mut legacy = candidate(
+                    Shape::Frame,
+                    [80., 80.],
+                    side,
+                    if matches!(side, "below" | "left") {
+                        60.
+                    } else {
+                        100.
+                    },
+                    [20., 5.],
+                );
+                legacy.ring_radius = radius;
+                assert_eq!(obstacles.clearance_grade(&legacy), 4);
                 // This label touches only the ring, away from the frame and shaft.
                 let ring = ring_box(c.elbow, radius);
                 obstacles
