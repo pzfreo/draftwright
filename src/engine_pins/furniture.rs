@@ -137,6 +137,10 @@ pub(super) fn apply(plan: &mut Plan, pins: &EnginePins, remaining: &mut BTreeSet
             .get(&note.id)
             .and_then(|p| p.route.as_ref())
             && note.rows.len() == at.len()
+            && note.placed.as_ref().is_some_and(|p| {
+                p.cells[2] - p.cells[0] <= bounds[2] - bounds[0] + 1e-8
+                    && p.cells[3] - p.cells[1] <= bounds[3] - bounds[1] + 1e-8
+            })
         {
             note.placed = Some(crate::notes::PlacedNote {
                 rows_at: at.clone(),

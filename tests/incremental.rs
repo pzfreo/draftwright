@@ -1380,3 +1380,56 @@ fn notes_and_declared_tables_keep_their_placement_after_pmi_and_content_edits() 
     );
     assert_eq!(value(&session.plan().views), value(&cold.plan().views));
 }
+
+#[test]
+fn removing_one_note_in_full_apply_keeps_another_notes_placement() {
+    let (mut session, bytes) = pinned_bracket();
+    session
+        .apply(
+            &[Op::set(
+                "notes",
+                json!([
+                    {"id":"n:1","text":"REMOVE BURRS"},
+                    {"id":"n:2","text":"CLEAN AFTER MACHINING"}
+                ]),
+            )],
+            true,
+        )
+        .unwrap();
+    let before = session
+        .plan()
+        .notes
+        .iter()
+        .find(|n| n.id == "n:2")
+        .unwrap()
+        .placed
+        .clone();
+    assert!(before.is_some());
+    session
+        .apply(
+            &[Op::set(
+                "notes",
+                json!([
+                    {"id":"n:2","text":"CLEAN AFTER MACHINING"}
+                ]),
+            )],
+            true,
+        )
+        .unwrap();
+    assert!(session.spec().engine_pins.is_some());
+    assert_eq!(
+        before,
+        session
+            .plan()
+            .notes
+            .iter()
+            .find(|n| n.id == "n:2")
+            .unwrap()
+            .placed
+    );
+    let cold = reopened("bracket", &bytes, &session);
+    assert_eq!(
+        value(&session.state().annotations),
+        value(&cold.state().annotations)
+    );
+}

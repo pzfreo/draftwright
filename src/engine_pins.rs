@@ -885,9 +885,13 @@ pub(crate) fn edit(before: &Spec, after: &mut Spec, ops: &[serde_json::Value]) {
     }
     if let Some(pins) = &mut after.engine_pins {
         if before.notes != after.notes {
-            pins.annotations.retain(|_, p| {
-                !matches!(p.route, Some(Route::Note { .. } | Route::Heading { .. }))
-            });
+            for note in &before.notes {
+                if after.notes.iter().find(|n| n.id == note.id) != Some(note) {
+                    pins.annotations.remove(&note.id);
+                }
+            }
+            pins.annotations
+                .retain(|_, p| !matches!(p.route, Some(Route::Heading { .. })));
         }
         for table in &before.tables {
             if after.tables.iter().find(|t| t.id == table.id) != Some(table) {
