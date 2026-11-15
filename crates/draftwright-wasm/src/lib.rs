@@ -109,13 +109,13 @@ impl Session {
         let ops: Vec<Op> =
             serde_json::from_str(json).map_err(|e| Error::invalid(format!("invalid ops: {e}")))?;
         let delta = self.0.apply_incremental(&ops, false)?;
-        self.preview_delta(delta, None)
+        self.preview_delta(delta, None, true)
     }
     pub fn preview_step_incremental(&mut self, name: &str, bytes: &[u8]) -> Result<String, Error> {
         let delta = self.0.replace_step_incremental(name, bytes, false)?;
         let source =
             model::analyse_native_bytes_part(name, bytes, self.0.analysis().binding.part_index)?;
-        self.preview_delta(delta, Some(source))
+        self.preview_delta(delta, Some(source), true)
     }
     pub fn plans(&self) -> usize {
         self.0.stats().plans
@@ -250,12 +250,13 @@ impl Session {
         let ops: Vec<Op> =
             serde_json::from_str(json).map_err(|e| Error::invalid(format!("invalid ops: {e}")))?;
         let delta = self.apply(&ops, false)?;
-        self.preview_delta(delta, None)
+        self.preview_delta(delta, None, false)
     }
     fn preview_delta(
         &self,
         delta: session::Delta,
         source: Option<(draftwright::haecceity::Part, model::Analysis)>,
+        incremental: bool,
     ) -> Result<String, Error> {
         let mut state = self.0.state().clone();
         delta.apply_to(&mut state)?;
@@ -277,10 +278,12 @@ impl Session {
         snapshot["plan"] = serde_json::to_value(&state.plan).unwrap();
         // Invariant: Document fields and map keys have JSON representations; serialization performs no external I/O.
         snapshot["spec"] = serde_json::to_value(&state.plan.spec).unwrap();
-        snapshot["pmi"] = CoreSession::pmi_report_for(analysis, &state);
-        snapshot["provenance"] = serde_json::json!({"source_sha256":analysis.binding.source_sha256,"face_entities":(0..part.faces.len()).map(|i|part.face_source(i).map(|s|s.entity)).collect::<Vec<_>>()});
-        snapshot["analysis"] = serde_json::to_value(analysis).unwrap();
-        snapshot["moved"] = serde_json::to_value(&delta.moved).unwrap();
+        if incremental {
+            snapshot["pmi"] = CoreSession::pmi_report_for(analysis, &state);
+            snapshot["provenance"] = serde_json::json!({"source_sha256":analysis.binding.source_sha256,"face_entities":(0..part.faces.len()).map(|i|part.face_source(i).map(|s|s.entity)).collect::<Vec<_>>()});
+            snapshot["analysis"] = serde_json::to_value(analysis).unwrap();
+            snapshot["moved"] = serde_json::to_value(&delta.moved).unwrap();
+        }
         snapshot["notices"] = serde_json::to_value(&delta.notices).unwrap();
         snapshot["svg"] = serde_json::Value::String(drawing.svg());
         Ok(snapshot.to_string())
