@@ -2402,6 +2402,33 @@
             "grid"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "native"
+            },
+            "initial": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "variant": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -2482,6 +2509,21 @@
             }
           ],
           "description": "Reserved text footprint; changes release this placement for fresh layout."
+        },
+        "initial": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "variant": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [

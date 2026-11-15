@@ -72,6 +72,8 @@ fn pin(route: Route, view: Option<String>) -> Annotation {
         region: None,
         absolute: true,
         introduced: false,
+        initial: None,
+        variant: 0,
     }
 }
 pub(super) fn persist(plan: &Plan, pins: &mut BTreeMap<String, Annotation>) {

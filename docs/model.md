@@ -2813,11 +2813,21 @@ The older Spec face/feature requirement path remains supported.
 Every incremental result saves typed placement-only `engine_pins` in the Spec, with
 `written_by: "engine"` and schema `draftwright.spec/4`. The record contains the source
 revision, geometry and layout-intent identities, paper and scale, view frames, and annotation placements keyed by stable item id:
-`place` (view, side, offset, pinned), leader/witness routes, glyph translation steps, lane
-region and dimension origin choices. A pin records whether its item was introduced in the
+`place` (view, side, offset, pinned), native dimension constraints, exceptional routes,
+glyph translation steps, lane region and dimension origin choices. Compact dimension entries
+are implicitly held: side/lane select the ordinary exterior, interior or opening producer;
+`initial` selects a recorded view-translation stage and `variant` its native label/geometry
+alternative. Offset hints are rounded to 1e-4 mm. Witnesses, arrows and text bounds are
+regenerated from the current geometry and label, and the writer emits a compact entry only
+when all regenerated ink fields equal the published placement exactly. Exceptional routes
+retain their exact coordinates when no native recipe can reproduce them; rounding those
+coordinates would move existing ink. This precision fallback remains larger than the target. A pin records whether its item was introduced in the
 kept layout, so constrained-placement findings can be re-evaluated without saving problems. Coordinates are relative to the view where reversible
 without rounding. It contains no requirement text, dimension terms, measurements, face
 indices, characteristics, table records, problems, author-Spec copy or derived Plan.
+Incremental and pin-loading scopes bypass shared result memos on both reads and writes.
+Incremental preparation uses a fresh call-local scope too: intent and restored variants
+never reuse another edit's retained preparation. Ordinary planning keeps its memos.
 Requirements and glyphs are regenerated from the current STEP and Spec; placement checks
 run again on the final ink. Notes, captions and table grids contain coordinates only; their
 text, rows and measurements are always regenerated. A changed text footprint releases

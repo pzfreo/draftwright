@@ -74,10 +74,20 @@ pub struct Annotation {
     pub absolute: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub introduced: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial: Option<usize>,
+    #[serde(default, skip_serializing_if = "zero_index")]
+    pub variant: usize,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum Route {
+    Native {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        initial: Option<usize>,
+        #[serde(default, skip_serializing_if = "zero_index")]
+        variant: usize,
+    },
     Note {
         at: Vec<[f64; 2]>,
         bounds: [f64; 4],
@@ -212,7 +222,9 @@ pub(crate) fn pinned_ink(id: &str) -> bool {
         p.borrow()
             .as_ref()
             .and_then(|p| p.annotations.get(id))
-            .is_some_and(|p| p.route.is_some() && !p.omit)
+            .is_some_and(|p| {
+                !p.omit && (p.route.is_some() || p.place.lane.is_some() || p.place.offset.is_some())
+            })
     })
 }
 
@@ -358,6 +370,8 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
                     region: d.region,
                     absolute: absolute_pin,
                     introduced: false,
+                    initial: None,
+                    variant: 0,
                 },
             );
         }
@@ -410,6 +424,8 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
                         .then_some(crate::dims::CandidateRegion::Interior),
                     absolute: absolute_pin,
                     introduced: false,
+                    initial: None,
+                    variant: 0,
                 },
             );
         }
@@ -427,6 +443,8 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
             region: None,
             absolute: false,
             introduced: false,
+            initial: None,
+            variant: 0,
         });
     }
     for t in &plan.hole_tables {
@@ -451,6 +469,8 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
                 region: None,
                 absolute: false,
                 introduced: false,
+                initial: None,
+                variant: 0,
             },
         );
     }
@@ -474,6 +494,8 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
                 region: None,
                 absolute: true,
                 introduced: false,
+                initial: None,
+                variant: 0,
             },
         );
     }
@@ -544,6 +566,38 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
         rebase: Vec::new(),
         origins,
     }));
+    compact_dimensions(a, plan);
+}
+fn compact_dimensions(a: &Analysis, plan: &mut Plan) {
+    let pins = plan.spec.engine_pins.as_ref().unwrap();
+    let recipes = with_pins((**pins).clone(), || {
+        crate::dims::pin_geometry::Recipes::new(a, &plan.spec, &plan.views)
+    });
+    let updates: Vec<_> = with_pins((**pins).clone(), || {
+        plan.dimensions
+            .iter()
+            .filter_map(|d| {
+                let view = plan.views.iter().find(|v| v.id == d.view)?;
+                let (place, initial, variant) = recipes.encode(a, &plan.spec, view, d)?;
+                Some((d.id.clone(), place, initial, variant))
+            })
+            .collect()
+    });
+    let pins = plan.spec.engine_pins.as_mut().unwrap();
+    for (id, place, initial, variant) in updates {
+        if let Some(pin) = pins.annotations.get_mut(&id) {
+            pin.place = place;
+            pin.place.pinned = false; // engine_pins entries are held implicitly
+            pin.route = None;
+            pin.initial = initial;
+            pin.variant = variant;
+            pin.space = None;
+            pin.absolute = false;
+        }
+    }
+}
+fn zero_index(n: &usize) -> bool {
+    *n == 0
 }
 fn parse_side(side: &str) -> Option<crate::placement_intent::Side> {
     serde_json::from_value(side.into()).ok()
@@ -558,8 +612,35 @@ fn apply(plan: &mut Plan, pins: &EnginePins, analysis: &Analysis) -> Vec<String>
     crate::label_text::annotations(&mut lowered, &plan.spec).expect("validated label text");
     let mut remaining: BTreeSet<_> = pins.annotations.keys().cloned().collect();
 
+    let recipes = pins
+        .annotations
+        .values()
+        .any(|p| (p.route.is_none() && !p.omit) || matches!(p.route, Some(Route::Native { .. })))
+        .then(|| crate::dims::pin_geometry::Recipes::new(analysis, &plan.spec, &plan.views));
     for d in &mut plan.dimensions {
         if let Some(pin) = pins.annotations.get(&d.id) {
+            if pin.route.is_none() && !pin.omit || matches!(pin.route, Some(Route::Native { .. })) {
+                let (initial, variant) =
+                    if let Some(Route::Native { initial, variant }) = &pin.route {
+                        (*initial, *variant)
+                    } else {
+                        (pin.initial, pin.variant)
+                    };
+                let view_id = pin.place.view.clone().unwrap_or_else(|| d.view.clone());
+                if let Some(view) = plan.views.iter().find(|v| v.id == view_id)
+                    && let Some(recipes) = &recipes
+                    && let Some(placed) = recipes
+                        .candidates(analysis, &plan.spec, view, d, &pin.place, initial)
+                        .into_iter()
+                        .nth(variant)
+                {
+                    d.view.clone_from(&view_id);
+                    d.region = pin.region;
+                    d.placed = Some(placed);
+                    remaining.remove(&d.id);
+                }
+                continue;
+            }
             if let Some(space) = pin.space {
                 let b = crate::dims::pin_bounds(
                     &d.terms,
@@ -783,12 +864,9 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
     forced.sheets = None;
     let mut filtered = (**pins).clone();
     filtered.source_sha256.clone_from(&a.binding.source_sha256);
-    for id in &pins.rebase {
-        if let Some(pin) = filtered.annotations.get_mut(id) {
-            pin.basis = None;
-            pin.route = None;
-        }
-    }
+    filtered
+        .annotations
+        .retain(|id, _| !pins.rebase.contains(id));
     let scheduled = pins
         .annotations
         .keys()
@@ -801,7 +879,7 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
         }
     })?;
     with_pins(filtered.clone(), || views(&mut reference.views));
-    let mut dropped = apply(&mut reference, &filtered, a);
+    let mut dropped = with_pins(filtered.clone(), || apply(&mut reference, &filtered, a));
     dropped.extend(
         pins.views
             .keys()
@@ -884,6 +962,9 @@ pub(crate) fn edit(before: &Spec, after: &mut Spec, ops: &[serde_json::Value]) {
         return;
     }
     if let Some(pins) = &mut after.engine_pins {
+        if before.precision != after.precision {
+            pins.annotations.retain(|_, p| p.route.is_some() || p.omit);
+        }
         if before.notes != after.notes {
             for note in &before.notes {
                 if after.notes.iter().find(|n| n.id == note.id) != Some(note) {
@@ -1094,4 +1175,26 @@ fn layout_key(spec: &Spec) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+#[cfg(test)]
+mod memo_tests {
+    use super::*;
+    #[test]
+    fn loading_pins_neither_reads_nor_populates_shared_memos() {
+        let memo = crate::planning::BoundedMemo::new(1);
+        let key = [9; 32];
+        memo.insert(key, 10);
+        let pins = serde_json::from_value(serde_json::json!({
+            "written_by":"engine","source_sha256":"test",
+            "sheet":{"size":"A4","scale":"1:1"},"views":{},"annotations":{}
+        }))
+        .unwrap();
+        with_pins(pins, || {
+            assert_eq!(memo.get(&key), None);
+            memo.insert(key, 20);
+            assert_eq!(memo.get(&key), None);
+        });
+        assert_eq!(memo.get(&key), Some(10));
+    }
 }

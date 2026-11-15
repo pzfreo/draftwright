@@ -1517,3 +1517,42 @@ fn unpinned_spec_four_has_current_spec_three_semantics() {
     let four: Spec = serde_json::from_value(json!({"schema":"draftwright.spec/4"})).unwrap();
     assert_eq!(value(&four), value(Spec::default()));
 }
+
+#[test]
+fn compact_native_dimension_constraints_derive_ink_and_keep_exact_reload() {
+    for name in ["bracket", "scattered", "ctc"] {
+        let mut s = open(name);
+        let updated = datum_step(&source(name), planar_face(&s));
+        let before = s.state().clone();
+        let delta = s.replace_step_incremental(name, &updated, true).unwrap();
+        assert!(delta.moved.is_empty());
+        fixed(&before.plan, s.plan());
+        let pins = s.spec().engine_pins.as_ref().unwrap();
+        let mut native = 0;
+        for d in &s.plan().dimensions {
+            let Some(pin) = pins.annotations.get(&d.id) else {
+                continue;
+            };
+            if pin.route.is_none() && !pin.omit {
+                native += 1;
+                let record = value(pin);
+                for field in ["route", "space", "bounds", "lines", "arrows"] {
+                    assert!(record.get(field).is_none(), "{name} {} {field}", d.id);
+                }
+                if let Some(at) = pin.place.offset {
+                    for n in at {
+                        assert_eq!(n, (n * 10000.).round() / 10000.);
+                    }
+                }
+            }
+        }
+        assert!(native > 0, "{name}");
+        let cold = reopened(name, &updated, &s);
+        fixed(s.plan(), cold.plan());
+        assert_eq!(
+            value(&s.state().annotations),
+            value(&cold.state().annotations)
+        );
+        assert_eq!(s.state().problems, cold.state().problems);
+    }
+}
