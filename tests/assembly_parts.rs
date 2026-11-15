@@ -584,3 +584,61 @@ fn part_zero_of_a_single_part_file_draws_as_without_part() {
     ]);
     assert_eq!(code, Some(0), "{plan}");
 }
+
+#[test]
+fn cli_part_keys_and_indices_use_the_same_selection_for_all_drawing_commands() {
+    let step = assembly();
+    for command in ["analyse", "plan", "review"] {
+        let (index_code, indexed) = run(&[command, &step, "--part", "1"]);
+        let (key_code, keyed) = run(&[command, &step, "--part", "pin"]);
+        assert_eq!(index_code, Some(0), "{indexed}");
+        assert_eq!(key_code, Some(0), "{keyed}");
+        assert_eq!(indexed, keyed);
+    }
+    for selector in ["pin", "1"] {
+        let out = scratch(&format!("key-render-{selector}"));
+        let (code, result) = run(&[
+            "render",
+            &step,
+            "--part",
+            selector,
+            "-o",
+            out.to_str().unwrap(),
+            "--formats",
+            "svg",
+        ]);
+        assert_eq!(code, Some(0), "{result}");
+        assert!(Path::new(result["written"][0].as_str().unwrap()).is_file());
+    }
+    let (code, result) = run(&["plan", &step, "--part", "missing"]);
+    assert_eq!(code, Some(2));
+    assert!(
+        result["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("draftwright parts")
+    );
+    // Repeated product names receive distinct persistent keys. Their bare name
+    // must never select the first match, in either the CLI or the Spec.
+    let bytes = std::fs::read_to_string(&step)
+        .unwrap()
+        .replace("PRODUCT('pin','pin'", "PRODUCT('plate','plate'");
+    let ambiguous = scratch("ambiguous-key.step");
+    std::fs::write(&ambiguous, bytes).unwrap();
+    for command in ["plan", "render"] {
+        let out = scratch("ambiguous-key-output");
+        let mut args = vec![command, ambiguous.to_str().unwrap(), "--part", "plate"];
+        if command == "render" {
+            args.extend(["-o", out.to_str().unwrap()]);
+        }
+        let (code, result) = run(&args);
+        assert_eq!(code, Some(2), "{result}");
+        assert!(
+            result["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("ambiguous"),
+            "{result}"
+        );
+    }
+}

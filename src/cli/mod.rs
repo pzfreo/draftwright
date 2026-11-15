@@ -113,7 +113,7 @@ struct Drawing {
     /// the Spec (without it, the defaults)
     #[arg(long, value_name = "JSON")]
     spec: Option<String>,
-    /// part K of an assembly, as `draftwright parts` lists them, drawn alone
+    /// persistent key or index K of an assembly, as `draftwright parts` lists them, drawn alone
     #[arg(long, value_name = "K", allow_negative_numbers = true)]
     part: Option<String>,
 }
@@ -215,7 +215,7 @@ enum Command {
         /// the Spec of the old revision
         #[arg(long, value_name = "JSON")]
         spec: Option<String>,
-        /// part K of an assembly, as `draftwright parts` lists them
+        /// persistent key or index K of an assembly, as `draftwright parts` lists them
         #[arg(long, value_name = "K", allow_negative_numbers = true)]
         part: Option<String>,
         /// the report's title (default: the new file's name)
@@ -571,12 +571,30 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
     let part = given
         .part
         .as_deref()
-        .map(|k| {
-            k.parse::<usize>().map_err(|_| {
-                Error::invalid(format!(
-                    "--part {k:?} is not a part's index; `draftwright parts <step>` lists them"
-                ))
-            })
+        .map(|key| {
+            if !analysis.is_null() {
+                let saved: crate::model::Analysis = serde_json::from_value(analysis.clone())
+                    .map_err(|e| Error::invalid(format!("the analysis is not valid: {e}")))?;
+                let parts = if saved.parts.is_empty() {
+                    vec![crate::model::FilePart {
+                        part: saved.binding.part_index.unwrap_or(0),
+                        name: saved.product_name.clone().unwrap_or_default(),
+                        product_id: saved
+                            .bom
+                            .as_ref()
+                            .and_then(|b| b.product_ids.first())
+                            .cloned()
+                            .unwrap_or_default(),
+                        faces: saved.binding.face_count,
+                        instances: 1,
+                    }]
+                } else {
+                    saved.parts.clone()
+                };
+                return crate::part_choice::cli(key, &parts).map_err(Error::from);
+            }
+            crate::part_choice::cli(key, &api::parts(std::path::Path::new(arg(1)?))?)
+                .map_err(Error::from)
         })
         .transpose()?;
     if no_features && (features.is_some() || !analysis.is_null()) {
