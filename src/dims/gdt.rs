@@ -572,10 +572,20 @@ impl Candidate {
 /// Scope symbols can need a longer shelf to separate leaders with nearby tips.
 /// Exhaust these bounded bend positions before displacing the frame to another
 /// tier. A collinear shaft/shelf retains its partition rather than scoring it.
-fn clear_ring_bend(c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
+fn clear_ring_bend(
+    c: Candidate,
+    obstacles: &Obstacles<'_>,
+    footprints: Option<&super::footprints::Footprints>,
+) -> Candidate {
     if c.ring_radius == 0.0 {
         return c;
     }
+    // A longer shelf must not buy annotation clearance by sending the shaft
+    // through a foreign feature. Use the same footprints as the final audit.
+    let feature_contacts = footprints.map_or(0, |f| f.crossing_count(c.lines[0]));
+    let preserves_features = |next: &Candidate| {
+        footprints.is_none_or(|f| f.crossing_count(next.lines[0]) <= feature_contacts)
+    };
     // Moving the bend can put its ring on a witness that the old bend cleared.
     // When the frame itself fits, also try extending the frame end of the shelf
     // by the minimum amount, before sending its leader through the model.
@@ -592,7 +602,9 @@ fn clear_ring_bend(c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
         shifted.origin[0] += dx;
         shifted.label_box[0] += dx;
         shifted.label_box[2] += dx;
-        if obstacles.clearance_grade(&shifted) < obstacles.clearance_grade(&c) {
+        if preserves_features(&shifted)
+            && obstacles.clearance_grade(&shifted) < obstacles.clearance_grade(&c)
+        {
             // This solves the new ring contact while retaining the established
             // shaft through the model; further bend changes are unnecessary.
             return shifted;
@@ -651,6 +663,9 @@ fn clear_ring_bend(c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
         }
         let mut next = c.clone();
         next.move_bend(-dir * step as f64 * SHELF);
+        if !preserves_features(&next) {
+            continue;
+        }
         let next_grade = score(&next, Some(grade));
         if next_grade < grade {
             best = next;
@@ -2056,6 +2071,14 @@ fn plan_search(
             heads: heads.clone(),
             frame_leaders: frame_leaders.clone(),
         };
+        let scope_footprints = (ring_radius(&planned.modifiers) > 0.0)
+            .then(|| {
+                views
+                    .iter()
+                    .find(|v| v.id == own)
+                    .map(|v| cache.get(analysis, v))
+            })
+            .flatten();
         let sides: Vec<&str> = if shape != Shape::Frame || intent.is_some_and(|p| p.side.is_some())
         {
             vec![item.side]
@@ -2236,7 +2259,7 @@ fn plan_search(
                             c.fills = vec![dot_at(c.lines[0][0])];
                         }
                         if !intent.is_some_and(|p| p.pinned) {
-                            c = clear_ring_bend(c, &obstacles);
+                            c = clear_ring_bend(c, &obstacles, scope_footprints.as_deref());
                         }
                         let compact_datum = protect && datum && !authored;
                         let shorter = compact_datum
@@ -3350,7 +3373,7 @@ mod tests {
             frame_leaders: Vec::new(),
         };
         assert!(obstacles.grade(&c, None).2 > 0);
-        let next = clear_ring_bend(c.clone(), &obstacles);
+        let next = clear_ring_bend(c.clone(), &obstacles, None);
         assert_eq!(next.label_box, c.label_box);
         assert_eq!(next.origin, c.origin);
         assert_eq!(next.lines[0][0], c.lines[0][0]);
@@ -3372,7 +3395,7 @@ mod tests {
         witness.lines = vec![[[77.9, 98.2], [77.9, 101.8]]];
         assert_eq!(witness.bounds_grade(&c, c.label_box), 0);
         assert_eq!(witness.clearance_grade(&c), 2);
-        let next = clear_ring_bend(c.clone(), &witness);
+        let next = clear_ring_bend(c.clone(), &witness, None);
         assert_eq!(witness.grade(&next, None), (0, 0, 0));
         assert!((next.elbow[0] - 80.).abs() < 1e-9);
         assert!(
