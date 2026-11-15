@@ -12832,6 +12832,10 @@ fn render_annotations_with_cuts(
             continue;
         }
         let Some(block) = block else { continue };
+        // Preserve the planner's separately centred line anchors and 5/7 mm row
+        // pitch. A TABLE cell's MTEXT line breaks use font leading (3.49 mm at
+        // this cap height); collapsing a wrapped note would move its baselines.
+        // Ruled notes also have an explicit rule at each existing row boundary.
         let mut rows = vec![vec![block.title.clone()]];
         let mut cells_at = vec![vec![Some(block.title_at)]];
         for n in plan.notes.iter().filter(|n| {

@@ -414,7 +414,8 @@ view INSERT and that named group together, then MOVE them using the same base
 point. Disable group selection temporarily to edit an individual dimension.
 Shaded pictorials export their visible edges, without presentation fill polygons.
 Single-line labels are TEXT; multi-line labels use MTEXT. Leader callouts are one
-MULTILEADER with embedded MTEXT and a dictionary-owned MLEADERSTYLE. Their vertices,
+MULTILEADER with embedded MTEXT and a dictionary-owned MLEADERSTYLE. Measured diameter
+and radius callouts remain live DIMENSION entities, preserving CAD-measured values. Their vertices,
 arrowheads and text come from the owning planned annotation. A GD&T control frame is a
 TOLERANCE; its classic LEADER references the frame through its annotation handle (340).
 Independent stacked frames remain separate TOLERANCE entities on a 5 mm pitch, preserving
@@ -425,8 +426,11 @@ Hole schedules, spec tables, general notes and the pack GA parts list are ACAD_T
 entities with TABLESTYLE objects and anonymous *T blocks of rendered graphics. Each placed
 block of a split table is a separate native table, with the planner's repeated header,
 cell text, column widths and row heights. Existing ruled cells remain independent cells;
-no title merge is invented. Unruled note blocks retain invisible borders. The title block
-remains an INSERT with ATTRIB fields.
+no title merge is invented. Wrapped notes retain separate line rows: their planned 5/7 mm
+baseline pitch and individual centres differ from MTEXT cell leading. Unruled note blocks
+retain invisible borders. Cell values use the 2007+ CELL_VALUE/ACVALUE_END structure, with
+appearance inherited from TABLESTYLE rather than inactive overrides. Both style dictionaries
+include a Standard entry. The title block remains an INSERT with ATTRIB fields.
 Plex-named DXF styles request romans.shx, the single-stroke drafting font every
 DWG/DXF program ships, condensed to Plex's advance so text stays in its original
 table cells and annotation frames. SHX fonts lack × and en dashes, so DXF text

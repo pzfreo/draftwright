@@ -467,32 +467,95 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
             );
             resolve(tag(e, 340).unwrap(), "STYLE");
             assert!(!tag(e, 304).unwrap().is_empty());
-            for (i, t) in e
+            assert!(
+                matches!(common_tag(179), "1" | "2" | "3"),
+                "{name}: legal text attachment"
+            );
+            assert_eq!(common_tag(290), "1", "{name}: landing enabled");
+            assert!(!tag(e, 304).unwrap().contains("l-"));
+            assert!(!tag(e, 304).unwrap().contains("r-"));
+            // A line stores vertices before the final connection. Its last segment
+            // and optional dogleg are separate data, as in the ezdxf/QCAD probes.
+            for (i, _) in e
                 .tags
                 .iter()
                 .enumerate()
-                .filter(|(_, t)| t.0 == 304 && t.1 == "LEADER_LINE{")
+                .filter(|(_, t)| t.0 == 302 && t.1 == "LEADER{")
             {
-                let _ = t;
-                let end = i + e.tags[i..].iter().position(|t| t.0 == 305).unwrap();
-                let vertices: Vec<_> = e.tags[i..end]
+                let end = i + e.tags[i..].iter().position(|t| t.0 == 303).unwrap();
+                let leader = &e.tags[i..end];
+                assert_eq!(leader.iter().find(|t| t.0 == 290).unwrap().1, "1");
+                assert_eq!(leader.iter().find(|t| t.0 == 291).unwrap().1, "1");
+                let connection = point(leader, 10);
+                let vector = point(leader, 11);
+                assert!((vector[0].hypot(vector[1]) - 1.).abs() < 1e-12);
+                let length: f64 = leader
+                    .iter()
+                    .find(|t| t.0 == 40)
+                    .unwrap()
+                    .1
+                    .parse()
+                    .unwrap();
+                let line = leader
+                    .iter()
+                    .position(|t| t.0 == 304 && t.1 == "LEADER_LINE{")
+                    .unwrap();
+                let mut vertices: Vec<_> = leader[line..]
                     .iter()
                     .enumerate()
                     .filter(|(_, t)| t.0 == 10)
-                    .map(|(j, _)| point(&e.tags[i + j..], 10))
+                    .map(|(j, _)| point(&leader[line + j..], 10))
                     .collect();
-                assert!(vertices.len() >= 2);
+                assert!(!vertices.is_empty());
+                assert_ne!(
+                    vertices.last().unwrap(),
+                    &connection,
+                    "{name}: no duplicated connection point"
+                );
+                vertices.push(connection);
+                if length > 0. {
+                    assert_eq!(common_tag(291), "1");
+                    vertices.push([
+                        connection[0] + vector[0] * length,
+                        connection[1] + vector[1] * length,
+                    ]);
+                }
                 written_paths.extend(vertices.windows(2).map(|p| [p[0], p[1]]));
             }
         }
     }
-    let mut planned_paths: Vec<_> = drawing
-        .sheet
-        .dxf
-        .leaders
-        .values()
-        .flat_map(|l| l.lines.clone())
+    let native_dimensions: BTreeMap<_, _> = all
+        .iter()
+        .filter(|e| e.kind == "DIMENSION")
+        .filter_map(|e| {
+            let app = e
+                .tags
+                .iter()
+                .position(|t| t.0 == 1001 && t.1 == "DRAFTWRIGHT")?;
+            Some((e.tags[app + 1].1.as_str(), e))
+        })
         .collect();
+    let mut planned_paths = Vec::new();
+    for (id, leader) in &drawing.sheet.dxf.leaders {
+        if let Some(dim) = native_dimensions.get(id.as_str()) {
+            // Live radius/diameter dimensions retain their complete planned fallback
+            // graphics. These are not MULTILEADERs and must still contain every shaft.
+            let block = all
+                .iter()
+                .find(|e| e.kind == "BLOCK_RECORD" && tag(e, 2) == tag(dim, 2))
+                .unwrap();
+            for planned in &leader.lines {
+                assert!(
+                    all.iter().any(|e| e.kind == "LINE"
+                        && owner(e) == tag(block, 5)
+                        && [point(&e.tags, 10), point(&e.tags, 11)] == *planned),
+                    "{name}: {id} lost a live dimension leader segment"
+                );
+            }
+        } else {
+            planned_paths.extend(leader.lines.clone());
+        }
+    }
     let sort = |paths: &mut Vec<[[f64; 2]; 2]>| {
         paths.sort_by(|a, b| {
             a.iter()
@@ -505,9 +568,67 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
     sort(&mut planned_paths);
     sort(&mut written_paths);
     assert_eq!(
-        written_paths, planned_paths,
-        "{name}: every planned leader endpoint exactly once"
+        written_paths.len(),
+        planned_paths.len(),
+        "{name}: every planned segment exactly once"
     );
+    for (written, planned) in written_paths.iter().zip(&planned_paths) {
+        for (a, b) in written.iter().zip(planned) {
+            // A unit dogleg vector times its length incurs ordinary float rounding.
+            assert!(
+                (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-9,
+                "{name}: {written:?} != {planned:?}"
+            );
+        }
+    }
+    // Both style dictionaries contain real, independently owned Standard objects.
+    let dictionaries: Vec<_> = all
+        .iter()
+        .filter(|e| e.kind == "DICTIONARY" && e.tags.contains(&(3, "Draftwright".into())))
+        .collect();
+    assert_eq!(dictionaries.len(), 2);
+    for dictionary in dictionaries {
+        for key in ["Standard", "Draftwright"] {
+            let i = dictionary
+                .tags
+                .iter()
+                .position(|t| t.0 == 3 && t.1 == key)
+                .unwrap();
+            let style = by_handle[dictionary.tags[i + 1].1.as_str()];
+            assert!(matches!(style.kind.as_str(), "MLEADERSTYLE" | "TABLESTYLE"));
+            assert_eq!(owner(style), tag(dictionary, 5));
+            assert_eq!(tag(style, 3), Some(key));
+        }
+    }
+    for style in all.iter().filter(|e| e.kind == "MLEADERSTYLE") {
+        let start = style.tags.iter().position(|t| t.0 == 100).unwrap() + 1;
+        assert_eq!(
+            style.tags[start..].iter().map(|t| t.0).collect::<Vec<_>>(),
+            [
+                179, 170, 171, 172, 90, 40, 41, 173, 91, 340, 92, 290, 42, 291, 43, 3, 44, 300,
+                342, 174, 175, 176, 178, 93, 45, 292, 297, 46, 94, 47, 49, 140, 294, 141, 177, 142,
+                295, 296, 143, 271, 272, 273
+            ],
+            "{name}: canonical MLEADERSTYLE order"
+        );
+    }
+    for block in all.iter().filter(|e| {
+        e.kind == "BLOCK_RECORD" && tag(e, 2).is_some_and(|s| s.starts_with("DW_LEADER_"))
+    }) {
+        let ink: Vec<_> = all
+            .iter()
+            .filter(|e| {
+                owner(e) == tag(block, 5)
+                    && matches!(e.kind.as_str(), "CIRCLE" | "ELLIPSE" | "LINE" | "SOLID")
+            })
+            .collect();
+        assert!(!ink.is_empty());
+        for e in ink {
+            assert_eq!(tag(e, 8), Some("0"));
+            assert_eq!(tag(e, 62), Some("0"));
+            assert_eq!(tag(e, 370), Some("-2"));
+        }
+    }
     let tables: Vec<_> = all.iter().filter(|e| e.kind == "ACAD_TABLE").collect();
     assert_eq!(
         tables.len(),
@@ -526,7 +647,15 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
         resolve(owner(e).unwrap(), "BLOCK_RECORD");
         resolve(tag(e, 342).unwrap(), "TABLESTYLE");
         let style = by_handle[tag(e, 342).unwrap()];
-        for entity in [e, style] {
+        assert_eq!(tag(e, 93), Some("0"));
+        assert!(
+            !e.tags.iter().any(|t| [
+                7, 140, 170, 64, 63, 283, 289, 285, 286, 288, 70, 40, 41, 281
+            ]
+            .contains(&t.0)),
+            "{name}: no inactive overrides"
+        );
+        for entity in [style] {
             assert_eq!(
                 entity.tags.iter().rev().find(|t| t.0 == 280).unwrap().1,
                 usize::from(!table.title_row).to_string(),
@@ -569,6 +698,25 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
                 .map(|p| p[1] - p[0])
                 .collect::<Vec<_>>()
         );
+        let values: Vec<_> = e.tags.split(|t| t.0 == 171).skip(1).collect();
+        assert_eq!(values.len(), table.rows.len() * widths.len());
+        for cell in values {
+            let start = cell
+                .iter()
+                .position(|t| t.0 == 301 && t.1 == "CELL_VALUE")
+                .unwrap();
+            assert_eq!(cell[..start].iter().find(|t| t.0 == 91).unwrap().1, "0");
+            assert_eq!(cell[..start].iter().find(|t| t.0 == 92).unwrap().1, "0");
+            assert_eq!(cell[start + 1], (93, "2".into()));
+            assert_eq!(cell[start + 2], (90, "4".into()));
+            assert!(cell.contains(&(304, "ACVALUE_END".into())));
+            let string_value: String = cell
+                .iter()
+                .filter(|t| matches!(t.0, 1 | 2))
+                .map(|t| t.1.as_str())
+                .collect();
+            assert_eq!(cell.iter().find(|t| t.0 == 302).unwrap().1, string_value);
+        }
         let cells: Vec<_> = e.tags.iter().filter(|t| t.0 == 1).collect();
         assert_eq!(cells.len(), table.rows.len() * widths.len());
         for (cell, planned) in cells.iter().zip(table.rows.iter().flatten()) {

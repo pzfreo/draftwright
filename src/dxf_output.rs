@@ -461,7 +461,7 @@ struct Writer {
 impl Writer {
     fn new() -> Self {
         Self {
-            next: 0x102,
+            next: 0x104,
             model: 0,
             blocks: Vec::new(),
             entities: Tags::default(),
@@ -505,11 +505,17 @@ impl Writer {
         if self.continuous {
             t.tag(6, "CONTINUOUS");
         }
-        if let Some(weight) = self.weight {
-            t.tag(370, weight);
-        }
-        if let Some(colour) = self.colour {
-            t.tag(420, colour);
+        if block.is_some_and(|i| self.blocks[i].name.starts_with("DW_LEADER_")) {
+            // Arrow definitions inherit their referencing annotation's appearance.
+            t.tag(62, 0);
+            t.tag(370, -2);
+        } else {
+            if let Some(weight) = self.weight {
+                t.tag(370, weight);
+            }
+            if let Some(colour) = self.colour {
+                t.tag(420, colour);
+            }
         }
         (h, t)
     }
@@ -848,7 +854,22 @@ impl Writer {
         style: &str,
         layer: &str,
     ) -> Vec<u64> {
-        leader_paths(&leader.lines)
+        let dot = leader
+            .dot
+            .then(|| self.leader_arrow_block(1., true).unwrap());
+        let paths = leader_paths(&leader.lines);
+        let mut dots = Vec::new();
+        if let Some(block) = dot {
+            for vertices in &paths {
+                let (h, mut t) = self.entity("INSERT", layer, None);
+                t.tag(100, "AcDbBlockReference");
+                t.tag(2, &self.blocks[block].name);
+                t.point(10, vertices[0]);
+                self.put(t, None);
+                dots.push(h);
+            }
+        }
+        let mut handles: Vec<_> = paths
             .into_iter()
             .map(|vertices| {
                 let last = *vertices.last().unwrap();
@@ -887,69 +908,14 @@ impl Writer {
                 }
                 h
             })
-            .collect()
+            .collect();
+        handles.extend(dots);
+        handles
     }
 
-    fn multileader(&mut self, leader: &Leader, text: &[&TextRun], layer: &str) -> u64 {
-        let r = text[0];
-        let height = text_height(r);
-        let (sin, cos) = r.rotation.to_radians().sin_cos();
-        let mut at = r.at;
-        let wrapped = text.len() > 1 && leader.text_at.is_some();
-        // MTEXT has a top attachment; TEXT's baseline is one cap height below it.
-        if r.v_align == VAlign::Baseline {
-            at = [at[0] - sin * height, at[1] + cos * height];
-        } else if wrapped {
-            at = [at[0] - sin * height / 2., at[1] + cos * height / 2.];
-        }
-        let alignment = match (
-            r.h_align,
-            if wrapped { VAlign::Baseline } else { r.v_align },
-        ) {
-            (HAlign::Left, VAlign::Baseline) => 1,
-            (HAlign::Center, VAlign::Baseline) => 2,
-            (HAlign::Right, VAlign::Baseline) => 3,
-            (HAlign::Left, VAlign::Middle) => 4,
-            (HAlign::Center, VAlign::Middle) => 5,
-            (HAlign::Right, VAlign::Middle) => 6,
-        };
-        let width = if wrapped {
-            let origin = leader.text_at.unwrap();
-            text.iter()
-                .map(|run| {
-                    2. * ((run.at[0] - origin[0]) * cos + (run.at[1] - origin[1]) * sin).abs()
-                })
-                .fold(0_f64, f64::max)
-        } else {
-            0.
-        };
-        let content = text
-            .iter()
-            .map(|run| {
-                let mut content = format!(
-                    "{{\\W{:.6};{}}}",
-                    text_width(run),
-                    symbol_text(&asme_words(&run.text), false)
-                );
-                if wrapped {
-                    // Paragraph indents are in initial character heights. Opposite left
-                    // and right indents translate the centre without changing line width.
-                    let shift =
-                        ((run.at[0] - r.at[0]) * cos + (run.at[1] - r.at[1]) * sin) / height;
-                    content = format!("\\pxi0,l{shift:.9},r{:.9},qc;{content}", -shift);
-                }
-                content
-            })
-            .collect::<Vec<_>>()
-            .join("\\P");
-        let arrow_size = leader
-            .arrows
-            .first()
-            .map_or(if leader.dot { 1. } else { 0. }, |[a, b]| {
-                (b[0] - a[0]).hypot(b[1] - a[1])
-            });
+    fn leader_arrow_block(&mut self, arrow_size: f64, dot: bool) -> Option<usize> {
         // A block arrow preserves the existing dot attachment, including its 0.3 mm radius.
-        let arrow_block = if leader.dot {
+        if dot {
             let i = if let Some(i) = self.blocks.iter().position(|b| b.name == "DW_LEADER_DOT") {
                 i
             } else {
@@ -963,12 +929,12 @@ impl Writer {
                         t0: 0.,
                         t1: std::f64::consts::TAU,
                     }]]),
-                    layer,
+                    "0",
                     Some(i),
                 );
                 i
             };
-            Some(self.blocks[i].record)
+            Some(i)
         } else if arrow_size > 0. && (arrow_size - crate::dims::ARROW).abs() > 1e-9 {
             // Short shafts shorten the head, but the renderer keeps its 0.45 mm half width.
             // A normalized block preserves that shape when the reader scales the arrow.
@@ -983,26 +949,102 @@ impl Writer {
                     &Item::Face(vec![
                         points.windows(2).map(|p| Curve::Line(p[0], p[1])).collect(),
                     ]),
-                    layer,
+                    "0",
                     Some(i),
                 );
                 i
             };
-            Some(self.blocks[i].record)
+            Some(i)
         } else {
             None
+        }
+    }
+
+    fn multileader(&mut self, leader: &Leader, text: &[&TextRun], layer: &str) -> u64 {
+        let r = text[0];
+        let height = text_height(r);
+        let (sin, cos) = r.rotation.to_radians().sin_cos();
+        let mut at = r.at;
+        let wrapped = text.len() > 1 && leader.text_at.is_some();
+        // MULTILEADER's attachment point is 1..=3 (top left/centre/right), not
+        // MTEXT's nine-point enum. Normalize middle/baseline runs to a top anchor.
+        let top = if r.v_align == VAlign::Baseline {
+            height
+        } else {
+            height / 2.
         };
+        at = [at[0] - sin * top, at[1] + cos * top];
+        let alignment = match r.h_align {
+            HAlign::Left => 1,
+            HAlign::Center => 2,
+            HAlign::Right => 3,
+        };
+        let width = if wrapped {
+            text.iter()
+                .map(|run| {
+                    let shift = (run.at[0] - r.at[0]) * cos + (run.at[1] - r.at[1]) * sin;
+                    text_advance(run) + 2. * shift.abs() + 2. * height
+                })
+                .fold(0_f64, f64::max)
+        } else {
+            0.
+        };
+        let content = text
+            .iter()
+            .map(|run| {
+                let mut content = format!(
+                    "{{\\W{:.6};{}}}",
+                    text_width(run),
+                    symbol_text(&asme_words(&run.text), false)
+                );
+                if wrapped {
+                    // Both indents are non-negative: AutoCAD clamps negative indents.
+                    // Their difference translates a centred paragraph without moving
+                    // the source run's centre. The wide box prevents an extra wrap.
+                    let shift =
+                        ((run.at[0] - r.at[0]) * cos + (run.at[1] - r.at[1]) * sin) / height;
+                    let left = (2. * shift).max(0.);
+                    let right = (-2. * shift).max(0.);
+                    content = format!("\\pxi0,l{left:.9},r{right:.9},qc;{content}");
+                }
+                content
+            })
+            .collect::<Vec<_>>()
+            .join("\\P");
+        let arrow_size = leader
+            .arrows
+            .first()
+            .map_or(if leader.dot { 1. } else { 0. }, |[a, b]| {
+                (b[0] - a[0]).hypot(b[1] - a[1])
+            });
+        let arrow_block = self.leader_arrow_block(arrow_size, leader.dot);
         let paths = leader_paths(&leader.lines);
+        let paths: Vec<_> = paths
+            .iter()
+            .map(|vertices| mleader_path(vertices, [cos, sin], r.at))
+            .collect();
+        let dogleg_length = paths.iter().map(|p| p.dogleg_length).fold(0_f64, f64::max);
+        let half = match r.h_align {
+            HAlign::Left => 0.,
+            HAlign::Center => 0.5,
+            HAlign::Right => 1.,
+        };
+        let left = half * text_advance(r);
+        let base = [
+            at[0] - cos * left + sin * height / 2.,
+            at[1] - sin * left - cos * height / 2.,
+        ];
+
         let (h, mut t) = self.entity("MULTILEADER", layer, None);
         t.tag(100, "AcDbMLeader");
         t.tag(270, 2);
         t.tag(300, "CONTEXT_DATA{");
         t.tag(40, 1);
-        t.point(10, at);
+        t.point(10, base);
         t.tag(41, height);
         t.tag(140, arrow_size);
         t.tag(145, 0);
-        for (c, v) in [(174, 0), (175, 0), (176, 0), (177, 0), (290, 1)] {
+        for (c, v) in [(174, 1), (175, 1), (176, 0), (177, 0), (290, 1)] {
             t.tag(c, v);
         }
         t.tag(304, content);
@@ -1019,40 +1061,37 @@ impl Writer {
             ((next.at[0] - r.at[0]) * sin - (next.at[1] - r.at[1]) * cos).abs() / (height * 5. / 3.)
         });
         t.tag(45, spacing);
-        for (c, v) in [
-            (170, 2),
-            (90, -1073741824),
-            (171, alignment),
-            (172, 1),
-            (91, -1073741824),
-            (92, 0),
-            (291, 0),
-            (292, 0),
-            (173, 0),
-            (293, 0),
-            (294, 0),
-            (295, 0),
-        ] {
-            t.tag(c, v);
-        }
+        t.tag(170, 2);
+        t.tag(90, -1073741824);
+        t.tag(171, alignment);
+        t.tag(172, 1);
+        t.tag(91, -1073741824);
+        // CONTEXT_DATA is positional: keep Autodesk/ezdxf's MTextData order.
         t.tag(141, 1.5);
+        t.tag(92, 0);
+        t.tag(291, 0);
+        t.tag(292, 0);
+        t.tag(173, 0);
+        t.tag(293, 0);
         t.tag(142, 0);
         t.tag(143, 0);
+        t.tag(294, 0);
+        t.tag(295, 1);
         t.tag(296, 0);
         t.point(110, [0., 0.]);
         t.point(111, [1., 0.]);
         t.point(112, [0., 1.]);
         t.tag(297, 0);
-        for (index, vertices) in paths.iter().enumerate() {
+        for (index, path) in paths.iter().enumerate() {
             t.tag(302, "LEADER{");
             t.tag(290, 1);
-            t.tag(291, 0);
-            t.point(10, *vertices.last().unwrap());
-            t.point(11, [1., 0.]);
+            t.tag(291, 1);
+            t.point(10, path.connection);
+            t.point(11, path.dogleg);
             t.tag(90, index);
-            t.tag(40, 0);
+            t.tag(40, path.dogleg_length);
             t.tag(304, "LEADER_LINE{");
-            for p in vertices {
+            for p in &path.vertices {
                 t.point(10, *p);
             }
             t.tag(91, index);
@@ -1065,23 +1104,23 @@ impl Writer {
         t.tag(273, 9);
         t.tag(301, "}");
         t.handle(340, self.mleader_style);
-        t.tag(90, 0x3fff_ffff);
+        t.tag(90, 0x7fff_ffff);
         t.tag(170, 1);
         t.tag(91, -1073741824);
         t.tag(341, "__CONTINUOUS__");
         t.tag(171, -1); // ByLayer, like the original leader strokes
-        t.tag(290, 0);
-        t.tag(291, 0);
-        t.tag(41, 0);
+        t.tag(290, 1);
+        t.tag(291, usize::from(dogleg_length > 0.));
+        t.tag(41, dogleg_length);
         if let Some(arrow) = arrow_block {
-            t.handle(342, arrow);
+            t.handle(342, self.blocks[arrow].record);
         }
         t.tag(42, arrow_size);
         t.tag(172, 2);
         t.tag(343, format!("__TEXTSTYLE_{}__", text_font(r)));
         for (c, v) in [
-            (173, 0),
-            (95, 0),
+            (173, 1),
+            (95, 1),
             (174, 1),
             (175, 0),
             (92, -1073741824),
@@ -1210,23 +1249,23 @@ impl Writer {
                         cell.chars().count() as f64 / words.chars().count() as f64
                     };
                 let content = format!("{{\\W{width:.6};{}}}", symbol_text(&words, false));
+                // AutoCAD's 2007+ AcValue payload, as in ezdxf's
+                // AutoCAD-authored examples_dxf/acad_table_simple.dxf.
+                // 1/2 stores the string value; 302 stores the formatted display string.
+                t.tag(92, 0);
+                t.tag(301, "CELL_VALUE");
+                t.tag(93, 2);
+                t.tag(90, 4); // AcValue data type: string
                 t.long_text(2, 1, &content);
-                t.tag(7, style(crate::dims::FONT));
-                t.tag(140, crate::tables::TEXT * 0.698);
-                t.tag(170, if table.left_aligned { 4 } else { 5 });
-                t.tag(64, 0);
-                t.tag(63, 7);
-                t.tag(283, 0);
-                for code in [289, 285, 286, 288] {
-                    t.tag(code, usize::from(table.ruled));
-                }
+                t.tag(94, 0);
+                t.tag(300, "");
+                t.tag(302, content);
+                t.tag(304, "ACVALUE_END");
             }
         }
-        t.tag(70, 0);
-        t.tag(40, crate::tables::PAD);
-        t.tag(41, margin);
-        t.tag(280, usize::from(!table.title_row));
-        t.tag(281, usize::from(!table.header_row));
+        // All appearance and row-role defaults come from this table's TABLESTYLE.
+        // The table/cell override masks are zero, so no override properties follow.
+
         self.put(t, None);
         h
     }
@@ -1239,6 +1278,52 @@ fn text_height(r: &TextRun) -> f64 {
             .map_or(0.7, |f| {
                 f.capital_height().unwrap_or(700) as f64 / f.units_per_em() as f64
             })
+}
+fn text_advance(r: &TextRun) -> f64 {
+    font_data(&r.font)
+        .and_then(|b| ttf_parser::Face::parse(b, 0).ok())
+        .map_or(0., |face| {
+            r.text
+                .chars()
+                .map(|c| {
+                    let glyph =
+                        crate::text::Font::glyph(&face, c).unwrap_or(ttf_parser::GlyphId(0));
+                    face.glyph_hor_advance(glyph).unwrap_or(0) as f64 * r.size
+                        / face.units_per_em() as f64
+                })
+                .sum()
+        })
+}
+struct MLeaderPath {
+    vertices: Vec<P>,
+    connection: P,
+    dogleg: P,
+    dogleg_length: f64,
+}
+fn mleader_path(vertices: &[P], axis: P, text: P) -> MLeaderPath {
+    let last = *vertices.last().unwrap();
+    let before = vertices[vertices.len() - 2];
+    let d = [last[0] - before[0], last[1] - before[1]];
+    let length = d[0].hypot(d[1]);
+    // Only an explicit final shelf becomes a dogleg. Single straight leaders,
+    // including origin axes, retain their full line and have no extra segment.
+    let shelf =
+        vertices.len() >= 3 && length > 0. && (d[0] * axis[1] - d[1] * axis[0]).abs() < 1e-9;
+    let side = if (text[0] - last[0]) * axis[0] + (text[1] - last[1]) * axis[1] >= 0. {
+        1.
+    } else {
+        -1.
+    };
+    MLeaderPath {
+        vertices: vertices[..vertices.len() - if shelf { 2 } else { 1 }].to_vec(),
+        connection: if shelf { before } else { last },
+        dogleg: if shelf {
+            [d[0] / length, d[1] / length]
+        } else {
+            [side * axis[0], side * axis[1]]
+        },
+        dogleg_length: if shelf { length } else { 0. },
+    }
 }
 fn text_width(r: &TextRun) -> f64 {
     let words = asme_words(&r.text);
@@ -2160,7 +2245,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
             "ACDB_MLEADERSTYLE_CLASS",
             4095,
             0,
-            1,
+            2,
         ),
         (
             "ACAD_TABLE",
@@ -2176,7 +2261,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
             "ObjectDBX Classes",
             4095,
             0,
-            1 + w.table_styles.len(),
+            2 + w.table_styles.len(),
         ),
     ] {
         out.tag(0, "CLASS");
@@ -2452,72 +2537,70 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     out.tag(3, "ACAD_TABLESTYLE");
     out.handle(350, table_dict);
     dictionary(&mut out, mleader_dict, root);
+    out.tag(3, "Standard");
+    out.handle(350, 0x102);
     out.tag(3, "Draftwright");
     out.handle(350, w.mleader_style);
     dictionary(&mut out, table_dict, root);
+    out.tag(3, "Standard");
+    out.handle(350, 0x103);
     out.tag(3, "Draftwright");
     out.handle(350, w.table_style);
     for s in &w.table_styles {
         out.tag(3, format!("Draftwright_{:X}", s.id));
         out.handle(350, s.id);
     }
-    out.tag(0, "MLEADERSTYLE");
-    out.handle(5, w.mleader_style);
-    out.tag(102, "{ACAD_REACTORS");
-    out.handle(330, mleader_dict);
-    out.tag(102, "}");
-    out.handle(330, mleader_dict);
-    out.tag(100, "AcDbMLeaderStyle");
-    for (c, v) in [
-        (179, 2),
-        (170, 2),
-        (171, 1),
-        (172, 0),
-        (90, 0),
-        (173, 1),
-        (91, -1073741824),
-        (92, -1),
-        (290, 0),
-        (291, 0),
-        (174, 0),
-        (175, 1),
-        (176, 0),
-        (178, 0),
-        (93, -1073741824),
-        (292, 0),
-        (297, 0),
-        (293, 0),
-        (94, -1073741824),
-        (294, 1),
-        (177, 0),
-        (295, 0),
-        (296, 0),
-        (271, 0),
-        (272, 9),
-        (273, 9),
-    ] {
-        out.tag(c, v);
-    }
-    out.tag(3, "Draftwright");
-    out.tag(300, "");
-    out.handle(340, continuous);
-    out.handle(342, textstyles[crate::dims::FONT]);
-    for (c, v) in [
-        (40, 0.),
-        (41, 0.),
-        (42, 0.),
-        (43, 0.),
-        (44, crate::dims::ARROW),
-        (45, crate::dims::TEXT * 0.698),
-        (46, 0.),
-        (47, 1.),
-        (49, 1.),
-        (140, 1.),
-        (141, 0.),
-        (142, 1.),
-        (143, 0.),
-    ] {
-        out.tag(c, v);
+    for (id, name) in [(0x102, "Standard"), (w.mleader_style, "Draftwright")] {
+        out.tag(0, "MLEADERSTYLE");
+        out.handle(5, id);
+        out.tag(102, "{ACAD_REACTORS");
+        out.handle(330, mleader_dict);
+        out.tag(102, "}");
+        out.handle(330, mleader_dict);
+        out.tag(100, "AcDbMLeaderStyle");
+        // Canonical AcDbMLeaderStyle order (Autodesk and ezdxf's reference).
+        out.tag(179, 2);
+        out.tag(170, 2);
+        out.tag(171, 1);
+        out.tag(172, 0);
+        out.tag(90, 2);
+        out.tag(40, 0.);
+        out.tag(41, 0.);
+        out.tag(173, 1);
+        out.tag(91, -1073741824);
+        out.handle(340, continuous);
+        out.tag(92, -1);
+        out.tag(290, 1);
+        out.tag(42, 0.);
+        out.tag(291, 1);
+        out.tag(43, 3.);
+        out.tag(3, name);
+        out.tag(44, crate::dims::ARROW);
+        out.tag(300, "");
+        out.handle(342, textstyles[crate::dims::FONT]);
+        out.tag(174, 1);
+        out.tag(175, 1);
+        out.tag(176, 0);
+        out.tag(178, 1);
+        out.tag(93, -1073741824);
+        out.tag(45, crate::dims::TEXT * 0.698);
+        out.tag(292, 0);
+        out.tag(297, 0);
+        out.tag(46, 0.);
+        out.tag(94, -1073741824);
+        out.tag(47, 1.);
+        out.tag(49, 1.);
+        out.tag(140, 1.);
+        out.tag(294, 1);
+        out.tag(141, 0.);
+        out.tag(177, 0);
+        out.tag(142, 1.);
+        out.tag(295, 0);
+        out.tag(296, 0);
+        out.tag(143, 0.);
+        out.tag(271, 0);
+        out.tag(272, 9);
+        out.tag(273, 9);
     }
     for TableStyle {
         id,
@@ -2534,6 +2617,14 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         title: false,
         header: true,
     })
+    .chain(std::iter::once(TableStyle {
+        id: 0x103,
+        margin: crate::tables::PAD,
+        ruled: true,
+        left: false,
+        title: false,
+        header: true,
+    }))
     .chain(w.table_styles.iter().copied())
     {
         out.tag(0, "TABLESTYLE");
@@ -2544,7 +2635,14 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         out.handle(330, table_dict);
         out.tag(100, "AcDbTableStyle");
         out.tag(280, 0);
-        out.tag(3, "Draftwright");
+        out.tag(
+            3,
+            if id == 0x103 {
+                "Standard"
+            } else {
+                "Draftwright"
+            },
+        );
         out.tag(70, 0);
         out.tag(71, 0);
         out.tag(40, crate::tables::PAD);
@@ -3053,12 +3151,132 @@ mod native_annotation_tests {
                     .collect::<Vec<_>>();
                 let left: f64 = props[1][1..].parse().unwrap();
                 let right: f64 = props[2][1..].parse().unwrap();
+                assert!(left >= 0. && right >= 0., "AutoCAD-safe paragraph indents");
                 assert!(
                     ((left - right) * height / 2. + 15.).abs() < 1e-8,
                     "the second row must keep its planned centre, 15 mm before the first"
                 );
             }
         }
+    }
+
+    #[test]
+    fn mleader_uses_reference_context_order_and_explicit_connections_on_both_sides() {
+        for (points, at, expected_direction, length) in [
+            (vec![[1.0001, 2.], [3., 4.]], [5., 4.], [1., 0.], 0.),
+            (vec![[1., 2.], [3., 4.], [6., 4.]], [10., 4.], [1., 0.], 3.),
+            (
+                vec![[20., 2.], [17., 4.], [14., 4.]],
+                [10., 4.],
+                [-1., 0.],
+                3.,
+            ),
+        ] {
+            let run = TextRun {
+                text: "C5".into(),
+                at,
+                size: 3.,
+                rotation: 0.,
+                font: crate::dims::FONT.into(),
+                h_align: HAlign::Center,
+                v_align: VAlign::Middle,
+            };
+            let leader = Leader {
+                lines: points.windows(2).map(|p| [p[0], p[1]]).collect(),
+                arrows: vec![[points[0], [points[0][0] + 1., points[0][1]]]],
+                ..Default::default()
+            };
+            let mut w = Writer::new();
+            w.multileader(&leader, &[&run], DIMS);
+            let tags = pairs(&w.entities);
+            let begin = tags.iter().position(|t| t.0 == 304).unwrap();
+            let end = tags.iter().position(|t| t.0 == 296).unwrap();
+            assert_eq!(
+                tags[begin..end].iter().map(|t| t.0).collect::<Vec<_>>(),
+                [
+                    304, 11, 21, 31, 340, 12, 22, 32, 13, 23, 33, 42, 43, 44, 45, 170, 90, 171,
+                    172, 91, 141, 92, 291, 292, 173, 293, 142, 143, 294, 295
+                ]
+            );
+            let group = tags.iter().position(|t| t.0 == 302).unwrap();
+            let line = tags[group..].iter().position(|t| t.0 == 304).unwrap() + group;
+            let number = |part: &[(i32, String)], code| {
+                part.iter()
+                    .find(|t| t.0 == code)
+                    .unwrap()
+                    .1
+                    .parse::<f64>()
+                    .unwrap()
+            };
+            assert_eq!(number(&tags[group..line], 290), 1.);
+            assert_eq!(number(&tags[group..line], 291), 1.);
+            assert_eq!(
+                [
+                    number(&tags[group..line], 11),
+                    number(&tags[group..line], 21)
+                ],
+                expected_direction
+            );
+            assert_eq!(number(&tags[group..line], 40), length);
+            assert_eq!(
+                tags[line..]
+                    .iter()
+                    .take_while(|t| t.0 != 305)
+                    .filter(|t| t.0 == 10)
+                    .count(),
+                1
+            );
+            let connection = [
+                number(&tags[group..line], 10),
+                number(&tags[group..line], 20),
+            ];
+            assert_eq!(
+                connection,
+                points[if length > 0. { 1 } else { points.len() - 1 }]
+            );
+            assert_eq!(
+                [
+                    connection[0] + expected_direction[0] * length,
+                    connection[1] + expected_direction[1] * length
+                ],
+                *points.last().unwrap()
+            );
+            assert_eq!(number(&tags[begin..end], 171), 2.);
+            assert_eq!(tags.iter().find(|t| t.0 == 179).unwrap().1, "2");
+            assert!((number(&tags[begin..end], 22) - at[1] - text_height(&run) / 2.).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn graphic_only_leader_keeps_its_dot_and_arrow_blocks_inherit_byblock() {
+        let mut w = Writer::new();
+        w.weight = Some(50);
+        w.colour = Some(0xff0000);
+        let leader = Leader {
+            lines: vec![[[2., 3.], [4., 5.]]],
+            dot: true,
+            ..Default::default()
+        };
+        assert_eq!(w.frame_leader(&leader, None, "STANDARD", DIMS).len(), 2);
+        let tags = pairs(&w.entities);
+        let insert = tags
+            .split(|t| t.0 == 0)
+            .find(|t| t.contains(&(100, "AcDbBlockReference".into())))
+            .unwrap();
+        assert!(insert.contains(&(2, "DW_LEADER_DOT".into())));
+        assert!(insert.contains(&(10, "2".into())) && insert.contains(&(20, "3".into())));
+        w.leader_arrow_block(1., false).unwrap();
+        assert_eq!(w.blocks.len(), 2);
+        for block in &w.blocks {
+            let ink = pairs(&block.entities);
+            assert!(ink.contains(&(8, "0".into())));
+            assert!(ink.contains(&(62, "0".into())));
+            assert!(ink.contains(&(370, "-2".into())));
+            assert!(!ink.iter().any(|t| t.0 == 420));
+        }
+        assert!(pairs(&w.blocks[0].entities).contains(&(40, "0.3".into())));
+        let arrow = pairs(&w.blocks[1].entities);
+        assert!(arrow.contains(&(21, crate::dims::ARROW_HALF.to_string())));
     }
 
     #[test]
@@ -3095,7 +3313,13 @@ mod native_annotation_tests {
         );
         let tags = pairs(&w.entities);
         assert_eq!(tags.iter().rev().find(|t| t.0 == 280).unwrap().1, "0");
-        assert!(tags.contains(&(281, "1".into())));
+        assert_eq!(tags.iter().filter(|t| t.0 == 280).count(), 1);
+        assert!(!tags.iter().any(|t| {
+            [
+                7, 140, 170, 64, 63, 283, 289, 285, 286, 288, 70, 40, 41, 281,
+            ]
+            .contains(&t.0)
+        }));
         assert_eq!(
             tags.iter()
                 .filter(|t| t.0 == 141)
@@ -3111,11 +3335,24 @@ mod native_annotation_tests {
             .map(|t| t.1.as_str())
             .collect();
         assert_eq!(chunks.matches("long editable text").count(), 40);
-        assert!(tags.iter().filter(|t| t.0 == 170).all(|t| t.1 == "4"));
-        assert!(
+        let displays: Vec<_> = tags
+            .iter()
+            .filter(|t| t.0 == 302)
+            .map(|t| t.1.as_str())
+            .collect();
+        assert_eq!(displays.len(), 2);
+        assert_eq!(displays[1].matches("long editable text").count(), 40);
+        assert_eq!(
             tags.iter()
-                .filter(|t| [285, 286, 288, 289].contains(&t.0))
-                .all(|t| t.1 == "0")
+                .filter(|t| t.0 == 301 && t.1 == "CELL_VALUE")
+                .count(),
+            2
+        );
+        assert_eq!(
+            tags.iter()
+                .filter(|t| t.0 == 304 && t.1 == "ACVALUE_END")
+                .count(),
+            2
         );
         let graphics = &w.blocks[0];
         assert_eq!(graphics.at, [0., 0.]);

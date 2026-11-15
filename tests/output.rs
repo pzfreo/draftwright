@@ -423,6 +423,43 @@ fn general_notes_reach_the_pdf_text_layer() {
         svg.iter().any(|t| t == "1  BREAK ALL SHARP EDGES"),
         "{svg:?}"
     );
+    // Keep a wrapped note's exact line anchors and row pitch. A single MTEXT cell
+    // would use font leading instead, changing these baselines and ruled divisions.
+    let native = &drawing.sheet.dxf.tables["general_notes"][0];
+    let expected: Vec<_> = std::iter::once(vec!["GENERAL NOTES".to_string()])
+        .chain(
+            plan.notes
+                .iter()
+                .filter(|n| n.placed.is_some())
+                .flat_map(|n| n.rows.iter().map(|r| vec![r.clone()])),
+        )
+        .collect();
+    assert_eq!(native.rows, expected);
+    let positions: Vec<_> = native
+        .placed
+        .cells_at
+        .iter()
+        .skip(1)
+        .map(|r| r[0].unwrap())
+        .collect();
+    let planned: Vec<_> = plan
+        .notes
+        .iter()
+        .filter_map(|n| n.placed.as_ref())
+        .flat_map(|p| p.rows_at.iter().copied())
+        .collect();
+    assert_eq!(positions, planned);
+    let row_height = (native.placed.cells[3] - native.placed.cells[1]) / native.rows.len() as f64;
+    assert_eq!(row_height, draftwright::notes::ROW);
+    assert!(row_height > 3. * 0.698 * 5. / 3.);
+    let pairs = dxf_pairs(&drawing.dxf());
+    assert_eq!(
+        pairs
+            .iter()
+            .filter(|p| **p == (301, "CELL_VALUE".into()))
+            .count(),
+        native.rows.len()
+    );
 }
 
 /// Native entities replace the old glyph-curve DXF contract. Read with the Rust
