@@ -221,6 +221,17 @@ fn circle(c: P2, r: f64) -> [f64; 5] {
     [c[0], c[1], r, 0.0, 360.0]
 }
 
+/// The rendered filled arrowhead, shared by scope-bend grading and output.
+fn arrow_vertices([tip, tail]: [P2; 2]) -> [P2; 3] {
+    let n = [tail[1] - tip[1], tip[0] - tail[0]];
+    let k = ARROW_HALF / n[0].hypot(n[1]).max(1e-12);
+    [
+        tip,
+        [tail[0] + k * n[0], tail[1] + k * n[1]],
+        [tail[0] - k * n[0], tail[1] - k * n[1]],
+    ]
+}
+
 /// The width of *s*'s ink at *size* in the sheet's font (IBM Plex Sans Condensed): the width
 /// haecceity's shared notation measures cells with, so frames, labels and surface texture
 /// symbols are sized for the ink the sheet draws.
@@ -570,15 +581,31 @@ fn clear_ring_bend(c: Candidate, obstacles: &Obstacles<'_>) -> Candidate {
     } else {
         -1.0
     };
+    let score = |candidate: &Candidate, best| {
+        let mut grade = obstacles.grade(candidate, best);
+        grade.2 += candidate
+            .arrows
+            .iter()
+            .copied()
+            .map(arrow_vertices)
+            .filter(|head| {
+                obstacles
+                    .heads
+                    .iter()
+                    .any(|other| polygons_touch(head, other))
+            })
+            .count();
+        grade
+    };
     let mut best = c.clone();
-    let mut grade = obstacles.grade(&best, None);
+    let mut grade = score(&best, None);
     for step in 1..=3 {
         if grade == (0, 0, 0) {
             break;
         }
         let mut next = c.clone();
         next.move_bend(-dir * step as f64 * SHELF);
-        let next_grade = obstacles.grade(&next, Some(grade));
+        let next_grade = score(&next, Some(grade));
         if next_grade < grade {
             best = next;
             grade = next_grade;
@@ -1096,6 +1123,8 @@ struct Obstacles<'a> {
     triangles: Vec<Vec<P2>>,
     labels: Vec<[f64; 4]>,
     lines: Vec<[P2; 2]>,
+    /// Filled peer arrowheads; scope bends must separate the flares as well as shafts.
+    heads: Vec<[P2; 3]>,
     /// Control-frame shafts, independently of ordinary dimension witnesses.
     frame_leaders: Vec<[P2; 2]>,
 }
@@ -1760,6 +1789,11 @@ fn plan_search(
                 .copied()
         })
         .collect();
+    let mut heads: Vec<_> = dims
+        .iter()
+        .filter_map(|d| d.placed.as_ref())
+        .flat_map(|p| p.arrows.iter().copied().map(arrow_vertices))
+        .collect();
     let control_ids: BTreeSet<_> = items
         .iter()
         .filter(|i| matches!(i.glyph, Glyph::ControlFrame { .. }))
@@ -1918,6 +1952,7 @@ fn plan_search(
                 triangles.extend(p.fills.iter().cloned());
             }
             lines.extend(p.lines.iter().copied());
+            heads.extend(p.arrows.iter().copied().map(arrow_vertices));
             if matches!(item.glyph, Glyph::ControlFrame { .. }) {
                 frame_leaders.extend(p.lines.iter().copied());
             }
@@ -1972,6 +2007,7 @@ fn plan_search(
                 .collect(),
             labels: labels.clone(),
             lines: lines.clone(),
+            heads: heads.clone(),
             frame_leaders: frame_leaders.clone(),
         };
         let sides: Vec<&str> = if shape != Shape::Frame || intent.is_some_and(|p| p.side.is_some())
@@ -2245,6 +2281,7 @@ fn plan_search(
                     triangles.extend(p.fills.iter().cloned());
                 }
                 lines.extend(p.lines.iter().copied());
+                heads.extend(p.arrows.iter().copied().map(arrow_vertices));
                 if matches!(item.glyph, Glyph::ControlFrame { .. }) {
                     frame_leaders.extend(p.lines.iter().copied());
                 }
@@ -2296,6 +2333,7 @@ fn plan_search(
             triangles.extend(chosen.fills.iter().cloned());
         }
         lines.extend(chosen.lines.iter().copied());
+        heads.extend(chosen.arrows.iter().copied().map(arrow_vertices));
         if chosen.frame_rule {
             frame_leaders.extend(chosen.lines.iter().copied());
         }
@@ -2677,15 +2715,12 @@ pub fn render(
             )
         });
     }
-    for [tip, tail] in &p.arrows {
-        let n = [tail[1] - tip[1], tip[0] - tail[0]];
-        let k = ARROW_HALF / n[0].hypot(n[1]).max(1e-12);
-        let b1 = [tail[0] + k * n[0], tail[1] + k * n[1]];
-        let b2 = [tail[0] - k * n[0], tail[1] - k * n[1]];
+    for &arrow in &p.arrows {
+        let [tip, b1, b2] = arrow_vertices(arrow);
         items.push(Item::Face(vec![vec![
-            Curve::Line(*tip, b1),
+            Curve::Line(tip, b1),
             Curve::Line(b1, b2),
-            Curve::Line(b2, *tip),
+            Curve::Line(b2, tip),
         ]]));
     }
     for f in &p.fills {
@@ -3223,6 +3258,7 @@ mod tests {
                     triangles: Vec::new(),
                     labels: Vec::new(),
                     lines: Vec::new(),
+                    heads: Vec::new(),
                     frame_leaders: Vec::new(),
                 };
                 assert_eq!(obstacles.clearance_grade(&c), 0);
@@ -3264,6 +3300,7 @@ mod tests {
             triangles: Vec::new(),
             labels: Vec::new(),
             lines: vec![[[80., 80.75], [80., 87.25]]],
+            heads: vec![arrow_vertices(placement::arrow([80., 80.75], [80., 87.25]))],
             frame_leaders: Vec::new(),
         };
         assert!(obstacles.grade(&c, None).2 > 0);
@@ -3272,6 +3309,10 @@ mod tests {
         assert_eq!(next.origin, c.origin);
         assert_eq!(next.lines[0][0], c.lines[0][0]);
         assert_eq!(obstacles.grade(&next, None), (0, 0, 0));
+        assert!(!polygons_touch(
+            &arrow_vertices(next.arrows[0]),
+            &obstacles.heads[0]
+        ));
         assert!(next.lines[1][1][0] - next.elbow[0] > c.lines[1][1][0] - c.elbow[0]);
     }
 
@@ -3425,6 +3466,7 @@ mod tests {
                 .chain(first.fills.iter().map(|f| fill_box(f)))
                 .collect(),
             lines: first.lines.clone(),
+            heads: Vec::new(),
             frame_leaders: Vec::new(),
         };
         // The letter boxes and shafts are disjoint in every case. Identical,
@@ -3466,6 +3508,7 @@ mod tests {
             triangles: Vec::new(),
             labels: vec![[40.0, 180.25, 45.0, 185.25]],
             lines: Vec::new(),
+            heads: Vec::new(),
             frame_leaders: Vec::new(),
         };
         // The shaft misses the box, but its 0.25 mm gap reads as touching text.
@@ -3500,6 +3543,7 @@ mod tests {
             triangles: Vec::new(),
             // Both left-hand tiers cross this label on their way from the face.
             labels: vec![[57., 80., 59., 85.], right.label_box],
+            heads: Vec::new(),
             frame_leaders: right.lines.clone(),
             lines: right.lines,
         };
