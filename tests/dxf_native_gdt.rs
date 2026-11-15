@@ -59,7 +59,10 @@ fn decode(s: &str) -> Vec<String> {
                 rest = &rest[i + 7 + g.len_utf8() + 1..];
             }
             out.push_str(rest);
-            out.replace("%%c", "⌀").replace('X', "×")
+            out.replace("%%c", "⌀")
+                .replace("%%d", "°")
+                .replace("%%p", "±")
+                .replace('X', "×")
         })
         .collect()
 }
@@ -517,6 +520,7 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
                 .replace('⌴', "CBORE")
                 .replace('⌵', "CSK")
                 .replace(['ø', 'Ø'], "⌀")
+                .replace(['−', '–', '—'], "-")
                 .replace('Ⓕ', "(F)")
                 .replace('Ⓜ', "(M)")
                 .replace('Ⓛ', "(L)")
