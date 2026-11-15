@@ -1096,12 +1096,23 @@ fn overall(
     }
     // A thread or knurl the bands it states carry follows the diameter (beyond draftwright,
     // whose overall diameter prints none and whose lint then finds the requirement not drawn).
-    if let Some((f, _)) = share.first() {
-        // An external thread's designation stands in place of the diameter (ISO 6410).
-        if share.len() == 1 && manufacturing.replaces_diameter(&f.id) {
+    let mut manufacturing_ids = ids(share);
+    if share.is_empty() {
+        // A plain shaft has a turned_body and no step band. Its proven full cylinder's
+        // thread/knurl is stated by this same overall diameter.
+        manufacturing_ids.extend(
+            cx.analysis
+                .features
+                .iter()
+                .filter(|f| f.kind == "turned_body" && !manufacturing.on(&f.id).is_empty())
+                .map(|f| f.id.as_str()),
+        );
+    }
+    if let Some(id) = manufacturing_ids.first() {
+        if manufacturing_ids.len() == 1 && manufacturing.replaces_diameter(id) {
             terms.clear();
         }
-        terms.extend(manufacturing.terms(&f.id).0);
+        terms.extend(manufacturing.terms(id).0);
     }
     let mut measurements = vec![Measurement {
         feature: "envelope".into(),
@@ -1124,7 +1135,7 @@ fn overall(
         parameter: "step.diameter".into(),
         value: b.diameter,
     }));
-    measurements.extend(claims(manufacturing, ids(share), t.diameter));
+    measurements.extend(claims(manufacturing, manufacturing_ids.clone(), t.diameter));
     let stands = match share.len() {
         0 => String::new(),
         1 => "; it is also the diameter of the one band that size".into(),
@@ -1141,7 +1152,7 @@ fn overall(
         basis: format!(
             "the part is turned whole about {}: its largest diameter is its overall size across the axis, in a view that shows the profile{stands}{}",
             AXES[t.axis],
-            carries(manufacturing, &ids(share), "turned step")
+            carries(manufacturing, &manufacturing_ids, if share.is_empty() { "turned body" } else { "turned step" })
         ),
         shape: Shape::Linear {
             a: corner(radial, lo[radial], lo),

@@ -3,11 +3,14 @@ import json
 import os
 import re
 import io
+import math
 from pathlib import Path
 
 from . import _native
 
-_FIT = re.compile(r"^(JS|js|H|[fghkmnp])(\d{1,2})$")
+_LETTERS = "A B C CD D E EF F FG G H JS J K M N P R S T U V X Y Z ZA ZB ZC".split()
+_FIT = re.compile(r"^(?:" + "|".join(_LETTERS + [s.lower() for s in _LETTERS])
+                  + r")(?:01|0|[1-9]|1[0-8])$")
 _TOL = 1e-4
 
 
@@ -36,56 +39,167 @@ class Datum(_Ref):
 
 
 class FaceRef(_Ref):
-    def flatness(self, tolerance):
-        self._part._pmi.flatness(self.faces, _number(tolerance))
-        return self
+    @property
+    def _targets(self):
+        return self.faces
 
-    def finish(self, ra):
-        self._part._pmi.finish(self.faces, _finish(ra))
-        return self
-
-
-class HoleRef(_Ref):
-    def __init__(self, part, faces, label, bores):
-        super().__init__(part, faces, label)
-        self.bores = bores  # the smallest-radius cylinders of each hole: what a fit or finish controls
-        self._function = None
-
-    def _set_function(self, kind, value):
-        if self._function not in (None, kind):
-            raise ValueError(f"{self.label}: a hole is either fitted or threaded, not both")
-        self._function = kind
-
-    def fit(self, fit):
-        if not _FIT.match(str(fit)):
-            raise ValueError(f"{self.label}: {fit!r} is not an ISO 286 fit class such as H7")
-        if not str(fit)[0].isupper():
-            raise ValueError(f"{self.label}: {fit!r} is a shaft fit; a hole takes a capital class such as H7")
-        self._set_function("fit", fit)
-        diameter = 2 * _radius(self._part._faces[self.bores[0]])
-        self._part._pmi.fit(self.bores, _number(diameter), str(fit))
-        return self
-
-    def finish(self, ra):
-        self._part._pmi.finish(self.bores, _finish(ra))
-        return self
-
-    def thread(self, size):
-        """State an internal ISO metric thread (e.g. M3x0.5-6H)."""
-        self._set_function("thread", size)
-        self._part._pmi.thread(self.bores, str(size))
-        return self
-
-    def position(self, tolerance, *datums):
-        """A diametral position tolerance relative to the named datums."""
+    def _control(self, kind, tolerance, datums=(), *, required=False, surfaces=None):
+        if required and not datums:
+            raise ValueError(f"{kind} requires at least one datum")
+        if surfaces and any(self._part._faces[i].geom_type.name not in surfaces for i in self._targets):
+            raise ValueError(f"{kind} requires {' or '.join(surfaces)} faces")
         if any(isinstance(d, Datum) and d._part is not self._part for d in datums):
             raise ValueError(f"{self.label}: a datum belongs to another Part")
         letters = [d.letter if isinstance(d, Datum) else str(d) for d in datums]
         for letter in letters:
             if letter not in self._part._datums:
                 raise ValueError(f"{self.label}: datum {letter} has not been declared")
-        self._part._pmi.position(self.bores, _number(tolerance), letters)
+            if set(self._part._datums[letter]) & set(self._targets):
+                raise ValueError(f"datum {letter} shares faces with the controlled feature")
+        kinds = {self._part._faces[i].geom_type.name for i in self._targets}
+        if kind in ("perpendicularity", "parallelism") and len(kinds) != 1:
+            raise ValueError(f"{kind} requires only planes or only cylinders")
+        cylindrical = kinds == {"CYLINDER"}
+        self._part._pmi.control(self._targets, kind, _number(tolerance), letters, cylindrical)
         return self
+
+    def flatness(self, tolerance):
+        return self._control("flatness", tolerance)
+
+    def perpendicularity(self, tolerance, *datums):
+        return self._control("perpendicularity", tolerance, datums, required=True,
+                             surfaces=("PLANE", "CYLINDER"))
+
+    def parallelism(self, tolerance, *datums):
+        return self._control("parallelism", tolerance, datums, required=True,
+                             surfaces=("PLANE", "CYLINDER"))
+
+    def cylindricity(self, tolerance):
+        return self._control("cylindricity", tolerance, surfaces=("CYLINDER",))
+
+    def circular_runout(self, tolerance, *datums):
+        return self._control("circular_runout", tolerance, datums, required=True,
+                             surfaces=("PLANE", "CYLINDER"))
+
+    def total_runout(self, tolerance, *datums):
+        return self._control("total_runout", tolerance, datums, required=True,
+                             surfaces=("PLANE", "CYLINDER"))
+
+    def profile_surface(self, tolerance, *datums):
+        return self._control("profile_surface", tolerance, datums)
+
+    def concentricity(self, tolerance, *datums):
+        return self._control("concentricity", tolerance, datums, required=True,
+                             surfaces=("CYLINDER",))
+
+    def finish(self, ra):
+        self._part._pmi.finish(self._targets, _finish(ra))
+        return self
+
+    def diameter(self, *, plus_minus=None, limits=None):
+        """Tolerance the measured cylinder diameter, in mm."""
+        faces, diameter, _ = self._part._cylinders(self._targets, "diameter")
+        lower, upper, is_limits = _bounds(diameter, plus_minus, limits)
+        self._part._pmi.dimension(faces, None, _number(diameter), lower, upper, is_limits)
+        return self
+
+
+class CylinderRef(FaceRef):
+    def __init__(self, part, faces, label, internal):
+        super().__init__(part, faces, label)
+        self.internal = internal
+
+    def fit(self, fit):
+        if not _FIT.fullmatch(str(fit)):
+            raise ValueError(f"{self.label}: {fit!r} is not an ISO 286 fit class such as H7 or h6")
+        if str(fit)[0].isupper() != self.internal:
+            if self.internal:
+                raise ValueError(f"{self.label}: {fit!r} is a shaft fit; a hole takes a capital class such as H7")
+            raise ValueError(f"{self.label}: a shaft takes a lower-case ISO 286 class such as h6")
+        _, diameter, _ = self._part._cylinders(self._targets, "fit")
+        self._part._pmi.fit(self._targets, _number(diameter), str(fit))
+        return self
+
+    def thread(self, size):
+        """State an ISO metric thread; defaults to 6H internally, 6g externally."""
+        extent = None
+        if not self.internal:
+            if len(self._targets) != 1:
+                raise ValueError("external thread requires one continuous cylindrical face")
+            from OCP.BRepAdaptor import BRepAdaptor_Surface
+            surface = BRepAdaptor_Surface(self._part._faces[self._targets[0]].wrapped)
+            extent = _number(surface.LastVParameter() - surface.FirstVParameter())
+        diameters = [_number(2 * _radius(self._part._faces[i])) for i in self._targets]
+        self._part._pmi.thread(self._targets, str(size), not self.internal, extent, diameters)
+        return self
+
+    def knurl(self, pitch, pattern="straight", *, teeth, helix_angle=None):
+        """A straight or diamond knurl on an external cylinder; linear pitch in mm."""
+        if self.internal:
+            raise ValueError("knurl requires an external cylinder, not a hole")
+        if len(self._targets) != 1:
+            raise ValueError("knurl requires one continuous cylindrical face")
+        _, diameter, _ = self._part._cylinders(self._targets, "knurl")
+        if pattern == "straight" and helix_angle is not None:
+            raise ValueError("a straight knurl takes no helix_angle")
+        if not isinstance(teeth, int) or isinstance(teeth, bool) or teeth <= 0:
+            raise ValueError("knurl teeth must be a positive integer")
+        self._part._pmi.knurl(self._targets, str(pattern), _number(pitch), _number(diameter),
+                              teeth, None if helix_angle is None else _number(helix_angle))
+        return self
+
+
+class HoleRef(CylinderRef):
+    def __init__(self, part, faces, label, bores):
+        super().__init__(part, faces, label, True)
+        self.bores = bores  # smallest-radius cylinders of each hole
+
+    @property
+    def _targets(self):
+        return self.bores
+
+    def fit(self, fit):
+        # Hole patterns can have several equal bores on separate axes.
+        if not _FIT.fullmatch(str(fit)):
+            raise ValueError(f"{self.label}: {fit!r} is not an ISO 286 fit class such as H7")
+        if not str(fit)[0].isupper():
+            raise ValueError(f"{self.label}: {fit!r} is a shaft fit; a hole takes a capital class such as H7")
+        diameters = [2 * _radius(self._part._faces[i]) for i in self.bores]
+        if max(diameters) - min(diameters) > _TOL:
+            raise ValueError("fit requires holes of the same diameter")
+        self._part._pmi.fit(self.bores, _number(diameters[0]), str(fit))
+        return self
+
+    def position(self, tolerance, *datums):
+        """A diametral position tolerance relative to the named datums."""
+        return self._control("position", tolerance, datums)
+
+
+class DistanceRef:
+    def __init__(self, part, faces, to, nominal):
+        self._part, self.faces, self.to, self.nominal = part, faces, to, nominal
+
+    def tolerance(self, *, plus_minus=None, limits=None):
+        """Tolerance the measured distance, in mm; limits are (lower, upper)."""
+        lower, upper, is_limits = _bounds(self.nominal, plus_minus, limits)
+        self._part._pmi.dimension(self.faces, self.to, _number(self.nominal), lower, upper, is_limits)
+        return self
+
+
+def _bounds(nominal, plus_minus, limits):
+    if (plus_minus is None) == (limits is None):
+        raise ValueError("state exactly one of plus_minus or limits=(lower, upper)")
+    if plus_minus is not None:
+        n = float(plus_minus)
+        if not math.isfinite(n) or n <= 0 or n >= nominal:
+            raise ValueError("plus_minus must be finite, positive and smaller than the nominal size")
+        return _number(-n), _number(n), False
+    if not isinstance(limits, (tuple, list)) or len(limits) != 2:
+        raise ValueError("limits must be (lower, upper) in mm")
+    lo, hi = map(float, limits)
+    if not (math.isfinite(lo) and math.isfinite(hi) and 0 <= lo < hi and lo <= nominal <= hi):
+        raise ValueError("limits must be finite, 0 <= lower < upper, and contain the nominal size")
+    return _number(limits[0]), _number(limits[1]), True
 
 
 def _axis(face):
@@ -162,6 +276,60 @@ class Part:
     def holes(self, obj, label=None):
         """One or more holes (e.g. the cutters of a ``GridLocations``)."""
         return self._hole(obj, label, single=False)
+
+    def cylinder(self, obj, label=None):
+        """One cylindrical size, internal or external; accepts a cylinder face or boss."""
+        indices = sorted({i for group in self._find(obj, "cylinder") for i in group
+                          if self._faces[i].geom_type.name == "CYLINDER"})
+        faces, _, internal = self._cylinders(indices, "cylinder")
+        faces = self._assign([faces], label or self._auto("cylinder"), "cylinder")
+        return CylinderRef(self, faces, self._last_label, internal)
+
+    def shaft(self, obj, label=None):
+        """An external cylinder, including a boss; holes are refused."""
+        indices = sorted({i for group in self._find(obj, "shaft") for i in group
+                          if self._faces[i].geom_type.name == "CYLINDER"})
+        faces, _, internal = self._cylinders(indices, "shaft")
+        if internal:
+            raise ValueError("shaft requires an external cylinder, not a hole")
+        faces = self._assign([faces], label or self._auto("shaft"), "shaft")
+        return CylinderRef(self, faces, self._last_label, False)
+
+    def _cylinders(self, indices, what):
+        if not indices or any(self._faces[i].geom_type.name != "CYLINDER" for i in indices):
+            raise ValueError(f"{what} requires cylindrical faces")
+        first = self._faces[indices[0]]
+        radius, internal = _radius(first), self._is_hole_wall(first)
+        for i in indices[1:]:
+            face = self._faces[i]
+            if (not self._coincident(first, face) or self._is_hole_wall(face) != internal
+                    or abs(_radius(face) - radius) > _TOL):
+                raise ValueError(f"{what} requires one coaxial cylinder of one diameter")
+        return indices, 2 * radius, internal
+
+    def distance(self, first, second):
+        """Measured distance between two parallel planes normal to X, Y or Z."""
+        def plane(obj):
+            if isinstance(obj, _Ref):
+                if obj._part is not self:
+                    raise ValueError("distance reference belongs to another Part")
+                indices = obj.faces
+            else:
+                indices = sorted({i for g in self._find(obj, "distance") for i in g})
+            if len(indices) != 1 or self._faces[indices[0]].geom_type.name != "PLANE":
+                raise ValueError("distance requires one planar face at each end")
+            return indices, self._faces[indices[0]]
+        a, fa = plane(first)
+        b, fb = plane(second)
+        na, nb = fa.normal_at(), fb.normal_at()
+        if abs(abs(na.dot(nb)) - 1) > 1e-6 or max(abs(na.X), abs(na.Y), abs(na.Z)) < 1 - 1e-6:
+            raise ValueError("distance requires parallel planes normal to X, Y or Z")
+        nominal = abs((fb.center() - fa.center()).dot(na))
+        if nominal < _TOL:
+            raise ValueError("distance requires distinct support planes")
+        # An undirected size has one identity even when its ends are selected in reverse.
+        a, b = sorted((a, b))
+        return DistanceRef(self, a, b, nominal)
 
     def _hole(self, obj, label, single):
         groups = self._find(obj, "hole")

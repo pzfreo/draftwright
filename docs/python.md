@@ -112,9 +112,18 @@ The mapping uses haecceity's native types:
 | --- | --- |
 | `datum(letter, face)` | `Datum` on a face-anchored `Feature` |
 | `hole(...).fit("H7")` | Diameter `Dimension` with ISO 286 `DimTolerance::Fit` |
-| `hole(...).thread("M3x0.5-6H")` | Internal `Thread` plus its `thread manufacturing` pitch attribute |
+| `shaft(...).fit("h6")` / `cylinder(boss).fit("g6")` | External diameter `Dimension` with ISO 286 `DimTolerance::Fit` |
+| `hole(...).thread("M3x0.5-6H")` / `shaft(...).thread("M10x1.5-6g")` | Internal/external `Thread` plus its `thread manufacturing` pitch attribute |
+| `cylinder(...).diameter(plus_minus=0.02)` / `.diameter(limits=(9.98, 10.04))` | Diameter `Dimension` with `DimTolerance::Deviations` / `Limits`; also on `hole`, `shaft` and cylindrical `face` refs |
+| `distance(face1, face2).tolerance(plus_minus=0.03)` / `.tolerance(limits=(29.98, 30.04))` | `DimensionKind::Location` (`LinearDistance`) with deviations / limits |
 | `holes(...).position(0.1, A, B, C)` | `GeometricTolerance::Position`, cylindrical zone and ordered `DatumSystem` |
 | `face(...).flatness(0.05)` | `GeometricTolerance::Flatness` |
+| `face(...).perpendicularity(0.05, A)` / `.parallelism(0.05, A)` | `GeometricTolerance::Perpendicularity` / `Parallelism` |
+| `shaft(...).cylindricity(0.02)` | `GeometricTolerance::Cylindricity`, without datums |
+| `shaft(...).circular_runout(0.03, A)` / `.total_runout(0.04, A)` | `GeometricTolerance::CircularRunout` / `TotalRunout` |
+| `face(...).profile_surface(0.05, A)` | `GeometricTolerance::SurfaceProfile`; datums optional |
+| `shaft(...).concentricity(0.02, A)` | `GeometricTolerance::Concentricity`, cylindrical zone |
+| `shaft(...).knurl(0.8, "straight", teeth=39)` | Native `Knurl` with pitch, maximum diameter and tooth count; also `"diamond"` with `helix_angle=` |
 | `face(...).finish(1.6)` / `hole(...).finish(1.6)` | `SurfaceTexture` with Ra in micrometres |
 | `material(text)` | `Material` |
 | `general_tolerance(text)` | `GeneralTolerance::Class` with the stated text |
@@ -124,22 +133,128 @@ The mapping uses haecceity's native types:
 `3D printed: powder`, `3D printed: metal`, `sheet metal`, `moulded`, and `cast`.
 The aliases `cnc-milled` and `cnc-turned` map to `machined` in both PMI and policy.
 Other values raise `ValueError` listing the accepted values.
-Repeated fit, thread, finish, flatness or position calls on the same faces replace
-that declaration; different control kinds remain independent.
+Repeated size, fit, thread, knurl, finish or geometric control calls on the same
+faces replace that declaration; different control kinds remain independent.
+`fit()` and `diameter()` describe the same size: on the same cylinder each replaces
+the other's tolerance, including when called through a new fluent handle.
+`general_tolerance(text)` deliberately accepts **free text**, including `"±0.05"`
+and `"ISO 2768-mK"`. It prints the stated text in the title block; it does not
+validate ISO 2768 classes or apply that text as individual dimension tolerances.
+This in-memory API is independent of Specify's answer-file class restrictions.
 
 Metric thread notation uses the engine's existing ISO 261 coarse pitch when none
-is stated and internal class `6H` when omitted. The stated size, pitch, fit class and hand are kept.
-The renderer matches the stated faces to canonical holes and measures their drill
-geometry; it does not add a full-thread-depth requirement. The kernel requires a thread count; this API uses its existing single-thread
+is stated and class `6H` internally or `6g` externally when omitted. The stated
+size, pitch, fit class and hand are kept.
+Thread classes accept one or two grade/position pairs: grades 4–8 with `G`/`H`
+internally, grades 3–9 with `e`/`f`/`g`/`h` externally (e.g. `6H`, `6g`, `5g6g`).
+Unknown classes and classes of the wrong case raise at the call. The measured
+external diameter must match the thread major diameter within 0.01 mm. Internal
+threads require a measured drill diameter between major − 1.5 × pitch and major,
+with 0.01 mm slack at each end, matching the engine's thread checks. A mismatch
+on any selected cylinder raises immediately.
+For internal threads the renderer matches the stated faces to canonical holes
+and measures their drill geometry; it does not add a full-thread-depth requirement.
+External threads cover the full length of the selected continuous cylinder,
+recorded in its `thread manufacturing` attribute and drawn with ISO 6410 lines.
+The kernel requires a thread count; this API uses its existing single-thread
 convention (`number_of_threads = 1`), keeping pitch separately in the manufacturing
 attribute rather than deriving it from that ambiguous field. LH/RH is preserved.
+The engine's compact callout convention omits ISO 261 coarse pitch and right hand
+(e.g. `M10-6g`); fine pitch and left hand remain explicit. For the full designation,
+use the layout setting `drawing.update({"sheet": {"callouts": {"style": "full"}}})`.
+The native PMI retains the pitch and hand with either presentation.
 
 Objects expand to faces. A face, face list or cutter shape matches the part's own
 faces. A counterbore's fit and finish apply to its smallest bore. `hole()` refuses
-several holes; `holes()` accepts a group. A fit on a boss/shaft, an unknown fit class,
-a fit and thread on one hole, an undeclared datum, or a duplicate face name raises
-an error. Native PMI validates references before rendering. Shaft fits, external
-threads, new requirement kinds and Pack remain a later stream.
+several holes; `holes()` accepts a group. `shaft(obj)` selects an external cylinder
+(including a boss); `cylinder(obj)`
+accepts either side. These require one coaxial cylindrical size; a stepped shaft
+must be selected one cylindrical face at a time. ISO 286 classes use the native
+28 deviation letters, lower-case for shafts and upper-case for holes, and grades
+01, 0–18. An unknown class, wrong target type, a fit/diameter tolerance and thread
+on one cylinder, an undeclared datum, or a duplicate face name raises at the call.
+A thread and knurl require separate cylinders. Native PMI validates references
+before rendering.
+
+Sizes are measured from the selected geometry in mm; `plus_minus` is a positive
+symmetric deviation, and `limits=(lower, upper)` gives absolute sizes containing
+the measured nominal. Supply exactly one. `distance` takes two distinct parallel
+planar faces normal to X, Y or Z, including `face(...)`/datum handles. It states
+the perpendicular separation of their support planes. Oblique and angular
+lengths are outside this API. Diameters require cylindrical faces. Perpendicularity
+and parallelism accept planes or cylinders; cylindricity and concentricity require
+cylinders; runout accepts planes or cylinders. These controls are also available
+on hole/cylinder handles. Perpendicularity, parallelism, runout and concentricity
+require at least one declared datum; surface profile takes optional datums;
+cylindricity takes none. Datum order is preserved. Any datum sharing any face with
+the controlled feature is refused at the call; use a separate datum
+surface or cylinder. Perpendicularity and parallelism on a cylinder control its
+axis in a cylindrical `⌀` zone; on a plane they use a two-planes zone.
+
+Straight and diamond knurls draw the engine's manufacturing suffix and depiction.
+Pitch is linear mm, and the measured diameter is the maximum diameter after
+knurling. `teeth=` must agree with π × diameter / pitch within one tooth; no tooth
+count is invented. Diamond requires `helix_angle=` in degrees (0 < angle < 90),
+which native PMI retains; the current drawing prints the pattern and pitch, not
+that angle. A straight knurl refuses `helix_angle`. Diagonal knurls are refused
+because the engine does not lower them.
+Standalone chamfer requirements are omitted: the engine has no chamfer PMI form
+that it draws (geometry recognition can still dimension modelled chamfers).
+AP242/Specify mapping and Pack remain deferred.
+
+The following complete example renders each new requirement on a real turned
+cylinder. Each sheet has its own Part so the fit, thread, knurl and numeric size
+requirements use separate cylinders. It runs with build123d 0.13.0:
+
+```python
+from pathlib import Path
+from build123d import Cylinder, GeomType, Axis, Align, Pos
+from draftwright import Part
+
+out = Path("requirements")
+out.mkdir(exist_ok=True)
+for kind in ("shaft_fit", "thread", "diameter_pm", "diameter_limits",
+             "length_pm", "length_limits", "perpendicularity", "parallelism",
+             "cylindricity", "circular_runout", "total_runout", "profile_surface",
+             "concentricity", "straight_knurl", "diamond_knurl"):
+    shape = Cylinder(5, 30)  # diameter 10, length 30 mm
+    controls = ("perpendicularity", "parallelism", "circular_runout", "total_runout", "concentricity")
+    if kind in controls:
+        align = (Align.CENTER, Align.CENTER, Align.MIN)
+        shape = Cylinder(5, 30, align=align) + Pos(0, 0, -6) * Cylinder(7, 6, align=align)
+    p = Part(shape, kind).material("BRASS H62").general_tolerance("±0.05")
+    cylinders = shape.faces().filter_by(GeomType.CYLINDER)
+    wall = [f for f in cylinders if abs(f.radius - 5) < 1e-6][0]
+    ends = shape.faces().filter_by(GeomType.PLANE).sort_by(Axis.Z)
+    # The larger, separate cylinder establishes datum A's axis for these controls.
+    datum_face = ([f for f in cylinders if abs(f.radius - 7) < 1e-6][0]
+                  if kind in ("perpendicularity", "circular_runout", "total_runout", "concentricity")
+                  else ends[0])
+    A = p.datum("A", datum_face)
+    shaft = p.shaft(wall)
+    if kind == "shaft_fit":
+        shaft.fit("h6")  # p.cylinder(wall).fit("h6") also works on a boss
+    elif kind == "thread":
+        shaft.thread("M10x1.5-6g")  # "M10" defaults to the same pitch and class
+    elif kind.startswith("diameter"):
+        shaft.diameter(**({"plus_minus": 0.02} if kind.endswith("pm")
+                          else {"limits": (9.98, 10.04)}))
+    elif kind.startswith("length"):
+        p.distance(ends[0], ends[-1]).tolerance(
+            **({"plus_minus": 0.03} if kind.endswith("pm")
+               else {"limits": (29.98, 30.04)}))
+    elif kind.endswith("knurl"):
+        pattern = kind.split("_")[0]
+        shaft.knurl(0.8, pattern, teeth=39,
+                    **({"helix_angle": 30} if pattern == "diamond" else {}))
+    elif kind == "cylindricity":
+        shaft.cylindricity(0.02)
+    elif kind in ("perpendicularity", "parallelism", "profile_surface"):
+        getattr(p.face(ends[-1]), kind)(0.05, A)
+    else:
+        getattr(shaft, kind)(0.03, A)
+    p.drawing(sheet="A3").render(out / kind, formats=("svg",))
+```
 
 `export_step(path)` writes **plain geometry**, product metadata and referenced face
 names. It does not write PMI or sidecars. Its return value is `{"step": Path,
