@@ -1220,7 +1220,8 @@ struct Obstacles<'a> {
     parallel_gap: Option<f64>,
     triangles: Vec<Vec<P2>>,
     labels: Vec<[f64; 4]>,
-    rings: Vec<([f64; 2], f64)>,
+    /// Filled scope-symbol discs, independent of label packing.
+    rings: Vec<(P2, f64)>,
     lines: Vec<[P2; 2]>,
     /// Filled peer arrowheads; scope bends must separate the flares as well as shafts.
     heads: Vec<[P2; 3]>,
@@ -1232,7 +1233,7 @@ impl Obstacles<'_> {
     /// How well *c* fits, best first: 0 clear of everything and inside its view's reserved area;
     /// 1 clear of everything, past the area; 2 on the sheet and off every label and frame, a line
     /// of it through a label or another view; 3 off every label and frame only; 4 neither;
-    /// 5 a filled datum triangle overlaps or touches an earlier triangle.
+    /// 5 filled datum/arrow ink overlaps or touches an earlier filled symbol.
     /// Within a clearance class, keep frames off existing leaders before counting
     /// line crossings. An unavoidable shaft through one label must not hide an
     /// avoidable frame over another leader (CTC-03's narrower CAD-sized frames).
@@ -3633,8 +3634,13 @@ mod tests {
             p.code == "annotation_ink_overlap" && p.subjects == ["pmi:first", "pmi:second"]
         };
         assert!(crate::dims::recheck(&analysis, &plan).iter().any(contact));
+        crate::dims::contacts::report(&analysis, &mut plan);
+        crate::dims::contacts::report(&analysis, &mut plan);
+        assert_eq!(plan.problems.iter().filter(|p| contact(p)).count(), 1);
         plan.gdt[1] = frame("pmi:second", &clear, Vec::new());
         assert!(!crate::dims::recheck(&analysis, &plan).iter().any(contact));
+        crate::dims::contacts::report(&analysis, &mut plan);
+        assert!(!plan.problems.iter().any(contact));
     }
 
     #[test]

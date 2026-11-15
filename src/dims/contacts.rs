@@ -239,7 +239,22 @@ pub(crate) fn clear_new_section_contacts(plan: &mut Plan, reference: &Plan) {
 
 /// Replace this pass's findings on *plan* with those of its current ink.
 pub(crate) fn report(analysis: &Analysis, plan: &mut Plan) {
-    plan.problems.retain(|p| !CODES.contains(&p.code.as_str()));
+    let scope_sources: std::collections::BTreeSet<_> = plan
+        .gdt
+        .iter()
+        .filter(|g| !g.modifiers.is_empty())
+        .map(|g| g.id.as_str())
+        .collect();
+    // These sources have additional printed ink outside their frame boxes.
+    // Refresh all their ink/label contacts, including a shaft contact that the
+    // placement pass already found, so repeated final audits remain idempotent.
+    plan.problems.retain(|p| {
+        !CODES.contains(&p.code.as_str())
+            && !(p.code == "annotation_ink_overlap"
+                && p.subjects
+                    .first()
+                    .is_some_and(|id| scope_sources.contains(id.as_str())))
+    });
     let mut found = contacts(plan);
     found.extend(leader_ends(analysis, plan));
     // A frame with no visible rim or place on its size mark leads to its own hidden circle
@@ -499,6 +514,35 @@ pub(super) fn contacts(plan: &Plan) -> Vec<Problem> {
             .filter_map(|d| d.placed.as_ref().map(|p| (d, p)))
             .collect();
         let bounds: Vec<_> = placed.iter().map(|(_, p)| ink_bounds(p)).collect();
+        // Unlike ordinary proxies, scope proxies include their circles. Report
+        // their true overlaps as well as the near contacts below: later route
+        // repairs can otherwise replace placement's earlier ring findings.
+        for (a, pa) in placed.iter().filter(|(a, _)| {
+            plan.gdt
+                .iter()
+                .any(|g| g.id == a.id && !g.modifiers.is_empty())
+        }) {
+            for (b, pb) in &placed {
+                if a.id != b.id
+                    && !boxes_overlap(pa.label_box, pb.label_box)
+                    && ink_through(pa, pb.label_box)
+                {
+                    out.push(Problem {
+                        id: format!("p:annotation_ink_overlap:{}|{}", a.id, b.id),
+                        code: "annotation_ink_overlap".into(),
+                        severity: "warning".into(),
+                        subjects: vec![a.id.clone(), b.id.clone()],
+                        message: format!(
+                            "The line-work of {} runs through the label of {}.",
+                            named(a),
+                            named(b)
+                        ),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+
         // Text near text, and line-work near text. Overlaps and lines through a label are the
         // placement check's; only the contacts it passes as clear are reported here.
         for (i, (a, pa)) in placed.iter().enumerate() {
