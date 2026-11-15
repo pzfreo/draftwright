@@ -14,7 +14,7 @@ import time
 from urllib.parse import quote
 
 REQUIRED_JOBS = {
-    'changes', 'lint', 'build', 'binary', 'test (harness)',
+    'changes', 'lint', 'build', 'binary', 'plan-cache (1)', 'plan-cache (2)', 'test (harness)',
     'acceptance (quality-gate)', 'acceptance (budgets)', 'Browser WASM and native parity',
     *(f'test ({k}/10)' for k in range(1, 11)),
     *(f'acceptance (quality-pins-{k}-4)' for k in range(1, 5)),
