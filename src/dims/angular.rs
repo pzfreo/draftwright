@@ -428,6 +428,31 @@ impl Ink {
         self.placed_at(radius, ink, false)
     }
 
+    /// A label beyond one arrowhead, carried by a continuation of the same circle.
+    /// Keep the measured sector and its arrows; the continuation reaches the label's
+    /// station so collision avoidance cannot leave text detached from its dimension.
+    fn extended_label(&self, radius: f64, ink: &LabelInk, after: bool) -> Option<Placed> {
+        self.placed(radius, ink)?;
+        let arc_radius = radius.max(ARROW + LIFT + self.radial_half) - LIFT - self.radial_half;
+        let beyond = (ARROW + GAP + self.tangent_half) / arc_radius;
+        let station = if after {
+            self.start + self.sweep + beyond
+        } else {
+            self.start - beyond
+        };
+        let g = self.along((station - self.start) / self.sweep);
+        let mut p = g.placed_at(radius, ink, true)?;
+        let end = if after {
+            self.start + self.sweep
+        } else {
+            self.start
+        };
+        let count = (beyond * (arc_radius / SAMPLING).sqrt()).ceil().max(1.0) as usize;
+        let at = |i: usize| self.point(arc_radius, end + (station - end) * i as f64 / count as f64);
+        p.lines.extend((0..count).map(|i| [at(i), at(i + 1)]));
+        Some(p)
+    }
+
     /// As [`Ink::placed`]; *literal* (an authored placement) keeps a radius without that room.
     fn placed_at(&self, radius: f64, ink: &LabelInk, literal: bool) -> Option<Placed> {
         if !literal && !self.room(radius) {
@@ -978,43 +1003,51 @@ pub(super) fn place_profile(
             .compact();
             extended.lengths = [0.0; 2];
             let reach = local_radius(size[1]);
-            // The label may slide off the bisector; its arc pieces must still carry arrows.
-            let inks: Vec<(Ink, usize)> = [0.5, 0.35, 0.65, 0.25, 0.75]
-                .iter()
-                .flat_map(|&f| [(physical.along(f), 2), (extended.along(f), 0)])
-                .collect();
+            // The label belongs at the sector's midpoint. If that station cannot
+            // fit, try beyond an arrowhead on a drawn continuation of the arc.
+            // Searching arbitrary interior fractions made a crowded corner's text
+            // read as a free label rather than the midpoint of its dimension.
+            let inks = [(&physical, 2), (&extended, 0)];
             // First an arc that crosses nothing; then one whose arc and witnesses may cross the
             // part's edges, blend silhouettes included, but never a hole or boss seen end-on.
             // Each the nearest roomy place, else the nearest crowded one (still stated).
             [false, true].into_iter().find_map(|straight_ok| {
-                let mut crowded = None;
-                let roomy = (0..TRIES)
-                    .map(|n| n as f64 * STEP)
-                    .take_while(|d| {
-                        inks.iter()
-                            .any(|(g, _)| g.label_reach(g.minimum + d) <= reach)
-                    })
-                    .find_map(|d| {
-                        inks.iter().find_map(|(g, stubs)| {
-                            let radius = g.minimum + d;
-                            (g.label_reach(radius) <= reach)
-                                .then(|| g.placed(radius, &ink))
-                                .flatten()
-                                .filter(|c| {
-                                    // Once a crowded place is held, only a roomy one is worth
-                                    // the full check.
-                                    if crowded.is_some() {
-                                        return roomy(c) && clear(c, *stubs, straight_ok, g.vertex);
-                                    }
-                                    clear(c, *stubs, straight_ok, g.vertex)
-                                        && (roomy(c) || {
-                                            crowded = Some(c.clone());
-                                            false
+                [None, Some(false), Some(true)]
+                    .into_iter()
+                    .find_map(|extension| {
+                        let mut crowded = None;
+                        let roomy = (0..TRIES)
+                            .map(|n| n as f64 * STEP)
+                            .take_while(|d| {
+                                inks.iter()
+                                    .any(|(g, _)| g.label_reach(g.minimum + d) <= reach)
+                            })
+                            .find_map(|d| {
+                                inks.iter().find_map(|(g, stubs)| {
+                                    let radius = g.minimum + d;
+                                    (g.label_reach(radius) <= reach)
+                                        .then(|| match extension {
+                                            None => g.placed(radius, &ink),
+                                            Some(after) => g.extended_label(radius, &ink, after),
+                                        })
+                                        .flatten()
+                                        .filter(|c| {
+                                            // Once a crowded place is held, only a roomy one is worth
+                                            // the full check.
+                                            if crowded.is_some() {
+                                                return roomy(c)
+                                                    && clear(c, *stubs, straight_ok, g.vertex);
+                                            }
+                                            clear(c, *stubs, straight_ok, g.vertex)
+                                                && (roomy(c) || {
+                                                    crowded = Some(c.clone());
+                                                    false
+                                                })
                                         })
                                 })
-                        })
-                    });
-                roomy.or(crowded)
+                            });
+                        roomy.or(crowded)
+                    })
             })
         });
         placed[i] = chosen;
@@ -1157,6 +1190,35 @@ mod tests {
             }
             // Below the least radius the arrowheads would reach the label's width.
             assert!(g.placed(g.minimum - 0.5, text).is_none(), "{label}");
+        }
+    }
+
+    #[test]
+    fn outside_text_is_carried_by_an_arc_extension_without_changing_the_angle() {
+        for (label, start, end) in [("2× 135°", 225.0, 360.0), ("45°", 0.0, 45.0)] {
+            let terms = vec![label.to_string()];
+            let g = ink([100.0, 100.0], start, end, &terms).compact();
+            let text = label_ink(&terms, font());
+            let normal = g.placed(g.minimum, &text).unwrap();
+            for after in [false, true] {
+                let p = g.extended_label(g.minimum, &text, after).unwrap();
+                assert_eq!(p.arrows, normal.arrows);
+                assert_eq!(&p.lines[..normal.lines.len()], normal.lines.as_slice());
+                let arc_radius = g.minimum - LIFT - g.radial_half;
+                let endpoint = p.lines.last().unwrap()[1];
+                let b = p.label_box;
+                let centre = [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0];
+                let radial = [centre[0] - g.vertex[0], centre[1] - g.vertex[1]];
+                let n = radial[0].hypot(radial[1]);
+                let at = [endpoint[0] - g.vertex[0], endpoint[1] - g.vertex[1]];
+                assert!((at[0].hypot(at[1]) - arc_radius).abs() < 1e-9);
+                assert!((radial[0] * at[1] - radial[1] * at[0]).abs() < 1e-9);
+                assert!((n - g.radial_half - arc_radius - LIFT).abs() < 1e-9);
+                let extension = &p.lines[normal.lines.len()..];
+                let arrow = normal.arrows[usize::from(after)][0];
+                assert_eq!(extension[0][0], arrow);
+                assert!(extension.windows(2).all(|pair| pair[0][1] == pair[1][0]));
+            }
         }
     }
 

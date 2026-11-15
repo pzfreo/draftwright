@@ -891,7 +891,14 @@ fn dimension(d: &Dimension, drawing: &Drawing) -> Option<(i32, Vec<P>, f64)> {
         let centre = [a[0] + k * u[0], a[1] + k * u[1]];
         return Some((
             5,
-            vec![p.lines[2][0], p.lines.last()?[1], centre, p.lines[2][0]],
+            // An arc may continue beyond an arrowhead to carry outside text.
+            // Its measured sector still ends at the two arrow tips.
+            vec![
+                p.arrows.first()?[0],
+                p.arrows.get(1)?[0],
+                centre,
+                p.lines[2][0],
+            ],
             1.,
         ));
     }

@@ -821,3 +821,117 @@ fn an_acute_corner_angle_is_drawn_near_its_corner() {
     let [s0, s1] = [side(placed.lines[0]), side(placed.lines[1])];
     assert!(s0 * s1 < 0.0, "{}: label outside its sector", acute.id);
 }
+
+/// Minimum distance from an arc chord to the axis-aligned planned label box.
+/// Include clipped intersections, chord endpoints and projections of all box corners.
+fn chord_box_gap(line: [[f64; 2]; 2], b: [f64; 4]) -> f64 {
+    let delta = [0, 1].map(|k| line[1][k] - line[0][k]);
+    let (mut lo, mut hi) = (0.0_f64, 1.0_f64);
+    for k in 0..2 {
+        if delta[k].abs() < 1e-12 {
+            if line[0][k] < b[k] || line[0][k] > b[k + 2] {
+                hi = -1.0;
+                break;
+            }
+        } else {
+            let a = (b[k] - line[0][k]) / delta[k];
+            let z = (b[k + 2] - line[0][k]) / delta[k];
+            lo = lo.max(a.min(z));
+            hi = hi.min(a.max(z));
+        }
+    }
+    if lo <= hi {
+        return 0.0;
+    }
+    let endpoint_gap = line.into_iter().map(|p| {
+        let d = [0, 1].map(|k| (b[k] - p[k]).max(p[k] - b[k + 2]).max(0.0));
+        d[0].hypot(d[1])
+    });
+    let squared = delta[0] * delta[0] + delta[1] * delta[1];
+    let corner_gap = [b[0], b[2]].into_iter().flat_map(|x| {
+        [b[1], b[3]].map(move |y| {
+            let v = [x - line[0][0], y - line[0][1]];
+            let t = if squared > 0.0 {
+                ((v[0] * delta[0] + v[1] * delta[1]) / squared).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (v[0] - t * delta[0]).hypot(v[1] - t * delta[1])
+        })
+    });
+    endpoint_gap.chain(corner_gap).fold(f64::INFINITY, f64::min)
+}
+
+/// Angular text stays attached to its arc on every recovered quality drawing.
+/// The normal gap is 1 paper mm; allow 0.01 mm for the chord approximation
+/// (at most 0.005 mm sagitta) and floating-point placement arithmetic.
+#[test]
+fn quality_angular_labels_stay_with_their_arcs() {
+    let Some(root) = corpus::dir() else {
+        return;
+    };
+    let mut count = 0;
+    for file in include_str!("../tools/quality_parts.txt").lines() {
+        let (_, analysis) = crate::cache::native(&root.join(file));
+        let plan = crate::cache::default_plan(&analysis, true);
+        for dimension in plan.dimensions.iter().filter(|d| d.kind == "angular") {
+            let Some(placed) = &dimension.placed else {
+                continue;
+            };
+            let gap = placed
+                .lines
+                .iter()
+                .skip(2)
+                .map(|&line| chord_box_gap(line, placed.label_box))
+                .fold(f64::INFINITY, f64::min);
+            assert!(
+                gap <= 1.01,
+                "{file}: {} ({}) floats {gap:.3} mm from its arc",
+                dimension.id,
+                dimension.label
+            );
+            // A small nearest-box gap alone can hide a slide along the interior
+            // of the sweep. Text must be on the bisector, or beyond an arrowhead
+            // with the same nearby arc continuing to it.
+            let [a, b] = placed.lines[0];
+            let [c, e] = placed.lines[1];
+            let u = [b[0] - a[0], b[1] - a[1]];
+            let v = [e[0] - c[0], e[1] - c[1]];
+            let cross = |u: [f64; 2], v: [f64; 2]| u[0] * v[1] - u[1] * v[0];
+            let t = cross([c[0] - a[0], c[1] - a[1]], v) / cross(u, v);
+            let vertex = [a[0] + t * u[0], a[1] + t * u[1]];
+            let unit = |p: [f64; 2]| {
+                let r = [p[0] - vertex[0], p[1] - vertex[1]];
+                let n = r[0].hypot(r[1]);
+                [r[0] / n, r[1] / n]
+            };
+            let rays = [unit(placed.arrows[0][0]), unit(placed.arrows[1][0])];
+            let bisector = [rays[0][0] + rays[1][0], rays[0][1] + rays[1][1]];
+            let text = unit([
+                (placed.label_box[0] + placed.label_box[2]) / 2.0,
+                (placed.label_box[1] + placed.label_box[3]) / 2.0,
+            ]);
+            let dot = |u: [f64; 2], v: [f64; 2]| u[0] * v[0] + u[1] * v[1];
+            let midpoint = cross(bisector, text).abs() <= 1e-6 && dot(bisector, text) > 0.0;
+            let beyond = dot(bisector, text) < dot(bisector, rays[0]) - 1e-6;
+            assert!(
+                midpoint || beyond,
+                "{file}: {} slid into the sector away from its midpoint",
+                dimension.id
+            );
+            count += 1;
+        }
+        if file == "nist/nist_ctc_03_asme1_rc.stp" {
+            assert!(
+                plan.dimensions
+                    .iter()
+                    .any(|d| d.kind == "angular" && d.label == "2× 135°" && d.placed.is_some()),
+                "CTC-03 must retain its counted angular dimension"
+            );
+        }
+    }
+    assert!(
+        count > 0,
+        "the quality survey must exercise angular dimensions"
+    );
+}
