@@ -20,10 +20,11 @@ What `tests/identity.rs` checks stable identity against (the editor thin slice's
   specify-core analyse -o a2.json plate_intent.step
   specify-core write -o plate_intent_rewritten.step --accept-defaults plate_intent.step a2.json plate_intent.answers.json
   ```
-- `<part>.spec1.json`, `<part>.plan1.json.gz`: a `draftwright.spec/1` spec, keyed as that
-  version keys dimensions (`@<view>`, a PMI dimension by its record's Part 21 instance), and the
-  plan draftwright-rust 0.1.0-alpha.1 (d4ed8d1) made of it with `draftwright plan` (the plate
+- `<part>.spec1.json`: a `draftwright.spec/1` spec, keyed as that version keys dimensions
+  (`@<view>`, a PMI dimension by its record's Part 21 instance). The plate uses
   `tests/fixtures/parts/plate.step` with `--features tests/fixtures/recognition/plate.json`;
-  `bracket_positions` from `../pmi/step/bracket_positions.step.gz` with Rust quiddity's
-  features, the command line's default). Each omits a view, so a version 1 key names the view
-  its dimension moved to.
+  `bracket_positions` uses `../pmi/step/bracket_positions.step.gz` with Rust quiddity's
+  features. Each omits a view, so a version 1 key names the view its dimension moved to.
+  Both parts have changed geometry since 0.1.0-alpha.1. The migration test compares their
+  complete current plans with independently renamed current-Spec inputs; unused alpha.1
+  geometry, reporting, title-furniture and interior-placement captures have been removed.

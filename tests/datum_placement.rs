@@ -1,4 +1,5 @@
 //! Datum placement regressions: inside dimension lanes and valid alternative attachments.
+use crate::cache;
 use std::path::Path;
 
 use draftwright::dims::{PlannedDimension, gdt};
@@ -7,8 +8,8 @@ use draftwright::model::{self, Analysis, Plan, Spec};
 fn spindle() -> (Analysis, Plan) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/samples/cnc-review-spindle.step.gz");
-    let (_, a) = model::analyse_native(&path).unwrap();
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let (_, a) = cache::native(&path);
+    let plan = cache::default_plan(&a, true);
     (a, plan)
 }
 
@@ -106,9 +107,7 @@ fn spindle_datums_have_no_crossings_or_overlaps() {
         .collect();
     assert!(findings.is_empty(), "{findings:#?}");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let (part, _) =
-        model::analyse_native(&root.join("tests/fixtures/samples/cnc-review-spindle.step.gz"))
-            .unwrap();
+    let (part, _) = cache::native(&root.join("tests/fixtures/samples/cnc-review-spindle.step.gz"));
     let font =
         draftwright::text::Font::open(&root.join("fonts").join(draftwright::dims::FONT)).unwrap();
     let drawing = model::render(&part, &a, &plan, &font).unwrap();
@@ -287,8 +286,8 @@ fn cited_spindle_datums_have_separate_attachments_and_short_leaders() {
 fn grm03_draws_its_used_datum_and_reports_the_uncited_one() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/pmi/step/GRM-03_thumbwheel_drive_screw_AP242_PMI.step.gz");
-    let (_, a) = model::analyse_native(&path).unwrap();
-    let automatic = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let (_, a) = cache::native(&path);
+    let automatic = cache::default_plan(&a, true);
     for g in automatic.gdt.iter().filter(|g| g.kind == "datum_feature") {
         assert_eq!(g.placed.is_some(), g.label == "B", "{}", g.label);
     }
@@ -356,7 +355,7 @@ fn overlapping_datum_triangles_are_errors_even_with_separate_letter_boxes() {
 fn an_already_separated_seed_does_not_gain_datum_crossings() {
     let path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pmi/step/hw_every_kind.step.gz");
-    let (_, a) = model::analyse_native(&path).unwrap();
+    let (_, a) = cache::native(&path);
     let plan = model::plan_recovered(
         &a,
         &serde_json::from_value(serde_json::json!({"sheet":{"size":"A0"}})).unwrap(),
@@ -386,7 +385,7 @@ fn dense_datums_are_separate(name: &str, expected: usize) -> Plan {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/pmi/step")
         .join(name);
-    let (_, a) = model::analyse_native(&path).unwrap();
+    let (_, a) = cache::native(&path);
     let plan = model::plan_recovered(
         &a,
         &serde_json::from_value(serde_json::json!({"sheet":{"size":"A1"}})).unwrap(),
@@ -414,8 +413,8 @@ fn dense_datums_are_separate(name: &str, expected: usize) -> Plan {
 fn ftc07_bent_datum_shafts_keep_clear_of_other_datum_letters() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/pmi/step/nist_ftc_07_asme1_ap242-e2.stp.gz");
-    let (_, a) = model::analyse_native(&path).unwrap();
-    let plan = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let (_, a) = cache::native(&path);
+    let plan = cache::default_plan(&a, true);
     for letter in ["C", "D"] {
         let datums: Vec<_> = plan
             .gdt
@@ -489,7 +488,7 @@ fn ctc01_datum_a_is_square_to_the_base_top() {
             assert!(std::env::var("DRAFTWRIGHT_CORPUS_REQUIRED").is_err());
             continue;
         }
-        let (part, a) = model::analyse_native(&path).unwrap();
+        let (part, a) = cache::native(&path);
         // The legacy RD file has presentation-only PMI. Author A on its proven
         // base-top face; the AP242 file supplies A semantically.
         let mut spec = Spec::default();

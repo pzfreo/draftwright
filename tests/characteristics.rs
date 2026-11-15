@@ -1,4 +1,5 @@
 //! Numbered AP242 PMI exercises the real lossless writer, reader and drawing pipeline.
+use crate::cache;
 use draftwright::{
     api,
     characteristics::{self, Mode},
@@ -56,7 +57,7 @@ fn fixture(name: &str) -> (Vec<u8>, usize) {
             }
         }
     }
-    let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let p = cache::default_plan(&a, true);
     let mut candidates: Vec<_> = p
         .characteristics
         .iter()
@@ -196,7 +197,7 @@ fn numbered_pmi_round_trips_to_items_and_clear_rings() {
     ] {
         let (b, n) = fixture(name);
         let (part, a) = analysed(&b);
-        let off = model::plan_recovered(&a, &Spec::default()).unwrap();
+        let off = cache::default_plan(&a, true);
         let p = model::plan_recovered(&a, &on()).unwrap();
         // Main's #254 fixtures, with the same UDA edits and balloons enabled.
         let (paper, scale, crossings, extensions) = match name {
@@ -531,7 +532,7 @@ fn specify_plate_draws_every_number_on_its_requirement() {
         .collect();
     assert_eq!(shared.len(), 2, "{:?}", manufacturing.refused);
     assert_ne!(shared[0].owner, shared[1].owner);
-    let off = model::plan_recovered(&a, &Spec::default()).unwrap();
+    let off = cache::default_plan(&a, true);
     let p = model::plan_recovered(&a, &on()).unwrap();
     let taps: Vec<_> = p
         .dimensions

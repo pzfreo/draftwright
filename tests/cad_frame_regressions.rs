@@ -2,8 +2,7 @@
 #[path = "common/support.rs"]
 #[macro_use]
 mod support;
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 use std::path::Path;
 part_cases!(accepted_cad_frame_layout;
     stc09 => "nist_stc_09_asme1_ap242-e4.stp",

@@ -6,8 +6,7 @@ mod corpus;
 #[macro_use]
 mod support;
 
-#[path = "common/cache.rs"]
-mod cache;
+use crate::cache;
 
 use draftwright::items::State;
 use draftwright::model::{self, Spec};

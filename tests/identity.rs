@@ -460,18 +460,9 @@ fn no_pmi_item_is_named_by_a_part_21_instance() {
     }
 }
 
-/// A version 1 spec and the plan the 0.1.0-alpha.1 build made of it
-/// (`tests/fixtures/identity/<part>.spec1.json`, `<part>.plan1.json.gz`): the spec migrates
-/// (`draftwright.spec/2`) and plans identically, every ID read as it now is (its `@<view>`
-/// dropped, a PMI source named by its record's identity) and the GD&T items in the order of
-/// their new IDs. What the thin slice's stream S2 added is set aside ([`without_typed_state`]).
-/// Parts whose plan the planner has changed since 0.1.0-alpha.1: their oracle is the version 2
-/// spec renamed by hand ([`renamed`]), planned now, in place of the alpha 1 plan.
-/// plate: H6's sheet rule (2026-10-12) draws its open sheet at the smallest fit's largest
-/// scale, A4 at 2:1 where alpha 1 kept A4 at 1:1, so its alpha geometry is no longer the
-/// oracle; the independently renamed version 2 spec, planned now, is.
-const REPLANNED: [&str; 2] = ["bracket_positions", "plate"];
-
+/// Version 1 specs migrate to the same plans as their independently renamed current-Spec
+/// equivalents. Both fixtures have changed geometry since 0.1.0-alpha.1, so their oracle is
+/// planned now, independently of migration. The plate retains its H6 A4-at-2:1 sheet policy.
 #[test]
 fn version_1_specs_migrate_and_plan_identically() {
     // As the command line planned them: the plate with its recognition (`--features`), the AP242
@@ -498,9 +489,6 @@ fn version_1_specs_migrate_and_plan_identically() {
         )
         .unwrap();
         assert_eq!(spec.schema, "draftwright.spec/1");
-        let old: Value =
-            serde_json::from_slice(&gunzip(&fixture(&format!("identity/{part}.plan1.json.gz"))))
-                .unwrap();
         let features = python.map_or(api::Features::Native, api::Features::Python);
         if part == "bracket_positions" {
             // v0.2.3 (#127) inserts concave fillets and changes the grouped presenter.
@@ -535,7 +523,7 @@ fn version_1_specs_migrate_and_plan_identically() {
             Some(Reading::Read(r)) => r.identities().ids,
             _ => BTreeMap::new(),
         };
-        let mut expected = if REPLANNED.contains(&part) {
+        let mut expected = {
             // The planner has changed this part's plan since 0.1.0-alpha.1 (one span, one
             // dimension for PMI: `share_pmi`; ISO 128 furniture clearance), so the oracle is
             // the plan of the spec renamed by hand, independently of the migration, as a
@@ -552,84 +540,9 @@ fn version_1_specs_migrate_and_plan_identically() {
             }
             let v2: Spec = serde_json::from_value(v2).unwrap();
             serde_json::to_value(api::plan_from(&step, features, &v2).unwrap()).unwrap()
-        } else {
-            renamed(&old, &ids)
         };
-        if !REPLANNED.contains(&part) {
-            // The historical geometry oracle is intact; G1's new bounded report has its own
-            // literal expectation, rather than being dropped from the comparison.
-            let report: Value = serde_json::from_str(
-                &std::fs::read_to_string(fixture(&format!("identity/{part}.reporting.json")))
-                    .unwrap(),
-            )
-            .unwrap();
-            expected["status"] = report["status"].clone();
-            expected["completeness"] = report["completeness"].clone();
-            expected["problems"]
-                .as_array_mut()
-                .unwrap()
-                .extend(report["problems"].as_array().unwrap().iter().cloned());
-        }
         expected["spec"]["schema"] = model::SPEC_SCHEMA.into();
-        if part == "plate" && !REPLANNED.contains(&part) {
-            // The G5 title-furniture additions are golden data beside the legacy capture;
-            // the current migration oracle checks these against independent golden data.
-            // Their geometry/reporting verdicts are in known_title_block.json.
-            let furniture: Value = serde_json::from_str(
-                &std::fs::read_to_string(fixture("identity/plate.title_furniture.json")).unwrap(),
-            )
-            .unwrap();
-            let problems =
-                without_typed_state(json!({ "sheet": {}, "problems": furniture["problems"] }));
-            if REPLANNED.contains(&part) {
-                // The current oracle already carries G5 furniture: verify the independent
-                // golden data once rather than adding its warning a second time.
-                assert_eq!(
-                    expected["sheet"]["projection_symbol"],
-                    furniture["projection_symbol"]
-                );
-                let current = without_typed_state(expected.clone());
-                for problem in problems["problems"].as_array().unwrap() {
-                    assert_eq!(
-                        current["problems"]
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .filter(|p| *p == problem)
-                            .count(),
-                        1,
-                        "{part}: title-furniture problem must occur exactly once"
-                    );
-                }
-            } else {
-                expected["sheet"]["projection_symbol"] = furniture["projection_symbol"].clone();
-                expected["problems"]
-                    .as_array_mut()
-                    .unwrap()
-                    .extend(problems["problems"].as_array().unwrap().iter().cloned());
-            }
-        }
-        if part == "plate" && !REPLANNED.contains(&part) {
-            // H7 moves this callout into proven blank face. A replanned part's oracle is
-            // planned now, so it already carries the interior placement on its own sheet.
-            // The literal basis delta has a verdict in known_interior.json.
-            let interior: Value = serde_json::from_str(
-                &std::fs::read_to_string(fixture("identity/plate.interior_basis.json")).unwrap(),
-            )
-            .unwrap();
-            let d = expected["dimensions"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
-                .find(|d| d["id"] == interior["id"])
-                .unwrap();
-            d["basis"] = interior["basis"].clone();
-            d["placed"] = interior["placed"].clone();
-            d["region"] = interior["region"].clone();
-        }
-        if REPLANNED.contains(&part) {
-            expected = without_typed_state(expected);
-        }
+        expected = without_typed_state(expected);
         // The canonical current-Spec oracle has no read-time migrations. Keep the new
         // report in the full comparison with independently stated saved-input expectations.
         expected["migrated"] = if part == "plate" {

@@ -8,6 +8,7 @@ mod corpus;
 #[path = "common/facts.rs"]
 mod facts;
 
+use crate::cache;
 use std::collections::BTreeSet;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
@@ -610,7 +611,7 @@ fn every_planned_dimension_can_be_addressed() {
             .filter(|(n, _)| ["cgb245", "ftc06", "m10127"].contains(&n.as_str())),
     );
     for (name, analysis) in &parts {
-        let plan = model::plan(analysis, &Spec::default()).unwrap();
+        let plan = cache::default_plan(analysis, false);
         let all = ids(&plan);
         assert!(!all.is_empty(), "{name}");
         for id in &all {
