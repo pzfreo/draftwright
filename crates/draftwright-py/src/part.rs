@@ -583,7 +583,9 @@ impl Pmi {
 
 #[pyclass]
 pub struct Geometry {
-    pub(crate) part: std::sync::Arc<haecceity::Part>,
+    part: haecceity::Part,
+    pub(crate) product: std::sync::Arc<haecceity::Part>,
+    product_mapping: Vec<usize>,
     analysis: draftwright::model::Analysis,
     mapping: Vec<usize>,
 }
@@ -593,47 +595,20 @@ impl Geometry {
     #[new]
     fn new(py: Python<'_>, bytes: Vec<u8>, name: String, names: Vec<String>) -> PyResult<Self> {
         py.detach(|| {
-            use haecceity::p21::{self, Attribute, Document, RawEntity};
             let file = haecceity::step::StepFile::read(&bytes).map_err(raised)?;
             if file.parts.len() != 1 {
                 return Err(raised("Part requires one product"));
             }
             let (part, analysis) =
                 draftwright::model::analyse_native_bytes(&name, &bytes).map_err(raised)?;
-            if names.len() != part.faces.len()
-                || names.iter().collect::<BTreeSet<_>>().len() != names.len()
-            {
-                return Err(raised("face mapping needs one unique name per native face"));
-            }
-            // STEP text order and shell traversal order need not agree. Resolve each
-            // native face's source name, then bind the caller's faces by those names.
-            let doc = Document::parse(bytes).map_err(raised)?;
-            let mut by_name: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-            for f in 0..part.faces.len() {
-                let source = part
-                    .face_source(f)
-                    .ok_or_else(|| raised("native face has no source"))?;
-                let Some(RawEntity::Simple { attributes, .. }) = doc.get(source.entity) else {
-                    return Err(raised("native face source is not a named STEP face"));
-                };
-                let Some(Attribute::String(raw)) = attributes.first() else {
-                    return Err(raised("native face source has no name"));
-                };
-                let name = p21::decode(raw).map_err(raised)?;
-                by_name.entry(name).or_default().push(f);
-            }
-            let mapping = names
-                .iter()
-                .map(|name| match by_name.get(name).map(Vec::as_slice) {
-                    Some([f]) => Ok(*f),
-                    found => Err(raised(format!(
-                        "face name {name:?} maps to {} native faces, expected one",
-                        found.map_or(0, <[usize]>::len)
-                    ))),
-                })
-                .collect::<PyResult<Vec<_>>>()?;
+            let product = file.part(0).map_err(raised)?;
+            let doc = haecceity::p21::Document::parse(bytes).map_err(raised)?;
+            let mapping = face_mapping(&part, &doc, &names)?;
+            let product_mapping = face_mapping(&product, &doc, &names)?;
             Ok(Self {
-                part: std::sync::Arc::new(part),
+                part,
+                product: std::sync::Arc::new(product),
+                product_mapping,
                 analysis,
                 mapping,
             })
@@ -718,25 +693,70 @@ impl Geometry {
     }
 }
 impl Geometry {
-    pub(crate) fn bound(&self, pmi: &Pmi) -> PyResult<PartPmi> {
-        if pmi.faces != self.mapping.len() {
-            return Err(raised("PMI and shape face counts differ"));
-        }
-        let mut model = pmi.model.clone();
-        for feature in &mut model.features {
-            if let Feature::Items(anchors) = feature {
-                for anchor in anchors {
-                    if let Anchor::Face(i) = anchor {
-                        i.0 = *self
-                            .mapping
-                            .get(i.0)
-                            .ok_or_else(|| raised("PMI face not in shape"))?;
-                    }
+    fn bound(&self, pmi: &Pmi) -> PyResult<PartPmi> {
+        bind(pmi, &self.mapping)
+    }
+
+    pub(crate) fn bound_product(&self, pmi: &Pmi) -> PyResult<PartPmi> {
+        bind(pmi, &self.product_mapping)
+    }
+}
+
+fn bind(pmi: &Pmi, mapping: &[usize]) -> PyResult<PartPmi> {
+    if pmi.faces != mapping.len() {
+        return Err(raised("PMI and shape face counts differ"));
+    }
+    let mut model = pmi.model.clone();
+    for feature in &mut model.features {
+        if let Feature::Items(anchors) = feature {
+            for anchor in anchors {
+                if let Anchor::Face(i) = anchor {
+                    i.0 = *mapping
+                        .get(i.0)
+                        .ok_or_else(|| raised("PMI face not in shape"))?;
                 }
             }
         }
-        Ok(model)
     }
+    Ok(model)
+}
+
+fn face_mapping(
+    part: &haecceity::Part,
+    doc: &haecceity::p21::Document,
+    names: &[String],
+) -> PyResult<Vec<usize>> {
+    use haecceity::p21::{self, Attribute, RawEntity};
+    if names.len() != part.faces.len() || names.iter().collect::<BTreeSet<_>>().len() != names.len()
+    {
+        return Err(raised("face mapping needs one unique name per native face"));
+    }
+    // Text order, placed-body traversal and product-local traversal may differ.
+    // Resolve both maps by the same exact, caller-authored face names.
+    let mut by_name: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for f in 0..part.faces.len() {
+        let source = part
+            .face_source(f)
+            .ok_or_else(|| raised("native face has no source"))?;
+        let Some(RawEntity::Simple { attributes, .. }) = doc.get(source.entity) else {
+            return Err(raised("native face source is not a named STEP face"));
+        };
+        let Some(Attribute::String(raw)) = attributes.first() else {
+            return Err(raised("native face source has no name"));
+        };
+        let name = p21::decode(raw).map_err(raised)?;
+        by_name.entry(name).or_default().push(f);
+    }
+    names
+        .iter()
+        .map(|name| match by_name.get(name).map(Vec::as_slice) {
+            Some([f]) => Ok(*f),
+            found => Err(raised(format!(
+                "face name {name:?} maps to {} native faces, expected one",
+                found.map_or(0, <[usize]>::len)
+            ))),
+        })
+        .collect::<PyResult<Vec<_>>>()
 }
 
 #[cfg(test)]

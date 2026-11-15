@@ -150,9 +150,9 @@ edited.
   optional and absent for a file of one part, whose Analysis is byte-identical). A STEP file's
   distinct parts are listed by `draftwright parts part.step` (serve/MCP `parts`):
   `{"parts": [{"part": 0, "name": "plate", "product_id": "plate", "faces": 13, "instances": 1},
-  …]}`, in haecceity's order (`read_part_definitions`). A part is chosen by its **index**
-  (`--part K`; `"part": K` in a request), with the name and product id reported beside it (the
-  maintainer's D1). Part K is read alone, in its own frame (`haecceity::StepFile::part`: its
+  …]}`, in haecceity's order (`read_part_definitions`). A CLI part is chosen by its persistent **key** or zero-based **index**
+  (`--part K`); service requests retain `"part": K` as an index. The name, product
+  ID and persistent key are reported beside it. Part K is read alone, in its own frame (`haecceity::StepFile::part`: its
   first placement's shape with no placement applied), so a part placed twice is drawn once.
   Its `binding.part` is the part's name and `binding.part_index` is K; `face_count` and
   `envelope` are the part's own. Its PMI is the part's only: other parts' records, findings and
@@ -3628,6 +3628,13 @@ documented in [wasm.md](wasm.md#assembly-drawing-packs).
 
 `part` selects one part before recognition and drawing, like `--part K`. Use the
 persistent `key` printed by `draftwright parts`, or its numeric `part` index.
+Every CLI `--part` selector accepts the persistent key printed by `draftwright parts`
+or its zero-based index, for example `draftwright plan assembly.step --part "push rod"`.
+Unknown or ambiguous keys are errors; use `draftwright parts assembly.step` to list
+the distinct keys. The same resolver handles the drawing Spec’s `part` field.
+Numeric CLI text that identifies different products as a key and an index is
+ambiguous; choose a distinct key, or disambiguate with the typed Spec `part` field.
+
 A command/request selector must agree with the Spec; conflicts are refused.
 An Analysis supplied without its STEP must already describe the selected part:
 it cannot supply another part's geometry. Explicit selection of the already
@@ -3714,8 +3721,3 @@ rule for coverage and PMI diagnostics. Severity, impact, finding order and drawi
 retain their existing meaning. MCP, WASM/JS JSON, and Python `drawing.problems` expose the
 same field. Tiers group issues; they never block export. They set which editor Issues group
 opens first, while printing and export remain available at every tier. CLI output stays JSON.
-
-Every CLI `--part` selector accepts the persistent key printed by `draftwright parts`
-or its zero-based index, for example `draftwright plan assembly.step --part "push rod"`.
-Unknown or ambiguous keys are errors; use `draftwright parts assembly.step` to list
-the distinct keys. The same resolver handles the drawing Spec’s `part` field.

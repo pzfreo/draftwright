@@ -23,8 +23,8 @@ pub fn render_pack(
     let mut pmi = BTreeMap::new();
     for (key, model, geometry) in products {
         let geometry = geometry.borrow(py);
-        let model = geometry.bound(&model.borrow(py))?;
-        let reference = geometry.part.clone();
+        let model = geometry.bound_product(&model.borrow(py))?;
+        let reference = geometry.product.clone();
         if pmi
             .insert(key.clone(), ProductPmi { model, reference })
             .is_some()

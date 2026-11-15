@@ -312,7 +312,16 @@ pub fn build_bytes_with_pmi(
     for (i, d) in file.parts.iter().enumerate() {
         let key = &keys[i];
         let separate = pmi.contains_key(key) || spec.parts.get(key).is_some_and(|p| p.separate);
-        let part = file.part(i).map_err(|e| e.to_string());
+        let part = file.part(i).map_err(|e| e.to_string()).and_then(|part| {
+            if let Some(authored) = pmi.get(key)
+                && !part.same_brep(&authored.reference)
+            {
+                return Err(format!(
+                    "{key}: PMI reference geometry differs from the assembly product; export the assembly from the same Part shapes in their product-local frames"
+                ));
+            }
+            Ok(part)
+        });
         let mut identity = None;
         let mut correspondence = Motion::IDENTITY;
         let mut corresponding_faces = Vec::new();
@@ -757,6 +766,7 @@ pub fn build_bytes_with_pmi(
             || file.parts.len() == 1
         {
             Some((|| -> Result<(Part, model::Analysis), Error> {
+                let source_part = g.part.map_err(Error::failed)?;
                 let (part, mut analysis) =
                     if file.parts.len() == 1 && file.parts[0].placements.len() == 1 {
                         model::analyse_step_part(step, &bytes, Some(0))?
@@ -764,7 +774,7 @@ pub fn build_bytes_with_pmi(
                         model::analyse_pack_part(
                             &step.display().to_string(),
                             &bytes,
-                            g.part.map_err(Error::failed)?,
+                            source_part,
                             &file.parts,
                             row.part_indices[0],
                         )?
@@ -782,12 +792,6 @@ pub fn build_bytes_with_pmi(
                 }
                 model::recognise_document(&part, &mut analysis, &doc).map_err(Error::failed)?;
                 if let Some(authored) = pmi.get(&keys[row.part_indices[0]]) {
-                    if !part.same_brep(&authored.reference) {
-                        return Err(Error::invalid(format!(
-                            "{}: PMI reference geometry differs from the assembly product; export the assembly from the same Part shapes in their product-local frames",
-                            row.key
-                        )));
-                    }
                     analysis = crate::api::with_model(&part, &analysis, &authored.model)?;
                 }
                 Ok((part, analysis))
