@@ -655,18 +655,16 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
             .contains(&t.0)),
             "{name}: no inactive overrides"
         );
-        for entity in [style] {
-            assert_eq!(
-                entity.tags.iter().rev().find(|t| t.0 == 280).unwrap().1,
-                usize::from(!table.title_row).to_string(),
-                "{name}: title row role"
-            );
-            assert_eq!(
-                tag(entity, 281).unwrap(),
-                usize::from(!table.header_row).to_string(),
-                "{name}: column heading role"
-            );
-        }
+        assert_eq!(
+            style.tags.iter().rev().find(|t| t.0 == 280).unwrap().1,
+            usize::from(!table.title_row).to_string(),
+            "{name}: title row role"
+        );
+        assert_eq!(
+            tag(style, 281).unwrap(),
+            usize::from(!table.header_row).to_string(),
+            "{name}: column heading role"
+        );
         resolve(tag(e, 343).unwrap(), "BLOCK_RECORD");
         let block = by_handle[tag(e, 343).unwrap()];
         assert_eq!(tag(block, 2), tag(e, 2));
