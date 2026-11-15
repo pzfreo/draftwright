@@ -456,7 +456,7 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
     // callout runs, so include those contents in the same exact-text conservation check.
     for tags in dxf_pairs(&bytes)
         .split(|p| p.0 == 0)
-        .filter(|tags| tags.iter().any(|p| p.1 == "AcDbMLeader"))
+        .filter(|tags| tags.iter().any(|p| p.0 == 100 && p.1 == "AcDbMLeader"))
     {
         let content = &tags.iter().find(|p| p.0 == 304).unwrap().1;
         for line in content.split("\\P") {

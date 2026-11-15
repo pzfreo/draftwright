@@ -902,7 +902,7 @@ impl Writer {
                 (b[0] - a[0]).hypot(b[1] - a[1])
             });
         // A block arrow preserves the existing dot attachment, including its 0.3 mm radius.
-        let dot = if leader.dot {
+        let arrow_block = if leader.dot {
             let i = if let Some(i) = self.blocks.iter().position(|b| b.name == "DW_LEADER_DOT") {
                 i
             } else {
@@ -916,6 +916,26 @@ impl Writer {
                         t0: 0.,
                         t1: std::f64::consts::TAU,
                     }]]),
+                    layer,
+                    Some(i),
+                );
+                i
+            };
+            Some(self.blocks[i].record)
+        } else if arrow_size > 0. && (arrow_size - crate::dims::ARROW).abs() > 1e-9 {
+            // Short shafts shorten the head, but the renderer keeps its 0.45 mm half width.
+            // A normalized block preserves that shape when the reader scales the arrow.
+            let name = format!("DW_LEADER_ARROW_{:X}", arrow_size.to_bits());
+            let i = if let Some(i) = self.blocks.iter().position(|b| b.name == name) {
+                i
+            } else {
+                let i = self.block(name, [0., 0.]);
+                let half = crate::dims::ARROW_HALF / arrow_size;
+                let points = [[0., 0.], [-1., half], [-1., -half], [0., 0.]];
+                self.item(
+                    &Item::Face(vec![
+                        points.windows(2).map(|p| Curve::Line(p[0], p[1])).collect(),
+                    ]),
                     layer,
                     Some(i),
                 );
@@ -1006,8 +1026,8 @@ impl Writer {
         t.tag(290, 0);
         t.tag(291, 0);
         t.tag(41, 0);
-        if let Some(dot) = dot {
-            t.handle(342, dot);
+        if let Some(arrow) = arrow_block {
+            t.handle(342, arrow);
         }
         t.tag(42, arrow_size);
         t.tag(172, 2);
