@@ -36,7 +36,7 @@ const COLLECTIONS: [&str; 14] = [
     "problems",
 ];
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "geometry", rename_all = "snake_case")]
 pub enum Placement {
     Dimension(crate::dims::Placed),
@@ -2603,22 +2603,19 @@ fn movements(
         .filter_map(|item| {
             let previous = before.get(&item.item.id)?;
             let id = &item.item.id;
-            let geometry = serde_json::to_value(&previous.placement).expect("placement serializes")
-                != serde_json::to_value(&item.placement).expect("placement serializes");
+            let geometry = previous.placement != item.placement;
             let ink = old
                 .annotations
                 .get(id)
                 .zip(new.annotations.get(id))
-                .is_some_and(|(a, b)| {
-                    serde_json::to_value((&a.items, &a.drawn)).expect("ink serializes")
-                        != serde_json::to_value((&b.items, &b.drawn)).expect("ink serializes")
-                });
-            let furniture = old_records
-                .get(id)
-                .map(|r| r.iter().map(record_geometry).collect::<Vec<_>>())
-                != new_records
+                .is_some_and(|(a, b)| a.items != b.items || a.drawn != b.drawn);
+            let furniture = old_records.get(id) != new_records.get(id)
+                && old_records
                     .get(id)
-                    .map(|r| r.iter().map(record_geometry).collect::<Vec<_>>());
+                    .map(|r| r.iter().map(record_geometry).collect::<Vec<_>>())
+                    != new_records
+                        .get(id)
+                        .map(|r| r.iter().map(record_geometry).collect::<Vec<_>>());
             (geometry || ink || furniture || previous.item.sheet != item.item.sheet).then(|| {
                 Movement {
                     id: id.clone(),
