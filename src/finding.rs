@@ -417,6 +417,11 @@ fn classification(code: &str) -> Option<&'static Classification> {
         .map(|i| &CODES[i])
 }
 
+/// Plain-language descriptions for explanations of candidate refusals.
+pub(crate) fn explanation(name: &str) -> Option<&'static str> {
+    classification(name).map(|entry| entry.reason)
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Labels {
     pub tier: Tier,

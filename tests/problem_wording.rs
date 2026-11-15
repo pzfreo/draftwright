@@ -146,10 +146,9 @@ fn only_sheet_problems_have_the_sheet_as_subject() {
             if p.code == "automatic_scale_limited" {
                 assert_eq!(p.id, "p:automatic_scale_limited:sheet");
                 assert_eq!(p.severity, "info");
-                assert!(
-                    p.message
-                        .contains("Larger standard scales on this paper were refused:")
-                );
+                assert!(p.message.contains(" was not used: "));
+                assert!(!p.message.contains("(Normal)"));
+                assert!(!p.message.contains("hard findings"));
                 assert_eq!(p.subjects, ["sheet"]);
             }
             if p.subjects.iter().any(|s| s == "sheet") {

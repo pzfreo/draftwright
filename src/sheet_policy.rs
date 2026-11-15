@@ -2009,7 +2009,7 @@ fn select_scales_full(
                 search_trace.join("; ")
             );
             if maximise {
-                note_scale_limits(analysis, &mut plan, &search_trace);
+                note_scale_limits(&mut plan, &search_trace);
                 plan.sheet.basis += &format!(
                     "; initial automatic reference {} at {}",
                     baseline.sheet.size, baseline.sheet.scale
@@ -2080,37 +2080,173 @@ fn select_scales_full(
     Ok(finish_choice(best, &intent, candidates, reason))
 }
 
-/// Publish the concrete larger-scale refusals alongside the chosen drawing.
-fn note_scale_limits(analysis: &Analysis, plan: &mut Plan, trace: &[String]) {
-    if analysis.pmi.is_none() {
-        return;
+/// The delimiter is part of the match: 1:1 must never match a 1:10 trial.
+fn scale_trial_reason<'a>(trial: &'a str, size: &str, scale: &str) -> Option<&'a str> {
+    let tail = trial.strip_prefix(&format!("{size} at {scale}"))?;
+    tail.strip_prefix(": ").or_else(|| {
+        tail.strip_prefix(" (")?
+            .split_once("): ")
+            .map(|(_, reason)| reason)
+    })
+}
+
+fn refused_annotation(name: &str, count: usize) -> String {
+    match name {
+        "annotation_off_sheet" => format!(
+            "{count} annotation{} would fall off the sheet",
+            if count == 1 { "" } else { "s" }
+        ),
+        "leader_hidden_crossing" => "a leader would cross hidden geometry".into(),
+        "leader_ink_run" => "a leader would run along another annotation".into(),
+        "leader_on_extension" => "a leader would run along an extension line".into(),
+        "dimension_line_at_note" => "a dimension line would cross the notes".into(),
+        _ => crate::finding::explanation(name)
+            .unwrap_or("The annotations would not remain readable and complete")
+            .trim_end_matches('.')
+            .to_string(),
     }
-    let refusals: Vec<_> = trace
-        .iter()
-        .filter(|trial| {
-            plan.spec.scales().iter().any(|scale| {
-                *scale > plan.sheet.scale_factor + 1e-9
-                    && trial.starts_with(&format!(
-                        "{} at {}",
-                        plan.sheet.size,
-                        model::scale_name(*scale)
-                    ))
-            })
+}
+
+/// Summarise the diagnostics for the reader; the complete trace stays in the basis.
+fn scale_refusal_reason(raw: &str) -> Option<String> {
+    if raw.starts_with("valid and complete")
+        || raw.starts_with("base retained")
+        || raw == "automatic baseline reused"
+        || raw == "not planned: the normal-spacing refusal is not a shortage of lane space"
+        || raw == "not planned: compact lanes cannot cure the frame shortfall"
+    {
+        return None;
+    }
+    let mut reasons = Vec::new();
+    let codes = raw
+        .find('{')
+        .and_then(|start| {
+            let end = raw[start..].find('}')? + start;
+            serde_json::from_str::<std::collections::BTreeMap<String, usize>>(&raw[start..=end])
+                .ok()
         })
-        .cloned()
-        .collect();
+        .or_else(|| {
+            raw.find('[').and_then(|start| {
+                let end = raw[start..].find(']')? + start;
+                raw[start + 1..end]
+                    .split(", ")
+                    .map(|item| {
+                        let (name, count) = item.split_once(": ")?;
+                        Some((name.to_string(), count.parse::<usize>().ok()?))
+                    })
+                    .collect::<Option<std::collections::BTreeMap<_, _>>>()
+            })
+        });
+    if let Some(codes) = codes {
+        reasons.extend(
+            codes
+                .into_iter()
+                .filter(|(_, n)| *n > 0)
+                .map(|(name, n)| refused_annotation(&name, n)),
+        );
+        for (suffix, label) in [
+            (" space drops", "required annotation"),
+            (" undrawn GD&T", "GD&T annotation"),
+        ] {
+            if let Some(n) = raw.find(suffix).and_then(|at| {
+                raw[..at]
+                    .split_whitespace()
+                    .next_back()?
+                    .parse::<usize>()
+                    .ok()
+            }) && n > 0
+            {
+                reasons.push(format!(
+                    "{n} {label}{} could not be placed",
+                    if n == 1 { "" } else { "s" }
+                ));
+            }
+        }
+    }
+    if reasons.is_empty() {
+        let reason = raw
+            .strip_prefix("refused at ")
+            .and_then(|s| s.split_once(": ").map(|(_, why)| why))
+            .unwrap_or(raw);
+        let reason = reason.split(" (").next().unwrap_or(reason);
+        if let Some(codes) =
+            reason.strip_prefix("unreadable ink, required losses or unreadable scale: new ")
+        {
+            reasons.extend(codes.split(", ").map(|name| refused_annotation(name, 1)));
+        } else if reason.starts_with("hard rejected:")
+            || reason.contains("finished footprints fit false")
+        {
+            reasons.push("a view or annotation would leave the drawable area".into());
+        } else if reason.starts_with("rejected")
+            || reason.starts_with("cannot plan:")
+            || reason.starts_with("final presentation refused:")
+        {
+            reasons.push("the drawing could not be completed clearly at this scale".into());
+        } else if reason == "required items not carried" || reason == "new dropped items" {
+            reasons.push("required annotations would be left undrawn".into());
+        } else if reason == "more undrawn GD&T" {
+            reasons.push("required GD&T annotations would be left undrawn".into());
+        } else if reason == "a callout's leader doubles beyond the displaced drawing" {
+            reasons.push("an existing leader would more than double in length".into());
+        } else if reason == "a callout grows more than 2 paper mm beyond the displaced drawing" {
+            reasons.push("an existing leader would grow more than 2 mm".into());
+        } else {
+            let plain = reason
+                .strip_prefix("not planned: ")
+                .or_else(|| reason.strip_prefix("banded pre-filter: "))
+                .unwrap_or(reason);
+            reasons.push(if crate::wording::carries_id(plain).is_some() {
+                "the required geometry would not remain readable".into()
+            } else {
+                plain.trim_end_matches('.').to_string()
+            });
+        }
+    }
+    reasons.dedup();
+    Some(reasons.join("; "))
+}
+
+/// Publish one explanation per refused larger scale, regardless of the PMI source.
+fn note_scale_limits(plan: &mut Plan, trace: &[String]) {
+    let mut refusals = Vec::new();
+    for scale in plan
+        .spec
+        .scales()
+        .iter()
+        .filter(|s| **s > plan.sheet.scale_factor + 1e-9)
+    {
+        let name = model::scale_name(*scale);
+        let mut reasons = Vec::new();
+        for raw in trace
+            .iter()
+            .filter_map(|trial| scale_trial_reason(trial, &plan.sheet.size, &name))
+        {
+            if let Some(reason) = scale_refusal_reason(raw)
+                && !reasons.contains(&reason)
+            {
+                reasons.push(reason);
+            }
+        }
+        if !reasons.is_empty() {
+            refusals.push(format!(
+                "{} at {name} was not used: {}.",
+                plan.sheet.size,
+                reasons.join("; ")
+            ));
+        }
+    }
+    plan.problems
+        .retain(|p| p.code != "automatic_scale_limited");
     if !refusals.is_empty() {
-        plan.problems
-            .retain(|p| p.code != "automatic_scale_limited");
         plan.problems.push(model::Problem {
             id: "p:automatic_scale_limited:sheet".into(),
             code: "automatic_scale_limited".into(),
             severity: "info".into(),
             message: format!(
-                "Automatic scale kept at {} on {}. Larger standard scales on this paper were refused: {}.",
+                "Automatic scale kept at {} on {}. {}",
                 plan.sheet.scale,
                 plan.sheet.size,
-                refusals.join("; ")
+                refusals.join(" ")
             ),
             subjects: vec!["sheet".into()],
             ..Default::default()
@@ -2128,7 +2264,6 @@ fn retained_base(
     mut scales: Vec<String>,
     mut trace: Vec<String>,
 ) -> Result<Plan, Invalid> {
-    note_scale_limits(analysis, &mut selected, &trace);
     trace.push(format!(
         "{} at {} ({:?}): base retained without a replacement",
         baseline.sheet.size, baseline.sheet.scale, baseline.sheet.dimension_spacing
@@ -2178,6 +2313,7 @@ fn retained_base(
     }
     selected.sheet_candidates = candidates;
     selected_trial_basis(&mut selected);
+    note_scale_limits(&mut selected, &trace);
     Ok(selected)
 }
 
@@ -2837,6 +2973,69 @@ fn explain(plan: &mut Plan, mut candidates: Vec<Candidate>, reason: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scale_limit_trace_requires_the_complete_scale_and_delimiter() {
+        for (scale, other) in [("1:1", "1:10"), ("1:5", "1:50"), ("1:2", "1:20")] {
+            for (suffix, reason) in [
+                (": not planned: no room", "not planned: no room"),
+                (" (Normal): no room", "no room"),
+            ] {
+                assert_eq!(
+                    scale_trial_reason(&format!("A4 at {scale}{suffix}"), "A4", scale),
+                    Some(reason)
+                );
+                assert!(
+                    scale_trial_reason(&format!("A4 at {other}{suffix}"), "A4", scale).is_none()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn scale_limits_explain_real_larger_refusals_without_pmi_or_raw_diagnostics() {
+        let a = fixture();
+        assert!(a.pmi.is_none());
+        let mut p = model::plan_escalated(&a, &Spec::default()).unwrap();
+        p.sheet.size = "A4".into();
+        p.sheet.scale = "1:1".into();
+        p.sheet.scale_factor = 1.;
+        let traces = vec![
+            "A4 at 2:1 (Normal): rejected before final repair: hard findings {\"annotation_off_sheet\": 3}; 0 space drops; 0 undrawn GD&T".into(),
+            "A4 at 2:1 (Compact): 3 hard layout findings [annotation_off_sheet: 3]".into(),
+            "A4 at 1:10: not planned: below the readable scale".into(),
+        ];
+        p.sheet.basis = traces.join("; ");
+        let basis = p.sheet.basis.clone();
+        note_scale_limits(&mut p, &traces);
+        let limits: Vec<_> = p
+            .problems
+            .iter()
+            .filter(|q| q.code == "automatic_scale_limited")
+            .collect();
+        assert_eq!(limits.len(), 1);
+        assert_eq!(
+            limits[0].message,
+            "Automatic scale kept at 1:1 on A4. A4 at 2:1 was not used: 3 annotations would fall off the sheet."
+        );
+        assert_eq!(p.sheet.basis, basis, "full diagnostics remain in the basis");
+        note_scale_limits(&mut p, &traces[2..]);
+        assert!(
+            !p.problems
+                .iter()
+                .any(|q| q.code == "automatic_scale_limited"),
+            "a smaller refusal must not produce an advisory"
+        );
+        note_scale_limits(
+            &mut p,
+            &["A4 at 2:1 (Normal): valid and complete; usable".into()],
+        );
+        assert!(
+            !p.problems
+                .iter()
+                .any(|q| q.code == "automatic_scale_limited")
+        );
+    }
+
     #[test]
     fn a_fitting_auxiliary_repack_does_not_earn_an_unreadable_reduction() {
         let Some(a) = corpus("mfcadpp/10224.step") else {
