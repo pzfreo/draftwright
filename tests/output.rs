@@ -461,7 +461,8 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
         let content = &tags.iter().find(|p| p.0 == 304).unwrap().1;
         for line in content.split("\\P") {
             let line = line.replace("{\\Fgdt;n}", "%%c");
-            let start = line.find(';').unwrap() + 1; // the inline width factor
+            let width = line.find("{\\W").unwrap();
+            let start = width + line[width..].find(';').unwrap() + 1;
             strings.push(line[start..line.len() - 1].to_string());
         }
     }

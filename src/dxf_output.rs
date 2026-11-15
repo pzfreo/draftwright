@@ -42,7 +42,7 @@ pub struct Leader {
     /// Item offsets painted by the native leader (the frame/ring remains separate).
     pub ink: Vec<Range<usize>>,
     pub dot: bool,
-    /// Baseline origin for a wrapped, left-aligned callout, as placed by the planner.
+    /// Baseline origin used to size a wrapped callout's MTEXT box. Run centres stay live.
     pub text_at: Option<P>,
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -871,14 +871,11 @@ impl Writer {
         let (sin, cos) = r.rotation.to_radians().sin_cos();
         let mut at = r.at;
         let wrapped = text.len() > 1 && leader.text_at.is_some();
-        if wrapped {
-            at = leader.text_at.unwrap();
-        }
         // MTEXT has a top attachment; TEXT's baseline is one cap height below it.
         if r.v_align == VAlign::Baseline {
             at = [at[0] - sin * height, at[1] + cos * height];
         }
-        let alignment = match (if wrapped { HAlign::Left } else { r.h_align }, r.v_align) {
+        let alignment = match (r.h_align, r.v_align) {
             (HAlign::Left, VAlign::Baseline) => 1,
             (HAlign::Center, VAlign::Baseline) => 2,
             (HAlign::Right, VAlign::Baseline) => 3,
@@ -886,14 +883,32 @@ impl Writer {
             (HAlign::Center, VAlign::Middle) => 5,
             (HAlign::Right, VAlign::Middle) => 6,
         };
+        let width = if wrapped {
+            let origin = leader.text_at.unwrap();
+            text.iter()
+                .map(|run| {
+                    2. * ((run.at[0] - origin[0]) * cos + (run.at[1] - origin[1]) * sin).abs()
+                })
+                .fold(0_f64, f64::max)
+        } else {
+            0.
+        };
         let content = text
             .iter()
-            .map(|r| {
-                format!(
+            .map(|run| {
+                let mut content = format!(
                     "{{\\W{:.6};{}}}",
-                    text_width(r),
-                    symbol_text(&asme_words(&r.text), false)
-                )
+                    text_width(run),
+                    symbol_text(&asme_words(&run.text), false)
+                );
+                if wrapped {
+                    // Paragraph indents are in initial character heights. Opposite left
+                    // and right indents translate the centre without changing line width.
+                    let shift =
+                        ((run.at[0] - r.at[0]) * cos + (run.at[1] - r.at[1]) * sin) / height;
+                    content = format!("\\pxi0,l{shift:.9},r{:.9},qc;{content}", -shift);
+                }
+                content
             })
             .collect::<Vec<_>>()
             .join("\\P");
@@ -968,7 +983,7 @@ impl Writer {
         t.point(12, at);
         t.point(13, [cos, sin]);
         t.tag(42, r.rotation.to_radians());
-        t.tag(43, 0);
+        t.tag(43, width);
         t.tag(44, 0);
         let spacing = text.get(1).map_or(1., |next| {
             ((next.at[0] - r.at[0]) * sin - (next.at[1] - r.at[1]) * cos).abs() / (height * 5. / 3.)
@@ -2952,14 +2967,24 @@ mod native_annotation_tests {
             };
             let height = text_height(&first);
             assert!((number(45) * height * 5. / 3. - 4.2).abs() < 1e-12);
-            assert!((number(12) - (origin[0] - sin * height)).abs() < 1e-12);
-            assert!((number(22) - (origin[1] + cos * height)).abs() < 1e-12);
-            assert_eq!(number(171), 1.); // wrapped text is left aligned
+            assert!((number(12) - (first.at[0] - sin * height)).abs() < 1e-12);
+            assert!((number(22) - (first.at[1] + cos * height)).abs() < 1e-12);
+            assert_eq!(number(171), 2.); // retain the original run's centre attachment
             assert!((number(140) - 2_f64.sqrt()).abs() < 1e-12);
             let content = &tags.iter().find(|t| t.0 == 304).unwrap().1;
             assert!(content.contains("%%c10 THRU CBORE"));
             assert!(content.contains("\\P"));
             assert!(content.contains("DEEP 5"));
+            let paragraph = content.split("\\P").nth(1).unwrap();
+            let props = paragraph[..paragraph.find(';').unwrap()]
+                .split(',')
+                .collect::<Vec<_>>();
+            let left: f64 = props[1][1..].parse().unwrap();
+            let right: f64 = props[2][1..].parse().unwrap();
+            assert!(
+                ((left - right) * height / 2. + 15.).abs() < 1e-8,
+                "the second row must keep its planned centre, 15 mm before the first"
+            );
         }
     }
 
