@@ -144,6 +144,23 @@ pub fn scales(units: Units) -> &'static [f64] {
 
 /// Plan with resolved defaults, then retain the author's omitted preference just
 /// as automatic sheet sizes and scales remain absent from the embedded Spec.
+pub(crate) fn effective<'a>(
+    analysis: &crate::model::Analysis,
+    spec: &'a crate::model::Spec,
+) -> std::borrow::Cow<'a, crate::model::Spec> {
+    if !spec.units.is_auto() {
+        return std::borrow::Cow::Borrowed(spec);
+    }
+    let mut resolved = spec.clone();
+    resolved.units = if analysis.declared_length_unit == Some(haecceity::pmi::LengthUnit::Inch) {
+        Units::In
+    } else {
+        Units::Mm
+    };
+    std::borrow::Cow::Owned(resolved)
+}
+
+/// Publish the effective sheet while retaining the authored preference.
 pub(crate) fn with_declared_default(
     analysis: &crate::model::Analysis,
     spec: &crate::model::Spec,
@@ -153,8 +170,7 @@ pub(crate) fn with_declared_default(
     ) -> Result<crate::model::Plan, crate::model::Invalid>,
 ) -> Result<crate::model::Plan, crate::model::Invalid> {
     let inches = analysis.declared_length_unit == Some(haecceity::pmi::LengthUnit::Inch);
-    let mut effective = spec.clone();
-    effective.units = if inches { Units::In } else { Units::Mm };
+    let effective = effective(analysis, spec);
     let mut planned = plan(analysis, &effective)?;
     planned.spec.units = Units::Auto;
     if inches {

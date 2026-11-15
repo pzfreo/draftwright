@@ -54,6 +54,12 @@ def build_plate():
 
 
 class OptionalImport(unittest.TestCase):
+    def test_drawing_preserves_omitted_and_explicit_units(self):
+        from draftwright._part import Drawing
+        self.assertNotIn("units", Drawing(None).spec())
+        for unit in ("mm", "in"):
+            self.assertEqual(Drawing(None, units=unit).spec()["units"], unit)
+
     def test_import_does_not_import_build123d(self):
         # Runs with or without build123d installed.
         code = "import sys, draftwright; assert 'build123d' not in sys.modules and 'OCP' not in sys.modules"
@@ -225,7 +231,6 @@ class PartAPI(unittest.TestCase):
         spec = (p.drawing(sheet="A3", scale="1:2").views(shaded=True, omit=["side"])
                 .section("A-A", through="f:section_recess:f133").spec())
         self.assertEqual(spec, {
-            "units": "mm",
             "sheet": {"size": "A3", "scale": "1:2",
                       "title": {"title": "Mounting plate", "number": "DWG-002"}},
             "views": {"iso": {"style": "shaded"}, "side": {"omit": True},

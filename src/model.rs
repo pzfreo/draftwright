@@ -4644,7 +4644,11 @@ fn recover_candidates(
 
 // Shared canonical inputs for pin placement and the editor's label anchor metadata.
 pub(crate) fn pin_base(spec: &Spec) -> Spec {
-    let mut base = Spec::default();
+    let mut base = Spec {
+        units: spec.units,
+        ..Spec::default()
+    };
+    base.sheet.paper = spec.sheet.paper;
     base.sheet.size = spec.sheet.size.clone();
     base.sheet.scale = spec.sheet.scale.clone();
     base.sheet.preferred_max_size = spec.sheet.preferred_max_size.clone();
@@ -5025,6 +5029,8 @@ pub(crate) fn finish_presentation(
 
 /// The established planner, also used unchanged for explicit controls and forced candidates.
 pub(crate) fn plan_automatic(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    let resolved = crate::units::effective(analysis, spec);
+    let spec = resolved.as_ref();
     // R5's max-only shortcut asks for the same single-sheet plan before allocation.
     // Reuse that complete result when the paper policy has just requested it already.
     let key = serde_json::to_vec(&(

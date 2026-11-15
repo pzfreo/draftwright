@@ -1080,6 +1080,8 @@ fn illegible_shortfall(analysis: &Analysis, spec: &Spec, baseline: &Plan, plan: 
 /// keeping the view reaches smaller paper, the view is kept. The plan keeps the caller's spec,
 /// so planning it again reaches the same drawing.
 pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
+    let resolved = crate::units::effective(analysis, spec);
+    let spec = resolved.as_ref();
     crate::sheets::check_max(spec)?;
     // Pin replays derive the same canonical paper inputs for annotation-only edits.
     // Retain that exact selection in session preparation instead of searching again.
@@ -4463,7 +4465,12 @@ mod tests {
             let Some(a) = corpus(file) else {
                 return;
             };
-            let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+            // Retain the reviewed ISO/metric reductions, including FTC-07 RD.
+            let spec = Spec {
+                units: crate::units::Units::Mm,
+                ..Spec::default()
+            };
+            let p = model::plan_recovered(&a, &spec).unwrap();
             assert_eq!(
                 (
                     p.sheet.size.as_str(),
@@ -4588,7 +4595,12 @@ mod tests {
                 .join("tests/fixtures/pmi/step/nist_stc_09_asme1_ap242-e4.stp.gz"),
         )
         .unwrap();
-        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        // This regression pins the reviewed A1 metric frame and 67.07 mm witnesses.
+        let spec = Spec {
+            units: crate::units::Units::Mm,
+            ..Spec::default()
+        };
+        let p = model::plan_recovered(&a, &spec).unwrap();
         assert!(sheet_fit::inside_frames(&a, &p), "{}", p.sheet.basis);
         let font = crate::text::Font::new(crate::api::MONO.to_vec()).unwrap();
         let drawing = model::render(&part, &a, &p, &font).unwrap();
@@ -5319,7 +5331,12 @@ mod compact_sheet_regressions {
             .join("tests/fixtures")
             .join(file);
         let a = model::analyse_native(&path).unwrap().1;
-        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        // These regressions pin ISO sheets and metric scale/label recipes.
+        let spec = Spec {
+            units: crate::units::Units::Mm,
+            ..Spec::default()
+        };
+        let p = model::plan_recovered(&a, &spec).unwrap();
         assert_eq!(
             (p.sheet.size.as_str(), p.sheet.scale.as_str()),
             (size, scale),
@@ -5428,7 +5445,11 @@ mod compact_sheet_regressions {
         let Some(a) = corpus_analysis("nist/nist_ftc_06_asme1_rd.stp") else {
             return;
         };
-        let p = model::plan_recovered(&a, &Spec::default()).unwrap();
+        let spec = Spec {
+            units: crate::units::Units::Mm,
+            ..Spec::default()
+        };
+        let p = model::plan_recovered(&a, &spec).unwrap();
         assert_eq!(
             (p.sheet.size.as_str(), p.sheet.scale.as_str()),
             ("A2", "1:2")

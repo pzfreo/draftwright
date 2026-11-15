@@ -778,7 +778,15 @@ fn wants(
     BTreeMap<String, pmi_dimensions::Note>,
 ) {
     let mut result = crate::planning::memo(analysis, "wants", Vec::new(), || {
-        wants_uncached(analysis, &Spec::default())
+        // Geometry inventory uses the canonical mm recipe. Drawing-specific
+        // wants receive the resolved Spec through the planning boundary.
+        wants_uncached(
+            analysis,
+            &Spec {
+                units: crate::units::Units::Mm,
+                ..Spec::default()
+            },
+        )
     });
     bosses::prefer_established(analysis, &mut result.0);
     result
