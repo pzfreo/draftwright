@@ -38,6 +38,7 @@ class Pack:
                 raise TypeError(f"{field} must be a string or None")
         self._assembly = assembly
         self._assembly_step = None
+        self._assembly_signature = None
         self._parts = {p.name: p for p in parts}
         self._drawings = {p.name: p.drawing() for p in parts}
         self._defaults = {}
@@ -48,8 +49,8 @@ class Pack:
 
     def title(self, **fields):
         """Set shared title-block defaults; TITLE and DWG NO. identify the GA."""
-        if any(k in fields for k in ("title", "number")):
-            raise ValueError("pack title/number are per sheet; set the GA identity in Pack(..., title=, number=)")
+        if any(k in fields for k in ("title", "number", "sheet")):
+            raise ValueError("pack title/number/sheet are per sheet; set the GA identity in Pack(..., title=, number=)")
         # Validate types and vocabulary through the same native title validation
         # as Drawing, while allowing a shared general tolerance/material default.
         if any(not isinstance(v, str) for v in fields.values()):
@@ -61,6 +62,7 @@ class Pack:
         """Return a layout Drawing for a product (also for geometry-only products)."""
         if not isinstance(name, str):
             raise TypeError("part name must be a string")
+        name = name.strip()
         if name not in self._drawings:
             if name not in self._product_names():
                 raise ValueError(f"unknown product {name!r}")
@@ -82,12 +84,33 @@ class Pack:
                 for child in node.children:
                     visit(child)
             else:
-                names.append(node.label)
+                names.append(node.label.strip())
 
         visit(self._assembly)
-        if any(not n for n in names) or len(set(names)) != len(names):
-            raise ValueError("assembly leaf product labels must be nonempty and unique")
+        if any(not n for n in names):
+            raise ValueError("assembly leaf product labels must be nonempty")
         return set(names)
+
+    def _signature(self):
+        """Track the export inputs without traversing faces or serializing geometry."""
+        leaves = []
+
+        def visit(node):
+            if node.children:
+                for child in node.children:
+                    visit(child)
+            else:
+                transform = node.global_location.wrapped.Transformation()
+                matrix = tuple(transform.Value(i, j) for i in range(1, 4) for j in range(1, 5))
+                leaves.append((node.label, matrix, hash(node.wrapped)))
+
+        if isinstance(self._assembly, (list, tuple)):
+            for part in self._parts.values():
+                visit(part.shape)
+            # List mode exports Part names rather than the shapes' labels.
+            return tuple(self._parts), tuple(leaves)
+        visit(self._assembly)
+        return tuple(leaves)
 
     def _step(self):
         if isinstance(self._assembly, (str, os.PathLike)):
@@ -96,7 +119,8 @@ class Pack:
                 return str(path), path.read_bytes()
             except OSError as error:
                 raise _native.DraftwrightError(str(error)) from error
-        if self._assembly_step is not None:
+        signature = self._signature()
+        if self._assembly_step is not None and self._assembly_signature == signature:
             return self._assembly_step
         from build123d import Compound, export_step
         names = self._product_names()
@@ -112,10 +136,19 @@ class Pack:
                 children.append(shape)
             assembly = Compound(children=children)
         stream = io.BytesIO()
+        original_label = assembly.label
         try:
+            # The STEP reader names a sole product after its assembly wrapper.
+            # Keep that wrapper consistent with the actual product, including in
+            # list mode, without changing the caller's assembly after export.
+            if len(names) == 1:
+                assembly.label = next(iter(names))
             export_step(assembly, stream)
         except (RuntimeError, ValueError) as error:
             raise _native.DraftwrightError(str(error)) from error
+        finally:
+            assembly.label = original_label
+        self._assembly_signature = signature
         self._assembly_step = "assembly.step", stream.getvalue()
         return self._assembly_step
 

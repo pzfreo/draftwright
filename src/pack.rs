@@ -91,7 +91,7 @@ impl Default for PackSpec {
 
 impl PackSpec {
     pub fn check_title(&self) -> Result<(), Error> {
-        for field in ["title", "number"] {
+        for field in ["title", "number", "sheet"] {
             if self.title.contains_key(field) {
                 return Err(Error::invalid(format!(
                     "pack title/{field} is per sheet; set ga/drawing/sheet/title/{field} or parts/<key>/drawing/sheet/title/{field} instead"
@@ -101,8 +101,33 @@ impl PackSpec {
         crate::title_block::check(&self.title).map_err(Error::from)
     }
 
-    fn inherit_title(&self, drawing: &mut Spec) {
+    fn inherit_title(
+        &self,
+        drawing: &mut Spec,
+        analysis: &model::Analysis,
+        metadata: Option<&Metadata>,
+    ) {
+        // These remain source values: never copy PMI into the drawing Spec. A
+        // default must neither mask that source nor manufacture a disagreement.
+        let pmi_material = matches!(&analysis.pmi, Some(crate::pmi::Reading::Read(r)) if r.title_material().is_some());
+        let pmi_tolerance = crate::pmi_lowering::sheet_requirements(analysis)
+            .0
+            .iter()
+            .any(|r| r.kind == "general_tolerance");
+        if let Some(revision) = metadata.and_then(|m| m.revision.as_ref()) {
+            drawing
+                .sheet
+                .title
+                .entry("revision".into())
+                .or_insert_with(|| revision.clone());
+        }
         for (key, value) in &self.title {
+            if (key == "material"
+                && (pmi_material || metadata.and_then(|m| m.material.as_ref()).is_some()))
+                || (key == "tolerance" && pmi_tolerance)
+            {
+                continue;
+            }
             drawing
                 .sheet
                 .title
@@ -767,18 +792,20 @@ pub fn build_bytes_with_pmi(
         {
             Some((|| -> Result<(Part, model::Analysis), Error> {
                 let source_part = g.part.map_err(Error::failed)?;
-                let (part, mut analysis) =
-                    if file.parts.len() == 1 && file.parts[0].placements.len() == 1 {
-                        model::analyse_step_part(step, &bytes, Some(0))?
-                    } else {
-                        model::analyse_pack_part(
-                            &step.display().to_string(),
-                            &bytes,
-                            source_part,
-                            &file.parts,
-                            row.part_indices[0],
-                        )?
-                    };
+                let (part, mut analysis) = if file.parts.len() == 1
+                    && file.parts[0].placements.len() == 1
+                    && !pmi.contains_key(&keys[row.part_indices[0]])
+                {
+                    model::analyse_step_part(step, &bytes, Some(0))?
+                } else {
+                    model::analyse_pack_part(
+                        &step.display().to_string(),
+                        &bytes,
+                        source_part,
+                        &file.parts,
+                        row.part_indices[0],
+                    )?
+                };
                 let recognition = quiddity::correspondence::recognise(&part);
                 let doc = quiddity::recognition::document(&recognition, part.faces.len());
                 if row.buy_reasons.is_empty()
@@ -866,13 +893,13 @@ pub fn build_bytes_with_pmi(
         } else {
             findings.push(finding("pack_make_guess", format!("{}: guessed make; custom drawing identifier or no bounded purchased-part name/shape evidence (supply override wins)", row.name), row.products.clone()));
         }
-        spec.inherit_title(&mut drawing_spec);
         let started = Instant::now();
         let planned = if row.supply != Supply::Buy {
             match analysed
                 .take()
                 .expect("made groups analysed")
                 .and_then(|(part, analysis)| {
+                    spec.inherit_title(&mut drawing_spec, &analysis, Some(&row.bom));
                     let plan = crate::api::plan_analysed(&analysis, &drawing_spec)?;
                     Ok(Prepared {
                         part,
@@ -966,8 +993,6 @@ pub fn build_bytes_with_pmi(
             reserved.insert(next);
         }
     }
-    let mut ga_settings = spec.ga.clone();
-    spec.inherit_title(&mut ga_settings.drawing);
     let ga_started = Instant::now();
     let reused: BTreeMap<_, _> = rows
         .iter()
@@ -982,7 +1007,7 @@ pub fn build_bytes_with_pmi(
             step,
             &doc,
             &file,
-            &ga_settings,
+            spec,
             rows.iter().map(|(r, ..)| r),
             &reused,
             &aliases,

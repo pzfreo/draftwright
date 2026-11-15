@@ -230,7 +230,9 @@ class Part:
 
     def __init__(self, shape, name=None, *, number=None, title=None):
         self.shape = shape
-        self.name = _safe(name or getattr(shape, "label", "") or "part")
+        self.name = str(name if name is not None else getattr(shape, "label", "") or "part").strip()
+        if not self.name:
+            raise ValueError("Part name must not be blank")
         self.number, self.title = number, title
         self._faces = list(shape.faces())
         if not self._faces:
@@ -668,7 +670,7 @@ class Drawing:
             raise ValueError("formats must be distinct members of svg, pdf, png, dxf")
         layout = _native.layout_spec(json.dumps(self._spec), json.dumps({} if spec is None else spec))
         part = self._part
-        out = Path(os.fsdecode(os.fspath(out))) if out is not None else Path(part.name)
+        out = Path(os.fsdecode(os.fspath(out))) if out is not None else Path(_safe(part.name))
         if self._scale is not None:
             if not self._scale > 0:
                 raise ValueError("scale must be positive")

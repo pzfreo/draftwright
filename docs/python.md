@@ -316,8 +316,10 @@ See the [code-to-tier table](finding-impact.md), including its explicit severity
 
 `Pack(assembly, parts=[...], title=..., number=...)` renders the Rust pack pipeline:
 a GA followed by made-part sheets, with one PDF, CSV and JSON report. `assembly`
-is a build123d Compound whose leaf children are located shapes with unique product
-labels matching `Part.name`. A STEP path also works, or pass a list of Parts as
+is a build123d Compound whose leaf children are located shapes with product
+labels matching `Part.name`. Repeated instances can share one product label and
+one Part; their row retains the total quantity and draws the part once. Product
+names are trimmed, preserving internal spaces and punctuation. A STEP path also works, or pass a list of Parts as
 `Pack([base, lid], ...)`; each stays where it was modelled. build123d remains
 optional for STEP-only packs. Products without a supplied Part draw from geometry,
 with the CLI's normal make/buy policy.
@@ -325,7 +327,8 @@ with the CLI's normal make/buy policy.
 `title` and `number` in the constructor identify the GA. Part numbers and drawing
 titles come from each Part. `pack.title(drawn_by=..., date=..., revision=...)`
 sets [pack-wide title-block defaults](model.md#drawing-packs-41), inherited field
-by field; `title` and `number` in this method are errors. `pack.part(name)` returns
+by field after the part’s own drawing Spec and PMI/file values, and before engine
+defaults; `title`, `number` and `sheet` in this method are errors. `pack.part(name)` returns
 a layout Drawing: use `.update(spec_dict)` or `.title(...)` for individual overrides.
 Requirements belong on Part; they never enter the drawing Spec or STEP sidecars.
 
@@ -376,7 +379,8 @@ product to have exactly the same B-rep, including face order, before using those
 indices; no geometric nearest-face guess is made. Export the assembly from the
 same shapes, preserving product-local frames. A STEP path with supplied Parts
 must preserve that same geometry; a mismatch remains a row error and the other
-sheets render. Create a new Pack after changing assembly geometry or placements;
+sheets render. A cheap signature of leaf labels, placements and wrapped shapes
+invalidates the assembly export after geometry, placement or child-list edits.
 PMI and layout edits remain live. No temporary files or PMI sidecars are created.
 
 ## Commands and interrupts

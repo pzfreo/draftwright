@@ -40,9 +40,6 @@
         "revision": {
           "type": "string"
         },
-        "sheet": {
-          "type": "string"
-        },
         "company": {
           "type": "string"
         },
@@ -50,7 +47,7 @@
           "type": "string"
         }
       },
-      "description": "Shared title-block defaults for every GA and made-part sheet. Per-sheet fields override individually. TITLE and DWG NO. belong in each drawing, never here."
+      "description": "Shared title-block defaults for every GA and made-part sheet. Per-sheet fields and source PMI/file values override these defaults. TITLE, DWG NO. and SHEET belong to individual sheets, never here."
     }
   },
   "$defs": {

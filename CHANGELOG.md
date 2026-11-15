@@ -6,6 +6,13 @@ All notable changes to draftwright are recorded here, in the style of
 
 ## Unreleased
 
+- Add Python `Pack` drawing sets with in-memory PMI, shared `PackSpec::title`
+  defaults and persistent CLI part keys. Downstream Rust API additions include
+  the `PackSpec::title` field and `ValueSource::Pmi` variant. Shared title defaults
+  follow per-sheet intent and source PMI/file values; per-sheet title, number and
+  sheet numbering cannot be pack defaults. Product names preserve spaces, repeated
+  instances share one part sheet, and assembly edits invalidate cached geometry.
+
 - Python Part process values now validate before changing PMI, face bindings resolve by
   unique names, and repeated finish/flatness/position declarations replace prior values.
   Reference-key lookups preserve names and cached geometry; non-shape section inputs

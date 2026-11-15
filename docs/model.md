@@ -3433,9 +3433,11 @@ items and problems; `ga_seconds` is outside the deterministic report.
 
 Pack-wide `title` supplies shared title-block defaults to the GA and every made-part
 sheet. `ga.drawing.sheet.title` and `parts/<key>/drawing/sheet/title` override
-individual fields, including explicit empty strings. Shared fields include
+individual fields, including explicit empty strings. Part PMI and file values
+also take precedence over pack defaults; a default alone never creates a source
+disagreement. Engine defaults fill the remaining gaps. Shared fields include
 `drawn_by`, `date`, `revision`, `approved_by`, `company` (LEGAL OWNER), `tolerance`,
-`material` and `document_type`. Pack-level `title.title` and `title.number` are
+`material` and `document_type`. Pack-level `title.title`, `title.number` and `title.sheet` are
 errors: TITLE and DWG NO. identify individual sheets and belong in their drawing
 Specs. Global SHEET numbering is still allocated by the pack.
 

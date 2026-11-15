@@ -1922,7 +1922,7 @@ fn shared_title_defaults_reach_ga_and_every_part_sheet_with_field_overrides() {
             "AB"
         );
     }
-    for field in ["title", "number"] {
+    for field in ["title", "number", "sheet"] {
         let bad = serde_json::from_value(json!({"title":{field:"copied identity"}})).unwrap();
         let error = pack::build(&fixture("pack-small.step.gz"), &bad)
             .err()
@@ -1957,4 +1957,141 @@ fn cli_pack_honours_shared_title_defaults() {
     assert_eq!(spec.sheet.title["date"], "2026-11-15");
     assert_eq!(spec.sheet.title["revision"], "B");
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn pack_title_defaults_follow_ap242_sources_and_own_drawing_intent() {
+    use draftwright::haecceity::{p21::Document, pmi, step};
+    use pmi::write::{self, Mode, PresentationPolicy};
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
+    let bytes = std::fs::read(&path).unwrap();
+    let defs = step::read_part_definitions(&bytes).unwrap();
+    let key = pack::part_keys(&draftwright::model::parts(&path, &bytes).unwrap())[0].clone();
+    let doc = Document::parse(bytes.clone()).unwrap();
+    let directory = std::env::temp_dir().join(format!(
+        "draftwright-pack-source-defaults-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    for material in [false, true] {
+        for tolerance in [false, true] {
+            let model = pmi::PartPmi {
+                material: material.then(|| pmi::Material {
+                    id: "SOURCE STEEL".into(),
+                    name: None,
+                    density: None,
+                }),
+                general: if tolerance {
+                    vec![pmi::GeneralTolerance::Class {
+                        text: "ISO 2768-fH".into(),
+                        standard: None,
+                    }]
+                } else {
+                    vec![]
+                },
+                ..Default::default()
+            };
+            let source = if material || tolerance {
+                let (edit, _) = write::write(
+                    &doc,
+                    &defs,
+                    &[(pmi::PartId(0), model)],
+                    Mode::Add,
+                    PresentationPolicy::Refuse,
+                )
+                .unwrap();
+                doc.apply(&edit).unwrap().bytes
+            } else {
+                bytes.clone()
+            };
+            for own in [false, true] {
+                let mut spec: PackSpec = serde_json::from_value(json!({
+                    "ga":{"include":false},
+                    "title":{"material":"PACK ALUMINIUM","tolerance":"ISO 2768-mK"},
+                    "parts":{key.clone():{"supply":"make"}}
+                }))
+                .unwrap();
+                if own {
+                    spec.parts.get_mut(&key).unwrap().drawing = Some(
+                        serde_json::from_value(json!({
+                            "sheet":{"title":{"material":"DRAWING BRASS","tolerance":"ISO 2768-cL"}}
+                        }))
+                        .unwrap(),
+                    );
+                }
+                let pack = pack::build_bytes("source.step", &source, &spec).unwrap();
+                let row = &pack.report.rows[0];
+                assert!(row.error.is_none(), "{:?}", row.error);
+                assert!(!row.sheets.is_empty());
+                for page in &row.sheets {
+                    let drawing = &pack.drawings[page - 1];
+                    for expected in [
+                        if own {
+                            "DRAWING BRASS"
+                        } else if material {
+                            "SOURCE STEEL"
+                        } else {
+                            "PACK ALUMINIUM"
+                        },
+                        if own {
+                            "ISO 2768-cL"
+                        } else if tolerance {
+                            "ISO 2768-fH"
+                        } else {
+                            "ISO 2768-mK"
+                        },
+                    ] {
+                        assert!(
+                            drawing.text.iter().any(|run| run.text == expected),
+                            "missing {expected}: {:?}",
+                            drawing.text.iter().map(|r| &r.text).collect::<Vec<_>>()
+                        );
+                    }
+                }
+                for (present, code) in [
+                    (material, "step_material_disagreement"),
+                    (tolerance, "step_general_tolerance_disagreement"),
+                ] {
+                    assert_eq!(
+                        row.problems.iter().any(|p| p.code == code),
+                        own && present,
+                        "own={own}, material={material}, tolerance={tolerance}: {:?}",
+                        row.problems
+                    );
+                }
+                if material && tolerance && !own {
+                    let step = directory.join("source.step");
+                    let intent = directory.join("spec.json");
+                    std::fs::write(&step, &source).unwrap();
+                    std::fs::write(&intent, serde_json::to_vec(&spec).unwrap()).unwrap();
+                    let output = std::process::Command::new(env!("CARGO_BIN_EXE_draftwright"))
+                        .arg("pack")
+                        .arg(step)
+                        .arg("--spec")
+                        .arg(intent)
+                        .arg("-o")
+                        .arg(&directory)
+                        .args(["--formats", "pdf,json"])
+                        .output()
+                        .unwrap();
+                    assert!(output.status.success(), "{output:?}");
+                    let report: serde_json::Value = serde_json::from_slice(
+                        &std::fs::read(directory.join("pack.json")).unwrap(),
+                    )
+                    .unwrap();
+                    assert!(report["rows"][0].get("error").is_none());
+                    assert!(
+                        !report["rows"][0]["problems"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|p| p["code"].as_str().unwrap().contains("disagreement")),
+                        "{report}"
+                    );
+                    assert!(directory.join("pack.pdf").is_file());
+                }
+            }
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
 }

@@ -593,6 +593,8 @@ fn run(command: &str, given: &Given) -> Result<Value, Error> {
                 };
                 return crate::part_choice::cli(key, &parts).map_err(Error::from);
             }
+            // All-digit text can also be a product key. Reading the definitions
+            // is necessary to distinguish a plain index from a conflicting key.
             crate::part_choice::cli(key, &api::parts(std::path::Path::new(arg(1)?))?)
                 .map_err(Error::from)
         })
