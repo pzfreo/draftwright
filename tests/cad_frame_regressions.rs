@@ -19,8 +19,9 @@ fn accepted_cad_frame_layout(file: &str) {
         // 2026-11-15: the source declares inches, so omitted units now select ANSI C
         // at 1:12. Recovery remains exhausted: these exact counts retain the newly
         // exposed cramped-layout warnings rather than exempting them from the test.
+        // Native circular-seat sweep text remains in degrees, including these routes.
         "nist_stc_09_asme1_ap242-e4.stp" => {
-            ("ANSI C", "1:12", [329, 76, 0, 2, 15, 0], [67, 152, 122])
+            ("ANSI C", "1:12", [347, 76, 0, 2, 13, 0], [66, 150, 136])
         }
         // 2026-11-14: below-band preference restores the approved A2 1:2.
         // 2026-11-14: repair clears 3 crossings and 4 feature contacts.
