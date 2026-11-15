@@ -1371,8 +1371,8 @@ pub(crate) fn rank(a: (f64, f64, f64), b: (f64, f64, f64)) -> std::cmp::Ordering
             // a live paper choice. Keep its 2026-10-12 recipe so a new paper
             // preference cannot move established callouts to another view.
             b.2.total_cmp(&a.2)
-                .then_with(|| a.1.total_cmp(&b.1))
                 .then_with(|| b.0.total_cmp(&a.0))
+                .then_with(|| a.1.total_cmp(&b.1))
         } else {
             // Maintainer decision, 2026-11-14: below the target band, keep the
             // smaller sheet. Enlargement earns more paper only by reaching the band.
@@ -2361,6 +2361,18 @@ mod tests {
         // Changing the live paper rule must not relocate the historical
         // reference's circular callouts (FTC-06's boss moved front -> plan).
         assert!(crate::nominal::with_comparison(|| rank(large, small)).is_lt());
+    }
+    #[test]
+    fn historical_route_reference_breaks_equal_fill_ties_by_scale_then_paper() {
+        let small = candidate(1.0, 297.0, 0.40);
+        let enlarged = candidate(2.0, 420.0, 0.40);
+        assert!(rank(small, enlarged).is_lt());
+        crate::nominal::with_comparison(|| {
+            // The frozen recipe chooses enlargement before saving paper at equal fill.
+            assert!(rank(enlarged, small).is_lt());
+            assert!(rank(small, enlarged).is_gt());
+            assert!(rank(candidate(2.0, 297.0, 0.40), enlarged).is_lt());
+        });
     }
     #[test]
     fn only_the_smallest_fits_largest_scale_and_one_enlarged_step_compete() {

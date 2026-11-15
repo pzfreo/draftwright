@@ -5003,9 +5003,15 @@ mod compact_sheet_regressions {
             .map(std::path::PathBuf::from)
             .or_else(|| {
                 std::env::var_os("HOME").map(|h| Path::new(&h).join("repos/quiddity/tests/corpus"))
-            })?;
-        root.is_dir()
-            .then(|| model::analyse_native(&root.join(file)).unwrap().1)
+            });
+        let Some(root) = root.filter(|p| p.is_dir()) else {
+            assert!(
+                std::env::var_os("DRAFTWRIGHT_CORPUS_REQUIRED").is_none_or(|v| v != "1"),
+                "required corpus missing"
+            );
+            return None;
+        };
+        Some(model::analyse_native(&root.join(file)).unwrap().1)
     }
 
     #[test]

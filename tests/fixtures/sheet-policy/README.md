@@ -31,3 +31,6 @@ The CTC-03 AP242, STC-07 AP242 and shf08 STEP sources are copied from the local
 regressions. They supplement the sampled quiddity corpus, which does not include
 these three sources. These are geometry inputs; the tests check valid sheet
 selection and physical leader clearance. gzip uses mtime=0.
+
+The NIST CTC-03 and STC-07 sources are US-government works, in the public domain.
+The FreeCAD-library shf08 source is CC-BY-3.0; see [its attribution](shf08.md).
