@@ -260,3 +260,39 @@ fn ftc07_decimal_inches_reach_native_dxf_text() {
             .is_auto()
     );
 }
+
+#[test]
+fn source_default_reaches_editor_placement_options() {
+    let (_, a) = model::analyse_native_bytes("inch.step", &specimen(true, true)).unwrap();
+    let p = model::plan(&a, &model::Spec::default()).unwrap();
+    let options = crate::dims::placement_options(&a, &p.views);
+    assert_eq!(
+        options["d:envelope/width.length"]["label"],
+        Units::In.format(a.envelope[1][0] - a.envelope[0][0])
+    );
+    assert!(p.spec.units.is_auto());
+}
+
+#[test]
+fn unreadable_inch_pmi_seed_recovers_to_readable_fitting_paper() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/pmi/step/nist_stc_09_asme1_ap242-e4.stp.gz");
+    let (_, a) = model::analyse_native(&path).unwrap();
+    let inch = model::plan_recovered(&a, &model::Spec::default()).unwrap();
+    let metric = model::plan_recovered(
+        &a,
+        &model::Spec {
+            units: Units::Mm,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(Paper::for_size(&inch.sheet.size), Paper::Ansi);
+    assert!(inch.sheet.scale_factor >= crate::sheet_fit::min_legible_scale_in(&a, Units::In));
+    assert!(model::finished_sheets_fit(&a, &inch));
+    assert!(inch.problems.len() <= metric.problems.len());
+    assert!(!inch.problems.iter().any(|p| matches!(
+        p.code.as_str(),
+        "annotation_off_sheet" | "annotation_line_over_view"
+    )));
+}
