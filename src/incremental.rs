@@ -21,6 +21,7 @@ pub(crate) struct RetiredDimension {
     dimension: crate::dims::PlannedDimension,
     edits: Vec<(String, model::DimensionSpec)>,
     order: usize,
+    covered: Vec<crate::dims::Omitted>,
 }
 impl RetiredDimension {
     fn new(before: &Plan, dimension: &crate::dims::PlannedDimension) -> Self {
@@ -29,6 +30,15 @@ impl RetiredDimension {
             .map(|o| o.id.clone()));
         Self {
             dimension: dimension.clone(),
+            covered: before
+                .omitted
+                .iter()
+                .filter(|o| {
+                    matches!(&o.state,
+                crate::items::State::Covered { by } if by == &dimension.id)
+                })
+                .cloned()
+                .collect(),
             order: before
                 .dimensions
                 .iter()
@@ -106,10 +116,13 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
     let mut restored = BTreeSet::new();
     for retired in before.incremental_dimensions.iter().rev() {
         let id = &retired.dimension.id;
-        if retired.matches(spec)
-            && (!same_dimension(before, spec, id) || !before.dimensions.iter().any(|d| &d.id == id))
-            && restored.insert(id.clone())
-        {
+        if retired.matches(spec) && restored.insert(id.clone()) {
+            for omitted in &retired.covered {
+                restored.insert(omitted.id.clone());
+                reference.dimensions.retain(|d| d.id != omitted.id);
+                reference.omitted.retain(|o| o.id != omitted.id);
+                reference.omitted.push(omitted.clone());
+            }
             if let Some(d) = reference.dimensions.iter_mut().find(|d| &d.id == id) {
                 *d = retired.dimension.clone();
             } else {
@@ -356,6 +369,7 @@ pub(crate) fn excluded(spec: &Spec) -> std::collections::BTreeSet<String> {
         return Default::default();
     };
     let intended = intent().unwrap_or_else(|| spec.clone());
+    let restored = RESTORED.with(|s| s.borrow().clone());
     let spec = &intended;
     before
         .dimensions
@@ -366,7 +380,7 @@ pub(crate) fn excluded(spec: &Spec) -> std::collections::BTreeSet<String> {
             before
                 .omitted
                 .iter()
-                .filter(|o| same_dimension(&before, spec, &o.id))
+                .filter(|o| same_dimension(&before, spec, &o.id) || restored.contains(&o.id))
                 .map(|o| o.id.clone()),
         )
         .collect()
@@ -463,7 +477,7 @@ fn retain_from(plan: &mut Plan, before: &Plan, spec: &Spec) {
     for o in before
         .omitted
         .iter()
-        .filter(|o| same_dimension(before, spec, &o.id))
+        .filter(|o| same_dimension(before, spec, &o.id) || restored.contains(&o.id))
     {
         plan.omitted.retain(|a| a.id != o.id);
         plan.omitted.push(o.clone());

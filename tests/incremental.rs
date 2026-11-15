@@ -336,3 +336,37 @@ fn changing_dimension_content_releases_only_its_ink_and_reports_it() {
     fixed(&original.plan, s.plan());
     assert_eq!(value(&original.annotations), value(&s.state().annotations));
 }
+
+#[test]
+fn removing_a_tolerance_restores_a_shared_counted_statement() {
+    let mut s = open("bracket");
+    let original = s.state().clone();
+    let child = "d:f:plate:f4/thickness.length";
+    assert!(original.plan.omitted.iter().any(|o| o.id == child));
+    let path = format!("dimensions/{}/tolerance", draftwright::items::key(child));
+    s.apply_incremental(&[Op::set(&path, json!("±0.01"))], true)
+        .unwrap();
+    assert!(
+        s.plan()
+            .dimensions
+            .iter()
+            .any(|d| d.id == child && d.placed.is_some())
+    );
+    let delta = s.apply_incremental(&[Op::remove(&path)], true).unwrap();
+    fixed(&original.plan, s.plan());
+    assert_eq!(value(&original.annotations), value(&s.state().annotations));
+    assert_eq!(
+        value(&original.plan.dimensions),
+        value(&s.plan().dimensions)
+    );
+    let mut replay = original.clone();
+    // This delta starts from the grown state; check the complete add/remove stream too.
+    let mut other = open("bracket");
+    other
+        .apply_incremental(&[Op::set(&path, json!("±0.01"))], true)
+        .unwrap()
+        .apply_to(&mut replay)
+        .unwrap();
+    delta.apply_to(&mut replay).unwrap();
+    assert_eq!(value(&replay), value(s.state()));
+}
