@@ -2522,6 +2522,17 @@
           },
           "minItems": 3,
           "maxItems": 3
+        },
+        "geometry_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Identity of the imported B-rep for verifying a PMI-only source revision."
         }
       },
       "required": [

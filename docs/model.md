@@ -2810,7 +2810,7 @@ The older Spec face/feature requirement path remains supported.
 
 Every incremental result saves typed placement-only `engine_pins` in the Spec, with
 `written_by: "engine"` and schema `draftwright.spec/4`. The record contains the source
-revision, paper and scale, view frames, and annotation placements keyed by stable item id:
+revision and geometry identity, paper and scale, view frames, and annotation placements keyed by stable item id:
 `place` (view, side, offset, pinned), leader/witness routes, glyph translation steps, lane
 region and dimension origin choices. A pin records whether its item was introduced in the
 kept layout, so constrained-placement findings can be re-evaluated without saving problems. Coordinates are relative to the view where reversible
@@ -2822,8 +2822,12 @@ and measurements are always regenerated.
 
 Saving the Spec and reopening with the same STEP, including CLI rendering, replays these
 pins. Unknown item ids are dropped individually with `engine_pins_replanned` (information).
-A changed source revision drops the engine pins and opens through the full planner, with
-the same finding; nothing from the old STEP is drawn. Stable item ids rather than face-list
+A changed STEP with the same verified B-rep keeps surviving stable-id pins and places new
+PMI in the retained frame, with that finding. A different or unverifiable B-rep releases the
+engine pins and opens through the full planner. Native Session, CLI and MCP STEP readers
+verify geometry only when the source revision differs. An Analysis-only caller without the
+STEP cannot verify a changed revision and releases those pins conservatively. Nothing from
+the old STEP supplies requirement content. Stable item ids rather than face-list
 positions identify placements. The one operation
 `{"op":"remove","path":"engine_pins"}` is **Re-layout** (`Session::relayout(commit)`):
 it clears only engine-written pins and runs the full planner with user pins intact.

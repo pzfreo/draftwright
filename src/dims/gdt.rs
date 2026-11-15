@@ -2995,6 +2995,21 @@ pub(crate) fn finish_collisions_cached(
         .collect()
 }
 
+pub(crate) fn retain_region(g: &mut PlannedGdt, interior: bool) {
+    if interior && !g.basis.contains(super::interior::BASIS) {
+        g.basis += super::interior::BASIS;
+    } else if !interior {
+        g.basis = g.basis.replace(super::interior::BASIS, "");
+    }
+}
+
+pub(crate) fn has_ink(g: &PlannedGdt) -> bool {
+    g.placed.is_some()
+        && !(g.kind == "datum_feature"
+            && (g.state == State::OmittedByUser
+                || g.state == State::not_drawable("datum_not_drawn")))
+}
+
 /// Draws a planned item into *items* (the dims layer) and its runs into *text*, from the plan
 /// alone; returns its annotation for lint (no measurement claims: a frame states the source's
 /// requirement, not a measurement of the part).
@@ -3635,6 +3650,9 @@ pub(crate) fn apply_pin(
         }
     }
     p.label_box = *kept_bounds;
+    if !pin.omit {
+        g.state = State::Shown;
+    }
     g.placed = Some(p);
 }
 

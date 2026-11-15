@@ -2,6 +2,8 @@
 use crate::model::{self, Analysis, Invalid, Plan, Problem, Spec};
 use crate::placement_intent::Place;
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
+use std::sync::Arc;
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
@@ -13,6 +15,8 @@ pub const SCHEMA: &str = "draftwright.spec/4";
 pub struct EnginePins {
     pub written_by: Writer,
     pub source_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geometry_sha256: Option<String>,
     pub sheet: Sheet,
     pub views: BTreeMap<String, View>,
     pub annotations: BTreeMap<String, Annotation>,
@@ -122,7 +126,6 @@ fn with_pins<T>(pins: EnginePins, run: impl FnOnce() -> T) -> T {
             DIGEST.set(self.1);
         }
     }
-    use sha2::Digest;
     let key = sha2::Sha256::digest(serde_json::to_vec(&pins).expect("pins serialize")).into();
     let _restore = Restore(
         LOADING.with(|p| p.replace(Some(pins))),
@@ -374,8 +377,11 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
                             .collect(),
                     }),
                     basis: None,
-                    omit: false,
-                    region: None,
+                    omit: !crate::dims::gdt::has_ink(g),
+                    region: g
+                        .basis
+                        .contains(crate::dims::interior::BASIS)
+                        .then_some(crate::dims::CandidateRegion::Interior),
                     absolute: absolute_pin,
                     introduced: false,
                 },
@@ -456,22 +462,29 @@ pub(crate) fn persist(a: &Analysis, plan: &mut Plan, before: Option<&Plan>) {
         }
     }
     for (id, pin) in &mut annotations {
-        pin.introduced = previous
-            .spec
-            .engine_pins
-            .as_ref()
-            .and_then(|p| p.annotations.get(id))
-            .is_some_and(|p| p.introduced)
-            || (!previous.dimensions.iter().any(|d| &d.id == id)
+        pin.introduced = if let Some(previous) = &previous.spec.engine_pins {
+            previous
+                .annotations
+                .get(id)
+                .is_none_or(|old| old.introduced || (old.omit && !pin.omit))
+        } else {
+            !previous.dimensions.iter().any(|d| &d.id == id)
                 && !previous.gdt.iter().any(|g| &g.id == id)
                 && !previous.balloons.iter().any(|b| &b.id == id)
                 && !previous.hole_tables.iter().any(|t| &t.id == id)
-                && !previous.omitted.iter().any(|o| &o.id == id));
+                && !previous.omitted.iter().any(|o| &o.id == id)
+        };
     }
+    let geometry_sha256 = previous
+        .spec
+        .engine_pins
+        .as_ref()
+        .and_then(|p| p.geometry_sha256.clone());
     plan.spec.schema = SCHEMA.into();
     plan.spec.engine_pins = Some(Box::new(EnginePins {
         written_by: Writer::Engine,
         source_sha256: plan.binding.source_sha256.clone(),
+        geometry_sha256,
         sheet: Sheet {
             size: plan.sheet.size.clone(),
             scale: plan.sheet.scale.clone(),
@@ -562,13 +575,19 @@ fn apply(plan: &mut Plan, pins: &EnginePins, analysis: &Analysis) -> Vec<String>
     for g in &mut plan.gdt {
         if let Some(pin) = pins.annotations.get(&g.id) {
             remaining.remove(&g.id);
+            crate::dims::gdt::retain_region(
+                g,
+                pin.region == Some(crate::dims::CandidateRegion::Interior),
+            );
             if let Some(view) = &pin.place.view {
                 g.view.clone_from(view);
             }
             if let Some(side) = pin.place.side {
                 g.side = side.name().into();
             }
-            if let Some(item) = lowered.iter().find(|i| i.id == g.id) {
+            if let Some(item) = lowered.iter().find(|i| i.id == g.id)
+                && !(pin.omit && crate::dims::gdt::has_ink(g))
+            {
                 let base = plan
                     .views
                     .iter()
@@ -668,9 +687,14 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
             .annotations
             .keys()
             .any(|id| id.starts_with("hole_schedule_"));
+    let revised = pins.source_sha256 != a.binding.source_sha256;
+    let same_geometry = pins
+        .geometry_sha256
+        .as_ref()
+        .is_some_and(|sha| known_geometry(&a.binding).is_some_and(|g| &g.sha256 == sha));
     if camera_changed
         || table_changed
-        || pins.source_sha256 != a.binding.source_sha256
+        || (revised && !same_geometry)
         || base
             .sheet
             .scale
@@ -696,6 +720,7 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
     forced.sheet.keep_layout = None;
     forced.sheets = None;
     let mut filtered = (**pins).clone();
+    filtered.source_sha256.clone_from(&a.binding.source_sha256);
     for id in &pins.rebase {
         if let Some(pin) = filtered.annotations.get_mut(id) {
             pin.basis = None;
@@ -734,10 +759,11 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
         .chain(result.gdt.iter().map(|g| &g.id))
         .filter(|id| !pins.annotations.contains_key(*id))
         .collect();
-    if result
-        .problems
-        .iter()
-        .any(|p| p.severity != "info" && p.subjects.iter().any(|id| new_ink.contains(id)))
+    if !revised
+        && result
+            .problems
+            .iter()
+            .any(|p| p.severity != "info" && p.subjects.iter().any(|id| new_ink.contains(id)))
     {
         let mut full = run(&base)?;
         finding(
@@ -749,11 +775,11 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
     }
     result.spec = spec.clone();
     persist(a, &mut result, Some(&reference));
-    if !dropped.is_empty() {
+    if !dropped.is_empty() || revised {
         finding(
             &mut result,
             dropped,
-            "Some kept-layout item ids no longer exist; their pins were dropped and the remaining pins were honoured.",
+            "The STEP revision or item inventory changed. Missing item pins were dropped; existing stable item pins were honoured and current PMI was re-planned in the retained layout.",
         );
     }
     Ok(result)
@@ -762,9 +788,13 @@ pub(crate) fn plan(a: &Analysis, spec: &Spec, recovered: bool) -> Result<Plan, I
 /// Full editing releases layout pins for deliberate composition changes; annotation edits
 /// release just their own route, while ordinary title/notes/material changes retain the frame.
 pub(crate) fn edit(before: &Spec, after: &mut Spec, ops: &[serde_json::Value]) {
-    if before.engine_pins.is_none() {
+    if before.engine_pins.is_none() || before == after {
         return;
     }
+    let mut old_sheet = before.sheet.clone();
+    let mut new_sheet = after.sheet.clone();
+    old_sheet.title.clear();
+    new_sheet.title.clear();
     let layout = ops.iter().any(|op| {
         let p = op["path"].as_str().unwrap_or("").trim_matches('/');
         [
@@ -779,7 +809,7 @@ pub(crate) fn edit(before: &Spec, after: &mut Spec, ops: &[serde_json::Value]) {
         ]
         .iter()
         .any(|root| p == *root || p.starts_with(&format!("{root}/")))
-            || p == "sheet"
+            || (p == "sheet" && old_sheet != new_sheet)
             || (p.starts_with("sheet/")
                 && !p.starts_with("sheet/title/")
                 && !["sheet/title", "sheet/zones"].contains(&p))
@@ -904,4 +934,58 @@ pub(crate) fn keep_views(views: &mut Vec<model::PlannedView>) {
             views.retain(|v| pins.views.contains_key(&v.id));
         }
     });
+}
+
+#[derive(Clone)]
+pub(crate) struct GeometryIdentity {
+    pub bytes: Arc<Vec<u8>>,
+    pub sha256: String,
+}
+static GEOMETRY: crate::planning::BoundedMemo<GeometryIdentity> =
+    crate::planning::BoundedMemo::new(8);
+fn geometry_key(binding: &model::Binding) -> [u8; 32] {
+    sha2::Sha256::digest(serde_json::to_vec(binding).expect("binding serializes")).into()
+}
+fn known_geometry(binding: &model::Binding) -> Option<GeometryIdentity> {
+    GEOMETRY.get(&geometry_key(binding))
+}
+pub(crate) fn geometry(
+    part: &crate::haecceity::Part,
+    binding: &model::Binding,
+) -> Result<GeometryIdentity, Invalid> {
+    if let Some(geometry) = known_geometry(binding) {
+        return Ok(geometry);
+    }
+    let (bytes, _) = crate::haecceity::brep_write::write_step(
+        part,
+        &crate::haecceity::brep_write::WriteOptions::new("incremental"),
+    )
+    .map_err(|e| Invalid {
+        message: format!(
+            "Cannot verify identical B-rep: {e}; open the updated STEP for a full plan."
+        ),
+        path: None,
+        choices: Vec::new(),
+        also: Vec::new(),
+    })?;
+    let geometry = GeometryIdentity {
+        sha256: sha2::Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
+        bytes: Arc::new(bytes),
+    };
+    GEOMETRY.insert(geometry_key(binding), geometry.clone());
+    Ok(geometry)
+}
+/// A byte revision is not a geometry change. Verify only when persisted source identity changed.
+pub(crate) fn prepare_read(part: &crate::haecceity::Part, a: &Analysis, spec: &Spec) {
+    if spec
+        .engine_pins
+        .as_ref()
+        .is_some_and(|p| p.source_sha256 != a.binding.source_sha256)
+    {
+        // Failed verification releases unverifiable pins with a finding; it never prevents opening.
+        let _ = geometry(part, &a.binding);
+    }
 }

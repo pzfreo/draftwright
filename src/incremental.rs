@@ -299,10 +299,12 @@ fn plan_revision(
     after.sheet.default = before.sheet.default;
     after.sheet.basis.clone_from(&before.sheet.basis);
     recheck(analysis, &mut after);
-    if !crate::engine_pins::loading() {
+    if !crate::engine_pins::loading()
+        && before.binding.source_sha256 == analysis.binding.source_sha256
+    {
         retain_findings(before, &mut after);
     }
-    let new: Vec<_> = after
+    let mut new: Vec<_> = after
         .gdt
         .iter()
         .filter(|g| {
@@ -325,6 +327,16 @@ fn plan_revision(
                 .map(|d| d.id.clone()),
         )
         .collect();
+    // A source revision re-evaluates ownership/attachment findings rather than carrying
+    // diagnoses from old PMI. Previously introduced ink is checked again too.
+    if let Some(pins) = &before.spec.engine_pins {
+        new.extend(
+            pins.annotations
+                .iter()
+                .filter(|(_, p)| p.introduced)
+                .map(|(id, _)| id.clone()),
+        );
+    }
     let affected: Vec<_> = new
         .iter()
         .filter(|id| {
@@ -597,9 +609,13 @@ fn retain_from(plan: &mut Plan, before: &Plan, spec: &Spec) {
                         .cloned()
                         .unwrap_or_default()
         }) {
+            crate::dims::gdt::retain_region(g, old.basis.contains(crate::dims::interior::BASIS));
             g.view.clone_from(&old.view);
             g.side.clone_from(&old.side);
             g.placed.clone_from(&old.placed);
+            if crate::dims::gdt::has_ink(old) {
+                g.state.clone_from(&old.state);
+            }
         }
     }
     plan.views.clone_from(&before.views);
@@ -813,6 +829,20 @@ pub(crate) fn recheck(a: &Analysis, plan: &mut Plan) {
         &plan.views,
         &cache,
     ));
+    plan.problems.retain(|p| {
+        !(["datum_not_drawn", "pmi_not_drawn"].contains(&p.code.as_str())
+            && plan
+                .gdt
+                .iter()
+                .any(|g| p.subjects.contains(&g.id) && crate::dims::gdt::has_ink(g)))
+    });
+    crate::dims::gdt::cited_undrawn(plan);
+    let centre_ink = crate::centrelines::obstacles(&plan.views);
+    plan.problems.extend(
+        crate::dims::label_collisions(a, &centre_ink, &plan.sheet, &plan.views, &cache)
+            .into_iter()
+            .filter(|p| p.code == "annotation_off_sheet"),
+    );
     crate::dims::contacts::report(a, plan);
     let spec = plan.spec.clone();
     crate::dims::pmi_policy::audit(a, &spec, plan);

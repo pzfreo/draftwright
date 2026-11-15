@@ -4890,33 +4890,17 @@ pub fn plan_incremental_source(
         choices: Vec::new(),
         also: Vec::new(),
     };
-    static GEOMETRY: crate::planning::BoundedMemo<Vec<u8>> = crate::planning::BoundedMemo::new(8);
-    let key = |binding: &Binding| -> [u8; 32] {
-        Sha256::digest(serde_json::to_vec(binding).expect("binding serializes")).into()
-    };
-    let geometry = |part: &Part, binding: &Binding| {
-        let key = key(binding);
-        if let Some(bytes) = GEOMETRY.get(&key) {
-            return Ok(bytes);
-        }
-        let (bytes, _) = haecceity::brep_write::write_step(
-            part,
-            &haecceity::brep_write::WriteOptions::new("incremental"),
-        )
-        .map_err(|e| {
-            refuse(format!(
-                "Cannot verify identical B-rep: {e}; open the updated STEP for a full plan."
-            ))
-        })?;
-        GEOMETRY.insert(key, bytes.clone());
-        Ok(bytes)
-    };
-    if geometry(before_part, &before.binding)? != geometry(part, &analysis.binding)? {
+    let previous = crate::engine_pins::geometry(before_part, &before.binding)?;
+    let updated = crate::engine_pins::geometry(part, &analysis.binding)?;
+    if previous.bytes != updated.bytes {
         return Err(refuse("Updated STEP geometry differs; open the updated STEP for a full plan instead of incremental apply.".into()));
     }
-    let result = crate::planning::with_retained(analysis, || {
+    let mut result = crate::planning::with_retained(analysis, || {
         crate::incremental::plan_source(analysis, before, spec)
     })?;
+    if let Some(pins) = &mut result.spec.engine_pins {
+        pins.geometry_sha256 = Some(updated.sha256);
+    }
     Ok(result)
 }
 

@@ -673,6 +673,7 @@ impl Session {
     ) -> Result<Self, Error> {
         // Invariant: Font bytes are bundled at build time and parsed unchanged, independently of user input.
         let font = Font::new(api::MONO.to_vec()).expect("the bundled font parses");
+        crate::engine_pins::prepare_read(&part, &analysis, &spec);
         let mut planner = Planner::default();
         let plan = planner.plan(&analysis, &spec)?;
         let geometry = model::render_geometry(&part, &analysis, &plan, &mut projections)

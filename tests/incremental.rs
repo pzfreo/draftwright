@@ -979,6 +979,16 @@ fn full_apply_accepts_content_and_layout_edits_on_engine_pins() {
         }
     }
     assert!(!session.plan().notes.is_empty());
+    let before = session.state().clone();
+    let mut replacement = session.spec().clone();
+    replacement
+        .sheet
+        .title
+        .insert("drawn_by".into(), "SET_SPEC".into());
+    session.set_spec(&replacement).unwrap();
+    assert!(session.spec().engine_pins.is_some());
+    assert_eq!(value(&before.plan.views), value(&session.plan().views));
+
     for op in [
         Op::set("sheet/scale", json!("1:1")),
         Op::set("sheet/size", json!("A3")),
@@ -1102,6 +1112,15 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
     let changed = dir.join("changed.step");
     std::fs::write(&step, &bytes).unwrap();
     std::fs::write(&changed, source("scattered")).unwrap();
+    let revision_dir = dir.join("revision");
+    std::fs::create_dir_all(&revision_dir).unwrap();
+    let revision_path = revision_dir.join("bracket.step");
+    let revision = pmi_edit(&bytes, |p| {
+        let target = face_target(p, planar_face(&session));
+        p.tolerances
+            .push(pmi_tolerance(target, ToleranceKind::Flatness, None));
+    });
+    std::fs::write(&revision_path, revision).unwrap();
     let mut cases = Vec::new();
     for (name, path, val) in [
         ("title", "sheet/title/drawn_by", json!("QA")),
@@ -1122,6 +1141,7 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
     pins.annotations.insert("d:missing/item".into(), pin);
     cases.push(("missing", step.clone(), missing, true));
     cases.push(("changed", changed, session.spec().clone(), true));
+    cases.push(("revision", revision_path, session.spec().clone(), true));
     let mut messages = vec![
         json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"incremental-test","version":"1"}}}),
         json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
@@ -1145,6 +1165,11 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
             String::from_utf8_lossy(&output.stderr)
         );
         let plan: Value = serde_json::from_slice(&output.stdout).unwrap();
+        if *name == "revision" {
+            assert_eq!(plan["views"], value(&session.plan().views));
+            assert!(!plan["spec"]["engine_pins"].is_null());
+        }
+
         assert_eq!(
             plan["problems"]
                 .as_array()
@@ -1183,6 +1208,10 @@ fn cli_and_mcp_open_pins_after_full_edits_and_source_changes() {
         assert_eq!(reply["result"]["isError"], false, "{name}: {reply}");
         let plan: Value =
             serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+        if *name == "revision" {
+            assert_eq!(plan["views"], value(&session.plan().views));
+            assert!(!plan["spec"]["engine_pins"].is_null());
+        }
         assert_eq!(
             plan["problems"]
                 .as_array()
@@ -1214,4 +1243,123 @@ fn multiple_rebase_selections_are_merged() {
     )
     .unwrap();
     assert_eq!(edited.engine_pins.as_ref().unwrap().rebase, ids);
+}
+
+#[test]
+fn outside_pmi_revision_keeps_surviving_pins_and_reads_current_content() {
+    let (session, bytes) = pinned_bracket();
+    let revised = pmi_edit(&bytes, |p| {
+        let target = face_target(p, planar_face(&session));
+        p.tolerances
+            .push(pmi_tolerance(target, ToleranceKind::Flatness, None));
+    });
+    let reopened = reopened("bracket", &revised, &session);
+    fixed(session.plan(), reopened.plan());
+    assert!(reopened.spec().engine_pins.is_some());
+    assert!(
+        reopened
+            .state()
+            .problems
+            .iter()
+            .any(|p| p.code == "engine_pins_replanned")
+    );
+    assert!(
+        reopened
+            .plan()
+            .gdt
+            .iter()
+            .any(|g| g.cells.iter().any(|c| c == "⏥"))
+    );
+    assert_ne!(
+        session.plan().binding.source_sha256,
+        reopened.plan().binding.source_sha256
+    );
+}
+
+#[test]
+fn crowded_ctc_retained_datums_reload_as_their_published_ink() {
+    let bytes = source("ctc");
+    let mut session = open_spec(
+        "ctc",
+        serde_json::from_value(json!({"sheet":{"size":"A4","scale":"1:1"},"hole_table":"never"}))
+            .unwrap(),
+    );
+    let revised = pmi_edit(&without_a(&bytes), |p| {
+        let target = face_target(p, planar_face(&session));
+        p.tolerances
+            .push(pmi_tolerance(target, ToleranceKind::Flatness, None));
+    });
+    let before = session.state().clone();
+    let delta = session
+        .replace_step_incremental("ctc", &revised, true)
+        .unwrap();
+    fixed(&before.plan, session.plan());
+    assert!(delta.moved.is_empty());
+    let restored = reopened("ctc", &revised, &session);
+    fixed(session.plan(), restored.plan());
+    assert_eq!(
+        value(&session.state().annotations),
+        value(&restored.state().annotations)
+    );
+    assert_eq!(session.state().problems, restored.state().problems);
+}
+
+#[test]
+fn notes_and_declared_tables_keep_their_placement_after_pmi_and_content_edits() {
+    let spec: Spec = serde_json::from_value(json!({
+        "notes":[{"id":"n:1","text":"REMOVE BURRS"}],
+        "tables":[{"id":"t:1","rows":[["OP","NOTE"],["1","DEBURR"]]}]
+    }))
+    .unwrap();
+    let mut session = open_spec("bracket", spec);
+    let original = session.state().clone();
+    let revised = datum_step(&source("bracket"), planar_face(&session));
+    session
+        .replace_step_incremental("bracket", &revised, true)
+        .unwrap();
+    fixed(&original.plan, session.plan());
+    let restored = reopened("bracket", &revised, &session);
+    fixed(session.plan(), restored.plan());
+    assert_eq!(
+        value(&session.state().annotations),
+        value(&restored.state().annotations)
+    );
+    session
+        .apply(
+            &[Op::set(
+                "notes",
+                json!([{"id":"n:1","text":"REMOVE ALL BURRS"}]),
+            )],
+            true,
+        )
+        .unwrap();
+    let before = session.state().clone();
+    session
+        .apply(
+            &[Op::set(
+                "tables",
+                json!([{"id":"t:1","rows":[["OP", "NOTE"], ["1", "DEBURR"], ["2", "CLEAN"]]}]),
+            )],
+            true,
+        )
+        .unwrap();
+    assert_eq!(value(&before.plan.views), value(&session.plan().views));
+    for note in &before.plan.notes {
+        let current = session
+            .plan()
+            .notes
+            .iter()
+            .find(|n| n.id == note.id)
+            .unwrap();
+        assert_eq!(note.placed, current.placed);
+    }
+    for dim in &before.plan.dimensions {
+        let current = session
+            .plan()
+            .dimensions
+            .iter()
+            .find(|d| d.id == dim.id)
+            .unwrap();
+        assert_eq!(dim.placed, current.placed);
+    }
 }
