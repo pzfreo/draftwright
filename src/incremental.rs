@@ -6,11 +6,47 @@ use crate::model::{self, Analysis, Invalid, Plan, Problem, Spec};
 use crate::placement_intent::Place;
 
 thread_local! {
+    static RESTORED: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
     static INTENT: RefCell<Option<Spec>> = const { RefCell::new(None) };
     static ACTIVE: Cell<bool> = const { Cell::new(false) };
 }
 pub(crate) fn active() -> bool {
     ACTIVE.get()
+}
+
+/// A prior content variant, including its shared statement's contributing edits.
+/// These are bounded by distinct authored variants, never nested plans.
+#[derive(Clone, Debug)]
+pub(crate) struct RetiredDimension {
+    dimension: crate::dims::PlannedDimension,
+    edits: Vec<(String, model::DimensionSpec)>,
+    order: usize,
+}
+impl RetiredDimension {
+    fn new(before: &Plan, dimension: &crate::dims::PlannedDimension) -> Self {
+        let keys = std::iter::once(dimension.id.clone()).chain(before.omitted.iter()
+            .filter(|o| matches!(&o.state, crate::items::State::Covered { by } if by == &dimension.id))
+            .map(|o| o.id.clone()));
+        Self {
+            dimension: dimension.clone(),
+            order: before
+                .dimensions
+                .iter()
+                .position(|d| d.id == dimension.id)
+                .unwrap_or(before.dimensions.len()),
+            edits: keys
+                .map(|id| {
+                    let edit = before.spec.dimensions.get(&id).cloned().unwrap_or_default();
+                    (id, edit)
+                })
+                .collect(),
+        }
+    }
+    fn matches(&self, spec: &Spec) -> bool {
+        self.edits
+            .iter()
+            .all(|(id, edit)| spec.dimensions.get(id).cloned().unwrap_or_default() == *edit)
+    }
 }
 
 pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Plan, Invalid> {
@@ -64,9 +100,28 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
     pinned.sheet.scale = Some(before.sheet.scale.clone());
     pinned.sheet.keep_layout = None;
     pinned.sheets = None;
-    for d in &before.dimensions {
-        // Changing content releases the pin; the normal solver then measures new ink.
-        if d.placed.is_some() && same_dimension(before, spec, &d.id) {
+    let mut reference = before.clone();
+    reference.incremental_gdt.clear();
+    reference.incremental_dimensions.clear();
+    let mut restored = BTreeSet::new();
+    for retired in before.incremental_dimensions.iter().rev() {
+        let id = &retired.dimension.id;
+        if retired.matches(spec)
+            && (!same_dimension(before, spec, id) || !before.dimensions.iter().any(|d| &d.id == id))
+            && restored.insert(id.clone())
+        {
+            if let Some(d) = reference.dimensions.iter_mut().find(|d| &d.id == id) {
+                *d = retired.dimension.clone();
+            } else {
+                reference.dimensions.insert(
+                    retired.order.min(reference.dimensions.len()),
+                    retired.dimension.clone(),
+                );
+            }
+        }
+    }
+    for d in &reference.dimensions {
+        if d.placed.is_some() && (same_dimension(before, spec, &d.id) || restored.contains(&d.id)) {
             pinned.dimensions.entry(d.id.clone()).or_default().place = Some(Place {
                 pinned: true,
                 ..Default::default()
@@ -80,8 +135,6 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
         spec.units,
     );
     crate::label_text::annotations(&mut lowered, spec)?;
-    let mut reference = before.clone();
-    reference.incremental_gdt.clear();
     for g in &before.incremental_gdt {
         if !reference.gdt.iter().any(|b| b.id == g.id) {
             reference.gdt.push(g.clone());
@@ -106,16 +159,18 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
             });
         }
     }
-    struct Restore(bool, Option<Spec>);
+    struct Restore(bool, Option<Spec>, BTreeSet<String>);
     impl Drop for Restore {
         fn drop(&mut self) {
             ACTIVE.set(self.0);
             INTENT.with(|s| *s.borrow_mut() = self.1.take());
+            RESTORED.with(|s| *s.borrow_mut() = std::mem::take(&mut self.2));
         }
     }
     let _restore = Restore(
         ACTIVE.replace(true),
         INTENT.with(|s| s.replace(Some(spec.clone()))),
+        RESTORED.with(|s| s.replace(restored)),
     );
     let compact = before.sheet.dimension_spacing == model::DimensionSpacing::Compact;
     let mut after = crate::planning::with_pin_reference(reference.clone(), || {
@@ -134,7 +189,7 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
     {
         return Err(refuse("cannot preserve the published view composition"));
     }
-    retain_from(&mut after, before, spec);
+    retain_from(&mut after, &reference, spec);
     crate::dims::contacts::report(&effective, &mut after);
     // Remove only transaction-generated pin provenance. Authored content/state changes
     // keep their newly planned records; unchanged items keep their published records.
@@ -166,6 +221,24 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
         .filter(|old| !after.gdt.iter().any(|g| g.id == old.id))
         .cloned()
         .collect();
+    after.incremental_dimensions = before.incremental_dimensions.clone();
+    for old in &before.dimensions {
+        if !same_dimension(before, spec, &old.id) {
+            let retired = RetiredDimension::new(before, old);
+            after
+                .incremental_dimensions
+                .retain(|r| r.dimension.id != old.id || r.edits != retired.edits);
+            after.incremental_dimensions.push(retired);
+        }
+    }
+    after.incremental_dimensions.retain(|r| {
+        !(r.matches(spec)
+            && after.dimensions.iter().any(|d| {
+                d.id == r.dimension.id
+                    && d.placed == r.dimension.placed
+                    && d.terms == r.dimension.terms
+            }))
+    });
     // Pins are transaction-local constraints, never authored Spec edits.
     after.spec = spec.clone();
     after.sheet.size.clone_from(&before.sheet.size);
@@ -252,6 +325,7 @@ pub(crate) fn dimensions() -> Option<Dimensions> {
     }
     let before = crate::planning::pin_reference()?;
     let spec = intent()?;
+    let restored = RESTORED.with(|s| s.borrow().clone());
     Some(Dimensions {
         ids: before
             .dimensions
@@ -263,7 +337,10 @@ pub(crate) fn dimensions() -> Option<Dimensions> {
         held: before
             .dimensions
             .iter()
-            .filter(|d| d.placed.is_some() && same_dimension(&before, &spec, &d.id))
+            .filter(|d| {
+                d.placed.is_some()
+                    && (same_dimension(&before, &spec, &d.id) || restored.contains(&d.id))
+            })
             .map(|d| (d.id.clone(), d.clone()))
             .collect(),
     })
@@ -373,10 +450,11 @@ pub(crate) fn retain(plan: &mut Plan) {
     retain_from(plan, &before, &spec);
 }
 fn retain_from(plan: &mut Plan, before: &Plan, spec: &Spec) {
+    let restored = RESTORED.with(|s| s.borrow().clone());
     for d in before
         .dimensions
         .iter()
-        .filter(|d| same_dimension(before, spec, &d.id))
+        .filter(|d| same_dimension(before, spec, &d.id) || restored.contains(&d.id))
     {
         plan.dimensions.retain(|a| a.id != d.id);
         plan.dimensions.push(d.clone());

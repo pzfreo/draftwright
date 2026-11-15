@@ -2793,8 +2793,8 @@ also stay fixed: adding a datum does not rebase existing measurements or split s
 `2×` labels. Existing furniture (including hole tables and tags) supplies fixed obstacle
 proxies to the same solver. Removing annotations releases their space
 without packing the survivors again. The in-memory Plan retains dormant GD&T placements
-when an edit replaces imported PMI, so removing that override revives the original ink in its
-original place. This ephemeral placement history is not a saved-Spec undo log. Derived pins
+and prior dimension-content variants, so removing an imported-PMI override or a dimension
+tolerance revives the original ink in its original place, without rounding drift. This ephemeral placement history is not a saved-Spec undo log. Derived pins
 never enter the returned Spec. Changed
 annotation content may need a new placement; every pre-existing item whose placement or ink
 changes appears in `Delta.moved`, with a reason (also reported by full apply).
