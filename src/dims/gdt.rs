@@ -535,9 +535,9 @@ struct Candidate {
 }
 
 impl Candidate {
-    /// Keep the frame fixed and move the bend out before grading. Both the
-    /// leader and its ring reservation use this elbow; the frame's text keeps
-    /// the paper already claimed by its original placement.
+    /// Grow the shelf before grading its frame, leader and ring together.
+    /// A turned shaft moves its bend outward; a horizontal exit retains its
+    /// proven bend and moves the rigid frame instead.
     fn with_ring(mut self, radius: f64) -> Self {
         self.ring_radius = radius;
         if radius > 0.0 {
@@ -547,7 +547,18 @@ impl Candidate {
             } else {
                 -1.0
             };
-            self.move_bend(-dir * (radius + super::contacts::TEXT_CLEAR - SHELF).max(0.0));
+            let dx = dir * (radius + super::contacts::TEXT_CLEAR - SHELF).max(0.0);
+            if (self.lines[0][0][1] - self.elbow[1]).abs() < 1e-9 {
+                // On a straight horizontal exit the bend's partition is already
+                // clear of the model and witness ends. Retain it and extend the
+                // rigid frame, rather than pulling its ring back onto a witness.
+                self.lines[1][1][0] += dx;
+                self.origin[0] += dx;
+                self.label_box[0] += dx;
+                self.label_box[2] += dx;
+            } else {
+                self.move_bend(-dx);
+            }
         }
         self
     }
@@ -580,6 +591,9 @@ fn clear_ring_bend(
     if c.ring_radius == 0.0 {
         return c;
     }
+    if (c.lines[0][0][1] - c.elbow[1]).abs() < 1e-9 {
+        return c;
+    }
     // A longer shelf must not buy annotation clearance by sending the shaft
     // through a foreign feature. Use the same footprints as the final audit.
     let feature_contacts = footprints.map_or(0, |f| f.crossing_count(c.lines[0]));
@@ -609,9 +623,6 @@ fn clear_ring_bend(
             // shaft through the model; further bend changes are unnecessary.
             return shifted;
         }
-    }
-    if (c.lines[0][0][1] - c.elbow[1]).abs() < 1e-9 {
-        return c;
     }
     let dir = if c.lines[1][1][0] >= c.elbow[0] {
         1.0
@@ -3296,21 +3307,30 @@ mod tests {
                     [20., 5.],
                 )
                 .with_ring(radius);
-                assert_eq!(
-                    c.label_box,
-                    candidate(
-                        Shape::Frame,
-                        [80., 80.],
-                        side,
-                        if matches!(side, "below" | "left") {
-                            60.
-                        } else {
-                            100.
-                        },
-                        [20., 5.]
-                    )
-                    .label_box
+                let original = candidate(
+                    Shape::Frame,
+                    [80., 80.],
+                    side,
+                    if matches!(side, "below" | "left") {
+                        60.
+                    } else {
+                        100.
+                    },
+                    [20., 5.],
                 );
+                if matches!(side, "left" | "right") {
+                    assert_eq!(c.elbow, original.elbow);
+                    let direction = if side == "left" { -1. } else { 1. };
+                    assert!(
+                        (c.label_box[0]
+                            - original.label_box[0]
+                            - direction * (radius + super::super::contacts::TEXT_CLEAR - SHELF))
+                            .abs()
+                            < 1e-9
+                    );
+                } else {
+                    assert_eq!(c.label_box, original.label_box);
+                }
                 assert_eq!(c.lines[0][1], c.elbow);
                 assert_eq!(c.arrows, [placement::arrow(c.lines[0][0], c.elbow)]);
                 let [a, b] = c.lines[1];
