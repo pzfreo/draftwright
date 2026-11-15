@@ -4768,6 +4768,7 @@ pub fn plan_recovered(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid>
         retain_unapplied_edits(analysis, plan, plan_recovered)
     });
     result.map(|mut plan| {
+        retain_edited_ink(analysis, spec, &mut plan, true);
         migration.report(&mut plan);
         plan
     })
@@ -6063,13 +6064,13 @@ pub fn plan(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
         retain_unapplied_edits(analysis, plan, self::plan)
     });
     result.map(|mut plan| {
-        retain_edited_ink(analysis, spec, &mut plan);
+        retain_edited_ink(analysis, spec, &mut plan, false);
         migration.report(&mut plan);
         plan
     })
 }
 
-fn finished_edit_reference(analysis: &Analysis, spec: &Spec) -> Option<Plan> {
+fn finished_edit_reference(analysis: &Analysis, spec: &Spec, recovered: bool) -> Option<Plan> {
     // Every one-item edit of this immutable drawing shares the same finished
     // reference. Include the active planning policies, as radius references do,
     // so comparison scopes and live drawings never reuse each other's ink.
@@ -6078,6 +6079,7 @@ fn finished_edit_reference(analysis: &Analysis, spec: &Spec) -> Option<Plan> {
     let key = serde_json::to_vec(&(
         analysis,
         spec,
+        recovered,
         crate::planning::policy_key(analysis),
         crate::planning::is_fixed_pair(),
         crate::planning::nominals_deferred(),
@@ -6087,7 +6089,14 @@ fn finished_edit_reference(analysis: &Analysis, spec: &Spec) -> Option<Plan> {
     .expect("finished edit reference inputs serialize");
     let key = crate::planning::spaced_digest(&Sha256::digest(key).into());
     REFERENCES.get(&key).unwrap_or_else(|| {
-        let before = crate::planning::isolated(analysis, || self::plan(analysis, spec)).ok();
+        let before = crate::planning::isolated(analysis, || {
+            if recovered {
+                plan_recovered(analysis, spec)
+            } else {
+                self::plan(analysis, spec)
+            }
+        })
+        .ok();
         REFERENCES.insert(key, before.clone());
         before
     })
@@ -6096,15 +6105,26 @@ fn finished_edit_reference(analysis: &Analysis, spec: &Spec) -> Option<Plan> {
 // An approval, omission or tolerance must not select a different joint routing solution
 // for unrelated dimensions. Preserve the finished canonical ink, rather than
 // reusing an earlier, pre-nominal placement inventory.
-fn retain_edited_ink(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
+fn retain_edited_ink(analysis: &Analysis, spec: &Spec, plan: &mut Plan, recovered: bool) {
+    let approval_place = |d: &DimensionSpec| {
+        d.place.as_ref().is_none_or(|p| {
+            *p == crate::placement_intent::Place {
+                pinned: true,
+                ..Default::default()
+            }
+        })
+    };
     if spec.units != crate::units::Units::In
         || spec.dimensions.is_empty()
         || !spec.dimensions.values().all(|d| {
-            *d == DimensionSpec {
-                omit: d.omit,
-                tolerance: d.tolerance.clone(),
-                ..Default::default()
-            }
+            approval_place(d)
+                && *d
+                    == DimensionSpec {
+                        omit: d.omit,
+                        tolerance: d.tolerance.clone(),
+                        place: d.place.clone(),
+                        ..Default::default()
+                    }
         })
     {
         return;
@@ -6112,7 +6132,7 @@ fn retain_edited_ink(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
     let mut base = spec.clone();
     base.dimension_source = DimensionSource::Auto;
     base.dimensions.clear();
-    let Some(before) = finished_edit_reference(analysis, &base) else {
+    let Some(before) = finished_edit_reference(analysis, &base, recovered) else {
         return;
     };
     if before.sheet.size != plan.sheet.size
@@ -6128,11 +6148,13 @@ fn retain_edited_ink(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
     let old_checks = crate::dims::recheck(analysis, plan);
     let mut changed = false;
     for d in &mut plan.dimensions {
-        if spec
-            .dimensions
-            .get(&d.id)
-            .is_some_and(|edit| *edit != DimensionSpec::default())
-        {
+        if spec.dimensions.get(&d.id).is_some_and(|edit| {
+            *edit
+                != DimensionSpec {
+                    place: edit.place.clone(),
+                    ..Default::default()
+                }
+        }) {
             continue;
         }
         if let Some(old) = before.dimensions.iter().find(|b| {
@@ -6242,7 +6264,7 @@ fn plan_inner(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
             })?;
             finish_nominal_plan(analysis, spec, &mut plan);
             let natural =
-                natural_spec(spec).and_then(|full| finished_edit_reference(analysis, &full));
+                natural_spec(spec).and_then(|full| finished_edit_reference(analysis, &full, false));
             crate::dims::callout_routes::prefer_interior(
                 analysis,
                 spec,
