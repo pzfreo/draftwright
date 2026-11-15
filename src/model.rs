@@ -5249,13 +5249,17 @@ fn plan_automatic_uncached(analysis: &Analysis, spec: &Spec) -> Result<Plan, Inv
 // Nominal consolidation can add conflicts after the historical schedule
 // decision. Judge the finished inch ladder too, at its existing paper and scale.
 fn retain_finished_schedule(analysis: &Analysis, spec: &Spec, plan: &mut Plan) {
+    // A kept-layout edit must replay the whole automatic presentation, not
+    // stop when its first ordinary schedule has returned. The late remedy may
+    // have added the other carrying views after nominal consolidation.
+    let kept_edit = spec.sheet.keep_layout == Some(true)
+        && (!spec.dimensions.is_empty() || crate::placement_intent::has_pins(spec));
     if spec.units != crate::units::Units::In
         || spec.hole_table != crate::hole_table::Setting::Auto
-        || !spec.dimensions.is_empty()
-        || crate::placement_intent::has_pins(spec)
+        || ((!spec.dimensions.is_empty() || crate::placement_intent::has_pins(spec)) && !kept_edit)
         || crate::nominal::comparison()
         || !plan.gdt.is_empty()
-        || !plan.hole_tables.is_empty()
+        || (!plan.hole_tables.is_empty() && !kept_edit)
         || crate::hole_table::select(analysis, plan).tables.is_empty()
     {
         return;

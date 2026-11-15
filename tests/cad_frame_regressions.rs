@@ -27,13 +27,12 @@ fn accepted_cad_frame_layout(file: &str) {
         // one more of its own front view's inner wall lines than the shortest route
         // (leader_across_view 0 -> 1). Three bounded attempts (placement, view re-spacing,
         // ownership) found no clean route, and the drawing reads cleanly (#478).
-        // 2026-11-15: declared inches select ANSI C at 1:2. The normal datum
-        // bend search clears the crowded witness band without tilting scoped
-        // rings; resolved-unit routing removes material contacts and halves
-        // the previous inch crossing count. The wider normal datum bend trades
-        // two extension contacts for dimension-stroke contacts, within main
-        // crossing limits; all remaining counts stay exact.
-        "nist_ftc_07_asme1_ap242-e2.stp" => ("ANSI C", "1:2", [7, 0, 3, 0, 0, 0], [0, 4, 3]),
+        // 2026-11-15: declared inches select ANSI C at 1:2. Normal datum
+        // bends and a final pattern-column retry clear the witness band without
+        // tilting scoped rings. The final retry also clears three crossings and
+        // eight extension-through-feature findings from the first inch repair.
+        // All remaining dimension-stroke contacts stay exact and within main's limits.
+        "nist_ftc_07_asme1_ap242-e2.stp" => ("ANSI C", "1:2", [4, 0, 3, 0, 0, 0], [0, 4, 0]),
         // 2026-11-14: repair preserving shared rows clears 11 crossings and 13 feature contacts.
         "nist_ftc_10_asme1_ap242-e2.stp" => ("A1", "1:1", [55, 12, 7, 0, 3, 0], [15, 16, 31]),
         // 2026-11-14: bounded frame repair clears 7 crossings at the unchanged A0 1:1.
