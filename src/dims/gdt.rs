@@ -185,16 +185,6 @@ pub(super) fn ring_radius(modifiers: &[String]) -> f64 {
     }
 }
 
-/// Historical route templates are unrendered and retain their original shelf
-/// recipe. Live candidates reserve the scope ring at its printed bend.
-fn reserved_ring_radius(modifiers: &[String]) -> f64 {
-    if crate::model::historical_layout() {
-        0.0
-    } else {
-        ring_radius(modifiers)
-    }
-}
-
 fn ring_box(bend: P2, radius: f64) -> [f64; 4] {
     [
         bend[0] - radius,
@@ -1887,7 +1877,7 @@ fn plan_search(
         {
             p = translated(p, delta);
             labels.push(p.label_box);
-            let radius = reserved_ring_radius(&g.modifiers);
+            let radius = ring_radius(&g.modifiers);
             if radius > 0.0
                 && let Some(line) = p.lines.first()
             {
@@ -2087,7 +2077,7 @@ fn plan_search(
                             anchor[k] = o[k] + along.fraction() * (o[k + 2] - o[k]);
                         }
                         let mut c = candidate(shape, anchor, side, pos, laid.size)
-                            .with_ring(reserved_ring_radius(&planned.modifiers));
+                            .with_ring(ring_radius(&planned.modifiers));
                         c.frame_rule = matches!(item.glyph, Glyph::ControlFrame { .. });
                         if datum && intent.and_then(|p| p.along).is_some() {
                             for fill in &mut c.fills {
@@ -2206,7 +2196,7 @@ fn plan_search(
                 label_box: p.label_box,
                 origin: [0.; 2],
                 elbow: p.lines.first().map_or([0.; 2], |l| l[1]),
-                ring_radius: reserved_ring_radius(&g.modifiers),
+                ring_radius: ring_radius(&g.modifiers),
             };
             let grade = obstacles.grade(&candidate, None);
             if grade.0 <= 1
@@ -2217,7 +2207,7 @@ fn plan_search(
                     .is_none_or(|b| grade <= obstacles.grade(&b.2, None))
             {
                 labels.push(p.label_box);
-                let radius = reserved_ring_radius(&g.modifiers);
+                let radius = ring_radius(&g.modifiers);
                 if radius > 0.0
                     && let Some(line) = p.lines.first()
                 {
