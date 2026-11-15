@@ -675,54 +675,40 @@ fn editable_dxf_preserves_text_measurements_blocks_and_groups() {
     ] {
         assert!((a[0] - b[0]).hypot(a[1] - b[1]) < 1e-10);
     }
-    // A native leader retains the planned attachment even when a sampled rim is
-    // slightly off the analytic circle. It must not be snapped by a DIMENSION.
+    // A leader's sampled rim may be slightly off the analytic circle. Native
+    // dimension definitions still measure the exact bore, rather than that sample.
     let mut sampled = drawing.clone();
-    let id = sampled
+    let callout = sampled
         .sheet
         .dxf
         .dimensions
-        .iter()
-        .find(|(_, d)| d.label.contains("THRU"))
+        .values_mut()
+        .find(|d| d.label.contains("THRU"))
+        .unwrap();
+    callout.placed.as_mut().unwrap().arrows[0][0][0] += 0.0001;
+    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(sampled.dxf())).unwrap();
+    let dim = parsed
+        .entities()
+        .find_map(|e| {
+            if let E::DiameterDimension(d) = &e.specific {
+                Some(d)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let a = &dim.dimension_base.definition_point_1;
+    let b = &dim.definition_point_2;
+    let factor = parsed
+        .dim_styles()
+        .find(|s| s.name == dim.dimension_base.dimension_style_name)
         .unwrap()
-        .0
-        .clone();
-    let leader = sampled.sheet.dxf.leaders.get_mut(&id).unwrap();
-    leader.arrows[0][0][0] += 0.0001;
-    leader.lines[0][0] = leader.arrows[0][0];
-    let expected = leader.arrows[0][0];
-    let bytes = sampled.dxf();
-    let pairs = dxf_pairs(&bytes);
-    let callout = pairs
-        .split(|p| p.0 == 0)
-        .filter(|tags| tags.contains(&(100, "AcDbMLeader".into())))
-        .find(|tags| tags.iter().any(|p| p.0 == 304 && p.1.contains("THRU")))
-        .unwrap();
-    let line = callout
-        .iter()
-        .position(|p| *p == (304, "LEADER_LINE{".into()))
-        .unwrap();
-    for (code, planned) in [10, 20].into_iter().zip(expected) {
-        assert_eq!(
-            callout[line..]
-                .iter()
-                .find(|p| p.0 == code)
-                .unwrap()
-                .1
-                .parse::<f64>()
-                .unwrap(),
-            planned
-        );
-    }
-    let parsed = dxf::Drawing::load(&mut std::io::Cursor::new(bytes)).unwrap();
-    assert!(
-        !parsed
-            .entities()
-            .any(|e| matches!(e.specific, E::DiameterDimension(_))),
-        "the callout has one native leader, without a second entity measuring a snapped rim"
-    );
+        .dimension_linear_measurement_scale_factor;
+    assert!(((b.x - a.x).hypot(b.y - a.y) * factor - 6.).abs() < 1e-8);
     // A graphic-only annotation still owns a leader when it has no text content.
     let mut graphic = drawing.clone();
+    let id = graphic.sheet.dxf.leaders.keys().next().unwrap().clone();
+    graphic.sheet.dxf.dimensions.remove(&id);
     graphic
         .annotations
         .iter_mut()
@@ -1293,6 +1279,7 @@ fn dxf_tolerances_and_compound_nominals_stay_live() {
         .unwrap();
         let d = dxf::Drawing::load(&mut std::io::Cursor::new(&files[0].1)).unwrap();
         let mut found = false;
+        let mut diametric = Vec::new();
         for e in d.entities() {
             if let E::RotatedDimension(dim) = &e.specific {
                 let st = d
@@ -1313,42 +1300,32 @@ fn dxf_tolerances_and_compound_nominals_stay_live() {
                     found = true;
                 }
             }
+            if let E::DiameterDimension(dim) = &e.specific {
+                assert_eq!(dim.dimension_base.text, "4X %%c<> THRU");
+                diametric.push(dim.dimension_base.dimension_style_name.clone());
+            }
         }
         assert!(
             found,
             "{band} must be inline in the dimension text override"
         );
-        // A hole callout is now one MULTILEADER with its full manufacturing text;
-        // it is no longer a diametric DIMENSION with a regeneration-sensitive prefix.
+        // `%%c<>` shows the sign in QCAD; AutoCAD would add its own to `<>` too (⌀⌀6 after
+        // AUDIT) unless the style's DIMPOST prefix replaces that default with nothing.
+        assert!(!diametric.is_empty());
         let pairs = dxf_pairs(&files[0].1);
-        let callout = pairs
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| **p == (0, "MULTILEADER".into()))
-            .map(|(i, _)| {
-                let end = pairs[i + 1..].iter().position(|p| p.0 == 0).unwrap() + i + 1;
-                &pairs[i..end]
-            })
-            .find(|tags| {
-                tags.iter()
-                    .any(|(c, v)| *c == 304 && v.contains("4X") && v.contains("THRU"))
-            })
-            .expect("native hole callout");
-        let content = &callout.iter().find(|p| p.0 == 304).unwrap().1;
-        assert!(content.contains("%%c6 THRU"), "{content}");
-        assert!(
-            callout.iter().any(|p| p.0 == 343),
-            "mandatory text style handle"
-        );
-        assert!(
-            callout.iter().filter(|p| p.0 == 340).count() >= 2,
-            "context text style and leader style"
-        );
-        assert!(
-            !d.entities()
-                .any(|e| matches!(e.specific, E::DiameterDimension(_))),
-            "the callout must not also be drawn by a DIMENSION"
-        );
+        for name in diametric {
+            let named = pairs
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| **p == (0, "DIMSTYLE".into()))
+                .map(|(i, _)| {
+                    let end = pairs[i + 1..].iter().position(|q| q.0 == 0).unwrap() + i + 1;
+                    &pairs[i..end]
+                })
+                .find(|r| r.contains(&(2, name.clone())))
+                .unwrap();
+            assert!(named.contains(&(3, "\\A1;<>".into())), "{name}: {named:?}");
+        }
     }
 }
 

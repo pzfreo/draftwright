@@ -1601,7 +1601,6 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
             .dxf
             .dimensions
             .get(&a.name)
-            .filter(|_| !drawing.sheet.dxf.leaders.contains_key(&a.name))
             .and_then(|d| dimension(d, drawing).map(|v| (d, v)));
         let block = native.as_ref().map(|_| {
             dim_index += 1;
@@ -1609,7 +1608,11 @@ pub(crate) fn write(drawing: &Drawing) -> Vec<u8> {
         });
         let mut handles = Vec::new();
         let frame = drawing.sheet.dxf.frames.get(&a.name);
-        let leader = drawing.sheet.dxf.leaders.get(&a.name);
+        // Measured diameter/radius callouts retain main's live DIMENSION and its graphics.
+        let leader = native
+            .is_none()
+            .then(|| drawing.sheet.dxf.leaders.get(&a.name))
+            .flatten();
         if let Some(l) = drawing.layers.get(2) {
             for i in range.clone() {
                 if let Some(item) = l.items.get(i) {
