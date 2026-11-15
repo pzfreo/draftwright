@@ -258,15 +258,17 @@ fn pmi_grm03_keeps_five_to_one_with_all_sheet_information_placed() {
             .filter(|v| v.id != "v:iso")
             .all(|v| v.scale == 5.0)
     );
-    assert!(!p.notes.is_empty());
+    assert_eq!(p.notes.len(), spec.notes.len());
     assert!(p.notes.iter().all(|n| n.placed.is_some()));
     assert!(p.notes_block.is_some());
-    assert!(
-        p.requirements
-            .iter()
-            .filter(|r| r.carrier == "sheet")
-            .all(|r| r.placed.is_some())
-    );
+    let finish = p
+        .requirements
+        .iter()
+        .find(|r| r.kind == "default_surface_finish")
+        .unwrap();
+    assert!(finish.placed.is_some());
+    assert_eq!(p.sheet.title["material"], "CZ121 / CW614N / CuZn39Pb3");
+    assert_eq!(p.sheet.title["tolerance"], "ISO 2768-m");
     assert!(p.gdt.iter().any(|g| g.placed.is_some()));
     assert!(p.gdt.iter().all(|g| g.placed.is_some()
         || g.state == draftwright::items::State::not_drawable("datum_not_drawn")));
