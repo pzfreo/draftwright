@@ -17,9 +17,9 @@ part_cases!(accepted_cad_frame_layout;
 fn accepted_cad_frame_layout(file: &str) {
     let (size, scale, counts, crossings) = match file {
         // 2026-11-14: exhausted recovery keeps the original geometry and budgets (#469).
-        // 2026-11-15: reserving the all-around bend rings reroutes the f88/f90
-        // position frame beside its face, removing 8 crossings and 16 feature contacts.
-        "nist_stc_09_asme1_ap242-e4.stp" => ("A1", "1:2", [204, 50, 0, 0, 8, 0], [12, 65, 113]),
+        // 2026-11-15: clear scope shelves and bend choices that separate arrowheads
+        // remove 10 crossings and 25 feature contacts, with no new warning pairs.
+        "nist_stc_09_asme1_ap242-e4.stp" => ("A1", "1:2", [202, 41, 0, 0, 8, 0], [12, 64, 112]),
         // 2026-11-14: below-band preference restores the approved A2 1:2.
         // 2026-11-14: repair clears 3 crossings and 4 feature contacts.
         // 2026-11-15, Paul accepted: on A2 1:2 the 4x 7.137 counterbore callout's leader crosses
