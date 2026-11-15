@@ -1879,12 +1879,6 @@ fn plan_search(
         {
             p = translated(p, delta);
             labels.push(p.label_box);
-            let radius = ring_radius(&g.modifiers);
-            if radius > 0.0
-                && let Some(line) = p.lines.first()
-            {
-                labels.push(ring_box(line[1], radius));
-            }
             if protect {
                 labels.extend(p.fills.iter().map(|f| fill_box(f)));
                 triangles.extend(p.fills.iter().cloned());
@@ -2209,12 +2203,6 @@ fn plan_search(
                     .is_none_or(|b| grade <= obstacles.grade(&b.2, None))
             {
                 labels.push(p.label_box);
-                let radius = ring_radius(&g.modifiers);
-                if radius > 0.0
-                    && let Some(line) = p.lines.first()
-                {
-                    labels.push(ring_box(line[1], radius));
-                }
                 if protect {
                     labels.extend(p.fills.iter().map(|f| fill_box(f)));
                     triangles.extend(p.fills.iter().cloned());
@@ -2266,9 +2254,6 @@ fn plan_search(
             }
         }
         labels.push(chosen.label_box);
-        if chosen.ring_radius > 0.0 {
-            labels.push(ring_box(chosen.elbow, chosen.ring_radius));
-        }
         if protect {
             labels.extend(chosen.fills.iter().map(|f| fill_box(f)));
             triangles.extend(chosen.fills.iter().cloned());
