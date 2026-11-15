@@ -148,9 +148,19 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
         spec.units,
     );
     crate::label_text::annotations(&mut lowered, spec)?;
-    for g in &before.incremental_gdt {
-        if !reference.gdt.iter().any(|b| b.id == g.id) {
-            reference.gdt.push(g.clone());
+    for old in before.incremental_gdt.iter().rev() {
+        if let Some(current) = reference.gdt.iter_mut().find(|g| g.id == old.id) {
+            if !lowered
+                .iter()
+                .any(|item| crate::dims::gdt::same_content(current, item, spec.units))
+                && lowered
+                    .iter()
+                    .any(|item| crate::dims::gdt::same_content(old, item, spec.units))
+            {
+                *current = old.clone();
+            }
+        } else {
+            reference.gdt.push(old.clone());
         }
     }
     for g in &reference.gdt {
@@ -228,12 +238,19 @@ pub(crate) fn plan(analysis: &Analysis, before: &Plan, spec: &Spec) -> Result<Pl
             *g = old.clone();
         }
     }
-    after.incremental_gdt = reference
-        .gdt
-        .iter()
-        .filter(|old| !after.gdt.iter().any(|g| g.id == old.id))
-        .cloned()
-        .collect();
+    let same_glyph = |a: &crate::dims::gdt::PlannedGdt, b: &crate::dims::gdt::PlannedGdt| {
+        a.id == b.id && a.cells == b.cells && a.faces == b.faces && a.modifiers == b.modifiers
+    };
+    after.incremental_gdt.clone_from(&before.incremental_gdt);
+    for old in &before.gdt {
+        if !after.gdt.iter().any(|g| same_glyph(old, g)) {
+            after.incremental_gdt.retain(|g| !same_glyph(old, g));
+            after.incremental_gdt.push(old.clone());
+        }
+    }
+    after
+        .incremental_gdt
+        .retain(|old| !after.gdt.iter().any(|g| same_glyph(old, g)));
     after.incremental_dimensions = before.incremental_dimensions.clone();
     for old in &before.dimensions {
         if !same_dimension(before, spec, &old.id) {

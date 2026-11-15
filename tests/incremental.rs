@@ -382,3 +382,44 @@ fn removing_a_tolerance_restores_a_shared_counted_statement() {
     delta.apply_to(&mut replay).unwrap();
     assert_eq!(value(&replay), value(s.state()));
 }
+
+#[test]
+fn removing_an_override_restores_an_imported_frames_content_and_exact_ink() {
+    let mut s = open("ctc");
+    let original = s.state().clone();
+    let flatness = original
+        .plan
+        .gdt
+        .iter()
+        .find(|g| g.id.starts_with("pmi:geometric_tolerance.flatness:") && g.faces.len() == 1)
+        .unwrap();
+    let path = format!("faces/face:{}/controls", flatness.faces[0]);
+    let delta = s
+        .apply_incremental(
+            &[Op::set(
+                &path,
+                json!([
+                    {"characteristic":"flatness","tolerance":0.01}
+                ]),
+            )],
+            true,
+        )
+        .unwrap();
+    assert!(delta.moved.iter().any(|m| m.id == flatness.id));
+    assert_eq!(
+        s.plan()
+            .gdt
+            .iter()
+            .find(|g| g.id == flatness.id)
+            .unwrap()
+            .cells[1],
+        "0.01"
+    );
+    s.apply_incremental(&[Op::remove(&path)], true).unwrap();
+    fixed(&original.plan, s.plan());
+    assert_eq!(value(&original.annotations), value(&s.state().annotations));
+    assert_eq!(original.plan.gdt.len(), s.plan().gdt.len());
+    for old in &original.plan.gdt {
+        assert_eq!(old, s.plan().gdt.iter().find(|g| g.id == old.id).unwrap());
+    }
+}
