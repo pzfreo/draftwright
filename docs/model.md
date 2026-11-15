@@ -3704,7 +3704,8 @@ with “as moulded” / “as cast”. `sheet/default_finish` overrides the fini
 `process: machined` restores machining policy. Printed gear semantics are capped
 at Warning; multi-solid Info findings stay Info. Other dimensioning lint is unchanged.
 GA lists append Process beside Material only when a non-bought row has a Spec,
-file or suggested value to print. Bought and guessed cells stay blank, including
+file, caller-owned PMI or suggested value to print. Python pack rows mark
+caller-owned material/process as `sources.<field>: "pmi"`. Bought and guessed cells stay blank, including
 guesses of printing. CSV `process` and `process_source` mirror JSON `process` and
 `sources.process`; absent values stay blank. Made-part guesses remain labelled
 in JSON/CSV, but bought parts get no invented process. In a pack, override a part at

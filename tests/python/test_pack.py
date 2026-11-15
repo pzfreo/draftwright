@@ -41,7 +41,7 @@ class OptionalPack(unittest.TestCase):
         fixture = ROOT / "tests/fixtures/assembly/pack-small.step.gz"
         with tempfile.TemporaryDirectory() as directory:
             code = ("import sys; from draftwright import Pack; "
-                    f"p=Pack({str(fixture)!r}); p.title(drawn_by='PA'); "
+                    f"p=Pack({str(fixture)!r}); p.title(drawn_by='PA'); p.part('plate').title(revision='D'); "
                     f"p.render({str(Path(directory) / 'pack')!r},formats=('json',)); "
                     "assert p.rows and 'build123d' not in sys.modules and 'OCP' not in sys.modules")
             subprocess.run([sys.executable, "-I", "-c", code], check=True)
@@ -130,6 +130,22 @@ class PackAPI(unittest.TestCase):
         self.assertFalse([r for r in pack.rows if r.get("error")], pack.rows)
         self.assertEqual(sorted(p["code"] for p in pack.rows[0]["problems"]),
                          sorted(p["code"] for p in ns["pack"].rows[0]["problems"]))
+
+    def test_located_child_keeps_the_same_face_bound_pmi(self):
+        from pypdf import PdfReader
+        ns = self.documented()
+        child = ns["base_shape"].moved(bd.Location((80, 0, 20), (0, 0, 90)))
+        assembly = bd.Compound(children=[child, ns["lid_shape"]])
+        pack = draftwright.Pack(assembly, parts=[ns["base"], ns["lid"]])
+        pack.render(self.directory / "located", formats=("pdf", "json"))
+        base = next(r for r in pack.rows if r["key"] == "base")
+        original = next(r for r in ns["pack"].rows if r["key"] == "base")
+        self.assertNotIn("error", base)
+        self.assertEqual([p["code"] for p in base["problems"]],
+                         [p["code"] for p in original["problems"]])
+        page = PdfReader(self.directory / "located.pdf").pages[base["sheets"][0] - 1]
+        for token in ("H7", "A", "0.1"):
+            self.assertIn(token, page.extract_text())
 
     def test_geometry_only_and_failures_remain_data(self):
         one, two = bd.Box(30, 20, 4), bd.Box(12, 10, 3)

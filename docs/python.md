@@ -364,7 +364,9 @@ print(pack.rows, pack.findings)
 order. `out` is a stem (`"enclosure"` produces `enclosure.pdf`, `.csv`, `.json`).
 `pack.rows` and `pack.findings` are dictionaries from the latest successful Rust
 report; `pack.report` also includes the page count and GA details. Row `problems`
-and `error` retain individual failures. Findings never block completed output.
+and `error` retain individual failures. Caller-owned material and process are
+marked `"pmi"` in row `sources`, independently of drawing Spec intent. Findings
+never block completed output.
 
 The Python wrapper exports assembly geometry to memory and transfers each Part's
 cached geometry and native PartPmi to one Rust pack entry point. Part face names
