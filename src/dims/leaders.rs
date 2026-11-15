@@ -7893,7 +7893,10 @@ pub(super) fn settled_routes(
     });
     // Final clearance is against every visible projection on this sheet.
     // The own-view model alone misses a neighbouring view beside a short label.
-    let page_visible = if contact_repair && sheet.units == crate::units::Units::In {
+    let page_visible = if contact_repair
+        && sheet.units == crate::units::Units::In
+        && !crate::nominal::authored_pmi(analysis)
+    {
         analysis.edge_ink.as_ref().map(|ink| {
             let key =
                 serde_json::to_vec(&(sheet.number, views)).expect("visible projections serialize");

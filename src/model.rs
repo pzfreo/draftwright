@@ -2224,8 +2224,11 @@ pub fn recognise_document(
         .any(|f| f.kind == "modelled_thread")
     {
         BTreeSet::new()
-    } else if analysis.declared_length_unit == Some(haecceity::pmi::LengthUnit::Inch) {
-        // Decimal-inch labels and ANSI scales can change the final corridors.
+    } else if analysis.declared_length_unit == Some(haecceity::pmi::LengthUnit::Inch)
+        && !crate::nominal::authored_pmi(analysis)
+    {
+        // Generated decimal-inch labels and ANSI scales change the final corridors.
+        // Source PMI retains its existing source-directed inspection policy.
         // Retain the same visible/hidden curves the renderer will draw, so the
         // final physical clearance proof need not guess from all projected edges.
         // PREPARED shares these kernel projections with rendering.
