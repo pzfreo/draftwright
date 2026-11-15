@@ -2407,6 +2407,15 @@ fn said(f: layout::Findings, dropped: usize, codes: BTreeMap<&str, usize>) -> St
     }
 }
 
+/// Recovery states layout defects separately from the legibility shortfall that follows.
+fn retained_assessment(f: layout::Findings, dropped: usize) -> String {
+    if f.clean() {
+        "has no hard layout findings or space drops".into()
+    } else {
+        format!("has {}", said(f, dropped, BTreeMap::new()))
+    }
+}
+
 /// Material crossings are counted by leader/feature pair and by witness line, as quality.py.
 fn feature_crossings(plan: &Plan) -> usize {
     feature_crossings_where(plan, |_| true)
@@ -2760,6 +2769,10 @@ pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
         .iter()
         .filter(|g| {
             g.placed.is_none()
+                // An uncited datum is deliberately suppressed by the datum policy,
+                // just as the renderer records it, rather than lost for space.
+                && !(g.kind == "datum_feature"
+                    && g.state == ItemState::not_drawable("datum_not_drawn"))
                 && !matches!(
                     g.state,
                     ItemState::OmittedByUser | ItemState::NotAuthored | ItemState::Covered { .. }
@@ -4498,11 +4511,7 @@ fn recover_candidates(
         };
         let f = findings(&first);
         let clean_retained = f.clean() && !illegible;
-        let assessment = if clean_retained {
-            "has no hard layout findings or space drops".into()
-        } else {
-            format!("has {}", said(f, drops(&first), BTreeMap::new()))
-        };
+        let assessment = retained_assessment(f, drops(&first));
         let diagnostic_trials = if clean_retained {
             tried.join("; ")
         } else {
