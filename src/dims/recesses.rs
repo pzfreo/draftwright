@@ -462,7 +462,11 @@ fn seat_wants(cx: &Context, out: &mut Vec<Want>, problems: &mut Vec<Problem>) {
         }
         let diameter = 2.0 * first.radius;
         terms.extend([format!("ø{}", fmt(diameter)), "×".into(), fmt(first.length)]);
-        terms.extend(["LONG".into(), "×".into(), format!("{}°", fmt(first.sweep))]);
+        terms.extend([
+            "LONG".into(),
+            "×".into(),
+            format!("{}°", super::fmt(first.sweep)),
+        ]);
         terms.push("ARC".into());
         out.push(Want { units: cx.spec.units,
 id: want_id(&first.feature.id, "seat_diameter.diameter"),
@@ -1144,6 +1148,55 @@ mod tests {
             frame,
         };
         wants(&cx)
+    }
+
+    #[test]
+    fn circular_seat_inches_convert_lengths_but_keep_the_sweep_in_degrees() {
+        let arc = [([-12.7, -5.38988], -1.0), ([12.7, -5.38988], 0.0)];
+        let r = recess(
+            "channel",
+            "circular",
+            [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+            [0., 25.4],
+            [true, true],
+            false,
+            &arc,
+        );
+        let a = part("section_recess", r);
+        for (units, expected) in [
+            (crate::units::Units::Mm, "ø25.4 × 25.4 LONG × 180° ARC"),
+            (crate::units::Units::In, "ø1.000 × 1.000 LONG × 180° ARC"),
+        ] {
+            let spec = crate::model::Spec {
+                units,
+                ..Default::default()
+            };
+            let cx = Context {
+                analysis: &a,
+                spec: &spec,
+                frame: super::super::QFrame(a.recognition.as_ref().unwrap().frame),
+                turned: None,
+            };
+            let (wants, problems) = wants(&cx);
+            assert!(problems.is_empty(), "{problems:?}");
+            let seat = wants
+                .iter()
+                .find(|w| {
+                    w.measurements
+                        .iter()
+                        .any(|m| m.parameter == "seat_sweep.angle")
+                })
+                .unwrap();
+            assert_eq!(seat.terms.join(" "), expected);
+            assert_eq!(
+                seat.measurements
+                    .iter()
+                    .find(|m| m.parameter == "seat_sweep.angle")
+                    .unwrap()
+                    .value,
+                180.
+            );
+        }
     }
 
     #[test]
