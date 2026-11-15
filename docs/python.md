@@ -368,14 +368,16 @@ and `error` retain individual failures. Caller-owned material and process are
 marked `"pmi"` in row `sources`, independently of drawing Spec intent. Findings
 never block completed output.
 
-The Python wrapper exports assembly geometry to memory and transfers each Part's
+The Python wrapper caches assembly geometry in memory after its first render and
+transfers each Part's
 cached geometry and native PartPmi to one Rust pack entry point. Part face names
 bind the caller's PMI to its native reference B-rep. Rust requires the assembly
 product to have exactly the same B-rep, including face order, before using those
 indices; no geometric nearest-face guess is made. Export the assembly from the
 same shapes, preserving product-local frames. A STEP path with supplied Parts
 must preserve that same geometry; a mismatch remains a row error and the other
-sheets render. No temporary files or PMI sidecars are created.
+sheets render. Create a new Pack after changing assembly geometry or placements;
+PMI and layout edits remain live. No temporary files or PMI sidecars are created.
 
 ## Commands and interrupts
 
