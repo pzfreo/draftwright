@@ -51,6 +51,8 @@ pub struct NativeTable {
     pub placed: crate::tables::PlacedTable,
     pub ruled: bool,
     pub left_aligned: bool,
+    pub title_row: bool,
+    pub header_row: bool,
 }
 impl NativeTable {
     pub(crate) fn planned(table: &crate::tables::PlannedTable) -> Vec<Self> {
@@ -63,6 +65,8 @@ impl NativeTable {
                 placed: p.clone(),
                 ruled: true,
                 left_aligned: false,
+                title_row: false,
+                header_row: true,
             }];
         }
         // The planner divides body rows down, then across, repeating row zero.
@@ -74,6 +78,8 @@ impl NativeTable {
                 placed: p.clone(),
                 ruled: true,
                 left_aligned: false,
+                title_row: false,
+                header_row: true,
             })
             .collect()
     }
@@ -429,6 +435,15 @@ struct Block {
     at: P,
     entities: Tags,
 }
+#[derive(Clone, Copy)]
+struct TableStyle {
+    id: u64,
+    margin: f64,
+    ruled: bool,
+    left: bool,
+    title: bool,
+    header: bool,
+}
 struct Writer {
     next: u64,
     model: u64,
@@ -440,7 +455,7 @@ struct Writer {
     continuous: bool,
     mleader_style: u64,
     table_style: u64,
-    table_styles: Vec<(u64, f64, bool, bool)>,
+    table_styles: Vec<TableStyle>,
     annotation_reactors: BTreeMap<u64, Vec<u64>>,
 }
 impl Writer {
@@ -1090,10 +1105,21 @@ impl Writer {
             crate::tables::PAD.min((row_height - crate::tables::TEXT * 0.698).max(0.) / 2.);
         // A real style preserves note alignment and compact/unruled defaults without
         // relying on reader-specific interpretation of cell override masks.
-        let table_style = if table.left_aligned || !table.ruled || margin != crate::tables::PAD {
+        let table_style = if table.left_aligned
+            || !table.ruled
+            || margin != crate::tables::PAD
+            || table.title_row
+            || !table.header_row
+        {
             let id = self.id();
-            self.table_styles
-                .push((id, margin, table.ruled, table.left_aligned));
+            self.table_styles.push(TableStyle {
+                id,
+                margin,
+                ruled: table.ruled,
+                left: table.left_aligned,
+                title: table.title_row,
+                header: table.header_row,
+            });
             id
         } else {
             self.table_style
@@ -1189,8 +1215,8 @@ impl Writer {
         t.tag(70, 0);
         t.tag(40, crate::tables::PAD);
         t.tag(41, margin);
-        t.tag(280, 1);
-        t.tag(281, 0);
+        t.tag(280, usize::from(!table.title_row));
+        t.tag(281, usize::from(!table.header_row));
         self.put(t, None);
         h
     }
@@ -2409,9 +2435,9 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     dictionary(&mut out, table_dict, root);
     out.tag(3, "Draftwright");
     out.handle(350, w.table_style);
-    for (id, ..) in &w.table_styles {
-        out.tag(3, format!("Draftwright_{id:X}"));
-        out.handle(350, *id);
+    for s in &w.table_styles {
+        out.tag(3, format!("Draftwright_{:X}", s.id));
+        out.handle(350, s.id);
     }
     out.tag(0, "MLEADERSTYLE");
     out.handle(5, w.mleader_style);
@@ -2471,9 +2497,22 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
     ] {
         out.tag(c, v);
     }
-    for (id, margin, ruled, left) in
-        std::iter::once((w.table_style, crate::tables::PAD, true, false))
-            .chain(w.table_styles.iter().copied())
+    for TableStyle {
+        id,
+        margin,
+        ruled,
+        left,
+        title,
+        header,
+    } in std::iter::once(TableStyle {
+        id: w.table_style,
+        margin: crate::tables::PAD,
+        ruled: true,
+        left: false,
+        title: false,
+        header: true,
+    })
+    .chain(w.table_styles.iter().copied())
     {
         out.tag(0, "TABLESTYLE");
         out.handle(5, id);
@@ -2488,8 +2527,8 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         out.tag(71, 0);
         out.tag(40, crate::tables::PAD);
         out.tag(41, margin);
-        out.tag(280, 1);
-        out.tag(281, 0);
+        out.tag(280, usize::from(!title));
+        out.tag(281, usize::from(!header));
         for _ in 0..3 {
             out.tag(7, style(crate::dims::FONT));
             out.tag(140, crate::tables::TEXT * 0.698);
@@ -3013,16 +3052,28 @@ mod native_annotation_tests {
             },
             ruled: false,
             left_aligned: true,
+            title_row: true,
+            header_row: false,
         };
         let mut w = Writer::new();
         w.native_table(&table, TEXT, 1);
-        let (_, margin, ruled, left) = w.table_styles[0];
+        let TableStyle {
+            margin,
+            ruled,
+            left,
+            title,
+            header,
+            ..
+        } = w.table_styles[0];
         assert!(!ruled && left);
+        assert!(title && !header);
         assert!(
             (2. * margin + crate::tables::TEXT * 0.698 - 4.).abs() < 1e-12,
             "the native style must allow the planned compact row height"
         );
         let tags = pairs(&w.entities);
+        assert_eq!(tags.iter().rev().find(|t| t.0 == 280).unwrap().1, "0");
+        assert!(tags.contains(&(281, "1".into())));
         assert_eq!(
             tags.iter()
                 .filter(|t| t.0 == 141)

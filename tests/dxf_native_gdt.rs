@@ -130,6 +130,29 @@ fn check(name: &str, drawing: &Drawing, plan: &Plan) -> Found {
         }
     }
     let all = entities(&bytes);
+    for table in plan
+        .hole_table
+        .iter()
+        .chain(&plan.hole_tables)
+        .filter(|t| drawing.sheet.dxf.tables.contains_key(&t.id))
+    {
+        for native in &drawing.sheet.dxf.tables[&table.id] {
+            assert_eq!(
+                native.title_row,
+                table.view.is_some(),
+                "{name}: hole view title"
+            );
+            assert!(native.header_row, "{name}: hole column headings");
+        }
+    }
+    for id in ["general_notes", "blend_radius_notes"] {
+        if let Some(tables) = drawing.sheet.dxf.tables.get(id) {
+            assert!(
+                tables.iter().all(|t| t.title_row && !t.header_row),
+                "{name}: notes heading"
+            );
+        }
+    }
     for d in plan
         .dimensions
         .iter()
@@ -480,6 +503,19 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
     {
         resolve(owner(e).unwrap(), "BLOCK_RECORD");
         resolve(tag(e, 342).unwrap(), "TABLESTYLE");
+        let style = by_handle[tag(e, 342).unwrap()];
+        for entity in [e, style] {
+            assert_eq!(
+                entity.tags.iter().rev().find(|t| t.0 == 280).unwrap().1,
+                usize::from(!table.title_row).to_string(),
+                "{name}: title row role"
+            );
+            assert_eq!(
+                tag(entity, 281).unwrap(),
+                usize::from(!table.header_row).to_string(),
+                "{name}: column heading role"
+            );
+        }
         resolve(tag(e, 343).unwrap(), "BLOCK_RECORD");
         let block = by_handle[tag(e, 343).unwrap()];
         assert_eq!(tag(block, 2), tag(e, 2));

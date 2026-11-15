@@ -12817,6 +12817,10 @@ fn render_annotations_with_cuts(
                 .blocks
                 .iter()
                 .flat_map(crate::dxf_output::NativeTable::planned)
+                .map(|mut native| {
+                    native.title_row = table.view.is_some();
+                    native
+                })
                 .collect(),
         );
     }
@@ -12850,6 +12854,8 @@ fn render_annotations_with_cuts(
                 rows,
                 ruled: block.ruled,
                 left_aligned: true,
+                title_row: true,
+                header_row: false,
                 placed: crate::tables::PlacedTable {
                     cells_at,
                     blocks: Vec::new(),
