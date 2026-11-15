@@ -921,6 +921,23 @@ fn quality_angular_labels_stay_with_their_arcs() {
             );
             count += 1;
         }
+        if file == "mfcadpp/10046.step" {
+            // Existing readable midpoints take priority over earlier items'
+            // new extension candidates; gaining another angle cannot evict these.
+            for id in [
+                "d:envelope/profile_angle.angle.f16_e52_e63",
+                "d:envelope/profile_angle.angle.f16_e44_e46",
+                "d:envelope/profile_angle.angle.f16_e46_e22",
+                "d:envelope/profile_angle.angle.f20_e36_e74",
+            ] {
+                assert!(
+                    plan.dimensions
+                        .iter()
+                        .any(|d| d.id == id && d.placed.is_some()),
+                    "10046 lost an existing readable angular midpoint: {id}"
+                );
+            }
+        }
         if file == "nist/nist_ctc_03_asme1_rc.stp" {
             assert!(
                 plan.dimensions

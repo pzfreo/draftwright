@@ -826,6 +826,9 @@ fn reach(p: &Placed, margin: f64) -> [f64; 4] {
 /// line, its ink keeps out of the span an off-span linear label settles back into, and no
 /// callout's leader or padded label meets its witness lines. With no such place the angle stays
 /// unplaced (dropped): it never takes a fallback, moves another item or asks for more paper.
+/// Every corner and equivalent corner tries its midpoint before any remaining item tries
+/// text beyond an arrowhead on a circular continuation. Both keep the normal text gap;
+/// neither may detach the label or displace an established midpoint.
 /// One already placed by its authored placement intent is kept.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn place_profile(
@@ -839,7 +842,13 @@ pub(super) fn place_profile(
     proofs: &std::collections::BTreeMap<String, std::rc::Rc<super::interior::Proof>>,
 ) {
     let openings = items.iter().any(super::interior::through_notch);
-    for i in 0..items.len() {
+    // Give every corner (and every equivalent corner) its midpoint first.
+    // An earlier item's outside fallback must not occupy a later item's
+    // otherwise readable midpoint.
+    for (extensions, i) in [false, true]
+        .into_iter()
+        .flat_map(|extensions| (0..items.len()).map(move |i| (extensions, i)))
+    {
         // An authored placement (`dimensions/<id>/place`) has already been honoured.
         if !(super::profile_angles::is_profile_angle(&items[i])
             || (openings
@@ -1012,42 +1021,45 @@ pub(super) fn place_profile(
             // part's edges, blend silhouettes included, but never a hole or boss seen end-on.
             // Each the nearest roomy place, else the nearest crowded one (still stated).
             [false, true].into_iter().find_map(|straight_ok| {
-                [None, Some(false), Some(true)]
-                    .into_iter()
-                    .find_map(|extension| {
-                        let mut crowded = None;
-                        let roomy = (0..TRIES)
-                            .map(|n| n as f64 * STEP)
-                            .take_while(|d| {
-                                inks.iter()
-                                    .any(|(g, _)| g.label_reach(g.minimum + d) <= reach)
+                let stations: &[Option<bool>] = if extensions {
+                    &[Some(false), Some(true)]
+                } else {
+                    &[None]
+                };
+                stations.iter().find_map(|&extension| {
+                    let mut crowded = None;
+                    let roomy = (0..TRIES)
+                        .map(|n| n as f64 * STEP)
+                        .take_while(|d| {
+                            inks.iter()
+                                .any(|(g, _)| g.label_reach(g.minimum + d) <= reach)
+                        })
+                        .find_map(|d| {
+                            inks.iter().find_map(|(g, stubs)| {
+                                let radius = g.minimum + d;
+                                (g.label_reach(radius) <= reach)
+                                    .then(|| match extension {
+                                        None => g.placed(radius, &ink),
+                                        Some(after) => g.extended_label(radius, &ink, after),
+                                    })
+                                    .flatten()
+                                    .filter(|c| {
+                                        // Once a crowded place is held, only a roomy one is worth
+                                        // the full check.
+                                        if crowded.is_some() {
+                                            return roomy(c)
+                                                && clear(c, *stubs, straight_ok, g.vertex);
+                                        }
+                                        clear(c, *stubs, straight_ok, g.vertex)
+                                            && (roomy(c) || {
+                                                crowded = Some(c.clone());
+                                                false
+                                            })
+                                    })
                             })
-                            .find_map(|d| {
-                                inks.iter().find_map(|(g, stubs)| {
-                                    let radius = g.minimum + d;
-                                    (g.label_reach(radius) <= reach)
-                                        .then(|| match extension {
-                                            None => g.placed(radius, &ink),
-                                            Some(after) => g.extended_label(radius, &ink, after),
-                                        })
-                                        .flatten()
-                                        .filter(|c| {
-                                            // Once a crowded place is held, only a roomy one is worth
-                                            // the full check.
-                                            if crowded.is_some() {
-                                                return roomy(c)
-                                                    && clear(c, *stubs, straight_ok, g.vertex);
-                                            }
-                                            clear(c, *stubs, straight_ok, g.vertex)
-                                                && (roomy(c) || {
-                                                    crowded = Some(c.clone());
-                                                    false
-                                                })
-                                        })
-                                })
-                            });
-                        roomy.or(crowded)
-                    })
+                        });
+                    roomy.or(crowded)
+                })
             })
         });
         placed[i] = chosen;
