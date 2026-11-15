@@ -1069,7 +1069,7 @@ impl Writer {
         t.tag(170, 1);
         t.tag(91, -1073741824);
         t.tag(341, "__CONTINUOUS__");
-        t.tag(171, -2);
+        t.tag(171, -1); // ByLayer, like the original leader strokes
         t.tag(290, 0);
         t.tag(291, 0);
         t.tag(41, 0);
@@ -2473,7 +2473,7 @@ fn finish(mut w: Writer, drawing: &Drawing, styles: BTreeMap<String, DimStyle>) 
         (90, 0),
         (173, 1),
         (91, -1073741824),
-        (92, -2),
+        (92, -1),
         (290, 0),
         (291, 0),
         (174, 0),

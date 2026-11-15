@@ -459,6 +459,12 @@ fn check_native_annotations(name: &str, drawing: &Drawing, all: &[Entity]) {
             resolve(common_tag(340), "MLEADERSTYLE");
             resolve(common_tag(343), "STYLE");
             resolve(common_tag(341), "LTYPE");
+            assert_eq!(common_tag(171), "-1", "{name}: leader uses layer weight");
+            assert_eq!(
+                tag(by_handle[common_tag(340)], 92),
+                Some("-1"),
+                "{name}: leader style uses layer weight"
+            );
             resolve(tag(e, 340).unwrap(), "STYLE");
             assert!(!tag(e, 304).unwrap().is_empty());
             for (i, t) in e
