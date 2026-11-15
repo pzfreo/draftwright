@@ -110,7 +110,8 @@ class PackAPI(unittest.TestCase):
             self.assertEqual(packed_text.count(token), single_text.count(token), token)
         # Part exports and render intermediates are entirely in memory.
         self.assertEqual({p.suffix for p in self.directory.iterdir()}, {".pdf", ".csv", ".json"})
-        with patch.object(base, "export_step", side_effect=AssertionError("no STEP files")):
+        with patch.object(base, "export_step", side_effect=AssertionError("no STEP files")), \
+                patch.object(bd, "export_step", side_effect=AssertionError("assembly geometry is cached")):
             pack.render(self.directory / "again", formats=("json",))
         self.assertEqual(pack.rows, report["rows"])
 

@@ -37,6 +37,7 @@ class Pack:
             if value is not None and not isinstance(value, str):
                 raise TypeError(f"{field} must be a string or None")
         self._assembly = assembly
+        self._assembly_step = None
         self._parts = {p.name: p for p in parts}
         self._drawings = {p.name: p.drawing() for p in parts}
         self._defaults = {}
@@ -95,6 +96,8 @@ class Pack:
                 return str(path), path.read_bytes()
             except OSError as error:
                 raise _native.DraftwrightError(str(error)) from error
+        if self._assembly_step is not None:
+            return self._assembly_step
         from build123d import Compound, export_step
         names = self._product_names()
         missing = set(self._parts) - names
@@ -113,7 +116,8 @@ class Pack:
             export_step(assembly, stream)
         except (RuntimeError, ValueError) as error:
             raise _native.DraftwrightError(str(error)) from error
-        return "assembly.step", stream.getvalue()
+        self._assembly_step = "assembly.step", stream.getvalue()
+        return self._assembly_step
 
     def render(self, out="pack", *, formats=("pdf", "csv", "json")):
         """Write requested pack files; return paths, and retain report dictionaries."""
