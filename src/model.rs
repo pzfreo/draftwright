@@ -2416,6 +2416,24 @@ fn retained_assessment(f: layout::Findings, dropped: usize) -> String {
     }
 }
 
+fn legibility_shortfall(scale: f64, floor: f64, short_steps: bool) -> String {
+    let mut reasons = Vec::new();
+    if scale < floor {
+        reasons.push(format!(
+            "it is below {}, the opening legibility floor",
+            scale_name(floor)
+        ));
+    }
+    if short_steps {
+        reasons.push("it has dimensioned steps shorter than the printed capital height".into());
+    }
+    if reasons.is_empty() {
+        String::new()
+    } else {
+        format!("; {}", reasons.join("; "))
+    }
+}
+
 /// Material crossings are counted by leader/feature pair and by witness line, as quality.py.
 fn feature_crossings(plan: &Plan) -> usize {
     feature_crossings_where(plan, |_| true)
@@ -4496,23 +4514,14 @@ fn recover_candidates(
                 .unwrap_or_default()
                 .as_str();
         }
-        let illegible = first.sheet.scale_factor < min_legible_scale
-            || crate::sheet_fit::illegible_steps(analysis, &first) > 0;
+        let short_steps = crate::sheet_fit::illegible_steps(analysis, &first) > 0;
+        let illegible = first.sheet.scale_factor < min_legible_scale || short_steps;
         first.sheet.basis += &format!(
             "; no valid complete smallest fit at or above {}; candidates: {}",
             scale_name(min_legible_scale),
             tried.join("; ")
         );
-        let below = if first.sheet.scale_factor < min_legible_scale {
-            format!(
-                "; it is below {}, the opening legibility floor",
-                scale_name(min_legible_scale)
-            )
-        } else if illegible {
-            "; it has dimensioned steps shorter than the printed capital height".into()
-        } else {
-            String::new()
-        };
+        let below = legibility_shortfall(first.sheet.scale_factor, min_legible_scale, short_steps);
         let f = findings(&first);
         let clean_retained = f.clean() && !illegible;
         let assessment = retained_assessment(f, drops(&first));

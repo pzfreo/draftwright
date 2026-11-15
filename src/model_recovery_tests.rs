@@ -3,6 +3,24 @@ use super::*;
 use std::io::Read;
 
 #[test]
+fn recovery_reports_each_independent_legibility_shortfall() {
+    let both = legibility_shortfall(0.5, 1.0, true);
+    assert_eq!(
+        both,
+        "; it is below 1:1, the opening legibility floor; it has dimensioned steps shorter than the printed capital height"
+    );
+    assert_eq!(
+        legibility_shortfall(0.5, 1.0, false),
+        "; it is below 1:1, the opening legibility floor"
+    );
+    assert_eq!(
+        legibility_shortfall(2.0, 1.0, true),
+        "; it has dimensioned steps shorter than the printed capital height"
+    );
+    assert!(legibility_shortfall(2.0, 1.0, false).is_empty());
+}
+
+#[test]
 fn recovery_assessment_is_grammatical_even_when_only_legibility_fails() {
     let assessment = retained_assessment(layout::Findings::default(), 0);
     let message = format!(
