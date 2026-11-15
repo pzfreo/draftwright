@@ -152,11 +152,26 @@ fn only_sheet_problems_have_the_sheet_as_subject() {
                 assert_eq!(p.subjects, ["sheet"]);
             }
             if p.subjects.iter().any(|s| s == "sheet") {
-                // US units add two whole-sheet intent advisories. Check their complete
+                // US units add whole-sheet intent advisories. Check their complete
                 // contracts: the original whitelist still governs every other finding.
                 let unit_intent =
-                    if p.code == "inch_design_detected" {
-                        assert!(plan.spec.units.is_mm());
+                    if p.code == "declared_units" {
+                        assert_eq!(plan.sheet.units, draftwright::units::Units::In);
+                        assert!(plan.spec.units.is_auto());
+                        assert_eq!(p.id, "p:declared_units:sheet");
+                        assert_eq!(p.severity, "info");
+                        assert_eq!(p.labels().tier, draftwright::finding::Tier::Information);
+                        assert_eq!(p.subjects, ["sheet"]);
+                        assert!(p.fix.is_empty());
+                        assert!(
+                            !plan
+                                .problems
+                                .iter()
+                                .any(|q| q.code == "inch_design_detected")
+                        );
+                        true
+                    } else if p.code == "inch_design_detected" {
+                        assert!(plan.sheet.units.is_mm());
                         assert_eq!(p.id, "p:inch_design_detected:sheet");
                         assert_eq!(p.severity, "info");
                         assert!(
@@ -172,7 +187,7 @@ fn only_sheet_problems_have_the_sheet_as_subject() {
                             _ => false,
                         }));
                         true
-                    } else if p.code == "nominal_rounded" && !plan.spec.units.is_mm() {
+                    } else if p.code == "nominal_rounded" && !plan.sheet.units.is_mm() {
                         assert_eq!(p.id, "p:nominal_rounded:sheet");
                         assert_eq!(p.severity, "info");
                         assert!(!p.refs.is_empty());

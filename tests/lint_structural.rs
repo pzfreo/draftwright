@@ -791,7 +791,12 @@ fn structural_findings_on_the_ports_own_drawings_are_known() {
                 s.spawn(move || {
                     let f = facts::load(name);
                     let (part, analysis) = corpus::analyse(dir, &f.binding.file, name);
-                    let plan = model::plan(&analysis, &model::Spec::default()).unwrap();
+                    // The captured structural ledger describes metric drawings.
+                    let spec = model::Spec {
+                        units: draftwright::units::Units::Mm,
+                        ..Default::default()
+                    };
+                    let plan = model::plan(&analysis, &spec).unwrap();
                     let drawing = model::render(&part, &analysis, &plan, font).unwrap();
                     // The furniture the checks rely on is recorded on every finished sheet.
                     let kinds: Vec<Kind> = drawing.sheet.items.iter().map(|d| d.kind).collect();

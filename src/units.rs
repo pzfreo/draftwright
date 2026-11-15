@@ -169,11 +169,18 @@ pub(crate) fn with_declared_default(
         &crate::model::Spec,
     ) -> Result<crate::model::Plan, crate::model::Invalid>,
 ) -> Result<crate::model::Plan, crate::model::Invalid> {
-    let inches = analysis.declared_length_unit == Some(haecceity::pmi::LengthUnit::Inch);
     let effective = effective(analysis, spec);
-    let mut planned = plan(analysis, &effective)?;
+    Ok(record_default(analysis, plan(analysis, &effective)?))
+}
+
+pub(crate) fn record_default(
+    analysis: &crate::model::Analysis,
+    mut planned: crate::model::Plan,
+) -> crate::model::Plan {
     planned.spec.units = Units::Auto;
-    if inches {
+    if analysis.declared_length_unit == Some(haecceity::pmi::LengthUnit::Inch)
+        && !planned.problems.iter().any(|p| p.code == "declared_units")
+    {
         planned.problems.push(crate::model::Problem {
             id: "p:declared_units:sheet".into(),
             code: "declared_units".into(),
@@ -183,7 +190,7 @@ pub(crate) fn with_declared_default(
             ..Default::default()
         });
     }
-    Ok(planned)
+    planned
 }
 
 impl Units {

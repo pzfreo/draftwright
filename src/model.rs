@@ -2810,6 +2810,12 @@ pub(crate) fn undrawn_gdt(p: &Plan) -> usize {
 /// Find the smallest fit and its largest scale; only its immediate larger sheet, with an
 /// enlargement, may compete. Pins keep their canonical sheet; explicit choices override.
 pub fn recover(analysis: &Analysis, spec: &Spec, mut first: Plan) -> Result<Plan, Invalid> {
+    if spec.units.is_auto() {
+        let effective = crate::units::effective(analysis, spec);
+        first.spec.units = effective.units;
+        let plan = recover(analysis, &effective, first)?;
+        return Ok(crate::units::record_default(analysis, plan));
+    }
     crate::hole_table::labels::restore(&mut first);
     crate::decision_overrides::boundary(analysis, spec, || recover_inner(analysis, spec, first))
 }
@@ -5029,8 +5035,9 @@ pub(crate) fn finish_presentation(
 
 /// The established planner, also used unchanged for explicit controls and forced candidates.
 pub(crate) fn plan_automatic(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    let resolved = crate::units::effective(analysis, spec);
-    let spec = resolved.as_ref();
+    if spec.units.is_auto() {
+        return crate::units::with_declared_default(analysis, spec, plan_automatic);
+    }
     // R5's max-only shortcut asks for the same single-sheet plan before allocation.
     // Reuse that complete result when the paper policy has just requested it already.
     let key = serde_json::to_vec(&(

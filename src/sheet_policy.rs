@@ -1080,8 +1080,9 @@ fn illegible_shortfall(analysis: &Analysis, spec: &Spec, baseline: &Plan, plan: 
 /// keeping the view reaches smaller paper, the view is kept. The plan keeps the caller's spec,
 /// so planning it again reaches the same drawing.
 pub(crate) fn select(analysis: &Analysis, spec: &Spec) -> Result<Plan, Invalid> {
-    let resolved = crate::units::effective(analysis, spec);
-    let spec = resolved.as_ref();
+    if spec.units.is_auto() {
+        return crate::units::with_declared_default(analysis, spec, select);
+    }
     crate::sheets::check_max(spec)?;
     // Pin replays derive the same canonical paper inputs for annotation-only edits.
     // Retain that exact selection in session preparation instead of searching again.

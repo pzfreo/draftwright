@@ -2140,7 +2140,7 @@ fn lint_on_the_ports_own_drawings_is_known() {
                     let (part, analysis) = corpus::analyse(dir, &f.binding.file, name);
                     // Keep the captured full-ISO drawing resource for this historical lint ledger.
                     let spec = serde_json::from_value(
-                        serde_json::json!({"sheet":{"preferred_max_size":"A0"}}),
+                        serde_json::json!({"units":"mm","sheet":{"preferred_max_size":"A0"}}),
                     )
                     .unwrap();
                     let plan = model::plan(&analysis, &spec).unwrap();

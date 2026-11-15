@@ -504,14 +504,15 @@ fn a_sheet_the_spec_names_is_never_escalated() {
             assert_eq!(recovered.sheet.size, size, "{name}");
             let both = model::plan(
                 analysis,
-                &spec(json!({ "sheet": { "size": size, "scale": "10:1" } })),
+                &spec(json!({ "units": "mm", "sheet": { "size": size, "scale": "10:1" } })),
             )
             .unwrap();
             assert_eq!(
                 (both.sheet.size.as_str(), both.sheet.scale.as_str()),
                 (size, "10:1")
             );
-            let both_spec = spec(json!({ "sheet": { "size": size, "scale": "10:1" } }));
+            let both_spec =
+                spec(json!({ "units": "mm", "sheet": { "size": size, "scale": "10:1" } }));
             let before = serde_json::to_value(&both).unwrap();
             let fit = |p: &model::Plan| {
                 p.problems
