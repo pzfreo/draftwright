@@ -435,6 +435,16 @@ impl Ink {
         self.placed(radius, ink)?;
         let arc_radius = radius.max(ARROW + LIFT + self.radial_half) - LIFT - self.radial_half;
         let beyond = (ARROW + GAP + self.tangent_half) / arc_radius;
+        // A continuation must stay in the complementary sector. Reserve the
+        // label's full angular extent and GAP from the other witness, rather
+        // than wrapping a short obtuse arc back under its own text.
+        let half = self.tangent_half.atan2(arc_radius + LIFT);
+        let witness_gap = (GAP / (arc_radius + LIFT)).asin();
+        if beyond >= std::f64::consts::PI
+            || self.sweep + beyond + half + witness_gap >= std::f64::consts::TAU
+        {
+            return None;
+        }
         let station = if after {
             self.start + self.sweep + beyond
         } else {
@@ -1224,12 +1234,19 @@ mod tests {
             let geometry = ink([100.0, 100.0], start, end, &terms);
             for g in [geometry.clone(), geometry.compact()] {
                 let text = label_ink(&terms, font());
-                let normal = g.placed(g.minimum, &text).unwrap();
                 for after in [false, true] {
-                    let p = g.extended_label(g.minimum, &text, after).unwrap();
+                    // A short arc may need a larger radius to keep its outside
+                    // label clear of the other witness. Test the first valid one.
+                    let (radius, p) = (0..TRIES)
+                        .find_map(|i| {
+                            let radius = g.minimum + i as f64 * STEP;
+                            g.extended_label(radius, &text, after).map(|p| (radius, p))
+                        })
+                        .expect("a local arc extension");
+                    let normal = g.placed(radius, &text).unwrap();
                     assert_eq!(p.arrows, normal.arrows);
                     assert_eq!(&p.lines[..normal.lines.len()], normal.lines.as_slice());
-                    let arc_radius = g.minimum - LIFT - g.radial_half;
+                    let arc_radius = radius - LIFT - g.radial_half;
                     let endpoint = p.lines.last().unwrap()[1];
                     let b = p.label_box;
                     let centre = [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0];
@@ -1243,6 +1260,43 @@ mod tests {
                     let arrow = normal.arrows[usize::from(after)][0];
                     assert_eq!(extension[0][0], arrow);
                     assert!(extension.windows(2).all(|pair| pair[0][1] == pair[1][0]));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_outside_label_cannot_wrap_back_into_the_measured_sector() {
+        let terms = vec!["2× 179°".to_string()];
+        let g = ink([100.0, 100.0], 0.0, 179.0, &terms).compact();
+        let text = label_ink(&terms, font());
+        for after in [false, true] {
+            assert!(
+                g.extended_label(g.minimum, &text, after).is_none(),
+                "the shortest obtuse arc would wrap its continuation into the sector"
+            );
+            let p = (0..TRIES)
+                .find_map(|i| g.extended_label(g.minimum + i as f64 * STEP, &text, after))
+                .expect("a larger arc keeps the outside label clear");
+            let centre = [
+                (p.label_box[0] + p.label_box[2]) / 2.0,
+                (p.label_box[1] + p.label_box[3]) / 2.0,
+            ];
+            let (sin, cos) = p.rotation.to_radians().sin_cos();
+            for x in [-g.tangent_half, g.tangent_half] {
+                for y in [-g.radial_half, g.radial_half] {
+                    let q = [
+                        centre[0] + x * cos - y * sin - g.vertex[0],
+                        centre[1] + x * sin + y * cos - g.vertex[1],
+                    ];
+                    let offset = (q[1].atan2(q[0]) - g.start).rem_euclid(std::f64::consts::TAU);
+                    assert!(offset > g.sweep && offset < std::f64::consts::TAU);
+                    for angle in [g.start, g.start + g.sweep] {
+                        assert!(
+                            (angle.cos() * q[1] - angle.sin() * q[0]).abs() >= GAP - 1e-6,
+                            "outside text keeps the normal gap from both witnesses"
+                        );
+                    }
                 }
             }
         }
