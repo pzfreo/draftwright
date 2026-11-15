@@ -1132,7 +1132,7 @@ fn attach_record_geometry(part: &Part, records: &mut [Record]) {
 /// model bound to this native part's face/edge indices.
 /// No AP242 write/read is involved; this uses the file reader's typed-item conversions
 /// and the same geometry attachment and downstream planning/lowering as imported PMI.
-/// General tolerance tables fail; model notes and knurls are not read.
+/// General tolerance tables fail; model notes are not read.
 #[doc(hidden)]
 pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
     model.validate().map_err(|errors| {
@@ -1176,6 +1176,7 @@ pub fn from_model(part: &Part, model: &PartPmi) -> Result<Report, String> {
         textures: vec![false; model.surface_textures.len()],
     };
     records.extend(r.semantic_threads(&mut used));
+    records.extend(r.semantic_knurls(&mut used));
     records.extend(r.semantic_textures(&mut used));
     for general in &model.general {
         let GeneralTolerance::Class { text, .. } = general else {
@@ -5025,6 +5026,39 @@ mod tests {
                 .unwrap_err()
                 .contains("caller anchor")
         );
+    }
+
+    #[test]
+    fn caller_knurls_use_the_same_typed_conversion_as_ap242() {
+        for fixture in ["spindle_turned_knurl", "spindle_diamond_knurl"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("tests/fixtures/turned_knurl/{fixture}.step.gz"));
+            let bytes = crate::model::read_step_file(&path).unwrap();
+            let part = haecceity::read_step(&bytes).unwrap();
+            let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
+            let doc = Document::parse(bytes).unwrap();
+            let read = pmi::read(&doc, &defs).unwrap();
+            let imported = report(&doc, &defs, &part, &read).unwrap();
+            let caller = from_model(&part, &read.parts[0]).unwrap();
+            let signature = |report: &Report| {
+                report
+                    .records
+                    .iter()
+                    .filter(|r| r.kind == "knurl")
+                    .map(|r| {
+                        (
+                            r.label.clone(),
+                            r.faces.clone(),
+                            r.fields.clone(),
+                            r.blockers.clone(),
+                            r.geometry.clone(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(signature(&caller).len(), 1, "{fixture}");
+            assert_eq!(signature(&caller), signature(&imported), "{fixture}");
+        }
     }
 
     #[test]

@@ -4127,6 +4127,54 @@ fn owners(analysis: &Analysis) -> Vec<Owner> {
             }
         }
     }
+    // Recognition represents a plain shaft as a turned_body, without turned_step bands.
+    // Its one full-length external cylinder is the body whose overall OD is drawn. Do not
+    // invent such an owner for a tapered, interrupted or stepped profile.
+    if !analysis.features.iter().any(|f| f.kind == "turned_step")
+        && let Some((axis, on, diameter)) = crate::bridge::turned_body(analysis)
+        && let Some(body) = analysis.features.iter().find(|f| f.kind == "turned_body")
+        && let Some(profile) = body
+            .parameters
+            .get("profile")
+            .and_then(serde_json::Value::as_array)
+    {
+        let outside: Vec<_> = profile
+            .iter()
+            .filter(|p| p.get("side").and_then(serde_json::Value::as_str) == Some("external"))
+            .collect();
+        if let [cylinder] = outside.as_slice()
+            && cylinder.get("kind").and_then(serde_json::Value::as_str) == Some("cylinder")
+            && let (Some(start), Some(end)) = (
+                cylinder.get("start").and_then(serde_json::Value::as_array),
+                cylinder.get("end").and_then(serde_json::Value::as_array),
+            )
+            && let (Some(a), Some(b), Some(r1), Some(r2)) = (
+                start.first().and_then(serde_json::Value::as_f64),
+                end.first().and_then(serde_json::Value::as_f64),
+                start.get(1).and_then(serde_json::Value::as_f64),
+                end.get(1).and_then(serde_json::Value::as_f64),
+            )
+            && same_number(
+                (b - a).abs(),
+                analysis.envelope[1][axis] - analysis.envelope[0][axis],
+                0.01,
+            )
+            && same_number(2.0 * r1, diameter, 0.01)
+            && same_number(2.0 * r2, diameter, 0.01)
+        {
+            out.push(Owner {
+                id: body.id.clone(),
+                kind: "step",
+                axis,
+                diameter,
+                at: on,
+                span: Some([analysis.envelope[0][axis], analysis.envelope[1][axis]]),
+                through: false,
+                depth: None,
+                entry: 0.0,
+            });
+        }
+    }
     for f in analysis.features.iter().filter(|f| f.kind == "boss") {
         if crate::lint::bosses::groove_floor(analysis, f)
             || crate::lint::bosses::turned_band(analysis, f)

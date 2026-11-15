@@ -31,6 +31,13 @@ pub struct Pmi {
 }
 
 impl Pmi {
+    fn shares_faces(&self, a: FeatureId, b: FeatureId) -> bool {
+        match (&self.model.features[a.0], &self.model.features[b.0]) {
+            (Feature::Items(a), Feature::Items(b)) => a.iter().any(|anchor| b.contains(anchor)),
+            _ => false,
+        }
+    }
+
     fn feature(&mut self, mut faces: Vec<usize>) -> PyResult<FeatureId> {
         faces.sort_unstable();
         faces.dedup();
@@ -117,6 +124,16 @@ impl Pmi {
         };
         let nominal = value(diameter)?;
         let f = self.feature(faces)?;
+        if self
+            .model
+            .threads
+            .iter()
+            .any(|t| self.shares_faces(t.feature, f))
+        {
+            return Err(PyValueError::new_err(
+                "a cylinder is either fitted or threaded, not both",
+            ));
+        }
         let dim = Dimension {
             kind: DimensionKind::Size {
                 feature: f,
@@ -167,34 +184,38 @@ impl Pmi {
         });
         Ok(())
     }
-    fn flatness(&mut self, faces: Vec<usize>, tolerance: &str) -> PyResult<()> {
-        let magnitude = value(tolerance)?;
-        let target = ToleranceTarget::Feature(self.feature(faces)?);
-        self.model.tolerances.retain(|tolerance| {
-            tolerance.kind != ToleranceKind::Flatness || tolerance.target != target
-        });
-        self.model.tolerances.push(GeometricTolerance {
-            kind: ToleranceKind::Flatness,
-            target,
-            magnitude: Some(magnitude),
-            zone: None,
-            modifiers: vec![],
-            unit_basis: None,
-            maximum: None,
-            unequal: None,
-            datums: None,
-            auxiliary: vec![],
-            description: None,
-        });
-        Ok(())
-    }
-    fn position(
+    fn control(
         &mut self,
         faces: Vec<usize>,
+        kind: &str,
         tolerance: &str,
         datums: Vec<String>,
     ) -> PyResult<()> {
+        let kind = match kind {
+            "flatness" => ToleranceKind::Flatness,
+            "position" => ToleranceKind::Position,
+            "perpendicularity" => ToleranceKind::Perpendicularity,
+            "parallelism" => ToleranceKind::Parallelism,
+            "cylindricity" => ToleranceKind::Cylindricity,
+            "circular_runout" => ToleranceKind::CircularRunout,
+            "total_runout" => ToleranceKind::TotalRunout,
+            "profile_surface" => ToleranceKind::SurfaceProfile,
+            "concentricity" => ToleranceKind::Concentricity,
+            _ => return Err(raised(format!("unsupported geometric control {kind:?}"))),
+        };
+        match kind.datums() {
+            DatumRequirement::Required if datums.is_empty() => {
+                return Err(raised(format!("{kind:?} requires at least one datum")));
+            }
+            DatumRequirement::Forbidden if !datums.is_empty() => {
+                return Err(raised(format!("{kind:?} takes no datum references")));
+            }
+            _ => {}
+        }
         let magnitude = value(tolerance)?;
+        if magnitude.si() <= 0.0 {
+            return Err(raised("a geometric tolerance must be positive"));
+        }
         let compartments = datums
             .iter()
             .map(|letter| {
@@ -213,47 +234,239 @@ impl Pmi {
                 })
             })
             .collect::<PyResult<Vec<_>>>()?;
-        let datums = DatumSystem::new(compartments).map_err(raised)?;
+        let datums = if compartments.is_empty() {
+            None
+        } else {
+            Some(DatumSystem::new(compartments).map_err(raised)?)
+        };
         let target = ToleranceTarget::Feature(self.feature(faces)?);
-        self.model.tolerances.retain(|tolerance| {
-            tolerance.kind != ToleranceKind::Position || tolerance.target != target
-        });
+        self.model
+            .tolerances
+            .retain(|t| t.kind != kind || t.target != target);
         self.model.tolerances.push(GeometricTolerance {
-            kind: ToleranceKind::Position,
+            kind,
             target,
             magnitude: Some(magnitude),
-            zone: Some(Zone {
-                form: ZoneForm::WithinACylinder,
-                projected: None,
-                non_uniform: None,
-                runout_angle: None,
-                affected_plane: None,
-                affected_plane_kind: None,
-            }),
+            zone: matches!(kind, ToleranceKind::Position | ToleranceKind::Concentricity).then_some(
+                Zone {
+                    form: ZoneForm::WithinACylinder,
+                    projected: None,
+                    non_uniform: None,
+                    runout_angle: None,
+                    affected_plane: None,
+                    affected_plane_kind: None,
+                },
+            ),
             modifiers: vec![],
             unit_basis: None,
             maximum: None,
             unequal: None,
-            datums: Some(datums),
+            datums,
             auxiliary: vec![],
             description: None,
         });
         Ok(())
     }
-    fn thread(&mut self, faces: Vec<usize>, designation: String) -> PyResult<()> {
+
+    fn dimension(
+        &mut self,
+        faces: Vec<usize>,
+        to: Option<Vec<usize>>,
+        nominal: &str,
+        lower: &str,
+        upper: &str,
+        limits: bool,
+    ) -> PyResult<()> {
+        let nominal = value(nominal)?;
+        let signed_value = |s: &str| -> PyResult<Value> {
+            let n = Decimal::parse(s).map_err(raised)?;
+            if !n.to_f64().is_finite() {
+                return Err(raised("tolerance bounds must be finite"));
+            }
+            Ok(Value {
+                quantity: Quantity::Length(Length {
+                    value: n,
+                    unit: LengthUnit::Millimetre,
+                }),
+                decimal_places: None,
+            })
+        };
+        let bounds = Bounds::new(signed_value(upper)?, signed_value(lower)?).map_err(raised)?;
+        let tolerance = if limits {
+            DimTolerance::Limits(bounds)
+        } else {
+            DimTolerance::Deviations(bounds)
+        };
+        let f = self.feature(faces)?;
+        let kind = if let Some(to) = to {
+            DimensionKind::Location {
+                from: f,
+                to: self.feature(to)?,
+                kind: LocationKind::LinearDistance,
+                path: None,
+                directed: false,
+                angle: None,
+            }
+        } else {
+            if self
+                .model
+                .threads
+                .iter()
+                .any(|t| self.shares_faces(t.feature, f))
+            {
+                return Err(PyValueError::new_err(
+                    "a threaded cylinder cannot also carry a diameter tolerance or fit",
+                ));
+            }
+            DimensionKind::Size {
+                feature: f,
+                kind: SizeKind::Diameter,
+                path: None,
+                angle: None,
+            }
+        };
+        let dim = Dimension {
+            kind,
+            nominal: Some(nominal),
+            tolerance,
+            qualifier: None,
+            modifiers: vec![],
+            principle: None,
+        };
+        self.model.dimensions.retain(|d| d.kind != dim.kind);
+        self.model.dimensions.push(dim);
+        Ok(())
+    }
+
+    fn knurl(
+        &mut self,
+        faces: Vec<usize>,
+        pattern: &str,
+        pitch: &str,
+        diameter: &str,
+        teeth: u32,
+        helix_angle: Option<&str>,
+    ) -> PyResult<()> {
+        let pattern = match pattern {
+            "straight" => KnurlPattern::Straight,
+            "diamond" => KnurlPattern::Diamond,
+            _ => return Err(raised("knurl pattern must be straight or diamond")),
+        };
+        let pitch = length(pitch)?;
+        let diameter = length(diameter)?;
+        let expected = std::f64::consts::PI * diameter.mm() / pitch.mm();
+        if teeth == 0 || !expected.is_finite() || (expected - f64::from(teeth)).abs() > 1.0 {
+            return Err(raised(
+                "knurl teeth must agree with pi * diameter / pitch (within one tooth)",
+            ));
+        }
+        let helix_angle = helix_angle
+            .map(|s| -> PyResult<Angle> {
+                let value = Decimal::parse(s).map_err(raised)?;
+                if !(value.to_f64() > 0.0 && value.to_f64() < 90.0) {
+                    return Err(raised("knurl helix_angle must be between 0 and 90 degrees"));
+                }
+                Ok(Angle {
+                    value,
+                    unit: AngleUnit::Degree,
+                })
+            })
+            .transpose()?;
+        if pattern == KnurlPattern::Diamond && helix_angle.is_none() {
+            return Err(raised("a diamond knurl requires helix_angle in degrees"));
+        }
+        let f = self.feature(faces)?;
+        if self
+            .model
+            .threads
+            .iter()
+            .any(|t| self.shares_faces(t.feature, f))
+        {
+            return Err(PyValueError::new_err(
+                "a cylinder cannot be both threaded and knurled",
+            ));
+        }
+        self.model.knurls.retain(|k| k.feature != f);
+        self.model.knurls.push(Knurl {
+            feature: f,
+            pattern,
+            major_diameter: diameter.clone(),
+            nominal_diameter: diameter,
+            diametral_pitch: pitch,
+            number_of_teeth: Some(Count(teeth)),
+            tooth_depth: None,
+            root_fillet: None,
+            helix_angle,
+            helix_hand: None,
+        });
+        Ok(())
+    }
+    fn thread(
+        &mut self,
+        faces: Vec<usize>,
+        designation: String,
+        external: bool,
+        extent: Option<&str>,
+    ) -> PyResult<()> {
         let (major, pitch) = draftwright::spec_notes::metric(&designation).map_err(raised)?;
         let major_diameter = length(&major.to_string())?;
         let pitch = value(&pitch.to_string())?;
         let fit = designation
             .split_once('-')
-            .map_or("6H", |(_, c)| c.split_whitespace().next().unwrap_or("6H"))
+            .map_or(if external { "6g" } else { "6H" }, |(_, c)| {
+                c.split_whitespace().next().unwrap_or("")
+            })
             .to_string();
-        if !fit.chars().last().is_some_and(|c| c.is_ascii_uppercase()) {
-            return Err(raised(
-                "an internal thread needs a capital fit class such as 6H",
-            ));
+        let valid_class = |class: &str| {
+            let bytes = class.as_bytes();
+            !bytes.is_empty()
+                && bytes.len() <= 4
+                && bytes.len().is_multiple_of(2)
+                && bytes.as_chunks::<2>().0.iter().all(|c| {
+                    if external {
+                        (b'3'..=b'9').contains(&c[0]) && b"efgh".contains(&c[1])
+                    } else {
+                        (b'4'..=b'8').contains(&c[0]) && b"GH".contains(&c[1])
+                    }
+                })
+        };
+        if !valid_class(&fit) {
+            return Err(raised(if external {
+                "unknown external thread class; use a lower-case ISO metric class such as 6g"
+            } else {
+                "unknown internal thread class; use a capital ISO metric class such as 6H"
+            }));
         }
         let f = self.feature(faces)?;
+        if self.model.dimensions.iter().any(|d| {
+            matches!(d.kind,
+            DimensionKind::Size { feature, kind: SizeKind::Diameter, .. } if self.shares_faces(feature, f))
+        }) {
+            return Err(PyValueError::new_err(
+                "a cylinder is either fitted or threaded, not both (nor diameter toleranced)",
+            ));
+        }
+        if self
+            .model
+            .knurls
+            .iter()
+            .any(|k| self.shares_faces(k.feature, f))
+        {
+            return Err(PyValueError::new_err(
+                "a cylinder cannot be both threaded and knurled",
+            ));
+        }
+        let extent = if external {
+            Some(value(extent.ok_or_else(|| {
+                raised("external thread needs its cylinder length")
+            })?)?)
+        } else {
+            None
+        };
+        let canonical = format!(
+            "M{major} x {}",
+            pitch.as_length().expect("pitch is a length").mm()
+        );
         self.model.threads.retain(|thread| thread.feature != f);
         self.model.attributes.retain(|attribute| {
             attribute.name != "thread manufacturing" || attribute.on != Some(NoteOwner::Feature(f))
@@ -261,7 +474,11 @@ impl Pmi {
         self.model.threads.push(Thread {
             feature: f,
             partial_area: None,
-            side: ThreadSide::Internal,
+            side: if external {
+                ThreadSide::External
+            } else {
+                ThreadSide::Internal
+            },
             major_diameter,
             minor_diameter: None,
             pitch_diameter: None,
@@ -275,14 +492,18 @@ impl Pmi {
                 Hand::Right
             },
             crest: None,
-            qualifier: Some(designation),
+            qualifier: Some(if external { canonical } else { designation }),
             nominal_size: None,
             runout: None,
         });
+        let mut items = vec![("pitch".into(), AttributeValue::Measure(pitch))];
+        if let Some(extent) = extent {
+            items.push(("thread length".into(), AttributeValue::Measure(extent)));
+        }
         self.model.attributes.push(AttributeSet {
             name: "thread manufacturing".into(),
             on: Some(NoteOwner::Feature(f)),
-            items: vec![("pitch".into(), AttributeValue::Measure(pitch))],
+            items,
             description: None,
             general_property: None,
         });
