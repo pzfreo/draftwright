@@ -411,7 +411,12 @@ fn pmi_dimensions_match_draftwright_or_are_known(only: &str) {
             "{file}: not the captured file"
         );
         let (_, a) = analysed(&file, &bytes);
-        let plan = cache::default_plan(&a, false);
+        // The captured dimension ledger and known differences use millimetres.
+        let spec = Spec {
+            units: draftwright::units::Units::Mm,
+            ..Spec::default()
+        };
+        let plan = model::plan(&a, &spec).unwrap();
         let d = compare(&file, &py, &reading, &a, &plan);
         records += py["records"].as_array().unwrap().len();
         eprintln!(

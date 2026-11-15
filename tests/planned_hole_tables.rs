@@ -558,7 +558,12 @@ fn held_labels_do_not_remove_the_canonical_schedule() {
 fn a_slot_callout_leaves_the_schedule_origin_its_corner() {
     let Some(corpus) = corpus::dir() else { return };
     let (_, analysis) = cache::native(&corpus.join("nist/nist_ctc_03_asme1_rc.stp"));
-    let plan = cache::default_plan(&analysis, true);
+    // This regression pins the historical ISO A3 1:5 origin reservation.
+    let spec = Spec {
+        units: draftwright::units::Units::Mm,
+        ..Spec::default()
+    };
+    let plan = model::plan_recovered(&analysis, &spec).unwrap();
     assert_eq!(
         (plan.sheet.size.as_str(), plan.sheet.scale.as_str()),
         ("A3", "1:5")
@@ -824,6 +829,7 @@ fn each_tag_is_beside_or_leadered_to_its_own_hole(name: &str) {
     let (_, analysis) = cache::native(&Path::new(&corpus).join(format!("nist/{name}.stp")));
     let p = cache::default_plan(&analysis, true);
     assert!(!p.hole_tables.is_empty(), "{name}");
+    let mm = p.sheet.units.millimetres();
     for t in &p.hole_tables {
         let view = p
             .views
@@ -843,10 +849,10 @@ fn each_tag_is_beside_or_leadered_to_its_own_hole(name: &str) {
                 (
                     r.feature.as_str(),
                     [
-                        origin[0] + view.scale * number(&r.cells[2]),
-                        origin[1] + view.scale * number(&r.cells[3]),
+                        origin[0] + view.scale * mm * number(&r.cells[2]),
+                        origin[1] + view.scale * mm * number(&r.cells[3]),
                     ],
-                    opening(&r.cells[1]) * view.scale * 0.5,
+                    opening(&r.cells[1]) * mm * view.scale * 0.5,
                 )
             })
             .collect();

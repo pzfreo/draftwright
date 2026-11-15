@@ -159,11 +159,12 @@ fn ctc05_hidden_bore_frame_stays_on_its_callout() {
         .join("tests/fixtures/rule_pins/nist_ctc_05_asme1_ap242.stp.gz");
     let a = cache::native(&path).1;
     let plan = cache::default_plan(&a, true);
+    let bore_label = format!("⌀{}", plan.sheet.units.format(254.));
     let callout = plan
         .dimensions
         .iter()
-        .find(|d| d.kind == "callout" && d.placed.is_some() && d.label.starts_with("⌀254"))
-        .expect("the ⌀254 callout, carrying the bore's frame");
+        .find(|d| d.kind == "callout" && d.placed.is_some() && d.label.starts_with(&bore_label))
+        .expect("the 254 mm bore callout, carrying the bore's frame");
     let frame = plan
         .gdt
         .iter()
