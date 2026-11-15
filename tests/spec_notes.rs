@@ -324,7 +324,8 @@ fn a_thread_and_a_knurl_on_bosses_print_on_their_diameter_callouts() {
         return;
     };
     let (_, a) = corpus::analyse(&dir, "nist/nist_ftc_06_asme1_rd.stp", "ftc06");
-    let s = spec(json!({"features": {
+    // This fixture pins metric M31.75/P1 callout wording and neighbouring diameters.
+    let s = spec(json!({"units":"mm","features": {
         "f:boss:f41": {"thread": {"designation": "M31.75x1.5"}},
         "f:boss:f43": {"knurl": {"pattern": "straight", "pitch": 1}}
     }}));
